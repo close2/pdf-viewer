@@ -20,19 +20,33 @@
 //! integer from `ty` changes the magnitude the sum rounds at. So what is left to assert is what
 //! that residual is allowed to look like:
 //!
-//! 1. **The page the defect was found on is exact.** `PDF20_AN001-BPC.pdf` page 1 at 500 pixels
-//!    wide differed at (411, 659) — 95 whole against 79 split — and does not any more.
-//! 2. **No pixel may move by more than one supersample.** `tiny-skia` averages sixteen samples,
-//!    so an edge that lands on the other side of one sample row is worth 16 of 255. A *chopped*
-//!    path — ADR 0138's defect, and the one `unsplittable_rows` exists to prevent — reached 32,
-//!    48 and 64, and a mark drawn in the wrong place is worth everything. This is the assertion
-//!    that guards the geometry rule, and it fails on the code ADR 0219 replaced.
-//! 3. **Barely any pixel may move at all.** One in ten thousand, against a measured worst of
-//!    one in eighty thousand: enough headroom for a font or an antialiasing change to move the
-//!    handful of edges that sit on a sample row, and nowhere near enough for anything
-//!    systematic. This is the half of the guard that catches a *small* chop, which assertion 2
-//!    cannot: ADR 0138's cheapest scene moved its worst byte by only 16 — and it moved 247
-//!    pixels doing it, because re-parameterising an edge moves the whole edge.
+//! 1. **No page is held to byte equality, and the reason is the paragraph above.** This item read
+//!    "the page the defect was found on is exact" and named `PDF20_AN001-BPC.pdf` page 1 at 500
+//!    pixels wide, which differed at (411, 659) — 95 whole against 79 split — before ADR 0219.
+//!    That page was exact for as long as the oracle measured a coverage to one of `tiny-skia`'s
+//!    sixteen supersamples, which is a quantum wide enough to swallow an `ulp` in `ty`. It stopped
+//!    being exact when the oracle stopped having one (ADR 1082): `render_cpu::area` computes the
+//!    area a shape covers, so an `ulp` of difference in where the shape *is* now shows as a level
+//!    of difference in what the pixel gets, and the page moves **3 pixels of 353 500 by one level**
+//!    — one in 117 833, against assertion 3's one in ten thousand. A converter that is byte-exact
+//!    under a shifted origin is one with somewhere to hide the shift, which is what the module
+//!    comment above says is not achievable. Assertions 2 and 3 are what guard ADR 0138's defect,
+//!    and both fail on the code ADR 0219 replaced: its residual was 16 levels and 247 pixels.
+//! 2. **No pixel may move by more than one level of 255**, and that bound is derived rather than
+//!    borrowed from a converter. An `ulp` of `ty` at these magnitudes is about `6 × 10⁻⁵` of a
+//!    device pixel; an exact converter turns a position into an area, so it can move a boundary
+//!    pixel's coverage by that much and no more — which crosses a rounding step only where the
+//!    value already sat within `6 × 10⁻⁵` of one, and can never cross two. Measured over all 27
+//!    cases below, the worst is **1**. A *chopped* path — ADR 0138's defect, and the one
+//!    `unsplittable_rows` exists to prevent — reached 16, 32, 48 and 64, and a mark drawn in the
+//!    wrong place is worth everything, so this bound is sixteen times tighter than the one it
+//!    replaces and catches every scene that defect produced.
+//! 3. **Barely any pixel may move at all.** One in a thousand, against a measured worst of one in
+//!    3 986. The measured figure rose as assertion 2's bound fell, and for the same reason: a
+//!    converter with a quantum has somewhere to hide an `ulp` and one that computes an area does
+//!    not, so more boundary pixels show the shift and each shows less of it. This is no longer
+//!    what catches a chop — assertion 2 does that alone now — and what it guards is anything
+//!    *systematic*, which a shifted origin is not.
 
 #![expect(
     clippy::expect_used,
@@ -53,20 +67,22 @@ const GENEROUS: u64 = 1 << 30;
 /// is the same page.
 const DIVISIONS: [u32; 9] = [2, 3, 4, 5, 8, 12, 16, 24, 32];
 
-/// Most a pixel may move: one of `tiny-skia`'s sixteen supersamples, 16 of 255.
-const SUPERSAMPLE: u8 = 16;
+/// Most a pixel may move: one level of 255, which is what an `ulp` of `ty` can buy an exact
+/// converter — see the module comment's second item.
+const ONE_LEVEL: u8 = 1;
 
 /// Most pixels that may move at all, as one in this many.
-const RARE: usize = 10_000;
+const RARE: usize = 1_000;
 
 /// Pages, each with the width in pixels a window would fit it to, and whether it must be exact.
 ///
-/// The first is the counter-example ADR 0219 was written for, and it is exact. The other two are
-/// the pages ADR 0139 measured its split on: one page-wide clip that forbids nearly every cut,
-/// and a dense text page that grants nearly half its rows — the two ends of what the planner
-/// does, and both of them hold a few edges that sit on a sample row.
+/// The first is the counter-example ADR 0219 was written for. The other two are the pages ADR 0139
+/// measured its split on: one page-wide clip that forbids nearly every cut, and a dense text page
+/// that grants nearly half its rows — the two ends of what the planner does, and both of them hold
+/// a few edges that sit on a sample row. **None of the three is exact**, and the module comment's
+/// first item is why the first one stopped being.
 const PAGES: [(&str, usize, u32, bool); 3] = [
-    ("PDF20_AN001-BPC.pdf", 0, 500, true),
+    ("PDF20_AN001-BPC.pdf", 0, 500, false),
     ("ISO_32000-2_sponsored_EC3.pdf", 5, 1192, false),
     ("ISO_32000-2_sponsored_EC3.pdf", 100, 800, false),
 ];
@@ -145,15 +161,15 @@ fn a_real_page_drawn_in_strips_is_the_page_drawn_whole() {
                 assert!(moved.is_empty(), "{where_and_what}");
             }
             assert!(
-                worst <= SUPERSAMPLE,
-                "{where_and_what}\na pixel moved by more than one supersample, which is a \
-                 chopped path rather than a rounded one — see ADR 0138 and \
-                 `pdf_render::unsplittable_rows`",
+                worst <= ONE_LEVEL,
+                "{where_and_what}\na pixel moved by more than one level, which is more than an \
+                 `ulp` of `ty` can buy an exact converter — a chopped path rather than a rounded \
+                 one, see ADR 0138 and `pdf_render::unsplittable_rows`",
             );
             assert!(
                 moved.len().saturating_mul(RARE) <= pixels,
-                "{where_and_what}\nmore than one pixel in {RARE} moved, which is more than \
-                 `tiny-skia`'s arithmetic at a shifted origin can account for — see ADR 0219",
+                "{where_and_what}\nmore than one pixel in {RARE} moved, which is more than this \
+                 backend's arithmetic at a shifted origin can account for — see ADR 0219",
             );
         }
     }

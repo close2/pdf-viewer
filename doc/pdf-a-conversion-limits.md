@@ -644,6 +644,13 @@ must add an output intent, and that means shipping a profile.
     its value type and a description. This is the one place the converter writes metadata *about*
     metadata, and it is authoring in a small way; the alternative is deleting the producer's
     properties, which is worse. **Ask** where a property's value type cannot be determined.
+  - **A container that is *there* and spells a field with the wrong prefix is **Mechanical**.**
+    §6.6.2.3.3's four tables each name the prefix their fields are to be spelled with, and §6.6.2.2
+    is what makes that binding: a prefix means nothing except where one is identified as required.
+    A field stated in the right field namespace under another prefix is the producer's own name,
+    value and namespace in the wrong letters, so the packet is respelled in place and nothing is
+    lost, asked or invented. A field the packet does not state at all is the paragraph above and
+    stays an **Ask** nobody can yet answer — the interface for a `supply` does not exist.
   - ISO 19005-4 §6.7.2.3 replaces this with a *should*: an associated file carrying an ISO 16684-2
     schema description. Softer, and easier to satisfy.
 - **`xmpMM:History`.** Both parts (-2 §6.6.6, -4 §6.7.5) ask a converter to record what it did,

@@ -123,6 +123,10 @@ pub const OBJECT_IDENTIFIER: u8 = 0x06;
 pub const OCTET_STRING: u8 = 0x04;
 /// `INTEGER`, primitive and universal.
 pub const INTEGER: u8 = 0x02;
+/// `NULL`, primitive and universal — the encoding of ETSI EN 319 122-1 clause 5.2.9.1's
+/// `SignaturePolicyImplied ::= NULL`, which is the one alternative of that `CHOICE` the clause
+/// forbids.
+pub const NULL: u8 = 0x05;
 
 /// One tag-length-value: what it is, and the bytes between its header and its end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

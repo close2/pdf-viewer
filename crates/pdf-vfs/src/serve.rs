@@ -66,7 +66,7 @@ pub const WORKER_PATH_VARIABLE: &str = "PDF_VFS_WORKER";
 /// process for (ADR 0218). It costs speed and not bytes: `render-cpu`'s own property is that a
 /// machine with four cores and one with thirty-two draw the same bytes, and `tests/a_face.rs`
 /// holds a page out of the mount to what `pdf-transform` itself writes on every core.
-const RASTERISING_THREADS: u32 = 1;
+pub(crate) const RASTERISING_THREADS: u32 = 1;
 
 /// How many copies of an answer live at once, at the moment the peak is reached.
 ///

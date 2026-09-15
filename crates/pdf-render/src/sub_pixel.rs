@@ -281,13 +281,26 @@ pub fn sub_pixel_bands(
 
     let commands = path.commands();
     let mut plans: Vec<Plan> = Vec::new();
+    let mut stated: Vec<(Point, Point, Turn)> = Vec::new();
     for extent in subpath_extents(path) {
         let range = extent.range();
-        let rectangle = is_axis_aligned_rectangle(&commands[range], extent.min, extent.max);
         // One subpath the substitution cannot take is the whole path's answer: see the module
         // comment on a path's shared winding rule.
-        let plan = rectangle.then(|| substitute(&extent, to_device))??;
-        plans.push(plan);
+        let turn = is_axis_aligned_rectangle(&commands[range], extent.min, extent.max)?;
+        // §8.5.3.3's non-zero rule counts windings, so a rectangle stated twice the same way
+        // round names the same set of points as one and is one portion of the object rather than
+        // two competing for a device pixel line. `tiny-skia`'s stroker writes exactly that for a
+        // rule closed by `s` — an outer contour and an inner one, both the same rectangle and
+        // both wound the same way — and [`contested`] declined the pair (ADR 1082). Stated twice
+        // the *other* way round it names no points at all, which no substitution here can say,
+        // and under the even-odd rule a restatement changes the answer; both keep the
+        // rasteriser's own conversion.
+        match restated(&stated, &extent) {
+            Some(before) if fill_rule == FillRule::NonZero && before == turn => continue,
+            Some(_) => return None,
+            None => stated.push((extent.min, extent.max, turn)),
+        }
+        plans.push(substitute(&extent, to_device)?);
     }
     if plans.is_empty() {
         return None;
@@ -308,6 +321,15 @@ pub fn sub_pixel_bands(
         }
     }
     Some(bands)
+}
+
+/// Whether `extent` is one a subpath of this path has already stated, and which way round that
+/// one went.
+fn restated(stated: &[(Point, Point, Turn)], extent: &Extent) -> Option<Turn> {
+    stated
+        .iter()
+        .find(|(min, max, _)| *min == extent.min && *max == extent.max)
+        .map(|(_, _, turn)| *turn)
 }
 
 /// The smallest coverage an eight-bit raster can hold: one level of 255.
@@ -845,7 +867,7 @@ pub(crate) fn narrowest_rectangle(path: &Path) -> Option<f32> {
     let commands = path.commands();
     let mut narrowest: Option<f32> = None;
     for extent in subpath_extents(path) {
-        if is_axis_aligned_rectangle(&commands[extent.range()], extent.min, extent.max) {
+        if is_axis_aligned_rectangle(&commands[extent.range()], extent.min, extent.max).is_some() {
             let side = (extent.max.x - extent.min.x).min(extent.max.y - extent.min.y);
             narrowest = Some(narrowest.map_or(side, |seen: f32| seen.min(side)));
         }
@@ -940,80 +962,214 @@ fn flat(min: Point, max: Point) -> bool {
     min.x == max.x || min.y == max.y
 }
 
-/// Whether a subpath is the rectangle Table 58's `re` writes, with an area.
+/// Which way round a closed traversal of a rectangle's perimeter goes.
 ///
-/// Four distinct corners of the subpath's own bounding box, joined by segments each of which
-/// moves along one axis, is a traversal of that box's perimeter and nothing else — a bowtie is
-/// excluded by the second condition and a shape that doubles back by the first.
-pub(crate) fn is_axis_aligned_rectangle(commands: &[PathCommand], min: Point, max: Point) -> bool {
-    if !(min.x < max.x && min.y < max.y) {
-        return false;
+/// §8.5.3.3's non-zero rule counts windings with a sign, so two subpaths stating one rectangle
+/// are the same set of points where they agree here and no points at all where they do not. It
+/// is the one thing a bounding box cannot say, which is why [`is_axis_aligned_rectangle`]
+/// returns it rather than a plain `true`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Turn {
+    /// The traversal encloses its interior with a positive winding number.
+    Positive,
+    /// With a negative one.
+    Negative,
+}
+
+/// Which device axis a rectangle's side runs along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    /// The side's `y` is constant.
+    Horizontal,
+    /// Its `x` is.
+    Vertical,
+}
+
+/// The axis a segment from `from` to `to` moves along, or `None` for a segment that moves along
+/// both or neither.
+#[expect(
+    clippy::float_cmp,
+    reason = "see `is_axis_aligned_rectangle`: exactness is the question, and a side whose ends \
+              differ by a rounding step is not a side of the rectangle the caller is about to \
+              claim this shape is"
+)]
+fn axis_between(from: Point, to: Point) -> Option<Axis> {
+    match (from.x == to.x, from.y == to.y) {
+        (true, false) => Some(Axis::Vertical),
+        (false, true) => Some(Axis::Horizontal),
+        _ => None,
     }
-    let mut points = [Point::new(0.0, 0.0); 4];
-    let mut count = 0usize;
+}
+
+/// The walk [`is_axis_aligned_rectangle`] performs: consecutive segments along one axis are one
+/// **side**, and a corner is where the axis changes.
+struct Perimeter {
+    /// The corners found so far, in traversal order.
+    corners: [Point; 4],
+    /// How many of them.
+    count: usize,
+    /// Where the subpath began, which is where it closes back to.
+    start: Point,
+    /// Where the walk has reached.
+    current: Point,
+    /// The axis the first side moved along, kept for the corner at `start`.
+    first: Option<Axis>,
+    /// The axis the last side moved along.
+    last: Option<Axis>,
+}
+
+impl Perimeter {
+    /// A walk beginning at a subpath's `MoveTo`.
+    fn begin(at: Point) -> Self {
+        Self {
+            corners: [at; 4],
+            count: 0,
+            start: at,
+            current: at,
+            first: None,
+            last: None,
+        }
+    }
+
+    /// Records one corner. `false` where the shape has more than a rectangle has.
+    fn corner(&mut self, point: Point) -> bool {
+        let Some(slot) = self.corners.get_mut(self.count) else {
+            return false;
+        };
+        *slot = point;
+        self.count = self.count.saturating_add(1);
+        true
+    }
+
+    /// Extends the walk to `point`. `false` where the segment moves along neither axis, or where
+    /// the shape has turned more times than a rectangle does.
+    fn extend(&mut self, point: Point) -> bool {
+        // A zero-length segment names no side, so it can add no corner and cannot be a diagonal.
+        if point == self.current {
+            return true;
+        }
+        let Some(axis) = axis_between(self.current, point) else {
+            return false;
+        };
+        match self.last {
+            None => self.first = Some(axis),
+            Some(previous) if previous != axis => {
+                if !self.corner(self.current) {
+                    return false;
+                }
+            }
+            Some(_) => {}
+        }
+        self.last = Some(axis);
+        self.current = point;
+        true
+    }
+
+    /// Closes the walk and answers whether it traced the perimeter of its own bounding box.
+    fn close(mut self) -> Option<Turn> {
+        let start = self.start;
+        if !self.extend(start) {
+            return None;
+        }
+        // The starting point is a corner exactly where the closing side and the opening one move
+        // along different axes; where they agree it is a point part way along one side.
+        if self.first != self.last && !self.corner(start) {
+            return None;
+        }
+        rectangular(&self.corners, self.count)
+    }
+}
+
+/// Whether a subpath is the rectangle Table 58's `re` writes, with an area — and which way round.
+///
+/// Four distinct corners of the subpath's own bounding box, joined by sides each of which moves
+/// along one axis, is a traversal of that box's perimeter and nothing else — a bowtie is excluded
+/// by [`rectangular`]'s second condition and a shape that doubles back by its first.
+///
+/// **A side may be stated in more than one segment**, and this predicate said otherwise for its
+/// whole life. A vertex lying part way along a side adds no corner and changes no area, and
+/// `tiny-skia`'s stroker writes them: the outline of a rule closed by `s` comes back as two
+/// contours, the inner one carrying a vertex in the middle of each vertical side. That is what
+/// made `issue15150.pdf`'s half-pixel rule fall off this predicate and on to ADR 0268's widened
+/// band, whose ink ran off the top of the raster — the oracle on the side §10.7.4's third
+/// sentence forbids. So the walk records a corner where the axis a side runs along *changes*,
+/// and a side may be any number of segments long. ADR 1082.
+pub(crate) fn is_axis_aligned_rectangle(
+    commands: &[PathCommand],
+    min: Point,
+    max: Point,
+) -> Option<Turn> {
+    if !(min.x < max.x && min.y < max.y) {
+        return None;
+    }
     let last = commands.len().saturating_sub(1);
+    let mut walk: Option<Perimeter> = None;
     for (index, command) in commands.iter().enumerate() {
         match *command {
             PathCommand::MoveTo(p) => {
                 if index != 0 {
-                    return false;
+                    return None;
                 }
-                points[0] = p;
-                count = 1;
+                walk = Some(Perimeter::begin(p));
             }
             PathCommand::LineTo(p) => {
-                if count == 0 {
-                    return false;
-                }
-                if count == 4 {
-                    // Beyond the four corners the only segment left is the one back to the
-                    // first, which is how `tiny-skia`'s stroker closes an outline and how a
-                    // producer may write `re` out by hand.
-                    if p != points[0] {
-                        return false;
-                    }
-                } else {
-                    points[count] = p;
-                    count = count.saturating_add(1);
+                if !walk.as_mut()?.extend(p) {
+                    return None;
                 }
             }
             // A curve is not a rectangle's side even where its control points make it straight:
             // the substitution's exactness is claimed for a shape, not for a parameterisation.
-            PathCommand::CurveTo(..) => return false,
+            PathCommand::CurveTo(..) => return None,
             // Table 58's `h` terminates the subpath, so nothing may follow it.
             PathCommand::Close => {
                 if index != last {
-                    return false;
+                    return None;
                 }
             }
         }
     }
-    rectangular(&points, count)
+    walk?.close()
 }
 
 /// Whether four collected points are the four corners of their own bounding box, in perimeter
-/// order. See [`is_axis_aligned_rectangle`], whose second half this is.
+/// order, and which way round they go. See [`is_axis_aligned_rectangle`], whose second half this
+/// is.
+///
+/// The orientation is the sign of the shoelace sum over the four, which for a rectangle's
+/// perimeter is plus or minus twice its area and therefore never zero once the four conditions
+/// below have held.
 #[expect(
     clippy::float_cmp,
     reason = "see `is_axis_aligned_rectangle`: every comparison here is between coordinates \
               copied from these same points"
 )]
-fn rectangular(points: &[Point; 4], count: usize) -> bool {
+fn rectangular(points: &[Point; 4], count: usize) -> Option<Turn> {
     if count != 4 {
-        return false;
+        return None;
     }
+    let mut twice_area = 0.0_f32;
     for (index, (point, next)) in points.iter().zip(points.iter().cycle().skip(1)).enumerate() {
         // Distinct: with four points each equal to none of the others and each a corner of the
         // box they span, the four corners are all present.
-        if points[..index].contains(point) {
-            return false;
+        if points
+            .get(..index)
+            .is_some_and(|before| before.contains(point))
+        {
+            return None;
         }
         // Each side moves along exactly one axis.
         if (point.x == next.x) == (point.y == next.y) {
-            return false;
+            return None;
         }
+        twice_area += point.x * next.y - next.x * point.y;
     }
-    true
+    if twice_area > 0.0 {
+        Some(Turn::Positive)
+    } else if twice_area < 0.0 {
+        Some(Turn::Negative)
+    } else {
+        None
+    }
 }
 
 /// One subpath's substitution, or `None` where it is not thin enough to need one.
@@ -1175,6 +1331,59 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    /// `tiny-skia`'s outline for a rule closed by `s`, verbatim: two contours of the same
+    /// rectangle, the inner one carrying a vertex in the middle of each vertical side, both wound
+    /// the same way. It is `issue15150.pdf`'s whole content stream stroked, and the shape that
+    /// fell off this module on to ADR 0268's widened band, whose ink ran off the top of the
+    /// raster — §10.7.4's third sentence in the direction the `shall` forbids. ADR 1082.
+    #[test]
+    fn a_closed_rules_two_contour_outline_is_the_one_rectangle_it_is() {
+        let outline = path(&[
+            PathCommand::MoveTo(Point::new(0.0, 9.5)),
+            PathCommand::LineTo(Point::new(0.5, 9.5)),
+            PathCommand::LineTo(Point::new(0.5, 10.0)),
+            PathCommand::LineTo(Point::new(0.0, 10.0)),
+            PathCommand::LineTo(Point::new(0.0, 9.5)),
+            PathCommand::Close,
+            PathCommand::MoveTo(Point::new(0.0, 10.0)),
+            PathCommand::LineTo(Point::new(0.0, 9.75)),
+            PathCommand::LineTo(Point::new(0.0, 9.5)),
+            PathCommand::LineTo(Point::new(0.5, 9.5)),
+            PathCommand::LineTo(Point::new(0.5, 9.75)),
+            PathCommand::LineTo(Point::new(0.5, 10.0)),
+            PathCommand::LineTo(Point::new(0.0, 10.0)),
+            PathCommand::Close,
+        ]);
+        // The page's own transform: a half-pixel rule in the first device pixel, y flipped.
+        let to_device = Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, 10.0);
+        assert_eq!(
+            bands(&outline, to_device),
+            vec![(0.0, 9.0, 1.0, 10.0, 0.25)],
+            "the two contours are one rectangle of a quarter of pixel (0, 0)"
+        );
+    }
+
+    /// The other half of the same rule: two subpaths stating one rectangle the *opposite* ways
+    /// round enclose no points at all under §8.5.3.3's non-zero rule, which no substitute here
+    /// can say — so the whole path goes back to the rasteriser's own conversion.
+    #[test]
+    fn one_rectangle_stated_both_ways_round_is_declined() {
+        let opposed = path(&[
+            PathCommand::MoveTo(Point::new(0.0, 9.5)),
+            PathCommand::LineTo(Point::new(0.5, 9.5)),
+            PathCommand::LineTo(Point::new(0.5, 10.0)),
+            PathCommand::LineTo(Point::new(0.0, 10.0)),
+            PathCommand::Close,
+            PathCommand::MoveTo(Point::new(0.0, 9.5)),
+            PathCommand::LineTo(Point::new(0.0, 10.0)),
+            PathCommand::LineTo(Point::new(0.5, 10.0)),
+            PathCommand::LineTo(Point::new(0.5, 9.5)),
+            PathCommand::Close,
+        ]);
+        let to_device = Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, 10.0);
+        assert!(sub_pixel_bands(&opposed, to_device, FillRule::NonZero).is_none());
     }
 
     /// The rule itself: a rule a twentieth of a pixel thick becomes the whole pixel row it lies

@@ -62,7 +62,10 @@ pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::interaction::{MissingAppearance, annotations_without_an_appearance};
-pub use crate::table::metadata::{MisusedProperty, dates_stated, properties_outside_their_schema};
+pub use crate::table::metadata::{
+    ContainerField, MisusedProperty, REQUIRED_PREFIXES, dates_stated, extension_container_fields,
+    properties_outside_their_schema,
+};
 pub use crate::target::{Flavour, Level, Part, Target};
 pub use crate::withdrawal::{Reaches, Subject, subjects};
 

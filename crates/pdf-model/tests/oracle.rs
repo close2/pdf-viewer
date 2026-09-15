@@ -3095,6 +3095,28 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 
 /// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.
 ///
+/// # Seventeen of this group's pages left when the oracle stopped quantising a coverage
+///
+/// This group's whole diagnosis was that the marks are the right marks and the *edges* of the
+/// letters are where the difference is — proved three ways below, by conserved ink, by an
+/// identical bounding box at 8×, and by a page that draws its glyphs twice. `render-cpu` then
+/// measured a glyph edge's coverage to a sixteenth of a pixel, where every one of the references
+/// tracks the fraction to a level of 255, so the diagnosis named a departure this tree could
+/// close. It is closed: ISO 32000-2 §10.7.4's coverage is now the area the shape covers, computed
+/// rather than sampled (ADR 1082), and **seventeen of the group's twenty-seven pages moved to
+/// `agrees`** — `bad-PageLabels`, `franz_2`, `freeculture` page 313, `bug1108301`, `bug1151216`,
+/// `bug894572`, `issue2017r`, `issue3207r`, `issue3405r`, `issue4061`, `issue4650`, `issue5010`,
+/// `issue6889`, `issue7696`, `issue8097_reduced`, `issue8570` and `openoffice`. The oracle's
+/// whole pool went 993 agrees / 62 contradicted to 1010 / 45 on that change and nothing else.
+///
+/// **The ten that remain are the group's harder half and its diagnosis is unchanged for them**:
+/// the coverage is exact on both sides now, so what is left between us and a reference on a
+/// letter's edge is the *phase* the glyph was placed at and the hinting the reference applied to
+/// it, which is what `Reference::independence` and trap 9 are about below. Every count in the
+/// sections that follow was taken over the twenty-seven this group held when each was written,
+/// and the pages each names are named individually, so a count and its page list still say what
+/// they measured; what none of them is any longer is a statement about this array's length.
+///
 /// Eight pages, measured in the seventy-fifth session, and they are one population rather than
 /// eight questions. Structural similarity is the bound that "does the work on text"
 /// (`pdfref::Tolerance`), and it says the same shapes are in the same places.
@@ -3453,34 +3475,17 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 /// and `CONTRADICTED_SUBPIXEL_IMAGE`'s one with them, which are a §8.6.5.3 colour reading and a
 /// §10.7.4 departure. A differing fraction is a threshold count, so a glyph phase and a small
 /// colour error over a large area reach the same 5–12% and no bound can separate them. ADR 0771.
-const CONTRADICTED_GLYPH_EDGES: [&str; 27] = [
+const CONTRADICTED_GLYPH_EDGES: [&str; 10] = [
     "pdfbox/unencrypted.pdf page 2",
-    "bad-PageLabels.pdf page 1",
-    "franz_2.pdf page 1",
     "issue8088.pdf page 1",
     "issue8088.pdf page 2",
     "issue8088.pdf page 3",
-    "freeculture.pdf page 313",
-    "bug1108301.pdf page 1",
-    "bug1151216.pdf page 1",
     "bug1175962.pdf page 1",
     "bug1200096.pdf page 1",
     "bug1252420.pdf page 1",
-    "bug894572.pdf page 1",
-    "issue2017r.pdf page 1",
-    "issue3207r.pdf page 1",
-    "issue3405r.pdf page 1",
     "issue3694_reduced.pdf page 1",
-    "issue4061.pdf page 1",
-    "issue4650.pdf page 1",
-    "issue5010.pdf page 1",
-    "issue6889.pdf page 1",
     "issue7492.pdf page 1",
-    "issue7696.pdf page 1",
     "issue7901.pdf page 1",
-    "issue8097_reduced.pdf page 1",
-    "issue8570.pdf page 1",
-    "openoffice.pdf page 1",
 ];
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**

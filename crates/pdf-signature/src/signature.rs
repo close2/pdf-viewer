@@ -799,6 +799,255 @@ pub enum PadesDeparture {
     ContentIdentifier,
     /// Its fourth, which the clause spells "contenthints" — RFC 5035's `id-aa-contentHint`.
     ContentHints,
+    /// §12.8.3.4.3 (b), through ETSI EN 319 122-1 clause 5.3: the `signature-time-stamp` attribute
+    /// is among the *signed* attributes.
+    ///
+    /// (b) states no shape of its own — it says a timestamp "should be present as a unsigned
+    /// attribute" and then that the rules of clause 5.3 in ETSI EN 319 122-1 shall apply — so the
+    /// `shall` comes from that clause's semantics, which makes the attribute an unsigned one. The
+    /// requirement is not a formality: RFC 3161 Appendix A and clause 5.3 both put the token's
+    /// imprint over the `SignerInfo`'s `signature` field, which does not exist until the signature
+    /// does, so an attribute inside the signature could not hold a token about it.
+    SignatureTimestampIsSigned,
+    /// The same clause's syntax: the attribute's `SET OF AttributeValue` does not hold exactly one
+    /// component.
+    SignatureTimestampNotOneValue,
+    /// The same clause again: the token's `messageImprint` is not the digest of the `SignerInfo`'s
+    /// `signature` field.
+    ///
+    /// Two documents state this rule and they agree — RFC 3161 Appendix A, which
+    /// [`crate::timestamp::SignatureTimestamp::covers_the_signature`] cites, and clause 5.3, which
+    /// adds that the hash is over the field's value with the tag and length left off. It is what
+    /// makes the attribute checkable with no certificate at all.
+    SignatureTimestampNotOverTheSignature,
+    /// §12.8.3.4.3 (h), through ETSI EN 319 122-1 clause 5.2.5: the `signer-location` attribute is
+    /// among the *unsigned* attributes.
+    ///
+    /// (h) says "signer-location, as defined in clause 5.2.5 in ETSI EN 319 122-1", and that
+    /// clause's first semantics sentence makes it a signed attribute — which RFC 5126 section
+    /// 5.11.2 says in the same words, so this rule has two readings and they agree.
+    SignerLocationIsUnsigned,
+    /// The same clause's syntax: the attribute's `SET OF AttributeValue` does not hold exactly one
+    /// component.
+    SignerLocationNotOneValue,
+    /// The same clause again: none of the three fields of `SignerLocation` is present.
+    ///
+    /// The ASN.1 makes all three optional and the clause then requires at least one of
+    /// `countryName`, `localityName` and `postalAddress` — so an empty `SignerLocation` is an
+    /// address that names no place, which is the one thing the attribute exists to state.
+    SignerLocationEmpty,
+    /// §12.8.3.4.3 (c), through ETSI EN 319 122-1 clause 5.2.8: the `content-time-stamp` attribute
+    /// is among the *unsigned* attributes.
+    ///
+    /// (c) says the attribute "shall be used in the same way as defined in clause 5.2.8 in ETSI
+    /// EN 319 122-1", and that clause's first semantics sentence makes it a signed attribute —
+    /// which is the difference between the two timestamps the subclause admits: a content
+    /// timestamp is made *before* signing and is therefore inside the signature, and a signature
+    /// timestamp is made after and is therefore outside it.
+    ContentTimestampIsUnsigned,
+    /// The same clause's syntax: the attribute's `SET OF AttributeValue` does not hold exactly one
+    /// component.
+    ContentTimestampNotOneValue,
+    /// The same clause again: the token's `messageImprint` is not the digest of the bytes this
+    /// signature is detached from.
+    ///
+    /// Clause 5.2.8 gives the imprint two subjects and the signature's own shape decides which:
+    /// the encapsulated content where the signature is attached, and the external data where it is
+    /// detached — over the raw octets in both cases. A `PAdES` signature is detached by
+    /// §12.8.3.4.2's own definition, and §12.8.3.4.2 also says what its external data is: the
+    /// `/ByteRange`, which "shall cover the entire PDF file". So the counterpart is a digest this
+    /// program already computes for question 1.
+    ContentTimestampNotOverTheSignedBytes,
+    /// The content timestamp is not a token this program will read, so the rule above was not
+    /// applied.
+    ///
+    /// Said rather than passed over, because a rule that goes quiet on input it cannot parse
+    /// reports a conforming file and a broken one the same way.
+    ContentTimestampUnreadable,
+    /// §12.8.3.4.3 (j), through ETSI EN 319 122-1 clause 5.2.6.1: the `signer-attributes-v2`
+    /// attribute is among the *unsigned* attributes.
+    ///
+    /// (j) says the attribute "shall follow the definition given in clause 5.2.6.1 of ETSI
+    /// EN 319 122-1", and that clause's first semantics sentence makes it a signed attribute. It
+    /// carries the signer's claimed or certified roles, so an unsigned one would be a role nobody
+    /// signed for.
+    SignerAttributesIsUnsigned,
+    /// The same clause's syntax: the attribute's `SET OF AttributeValue` does not hold exactly one
+    /// component.
+    SignerAttributesNotOneValue,
+    /// The same clause again: the attribute states no attributes at all.
+    ///
+    /// Clause 5.2.6.1 forbids an empty one outright, and separately requires each of the two
+    /// certified members — the attribute certificates and the signed assertions — to hold at least
+    /// one entry where it is present. All three cases are this variant, because all three are one
+    /// fact about a file: it wrote the attribute and put nothing in it.
+    SignerAttributesEmpty,
+    /// §12.8.3.4.4's own rule about the two profiles: "If a commitment-type-indication attribute
+    /// is present, a Reason entry shall not be used".
+    ///
+    /// The clause states this in its own words for both `PAdES-E-BES` and `PAdES-E-EPES`, so it
+    /// needs no other document; what ETSI EN 319 122-1 clause 5.2.3 contributes is the attribute's
+    /// number. The clause's NOTE 2 says why the pair is forbidden rather than merged: the
+    /// attribute carries an object identifier and the entry carries language-dependent text, so a
+    /// file stating both has said two things that cannot be checked against each other.
+    CommitmentTypeAndReason,
+    /// ETSI EN 319 122-2 Table 1: the signature states both of §12.8.3.4.3 (f)'s attributes.
+    ///
+    /// The table gives each of the two a presence of *0 or 1* and the service they provide — the
+    /// protection of the signing certificate — a cardinality of *1*, so one of the two is what a
+    /// signature of either profile carries. RFC 5035 section 5.4 does not forbid the pair and says
+    /// what to do with it — "[i]f both attributes exist in a single message, they are
+    /// independently evaluated" — which is why this is a departure said out loud rather than a
+    /// refusal, and why [`signing_certificate_bindings`] still evaluates both.
+    BothSigningCertificateAttributes,
+    /// ETSI EN 319 122-2 Table 1: an attribute the table admits at most once is stated more than
+    /// once.
+    AttributeStatedMoreThanOnce(ProfileAttribute),
+    /// ETSI EN 319 122-2 Table 1's requirement (c): a `signature-policy-store` with no
+    /// `signature-policy-identifier` beside it carrying the policy document's digest.
+    ///
+    /// The requirement admits the store only alongside an identifier whose `sigPolicyHash` holds
+    /// that digest, and forbids it otherwise. A zero-hash `sigPolicyHash` is the identifier saying
+    /// the digest is not known — ETSI EN 319 122-1 clause 5.2.9.1 defines the convention and
+    /// requires a validator to read it that way — so a store beside one of those is a store beside
+    /// no digest, and is this departure too.
+    PolicyStoreWithoutPolicyDigest,
+    /// ETSI EN 319 122-1 clause 5.2.9.1: the `signature-policy-identifier` is the
+    /// `signaturePolicyImplied` alternative, which that clause forbids outright.
+    ///
+    /// The `CHOICE` has two alternatives and the ASN.1 comments one of them out in place; the
+    /// clause then says in prose that it shall not be used. `SignaturePolicyImplied ::= NULL`, so
+    /// the alternative is visible as a `NULL` where the other is a `SEQUENCE`.
+    SignaturePolicyImplied,
+    /// The same clause's semantics, and §12.8.3.4.4's own sentence for the `PAdES-E-EPES` profile:
+    /// the `signature-policy-identifier` is among the *unsigned* attributes.
+    ///
+    /// §12.8.3.4.4 says "a signature-policy-identifier shall be present as a signed attribute",
+    /// which is the rule; clause 5.2.9.1's first semantics sentence is the same rule stated by the
+    /// document §12.8.3.4.4 points at.
+    SignaturePolicyIdentifierIsUnsigned,
+    /// ETSI EN 319 122-2 Table 1's requirement (a): the `signing-certificate-v2` attribute states
+    /// SHA-1.
+    ///
+    /// The table's requirement (a) reserves SHA-1 for the first spelling of the attribute and (b)
+    /// gives every other algorithm to the second, so the two are a partition rather than a
+    /// preference. RFC 5035 section 5.4 is why the first half needs no check of its own:
+    /// `SigningCertificate` "forces the use of the SHA-1 hash algorithm", so it cannot state
+    /// anything else.
+    SigningCertificateV2StatesSha1,
+}
+
+/// One attribute ETSI EN 319 122-2 Table 1 admits at most once in §12.8.3.4.4's two profiles.
+///
+/// The table states a cardinality for every attribute of a `CAdES-E-BES` or `CAdES-E-EPES`
+/// signature, and for all of these it is *0 or 1* — except `content-type` and `message-digest`,
+/// whose cardinality is *1* and whose presence §12.8.3.4.3 (a) and (e) already require. What this
+/// enumeration is for is the other half of each: a file that states one of them twice has broken
+/// the table whichever of §12.8.3.4.4's profiles it means to follow.
+///
+/// Three attributes the table also admits at most once are missing here, and deliberately:
+/// `content-hints`, `content-reference` and `content-identifier` are forbidden outright by
+/// §12.8.3.4.3 (i), which this standard states over the top of the table it points at, so a count
+/// of them would be a second sentence about a file already reported once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProfileAttribute {
+    /// `content-type` — cardinality 1.
+    ContentType,
+    /// `message-digest` — cardinality 1.
+    MessageDigest,
+    /// `signing-time`.
+    SigningTime,
+    /// The ESS `signing-certificate` attribute.
+    EssSigningCertificate,
+    /// The ESS `signing-certificate-v2` attribute.
+    EssSigningCertificateV2,
+    /// `commitment-type-indication`.
+    CommitmentTypeIndication,
+    /// `mime-type`.
+    MimeType,
+    /// `signer-location`.
+    SignerLocation,
+    /// `signer-attributes-v2`.
+    SignerAttributesV2,
+    /// `signature-policy-identifier`.
+    SignaturePolicyIdentifier,
+    /// `signature-policy-store`.
+    SignaturePolicyStore,
+}
+
+impl ProfileAttribute {
+    /// The attribute's name, spelled as ETSI EN 319 122-2 Table 1's first column spells it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::ContentType => "content-type",
+            Self::MessageDigest => "message-digest",
+            Self::SigningTime => "signing-time",
+            Self::EssSigningCertificate => "signing-certificate",
+            Self::EssSigningCertificateV2 => "signing-certificate-v2",
+            Self::CommitmentTypeIndication => "commitment-type-indication",
+            Self::MimeType => "mime-type",
+            Self::SignerLocation => "signer-location",
+            Self::SignerAttributesV2 => "signer-attributes-v2",
+            Self::SignaturePolicyIdentifier => "signature-policy-identifier",
+            Self::SignaturePolicyStore => "signature-policy-store",
+        }
+    }
+
+    /// The object identifier that names it, and the document that assigns the identifier.
+    const fn oid(self) -> &'static [u8] {
+        match self {
+            Self::ContentType => cms::ID_CONTENT_TYPE,
+            Self::MessageDigest => cms::ID_MESSAGE_DIGEST,
+            Self::SigningTime => cms::ID_SIGNING_TIME,
+            Self::EssSigningCertificate => cms::ID_AA_SIGNING_CERTIFICATE,
+            Self::EssSigningCertificateV2 => cms::ID_AA_SIGNING_CERTIFICATE_V2,
+            Self::CommitmentTypeIndication => cms::ID_AA_ETS_COMMITMENT_TYPE,
+            Self::MimeType => cms::ID_AA_ETS_MIME_TYPE,
+            Self::SignerLocation => cms::ID_AA_ETS_SIGNER_LOCATION,
+            Self::SignerAttributesV2 => cms::ID_AA_ETS_SIGNER_ATTR_V2,
+            Self::SignaturePolicyIdentifier => cms::ID_AA_ETS_SIG_POLICY_ID,
+            Self::SignaturePolicyStore => cms::ID_AA_ETS_SIG_POLICY_STORE,
+        }
+    }
+
+    /// Every one of them, which is the population the cardinality rule walks.
+    const ALL: [Self; 11] = [
+        Self::ContentType,
+        Self::MessageDigest,
+        Self::SigningTime,
+        Self::EssSigningCertificate,
+        Self::EssSigningCertificateV2,
+        Self::CommitmentTypeIndication,
+        Self::MimeType,
+        Self::SignerLocation,
+        Self::SignerAttributesV2,
+        Self::SignaturePolicyIdentifier,
+        Self::SignaturePolicyStore,
+    ];
+}
+
+/// Which of §12.8.3.4.4's two profiles a `PAdES` signature presents itself as.
+///
+/// §12.8.3.4.4 names them and says what separates them: the signatures "may follow one of two
+/// profiles denoted as PAdES-E-BES (Basic Electronic Signature) and PAdES-E-EPES (Explicit Policy
+/// Electronic Signature)", defined "to be compatible with the corresponding profiles defined in
+/// ETSI EN 319 122-2". That document's clause 4.3 states the difference in one sentence — the
+/// explicit-policy profile is the basic one with a `signature-policy-identifier` attribute added —
+/// and §12.8.3.4.4 states the same thing from the other side, requiring that attribute as a signed
+/// attribute of the `PAdES-E-EPES` profile.
+///
+/// **This is what a file presents, not a verdict on it.** A signature carrying the attribute is
+/// held to the explicit-policy profile's rules because that is what it has claimed; nothing here
+/// reads the policy itself, which is a document outside the file and outside this program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PadesProfile {
+    /// `PAdES-E-BES`: no `signature-policy-identifier` among the signed attributes.
+    BasicElectronicSignature,
+    /// `PAdES-E-EPES`: one is present.
+    ExplicitPolicyElectronicSignature,
 }
 
 /// Everything but the signature value, which is thousands of bytes of certificate.
@@ -1217,29 +1466,7 @@ impl Signature {
         let Ok(cms) = self.signed_data() else {
             return Trust::NoPathToAnyAnchor { examined: 0 };
         };
-        // §12.8.4's store and §12.8.3.3.2's signed attribute are one supply, and §12.8.4.2 is
-        // what puts the material in two places rather than one: "Some of this information, i.e.
-        // certificates, CRLs and OCSP responses, when not already present in the signature, shall
-        // be stored in a document security store (DSS)". So a verifier needs whichever the
-        // producer used — the caller supplies the store, and the signature carries its own.
-        let mut material = material.clone();
-        material.absorb(crate::revocation::archived(&cms));
-        let Some(signer) = signer_certificate(&cms) else {
-            return Trust::NoPathToAnyAnchor { examined: 0 };
-        };
-        let Ok(target) = x509::read(signer) else {
-            return Trust::NoPathToAnyAnchor { examined: 0 };
-        };
-        // Every certificate the object carries but the signer's own. A path may not hold one
-        // certificate twice (RFC 5280 section 6.1) and the target is already in it, so offering it
-        // again as a candidate issuer would only make the search reject it a second time.
-        let others: Vec<_> = cms
-            .certificates
-            .iter()
-            .filter_map(|entry| x509::read(*entry).ok())
-            .filter(|candidate| candidate.tbs != target.tbs)
-            .collect();
-        trust::validate_for(&target, &others, anchors, &material, at, purpose)
+        cms_trust(&cms, anchors, material, at, purpose)
     }
 
     /// §12.8.3.2's path: the target is `/Cert`'s first entry and the rest of the entry is the pool.
@@ -1382,12 +1609,6 @@ impl Signature {
     /// Read [`Authenticity`] before reading a result. [`Authenticity::Verified`] is not "valid":
     /// the certificate it verified against arrived in the same file as the signature.
     #[must_use]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per verifying construction, each a few lines of the same shape; \
-                  splitting them apart would scatter the one match that keeps a signature \
-                  algorithm and a key from being paired wrongly"
-    )]
     pub fn authenticity(&self, file: &FileBytes) -> Authenticity {
         if self.contents.is_empty() {
             return Authenticity::NoSignatureValue;
@@ -1403,238 +1624,7 @@ impl Signature {
             Ok(cms) => cms,
             Err(error) => return Authenticity::Unreadable(error),
         };
-        let algorithm = cms.algorithm();
-        if let SignatureAlgorithm::Unrecognised(oid) = algorithm {
-            return Authenticity::AlgorithmNotVerifiable {
-                algorithm: name(oid),
-            };
-        }
-        let Some(certificate) = signer_certificate(&cms) else {
-            return Authenticity::NoSignerCertificate {
-                certificates: cms.certificates.len(),
-            };
-        };
-        // §12.8.3.4.5 (a)'s first half, before the second: the step's two sentences are in this
-        // order — compare the certificate against the hash the signer signed, *then* "use the
-        // public key contained in the signer's certificate to verify that the document digest
-        // found in the signature is correctly signed" — and the order is the point. Verifying
-        // first and comparing after would mean a `Verified` existed for a moment over a
-        // certificate the signer never named.
-        for binding in signing_certificate_bindings(&cms) {
-            match binding {
-                SigningCertificateBinding::Matches { .. } => {}
-                SigningCertificateBinding::Differs { version, digest } => {
-                    return Authenticity::SigningCertificateMismatch { version, digest };
-                }
-                SigningCertificateBinding::Unreadable { version, error } => {
-                    return Authenticity::SigningCertificateUnverifiable {
-                        version,
-                        statement: error.to_string(),
-                    };
-                }
-                SigningCertificateBinding::CertificateNotDer { version } => {
-                    return Authenticity::SigningCertificateUnverifiable {
-                        version,
-                        statement: "the signer's certificate is not written in DER, so the octets \
-                                    RFC 5035 section 5.4.1.1 hashes are not the file's own"
-                            .to_owned(),
-                    };
-                }
-                // Unreachable by construction — `signer_certificate` answered above — and
-                // reported rather than ignored, because the two call sites could drift apart.
-                SigningCertificateBinding::NoSignerCertificate { .. } => {
-                    return Authenticity::NoSignerCertificate {
-                        certificates: cms.certificates.len(),
-                    };
-                }
-            }
-        }
-        let certificate = match x509::read(certificate) {
-            Ok(certificate) => certificate,
-            Err(error) => return Authenticity::CertificateUnreadable(error),
-        };
-        if let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key {
-            return Authenticity::KeyNotVerifiable {
-                algorithm: name(algorithm),
-            };
-        }
-        if let x509::PublicKey::EcCurveNotVerifiable { curve } = certificate.public_key {
-            return Authenticity::CurveNotVerifiable {
-                curve: curve_name(curve),
-            };
-        }
-        // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one
-        // proves. The digest *algorithm* is the one thing the constructions disagree about —
-        // PKCS #1 v1.5 and DSA take the `SignerInfo`'s own `digestAlgorithm`, while RSASSA-PSS
-        // is parameterised by the hash its `RSASSA-PSS-params` state — so what is signed is
-        // settled here and each arm below digests it with the algorithm its scheme names.
-        // RFC 5652 section 5.3's one DER region inside a BER structure, checked before it is
-        // digested: an indefinite length among the attributes means the bytes the signer signed
-        // are not the bytes this file holds, and the honest answer is a refusal by name rather
-        // than a digest over the wrong octets. See [`Authenticity::SignedAttributesNotDer`].
-        if let Some(contents) = cms.signed_attributes {
-            match der::every_length_is_definite(contents) {
-                Ok(true) => {}
-                Ok(false) => return Authenticity::SignedAttributesNotDer,
-                Err(error) => return Authenticity::Unreadable(CmsError::from(error)),
-            }
-        }
-        let attributes = cms.signed_attributes_encoding();
-        let over = match (&attributes, cms.encapsulated) {
-            (Some(_), _) => Signed::SignedAttributes,
-            (None, Some(_)) => Signed::EncapsulatedContent,
-            (None, None) => Signed::TheDocumentsBytes,
-        };
-        // What is in memory is digested in memory, and the document's own bytes are digested
-        // off the file a window at a time (ADR 0812): the signed attributes and the encapsulated
-        // content are a few hundred bytes of the CMS object already read, and the third case is
-        // every signed byte of the document, which is what `signed_digests` exists not to hold.
-        let in_memory: Option<&[u8]> = match (&attributes, cms.encapsulated) {
-            (Some(attributes), _) => Some(attributes.as_slice()),
-            (None, Some(content)) => Some(content),
-            (None, None) => None,
-        };
-        let compute = |algorithm: Digest| -> Result<Vec<u8>, Authenticity> {
-            match in_memory {
-                Some(bytes) => Ok(algorithm.compute(&[bytes])),
-                None => self
-                    .signed_digests(file, &[algorithm])
-                    .map(|mut digests| digests.pop().unwrap_or_default())
-                    .map_err(Authenticity::from),
-            }
-        };
-        // The pair rather than either alone: a `SignerInfo` naming DSA over a certificate holding
-        // an RSA key is two claims by one producer that contradict each other, and picking the one
-        // to believe would be this program inventing a fact.
-        let (digest, family, verified) = match (algorithm, certificate.public_key) {
-            (SignatureAlgorithm::RsaPkcs1V15, x509::PublicKey::Rsa(key)) => {
-                let Some(digest) = cms.digest else {
-                    return Authenticity::UnknownDigest {
-                        algorithm: name(cms.digest_algorithm),
-                    };
-                };
-                let computed = match compute(digest) {
-                    Ok(computed) => computed,
-                    Err(answer) => return answer,
-                };
-                (
-                    digest,
-                    Family::Rsa,
-                    pkcs1::verify(key, cms.signature, digest, &computed)
-                        .map_err(Authenticity::Refused)
-                        .map(|verified| (verified, key.bits())),
-                )
-            }
-            (SignatureAlgorithm::RsaPss, x509::PublicKey::Rsa(key)) => {
-                let parameters = match pss::parameters(cms.signature_algorithm_parameters) {
-                    Ok(parameters) => parameters,
-                    Err(problem) => return pss_parameter_answer(problem),
-                };
-                // RFC 8017 section 9.1.2 step 2's `mHash` is computed with the parameters' own
-                // hash — RFC 5652's `digestAlgorithm` describes the `message-digest` attribute,
-                // which is question 1's comparison, not this one's.
-                let computed = match compute(parameters.hash) {
-                    Ok(computed) => computed,
-                    Err(answer) => return answer,
-                };
-                (
-                    parameters.hash,
-                    Family::RsaPss,
-                    pss::verify(key, cms.signature, parameters, &computed)
-                        .map_err(Authenticity::Refused)
-                        .map(|verified| (verified, key.bits())),
-                )
-            }
-            (SignatureAlgorithm::Dsa, x509::PublicKey::Dsa(key)) => {
-                let Some(digest) = cms.digest else {
-                    return Authenticity::UnknownDigest {
-                        algorithm: name(cms.digest_algorithm),
-                    };
-                };
-                let computed = match compute(digest) {
-                    Ok(computed) => computed,
-                    Err(answer) => return answer,
-                };
-                (
-                    digest,
-                    Family::Dsa,
-                    dsa::verify(key, cms.signature, &computed)
-                        .map_err(Authenticity::RefusedDsa)
-                        .map(|verified| (verified, key.bits())),
-                )
-            }
-            (SignatureAlgorithm::Ecdsa, x509::PublicKey::Ec(key)) => {
-                let Some(digest) = cms.digest else {
-                    return Authenticity::UnknownDigest {
-                        algorithm: name(cms.digest_algorithm),
-                    };
-                };
-                let computed = match compute(digest) {
-                    Ok(computed) => computed,
-                    Err(answer) => return answer,
-                };
-                (
-                    digest,
-                    Family::Ecdsa(key.curve),
-                    ecdsa::verify(key, cms.signature, &computed)
-                        .map_err(Authenticity::RefusedEcdsa)
-                        .map(|verified| (verified, key.curve.bits())),
-                )
-            }
-            (SignatureAlgorithm::EdDsa, x509::PublicKey::Ed25519(key)) => {
-                // The digest is reported rather than used: ISO/TS 32002 Table 4 pairs Ed25519 with
-                // SHA512, which is what question 1's `message-digest` attribute was computed with,
-                // and RFC 8032's signature is over the message itself.
-                let Some(digest) = cms.digest else {
-                    return Authenticity::UnknownDigest {
-                        algorithm: name(cms.digest_algorithm),
-                    };
-                };
-                // The one construction that takes the message rather than a digest of it, so
-                // the one place the signed bytes are held whole: RFC 8032 hashes `R ‖ A ‖ M`
-                // inside the verification, and a signature over the document's own bytes with
-                // no signed attributes puts the whole document in `M`.
-                let resident;
-                let parts: Vec<&[u8]> = if let Some(bytes) = in_memory {
-                    vec![bytes]
-                } else {
-                    resident = match self.signed_bytes(file) {
-                        Ok(pieces) => pieces,
-                        Err(problem) => return Authenticity::from(problem),
-                    };
-                    resident.iter().map(AsRef::as_ref).collect()
-                };
-                (
-                    digest,
-                    Family::EdDsa,
-                    eddsa::verify(key, cms.signature, &parts)
-                        .map_err(Authenticity::RefusedEdDsa)
-                        // RFC 8032 section 5.1: `b` is 256 for Ed25519, so the key is 32 octets.
-                        .map(|verified| (verified, 256)),
-                )
-            }
-            _ => {
-                return Authenticity::KeyDoesNotMatchAlgorithm {
-                    algorithm: name(cms.signature_algorithm),
-                    key: key_algorithm_name(&certificate),
-                };
-            }
-        };
-        match verified {
-            Ok((true, key_bits)) => Authenticity::Verified {
-                digest,
-                family,
-                key_bits,
-                over,
-            },
-            Ok((false, key_bits)) => Authenticity::NotUnderThatKey {
-                digest,
-                family,
-                key_bits,
-                over,
-            },
-            Err(answer) => answer,
-        }
+        authenticity_of(&cms, Detached::Document(self, file))
     }
 
     /// §12.8.3.2's signature: a PKCS #1 value over the byte range, with `/Cert`'s first entry.
@@ -1718,25 +1708,33 @@ impl Signature {
     /// §12.8.3.4's structural requirements on a `PAdES` signature, checked against this file.
     ///
     /// Everything §12.8.3.4 states that is decidable from the file alone: §12.8.3.4.2's three
-    /// constraints, and §12.8.3.4.3's (a), (d), (e), (f), (h) and all four of (i) — (g) is
-    /// §12.8.3.4.2's third bullet stated a second time, and is answered by
-    /// [`PadesDeparture::BothSigningTimesStated`]. What is not here is
-    /// §12.8.3.4.5's validation, of which the half that needs no trust store is
-    /// [`signing_certificate_bindings`] and the rest is certification paths and a network.
+    /// constraints, the whole of §12.8.3.4.3 except (k), which is a permission, and (g), which is
+    /// §12.8.3.4.2's third bullet stated a second time and answered by
+    /// [`PadesDeparture::BothSigningTimesStated`] — and §12.8.3.4.4's rules about the two profiles.
+    /// What is not here is §12.8.3.4.5's validation, of which the half that needs no trust store is
+    /// [`signing_certificate_bindings`] and the rest is certification paths.
+    ///
+    /// **Three of §12.8.3.4.3's rules state themselves only by reference**, and what they refer to
+    /// is ETSI EN 319 122-1: (b) hands the signature timestamp to its clause 5.3, (c) hands the
+    /// content timestamp to clause 5.2.8, and (j) hands `signer-attributes-v2` to clause 5.2.6.1.
+    /// Each of those clauses states its rules in three parts — which attribute set the attribute
+    /// belongs to, that its `SET OF AttributeValue` holds one component, and what the value is —
+    /// and all three parts are decidable from the file. §12.8.3.4.4's own reference is ETSI
+    /// EN 319 122-2, whose Table 1 gives every attribute of both profiles a cardinality.
     ///
     /// Empty where the signature meets them all, and empty for a signature that is not one:
     /// §12.8.3.4.1 scopes the whole subclause to "[t]he PDF signatures using the `SubFilter` value
     /// ETSI.CAdES.detached", so applying its rules to an `adbe.pkcs7.*` signature would be this
     /// program inventing a requirement.
     ///
-    /// **No corpus document is a `PAdES` signature** — all six the 974 carry in a signature field
-    /// are `adbe.pkcs7.*` — so this condition is counted rather than assumed to have members, and
-    /// what exercises it is a fixture.
+    /// `file` is here for one rule — the content timestamp's imprint is over the bytes
+    /// `/ByteRange` names — and it is read a window at a time like every other digest of them.
     #[must_use]
-    pub fn pades_departures(&self, cms: &SignedData<'_>, file_length: u64) -> Vec<PadesDeparture> {
+    pub fn pades_departures(&self, cms: &SignedData<'_>, file: &FileBytes) -> Vec<PadesDeparture> {
         if self.sub_filter.as_deref() != Some("ETSI.CAdES.detached") {
             return Vec::new();
         }
+        let file_length = file.len() as u64;
         let mut out = Vec::new();
         if self.coverage(file_length) != Coverage::WholeFile {
             out.push(PadesDeparture::RangeDoesNotCoverTheFile);
@@ -1784,8 +1782,238 @@ impl Signature {
                 out.push(departure);
             }
         }
+        self.reference_departures(cms, file, &mut out);
         out
     }
+
+    /// Which of §12.8.3.4.4's two profiles this signature presents itself as.
+    ///
+    /// `None` for a signature that is not a `PAdES` one, for §12.8.3.4.1's reason: the subclause is
+    /// scoped to the `ETSI.CAdES.detached` sub-filter, and naming a profile for anything else would
+    /// be this program inventing a claim the file did not make.
+    ///
+    /// The test is the one both documents state — a `signature-policy-identifier` among the signed
+    /// attributes — and it is deliberately the *signed* set alone: §12.8.3.4.4 requires the
+    /// attribute "as a signed attribute" for the explicit-policy profile, so an unsigned one is a
+    /// departure ([`PadesDeparture::SignaturePolicyIdentifierIsUnsigned`]) rather than a profile.
+    #[must_use]
+    pub fn pades_profile(&self, cms: &SignedData<'_>) -> Option<PadesProfile> {
+        if self.sub_filter.as_deref() != Some("ETSI.CAdES.detached") {
+            return None;
+        }
+        Some(if cms.has_signed_attribute(cms::ID_AA_ETS_SIG_POLICY_ID) {
+            PadesProfile::ExplicitPolicyElectronicSignature
+        } else {
+            PadesProfile::BasicElectronicSignature
+        })
+    }
+
+    /// The rules §12.8.3.4.3 (b), (c) and (j) and §12.8.3.4.4 state only by reference to ETSI.
+    ///
+    /// Split out of [`Self::pades_departures`] because the two halves are read against different
+    /// documents and each is a page of its own: above is ISO 32000-2 stating a rule in its own
+    /// words, here is ISO 32000-2 naming a clause of ETSI EN 319 122-1 or -2 and stating nothing.
+    fn reference_departures(
+        &self,
+        cms: &SignedData<'_>,
+        file: &FileBytes,
+        out: &mut Vec<PadesDeparture>,
+    ) {
+        // (b), clause 5.3. The attribute is unsigned, holds one component, and its token's imprint
+        // is the digest of the `SignerInfo`'s `signature` field — a rule RFC 3161 Appendix A
+        // states in the same words, which is the second reading this identifier has.
+        if let Some(stamp) = cms.attribute(cms::ID_AA_TIME_STAMP_TOKEN) {
+            if stamp.signed {
+                out.push(PadesDeparture::SignatureTimestampIsSigned);
+            }
+            if stamp.values != 1 {
+                out.push(PadesDeparture::SignatureTimestampNotOneValue);
+            }
+        }
+        if let Some(Ok(stamp)) = crate::timestamp::signature_timestamp(cms)
+            && !stamp.covers_the_signature
+        {
+            out.push(PadesDeparture::SignatureTimestampNotOverTheSignature);
+        }
+        // (h), clause 5.2.5. The rule about the `/Location` entry is §12.8.3.4.3's own and is
+        // above; these three are the clause's, and the third is the one that needs its value.
+        if let Some(location) = cms.attribute(cms::ID_AA_ETS_SIGNER_LOCATION) {
+            if !location.signed {
+                out.push(PadesDeparture::SignerLocationIsUnsigned);
+            }
+            if location.values != 1 {
+                out.push(PadesDeparture::SignerLocationNotOneValue);
+            }
+            if location
+                .first
+                .is_some_and(|value| value.identifier == der::SEQUENCE && !has_a_member(&value))
+            {
+                out.push(PadesDeparture::SignerLocationEmpty);
+            }
+        }
+        // (c), clause 5.2.8. The mirror image of (b) in every part: signed rather than unsigned,
+        // and over the data rather than over the signature.
+        if let Some(stamp) = cms.attribute(cms::ID_AA_ETS_CONTENT_TIMESTAMP) {
+            if !stamp.signed {
+                out.push(PadesDeparture::ContentTimestampIsUnsigned);
+            }
+            if stamp.values != 1 {
+                out.push(PadesDeparture::ContentTimestampNotOneValue);
+            }
+            out.extend(self.content_timestamp_departure(stamp, file));
+        }
+        // (j), clause 5.2.6.1.
+        if let Some(attributes) = cms.attribute(cms::ID_AA_ETS_SIGNER_ATTR_V2) {
+            if !attributes.signed {
+                out.push(PadesDeparture::SignerAttributesIsUnsigned);
+            }
+            if attributes.values != 1 {
+                out.push(PadesDeparture::SignerAttributesNotOneValue);
+            }
+            if attributes
+                .first
+                .is_none_or(|value| signer_attributes_are_empty(&value))
+            {
+                out.push(PadesDeparture::SignerAttributesEmpty);
+            }
+        }
+        // §12.8.3.4.4's own rule, which needs no other document: the attribute and the entry each
+        // say why the signer signed, and the clause admits one of the two.
+        if self.reason.is_some() && cms.attribute(cms::ID_AA_ETS_COMMITMENT_TYPE).is_some() {
+            out.push(PadesDeparture::CommitmentTypeAndReason);
+        }
+        // ETSI EN 319 122-2 Table 1's cardinalities, one walk over the attributes it bounds.
+        if cms.signing_certificate.is_some() && cms.signing_certificate_v2.is_some() {
+            out.push(PadesDeparture::BothSigningCertificateAttributes);
+        }
+        for attribute in ProfileAttribute::ALL {
+            if cms.attribute_count(attribute.oid()) > 1 {
+                out.push(PadesDeparture::AttributeStatedMoreThanOnce(attribute));
+            }
+        }
+        // Table 1's requirement (c), and clause 5.2.9.1's two rules about the identifier itself.
+        let policy = cms.attribute(cms::ID_AA_ETS_SIG_POLICY_ID);
+        if let Some(policy) = policy {
+            if !policy.signed {
+                out.push(PadesDeparture::SignaturePolicyIdentifierIsUnsigned);
+            }
+            if policy
+                .first
+                .is_some_and(|value| value.identifier == der::NULL)
+            {
+                out.push(PadesDeparture::SignaturePolicyImplied);
+            }
+        }
+        if cms.attribute(cms::ID_AA_ETS_SIG_POLICY_STORE).is_some()
+            && !policy
+                .and_then(|policy| policy.first)
+                .is_some_and(|value| policy_states_a_digest(&value))
+        {
+            out.push(PadesDeparture::PolicyStoreWithoutPolicyDigest);
+        }
+        // Table 1's requirement (a): SHA-1 belongs to the first spelling of the attribute.
+        if let Some(value) = cms.signing_certificate_v2
+            && ess::signing_certificate_v2(value).is_ok_and(|hash| hash.digest == Digest::Sha1)
+        {
+            out.push(PadesDeparture::SigningCertificateV2StatesSha1);
+        }
+    }
+
+    /// Clause 5.2.8's imprint rule, applied to the bytes this signature is detached from.
+    fn content_timestamp_departure(
+        &self,
+        stamp: &cms::Attribute<'_>,
+        file: &FileBytes,
+    ) -> Option<PadesDeparture> {
+        let unreadable = Some(PadesDeparture::ContentTimestampUnreadable);
+        let Some(value) = stamp.first else {
+            return unreadable;
+        };
+        let Ok(token) = cms::signed_data(value.encoding()) else {
+            return unreadable;
+        };
+        let Ok(info) = crate::timestamp::token_of(&token) else {
+            return unreadable;
+        };
+        let Ok(mut computed) = self.signed_digests(file, &[info.imprint_digest]) else {
+            return unreadable;
+        };
+        (computed.pop().unwrap_or_default() != info.imprint)
+            .then_some(PadesDeparture::ContentTimestampNotOverTheSignedBytes)
+    }
+}
+
+/// Whether a constructed value holds at least one member.
+fn has_a_member(value: &der::Value<'_>) -> bool {
+    value
+        .children()
+        .is_ok_and(|mut members| matches!(members.next_value(), Ok(Some(_))))
+}
+
+/// ETSI EN 319 122-1 clause 5.2.6.1's prohibition on an empty `signer-attributes-v2`, read.
+///
+/// `SignerAttributeV2 ::= SEQUENCE { claimedAttributes [0] OPTIONAL, certifiedAttributesV2 [1]
+/// OPTIONAL, signedAssertions [2] OPTIONAL }`, so an empty one is a `SEQUENCE` with no members.
+/// The clause separately requires the second and third members to hold at least one entry where
+/// they are present, and an empty one of those is the same fact about the file: the attribute was
+/// written and nothing was put in it.
+///
+/// A value that is not a `SEQUENCE` at all answers `false`: it is a different departure from the
+/// one this function is about, and reporting it as emptiness would be a wrong sentence rather than
+/// a missing one.
+fn signer_attributes_are_empty(value: &der::Value<'_>) -> bool {
+    if value.identifier != der::SEQUENCE {
+        return false;
+    }
+    let Ok(mut members) = value.children() else {
+        return false;
+    };
+    let mut any = false;
+    while let Ok(Some(member)) = members.next_value() {
+        any = true;
+        // `[1]` and `[2]` are `SEQUENCE OF`, and the clause requires each to be non-empty.
+        if member.identifier == 0xA1 || member.identifier == 0xA2 {
+            let empty = member
+                .children()
+                .is_ok_and(|mut entries| matches!(entries.next_value(), Ok(None)));
+            if empty {
+                return true;
+            }
+        }
+    }
+    !any
+}
+
+/// Whether a `SignaturePolicyIdentifier` carries the policy document's digest.
+///
+/// ETSI EN 319 122-1 clause 5.2.9.1's `SignaturePolicyId ::= SEQUENCE { sigPolicyId, sigPolicyHash,
+/// sigPolicyQualifiers OPTIONAL }`, where `sigPolicyHash` is an `OtherHashAlgAndValue ::= SEQUENCE
+/// { hashAlgorithm, hashValue OCTET STRING }`. The clause defines a *zero-hash value* — an octet
+/// string of any length whose octets are all zero, including a zero-length one — as the producer
+/// saying the digest is not known, and requires a validating application to read it that way. So
+/// this answers `false` for one of those as surely as for an absent member, which is what ETSI
+/// EN 319 122-2 Table 1's requirement (c) asks about.
+fn policy_states_a_digest(value: &der::Value<'_>) -> bool {
+    let Ok(mut members) = value.children() else {
+        return false;
+    };
+    // `sigPolicyId` first, `sigPolicyHash` second.
+    let Ok(Some(_)) = members.next_value() else {
+        return false;
+    };
+    let Ok(Some(hash)) = members.next_value() else {
+        return false;
+    };
+    let Ok(mut parts) = hash.children() else {
+        return false;
+    };
+    let Ok(Some(_algorithm)) = parts.next_value() else {
+        return false;
+    };
+    let Ok(Some(octets)) = parts.next_value() else {
+        return false;
+    };
+    octets.identifier == der::OCTET_STRING && octets.contents.iter().any(|byte| *byte != 0)
 }
 
 /// What one of §12.8.3.4.3 (f)'s attributes says about the certificate a signature verified under.
@@ -1914,6 +2142,334 @@ pub fn signing_certificate_bindings(cms: &SignedData<'_>) -> Vec<SigningCertific
         });
     }
     out
+}
+
+/// RFC 5280 section 6.1 over the signer of one `SignedData`, whatever carried it.
+///
+/// [`Signature::trust_for`] is this with §12.8.3's `/SubFilter` read first; the other caller is
+/// [`crate::timestamp`], which asks it about the authority that issued a time-stamp token found
+/// inside a signature. `anchors` having been checked for emptiness is the caller's, because a
+/// caller that has none has a shorter sentence to say than this function does.
+pub(crate) fn cms_trust(
+    cms: &SignedData<'_>,
+    anchors: &TrustAnchors<'_>,
+    material: &crate::revocation::Material<'_>,
+    at: Instant,
+    purpose: trust::Purpose,
+) -> Trust {
+    // §12.8.4's store and §12.8.3.3.2's signed attribute are one supply, and §12.8.4.2 is
+    // what puts the material in two places rather than one: "Some of this information, i.e.
+    // certificates, CRLs and OCSP responses, when not already present in the signature, shall
+    // be stored in a document security store (DSS)". So a verifier needs whichever the
+    // producer used — the caller supplies the store, and the signature carries its own.
+    let mut material = material.clone();
+    material.absorb(crate::revocation::archived(cms));
+    let Some(signer) = signer_certificate(cms) else {
+        return Trust::NoPathToAnyAnchor { examined: 0 };
+    };
+    let Ok(target) = x509::read(signer) else {
+        return Trust::NoPathToAnyAnchor { examined: 0 };
+    };
+    // Every certificate the object carries but the signer's own. A path may not hold one
+    // certificate twice (RFC 5280 section 6.1) and the target is already in it, so offering it
+    // again as a candidate issuer would only make the search reject it a second time.
+    let others: Vec<_> = cms
+        .certificates
+        .iter()
+        .filter_map(|entry| x509::read(*entry).ok())
+        .filter(|candidate| candidate.tbs != target.tbs)
+        .collect();
+    trust::validate_for(&target, &others, anchors, &material, at, purpose)
+}
+
+/// Where the bytes a `SignerInfo` signed come from, when the CMS object does not carry them.
+///
+/// RFC 5652 section 5.4 leaves three cases and [`authenticity_of`] treats all three the same way
+/// except this one: with signed attributes the signature is over those, with an encapsulated
+/// content and no attributes it is over that content, and with neither it is over something
+/// outside the object. What that something is depends on where the object came from.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Detached<'a> {
+    /// A document's own bytes — the `/ByteRange`'s halves, read a window at a time.
+    Document(&'a Signature, &'a FileBytes),
+    /// Nothing at all: a CMS object found *inside* another one, such as the time-stamp token in
+    /// §12.8.3.4.3 (b)'s unsigned attribute.
+    ///
+    /// RFC 3161 section 2.4.2 requires such a token to encapsulate its `TSTInfo`, so a token
+    /// reaching this arm is one whose signer states neither attributes nor content and has
+    /// therefore signed nothing this reader can name — which is a malformed object rather than a
+    /// signature over something unavailable.
+    Nothing,
+}
+
+impl<'a> Detached<'a> {
+    /// The digest of those bytes under `algorithm`.
+    fn digest(self, algorithm: Digest) -> Result<Vec<u8>, Authenticity> {
+        match self {
+            Self::Document(signature, file) => signature
+                .signed_digests(file, &[algorithm])
+                .map(|mut digests| digests.pop().unwrap_or_default())
+                .map_err(Authenticity::from),
+            Self::Nothing => Err(Authenticity::Unreadable(CmsError::MalformedSignedData)),
+        }
+    }
+
+    /// Those bytes themselves, which one construction needs — RFC 8032 signs the message.
+    fn bytes(self) -> Result<Vec<Cow<'a, [u8]>>, Authenticity> {
+        match self {
+            Self::Document(signature, file) => {
+                signature.signed_bytes(file).map_err(Authenticity::from)
+            }
+            Self::Nothing => Err(Authenticity::Unreadable(CmsError::MalformedSignedData)),
+        }
+    }
+}
+
+/// §12.8.1's question 2 over one `SignedData`, whatever carried it.
+///
+/// [`Signature::authenticity`] is this function with §12.8.3's `/SubFilter` read first; the other
+/// caller is [`crate::timestamp`], which asks it about a time-stamp token found inside a signature
+/// rather than about a document. **One function rather than two**, because the five verifying
+/// constructions and the order the steps are taken in are the same question wherever the object
+/// came from, and a second copy of them would be a second place for the pair of
+/// `signatureAlgorithm` and key to be matched wrongly.
+#[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per verifying construction, each a few lines of the same shape; \
+              splitting them apart would scatter the one match that keeps a signature \
+              algorithm and a key from being paired wrongly"
+)]
+pub(crate) fn authenticity_of(cms: &SignedData<'_>, detached: Detached<'_>) -> Authenticity {
+    let algorithm = cms.algorithm();
+    if let SignatureAlgorithm::Unrecognised(oid) = algorithm {
+        return Authenticity::AlgorithmNotVerifiable {
+            algorithm: name(oid),
+        };
+    }
+    let Some(certificate) = signer_certificate(cms) else {
+        return Authenticity::NoSignerCertificate {
+            certificates: cms.certificates.len(),
+        };
+    };
+    // §12.8.3.4.5 (a)'s first half, before the second: the step's two sentences are in this
+    // order — compare the certificate against the hash the signer signed, *then* "use the
+    // public key contained in the signer's certificate to verify that the document digest
+    // found in the signature is correctly signed" — and the order is the point. Verifying
+    // first and comparing after would mean a `Verified` existed for a moment over a
+    // certificate the signer never named.
+    for binding in signing_certificate_bindings(cms) {
+        match binding {
+            SigningCertificateBinding::Matches { .. } => {}
+            SigningCertificateBinding::Differs { version, digest } => {
+                return Authenticity::SigningCertificateMismatch { version, digest };
+            }
+            SigningCertificateBinding::Unreadable { version, error } => {
+                return Authenticity::SigningCertificateUnverifiable {
+                    version,
+                    statement: error.to_string(),
+                };
+            }
+            SigningCertificateBinding::CertificateNotDer { version } => {
+                return Authenticity::SigningCertificateUnverifiable {
+                    version,
+                    statement: "the signer's certificate is not written in DER, so the octets \
+                                RFC 5035 section 5.4.1.1 hashes are not the file's own"
+                        .to_owned(),
+                };
+            }
+            // Unreachable by construction — `signer_certificate` answered above — and
+            // reported rather than ignored, because the two call sites could drift apart.
+            SigningCertificateBinding::NoSignerCertificate { .. } => {
+                return Authenticity::NoSignerCertificate {
+                    certificates: cms.certificates.len(),
+                };
+            }
+        }
+    }
+    let certificate = match x509::read(certificate) {
+        Ok(certificate) => certificate,
+        Err(error) => return Authenticity::CertificateUnreadable(error),
+    };
+    if let x509::PublicKey::Unverifiable { algorithm } = certificate.public_key {
+        return Authenticity::KeyNotVerifiable {
+            algorithm: name(algorithm),
+        };
+    }
+    if let x509::PublicKey::EcCurveNotVerifiable { curve } = certificate.public_key {
+        return Authenticity::CurveNotVerifiable {
+            curve: curve_name(curve),
+        };
+    }
+    // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one
+    // proves. The digest *algorithm* is the one thing the constructions disagree about —
+    // PKCS #1 v1.5 and DSA take the `SignerInfo`'s own `digestAlgorithm`, while RSASSA-PSS
+    // is parameterised by the hash its `RSASSA-PSS-params` state — so what is signed is
+    // settled here and each arm below digests it with the algorithm its scheme names.
+    // RFC 5652 section 5.3's one DER region inside a BER structure, checked before it is
+    // digested: an indefinite length among the attributes means the bytes the signer signed
+    // are not the bytes this file holds, and the honest answer is a refusal by name rather
+    // than a digest over the wrong octets. See [`Authenticity::SignedAttributesNotDer`].
+    if let Some(contents) = cms.signed_attributes {
+        match der::every_length_is_definite(contents) {
+            Ok(true) => {}
+            Ok(false) => return Authenticity::SignedAttributesNotDer,
+            Err(error) => return Authenticity::Unreadable(CmsError::from(error)),
+        }
+    }
+    let attributes = cms.signed_attributes_encoding();
+    let over = match (&attributes, cms.encapsulated) {
+        (Some(_), _) => Signed::SignedAttributes,
+        (None, Some(_)) => Signed::EncapsulatedContent,
+        (None, None) => Signed::TheDocumentsBytes,
+    };
+    // What is in memory is digested in memory, and the document's own bytes are digested
+    // off the file a window at a time (ADR 0812): the signed attributes and the encapsulated
+    // content are a few hundred bytes of the CMS object already read, and the third case is
+    // every signed byte of the document, which is what `signed_digests` exists not to hold.
+    let in_memory: Option<&[u8]> = match (&attributes, cms.encapsulated) {
+        (Some(attributes), _) => Some(attributes.as_slice()),
+        (None, Some(content)) => Some(content),
+        (None, None) => None,
+    };
+    let compute = |algorithm: Digest| -> Result<Vec<u8>, Authenticity> {
+        match in_memory {
+            Some(bytes) => Ok(algorithm.compute(&[bytes])),
+            None => detached.digest(algorithm),
+        }
+    };
+    // The pair rather than either alone: a `SignerInfo` naming DSA over a certificate holding
+    // an RSA key is two claims by one producer that contradict each other, and picking the one
+    // to believe would be this program inventing a fact.
+    let (digest, family, verified) = match (algorithm, certificate.public_key) {
+        (SignatureAlgorithm::RsaPkcs1V15, x509::PublicKey::Rsa(key)) => {
+            let Some(digest) = cms.digest else {
+                return Authenticity::UnknownDigest {
+                    algorithm: name(cms.digest_algorithm),
+                };
+            };
+            let computed = match compute(digest) {
+                Ok(computed) => computed,
+                Err(answer) => return answer,
+            };
+            (
+                digest,
+                Family::Rsa,
+                pkcs1::verify(key, cms.signature, digest, &computed)
+                    .map_err(Authenticity::Refused)
+                    .map(|verified| (verified, key.bits())),
+            )
+        }
+        (SignatureAlgorithm::RsaPss, x509::PublicKey::Rsa(key)) => {
+            let parameters = match pss::parameters(cms.signature_algorithm_parameters) {
+                Ok(parameters) => parameters,
+                Err(problem) => return pss_parameter_answer(problem),
+            };
+            // RFC 8017 section 9.1.2 step 2's `mHash` is computed with the parameters' own
+            // hash — RFC 5652's `digestAlgorithm` describes the `message-digest` attribute,
+            // which is question 1's comparison, not this one's.
+            let computed = match compute(parameters.hash) {
+                Ok(computed) => computed,
+                Err(answer) => return answer,
+            };
+            (
+                parameters.hash,
+                Family::RsaPss,
+                pss::verify(key, cms.signature, parameters, &computed)
+                    .map_err(Authenticity::Refused)
+                    .map(|verified| (verified, key.bits())),
+            )
+        }
+        (SignatureAlgorithm::Dsa, x509::PublicKey::Dsa(key)) => {
+            let Some(digest) = cms.digest else {
+                return Authenticity::UnknownDigest {
+                    algorithm: name(cms.digest_algorithm),
+                };
+            };
+            let computed = match compute(digest) {
+                Ok(computed) => computed,
+                Err(answer) => return answer,
+            };
+            (
+                digest,
+                Family::Dsa,
+                dsa::verify(key, cms.signature, &computed)
+                    .map_err(Authenticity::RefusedDsa)
+                    .map(|verified| (verified, key.bits())),
+            )
+        }
+        (SignatureAlgorithm::Ecdsa, x509::PublicKey::Ec(key)) => {
+            let Some(digest) = cms.digest else {
+                return Authenticity::UnknownDigest {
+                    algorithm: name(cms.digest_algorithm),
+                };
+            };
+            let computed = match compute(digest) {
+                Ok(computed) => computed,
+                Err(answer) => return answer,
+            };
+            (
+                digest,
+                Family::Ecdsa(key.curve),
+                ecdsa::verify(key, cms.signature, &computed)
+                    .map_err(Authenticity::RefusedEcdsa)
+                    .map(|verified| (verified, key.curve.bits())),
+            )
+        }
+        (SignatureAlgorithm::EdDsa, x509::PublicKey::Ed25519(key)) => {
+            // The digest is reported rather than used: ISO/TS 32002 Table 4 pairs Ed25519 with
+            // SHA512, which is what question 1's `message-digest` attribute was computed with,
+            // and RFC 8032's signature is over the message itself.
+            let Some(digest) = cms.digest else {
+                return Authenticity::UnknownDigest {
+                    algorithm: name(cms.digest_algorithm),
+                };
+            };
+            // The one construction that takes the message rather than a digest of it, so
+            // the one place the signed bytes are held whole: RFC 8032 hashes `R ‖ A ‖ M`
+            // inside the verification, and a signature over the document's own bytes with
+            // no signed attributes puts the whole document in `M`.
+            let resident;
+            let parts: Vec<&[u8]> = if let Some(bytes) = in_memory {
+                vec![bytes]
+            } else {
+                resident = match detached.bytes() {
+                    Ok(pieces) => pieces,
+                    Err(answer) => return answer,
+                };
+                resident.iter().map(AsRef::as_ref).collect()
+            };
+            (
+                digest,
+                Family::EdDsa,
+                eddsa::verify(key, cms.signature, &parts)
+                    .map_err(Authenticity::RefusedEdDsa)
+                    // RFC 8032 section 5.1: `b` is 256 for Ed25519, so the key is 32 octets.
+                    .map(|verified| (verified, 256)),
+            )
+        }
+        _ => {
+            return Authenticity::KeyDoesNotMatchAlgorithm {
+                algorithm: name(cms.signature_algorithm),
+                key: key_algorithm_name(&certificate),
+            };
+        }
+    };
+    match verified {
+        Ok((true, key_bits)) => Authenticity::Verified {
+            digest,
+            family,
+            key_bits,
+            over,
+        },
+        Ok((false, key_bits)) => Authenticity::NotUnderThatKey {
+            digest,
+            family,
+            key_bits,
+            over,
+        },
+        Err(answer) => answer,
+    }
 }
 
 /// The certificate a `SignerInfo` names, among the ones the CMS object carries.
@@ -3376,8 +3932,9 @@ fn census(document: &Document) -> Vec<(String, i64)> {
 mod tests {
     use super::{
         Authenticity, Coverage, Excluded, Family, Integrity, Modification, PadesDeparture,
-        ReferenceDigest, Signature, Signed, SignedEnd, SigningCertificateBinding, ess, legal,
-        permissions, security_store, signatures, signing_certificate_bindings,
+        PadesProfile, ProfileAttribute, ReferenceDigest, Signature, Signed, SignedEnd,
+        SigningCertificateBinding, ess, legal, permissions, security_store, signatures,
+        signing_certificate_bindings,
     };
     use crate::cms::{Digest, fixtures};
     use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
@@ -5031,10 +5588,10 @@ mod tests {
             Digest::Sha256,
             fixtures::pades_departing,
         );
-        let (_, signature) = only_signature(&departing);
+        let (document, signature) = only_signature(&departing);
         let cms = signature.signed_data().expect("a SignedData");
         assert_eq!(
-            signature.pades_departures(&cms, departing.len() as u64),
+            signature.pades_departures(&cms, document.bytes()),
             vec![
                 // (f), and then (i)'s four in the clause's own order — two stated among the
                 // signed attributes and two among the unsigned.
@@ -5051,13 +5608,195 @@ mod tests {
         let conforming = signed_document("ETSI.CAdES.detached", "", Digest::Sha256, |digest| {
             fixtures::pades_conforming(digest, &[0xAA; 32])
         });
-        let (_, signature) = only_signature(&conforming);
+        let (document, signature) = only_signature(&conforming);
         let cms = signature.signed_data().expect("a SignedData");
         assert_eq!(
-            signature.pades_departures(&cms, conforming.len() as u64),
+            signature.pades_departures(&cms, document.bytes()),
             Vec::new(),
             "every rule this fixture meets has to be silent, or the four above prove nothing"
         );
+    }
+
+    /// One case per rule §12.8.3.4.3 (b), (c), (h) and (j) and §12.8.3.4.4 state by reference, and
+    /// the departure each has to produce.
+    ///
+    /// A table rather than a body, so that adding a rule is a line here, and so that the list can
+    /// be read beside the clauses it comes from: ETSI EN 319 122-1's 5.2.5, 5.2.6.1, 5.2.8, 5.2.9.1
+    /// and 5.3, and ETSI EN 319 122-2's Table 1.
+    const REFERENCE_RULES: &[(fixtures::Referring, PadesDeparture)] = &[
+        (
+            fixtures::Referring::TimestampSigned,
+            PadesDeparture::SignatureTimestampIsSigned,
+        ),
+        (
+            fixtures::Referring::TimestampTwoValues,
+            PadesDeparture::SignatureTimestampNotOneValue,
+        ),
+        (
+            fixtures::Referring::TimestampOverSomethingElse,
+            PadesDeparture::SignatureTimestampNotOverTheSignature,
+        ),
+        (
+            fixtures::Referring::SignerLocationUnsigned,
+            PadesDeparture::SignerLocationIsUnsigned,
+        ),
+        (
+            fixtures::Referring::SignerLocationTwoValues,
+            PadesDeparture::SignerLocationNotOneValue,
+        ),
+        (
+            fixtures::Referring::SignerLocationEmpty,
+            PadesDeparture::SignerLocationEmpty,
+        ),
+        (
+            fixtures::Referring::ContentTimestampUnsigned,
+            PadesDeparture::ContentTimestampIsUnsigned,
+        ),
+        (
+            fixtures::Referring::ContentTimestampTwoValues,
+            PadesDeparture::ContentTimestampNotOneValue,
+        ),
+        (
+            fixtures::Referring::ContentTimestampOverSomethingElse,
+            PadesDeparture::ContentTimestampNotOverTheSignedBytes,
+        ),
+        (
+            fixtures::Referring::ContentTimestampUnreadable,
+            PadesDeparture::ContentTimestampUnreadable,
+        ),
+        (
+            fixtures::Referring::SignerAttributesUnsigned,
+            PadesDeparture::SignerAttributesIsUnsigned,
+        ),
+        (
+            fixtures::Referring::SignerAttributesTwoValues,
+            PadesDeparture::SignerAttributesNotOneValue,
+        ),
+        (
+            fixtures::Referring::SignerAttributesEmpty,
+            PadesDeparture::SignerAttributesEmpty,
+        ),
+        (
+            fixtures::Referring::SignerAttributesEmptyCertified,
+            PadesDeparture::SignerAttributesEmpty,
+        ),
+        (
+            fixtures::Referring::SigningTimeTwice,
+            PadesDeparture::AttributeStatedMoreThanOnce(ProfileAttribute::SigningTime),
+        ),
+        (
+            fixtures::Referring::BothSigningCertificates,
+            PadesDeparture::BothSigningCertificateAttributes,
+        ),
+        (
+            fixtures::Referring::SigningCertificateV2StatesSha1,
+            PadesDeparture::SigningCertificateV2StatesSha1,
+        ),
+        (
+            fixtures::Referring::PolicyStoreAlone,
+            PadesDeparture::PolicyStoreWithoutPolicyDigest,
+        ),
+        (
+            fixtures::Referring::PolicyStoreWithZeroHash,
+            PadesDeparture::PolicyStoreWithoutPolicyDigest,
+        ),
+        (
+            fixtures::Referring::PolicyImplied,
+            PadesDeparture::SignaturePolicyImplied,
+        ),
+        (
+            fixtures::Referring::PolicyUnsigned,
+            PadesDeparture::SignaturePolicyIdentifierIsUnsigned,
+        ),
+    ];
+
+    /// **§12.8.3.4.3 (b), (c) and (j), and §12.8.3.4.4 — the rules this standard states only by
+    /// naming a clause of somebody else's.**
+    ///
+    /// Each of the three says what attribute it is about and then hands the rule over: (b) to ETSI
+    /// EN 319 122-1 clause 5.3, (c) to its clause 5.2.8, (j) to its clause 5.2.6.1; §12.8.3.4.4
+    /// defines its two profiles "to be compatible with the corresponding profiles defined in ETSI
+    /// EN 319 122-2", whose Table 1 is where each attribute's cardinality is. Those clauses state
+    /// their rules in the same three parts every time — which attribute set the attribute belongs
+    /// in, that its `SET OF AttributeValue` holds one component, and what its value has to be — and
+    /// every part is decidable from the file.
+    ///
+    /// **One case per rule, and one fixture that meets all of them** (trap 13). The conforming
+    /// fixture states every attribute the cases deform — a signature timestamp, a content
+    /// timestamp, `signer-attributes-v2`, a policy identifier and a policy store — so a rule that
+    /// went quiet could not hide behind an attribute the fixture does not carry.
+    #[test]
+    fn a_pades_signature_is_held_to_the_rules_its_clause_states_by_reference() {
+        use fixtures::Referring as R;
+        let departures = |case: R, extra: &str| {
+            let bytes = signed_document("ETSI.CAdES.detached", extra, Digest::Sha256, |digest| {
+                fixtures::pades_referring(digest, &[0xAA; 32], case)
+            });
+            let (document, signature) = only_signature(&bytes);
+            let cms = signature.signed_data().expect("a SignedData");
+            signature.pades_departures(&cms, document.bytes())
+        };
+        assert_eq!(
+            departures(R::Conforming, ""),
+            Vec::new(),
+            "the calibration: every rule below has to be silent here, or none of them proves \
+             anything about the cases that follow"
+        );
+        for (case, expected) in REFERENCE_RULES.iter().copied() {
+            let found = departures(case, "");
+            assert!(
+                found.contains(&expected),
+                "{case:?} has to produce {expected:?}, and produced {found:?}"
+            );
+        }
+        // §12.8.3.4.4's own rule, which is the one in this test that needs no other document: the
+        // attribute and the entry each say why the signer signed, and the clause admits one.
+        assert!(
+            departures(R::Conforming, "/Reason (because)")
+                .contains(&PadesDeparture::CommitmentTypeAndReason),
+            "a commitment-type-indication beside a /Reason entry is what §12.8.3.4.4 forbids"
+        );
+    }
+
+    /// §12.8.3.4.4's two profiles, told apart the way both documents say they are told apart.
+    ///
+    /// ETSI EN 319 122-2 clause 4.3: the explicit-policy profile is the basic one with one
+    /// `signature-policy-identifier` attribute added. §12.8.3.4.4 states the same thing from the
+    /// other side, requiring that attribute "as a signed attribute" of the `PAdES-E-EPES` profile —
+    /// so the unsigned case is a departure rather than a profile, and this asserts both halves.
+    #[test]
+    fn a_pades_signature_states_which_of_the_two_profiles_it_follows() {
+        use fixtures::Referring as R;
+        let profile = |case: R| {
+            let bytes = signed_document("ETSI.CAdES.detached", "", Digest::Sha256, |digest| {
+                fixtures::pades_referring(digest, &[0xAA; 32], case)
+            });
+            let (_, signature) = only_signature(&bytes);
+            let cms = signature.signed_data().expect("a SignedData");
+            signature.pades_profile(&cms)
+        };
+        assert_eq!(
+            profile(R::Conforming),
+            Some(PadesProfile::ExplicitPolicyElectronicSignature)
+        );
+        assert_eq!(
+            profile(R::PolicyStoreAlone),
+            Some(PadesProfile::BasicElectronicSignature),
+            "no policy identifier at all is the basic profile"
+        );
+        assert_eq!(
+            profile(R::PolicyUnsigned),
+            Some(PadesProfile::BasicElectronicSignature),
+            "an unsigned one does not make the explicit-policy profile — §12.8.3.4.4 asks for a \
+             signed attribute, and the unsigned one is reported as a departure instead"
+        );
+        // §12.8.3.4.1 scopes the whole subclause to one sub-filter, so nothing else has a profile.
+        let other = signed_document("adbe.pkcs7.detached", "", Digest::Sha256, |digest| {
+            fixtures::pades_referring(digest, &[0xAA; 32], R::Conforming)
+        });
+        let (_, signature) = only_signature(&other);
+        let cms = signature.signed_data().expect("a SignedData");
+        assert_eq!(signature.pades_profile(&cms), None);
     }
 
     /// §12.8.3.4.3 (h): the attribute and the entry are permitted apart and not together.
@@ -5079,9 +5818,9 @@ mod tests {
                     fixtures::pades_conforming(digest, &[0xAA; 32])
                 }
             });
-            let (_, signature) = only_signature(&bytes);
+            let (document, signature) = only_signature(&bytes);
             let cms = signature.signed_data().expect("a SignedData");
-            signature.pades_departures(&cms, bytes.len() as u64)
+            signature.pades_departures(&cms, document.bytes())
         };
         assert_eq!(
             departures("/Location (Zurich)", true),
@@ -5204,12 +5943,15 @@ mod tests {
     /// is the calibration — the same fixture with one, and the departure gone.
     #[test]
     fn a_pades_signature_is_held_to_the_rules_that_need_no_certificate() {
-        let bytes = signed_document(
+        // One byte past the end of what `/ByteRange` names — a LINE FEED after `%%EOF`, which
+        // §7.5.5 permits a file to end with and which the range therefore leaves unsigned.
+        let mut bytes = signed_document(
             "ETSI.CAdES.detached",
             "/M (D:20260807000000Z) /Cert <00>",
             Digest::Sha256,
             fixtures::detached,
         );
+        bytes.push(b'\n');
         let (document, signature) = only_signature(&bytes);
         let cms = signature.signed_data().expect("a SignedData");
         assert_eq!(
@@ -5219,9 +5961,8 @@ mod tests {
             },
             "the digest is right; what follows is about the structure around it"
         );
-        // One byte longer than the file the range describes, so the range stops short of the end.
         assert_eq!(
-            signature.pades_departures(&cms, bytes.len() as u64 + 1),
+            signature.pades_departures(&cms, document.bytes()),
             vec![
                 PadesDeparture::RangeDoesNotCoverTheFile,
                 PadesDeparture::CertEntryPresent,
@@ -5232,17 +5973,18 @@ mod tests {
 
         // And an `adbe.pkcs7.detached` signature with the same three faults has none of these
         // departures, because §12.8.3.4.1 scopes the whole subclause to ETSI.CAdES.detached.
-        let other = signed_document(
+        let mut other = signed_document(
             "adbe.pkcs7.detached",
             "/M (D:20260807000000Z) /Cert <00>",
             Digest::Sha256,
             fixtures::detached,
         );
-        let (_, other_signature) = only_signature(&other);
+        other.push(b'\n');
+        let (other_document, other_signature) = only_signature(&other);
         let other_cms = other_signature.signed_data().expect("a SignedData");
         assert!(
             other_signature
-                .pades_departures(&other_cms, other.len() as u64 + 1)
+                .pades_departures(&other_cms, other_document.bytes())
                 .is_empty()
         );
     }

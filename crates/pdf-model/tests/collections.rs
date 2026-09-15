@@ -30,7 +30,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_model::collection::{Collection, embedded_file_keys, folder_of, is_file_name};
+use pdf_model::collection::{Collection, View, embedded_file_keys, folder_of, is_file_name};
 use pdf_syntax::{Document, Object, ObjectId};
 
 /// A `doc/corpora/format-corpus` document, or `None` when that optional submodule is not there.
@@ -171,6 +171,7 @@ fn a_producers_own_portable_collection_is_read_with_its_folders() {
     );
     println!("keys naming a folder: {filed:?}");
     println!("names the clause restricts: {:?}", collection.invalid_names);
+    println!("navigator: {:?}", collection.navigator);
 
     assert_eq!(
         collection.schema.len(),
@@ -190,6 +191,25 @@ fn a_producers_own_portable_collection_is_read_with_its_folders() {
         keys.iter()
             .all(|key| is_file_name(key) || folder_of(key).is_some()),
         "every key is either a plain file name or a §12.3.5.2 folder identifier: {keys:?}"
+    );
+
+    // **This producer's navigator is the one ISO 32000-2 replaced**, which is a fact about a file
+    // and not about a fixture. Table 160 makes `/Layout` required and this dictionary states not
+    // one of Table 160's entries: it is Adobe's SWF navigator — `/LoadType /Module` with a `/SWF`
+    // and an `/APIVersion` — under a `/View /C` that makes the navigator the presentation. So
+    // §12.3.6's selection rule has nothing to select from, which is the case
+    // `viewer_host::panel::unsupported_presentation` reports rather than drawing something else in
+    // silence.
+    assert_eq!(
+        collection.view,
+        View::Navigator,
+        "this document asks for Table 153's `/View C`"
+    );
+    assert_eq!(
+        collection.navigator.as_ref().map(|it| it.layouts.len()),
+        Some(0),
+        "a navigator stating none of Table 160's named layouts: {:?}",
+        collection.navigator
     );
 
     // **A producer breaks one of the six**, which is the thing a hand-built fixture could never

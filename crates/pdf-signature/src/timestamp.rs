@@ -392,6 +392,95 @@ pub fn signature_timestamp(
     Some(read_signature_timestamp(cms, attribute))
 }
 
+/// §12.8.3.4.8's instant: what this program established about a signature timestamp's own token.
+///
+/// The clause's first sentence is what asks for this — "[w]hen a timestamp token is already present
+/// in the CAdES signature as a signature timestamp attribute (it is an unsigned attribute), the
+/// signer's signature shall be verified at the UTC time in the past indicated in that token" — and
+/// the phrase that had held it back is *indicated in that token*: an instant a token merely states
+/// is a number a stranger wrote, and validating a certification path at it would let the file
+/// choose the moment it is judged at. So the same four steps a document timestamp goes through
+/// ([`established`]) are applied here, over the token inside the attribute rather than over a
+/// `/DocTimeStamp` dictionary's value. `None` where the signature states no such attribute.
+///
+/// Two differences from [`established`], both of them the attribute's rather than this function's:
+///
+/// - **there is no document behind the token.** RFC 3161 section 2.4.2 requires a token to
+///   encapsulate its `TSTInfo`, so step 3 has the message in hand, and a token without one is
+///   refused by name rather than treated as a signature over something unavailable;
+/// - **what the token is *about* is not the document either.** ETSI EN 319 122-1 clause 5.3 puts
+///   the imprint over the `SignerInfo`'s `signature` field, so whether this token is about *this*
+///   signature is [`SignatureTimestamp::covers_the_signature`] and is a separate question from
+///   whether it asserts an instant at all. A caller taking §12.8.3.4.8's step needs both: an
+///   established instant from a token about some other signature is not this signature's past.
+///
+/// `asked_at` is RFC 5280 section 6.1.1's input (b) for the *authority's* path. §12.8.3.4.8 does
+/// not say what it should be, and this function does not choose: the caller says, exactly as
+/// [`established`] makes the document-timestamp caller say, and [`AskedAt`] reports which it was.
+#[must_use]
+pub fn signature_timestamp_established(
+    cms: &SignedData<'_>,
+    anchors: &TrustAnchors<'_>,
+    material: &Material<'_>,
+    asked_at: AskedAt,
+) -> Option<Time> {
+    let attribute = cms.signature_timestamp?;
+    // Step 1.
+    let Ok(token) = crate::cms::signed_data(attribute.encoding()) else {
+        return Some(Time::Unknown(Unestablished::TokenUnreadable(
+            TokenRefusal::NoEncapsulatedContent,
+        )));
+    };
+    let info = match token_of(&token) {
+        Ok(info) => info,
+        Err(refusal) => return Some(Time::Unknown(Unestablished::TokenUnreadable(refusal))),
+    };
+    // Step 2, on [`established`]'s rule and for its reason.
+    if token.signed_attributes.is_some() {
+        let Some(recorded) = token.message_digest else {
+            return Some(Time::Unknown(Unestablished::NoMessageDigestAttribute));
+        };
+        let Some(algorithm) = token.digest else {
+            return Some(Time::Unknown(Unestablished::TokenUnreadable(
+                TokenRefusal::ImprintDigestUnknown,
+            )));
+        };
+        if algorithm.compute(&[token.encapsulated.unwrap_or_default()]) != recorded {
+            return Some(Time::Unknown(Unestablished::ContentNotBoundToTheSignature));
+        }
+    }
+    // Step 3.
+    let authenticity = signature::authenticity_of(&token, signature::Detached::Nothing);
+    if !matches!(authenticity, Authenticity::Verified { .. }) {
+        return Some(Time::Unknown(Unestablished::SignatureNotVerified(
+            Box::new(authenticity),
+        )));
+    }
+    // Step 4, with RFC 3161 section 2.3's purpose for the reason `established` states.
+    if anchors.is_empty() {
+        return Some(Time::Unknown(Unestablished::AuthorityNotEstablished(
+            Trust::NoAnchorSupplied,
+        )));
+    }
+    Some(
+        match signature::cms_trust(
+            &token,
+            anchors,
+            material,
+            asked_at.instant(),
+            Purpose::TimeStamping,
+        ) {
+            Trust::Anchored { revocation, .. } => Time::Established {
+                at: info.gen_time,
+                accuracy: info.accuracy,
+                revocation,
+                asked_at,
+            },
+            other => Time::Unknown(Unestablished::AuthorityNotEstablished(other)),
+        },
+    )
+}
+
 /// [`signature_timestamp`]'s body, with the `?` on a `Result` rather than on an `Option`.
 fn read_signature_timestamp(
     cms: &SignedData<'_>,

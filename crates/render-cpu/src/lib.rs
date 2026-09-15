@@ -19,6 +19,7 @@
 
 #![forbid(unsafe_code)]
 
+mod area;
 mod blend;
 mod convert;
 mod images;
@@ -4238,8 +4239,12 @@ impl MaskCache {
                 value: None,
             }));
         };
+        // One accumulator for the whole chain, on [`scan::Scratch`]'s own terms: `crate::area`
+        // clears it per mark and grows it to the largest the chain holds.
+        let mut cells: Vec<f32> = Vec::new();
         scan::mask_fill(
             &mut mask,
+            &mut cells,
             &root.path,
             root.fill_rule,
             self.anti_alias,
@@ -4259,7 +4264,7 @@ impl MaskCache {
             for shape in nested {
                 scan::mask_intersect(
                     &mut mask,
-                    &mut scratch,
+                    (&mut scratch, &mut cells),
                     &shape.path,
                     shape.fill_rule,
                     self.anti_alias,

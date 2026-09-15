@@ -1505,9 +1505,20 @@ ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today `not-built-yet`
   *accept our own schema, described or not, and nobody else's*.
 
 #### `metadata/extension-schema-container-fields`
-ISO 19005-2 6.6.2.3.3 · PDF/A-2b, 2u, 2a · today `not-built-yet`
+ISO 19005-2 6.6.2.3.3 · PDF/A-2b, 2u, 2a · today **mechanical for a misspelled field**, `not-built-yet`
+for an absent one
 
-- **Mitigation** — **none that keeps the description honest.** What is missing is a name for the
+- **Mitigation** — **the subclause asks two different things and only one of them is about content.**
+  A field the packet *states*, in the field namespace its table gives it, and spells with another
+  prefix is a file that already says what the clause asks for: section 6.6.2.2 makes a prefix mean
+  nothing *except* where one is identified as required, and these four tables identify one. So the
+  packet is respelled in place — the prefix tokens and the declaration that bound the old prefix,
+  nothing else — and the decision is `Decision::Mechanical`, no loss and no question to anybody. ADR
+  1087 and `pdf_model::xmp::respell` are the writer; `pdf_archive::extension_container_fields`
+  separates the two kinds of fault, so the converter cuts exactly what the requirement's own row
+  reported.
+  **For a field that is absent there is still none that keeps the description honest.** What is
+  missing is a name for the
   schema, a description of what a property means, or the category saying whether a value is derived
   from the document or supplied from outside it, and none of those is anywhere in the file.
   Supplying one is writing metadata about metadata that nobody produced. Two real answers remain and

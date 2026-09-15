@@ -10,7 +10,9 @@
 //!
 //! Nothing here is an error and nothing here stops a document opening.
 
-use pdf_signature::signature::{PadesDeparture, ReferenceDigest, SigningCertificateBinding};
+use pdf_signature::signature::{
+    PadesDeparture, PadesProfile, ReferenceDigest, SigningCertificateBinding,
+};
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
@@ -462,12 +464,34 @@ fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<S
     let length = document.bytes().len() as u64;
     let timestamps = standing(&chain);
     for (index, signature) in signatures.iter().enumerate() {
-        let established = established_over(&chain, index);
+        // §12.8.3.4.5 (b) names three ways a signature may be verified against a time other than
+        // the current one — the security store, a document timestamp, and "a signature timestamp
+        // … present in the signature as an unsigned attribute" — and states no order among them.
+        // §12.8.4.2 settles the second and §12.8.3.4.8's first sentence settles the third, so the
+        // chain is asked first because it is a statement about the *document* and the attribute
+        // second because it is a statement about one signature. Both are instants only once an
+        // authority is established, which is a host's anchor away (ADR 1039).
+        let established = established_over(&chain, index)
+            .map(|at| (at, "a document timestamp over it established (§12.8.4.2)"))
+            .or_else(|| {
+                signature_timestamps_instant(
+                    signature,
+                    &reading.anchors,
+                    &material,
+                    trust.anchors.at(),
+                )
+                .map(|at| {
+                    (
+                        at,
+                        "this signature's own timestamp attribute established (§12.8.3.4.8)",
+                    )
+                })
+            });
         let asked = Asked {
             anchors: &reading.anchors,
             material: &material,
-            at: established.unwrap_or_else(|| trust.anchors.at()),
-            from_a_token: established.is_some(),
+            at: established.map_or_else(|| trust.anchors.at(), |(at, _)| at),
+            from_a_token: established.map(|(_, source)| source),
             acceptance: trust.acceptance,
             timestamps,
         };
@@ -523,8 +547,11 @@ struct Asked<'a> {
     material: &'a pdf_signature::revocation::Material<'a>,
     /// Section 6.1.1's input (b), and which instant it is depends on the document.
     at: pdf_signature::x509::Instant,
-    /// Whether [`Self::at`] came from a document timestamp rather than from the host's clock.
-    from_a_token: bool,
+    /// Where [`Self::at`] came from, where it is not the host's clock — the sentence naming it.
+    ///
+    /// §12.8.3.4.5 (b) admits three sources for a past instant and this says which one answered,
+    /// because a reader told a path was validated is owed *as of when* and *on whose word*.
+    from_a_token: Option<&'static str>,
     /// What the host will accept where the material answers nothing.
     acceptance: pdf_signature::verdict::Acceptance,
     /// What §12.8.5's chain contributes, computed once for the document.
@@ -574,6 +601,50 @@ fn established_over(
             pdf_signature::timestamp::Time::Established { at, .. } => Some(at),
             _ => None,
         })
+}
+
+/// The instant a signature's own timestamp attribute establishes, where it carries one.
+///
+/// §12.8.3.4.8:
+///
+/// > When a timestamp token is already present in the CAdES signature as a signature timestamp
+/// > attribute (it is an unsigned attribute), the signer's signature shall be verified at the UTC
+/// > time in the past indicated in that token.
+///
+/// Two conditions, not one, and ETSI EN 319 122-1 clause 5.3 is why the second exists: the clause
+/// puts the token's imprint over the `SignerInfo`'s `signature` field, so a token whose imprint is
+/// a digest of something else is a statement about a different signature and says nothing about
+/// this one's past. `None` unless the token both establishes an instant and is about this
+/// signature — which, with no anchor supplied, is every document in this tree.
+///
+/// **`AskedAt::TheCallersInstant` is the authority's own path being asked about *now*.** The
+/// reasoning `pdf_signature::timestamp::AskedAt` records for a document timestamp does not reach
+/// here: there is no later token in the file that established this one, so there is nothing to ask
+/// it at but the moment the question is being put.
+fn signature_timestamps_instant(
+    signature: &pdf_signature::signature::Signature,
+    anchors: &pdf_signature::trust::TrustAnchors<'_>,
+    material: &pdf_signature::revocation::Material<'_>,
+    now: pdf_signature::x509::Instant,
+) -> Option<pdf_signature::x509::Instant> {
+    let cms = signature.signed_data().ok()?;
+    if !pdf_signature::timestamp::signature_timestamp(&cms)?
+        .ok()?
+        .covers_the_signature
+    {
+        return None;
+    }
+    match pdf_signature::timestamp::signature_timestamp_established(
+        &cms,
+        anchors,
+        material,
+        pdf_signature::timestamp::AskedAt::TheCallersInstant(now),
+    )? {
+        pdf_signature::timestamp::Time::Established { at, .. } => Some(at),
+        // Every other answer, including one a later build adds: an instant is established or it is
+        // not, and a variant this build has no name for is not a reason to believe a `genTime`.
+        _ => None,
+    }
 }
 
 /// Where the anchors came from, said once, beside every verdict that rests on them.
@@ -1081,7 +1152,17 @@ fn about_one(
                     ),
                 });
             }
-            for departure in signature.pades_departures(&cms, length) {
+            for departure in signature.pades_departures(&cms, document.bytes()) {
+                // The one departure that names an attribute rather than a rule, worded before the
+                // match so that every arm of it can be a sentence rather than a `Cow`.
+                let repeated = match departure {
+                    PadesDeparture::AttributeStatedMoreThanOnce(attribute) => format!(
+                        "ETSI EN 319 122-2 Table 1, which §12.8.3.4.4's two profiles are defined \
+                         against, admits at most one {} attribute, and this signature states more",
+                        attribute.name()
+                    ),
+                    _ => String::new(),
+                };
                 notes.push(format!(
                     "that signature states /SubFilter /ETSI.CAdES.detached, and {}",
                     match departure {
@@ -1111,6 +1192,103 @@ fn about_one(
                             "§12.8.3.4.3 (i) says a content-identifier attribute shall not be used",
                         PadesDeparture::ContentHints =>
                             "§12.8.3.4.3 (i) says a content-hints attribute shall not be used",
+                        // (b), (c) and (j) each state their rule by naming a clause of ETSI
+                        // EN 319 122-1 and stating nothing themselves, so every sentence below
+                        // names both documents: the one that placed the requirement on a PDF, and
+                        // the one that says what the requirement is.
+                        PadesDeparture::SignatureTimestampIsSigned =>
+                            "§12.8.3.4.3 (b) hands its signature timestamp to ETSI EN 319 122-1 \
+                             clause 5.3, which makes that attribute an unsigned one, and this \
+                             signature states it among its signed attributes",
+                        PadesDeparture::SignatureTimestampNotOneValue =>
+                            "§12.8.3.4.3 (b)'s ETSI EN 319 122-1 clause 5.3 gives its signature \
+                             timestamp attribute exactly one AttributeValue, and this one holds a \
+                             different number",
+                        PadesDeparture::SignatureTimestampNotOverTheSignature =>
+                            "§12.8.3.4.3 (b)'s ETSI EN 319 122-1 clause 5.3 puts the token's \
+                             imprint over the SignerInfo's signature field, and this token's \
+                             imprint is a digest of something else",
+                        PadesDeparture::SignerLocationIsUnsigned =>
+                            "§12.8.3.4.3 (h) hands signer-location to ETSI EN 319 122-1 clause \
+                             5.2.5, which makes that attribute a signed one, and this signature \
+                             states it among its unsigned attributes",
+                        PadesDeparture::SignerLocationNotOneValue =>
+                            "§12.8.3.4.3 (h)'s ETSI EN 319 122-1 clause 5.2.5 gives signer-location \
+                             exactly one AttributeValue, and this one holds a different number",
+                        PadesDeparture::SignerLocationEmpty =>
+                            "§12.8.3.4.3 (h)'s ETSI EN 319 122-1 clause 5.2.5 requires a \
+                             signer-location to name a country, a locality or a postal address, \
+                             and this one names none of the three",
+                        PadesDeparture::ContentTimestampIsUnsigned =>
+                            "§12.8.3.4.3 (c) hands its content timestamp to ETSI EN 319 122-1 \
+                             clause 5.2.8, which makes that attribute a signed one, and this \
+                             signature states it among its unsigned attributes",
+                        PadesDeparture::ContentTimestampNotOneValue =>
+                            "§12.8.3.4.3 (c)'s ETSI EN 319 122-1 clause 5.2.8 gives its content \
+                             timestamp attribute exactly one AttributeValue, and this one holds a \
+                             different number",
+                        PadesDeparture::ContentTimestampNotOverTheSignedBytes =>
+                            "§12.8.3.4.3 (c)'s ETSI EN 319 122-1 clause 5.2.8 puts the token's \
+                             imprint over the external data of a detached signature, which here \
+                             is what /ByteRange covers, and this token's imprint is a digest of \
+                             something else",
+                        PadesDeparture::ContentTimestampUnreadable =>
+                            "that signature states §12.8.3.4.3 (c)'s content timestamp attribute \
+                             and this program will not read what is in it, so ETSI EN 319 122-1 \
+                             clause 5.2.8's imprint rule was not applied to it",
+                        PadesDeparture::SignerAttributesIsUnsigned =>
+                            "§12.8.3.4.3 (j) hands signer-attributes-v2 to ETSI EN 319 122-1 \
+                             clause 5.2.6.1, which makes that attribute a signed one, and this \
+                             signature states it among its unsigned attributes",
+                        PadesDeparture::SignerAttributesNotOneValue =>
+                            "§12.8.3.4.3 (j)'s ETSI EN 319 122-1 clause 5.2.6.1 gives \
+                             signer-attributes-v2 exactly one AttributeValue, and this one holds \
+                             a different number",
+                        PadesDeparture::SignerAttributesEmpty =>
+                            "§12.8.3.4.3 (j)'s ETSI EN 319 122-1 clause 5.2.6.1 forbids an empty \
+                             signer-attributes-v2, and this one states no attribute at all",
+                        PadesDeparture::CommitmentTypeAndReason =>
+                            "§12.8.3.4.4 says that where a commitment-type-indication attribute \
+                             is present a /Reason entry shall not be used, and this signature \
+                             states both",
+                        PadesDeparture::BothSigningCertificateAttributes =>
+                            "ETSI EN 319 122-2 Table 1, which §12.8.3.4.4's two profiles are \
+                             defined against, admits one of §12.8.3.4.3 (f)'s two attributes, and \
+                             this signature states both",
+                        PadesDeparture::PolicyStoreWithoutPolicyDigest =>
+                            "ETSI EN 319 122-2 Table 1's requirement (c) admits a \
+                             signature-policy-store only beside a signature-policy-identifier \
+                             carrying the policy document's digest, and this signature has none",
+                        PadesDeparture::SignaturePolicyImplied =>
+                            "ETSI EN 319 122-1 clause 5.2.9.1 forbids the signaturePolicyImplied \
+                             alternative, and this signature's signature-policy-identifier is it",
+                        PadesDeparture::SignaturePolicyIdentifierIsUnsigned =>
+                            "§12.8.3.4.4 requires a signature-policy-identifier as a signed \
+                             attribute, and this signature states it among its unsigned ones",
+                        PadesDeparture::SigningCertificateV2StatesSha1 =>
+                            "ETSI EN 319 122-2 Table 1's requirement (a) reserves SHA-1 for the \
+                             signing-certificate attribute, and this signature's \
+                             signing-certificate-v2 states it",
+                        PadesDeparture::AttributeStatedMoreThanOnce(_) => repeated.as_str(),
+                    }
+                ));
+            }
+            // §12.8.3.4.4's profiles, said whether or not anything departs from them: which of the
+            // two a signature follows decides which of ETSI EN 319 122-2 Table 1's columns its
+            // attributes were read against, and a reader of the departures above needs to know
+            // which column that was.
+            if let Some(profile) = signature.pades_profile(&cms) {
+                notes.push(format!(
+                    "that signature presents itself as §12.8.3.4.4's {}, because it states {} \
+                     signature-policy-identifier among its signed attributes",
+                    match profile {
+                        PadesProfile::BasicElectronicSignature => "PAdES-E-BES profile",
+                        PadesProfile::ExplicitPolicyElectronicSignature => "PAdES-E-EPES profile",
+                        _ => "profile this build has no name for",
+                    },
+                    match profile {
+                        PadesProfile::ExplicitPolicyElectronicSignature => "a",
+                        _ => "no",
                     }
                 ));
             }
@@ -1277,15 +1455,12 @@ fn verdicts(
     // Which instant the path was asked about, where it is not simply now: §12.8.4.2's own reason
     // for a document security store is that a signature outlives its certificate, and a reader
     // told a path validated is owed *as of when*.
-    let asked_at = if asked.from_a_token {
+    let asked_at = asked.from_a_token.map_or_else(String::new, |source| {
         format!(
-            ", as of {} seconds after the epoch, which a document timestamp over it established \
-             (§12.8.4.2)",
+            ", as of {} seconds after the epoch, which {source}",
             asked.at.unix_seconds()
         )
-    } else {
-        String::new()
-    };
+    });
     notes.push(match &verdict {
         pdf_signature::verdict::Verdict::Valid(valid) => format!(
             "that signature is valid: the document has not changed since it was signed, the \

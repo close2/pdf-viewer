@@ -2197,31 +2197,88 @@ static FIELD_TYPE: ValueType = ValueType {
 /// (`tests/corpus.rs`, `doc/adr/0931`).
 fn extension_schema_container_fields(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_packet(exam, |id, properties| {
-        for property in properties {
-            if property.name.namespace != EXTENSION_URI || property.name.local != "schemas" {
-                continue;
-            }
-            let Some(schemas) = property.value.array() else {
-                findings.record(
-                    Where::object(id).named("pdfaExtension:schemas"),
-                    format!(
-                        "the extension schema container states {} where Table 2 gives it a bag \
-                         of schema descriptions",
-                        shaped(&property.value)
-                    ),
-                );
-                continue;
-            };
-            for schema in schemas {
-                check_value_type(id, schema, &SCHEMA_TYPE, findings);
-                check_sequence(id, schema, SCHEMA_URI, "property", &PROPERTY_TYPE, findings);
-                for value_type in sequence(schema, SCHEMA_URI, "valueType") {
-                    check_value_type(id, value_type, &TYPE_TYPE, findings);
-                    check_sequence(id, value_type, TYPE_URI, "field", &FIELD_TYPE, findings);
-                }
-            }
+        for fault in container_faults(properties) {
+            findings.record(Where::object(id).named(fault.named), fault.complaint);
         }
     });
+}
+
+/// One thing ISO 19005-2 section 6.6.2.3.3's four tables reject about a container's fields.
+///
+/// **The reading as a list rather than as a verdict**, [`MisusedProperty`]'s construction and for
+/// its reason: a converter has to act on it, and what it may do turns on [`Self::misspelled`] —
+/// the one fault of the four whose content is entirely in the file already.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerField {
+    /// How a report names the place — the table's own prefix, and the field name.
+    pub named: String,
+    /// What the finding says about it, in the requirement's own words.
+    pub complaint: String,
+    /// Whether the field is *stated*, in the field namespace its table gives it, and spelled with
+    /// another prefix.
+    ///
+    /// The distinction a converter turns on. A misspelling is a fact about the serialisation and
+    /// nothing else: the namespace URI, the local name and the value are the producer's, and the
+    /// prefix is what section 6.6.2.2 makes load-bearing here. Every other fault — a field absent,
+    /// a structure that is not one, a bag that is not a bag — is content the file does not carry.
+    pub misspelled: bool,
+}
+
+/// Every field of one packet's extension schema containers the four tables reject.
+///
+/// The population [`extension_schema_container_fields`] reports over, answered for one packet's
+/// bytes so that a caller holding a metadata stream can ask without a document.
+/// [`properties_outside_their_schema`]'s construction, for its reason, and with its behaviour on a
+/// packet that does not parse: nothing, because that is a different requirement's finding.
+#[must_use]
+pub fn extension_container_fields(packet: &[u8]) -> Vec<ContainerField> {
+    let Ok(properties) = Xmp::parse_detail(packet) else {
+        return Vec::new();
+    };
+    container_faults(&properties)
+}
+
+/// The namespace and required prefix of each of section 6.6.2.3.3's four value types.
+///
+/// The tables' own, stated once: [`SCHEMA_TYPE`] and the three beside it are what a finding is
+/// written from, and this is the same four pairs in the shape a writer that respells a packet
+/// takes them in.
+pub const REQUIRED_PREFIXES: [(&str, &str); 4] = [
+    (SCHEMA_URI, SCHEMA_TYPE.prefix),
+    (PROPERTY_URI, PROPERTY_TYPE.prefix),
+    (TYPE_URI, TYPE_TYPE.prefix),
+    (FIELD_URI, FIELD_TYPE.prefix),
+];
+
+/// One packet's containers held to the four tables, as a list of faults.
+fn container_faults(properties: &[XmpProperty]) -> Vec<ContainerField> {
+    let mut faults = Vec::new();
+    for property in properties {
+        if property.name.namespace != EXTENSION_URI || property.name.local != "schemas" {
+            continue;
+        }
+        let Some(schemas) = property.value.array() else {
+            faults.push(ContainerField {
+                named: "pdfaExtension:schemas".to_owned(),
+                complaint: format!(
+                    "the extension schema container states {} where Table 2 gives it a bag of \
+                     schema descriptions",
+                    shaped(&property.value)
+                ),
+                misspelled: false,
+            });
+            continue;
+        };
+        for schema in schemas {
+            check_value_type(schema, &SCHEMA_TYPE, &mut faults);
+            check_sequence(schema, SCHEMA_URI, "property", &PROPERTY_TYPE, &mut faults);
+            for value_type in sequence(schema, SCHEMA_URI, "valueType") {
+                check_value_type(value_type, &TYPE_TYPE, &mut faults);
+                check_sequence(value_type, TYPE_URI, "field", &FIELD_TYPE, &mut faults);
+            }
+        }
+    }
+    faults
 }
 
 /// The items of one field of a structure, where that field is an array.
@@ -2234,36 +2291,31 @@ fn sequence<'a>(structure: &'a Detail, uri: &str, local: &str) -> &'a [Detail] {
 
 /// Every item of one field's array held to a value type's table.
 fn check_sequence(
-    id: ObjectId,
     structure: &Detail,
     uri: &str,
     local: &str,
     expected: &ValueType,
-    findings: &mut Findings,
+    faults: &mut Vec<ContainerField>,
 ) {
     for item in sequence(structure, uri, local) {
-        check_value_type(id, item, expected, findings);
+        check_value_type(item, expected, faults);
     }
 }
 
 /// One structure held to the table that defines it: every field present, spelled with the
 /// prefix the table requires.
-fn check_value_type(
-    id: ObjectId,
-    structure: &Detail,
-    expected: &ValueType,
-    findings: &mut Findings,
-) {
-    let place = |name: &str| Where::object(id).named(format!("{}:{name}", expected.prefix));
+fn check_value_type(structure: &Detail, expected: &ValueType, faults: &mut Vec<ContainerField>) {
+    let place = |name: &str| format!("{}:{name}", expected.prefix);
     let Some(fields) = structure.fields() else {
-        findings.record(
-            Where::object(id).named(expected.name),
-            format!(
+        faults.push(ContainerField {
+            named: expected.name.to_owned(),
+            complaint: format!(
                 "an {} is {} where section 6.6.2.3.3 defines it as a structure",
                 expected.name,
                 shaped(structure)
             ),
-        );
+            misspelled: false,
+        });
         return;
     };
     for wanted in expected.fields {
@@ -2272,20 +2324,22 @@ fn check_value_type(
             .find(|field| field.name.namespace == expected.uri && field.name.local == *wanted);
         match stated {
             None if expected.may_be_absent.contains(wanted) => {}
-            None => findings.record(
-                place(wanted),
-                format!(
+            None => faults.push(ContainerField {
+                named: place(wanted),
+                complaint: format!(
                     "an {} states no {}:{wanted}, which its table describes",
                     expected.name, expected.prefix
                 ),
-            ),
-            Some(field) if field.prefix != expected.prefix => findings.record(
-                place(wanted),
-                format!(
+                misspelled: false,
+            }),
+            Some(field) if field.prefix != expected.prefix => faults.push(ContainerField {
+                named: place(wanted),
+                complaint: format!(
                     "an {} spells {wanted} with the prefix {}, where its table requires {}",
                     expected.name, field.prefix, expected.prefix
                 ),
-            ),
+                misspelled: true,
+            }),
             Some(_) => {}
         }
     }

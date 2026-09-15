@@ -596,6 +596,19 @@ pub enum WriteError {
         /// How many were found.
         found: usize,
     },
+    /// A prefix a standard requires already means another namespace in this packet.
+    ///
+    /// [`respell`]'s own refusal. Taking the prefix over would change what every name spelled
+    /// with it means, which is the opposite of an edit that leaves the packet saying what its
+    /// producer said. Reported for a name in the required namespace carrying no prefix at all
+    /// as well, where there is no token to move.
+    #[error("the prefix {prefix} already means {namespace} in this packet")]
+    PrefixMeansSomethingElse {
+        /// The prefix the standard requires.
+        prefix: String,
+        /// What the packet binds it to instead.
+        namespace: String,
+    },
     /// The packet nests deeper than [`MAX_DEPTH`].
     #[error("the packet nests deeper than this writer follows")]
     TooDeep,
@@ -730,6 +743,288 @@ pub fn remove(bytes: &[u8], properties: &[Name]) -> Result<Vec<u8>, WriteError> 
     }
     out.push_str(text.get(cut..).unwrap_or_default());
     Ok(out.into_bytes())
+}
+
+/// One namespace, and the prefix a standard requires a packet to spell it with.
+///
+/// A prefix is usually not a name — this module's own opening says so — and this type is for the
+/// exception: where a standard names the prefix a namespace is to be written with, the spelling
+/// becomes load-bearing and a packet can be wrong about it while meaning exactly the right thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequiredPrefix<'a> {
+    /// The namespace URI, which is what an XMP name is actually made of.
+    pub namespace: &'a str,
+    /// The prefix the standard requires that namespace to be spelled with.
+    pub prefix: &'a str,
+}
+
+/// `bytes` with every name in one of `required`'s namespaces respelled with the prefix it names.
+///
+/// **Only the prefix tokens move.** Each name keeps the namespace URI its prefix was bound to and
+/// keeps its local name, so the packet means afterwards exactly what it meant before: what changes
+/// is the spelling, which is the whole of what a standard requiring a prefix is about. The
+/// declaration that bound the old prefix is respelled in place, so the packet gains no attribute
+/// and loses none.
+///
+/// Every other byte of the packet is the producer's, [`remove`]'s rule and for its reason.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched.
+/// [`WriteError::PrefixMeansSomethingElse`] is this writer's own: a required prefix already bound
+/// to another namespace cannot be taken over, because doing so would change what names spelled
+/// with it mean. A name in a required namespace carrying no prefix at all — a default namespace
+/// declaration — is the same refusal, since there is no prefix token to move.
+pub fn respell(bytes: &[u8], required: &[RequiredPrefix<'_>]) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let mut speller = Speller::run(text, required)?;
+    speller.edits.sort_unstable_by_key(|(from, ..)| *from);
+    let mut out = String::with_capacity(text.len());
+    let mut cut = 0usize;
+    for (from, to, prefix) in speller.edits {
+        if from < cut {
+            continue;
+        }
+        out.push_str(text.get(cut..from).unwrap_or_default());
+        out.push_str(prefix);
+        cut = to;
+    }
+    out.push_str(text.get(cut..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
+/// One element while [`respell`] walks the packet, and what it bound.
+#[derive(Debug)]
+struct Spelling {
+    /// The prefix and local name as the packet spelled them, to check a close tag against.
+    tag: (String, String),
+    /// How many namespace bindings this element declared, popped when it closes.
+    bindings: usize,
+}
+
+/// The prefix tokens one pass over a packet found, and where each goes.
+struct Speller<'a> {
+    /// What a name in each namespace is to be spelled with.
+    required: &'a [RequiredPrefix<'a>],
+    /// Prefix-to-URI bindings, innermost last, as [`Editor`] keeps them and for its reason.
+    bindings: Vec<(String, String)>,
+    stack: Vec<Spelling>,
+    /// The prefix tokens to replace: the span of the old one, and the new one.
+    edits: Vec<(usize, usize, &'a str)>,
+}
+
+impl<'a> Speller<'a> {
+    /// Walks the packet, recording every prefix token that is spelled wrongly.
+    fn run(text: &'a str, required: &'a [RequiredPrefix<'a>]) -> Result<Self, WriteError> {
+        let mut speller = Self {
+            required,
+            bindings: Vec::new(),
+            stack: Vec::new(),
+            edits: Vec::new(),
+        };
+        // An element's own prefix may be bound by an attribute of that same element, so nothing
+        // is resolved until the element's attributes have all arrived — [`Editor::run`] takes the
+        // same shape for the same reason.
+        let mut pending: Option<(xmlparser::StrSpan<'a>, xmlparser::StrSpan<'a>)> = None;
+        let mut attributes: Vec<Attribute<'a>> = Vec::new();
+        for token in xmlparser::Tokenizer::from(text) {
+            let token = token.map_err(|error| WriteError::Malformed {
+                detail: error.to_string(),
+            })?;
+            match token {
+                xmlparser::Token::ElementStart { prefix, local, .. } => {
+                    pending = Some((prefix, local));
+                    attributes.clear();
+                }
+                xmlparser::Token::Attribute {
+                    prefix,
+                    local,
+                    value,
+                    ..
+                } => attributes.push(Attribute {
+                    prefix,
+                    local,
+                    value,
+                }),
+                xmlparser::Token::ElementEnd { end, span } => match end {
+                    xmlparser::ElementEnd::Open => {
+                        let Some(open) = pending.take() else { continue };
+                        speller.open(open, &attributes)?;
+                    }
+                    xmlparser::ElementEnd::Empty => {
+                        let Some(open) = pending.take() else { continue };
+                        speller.open(open, &attributes)?;
+                        speller.close(&(open.0.to_string(), open.1.to_string()), None)?;
+                    }
+                    xmlparser::ElementEnd::Close(prefix, local) => {
+                        speller.spell(prefix)?;
+                        speller.close(&(prefix.to_string(), local.to_string()), Some(span))?;
+                    }
+                },
+                _ => {}
+            }
+        }
+        if let Some(open) = speller.stack.last() {
+            return Err(WriteError::Malformed {
+                detail: format!("<{}> is never closed", spelled(&open.tag)),
+            });
+        }
+        Ok(speller)
+    }
+
+    /// Resolves a prefix against the bindings in scope, innermost first.
+    fn namespace(&self, prefix: &str) -> &str {
+        if prefix == "xml" {
+            return XML;
+        }
+        self.bindings
+            .iter()
+            .rev()
+            .find(|(bound, _)| bound == prefix)
+            .map_or("", |(_, uri)| uri.as_str())
+    }
+
+    /// What a namespace is required to be spelled with, where a caller named it.
+    fn wanted(&self, namespace: &str) -> Option<&'a str> {
+        self.required
+            .iter()
+            .find(|it| it.namespace == namespace)
+            .map(|it| it.prefix)
+    }
+
+    /// Records the prefix of one name, where the namespace it resolves to wants another.
+    fn spell(&mut self, prefix: xmlparser::StrSpan<'a>) -> Result<(), WriteError> {
+        let namespace = self.namespace(prefix.as_str()).to_owned();
+        let Some(wanted) = self.wanted(&namespace) else {
+            return Ok(());
+        };
+        if prefix.as_str() == wanted {
+            return Ok(());
+        }
+        // A name in a required namespace and spelled with no prefix at all is inside a default
+        // namespace declaration, and there is no token to move: respelling it would mean writing
+        // a prefix onto a name the producer wrote without one, which is an edit of a different
+        // kind from this one.
+        if prefix.as_str().is_empty() {
+            return Err(WriteError::PrefixMeansSomethingElse {
+                prefix: wanted.to_owned(),
+                namespace,
+            });
+        }
+        self.edits.push((prefix.start(), prefix.end(), wanted));
+        Ok(())
+    }
+
+    /// Opens an element: installs its bindings, then respells it and its attributes.
+    fn open(
+        &mut self,
+        (prefix, local): (xmlparser::StrSpan<'a>, xmlparser::StrSpan<'a>),
+        attributes: &[Attribute<'a>],
+    ) -> Result<(), WriteError> {
+        if self.stack.len() >= MAX_DEPTH {
+            return Err(WriteError::TooDeep);
+        }
+        let mut bindings = 0usize;
+        for attribute in attributes {
+            let bound = match (attribute.prefix.as_str(), attribute.local.as_str()) {
+                ("", "xmlns") => String::new(),
+                ("xmlns", name) => name.to_owned(),
+                _ => continue,
+            };
+            // A required prefix already meaning something else may not be taken over: names
+            // spelled with it would change namespace, which is the one thing this writer exists
+            // not to do.
+            if let Some(it) = self
+                .required
+                .iter()
+                .find(|it| it.prefix == bound && it.namespace != attribute.value.as_str())
+            {
+                return Err(WriteError::PrefixMeansSomethingElse {
+                    prefix: it.prefix.to_owned(),
+                    namespace: attribute.value.to_string(),
+                });
+            }
+            self.bindings.push((bound, attribute.value.to_string()));
+            bindings = bindings.saturating_add(1);
+        }
+        // The declarations are respelled first, so that the prefix each use is about to be given
+        // is one the packet declares. One declaration per namespace is enough and no more than one
+        // may be touched: an element declaring the required prefix already, or declaring the same
+        // namespace twice, would end up stating one attribute twice — and every use resolves to
+        // the required prefix through whichever declaration carries it.
+        let mut taken: Vec<&str> = Vec::new();
+        for attribute in attributes {
+            let ("xmlns", name) = (attribute.prefix.as_str(), attribute.local.as_str()) else {
+                continue;
+            };
+            let Some(wanted) = self.wanted(attribute.value.as_str()) else {
+                continue;
+            };
+            if name == wanted
+                || taken.contains(&wanted)
+                || attributes
+                    .iter()
+                    .any(|other| other.prefix.as_str() == "xmlns" && other.local.as_str() == wanted)
+            {
+                taken.push(wanted);
+                continue;
+            }
+            taken.push(wanted);
+            self.edits
+                .push((attribute.local.start(), attribute.local.end(), wanted));
+        }
+        self.spell(prefix)?;
+        for attribute in attributes {
+            if attribute.prefix.as_str().is_empty() || attribute.prefix.as_str() == "xmlns" {
+                continue;
+            }
+            self.spell(attribute.prefix)?;
+        }
+        self.stack.push(Spelling {
+            tag: (prefix.to_string(), local.to_string()),
+            bindings,
+        });
+        Ok(())
+    }
+
+    /// Closes an element, popping what it bound.
+    ///
+    /// `at` is the close tag's span, and `None` for a self-closing element — whose tag this
+    /// writer wrote itself and therefore does not check against what the packet holds.
+    fn close(
+        &mut self,
+        tag: &(String, String),
+        at: Option<xmlparser::StrSpan<'a>>,
+    ) -> Result<(), WriteError> {
+        let Some(open) = self.stack.pop() else {
+            return Err(WriteError::Malformed {
+                detail: format!("</{}> closes nothing", spelled(tag)),
+            });
+        };
+        if at.is_some() && open.tag != *tag {
+            return Err(WriteError::Malformed {
+                detail: format!("</{}> closes <{}>", spelled(tag), spelled(&open.tag)),
+            });
+        }
+        for _ in 0..open.bindings {
+            self.bindings.pop();
+        }
+        Ok(())
+    }
+}
+
+/// One attribute of an element being opened, with the spans its name occupies.
+#[derive(Debug, Clone, Copy)]
+struct Attribute<'a> {
+    /// The prefix token, empty where the attribute carries none.
+    prefix: xmlparser::StrSpan<'a>,
+    /// The local name token.
+    local: xmlparser::StrSpan<'a>,
+    /// The attribute's value.
+    value: xmlparser::StrSpan<'a>,
 }
 
 /// One action recorded in `xmpMM:History`.
@@ -1988,9 +2283,119 @@ fn numeric(reference: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DC, Event, Name, PDF, RESOURCE_EVENT, Schema, Value, WriteError, XMP, XMP_MM, Xmp,
-        XmpError, instant, packet, record, remove, restate,
+        DC, Event, Name, PDF, RDF, RESOURCE_EVENT, RequiredPrefix, Schema, Value, WriteError, XMP,
+        XMP_MM, Xmp, XmpError, instant, packet, record, remove, respell, restate,
     };
+
+    /// ISO 19005-2 section 6.6.2.3.3's Table 3 namespace, and the prefix it requires.
+    ///
+    /// Here only as *a* namespace with a required prefix: nothing in this module knows what an
+    /// extension schema container is.
+    const SCHEMA: RequiredPrefix<'static> = RequiredPrefix {
+        namespace: "http://www.aiim.org/pdfa/ns/schema#",
+        prefix: "pdfaSchema",
+    };
+
+    /// One packet holding a description whose prefix for [`SCHEMA`] is the caller's to choose.
+    fn container(prefix: &str, declared: &str) -> String {
+        format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+             <rdf:RDF xmlns:rdf=\"{RDF}\">\
+             <rdf:Description rdf:about=\"\" xmlns:{declared}=\"{}\">\
+             <{prefix}:schema>Custom</{prefix}:schema>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>",
+            SCHEMA.namespace
+        )
+    }
+
+    #[test]
+    fn a_name_spelled_with_another_prefix_is_respelled_declaration_and_all() {
+        let packet = container("nonpdfaSchema", "nonpdfaSchema");
+        let out = respell(packet.as_bytes(), &[SCHEMA]).expect("a packet this writer can edit");
+        let out = String::from_utf8(out).expect("still UTF-8");
+        assert!(out.contains("xmlns:pdfaSchema="), "{out}");
+        assert!(
+            out.contains("<pdfaSchema:schema>Custom</pdfaSchema:schema>"),
+            "{out}"
+        );
+        assert!(!out.contains("nonpdfaSchema"), "{out}");
+        // The reader agrees the name still resolves to the same namespace and local name.
+        let read = Xmp::parse_detail(out.as_bytes()).expect("the respelled packet parses");
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].name.namespace, SCHEMA.namespace);
+        assert_eq!(read[0].name.local, "schema");
+        assert_eq!(read[0].prefix, "pdfaSchema");
+    }
+
+    /// Trap 13's control: an instrument that answers for a packet it must not touch.
+    #[test]
+    fn a_packet_already_spelling_it_correctly_is_returned_byte_for_byte() {
+        let packet = container("pdfaSchema", "pdfaSchema");
+        let out = respell(packet.as_bytes(), &[SCHEMA]).expect("a packet this writer can edit");
+        assert_eq!(out, packet.as_bytes());
+    }
+
+    #[test]
+    fn a_required_prefix_already_meaning_something_else_refuses() {
+        // The packet binds `pdfaSchema` to somebody else's namespace and uses another prefix for
+        // the required one; taking the prefix over would change what the first name means.
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+             <rdf:RDF xmlns:rdf=\"{RDF}\">\
+             <rdf:Description rdf:about=\"\" xmlns:pdfaSchema=\"http://example.invalid/other#\" \
+             xmlns:other=\"{}\">\
+             <other:schema>Custom</other:schema>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>",
+            SCHEMA.namespace
+        );
+        assert!(matches!(
+            respell(packet.as_bytes(), &[SCHEMA]),
+            Err(WriteError::PrefixMeansSomethingElse { .. })
+        ));
+    }
+
+    #[test]
+    fn a_required_namespace_carried_by_a_default_declaration_refuses() {
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+             <rdf:RDF xmlns:rdf=\"{RDF}\">\
+             <rdf:Description rdf:about=\"\">\
+             <schema xmlns=\"{}\">Custom</schema>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>",
+            SCHEMA.namespace
+        );
+        assert!(matches!(
+            respell(packet.as_bytes(), &[SCHEMA]),
+            Err(WriteError::PrefixMeansSomethingElse { .. })
+        ));
+    }
+
+    #[test]
+    fn a_prefix_rebound_deeper_keeps_what_it_means_there() {
+        // The outer prefix is the required namespace's; the same spelling is rebound inside to
+        // another namespace, and the name under it must not move.
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+             <rdf:RDF xmlns:rdf=\"{RDF}\">\
+             <rdf:Description rdf:about=\"\" xmlns:p=\"{}\">\
+             <p:schema>Custom</p:schema>\
+             <rdf:Description xmlns:p=\"http://example.invalid/other#\"><p:schema>Other</p:schema>\
+             </rdf:Description>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>",
+            SCHEMA.namespace
+        );
+        let out = respell(packet.as_bytes(), &[SCHEMA]).expect("a packet this writer can edit");
+        let out = String::from_utf8(out).expect("still UTF-8");
+        assert!(
+            out.contains("<pdfaSchema:schema>Custom</pdfaSchema:schema>"),
+            "{out}"
+        );
+        assert!(out.contains("<p:schema>Other</p:schema>"), "{out}");
+        assert!(
+            out.contains("xmlns:p=\"http://example.invalid/other#\""),
+            "{out}"
+        );
+    }
 
     /// The identification namespace, spelled as ISO 19005-4 section 6.7.3 prints it. Used here
     /// only as *a* namespace to restate: nothing in this module knows what PDF/A is.

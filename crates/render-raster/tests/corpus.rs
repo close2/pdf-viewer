@@ -58,8 +58,36 @@ use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
 use render_raster::QuorraRasterizer;
 
-/// Pixel budget per page, generous enough that no real page reaches it.
-const PIXEL_BUDGET: u64 = 64 << 20;
+/// Pixel budget per page: the number of pixels the **program** will hand a host in one raster.
+///
+/// It is `viewer_core::MAX_PIXELS` written out, because that is the population this gate is for
+/// — every page this viewer draws whole, held to the oracle — and a budget below it makes the
+/// instrument refuse a page the product does not.
+///
+/// **This constant read `64 << 20` with the comment "generous enough that no real page reaches
+/// it", and a real page reached it.** `issue19517.pdf` is 12608x16806 at one device pixel per
+/// point, 211 890 048 pixels, three times the old bound; the oracle gate next door had already
+/// read that page — its `NO_RENDER_LARGER_THAN_THIS_GATES_BUDGET` measures `examples/render_at`
+/// drawing it to within 0.005 of 255 of all three references — and declines to move its own copy
+/// of the constant, because three *reference* renders of 212 megapixels are 2.5 GiB to hold and
+/// cache. This gate spawns no reference: it draws the page twice, in its own process, at 1.03 GiB
+/// peak and 22 s. So the reason that keeps the oracle's budget where it is does not reach here,
+/// and what the old value bought was a page silently uncompared — which is where
+/// [`NotComparable`] found it.
+///
+/// **What the raise changed, and it is one page at each scale.** At [`SCALE`] the page now reaches
+/// the device, which refuses it by a capability — see [`REFUSED_BY_THE_DEVICE`]. At [`MAGNIFIED`]
+/// the pages whose verdict can move are exactly those between the old bound and this one at that
+/// scale, which is 4 194 304 to 16 777 216 pixels at [`SCALE`]; the corpus holds three pages above
+/// the first of those figures, and they are `issue19517.pdf` (past this budget at 4x too, 3 390 240
+/// 768 pixels), `issue14497.pdf` (agrees) and `issue12810.pdf` (refused by the device, and named in
+/// [`REFUSED_BY_THE_DEVICE_AT_FOUR`]).
+///
+/// The standard states no ceiling this has to clear. ISO 32000-2's Annex C is informative, its
+/// Table C.1 states no page extent at all, and Table 31's `/UserUnit` (§7.7.3.3) scales the unit
+/// itself, so a page's size on paper is not bounded by its extent in coordinates either. This is
+/// a resource budget with a reason, not a number read off a clause (trap 38).
+const PIXEL_BUDGET: u64 = 1 << 28;
 
 /// The scale everything is rendered at by default: the page's own resolution.
 ///
@@ -397,8 +425,31 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
 /// says so. Nothing here is an upstream ask — a budget that refuses four million commands of a
 /// cycle is doing what a budget is for — and what would take the name off is `doc/todo/49`'s
 /// standing item, a bound on the interpreter's *work* rather than on its count.
-const REFUSED_BY_THE_DEVICE: [&str; 2] =
-    ["ContentStreamCycleType3insideType3.pdf", "issue1905.pdf"];
+///
+/// **`issue19517.pdf` joined in the one-thousand-and-seventieth session, and nothing about the
+/// page or the adapter changed: [`PIXEL_BUDGET`] did.** The page is 12608x16806 and this adapter
+/// states 16384 pixels per side, so the frame is refused with *target 12608x16806 exceeds this
+/// adapter's limit of 16384 pixels per side* — a capability, like `issue1905.pdf`'s sheet ceiling
+/// and unlike the cycle's budget. It is this list's own sentence exactly: a page a person could
+/// open at 100% and not see. The CPU backend draws it and says so, which is `CLAUDE.md`
+/// principle 2's rule for a refusal, and `doc/QUORRA_FEEDBACK.md` section 44 carries the message
+/// upstream. What had been hiding it is that this gate's budget refused the page three stages
+/// earlier and counted the result as one of seventeen anonymous *not comparable*.
+///
+/// **And the cycle's message is a function of what the run drew before it, which is worth knowing
+/// before quoting one.** Run alone, `ContentStreamCycleType3insideType3.pdf` is refused for
+/// *frame needs 377221152 scene-derived bytes, over the stated budget of 268435456*; run in its
+/// place in the corpus it is refused for *uploading would hold 536871684 resource bytes
+/// (536870452 already resident), over the stated budget of 536870912* — one `QuorraRasterizer`
+/// serves all 974 documents, so by the time the walk reaches this page the resource cache is at
+/// its ceiling and the ceiling it meets first is that one. Both are budgets, both are reported
+/// out loud, and the name is on this list either way; what a round may not do is read the printed
+/// figure as this page's own cost.
+const REFUSED_BY_THE_DEVICE: [&str; 3] = [
+    "ContentStreamCycleType3insideType3.pdf",
+    "issue1905.pdf",
+    "issue19517.pdf",
+];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///
@@ -425,8 +476,12 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 ///   budget is a question about who is spending the bytes, and this time the answer was upstream
 ///   of the backend entirely. Nobody raised `max_resource_bytes`, and a budget raised to admit one
 ///   page would still be a budget chosen by that page.
-/// - `issue1905.pdf` exceeds the **16 384 × 16 384 texture** this adapter allows for the
-///   rasterised-coverage sheet. That is a device capability, not a policy. Raster measured a
+/// - `issue1905.pdf` exceeded the **16 384 × 16 384 texture** this adapter allows for the
+///   rasterised-coverage sheet, and what it prints now is the scene-byte budget at both scales —
+///   *frame needs 272158852* at [`SCALE`] and *365144861* at this one, each over 268435456 — so
+///   the ceiling below is a reading the byte budget preempts rather than one a run still shows.
+///   (`issue9418.pdf`, added above, is the page that prints it today.) That ceiling is a device
+///   capability, not a policy. Raster measured a
 ///   multi-sheet fix at its `5483996` and **declined it with the numbers written down**: a second
 ///   sheet takes this page to 287 MB — refused again, on bytes — and its neighbours to a
 ///   quarter-gigabyte of per-frame upload, a page drawn at a cost its own brief calls a failure.
@@ -469,8 +524,28 @@ const REFUSED_BY_THE_DEVICE: [&str; 2] =
 /// `ContentStreamCycleType3insideType3.pdf` is here for [`REFUSED_BY_THE_DEVICE`]'s reason and
 /// with the same message, measured on this lane in the eight-hundred-and-seventy-fourth session:
 /// the scene-byte budget is scale-free, and four million commands are over it at any scale.
-const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 2] =
-    ["ContentStreamCycleType3insideType3.pdf", "issue1905.pdf"];
+///
+/// **Two joined in the one-thousand-and-seventieth session for [`PIXEL_BUDGET`]'s raise and not
+/// for anything the device did**, and they are the two pages this scale's *budget* used to refuse
+/// before the device could answer. `issue12810.pdf` is 6912x10368 here and prices at *609086160
+/// scene-derived bytes, over the stated budget of 268435456*. `issue9418.pdf` is 111 476 736
+/// pixels here and meets the sheet: *a 4541x2842 tile would not fit a sheet at 13841x13561
+/// holding 122 tiles and 143672336 texels* — a capability, and the same ceiling `issue1905.pdf`
+/// used to print. `issue19517.pdf` is **not** here: it is past this budget at 4x as well, 3 390
+/// 240 768 pixels, so this scale is where [`NotComparable::PastThePixelBudget`] is not empty.
+/// `issue14497.pdf`, the third page the raise admits at this scale, agrees with the oracle.
+///
+/// **And `issue9418.pdf` is why a population is derived from the instrument that will run it.**
+/// The page was found by re-running this whole lane, not by the sweep that was supposed to have
+/// predicted it: `pdfinfo` over the corpus answered for 953 of 974 documents, the 21 silences
+/// were read as the documents that do not open, and this was not one of them (trap 25). The
+/// bound, the page and the adapter were all unchanged; only the list was wrong.
+const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 4] = [
+    "ContentStreamCycleType3insideType3.pdf",
+    "issue12810.pdf",
+    "issue1905.pdf",
+    "issue9418.pdf",
+];
 
 /// The stage-free refusals and the device's, as one list sorted the way the run produces them.
 ///
@@ -481,6 +556,72 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
         .iter()
         .chain(by_the_device)
         .copied()
+        .collect();
+    all.sort_unstable();
+    all
+}
+
+/// Documents this gate could not compare at all, by name and by which of the causes it was.
+///
+/// Held to equality in both directions, like the two refusal lists above and for the same
+/// reason: this population is the one place a page can leave the comparison without any of the
+/// three figures being computed about it, so a page arriving here unannounced is a page nobody
+/// is holding either backend to.
+///
+/// **Every name here is already read against the standard, one gate over.** `pdf-model`'s
+/// `tests/oracle.rs` walks the same corpus and reached exactly these documents by exactly these
+/// routes, and ADR 0410 named its buckets in the five-hundred-and-seventy-fifth session; the
+/// reading lives there and is not copied here, because two documents stating one fact is how the
+/// two drift. (`pdf-model`'s own `tests/corpus.rs` bounds the same two populations, above
+/// `MAX_UNREADABLE_ENCRYPTION` and `MAX_PAGELESS`, and reads each document one at a time.) The
+/// mapping is one-to-one:
+///
+/// - the eleven [`NotComparable::WouldNotOpen`] are its `NO_RENDER_NEEDS_A_PASSWORD` (ten
+///   documents whose user password is not the empty one §7.6.4.3 defines, refused by all three
+///   references as well) and its `NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE`
+///   (`PDFBOX-4352-0.pdf`, whose fuzzed cross-reference table leaves the `/Encrypt` §7.6.2
+///   names resolving to nothing);
+/// - the five [`NotComparable::NoFirstPage`] are its `NO_RENDER_NO_PAGE_IN_THE_TREE` less the one
+///   entry that names a *second* page, which this gate never asks for.
+///
+/// So what is owed here is not a second diagnosis but the names, and the case each falls in is
+/// `CLAUDE.md` principle 5's second: the file broke it, and a rasteriser comparison is not what
+/// any of them is waiting on.
+///
+/// **Four of the six causes are empty at this scale and all four are kept.**
+/// [`NotComparable::TheOracleRefused`] being empty is a *measurement* rather than an omission:
+/// `CLAUDE.md` principle 2 makes the CPU backend the one that draws what the device refuses, and
+/// this run is where that is checked over a corpus — every page of these 974 whose display list
+/// exists and fits [`PIXEL_BUDGET`] was drawn by it, including all three the device refused.
+/// [`NotComparable::PastThePixelBudget`] is empty here and not at [`MAGNIFIED`], where
+/// `issue19517.pdf` is past it; [`NotComparable::Unreadable`] and
+/// [`NotComparable::RastersCannotBeCompared`] are the other two silences. An empty cause is a claim
+/// about this tree made by an instrument nobody has watched work, so each of the four was planted
+/// in turn and the run named each one it was given (trap 13).
+const NOT_COMPARABLE: [(&str, NotComparable); 16] = [
+    ("Brotli-Prototype-FileA.pdf", NotComparable::NoFirstPage),
+    ("PDFBOX-4352-0.pdf", NotComparable::WouldNotOpen),
+    ("REDHAT-1531897-0.pdf", NotComparable::NoFirstPage),
+    ("bug1020226.pdf", NotComparable::NoFirstPage),
+    ("bug1782186.pdf", NotComparable::WouldNotOpen),
+    ("encrypted-attachment.pdf", NotComparable::WouldNotOpen),
+    ("issue15893_reduced.pdf", NotComparable::WouldNotOpen),
+    ("issue21579.pdf", NotComparable::WouldNotOpen),
+    ("issue3371.pdf", NotComparable::WouldNotOpen),
+    ("issue6010_1.pdf", NotComparable::WouldNotOpen),
+    ("issue6010_2.pdf", NotComparable::WouldNotOpen),
+    ("poppler-85140-0.pdf", NotComparable::NoFirstPage),
+    ("poppler-937-0-fuzzed.pdf", NotComparable::NoFirstPage),
+    ("pr6531_1.pdf", NotComparable::WouldNotOpen),
+    ("print_protection.pdf", NotComparable::WouldNotOpen),
+    ("saslprep-r6.pdf", NotComparable::WouldNotOpen),
+];
+
+/// [`NOT_COMPARABLE`] as the run produces it: sorted by name, owned.
+fn not_comparable_pages() -> Vec<(String, NotComparable)> {
+    let mut all: Vec<(String, NotComparable)> = NOT_COMPARABLE
+        .iter()
+        .map(|(name, why)| ((*name).to_owned(), *why))
         .collect();
     all.sort_unstable();
     all
@@ -583,13 +724,32 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// 128). **Only a tile a clip or the page edge cuts in x can move at all**, which is why one page
 /// of 956 does and why the 4× lane does not move at all — and it is a page joining the oracle
 /// rather than a bound being crossed, which is the direction this list is allowed to move in.
-const DIFFERS_AT_THE_EDGES: [&str; 5] = [
-    "bug1743245.pdf",
-    "endchar.pdf",
-    "issue11473.pdf",
-    "issue2884_reduced.pdf",
-    "pr12564.pdf",
-];
+/// **Seven pages left this pair of lists in the thousand-and-sixty-eighth, and they left because
+/// the *oracle* stopped rounding a coverage** (ADR 1082). `tiny-skia`'s supersampled path
+/// converter states a general edge's coverage only on a lattice of sixteenths, where raster
+/// resolves the path analytically; the thousand-and-sixty-fourth calibrated that against chance on
+/// this list's own pages and named it the thing left to fix. `render-cpu` now computes the area a
+/// shape covers instead of sampling it, and `bug1743245.pdf`, `bug1978317.pdf`,
+/// `copy_paste_ligatures.pdf`, `endchar.pdf`, `issue16316.pdf` and `issue2884_reduced.pdf` all
+/// agree — **the processor moving to the device, which is the direction this list is allowed to
+/// move in**. `issue21068.pdf` left with them and came back when the converter learned to decline
+/// a path whose portions overlap, which §11.6.2 makes it owe: its comb separators are `1 w` rules
+/// whose stroked outlines cross themselves, so they keep `tiny-skia`'s sixteenth.
+///
+/// **`issue2177.pdf` arrived on the same change, and it is a second analytic answer rather than a
+/// quantum.** Its page is three clipped circles filled with a tiling pattern of small coloured
+/// ellipses, so almost every inked pixel is somebody's curve boundary; `examples/ink_ladder` puts
+/// the two backends 0.73% apart at 1× and **0.17% apart at 8×**, and the excess halves at every
+/// rung, which is that instrument's signature for a per-boundary cost rather than a shape. Both
+/// backends read heavier at the page's own scale than at eight times it — ours by 0.68% and
+/// raster's by 0.12% — which is the side §10.7.4's "[t]he area covered by painted pixels shall
+/// always be at least as large as the area of the original shape" asks for. Flattening is not the
+/// difference and that is measured rather than assumed: at tolerances of 1/16, 1/64, 1/256 and
+/// 1/1024 of a device pixel the page's ink reads 13002.05, 13022.88, 13030.50 and 13031.90, so the
+/// converter's own tolerance is within 0.011% of its limit. The worst tile the gate prints is at
+/// (32, 224), which is the raster's own bottom row and one pixel tall — trap 26, and the verdict
+/// here rests on the differing fraction.
+const DIFFERS_AT_THE_EDGES: [&str; 3] = ["issue11473.pdf", "issue2177.pdf", "pr12564.pdf"];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
@@ -701,15 +861,20 @@ const DIFFERS_AT_THE_EDGES: [&str; 5] = [
 /// route outlines a stroke in path space at the width the document stated (`stroke::expanded`),
 /// so the two backends agreeing here is the processor arriving where raster already was rather
 /// than either moving toward the other.
-const DIFFERS_IN_SHAPE: [&str; 16] = [
+/// **`issue15150.pdf` stays, and the backend it convicts has changed sides** (ADR 1082). Its whole
+/// content stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s`, whose stroked region is the device
+/// rectangle `[0, 0.5] × [0, 0.5]` — a quarter of pixel (0, 0). The oracle drew 0.1875 of that
+/// pixel, because `s` closes the subpath and `tiny-skia`'s stroker returns the outline as two
+/// contours of one rectangle, which `pdf_render::sub_pixel_bands` declined; it now draws
+/// **0.251**, the area itself. raster draws 0.5, twice the area, at this scale only — the two
+/// agree at 2× and above. Erring heavy is the side §10.7.4's third sentence permits, so this is a
+/// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` is where an ask would go.
+const DIFFERS_IN_SHAPE: [&str; 13] = [
     "22060_A1_01_Plans.pdf",
     "bug1844583.pdf",
-    "bug1978317.pdf",
-    "copy_paste_ligatures.pdf",
     "issue12295.pdf",
     "issue15150.pdf",
     "issue16038.pdf",
-    "issue16316.pdf",
     "issue16473.pdf",
     "issue18030.pdf",
     "issue19083.pdf",
@@ -792,8 +957,48 @@ enum Outcome {
     Differs(String),
     /// raster refused the display list.
     Refused(String),
-    /// Nothing to compare: no page, no display list, or a target past the budget.
-    Skipped,
+    /// Nothing to compare, and which of the six things stopped the comparison.
+    NotComparable(NotComparable),
+}
+
+/// Why a document produced no comparison at all.
+///
+/// This gate printed one number for all of these — *"17 not comparable"* — for the whole of its
+/// life, and the number is the sum of six unrelated facts: three about the file, one about this
+/// gate's own budget, one about the **CPU oracle**, and one about the two rasters. A bare count
+/// over six causes cannot move without a round guessing which of them moved, and one of the six
+/// is a hole in the correctness oracle itself, which `CLAUDE.md` principle 2 makes the backend
+/// that draws what the device refuses. The oracle gate next door named its own `not comparable`
+/// bucket for this reason in the five-hundred-and-seventy-ninth session (ADR 0414); this is the
+/// same reading one gate over, and [`NOT_COMPARABLE`] holds the result by name.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum NotComparable {
+    /// The bytes would not read off the disk.
+    Unreadable,
+    /// [`Document::open`] refused the bytes: there is no document to draw a page of.
+    WouldNotOpen,
+    /// The document opened and its page tree yielded no first page.
+    NoFirstPage,
+    /// The page's own raster at this scale is past [`PIXEL_BUDGET`].
+    PastThePixelBudget,
+    /// The **CPU oracle** refused the display list, so there is nothing to hold raster to.
+    TheOracleRefused,
+    /// Two rasters were produced and `raster_compare` refused the pair.
+    RastersCannotBeCompared,
+}
+
+impl NotComparable {
+    /// What to call it in a line a person reads and in the list held by name.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unreadable => "unreadable",
+            Self::WouldNotOpen => "would not open",
+            Self::NoFirstPage => "no first page",
+            Self::PastThePixelBudget => "past the pixel budget",
+            Self::TheOracleRefused => "the oracle refused",
+            Self::RastersCannotBeCompared => "rasters not comparable",
+        }
+    }
 }
 
 /// Fails the gate if this build cannot reach the sandboxed image decoder.
@@ -836,7 +1041,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
 
     let started = Instant::now();
     let mut agreed = 0usize;
-    let mut skipped = 0usize;
+    let mut incomparable: Vec<(String, NotComparable)> = Vec::new();
     let mut differing = Vec::new();
     let mut refused = Vec::new();
     let mut worst: Vec<(f64, String)> = Vec::new();
@@ -848,22 +1053,14 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
             || path.display().to_string(),
             |n| n.to_string_lossy().into(),
         );
-        let Some(list) = page_one(path) else {
-            skipped = skipped.saturating_add(1);
-            continue;
+        let (list, target, cpu, cpu_took) = match oracles_render(path, scale) {
+            Ok(ready) => ready,
+            Err((why, detail)) => {
+                println!("  not comparable: {name}: {}{detail}", why.as_str());
+                incomparable.push((name, why));
+                continue;
+            }
         };
-        let Ok(target) = TargetSpec::for_page(&list, scale, PIXEL_BUDGET) else {
-            skipped = skipped.saturating_add(1);
-            continue;
-        };
-
-        let at = Instant::now();
-        let Ok(cpu) = CpuRasterizer::new().rasterize(&list, target) else {
-            // A page the oracle itself refuses says nothing about the backend under test.
-            skipped = skipped.saturating_add(1);
-            continue;
-        };
-        let cpu_took = at.elapsed();
         let at = Instant::now();
         let ours = raster.rasterize(&list, target);
         let gpu_took = at.elapsed();
@@ -899,14 +1096,18 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
                 refused.push(name.clone());
                 println!("  refused: {name}: {why}");
             }
-            Outcome::Skipped => skipped = skipped.saturating_add(1),
+            Outcome::NotComparable(why) => {
+                println!("  not comparable: {name}: {}", why.as_str());
+                incomparable.push((name, why));
+            }
         }
     }
 
+    incomparable.sort_unstable();
     report(
         &mut Tally {
             agreed,
-            skipped,
+            incomparable: &incomparable,
             differing: &differing,
             refused: &refused,
             worst: &mut worst,
@@ -919,11 +1120,17 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         ratchets(files.len(), settings, only.is_some()),
         &refused,
         &differing,
+        &incomparable,
     );
 }
 
 /// Holds the run to whichever lists it is the measurement for.
-fn hold(which: Ratchets, refused: &[String], differing: &[String]) {
+fn hold(
+    which: Ratchets,
+    refused: &[String],
+    differing: &[String],
+    incomparable: &[(String, NotComparable)],
+) {
     match which {
         Ratchets::None => {}
         Ratchets::RefusalsUnderMagnification => {
@@ -946,6 +1153,16 @@ fn hold(which: Ratchets, refused: &[String], differing: &[String]) {
                 differing,
                 differing_pages(),
                 "the pages raster draws differently from the oracle have changed"
+            );
+            let named: Vec<(String, NotComparable)> = incomparable
+                .iter()
+                .map(|(name, why)| (name.clone(), *why))
+                .collect();
+            assert_eq!(
+                named,
+                not_comparable_pages(),
+                "the pages that could not be compared at all have changed: each cause is a \
+                 different statement, and NOT_COMPARABLE's note says what each one of them is"
             );
         }
     }
@@ -1118,7 +1335,7 @@ fn selected(files: Vec<PathBuf>, filter: Option<&str>) -> Vec<PathBuf> {
 /// What the run found, for [`report`].
 struct Tally<'a> {
     agreed: usize,
-    skipped: usize,
+    incomparable: &'a [(String, NotComparable)],
     differing: &'a [String],
     refused: &'a [String],
     worst: &'a mut Vec<(f64, String)>,
@@ -1141,7 +1358,7 @@ fn report(tally: &mut Tally<'_>, timing: (Duration, Duration, &mut Vec<f64>), to
         tally.agreed,
         tally.differing.len(),
         tally.refused.len(),
-        tally.skipped
+        tally.incomparable.len()
     );
     println!(
         "  rasterisation: {cpu_total:.2?} on the CPU backend, {gpu_total:.2?} through raster \
@@ -1204,7 +1421,7 @@ fn outcome(cpu: &pdf_render::Raster, ours: Result<pdf_render::Raster, impl ToStr
         Err(why) => return Outcome::Refused(why.to_string()),
     };
     let Ok(c) = raster_compare::compare(cpu, &ours) else {
-        return Outcome::Skipped;
+        return Outcome::NotComparable(NotComparable::RastersCannotBeCompared);
     };
     if c.mean_error < MAX_MEAN_ERROR
         && c.worst_tile_error < MAX_WORST_TILE_ERROR
@@ -1222,13 +1439,44 @@ fn outcome(cpu: &pdf_render::Raster, ours: Result<pdf_render::Raster, impl ToStr
     ))
 }
 
-/// The display list of a document's first page, or `None` where there is not one.
-fn page_one(path: &Path) -> Option<DisplayList> {
-    let bytes = std::fs::read(path).ok()?;
-    let document = Document::open(bytes).ok()?;
+/// The three stages before the backend under test is asked anything, or which of them stopped.
+///
+/// The comparison needs a page, a target for it and the **oracle's** raster of that target, and
+/// each of the three can decline: a document that yields no page one, a target past
+/// [`PIXEL_BUDGET`], and the CPU backend refusing the list. They are together here because they
+/// are one statement — *nothing was asked of raster* — and because the third of them is a fact
+/// about the correctness oracle rather than about either backend, which is why it is a
+/// [`NotComparable`] of its own and not a counter.
+fn oracles_render(
+    path: &Path,
+    scale: f32,
+) -> Result<(DisplayList, TargetSpec, pdf_render::Raster, Duration), (NotComparable, String)> {
+    let list = page_one(path)?;
+    let target = TargetSpec::for_page(&list, scale, PIXEL_BUDGET)
+        .map_err(|why| (NotComparable::PastThePixelBudget, format!(": {why}")))?;
+    let at = Instant::now();
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .map_err(|why| (NotComparable::TheOracleRefused, format!(": {why}")))?;
+    Ok((list, target, cpu, at.elapsed()))
+}
+
+/// The display list of a document's first page, or which of three things there was not one for.
+///
+/// The three are kept apart because they are three different statements: a file that will not
+/// read is this machine's, a document that will not open is `pdf-syntax`'s, and a page tree with
+/// no first page is the producer's. Collapsing them into `None` was what made [`NotComparable`]
+/// necessary to write down at all.
+fn page_one(path: &Path) -> Result<DisplayList, (NotComparable, String)> {
+    let bytes =
+        std::fs::read(path).map_err(|why| (NotComparable::Unreadable, format!(": {why}")))?;
+    let document =
+        Document::open(bytes).map_err(|why| (NotComparable::WouldNotOpen, format!(": {why}")))?;
     let pages = pdf_model::Pages::new(&document);
-    let page = pages.get(0)?;
-    Some(pdf_model::content::interpret(&document, &page).display_list)
+    let page = pages
+        .get(0)
+        .ok_or((NotComparable::NoFirstPage, String::new()))?;
+    Ok(pdf_model::content::interpret(&document, &page).display_list)
 }
 
 /// The corpus files, or `None` when the submodule is not checked out.

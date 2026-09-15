@@ -216,6 +216,37 @@ const PROPERTY_NOT_CUT: &str = "a metadata property this conversion removed is s
 const NOT_A_PACKET: &str = "this document fails the schema requirement in an object that is not \
      a stream this tree can decode, so there is no packet to take the property out of";
 
+/// Why a container missing a field outright is not respelled.
+///
+/// ISO 19005-2 section 6.6.2.3.3's tables ask for two different things at once, and only one of
+/// them is a fact about the serialisation. A field stated with the wrong prefix is the packet
+/// spelling a name it already carries; a field the packet does not state is content nothing in
+/// the file holds, and `doc/pdf-a-mitigations.md`'s entry for this requirement is the reading:
+/// what is missing is a name for a schema, a description of what a property means, or the
+/// category saying where a value came from, and the two honest answers to that are the operator's
+/// own `supply` and a `discard` that loses the container. Neither is this rewrite.
+const FIELD_NOT_IN_THE_FILE: &str = "this document describes an extension schema whose \
+     description leaves out a field ISO 19005-2 section 6.6.2.3.3's tables require of it. What is \
+     missing is a name for the schema, a description of what a property means, or the category \
+     saying whether a property's value is derived from the document or supplied from outside it \
+     — none of which the file states anywhere, so supplying one would be this converter writing \
+     metadata about metadata that nobody produced. A field the packet does state and spells with \
+     another prefix is corrected without asking anyone, because the name, the namespace and the \
+     value are all already in the file";
+
+/// Why a packet whose prefixes cannot be moved refuses the document.
+const PACKET_NOT_RESPELLABLE: &str = "this document spells an extension schema container field \
+     with a prefix other than the one ISO 19005-2 section 6.6.2.3.3's table requires, and the \
+     packet it is in cannot be respelled in place: it is not one this tree can edit, or the \
+     required prefix already means another namespace in the same packet, where taking it over \
+     would change what names spelled with it mean";
+
+/// Why a field still spelled wrongly afterwards refuses the document.
+const PREFIX_NOT_RESPELLED: &str = "an extension schema container field this conversion respelled \
+     still carries the wrong prefix afterwards, so the packet is half-edited rather than \
+     corrected — and a half-edited packet is not written at all, which is the rule the property \
+     removal beside it already follows";
+
 /// Why the removal was withdrawn even though it could have been carried out.
 ///
 /// `doc/pdf-a-conversion-limits.md` section 4.2 makes one `xmpMM:History` entry the audit trail of
@@ -470,6 +501,21 @@ pub(super) struct Cleaned {
     pub(super) removed: Vec<MisusedProperty>,
 }
 
+/// The packets a conversion is in a position to respell a container's prefixes in.
+///
+/// ISO 19005-2 section 6.6.2.3.3's four tables each name the prefix their fields are required to
+/// be spelled with, and section 6.6.2.2 makes that the one place in an XMP packet where a prefix
+/// is part of what is required rather than a convenience. So a field stated in the right namespace
+/// with the wrong prefix is a *spelling* this converter can correct out of what the file already
+/// holds — which is what separates it from the fields nothing in the file states.
+#[derive(Debug)]
+pub(super) struct Respelled {
+    /// The packet each metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+    /// How many fields were respelled, for the report to count places by.
+    pub(super) fields: usize,
+}
+
 /// The appearances a conversion is in a position to construct.
 ///
 /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 require an appearance dictionary of
@@ -549,6 +595,11 @@ pub(super) struct Prepared {
     pub(super) to_unicode: Result<DerivedMaps, Because>,
     /// The appearances to construct, or why they cannot be.
     pub(super) appearances: Result<Appearances, Because>,
+    /// The packets with their container fields respelled, or why they cannot be.
+    ///
+    /// Prepared **after** the property removal and **before** the metadata, because all three
+    /// write the same packets and each has to start from what the one before it left.
+    pub(super) respelled: Result<Respelled, Because>,
     /// The packets with their unusable properties taken out, or why they cannot be.
     ///
     /// Prepared **before** the metadata, because the catalog's own packet is one of these: the
@@ -685,6 +736,17 @@ impl Prepared {
             .as_ref()
             .map(|cleaned| names_removed(&cleaned.removed))
             .unwrap_or_default();
+        // Section 6.6.2.3.3's prefixes move in what the removal left: the catalog's packet is one
+        // both writers may edit, and a writer starting from the producer's original would undo
+        // the one before it.
+        let respelled = asked(wanted(Rewrite::ExtensionSchemaPrefixes), || {
+            prepare_respellings(
+                document,
+                input,
+                headers.as_ref().ok(),
+                properties.as_ref().ok(),
+            )
+        });
         // **The appended pages, composed before the packet** and for the packet's sake: the
         // history entry naming them is a condition of the permission (`doc/adr/1014` section 5),
         // and an entry cannot be written for pages nobody has worked out yet. What they carry is
@@ -735,6 +797,7 @@ impl Prepared {
                 edited: Edited {
                     headers: headers.as_ref().ok(),
                     cleaned: properties.as_ref().ok(),
+                    respelled: respelled.as_ref().ok(),
                 },
             },
         );
@@ -779,6 +842,7 @@ impl Prepared {
             to_unicode,
             appearances,
             properties,
+            respelled,
             substitutes,
             metrics,
             structure,
@@ -802,6 +866,7 @@ impl Prepared {
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
             Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
+            Rewrite::ExtensionSchemaPrefixes => self.respelled.as_ref().err().copied(),
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
             Rewrite::RestateFontMetrics | Rewrite::RestateVerticalFontMetrics => {
@@ -1458,17 +1523,17 @@ fn button_widget(document: &Document, annotation: &Dictionary) -> bool {
     false
 }
 
-/// Every metadata stream the schema requirement was found to fail at.
+/// Every metadata stream one metadata requirement was found to fail at.
 ///
 /// The validator's own findings rather than a walk of this converter's, for
 /// [`unicode_fonts`]'s reason: which properties a predefined schema defines is `pdf_archive`'s
 /// reading. The *list* it names is capped, so a document failing at more streams than the cap
 /// leaves one uncleaned — and `doc/adr/0947`'s third stage refuses that file rather than this
 /// preparation half-finishing it.
-fn schema_packets(input: &pdf_archive::Report) -> Vec<ObjectId> {
+fn schema_packets(input: &pdf_archive::Report, requirement: &str) -> Vec<ObjectId> {
     let mut out: Vec<ObjectId> = input
         .failures()
-        .filter(|judgement| judgement.id == SCHEMA_REQUIREMENT)
+        .filter(|judgement| judgement.id == requirement)
         .filter_map(|judgement| match &judgement.outcome {
             Outcome::Failed { places, .. } => Some(places),
             _ => None,
@@ -1498,7 +1563,7 @@ fn prepare_properties(
 ) -> Result<Cleaned, Because> {
     let mut packets = BTreeMap::new();
     let mut removed = Vec::new();
-    for at in schema_packets(input) {
+    for at in schema_packets(input, SCHEMA_REQUIREMENT) {
         let Object::Stream(stream) = document.get(at) else {
             return Err(Because::NotBuiltYet(NOT_A_PACKET));
         };
@@ -1529,6 +1594,62 @@ fn prepare_properties(
         removed.extend(misused);
     }
     Ok(Cleaned { packets, removed })
+}
+
+/// The requirement the respelling answers.
+const CONTAINER_REQUIREMENT: &str = "metadata/extension-schema-container-fields";
+
+/// Moves every container field's prefix to the one its table requires, in the packets that state
+/// them.
+///
+/// **Nothing is judged here**, [`prepare_properties`]'s rule: `pdf_archive`'s
+/// `extension_container_fields` is the same reading the requirement's own row is, asked of one
+/// packet's bytes, so a prefix this moves is exactly a prefix that row reported. What this decides
+/// is only whether the move can be made — and a container missing a field outright cannot be
+/// corrected at all, because nothing in the file says what the field would hold.
+fn prepare_respellings(
+    document: &Document,
+    input: &pdf_archive::Report,
+    headers: Option<&Headers>,
+    cleaned: Option<&Cleaned>,
+) -> Result<Respelled, Because> {
+    let required: Vec<xmp::RequiredPrefix<'_>> = pdf_archive::REQUIRED_PREFIXES
+        .iter()
+        .map(|(namespace, prefix)| xmp::RequiredPrefix { namespace, prefix })
+        .collect();
+    let mut packets = BTreeMap::new();
+    let mut fields = 0usize;
+    for at in schema_packets(input, CONTAINER_REQUIREMENT) {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        // The two writers before this one edited this packet already where they edited any, so
+        // the prefixes move in what they left rather than in the producer's original.
+        let bytes = cleaned
+            .and_then(|cleaned| cleaned.packets.get(&at).cloned())
+            .or_else(|| headers.and_then(|headers| headers.packet(at).cloned()))
+            .unwrap_or_else(|| bytes.to_vec());
+        let faults = pdf_archive::extension_container_fields(&bytes);
+        if faults.is_empty() {
+            continue;
+        }
+        if faults.iter().any(|fault| !fault.misspelled) {
+            return Err(Because::NotBuiltYet(FIELD_NOT_IN_THE_FILE));
+        }
+        let respelled = xmp::respell(&bytes, &required)
+            .map_err(|_| Because::NotBuiltYet(PACKET_NOT_RESPELLABLE))?;
+        // Read back rather than trusted, for the removal's reason: the writer says what it moved
+        // and the packet says what it holds, and only the second is what a validator will see.
+        if !pdf_archive::extension_container_fields(&respelled).is_empty() {
+            return Err(Because::NotBuiltYet(PREFIX_NOT_RESPELLED));
+        }
+        packets.insert(at, respelled);
+        fields = fields.saturating_add(faults.len());
+    }
+    Ok(Respelled { packets, fields })
 }
 
 /// The pages a configured `preserve` remedy appends, or why none are.
@@ -1773,24 +1894,30 @@ struct Recording<'a> {
 
 /// The edits a metadata packet has already taken, newest first.
 ///
-/// **Three writers over one packet**, and the order is the whole of what this type carries: ISO
+/// **Four writers over one packet**, and the order is the whole of what this type carries: ISO
 /// 19005-2 section 6.6.2.1's header attributes come off first, section 6.6.2.3.1's misused
-/// properties come out of what that left, and section 6.6.4's identification schema is restated
-/// into what *that* left. A writer reading the producer's original instead would silently undo
-/// the writer before it.
+/// properties come out of what that left, section 6.6.2.3.3's container prefixes move in what
+/// *that* left, and section 6.6.4's identification schema is restated into the last of them. A
+/// writer reading the producer's original instead would silently undo the writer before it.
 #[derive(Debug, Clone, Copy, Default)]
 struct Edited<'a> {
     /// The packets whose header attributes have been cut.
     headers: Option<&'a Headers>,
     /// The packets a property removal has already edited.
     cleaned: Option<&'a Cleaned>,
+    /// The packets a container respelling has already edited.
+    respelled: Option<&'a Respelled>,
 }
 
 impl Edited<'_> {
     /// What one stream's packet holds after every edit made before the caller's.
     fn packet(self, at: ObjectId) -> Option<Vec<u8>> {
-        self.cleaned
-            .and_then(|cleaned| cleaned.packets.get(&at).cloned())
+        self.respelled
+            .and_then(|respelled| respelled.packets.get(&at).cloned())
+            .or_else(|| {
+                self.cleaned
+                    .and_then(|cleaned| cleaned.packets.get(&at).cloned())
+            })
             .or_else(|| self.headers.and_then(|headers| headers.packet(at).cloned()))
     }
 }

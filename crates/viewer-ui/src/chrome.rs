@@ -1378,6 +1378,12 @@ fn collection_rows(
             "This collection names an initial document and holds no files.",
         ));
     }
+    // §12.3.6's navigator and Table 153's `/View`, where either asks for a presentation these
+    // rows are not. `viewer_host::panel::unsupported_presentation` is the one sentence for all
+    // three windows, and the layouts it selects from are what this panel draws.
+    if let Some(sentence) = viewer_host::panel::unsupported_presentation(collection) {
+        out.push(nothing(&sentence));
+    }
     // §12.3.5.2's restricted names. This program supports them (ADR 1050) and draws them as the
     // file wrote them, so the row above may say `a:b`; `viewer_host::panel::restricted_names` is
     // the one sentence that says so, in all three windows.

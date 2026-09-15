@@ -24,7 +24,7 @@ use pdf_syntax::Document;
 
 use super::{
     AskedAt, Chain, ChainRefusal, Claim, Time, TokenRefusal, Unestablished, chain, established,
-    token_of, tst_info,
+    signature_timestamp_established, token_of, tst_info,
 };
 use crate::cms::{self, Digest};
 use crate::revocation::Material;
@@ -270,6 +270,98 @@ fn a_token_that_chains_to_a_supplied_anchor_states_its_instant() {
         )),
         "no anchor, no instant — and the reason says which of the four steps stopped"
     );
+}
+
+/// **§12.8.3.4.8's own instant: the token inside a signature timestamp attribute, established.**
+///
+/// The clause's first sentence asks for a signature to be verified "at the UTC time in the past
+/// indicated in that token", and what had held it was the word *indicated*: an instant a token
+/// merely states is a number a stranger wrote. [`signature_timestamp_established`] runs the same
+/// four steps a document timestamp goes through over the token inside §12.8.3.4.3 (b)'s unsigned
+/// attribute, so the instant either has an authority behind it or is not an instant.
+///
+/// The token is [`fixtures::TOKEN`], the one `openssl ts` issued, carried this time as an attribute
+/// of a detached `SignedData` rather than as a `/DocTimeStamp` dictionary's value. Two things are
+/// asserted with it and they are separate questions, which is ETSI EN 319 122-1 clause 5.3's own
+/// division: whether the token asserts an instant at all, and whether the token is about *this*
+/// signature — its imprint being the digest of the `SignerInfo`'s `signature` field.
+///
+/// **And the planted negatives beside them** (trap 13): with no anchor the instant is gone and the
+/// reason names the step that stopped, and with one octet of `genTime` moved the token establishes
+/// nothing at all.
+#[test]
+fn a_signature_timestamps_own_authority_is_established_or_the_instant_is_not_one() {
+    let established_with = |token: Vec<u8>, anchors: &TrustAnchors<'_>| {
+        // The digest the attribute is beside does not matter to any of the four steps: the token's
+        // own `message-digest` binds its own `TSTInfo`, not the document's.
+        let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+        let cms = cms::signed_data(&bytes).expect("a SignedData");
+        signature_timestamp_established(
+            &cms,
+            anchors,
+            &Material::none(),
+            AskedAt::TheCallersInstant(AFTER_THE_TOKEN),
+        )
+        .expect("the fixture states the attribute")
+    };
+    let root = hex(fixtures::ROOT);
+    let root = parse(&root).expect("the fixture root parses");
+    let anchors = TrustAnchors::of(std::slice::from_ref(&root));
+    let time = established_with(hex(fixtures::TOKEN), &anchors);
+    let Time::Established { at, asked_at, .. } = &time else {
+        panic!("the minted token should establish its instant, not {time:?}");
+    };
+    assert_eq!(*at, GEN_TIME);
+    assert_eq!(*asked_at, AskedAt::TheCallersInstant(AFTER_THE_TOKEN));
+
+    // No anchor, no instant — this tree's answer for every document there is (ADR 1039).
+    assert_eq!(
+        established_with(hex(fixtures::TOKEN), &TrustAnchors::none()),
+        Time::Unknown(Unestablished::AuthorityNotEstablished(
+            Trust::NoAnchorSupplied
+        ))
+    );
+
+    // One octet of `genTime` moved: the signature over the attributes still verifies and the
+    // attributes no longer commit to the content, which is where RFC 5652 section 5.6 stops it.
+    let mut moved = hex(fixtures::TOKEN);
+    let at = moved
+        .windows(15)
+        .position(|window| window == b"20260914215011Z")
+        .expect("genTime inside the encapsulated content");
+    moved[at.saturating_add(3)] = b'7';
+    assert_eq!(
+        established_with(moved, &anchors),
+        Time::Unknown(Unestablished::ContentNotBoundToTheSignature)
+    );
+}
+
+/// **ETSI EN 319 122-1 clause 5.3's imprint, which is the other half of §12.8.3.4.8's question.**
+///
+/// An established instant from a token about some *other* signature is not this signature's past,
+/// so the two answers are kept apart: [`signature_timestamp_established`] says whether the token
+/// asserts an instant, and [`SignatureTimestamp::covers_the_signature`] says whether it is about
+/// this signature. Clause 5.3 and RFC 3161 Appendix A state the same rule for the imprint, which is
+/// the second reading this comparison has.
+#[test]
+fn a_signature_timestamp_says_separately_whether_it_is_about_this_signature() {
+    let about_this = |token: Vec<u8>| {
+        let bytes = cms::fixtures::detached_with_signature_timestamp(&[0x00; 32], &token);
+        let cms = cms::signed_data(&bytes).expect("a SignedData");
+        super::signature_timestamp(&cms)
+            .expect("the fixture states the attribute")
+            .expect("the fixture's token reads")
+            .covers_the_signature
+    };
+    // `fixtures::TOKEN` was minted over other octets entirely, so it is about no signature here.
+    assert!(!about_this(hex(fixtures::TOKEN)));
+    // A hand-built token whose imprint *is* the digest of the fixture's signature field. Nothing
+    // about its authority is asserted — that is the test above — and nothing needs to be: the
+    // imprint rule is arithmetic and needs no key.
+    let over_the_signature = Digest::Sha256.compute(&[&[0xDE, 0xAD][..]]);
+    assert!(about_this(cms::fixtures::timestamp_token(
+        &over_the_signature
+    )));
 }
 
 /// **The `TSTInfo` swapped under a signature that still verifies.**

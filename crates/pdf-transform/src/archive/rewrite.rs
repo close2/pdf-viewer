@@ -23,8 +23,8 @@ use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
 use super::jpeg2000::Specifications;
 use super::prepare::{
-    Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, intent_dictionary,
-    metadata_stream, output_intent_entries,
+    Appearances, Cleaned, DefaultCmyk, Headers, Intent, Metadata, Prepared, Respelled,
+    intent_dictionary, metadata_stream, output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -173,6 +173,21 @@ pub enum Rewrite {
     /// property out of the producer's own bytes by span, so **every other byte of the packet
     /// crosses unchanged** — what goes is the property and nothing beside it.
     PropertyOutsideItsSchema,
+    /// Every extension schema container field spelled with another prefix gains the required one.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.3's four tables each name the prefix their fields are to be
+    /// spelled with, and section 6.6.2.2 is what makes that load-bearing: a prefix means nothing
+    /// *except* where one is identified as required, and these four identify one. So a field
+    /// stated in the field namespace its table gives it, with its local name and its value the
+    /// producer's, and spelled with another prefix, is a file that says the right thing in the
+    /// wrong letters — and this is the edit that changes the letters and nothing else.
+    ///
+    /// `pdf_model::xmp::respell` moves the prefix tokens in the producer's own bytes, the
+    /// declaration that bound the old prefix along with the names that used it, so the packet
+    /// gains no attribute and loses none and every other byte crosses unchanged. **A field the
+    /// packet does not state at all is not this rewrite's**: nothing in the file says what its
+    /// value would be, and `super::prepare` refuses the document rather than half-correcting it.
+    ExtensionSchemaPrefixes,
     /// Every annotation but a `Popup` that states no `/F` is given one whose only set bit is
     /// `Print`.
     ///
@@ -593,6 +608,11 @@ impl Rewrite {
                 "a metadata property whose predefined schema does not define the value it holds \
                  is cut out of the packet, leaving every other byte of it as its producer wrote it"
             }
+            Self::ExtensionSchemaPrefixes => {
+                "an extension schema container field stated with another prefix is respelled \
+                 with the one its table requires, the declaration that bound the old prefix \
+                 along with it, leaving every other byte of the packet as its producer wrote it"
+            }
             Self::AnnotationFlags => {
                 "an annotation stating no /F is given one whose only set bit is Print, which is \
                  the value the requirement asks for and the default in every other bit"
@@ -733,6 +753,7 @@ impl Rewrite {
             Self::AssociatedFileRelationship => "associated-file-relationship",
             Self::ToUnicode => "to-unicode",
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
+            Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
             Self::AnnotationFlags => "annotation-flags",
             Self::AppearanceDictionary => "appearance-dictionary",
             Self::SubstituteFontProgram => "substitute-font-program",
@@ -800,6 +821,7 @@ pub(super) fn convert(
         default_cmyk: prepared.default_cmyk.as_ref().ok(),
         to_unicode: prepared.to_unicode.as_ref().ok(),
         cleaned: prepared.properties.as_ref().ok(),
+        respelled: prepared.respelled.as_ref().ok(),
         appearances: prepared.appearances.as_ref().ok(),
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
@@ -879,6 +901,13 @@ pub(super) fn convert(
         && let Ok(cleaned) = &prepared.properties
     {
         applied.insert(Rewrite::PropertyOutsideItsSchema, cleaned.removed.len());
+    }
+    // The same, for the same reason: a packet may respell five fields of one description, and a
+    // report saying "1 done" would be counting the stream rather than the spellings.
+    if wanted.contains(&Rewrite::ExtensionSchemaPrefixes)
+        && let Ok(respelled) = &prepared.respelled
+    {
+        applied.insert(Rewrite::ExtensionSchemaPrefixes, respelled.fields);
     }
     Ok(Converted { bytes, applied })
 }
@@ -1492,6 +1521,8 @@ struct Rewriter<'a> {
     to_unicode: Option<&'a DerivedMaps>,
     /// The packet each metadata stream is to carry, where properties are being removed.
     cleaned: Option<&'a Cleaned>,
+    /// The packet each metadata stream is to carry, where container prefixes are being respelled.
+    respelled: Option<&'a Respelled>,
     /// The appearance each annotation's `/AP` `/N` is to name, where any are being constructed.
     appearances: Option<&'a Appearances>,
     /// The `/FontFile` entry each font descriptor is to gain, where any are being embedded.
@@ -2577,12 +2608,13 @@ impl Rewriter<'_> {
             count(applied, Rewrite::DerivedEmbeddedFile);
             return Rewritten::Changed(derived.clone());
         }
-        // **Three writers over one packet, and the last of them is what counts the first two's
+        // **Four writers over one packet, and the last of them is what counts the others'
         // work.** `super::prepare` folds the header cut into the bytes the property removal
-        // starts from and those into the bytes the identification schema is restated into, so
-        // whichever of the three branches below writes this stream is writing every edit — and a
-        // rewrite that happened has to be counted wherever it is carried, not only where it is
-        // the sole reason the stream changed.
+        // starts from, those into the bytes the container respelling starts from, and those into
+        // the bytes the identification schema is restated into — so whichever of the branches
+        // below writes this stream is writing every edit, and a rewrite that happened has to be
+        // counted wherever it is carried, not only where it is the sole reason the stream
+        // changed.
         let header_cut = self.wants(Rewrite::PacketHeaderAttributes)
             && self
                 .packet_headers
@@ -2601,8 +2633,20 @@ impl Rewriter<'_> {
             }
             return Rewritten::Changed(metadata_stream(&stream.dict, &metadata.packet));
         }
-        // Every *other* metadata stream a property was taken out of: an object's own packet is
-        // not the document's, and neither part restricts the requirement to the catalog's.
+        // Every *other* metadata stream one of the two RDF writers edited: an object's own packet
+        // is not the document's, and neither part restricts either requirement to the catalog's.
+        // The respelling is asked first because it is the last of the two to run, so its bytes
+        // carry the removal's as well.
+        if self.wants(Rewrite::ExtensionSchemaPrefixes)
+            && let Some(packet) = self
+                .respelled
+                .and_then(|respelled| respelled.packets.get(&id))
+        {
+            if header_cut {
+                count(applied, Rewrite::PacketHeaderAttributes);
+            }
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
         if self.wants(Rewrite::PropertyOutsideItsSchema)
             && let Some(packet) = self.cleaned.and_then(|cleaned| cleaned.packets.get(&id))
         {

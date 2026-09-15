@@ -34,7 +34,7 @@
 
 use pdf_model::article::Thread;
 use pdf_model::attachment::Attachment;
-use pdf_model::collection::{Collection, Field, FieldKind, Initial};
+use pdf_model::collection::{Collection, Field, FieldKind, Initial, Layout, View};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item, Outline};
 use pdf_model::viewer_preferences::PageMode;
@@ -381,6 +381,9 @@ pub fn collection_rows(
         // look identical; only one of them is the file being quiet.
         rows.push(PanelRow::saying("This collection lists no files."));
     }
+    if let Some(sentence) = unsupported_presentation(collection) {
+        rows.push(PanelRow::saying(&sentence));
+    }
     if let Some(sentence) = restricted_names(collection) {
         rows.push(PanelRow::saying(&sentence));
     }
@@ -415,6 +418,98 @@ pub fn restricted_names(collection: &Collection) -> Option<String> {
         many => Some(format!(
             "{many} names here are not valid file names; they are shown as the document wrote them."
         )),
+    }
+}
+
+/// The named layouts these panels are capable of displaying, which is what §12.3.6's selection
+/// rule has to be given.
+///
+/// §12.3.6 asks a processor for the first layout *it can draw*, so the answer is a property of
+/// this program and not of the file:
+///
+/// - `Tree` is what [`collection_rows`] builds — the clause describes it as "a classic folder
+///   view of the contents of a collection", with the folder structure as the nodes and the
+///   attachments as the leaves, which is this panel by construction;
+/// - `D` is Table 153's details view, the schema's visible columns as each row's detail line;
+/// - `H` is met by the sidebar being closed until a person opens it.
+///
+/// The four that are not here — `T`, `FilmStrip`, `FreeForm` and `Linear` — each need a surface
+/// this panel is not: a tile grid, a strip of miniatures, a free canvas, a large preview beside
+/// the metadata. [`unsupported_presentation`] is what a person is told when a document asks for
+/// one of them, because a panel that quietly drew something else would be §12.3.6 obeyed in
+/// silence.
+pub const DRAWN_LAYOUTS: [Layout; 3] = [
+    Layout::Tree,
+    Layout::View(View::Details),
+    Layout::View(View::Hidden),
+];
+
+/// What a panel says when a document asks to be presented in a way it cannot draw, or nothing.
+///
+/// Two clauses meet here, and both are addressed to a processor rather than to a producer:
+///
+/// - §12.3.5.1 makes Table 153's `/View` the initial presentation — "[w]hen an interactive PDF
+///   processor first opens a PDF document containing a collection, it shall display the contents
+///   according to the View key of the collection dictionary";
+/// - §12.3.6 says that "[w]hen a navigator dictionary is present, a PDF processor should use the
+///   value of the Layout entry to present the collection to the user", and that where several are
+///   named a processor "should present the first one it is capable of displaying in the order
+///   present in the array".
+///
+/// The navigator is asked first because it is the more specific instruction and because Table 153
+/// makes `/Navigator` the presentation when `/View` is `C`. [`pdf_model::collection::Navigator`]
+/// answers the selection from [`DRAWN_LAYOUTS`]; `None` from it means the file names no layout
+/// this program can draw, which the clause allows for and does not say what to do about.
+///
+/// **This sentence is the project's and not the standard's**, on ADR 0711's reason for the rest of
+/// this clause: neither clause asks for a message. What it prevents is the failure trap 5 names —
+/// a presentation the document asked for, silently replaced by a different one.
+#[must_use]
+pub fn unsupported_presentation(collection: &Collection) -> Option<String> {
+    if let Some(navigator) = collection.navigator.as_ref() {
+        if navigator.preferred(&DRAWN_LAYOUTS).is_some() {
+            return None;
+        }
+        // Named, because a report that does not say what it matched cannot be checked against the
+        // document (trap 11). A file naming no layout at all is Table 160's `/Layout` missing,
+        // which is the entry it makes required.
+        let named: Vec<String> = navigator.layouts.iter().map(layout_name).collect();
+        return Some(match named.len() {
+            0 => "This collection states a navigator that names no layout.".to_owned(),
+            _ => format!(
+                "This collection asks to be presented as {}, which this panel does not draw; its \
+                 files are shown as a tree.",
+                named.join(" or ")
+            ),
+        });
+    }
+    match collection.view {
+        View::Tile => Some(
+            "This collection asks to be shown in tile mode; this panel shows the details view \
+             instead."
+                .to_owned(),
+        ),
+        // `/View C` with no `/Navigator` is a file contradicting §12.3.5.1's Table 153, which
+        // makes the navigator "[r]equired if the value of View is C". Nothing to select from.
+        View::Navigator => Some(
+            "This collection asks to be presented by a navigator it does not state.".to_owned(),
+        ),
+        View::Details | View::Hidden => None,
+    }
+}
+
+/// One of Table 160's names, as the table spells it.
+fn layout_name(layout: &Layout) -> String {
+    match layout {
+        Layout::View(View::Details) => "D".to_owned(),
+        Layout::View(View::Tile) => "T".to_owned(),
+        Layout::View(View::Hidden) => "H".to_owned(),
+        Layout::View(View::Navigator) => "C".to_owned(),
+        Layout::FilmStrip => "FilmStrip".to_owned(),
+        Layout::FreeForm => "FreeForm".to_owned(),
+        Layout::Linear => "Linear".to_owned(),
+        Layout::Tree => "Tree".to_owned(),
+        Layout::Custom(name) => name.clone(),
     }
 }
 

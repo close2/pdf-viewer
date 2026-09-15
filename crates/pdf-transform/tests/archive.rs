@@ -922,6 +922,172 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
     );
 }
 
+/// One packet describing an extension schema, with the four value-type prefixes the caller
+/// chooses rather than the four ISO 19005-2 section 6.6.2.3.3's tables require.
+///
+/// The description is complete in every other respect: every field each table names is stated, in
+/// the field namespace that table gives it, with a value. What varies between the two calls below
+/// is only how the name is *spelled*, which is what section 6.6.2.2 makes load-bearing here.
+fn container_packet(schema: &str, property: &str, kind: &str, field: &str) -> String {
+    format!(
+        "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+         <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+         <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+         <rdf:Description rdf:about=\"\" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\">\n\
+         <pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n\
+         </rdf:Description>\n\
+         <rdf:Description rdf:about=\"\" \
+         xmlns:pdfaExtension=\"http://www.aiim.org/pdfa/ns/extension/\" \
+         xmlns:{schema}=\"http://www.aiim.org/pdfa/ns/schema#\" \
+         xmlns:{property}=\"http://www.aiim.org/pdfa/ns/property#\" \
+         xmlns:{kind}=\"http://www.aiim.org/pdfa/ns/type#\" \
+         xmlns:{field}=\"http://www.aiim.org/pdfa/ns/field#\">\n\
+         <pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType=\"Resource\">\n\
+         <{schema}:schema>Machines</{schema}:schema>\n\
+         <{schema}:namespaceURI>http://example.invalid/ns/machines/</{schema}:namespaceURI>\n\
+         <{schema}:prefix>mc</{schema}:prefix>\n\
+         <{schema}:property><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n\
+         <{property}:name>Serial</{property}:name>\n\
+         <{property}:valueType>PartNumber</{property}:valueType>\n\
+         <{property}:category>external</{property}:category>\n\
+         <{property}:description>the machine's serial</{property}:description>\n\
+         </rdf:li></rdf:Seq></{schema}:property>\n\
+         <{schema}:valueType><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n\
+         <{kind}:type>PartNumber</{kind}:type>\n\
+         <{kind}:namespaceURI>http://example.invalid/ns/part/</{kind}:namespaceURI>\n\
+         <{kind}:prefix>pt</{kind}:prefix>\n\
+         <{kind}:description>a part number</{kind}:description>\n\
+         <{kind}:field><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n\
+         <{field}:name>Digits</{field}:name>\n\
+         <{field}:valueType>Text</{field}:valueType>\n\
+         <{field}:description>the digits</{field}:description>\n\
+         </rdf:li></rdf:Seq></{kind}:field>\n\
+         </rdf:li></rdf:Seq></{schema}:valueType>\n\
+         </rdf:li></rdf:Bag></pdfaExtension:schemas>\n\
+         </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>"
+    )
+}
+
+#[test]
+fn a_container_field_spelled_with_another_prefix_is_respelled_and_nothing_else_moves() {
+    // ISO 19005-2 section 6.6.2.3.3's four tables each name the prefix their fields are to be
+    // spelled with, and section 6.6.2.2 is what makes that a requirement rather than a
+    // convenience: a prefix means nothing *except* where one is identified as required. So a
+    // description stating every field its table names, in that table's own field namespace, and
+    // spelling them with another prefix, is a file that says the right thing in the wrong
+    // letters — and correcting the letters invents nothing.
+    let source = Conforming {
+        metadata: Packet::Stated(container_packet(
+            "nonpdfaSchema",
+            "nonpdfaProperty",
+            "nonpdfaType",
+            "nonpdfaField",
+        )),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+
+    // No authorisation, because nothing is lost: the decision is Mechanical.
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert_eq!(
+        decision(&report, "metadata/extension-schema-container-fields"),
+        Decision::Mechanical(Rewrite::ExtensionSchemaPrefixes)
+    );
+    let output = output.expect("nothing is lost, so it converts with nothing authorised");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("nonpdfa"),
+        "every name in one of the four field namespaces now carries the prefix its table requires"
+    );
+    assert!(
+        written.contains("<pdfaSchema:schema>Machines</pdfaSchema:schema>")
+            && written.contains("<pdfaProperty:name>Serial</pdfaProperty:name>")
+            && written.contains("<pdfaType:type>PartNumber</pdfaType:type>")
+            && written.contains("<pdfaField:name>Digits</pdfaField:name>"),
+        "and each keeps the local name and the value the producer wrote: {written}"
+    );
+    assert!(
+        written.contains("<pdfaSchema:prefix>mc</pdfaSchema:prefix>")
+            && written.contains("the machine's serial"),
+        "the prefixes this schema declares for its *own* namespaces are values rather than \
+         spellings, and nothing touches them"
+    );
+}
+
+/// Trap 13's control for the test above: the same fixture spelled correctly.
+///
+/// An instrument that respells a packet already spelling every field with its required prefix
+/// would report a rewrite over a conforming file, which `doc/adr/1006` forbids outright — so the
+/// calibration is that this document is the identity conversion and the one above is not.
+#[test]
+fn a_container_already_spelling_every_field_correctly_is_not_rewritten() {
+    let source = Conforming {
+        metadata: Packet::Stated(container_packet(
+            "pdfaSchema",
+            "pdfaProperty",
+            "pdfaType",
+            "pdfaField",
+        )),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    assert_eq!(
+        holds(&source, target).verdict(),
+        Verdict::Conforms,
+        "the fixture differs from the one above only in how four prefixes are spelled"
+    );
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let output = output.expect("a conforming document converts");
+    assert!(
+        conversion(&report).decided.is_empty(),
+        "a conforming document has nothing decided about it: {:?}",
+        conversion(&report).decided
+    );
+    assert_eq!(output, source, "and is copied byte for byte");
+}
+
+/// A field the packet does not state is refused by name, because nothing in the file says what it
+/// would hold.
+#[test]
+fn a_container_missing_a_field_outright_is_refused_rather_than_invented() {
+    // The same description with `pdfaProperty:category` taken out — the field ISO 19005-2 section
+    // 6.6.2.3.3's Table 4 uses to say whether a value is derived from the document or supplied
+    // from outside it. Nothing in the file answers that, so writing one would be this converter
+    // inventing metadata about metadata; `doc/pdf-a-mitigations.md`'s entry leaves the two honest
+    // answers — an operator's own `supply`, or a `discard` that loses the container — to a
+    // configuration.
+    let whole = container_packet("pdfaSchema", "pdfaProperty", "pdfaType", "pdfaField");
+    let packet = whole.replace(
+        "<pdfaProperty:category>external</pdfaProperty:category>\n",
+        "",
+    );
+    assert_ne!(packet, whole, "the field was there to take out");
+    let source = Conforming {
+        metadata: Packet::Stated(packet),
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "nothing is written");
+    assert_eq!(report.exit(false, false), Exit::Refused);
+    let Decision::Refused(because) =
+        decision(&report, "metadata/extension-schema-container-fields")
+    else {
+        panic!("a field nothing in the file states is refused by name");
+    };
+    let said = because.sentence();
+    assert!(
+        said.contains("leaves out a field") && said.contains("category"),
+        "and the sentence says which kind of field and why: {said}"
+    );
+}
+
 #[test]
 fn a_form_xobjects_opi_and_postscript_passthrough_are_removed() {
     // ISO 19005-2 section 6.2.9.1 forbids /OPI on a form XObject, and forbids the two keys PDF

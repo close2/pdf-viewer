@@ -472,7 +472,12 @@ impl Workers for InProcessWorkers {
             }
             None => Source::new(bytes),
         };
-        Ok(Box::new(InProcess::new(source, policy, budget, None)))
+        Ok(Box::new(InProcess::new(
+            source,
+            policy,
+            budget,
+            Some(crate::serve::RASTERISING_THREADS),
+        )))
     }
 }
 
@@ -493,12 +498,17 @@ pub struct InProcess {
     budget: Budget,
     /// How many strips a page's raster is cut into, or `None` to let `render-cpu` ask the machine.
     ///
-    /// **A confined worker states it and an unconfined one does not**, and the reason is the
-    /// kernel's rather than a preference: `std::thread::available_parallelism` reads
-    /// `/proc/self/cgroup` on Linux, and a process with no filesystem is *killed* for it rather
-    /// than told no (ADR 0218). `crate::serve` takes the number before its confinement and states
-    /// it here; `InProcessWorkers` leaves it `None`, which is what this crate did before the
-    /// confined implementation existed.
+    /// **Both routes state it, and they state the same number.** A confined worker has to: the
+    /// kernel rather than a preference decides it, because `std::thread::available_parallelism`
+    /// reads `/proc/self/cgroup` on Linux and a process with no filesystem is *killed* for it
+    /// rather than told no (ADR 0218), so `crate::serve` takes the number before its confinement
+    /// and states it here. `InProcessWorkers` left it `None` — "what this crate did before the
+    /// confined implementation existed" — and that made the two routes two *configurations*, which
+    /// `tests/confined.rs` compares byte for byte in the belief that the confinement is a transport
+    /// and nothing else. It held only while the rasteriser had a quantum wide enough to hide a
+    /// strip's shifted origin in; ADR 1082 took the quantum away and `crate::serve`'s own
+    /// `RASTERISING_THREADS` is the number both now state. `None` remains for the caller that
+    /// means it.
     strips: Option<u32>,
 }
 

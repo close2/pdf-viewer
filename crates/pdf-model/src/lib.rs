@@ -36,6 +36,7 @@ pub mod annotation_state;
 pub mod appearance;
 pub mod article;
 pub mod attachment;
+pub mod case;
 mod cloud;
 pub mod collection;
 pub mod colour;

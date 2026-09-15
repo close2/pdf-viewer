@@ -115,7 +115,8 @@ pub fn whole_rectangle(path: &Path) -> Option<(Point, Point)> {
     let mut only: Option<(Point, Point)> = None;
     for extent in subpath_extents(path) {
         if only.is_some()
-            || !is_axis_aligned_rectangle(&commands[extent.range()], extent.min, extent.max)
+            || is_axis_aligned_rectangle(&commands[extent.range()], extent.min, extent.max)
+                .is_none()
         {
             return None;
         }

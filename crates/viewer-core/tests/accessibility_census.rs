@@ -1088,12 +1088,16 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.with_lines,
             110_478,
         );
+        // 885 until the merge of sessions 1068-1073, where two more untagged pages answered the honest
+        // empty tree. The rise is the direction this floor exists to admit; which of that batch's
+        // open-path changes freed the two pages (1069's one-pass header search, 1072's collection
+        // reading) was not isolated, and the floor records the population, not the cause.
         gate_ratchet::floor("lines, whole population", census.lines, 195_212);
         gate_ratchet::floor("characters, whole population", census.characters, 5_196_091);
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            885,
+            887,
         );
     } else {
         println!(

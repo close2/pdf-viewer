@@ -192,10 +192,25 @@ fn two_substituted_glyphs_in_one_clip_unite_rather_than_cancel() {
 
 /// The same glyph twice in one place is itself, not nothing.
 ///
-/// The sharpest form of the rule and the one with no arithmetic in it: two identical outlines
-/// wound the same way have every winding number doubled, so the non-zero rule paints the glyph;
-/// wound opposite ways they cancel to nothing at all. A face that disagreed *with itself* would
-/// show here, and this is also what a document gets when it accumulates one word twice.
+/// The sharpest form of the rule: two identical outlines wound the same way have every winding
+/// number doubled, so the non-zero rule paints the glyph; wound opposite ways they cancel to
+/// nothing at all. A face that disagreed *with itself* would show here, and this is also what a
+/// document gets when it accumulates one word twice.
+///
+/// # Why the two arms are held within a fiftieth rather than to the pixel
+///
+/// They are drawn by two scan converters, and that is §11.6.2 rather than an accident. A path
+/// stating every outline twice has portions that overlap, which "shall not be composited with one
+/// another"; `render_cpu::area`'s accumulator integrates the winding *number*, which is the filled
+/// set's own indicator only while that number stays inside `-1..=1`, so it declines such a path to
+/// `tiny-skia`'s supersampled converter and the single glyph keeps the exact one (ADR 1082). The
+/// two therefore part along the glyph's **boundary**, where [`marked`]'s threshold at half an
+/// alpha falls either side of a coverage the two converters state differently.
+///
+/// The bound is the neighbouring test's own and is derived the same way: a cancellation takes the
+/// whole glyph, and an anti-aliased edge takes the pixels its outline passes through. Measured,
+/// the two arms differ by **33 of 4189** pixels — 0.8%, where the failure mode this test exists to
+/// catch is 100%.
 #[test]
 fn a_glyph_accumulated_twice_is_still_itself() {
     for font in ["FSans", "FSerif"] {
@@ -207,6 +222,10 @@ fn a_glyph_accumulated_twice_is_still_itself() {
         )));
 
         assert!(once > 0, "{font} must draw");
-        assert_eq!(twice, once, "{font} drawn twice in one clip");
+        assert!(
+            twice.abs_diff(once) * 50 < once,
+            "{font} drawn twice in one clip marks {twice} pixels where once marks {once}: a \
+             cancellation would take the whole glyph, and a boundary takes its outline"
+        );
     }
 }

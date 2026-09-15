@@ -118,17 +118,57 @@ pub const ID_AA_CONTENT_REFERENCE: &[u8] = &[
 ];
 /// `id-aa-ets-signerLocation`, `1.2.840.113549.1.9.16.2.17` — §12.8.3.4.3 (h)'s attribute.
 ///
-/// **The identifier is RFC 5126 section 5.11.2's and the clause names a different document**, and
-/// that is worth stating rather than hiding: §12.8.3.4.3 (h) says "signer-location, as defined in
-/// clause 5.2.5 in ETSI EN 319 122-1", which this tree does not hold; RFC 5126 defines the same
-/// attribute under the same name and assigns it this number, and it is freely redistributable, so
-/// it is the definition a reader here can check. What the risk *is*, exactly: if the ETSI document
-/// numbers the attribute otherwise, the rule below stops firing — a report that is not made, not a
-/// verdict that is wrong — because the only thing it decides is whether to *say* that a file
-/// states both this attribute and a `/Location`.
+/// Two documents assign this number to this attribute and they agree: RFC 5126 section 5.11.2,
+/// which is freely redistributable, and ETSI EN 319 122-1 clause 5.2.5, which is the document
+/// §12.8.3.4.3 (h) actually names. That clause also states the two rules checked here that the
+/// RFC's wording alone did not settle — the attribute belongs among the signed attributes, and its
+/// `SET OF AttributeValue` holds one component.
 pub const ID_AA_ETS_SIGNER_LOCATION: &[u8] = &[
     0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x11,
 ];
+/// `id-aa-ets-contentTimestamp`, `1.2.840.113549.1.9.16.2.20` — §12.8.3.4.3 (c)'s attribute.
+///
+/// The number is ETSI EN 319 122-1 clause 5.2.8's, which is the clause §12.8.3.4.3 (c) points at
+/// for everything it does not say itself.
+pub const ID_AA_ETS_CONTENT_TIMESTAMP: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x14,
+];
+/// `id-aa-ets-signerAttrV2`, `0.4.0.19122.1.1` — §12.8.3.4.3 (j)'s attribute.
+///
+/// ETSI EN 319 122-1 clause 5.2.6.1 assigns it, and no other document this tree holds does: the
+/// arc is ETSI's own rather than PKCS #9's, which is why (j) could not be implemented before the
+/// text was obtained.
+pub const ID_AA_ETS_SIGNER_ATTR_V2: &[u8] = &[0x04, 0x00, 0x81, 0x95, 0x32, 0x01, 0x01];
+/// `id-aa-ets-sigPolicyId`, `1.2.840.113549.1.9.16.2.15` — what tells §12.8.3.4.4's two profiles
+/// apart.
+///
+/// ETSI EN 319 122-1 clause 5.2.9.1 assigns it, and its presence is the whole difference between
+/// `PAdES-E-BES` and `PAdES-E-EPES`: ETSI EN 319 122-2 clause 4.3 builds the second profile out of
+/// the first by adding this one attribute, and §12.8.3.4.4 says the same thing from the other side
+/// — "a signature-policy-identifier shall be present as a signed attribute".
+///
+/// ETSI's texts are paraphrased throughout this crate and never quoted: their copyright notice
+/// permits no reproduction without written permission, so what is cited is the clause number
+/// (ADR 1085).
+pub const ID_AA_ETS_SIG_POLICY_ID: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x0F,
+];
+/// `id-aa-ets-sigPolicyStore`, `0.4.0.19122.1.3` — ETSI EN 319 122-1 clause 5.2.10's attribute.
+///
+/// Read for one rule only, and it is ETSI EN 319 122-2 Table 1's requirement (c): the store may be
+/// incorporated only alongside a `signature-policy-identifier` that carries the policy document's
+/// digest, and shall not be incorporated otherwise.
+pub const ID_AA_ETS_SIG_POLICY_STORE: &[u8] = &[0x04, 0x00, 0x81, 0x95, 0x32, 0x01, 0x03];
+/// `id-aa-ets-commitmentType`, `1.2.840.113549.1.9.16.2.16` — ETSI EN 319 122-1 clause 5.2.3's
+/// attribute, and the subject of a rule §12.8.3.4.4 states in its own words.
+pub const ID_AA_ETS_COMMITMENT_TYPE: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x10,
+];
+/// `id-aa-ets-mimeType`, `0.4.0.1733.2.1` — ETSI EN 319 122-1 clause 5.2.4.2's attribute.
+///
+/// One of the attributes ETSI EN 319 122-2 Table 1 gives a cardinality of at most one in both of
+/// §12.8.3.4.4's profiles, which is the only thing read of it here.
+pub const ID_AA_ETS_MIME_TYPE: &[u8] = &[0x04, 0x00, 0x8D, 0x45, 0x02, 0x01];
 /// RFC 3161's `id-ct-TSTInfo`, `1.2.840.113549.1.9.16.1.4` — what a document timestamp
 /// encapsulates (§12.8.5).
 pub const ID_CT_TST_INFO: &[u8] = &[
@@ -631,6 +671,30 @@ pub enum CmsError {
     NoSigner,
 }
 
+/// One `Attribute` of a `SignerInfo`, as the file wrote it.
+///
+/// RFC 5652 section 5.3 gives both attribute sets the same shape — `Attribute ::= SEQUENCE { attrType
+/// OBJECT IDENTIFIER, attrValues SET OF AttributeValue }` — and every `CAdES` rule this crate checks
+/// is a statement about one of the three things recorded here: which set the attribute was in, how
+/// many components its `SET OF` held, and what the first of them is.
+///
+/// ETSI EN 319 122-1 states the first two for each attribute separately and in the same two forms
+/// throughout: a *semantics* sentence saying the attribute is signed or unsigned (clauses 5.2.6.1,
+/// 5.2.8 and 5.3 among them), and a *syntax* sentence saying it holds exactly one component of
+/// `AttributeValue` type. A reader with only [`SignedData::has_signed_attribute`] can see neither,
+/// which is why this record exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attribute<'a> {
+    /// `attrType`, the object identifier.
+    pub kind: &'a [u8],
+    /// Whether it was in `signedAttrs [0]` rather than `unsignedAttrs [1]`.
+    pub signed: bool,
+    /// How many components `attrValues` held.
+    pub values: usize,
+    /// The first of them, where there was one.
+    pub first: Option<Value<'a>>,
+}
+
 /// What §12.8.3.3's signature value says, as far as this program reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedData<'a> {
@@ -726,6 +790,12 @@ pub struct SignedData<'a> {
     pub signed_attribute_types: Vec<&'a [u8]>,
     /// The same for its unsigned attributes.
     pub unsigned_attribute_types: Vec<&'a [u8]>,
+    /// Every attribute of the first signer, both sets, in the file's order.
+    ///
+    /// [`Self::signed_attribute_types`] and [`Self::unsigned_attribute_types`] are the identifiers
+    /// alone and stay because most callers want nothing else; this is the same walk recorded in
+    /// full, and [`Self::attribute`] is how a rule about one attribute finds it.
+    pub attributes: Vec<Attribute<'a>>,
     /// Whether either list stopped at [`MAX_ATTRIBUTES`] rather than at the file's end.
     pub attributes_truncated: bool,
 }
@@ -741,6 +811,31 @@ impl<'a> SignedData<'a> {
     #[must_use]
     pub fn has_unsigned_attribute(&self, oid: &[u8]) -> bool {
         self.unsigned_attribute_types.contains(&oid)
+    }
+
+    /// The first attribute with this identifier, in either set.
+    ///
+    /// *First* rather than *only* on purpose: a file stating an attribute twice is a file breaking
+    /// a cardinality, and [`Self::attribute_count`] is what sees that. Reading the first of them is
+    /// a reading that can then be compared, which is the same choice [`Self::signing_certificate`]
+    /// records for RFC 5035's own "MUST NOT be zero or multiple instances".
+    #[must_use]
+    pub fn attribute(&self, oid: &[u8]) -> Option<&Attribute<'a>> {
+        self.attributes
+            .iter()
+            .find(|attribute| attribute.kind == oid)
+    }
+
+    /// How many times the first signer states an attribute with this identifier, both sets counted.
+    ///
+    /// ETSI EN 319 122-2 Table 1 states a cardinality for every attribute of §12.8.3.4.4's two
+    /// profiles, and most of them are *at most one*; this is what a rule about one of those asks.
+    #[must_use]
+    pub fn attribute_count(&self, oid: &[u8]) -> usize {
+        self.attributes
+            .iter()
+            .filter(|attribute| attribute.kind == oid)
+            .count()
     }
 
     /// The bytes RFC 5652 section 5.4 says a signature over signed attributes is computed over.
@@ -940,6 +1035,7 @@ fn read_signed_data(signed: Value<'_>) -> Result<SignedData<'_>, CmsError> {
         signature_timestamp: parsed.signature_timestamp,
         signed_attribute_types: parsed.signed_attribute_types,
         unsigned_attribute_types: parsed.unsigned_attribute_types,
+        attributes: parsed.attributes,
         attributes_truncated: parsed.truncated,
     })
 }
@@ -959,6 +1055,7 @@ struct Signer<'a> {
     signature_timestamp: Option<Value<'a>>,
     signed_attribute_types: Vec<&'a [u8]>,
     unsigned_attribute_types: Vec<&'a [u8]>,
+    attributes: Vec<Attribute<'a>>,
     truncated: bool,
 }
 
@@ -1005,6 +1102,7 @@ fn read_signer_info(info: Value<'_>) -> Result<Signer<'_>, CmsError> {
         signature_timestamp: None,
         signed_attribute_types: Vec::new(),
         unsigned_attribute_types: Vec::new(),
+        attributes: Vec::new(),
         truncated: false,
     };
     // The three members that follow, in RFC 5652's order: an optional `[0]`, then the signature
@@ -1086,23 +1184,41 @@ fn read_attributes<'a>(
             continue;
         };
         names.push(kind);
+        // `attrValues SET OF AttributeValue`, recorded whole for every attribute: how many
+        // components it holds is what ETSI EN 319 122-1's *syntax* sentences are about, and the
+        // first of them is what its semantics are about. Reading it here rather than in each arm
+        // below means the walk is one walk, and `parts` is consumed once.
+        let values = parts.next_value()?;
+        let mut components = 0;
+        let mut first = None;
+        if let Some(values) = values {
+            let mut reader = values.children()?;
+            while let Some(component) = reader.next_value()? {
+                if components < MAX_ATTRIBUTES {
+                    first.get_or_insert(component);
+                }
+                components = components.saturating_add(1);
+            }
+        }
+        signer.attributes.push(Attribute {
+            kind,
+            signed: is_signed,
+            values: components,
+            first,
+        });
         if !is_signed {
             // The one *unsigned* attribute this reader takes a value from. RFC 5652 section 11.4's
             // `SET OF` shape is the same as a signed attribute's, and RFC 3161 Appendix A puts one
             // token in it.
-            if kind == ID_AA_TIME_STAMP_TOKEN
-                && let Some(values) = parts.next_value()?
-                && let Some(token) = values.children()?.next_value()?
-            {
-                signer.signature_timestamp = Some(token);
+            if kind == ID_AA_TIME_STAMP_TOKEN {
+                signer.signature_timestamp = first;
             }
             continue;
         }
         if kind == ID_MESSAGE_DIGEST {
             // `AttributeValue ::= ANY`, in a `SET OF` of one: the digest is the octets of the
             // single value inside.
-            if let Some(values) = parts.next_value()?
-                && let Some(octets) = values.children()?.next_value()?
+            if let Some(octets) = first
                 && octets.identifier == OCTET_STRING
             {
                 signer.message_digest = Some(octets.contents);
@@ -1114,9 +1230,7 @@ fn read_attributes<'a>(
             // therefore taking the only one a conforming file has; a file with several is a file
             // breaking that MUST, and reading the first of them is the reading that can then be
             // *compared* rather than one that guesses which was meant.
-            if let Some(values) = parts.next_value()?
-                && let Some(attribute) = values.children()?.next_value()?
-            {
+            if let Some(attribute) = first {
                 if kind == ID_AA_SIGNING_CERTIFICATE {
                     signer.signing_certificate = Some(attribute);
                 } else {
@@ -1154,8 +1268,11 @@ fn read_attributes<'a>(
 pub(crate) mod fixtures {
     use super::{
         Digest, ID_AA_CONTENT_HINT, ID_AA_CONTENT_IDENTIFIER, ID_AA_CONTENT_REFERENCE,
-        ID_AA_ETS_SIGNER_LOCATION, ID_AA_SIGNING_CERTIFICATE_V2, ID_CONTENT_TYPE,
-        ID_COUNTERSIGNATURE, ID_CT_TST_INFO, ID_DATA, ID_MESSAGE_DIGEST, ID_SIGNING_TIME,
+        ID_AA_ETS_COMMITMENT_TYPE, ID_AA_ETS_CONTENT_TIMESTAMP, ID_AA_ETS_SIG_POLICY_ID,
+        ID_AA_ETS_SIG_POLICY_STORE, ID_AA_ETS_SIGNER_ATTR_V2, ID_AA_ETS_SIGNER_LOCATION,
+        ID_AA_SIGNING_CERTIFICATE, ID_AA_SIGNING_CERTIFICATE_V2, ID_AA_TIME_STAMP_TOKEN,
+        ID_CONTENT_TYPE, ID_COUNTERSIGNATURE, ID_CT_TST_INFO, ID_DATA, ID_MESSAGE_DIGEST,
+        ID_SIGNING_TIME,
     };
 
     /// A DER `SEQUENCE`, `SET` or context tag around already-encoded children.
@@ -1310,6 +1427,282 @@ pub(crate) mod fixtures {
             ID_DATA,
             None,
             signer(Digest::Sha256, Some(attributes)),
+        )
+    }
+
+    /// The `signature` value every fixture here writes, as the digest rules see it.
+    ///
+    /// ETSI EN 319 122-1 clause 5.3 puts a signature timestamp's imprint over the `SignerInfo`'s
+    /// `signature` field without its tag and length, so a fixture that wants a *conforming* one
+    /// needs the octets that field will hold. [`signer_with`] writes these.
+    const SIGNATURE_VALUE: &[u8] = &[0xDE, 0xAD];
+
+    /// A detached `SignedData` carrying `token` as its `signature-time-stamp` unsigned attribute.
+    ///
+    /// The token is the caller's so that the four steps of
+    /// [`crate::timestamp::signature_timestamp_established`] can be exercised against a real one —
+    /// `crate::timestamp`'s fixtures hold a token `openssl ts` issued, and nothing hand-built here
+    /// could stand in for it, because step 3 verifies the authority's signature and step 4 walks a
+    /// path from its certificate.
+    pub(crate) fn detached_with_signature_timestamp(digest: &[u8], token: &[u8]) -> Vec<u8> {
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer_with(
+                Digest::Sha256,
+                Some(vec![
+                    attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+                ]),
+                Some(vec![attribute(ID_AA_TIME_STAMP_TOKEN, token.to_vec())]),
+            ),
+        )
+    }
+
+    /// Which of the rules §12.8.3.4.3 (b), (c) and (j) and §12.8.3.4.4 state only by reference a
+    /// fixture is built to break.
+    ///
+    /// One case per rule, and [`Referring::Conforming`] meets every one of them at once — which is
+    /// what makes the pair a calibration rather than an assertion (trap 13): the conforming
+    /// fixture states each of the five attributes the cases below deform, so a rule that stopped
+    /// firing would have to show itself as a departure the conforming case does not produce.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum Referring {
+        /// Every attribute present and every rule met.
+        Conforming,
+        /// Clause 5.3: the signature timestamp among the signed attributes.
+        TimestampSigned,
+        /// Clause 5.3: two components in its `SET OF AttributeValue`.
+        TimestampTwoValues,
+        /// Clause 5.3: its imprint is not the digest of the `signature` field.
+        TimestampOverSomethingElse,
+        /// Clause 5.2.5: `signer-location` among the unsigned attributes.
+        SignerLocationUnsigned,
+        /// Clause 5.2.5: two components in its `SET OF AttributeValue`.
+        SignerLocationTwoValues,
+        /// Clause 5.2.5: a `SignerLocation` naming no place at all.
+        SignerLocationEmpty,
+        /// Clause 5.2.8: the content timestamp among the unsigned attributes.
+        ContentTimestampUnsigned,
+        /// Clause 5.2.8: two components in its `SET OF AttributeValue`.
+        ContentTimestampTwoValues,
+        /// Clause 5.2.8: its imprint is not the digest of the bytes `/ByteRange` names.
+        ContentTimestampOverSomethingElse,
+        /// Clause 5.2.8: the attribute holds something that is not a time-stamp token.
+        ContentTimestampUnreadable,
+        /// Clause 5.2.6.1: `signer-attributes-v2` among the unsigned attributes.
+        SignerAttributesUnsigned,
+        /// Clause 5.2.6.1: two components in its `SET OF AttributeValue`.
+        SignerAttributesTwoValues,
+        /// Clause 5.2.6.1: a `SignerAttributeV2` with no members.
+        SignerAttributesEmpty,
+        /// Clause 5.2.6.1: a `certifiedAttributesV2` holding no entry.
+        SignerAttributesEmptyCertified,
+        /// ETSI EN 319 122-2 Table 1: `signing-time` twice.
+        SigningTimeTwice,
+        /// ETSI EN 319 122-2 Table 1: both of §12.8.3.4.3 (f)'s attributes.
+        BothSigningCertificates,
+        /// ETSI EN 319 122-2 Table 1's requirement (a): `signing-certificate-v2` states SHA-1.
+        SigningCertificateV2StatesSha1,
+        /// Table 1's requirement (c): a policy store with no policy identifier at all.
+        PolicyStoreAlone,
+        /// Table 1's requirement (c): a policy identifier whose `sigPolicyHash` is a zero-hash.
+        PolicyStoreWithZeroHash,
+        /// Clause 5.2.9.1: the `signaturePolicyImplied` alternative.
+        PolicyImplied,
+        /// Clause 5.2.9.1 and §12.8.3.4.4: the policy identifier among the unsigned attributes.
+        PolicyUnsigned,
+    }
+
+    /// An `ETSI.CAdES.detached` value built for one of [`Referring`]'s cases.
+    ///
+    /// `digest` is the digest of the bytes `/ByteRange` covers, which is what clause 5.2.8's
+    /// content timestamp has to be over, and `certificate_hash` is what §12.8.3.4.3 (f)'s
+    /// attribute states.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per rule under calibration, each a line or two of the same shape; a \
+                  builder per rule would scatter the one conforming shape they all deform"
+    )]
+    pub(crate) fn pades_referring(
+        digest: &[u8],
+        certificate_hash: &[u8],
+        case: Referring,
+    ) -> Vec<u8> {
+        use Referring as R;
+        // The conforming shapes, deformed one at a time below.
+        let over_the_signature = Digest::Sha256.compute(&[SIGNATURE_VALUE]);
+        let content_token = timestamp_token(digest);
+        let signature_token = timestamp_token(&over_the_signature);
+        // `SignerAttributeV2 ::= SEQUENCE { claimedAttributes [0] OPTIONAL, … }` with one claimed
+        // attribute in it, which clause 5.2.6.1 admits and its last sentence requires something
+        // like.
+        let signer_attributes = tagged(
+            0x30,
+            &[tagged(
+                0xA0,
+                &[attribute(ID_DATA, primitive(0x04, b"role"))],
+            )],
+        );
+        // `SignaturePolicyId ::= SEQUENCE { sigPolicyId, sigPolicyHash, … }` with a digest in it.
+        let policy = |hash: &[u8]| {
+            tagged(
+                0x30,
+                &[
+                    primitive(0x06, &[0x2A, 0x03, 0x05]),
+                    tagged(0x30, &[sha256_algorithm(), primitive(0x04, hash)]),
+                ],
+            )
+        };
+        let mut signed = vec![
+            attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+            attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+            attribute(
+                ID_AA_SIGNING_CERTIFICATE_V2,
+                signing_certificate_v2(certificate_hash),
+            ),
+            attribute(ID_AA_ETS_COMMITMENT_TYPE, tagged(0x30, &[])),
+            attribute(ID_AA_ETS_SIG_POLICY_STORE, tagged(0x30, &[])),
+        ];
+        let mut unsigned = Vec::new();
+        match case {
+            R::TimestampSigned => signed.push(attribute(ID_AA_TIME_STAMP_TOKEN, signature_token)),
+            R::TimestampTwoValues => unsigned.push(tagged(
+                0x30,
+                &[
+                    primitive(0x06, ID_AA_TIME_STAMP_TOKEN),
+                    tagged(0x31, &[signature_token.clone(), signature_token]),
+                ],
+            )),
+            R::TimestampOverSomethingElse => unsigned.push(attribute(
+                ID_AA_TIME_STAMP_TOKEN,
+                timestamp_token(&[0x11; 32]),
+            )),
+            _ => unsigned.push(attribute(ID_AA_TIME_STAMP_TOKEN, signature_token)),
+        }
+        // Clause 5.2.5's `SignerLocation ::= SEQUENCE { countryName [0] OPTIONAL, … }`, with the
+        // first of the three the clause requires at least one of.
+        let location = tagged(0x30, &[primitive(0xA0, b"CH")]);
+        match case {
+            R::SignerLocationUnsigned => {
+                unsigned.push(attribute(ID_AA_ETS_SIGNER_LOCATION, location));
+            }
+            R::SignerLocationTwoValues => signed.push(tagged(
+                0x30,
+                &[
+                    primitive(0x06, ID_AA_ETS_SIGNER_LOCATION),
+                    tagged(0x31, &[location.clone(), location]),
+                ],
+            )),
+            R::SignerLocationEmpty => {
+                signed.push(attribute(ID_AA_ETS_SIGNER_LOCATION, tagged(0x30, &[])));
+            }
+            _ => signed.push(attribute(ID_AA_ETS_SIGNER_LOCATION, location)),
+        }
+        match case {
+            R::ContentTimestampUnsigned => {
+                unsigned.push(attribute(ID_AA_ETS_CONTENT_TIMESTAMP, content_token));
+            }
+            R::ContentTimestampTwoValues => signed.push(tagged(
+                0x30,
+                &[
+                    primitive(0x06, ID_AA_ETS_CONTENT_TIMESTAMP),
+                    tagged(0x31, &[content_token.clone(), content_token]),
+                ],
+            )),
+            R::ContentTimestampOverSomethingElse => signed.push(attribute(
+                ID_AA_ETS_CONTENT_TIMESTAMP,
+                timestamp_token(&[0x22; 32]),
+            )),
+            R::ContentTimestampUnreadable => signed.push(attribute(
+                ID_AA_ETS_CONTENT_TIMESTAMP,
+                primitive(0x04, b"not a token"),
+            )),
+            _ => signed.push(attribute(ID_AA_ETS_CONTENT_TIMESTAMP, content_token)),
+        }
+        match case {
+            R::SignerAttributesUnsigned => {
+                unsigned.push(attribute(ID_AA_ETS_SIGNER_ATTR_V2, signer_attributes));
+            }
+            R::SignerAttributesTwoValues => signed.push(tagged(
+                0x30,
+                &[
+                    primitive(0x06, ID_AA_ETS_SIGNER_ATTR_V2),
+                    tagged(0x31, &[signer_attributes.clone(), signer_attributes]),
+                ],
+            )),
+            R::SignerAttributesEmpty => {
+                signed.push(attribute(ID_AA_ETS_SIGNER_ATTR_V2, tagged(0x30, &[])));
+            }
+            R::SignerAttributesEmptyCertified => signed.push(attribute(
+                ID_AA_ETS_SIGNER_ATTR_V2,
+                tagged(0x30, &[tagged(0xA1, &[])]),
+            )),
+            _ => signed.push(attribute(ID_AA_ETS_SIGNER_ATTR_V2, signer_attributes)),
+        }
+        match case {
+            R::PolicyStoreAlone => {}
+            R::PolicyStoreWithZeroHash => {
+                signed.push(attribute(ID_AA_ETS_SIG_POLICY_ID, policy(&[0x00; 32])));
+            }
+            R::PolicyImplied => {
+                signed.push(attribute(ID_AA_ETS_SIG_POLICY_ID, primitive(0x05, &[])));
+            }
+            R::PolicyUnsigned => {
+                unsigned.push(attribute(ID_AA_ETS_SIG_POLICY_ID, policy(&[0x33; 32])));
+            }
+            _ => signed.push(attribute(ID_AA_ETS_SIG_POLICY_ID, policy(&[0x33; 32]))),
+        }
+        if matches!(case, R::SigningTimeTwice) {
+            signed.push(attribute(
+                ID_SIGNING_TIME,
+                primitive(0x17, b"260807000000Z"),
+            ));
+            signed.push(attribute(
+                ID_SIGNING_TIME,
+                primitive(0x17, b"260807000001Z"),
+            ));
+        }
+        if matches!(case, R::BothSigningCertificates) {
+            // RFC 5035 section 5.4's `SigningCertificate ::= SEQUENCE { certs SEQUENCE OF ESSCertID
+            // … }`, whose `ESSCertID` carries a SHA-1 hash with no algorithm to state.
+            signed.push(attribute(
+                ID_AA_SIGNING_CERTIFICATE,
+                tagged(
+                    0x30,
+                    &[tagged(
+                        0x30,
+                        &[tagged(0x30, &[primitive(0x04, &certificate_hash[..20])])],
+                    )],
+                ),
+            ));
+        }
+        if matches!(case, R::SigningCertificateV2StatesSha1) {
+            // The same shape as `signing_certificate_v2`, with SHA-1 spelled out where that
+            // function leaves X.690 clause 11.5's DEFAULT of SHA-256 implicit.
+            signed[2] = attribute(
+                ID_AA_SIGNING_CERTIFICATE_V2,
+                tagged(
+                    0x30,
+                    &[tagged(
+                        0x30,
+                        &[tagged(
+                            0x30,
+                            &[
+                                digest_algorithm(Digest::Sha1),
+                                primitive(0x04, &certificate_hash[..20]),
+                            ],
+                        )],
+                    )],
+                ),
+            );
+        }
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer_with(Digest::Sha256, Some(signed), Some(unsigned)),
         )
     }
 

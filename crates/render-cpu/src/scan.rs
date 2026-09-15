@@ -292,7 +292,10 @@ impl<'a> Clip<'a> {
 /// fill, which cannot nest.
 #[derive(Debug, Default)]
 pub(crate) struct Scratch {
-    coverage: std::cell::RefCell<Option<tiny_skia::Mask>>,
+    coverage: std::cell::RefCell<Vec<tiny_skia::Mask>>,
+    /// [`crate::area`]'s accumulator, kept for the same reason and on the same terms: it grows
+    /// to the largest mark the band holds and is cleared per mark, never allocated per mark.
+    cells: std::cell::RefCell<Vec<f32>>,
 }
 
 /// [`tiny_skia::PixmapMut::fill_path`], with the range applied to `paint.anti_alias` and
@@ -514,10 +517,15 @@ fn intersected(
     }
     let portions = exact.portions_share_a_pixel();
     let (admitted, value) = clip.factors();
-    // Neither clause is asking: there is no set to intersect and the mark is not several portions
-    // in one pixel. A soft mask alone is in here, and correctly — §11.3.7.2 asks for the product
-    // the library already applies.
-    if admitted.is_none() && !portions {
+    // §10.7.4's own reason, which is the third and the commonest: a mark that is not rectangles
+    // is measured as area by [`crate::area`], and that measurement is a coverage buffer rather
+    // than a run of alpha the library's converter hands its blitter. ADR 1082.
+    let exactly = !exact.usable()
+        && crate::area::region(path, at, (pixmap.width(), pixmap.height())).is_some();
+    // No clause is asking: there is no set to intersect, the mark is not several portions in one
+    // pixel, and its own coverage is one the library already states exactly. A soft mask alone is
+    // in here, and correctly — §11.3.7.2 asks for the product the library already applies.
+    if admitted.is_none() && !portions && !exactly {
         return false;
     }
     // `tiny-skia` draws nothing at all through a mask of another size, so a mismatch is left to
@@ -540,28 +548,36 @@ fn intersected(
         return false;
     };
     // Where the clip is already a set of pixels the product *is* the intersection, so the ordinary
-    // draw carries the clause out and the cheaper path is also the correct one — unless §11.6.2 is
-    // what wants the buffer, in which case no property of the clip can answer for it.
+    // draw carries the clause out and the cheaper path is also the correct one — unless §11.6.2 or
+    // §10.7.4 is what wants the buffer, in which case no property of the clip can answer for it.
     if !portions
+        && !exactly
         && admitted.is_some_and(|admitted| is_a_set(admitted, value, reach, pixmap.width()))
     {
         return false;
     }
     let scratch = clip.scratch();
+    let Ok(mut cells) = scratch.cells.try_borrow_mut() else {
+        // A fill cannot nest inside another fill, so this is unreachable; declining is the
+        // answer that draws the mark anyway if it ever stops being.
+        return false;
+    };
     let Ok(mut held) = scratch.coverage.try_borrow_mut() else {
         // A fill cannot nest inside another fill, so this is unreachable; declining is the
         // answer that draws the mark anyway if it ever stops being.
         return false;
     };
-    let coverage = match held.as_mut() {
-        Some(mask) if mask.width() == pixmap.width() && mask.height() == pixmap.height() => mask,
-        _ => {
-            *held = tiny_skia::Mask::new(pixmap.width(), pixmap.height());
-            match held.as_mut() {
-                Some(mask) => mask,
-                None => return false,
-            }
-        }
+    // A buffer **per surface size**, and that is a measurement rather than tidiness. One buffer
+    // was enough while this construction answered a clip alone; once §10.7.4's reason brought
+    // every general mark here, a page drawing into pixmaps of more than one extent — a
+    // transparency group has its own — discarded the held buffer and allocated another at every
+    // change, and `tiny_skia::Mask::new` zeroes. On `issue840.pdf` page 1 that was **361
+    // allocations per rasterisation and 22% of it**, measured under callgrind, and keeping the
+    // bytes and reshaping them moved the same cost into `Vec::resize`'s own zeroing rather than
+    // removing it. [`COVERAGE_BUFFERS`] is what removes it. ADR 1082.
+    let extent = (pixmap.width(), pixmap.height());
+    let Some(coverage) = buffer_for(&mut held, extent) else {
+        return false;
     };
     let stride = pixmap.width() as usize;
     // Only what this mark can reach is cleared and composed. The rest of the buffer holds the
@@ -573,8 +589,51 @@ fn intersected(
             row.fill(0);
         }
     }
-    mask_fill(coverage, path, fill_rule, paint.anti_alias, (at, exact));
-    let bound = admitted.map(tiny_skia::Mask::data);
+    mask_fill(
+        coverage,
+        &mut cells,
+        path,
+        fill_rule,
+        paint.anti_alias,
+        (at, exact),
+    );
+    compose(
+        coverage,
+        (admitted.map(tiny_skia::Mask::data), value),
+        reach,
+        stride,
+    );
+    // The composed coverage is now the mask, so what is drawn through it is a run of whole
+    // pixels — §10.7.4's own construction for a mark it cannot measure, and the shape whose
+    // coverage cannot enter the product a second time. The paint carries the transform the
+    // library would have applied to it: `fill_path` transforms the shader and then draws with
+    // an identity transform, and this is that same step performed one call earlier so that the
+    // rectangle can be stated on the device's own grid. Trap 2 is what it would cost to get
+    // wrong, and `clip_intersection.rs` is the scene that watches it.
+    let mut paint = paint.clone();
+    paint.shader.transform(at);
+    paint.anti_alias = false;
+    pixmap.fill_rect(
+        rect,
+        &paint,
+        tiny_skia::Transform::identity(),
+        Some(coverage),
+    );
+    true
+}
+
+/// Meets the mark's own coverage with §10.7.4's set by `min` and §11.6.5's value by a product —
+/// [`intersected`]'s closed form `min(M · S, C · S)`, over the rows the mark reaches.
+///
+/// `bound` is `C · S`, the product the cache already holds, and `value` is `S` alone; either may be
+/// absent, and where both are the mark keeps its own coverage, which is §11.6.2's case — its
+/// portions were summed in the buffer and nothing masks them.
+fn compose(
+    coverage: &mut tiny_skia::Mask,
+    (bound, value): (Option<&[u8]>, Option<&[u8]>),
+    reach: Reach,
+    stride: usize,
+) {
     let mark = coverage.data_mut();
     for row in reach.rows() {
         let (from, until) = reach.span(row, stride);
@@ -582,7 +641,7 @@ fn intersected(
             continue;
         };
         // Unreachable for either factor: both were checked against the surface's own dimensions
-        // above and this span was taken from those. Skipping the row rather than composing
+        // in the caller and this span was taken from those. Skipping the row rather than composing
         // without a factor keeps the mark from being painted at more than the mask admits.
         let bound = match bound {
             None => None,
@@ -599,8 +658,7 @@ fn intersected(
             },
         };
         // Four arms rather than a pair of `unwrap_or(255)`s per pixel, because the composition is
-        // one byte of arithmetic and a branch inside the loop would be most of it. The mark alone
-        // is §11.6.2's case: its portions were summed in the buffer above and nothing masks them.
+        // one byte of arithmetic and a branch inside the loop would be most of it.
         match (bound, value) {
             (None, None) => {}
             (Some(bound), None) => {
@@ -620,23 +678,36 @@ fn intersected(
             }
         }
     }
-    // The composed coverage is now the mask, so what is drawn through it is a run of whole
-    // pixels — §10.7.4's own construction for a mark it cannot measure, and the shape whose
-    // coverage cannot enter the product a second time. The paint carries the transform the
-    // library would have applied to it: `fill_path` transforms the shader and then draws with
-    // an identity transform, and this is that same step performed one call earlier so that the
-    // rectangle can be stated on the device's own grid. Trap 2 is what it would cost to get
-    // wrong, and `clip_intersection.rs` is the scene that watches it.
-    let mut paint = paint.clone();
-    paint.shader.transform(at);
-    paint.anti_alias = false;
-    pixmap.fill_rect(
-        rect,
-        &paint,
-        tiny_skia::Transform::identity(),
-        Some(coverage),
-    );
-    true
+}
+
+/// How many coverage buffers of different extents one [`Scratch`] keeps.
+///
+/// Two, because the alternation this bounds is between a surface and the transparency group
+/// drawn into a pixmap of its own — a two-cycle — and every buffer is a whole strip of bytes.
+/// A third size evicts the older of the two and pays one zeroing; a page that really states
+/// three extents in a cycle pays what one buffer paid for every one of them.
+const COVERAGE_BUFFERS: usize = 2;
+
+/// The buffer of `extent`, allocated on its first use and kept — see [`COVERAGE_BUFFERS`].
+///
+/// The most recently used is first, so the linear search over two entries is one comparison in
+/// the common case and the eviction takes the one that has waited longest.
+fn buffer_for(
+    held: &mut Vec<tiny_skia::Mask>,
+    (width, height): (u32, u32),
+) -> Option<&mut tiny_skia::Mask> {
+    if let Some(index) = held
+        .iter()
+        .position(|mask| mask.width() == width && mask.height() == height)
+    {
+        held.swap(0, index);
+    } else {
+        if held.len() >= COVERAGE_BUFFERS {
+            held.pop();
+        }
+        held.insert(0, tiny_skia::Mask::new(width, height)?);
+    }
+    held.first_mut()
 }
 
 /// The pixels a mark drawn under `at` can reach, clamped to a raster `width` by `height`.
@@ -954,6 +1025,7 @@ pub(crate) fn admits_every_pixel(exact: &Exact, (width, height): (u32, u32)) -> 
 
 pub(crate) fn mask_fill(
     mask: &mut tiny_skia::Mask,
+    cells: &mut Vec<f32>,
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
@@ -969,6 +1041,25 @@ pub(crate) fn mask_fill(
                 }
             }
         }
+        return;
+    }
+    // Everything that is not rectangles — a glyph, a curve, a diagonal, a stroke's outline — is
+    // measured as area rather than supersampled, which is ADR 1082 and §10.7.4's "not rounded to
+    // device pixel boundaries". The library's converter is what draws a mark [`crate::area`]
+    // declines: one past its cell budget, one the transform states no bounds for, and one whose
+    // anti-aliasing the range rule above has already withdrawn.
+    let extent = (mask.width(), mask.height());
+    if anti_alias
+        && let Some(region) = crate::area::region(path, at, extent)
+        && crate::area::fill(
+            cells,
+            mask.data_mut(),
+            (extent.0, region),
+            path,
+            fill_rule,
+            at,
+        )
+    {
         return;
     }
     mask.fill_path(path, fill_rule, anti_alias, at);
@@ -1207,14 +1298,14 @@ fn level_of(coverage: f32) -> u8 {
 /// what it does not reach is [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md).
 pub(crate) fn mask_intersect(
     mask: &mut tiny_skia::Mask,
-    scratch: &mut tiny_skia::Mask,
+    (scratch, cells): (&mut tiny_skia::Mask, &mut Vec<f32>),
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
     (at, exact): (tiny_skia::Transform, &Exact),
 ) {
     scratch.clear();
-    mask_fill(scratch, path, fill_rule, anti_alias, (at, exact));
+    mask_fill(scratch, cells, path, fill_rule, anti_alias, (at, exact));
     for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
         *kept = (*kept).min(added);
     }
@@ -1242,6 +1333,7 @@ mod tests {
         let mut scratch = tiny_skia::Mask::new(8, 4).expect("a scratch mask");
         super::mask_fill(
             &mut mask,
+            &mut Vec::new(),
             &half_plane(*root),
             tiny_skia::FillRule::Winding,
             true,
@@ -1250,7 +1342,7 @@ mod tests {
         for edge in nested {
             super::mask_intersect(
                 &mut mask,
-                &mut scratch,
+                (&mut scratch, &mut Vec::new()),
                 &half_plane(*edge),
                 tiny_skia::FillRule::Winding,
                 true,
@@ -1273,6 +1365,7 @@ mod tests {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
         super::mask_fill(
             &mut mask,
+            &mut Vec::new(),
             &shape.0,
             tiny_skia::FillRule::Winding,
             true,
@@ -1316,6 +1409,7 @@ mod tests {
             let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
             super::mask_fill(
                 &mut mask,
+                &mut Vec::new(),
                 &huge.0,
                 tiny_skia::FillRule::Winding,
                 anti_alias,
@@ -1407,6 +1501,7 @@ mod tests {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
         super::mask_fill(
             &mut mask,
+            &mut Vec::new(),
             &path,
             tiny_skia::FillRule::Winding,
             true,
@@ -1530,6 +1625,7 @@ mod tests {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
         super::mask_fill(
             &mut mask,
+            &mut Vec::new(),
             &half_plane(x),
             tiny_skia::FillRule::Winding,
             true,

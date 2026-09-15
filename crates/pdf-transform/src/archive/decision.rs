@@ -965,6 +965,23 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "metadata/properties-use-known-schemas",
         answer: Answer::Loses(Loss::MetadataProperty, Rewrite::PropertyOutsideItsSchema),
     },
+    // ISO 19005-2 section 6.6.2.3.3's four tables, each naming the prefix its fields are to be
+    // spelled with — and section 6.6.2.2 is why that is a requirement rather than a convention: a
+    // prefix means nothing *except* where one is identified as required, and these four identify
+    // one. **Mechanical because the only thing that moves is a prefix token.** A field stated in
+    // the field namespace its table gives it, with its local name and its value the producer's,
+    // and spelled with another prefix, is a file that already says what the clause asks for; the
+    // packet is respelled in place and means afterwards exactly what it meant before.
+    //
+    // A field the packet does not state at all is *not* this rewrite, and `super::prepare` refuses
+    // the document by name rather than half-correcting it: a schema's name, a property's
+    // description and a value's category are nowhere in the file, so writing one would be this
+    // converter inventing metadata about metadata. `doc/pdf-a-mitigations.md`'s entry leaves that
+    // half to an operator's own `supply` or to a `discard` that loses the container.
+    Remedy {
+        requirement: "metadata/extension-schema-container-fields",
+        answer: Answer::Mechanical(Rewrite::ExtensionSchemaPrefixes),
+    },
     // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9: the two file name keys, each written
     // from the other where the one that is there is ASCII.
     Remedy {
@@ -1252,14 +1269,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     (
         "embedded-files/associated-file-media-type",
         Because::NotBuiltYet(NO_MEDIA_TYPE_TO_DERIVE),
-    ),
-    // ISO 19005-2 section 6.6.2.3.3's four tables, each of which names the fields an extension
-    // schema container's descriptions have to state. A description that states one wrongly is a
-    // different case from one that states nothing, and the corpus's witnesses are all the second:
-    // a schema with no `pdfaSchema:schema`, a property with no `pdfaProperty:category`.
-    (
-        "metadata/extension-schema-container-fields",
-        Because::NotBuiltYet(EXTENSION_FIELDS_ARE_NOT_DERIVABLE),
     ),
     // ISO 19005-4 Annex B.2.2, the one requirement of the engineering annex that binds a file
     // rather than a processor and that a document can fail on its content.
@@ -1734,30 +1743,6 @@ const NO_MEDIA_TYPE_TO_DERIVE: &str = "ISO 19005-4 section 6.9 asks the embedded
      a Subtype that is a MIME media type, and nothing in a file specification states one: a file \
      name's extension is a convention rather than a declaration, and reading it as one would be \
      this converter asserting what the bytes are";
-
-/// Why a missing field of an extension schema container's description is not supplied.
-///
-/// **Deliberately [`Because::NotBuiltYet`] rather than [`Because::TheFence`]**, and the
-/// distinction is the one `doc/adr/0948` insists on. Three of the four fields are prose or a
-/// claim about a property that only its producer holds — `pdfaSchema:schema` is what the schema
-/// is called, `pdfaProperty:description` says what a property means, and
-/// `pdfaProperty:category` asserts whether a value is derived from the document or supplied from
-/// outside it — so filling them in is `doc/questions/A48`'s forbidden half. But
-/// `doc/pdf-a-conversion-limits.md` section 4.2 already calls emitting an extension schema
-/// container a **Default** for the neighbouring row, "authoring in a small way", with an **Ask**
-/// where a value type cannot be determined; and `pdfaSchema:prefix` is *derivable*, because the
-/// packet itself binds that namespace to a prefix. So this is a question about how far that
-/// Default reaches, and a question nobody has answered is a gap rather than a fence.
-const EXTENSION_FIELDS_ARE_NOT_DERIVABLE: &str = "this document describes an extension schema \
-     whose description leaves out a field ISO 19005-2 section 6.6.2.3.3's tables require of it. \
-     What is missing is a name for the schema, a description of what a property means, or the \
-     category saying whether a property's value is derived from the document or supplied from \
-     outside it — none of which the file states anywhere, so supplying one would be this \
-     converter writing metadata about metadata that nobody produced. \
-     doc/pdf-a-conversion-limits.md section 4.2 permits emitting such a container for a property \
-     that has no description at all and calls it authoring in a small way; whether that \
-     permission reaches a description a producer wrote and left incomplete is a question for the \
-     document's owner, and no interface exists to ask it";
 
 /// Why a 3D stream in a format Annex B does not name is not converted.
 const THREE_DIMENSIONAL_FORMAT: &str = "ISO 19005-4 Annex B.2.2 admits a 3D stream whose Subtype \

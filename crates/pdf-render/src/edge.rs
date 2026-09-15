@@ -200,9 +200,7 @@ pub fn device_rectangles(path: &Path, to_device: Transform) -> Option<DeviceRect
     let mut one: Option<Rect> = None;
     let mut several: Vec<Rect> = Vec::new();
     for extent in subpath_extents(path) {
-        if !is_axis_aligned_rectangle(&commands[extent.range()], extent.min, extent.max) {
-            return None;
-        }
+        is_axis_aligned_rectangle(&commands[extent.range()], extent.min, extent.max)?;
         let a = to_device.apply(extent.min);
         let b = to_device.apply(extent.max);
         if !(a.x.is_finite() && a.y.is_finite() && b.x.is_finite() && b.y.is_finite()) {

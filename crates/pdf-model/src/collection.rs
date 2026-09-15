@@ -606,16 +606,12 @@ pub fn is_file_name(name: &str) -> bool {
 
 /// A name "following case normalization", which §12.3.5.2 sends to Unicode Standard Annex #21.
 ///
-/// `char::to_lowercase` is Unicode's own full lowercase mapping, and Annex #21's caseless
-/// matching is `toCasefold` rather than `toLowercase`. The two agree on every character whose
-/// lowercase form is itself a lowercase character, and differ on the handful — U+00DF LATIN SMALL
-/// LETTER SHARP S and U+017F LATIN SMALL LETTER LONG S chief among them — that fold to a
-/// *different* string from the one they lowercase to. That difference is stated here rather than
-/// hidden: a name pair it reaches is a collision this reports as no collision, which is the safe
-/// direction for a program that supports invalid names anyway, and closing it would mean carrying
-/// `CaseFolding.txt` for one sentence of one clause.
+/// That annex's caseless matching is the operation it calls toCasefold, and [`crate::case::fold`]
+/// is that operation over the annex's own data. It is not lowercasing: U+00DF folds to `ss` and
+/// lowercases to itself, so `Straße` and `STRASSE` are one name under the clause and two under
+/// the function this used to call. ADR 1086 is the argument, and `case` carries the table.
 fn case_normalised(name: &str) -> String {
-    name.chars().flat_map(char::to_lowercase).collect()
+    crate::case::fold(name)
 }
 
 /// §12.3.5.2's sixth restriction, applied to the folder tree and the `/EmbeddedFiles` keys at
@@ -1343,6 +1339,54 @@ mod tests {
                 },
             ],
             "`Photos` in folder 1 and the file `photos` in folder 2 are in different folders"
+        );
+    }
+
+    /// The sixth restriction, at the character that made the old instrument answer wrong.
+    ///
+    /// `Stra\337e.pdf` is `Straße.pdf` in `PDFDocEncoding`, and §12.3.5.2's case normalization folds
+    /// it and `STRASSE.PDF` to one string — U+00DF folds to `ss`. `char::to_lowercase`, which
+    /// `case_normalised` called until ADR 1086, maps U+00DF to itself, so this pair was a
+    /// collision reported as none: the failure this test is the calibration for (trap 13), taken
+    /// through `Collection::read` rather than through the fold alone.
+    ///
+    /// The control is the third file. It is in the same folder and breaks nothing, so a report
+    /// that had started naming every name would fail here.
+    #[test]
+    fn two_names_that_differ_only_by_a_sharp_s_are_both_reported() {
+        let doc = document(&[
+            "<< /Type /Catalog /Collection 2 0 R /Names 3 0 R >>",
+            "<< /Type /Collection /Folders 4 0 R >>",
+            "<< /EmbeddedFiles << /Names [ (<1>Stra\\337e.pdf) 5 0 R (<1>STRASSE.PDF) 5 0 R \
+             (<1>notes.txt) 5 0 R ] >> >>",
+            "<< /Type /Folder /ID 1 /Name (root) >>",
+            "<< /Type /Filespec /F (x) >>",
+        ]);
+        let collection = Collection::read(&doc).expect("a /Collection");
+        assert_eq!(
+            collection.invalid_names,
+            [
+                NameDefect {
+                    name: "Stra\u{df}e.pdf".to_owned(),
+                    owner: Named::File {
+                        key: "<1>Stra\u{df}e.pdf".to_owned()
+                    },
+                    restriction: NameRestriction::Duplicate {
+                        normalised: "strasse.pdf".to_owned()
+                    },
+                },
+                NameDefect {
+                    name: "STRASSE.PDF".to_owned(),
+                    owner: Named::File {
+                        key: "<1>STRASSE.PDF".to_owned()
+                    },
+                    restriction: NameRestriction::Duplicate {
+                        normalised: "strasse.pdf".to_owned()
+                    },
+                },
+            ],
+            "the sharp s folds to `ss`, so these two names are one: {:?}",
+            collection.invalid_names
         );
     }
 

@@ -66,8 +66,35 @@ the first three all in one direction:
    written in one rounding rather than accumulated, because a sum of roundings is a level or two out
    and a coverage rounded away is what this departure is a departure *from*. 22 of 958 first pages
    move, every one of them the census's own, at +0.063% of the rasteriser on a page of text and
-   −32.3% on a barcode. **So departure (1)'s multi-rectangle population is closed**; what still
-   carries the quantum is every shape that is not axis-aligned rectangles at all.
+   −32.3% on a barcode.
+
+   **And in the thousand-and-sixty-eighth the quantum went for every other shape too, so this
+   departure's second half is closed** (ADR 1082). What was still carrying it — a glyph, a curve, a
+   diagonal, a stroke's outline — is measured by `render_cpu::area`, which computes the integral
+   this subclause's own definition implies rather than sampling it: a pixel is
+   `[i, i+1) × [j, j+1)`, §8.5.3.3 defines insideness by a winding number, and one directed edge's
+   share of that number's integral over column `i` in one row is `w · ∫ clamp(i + 1 − X(y), 0, 1) dy`
+   — whose differences in `i` are supported only on the columns the edge touches, so accumulating
+   them and prefix-summing each row gives the whole path exactly, the non-zero rule taking the
+   magnitude and the even-odd rule folding with period two. Two things the module states rather than
+   assumes: **a path whose portions overlap is declined to the supersampled converter**, because
+   the sum is the integral of the winding *number* and that is the filled set's indicator only
+   inside `-1..=1` — §11.6.2's "[p]ortions of an object shall not be composited with one another" is
+   what the boundary of a doubled region would otherwise break, and one edge changes a pixel's
+   integral by at most one whole winding, so a cell past one *is* a crossing and nothing without one
+   is declined; and a curve is flattened to 1/256 of a device pixel, calibrated at 1/16, 1/64, 1/256
+   and 1/1024 on the corpus's most curve-dense page and within 0.011% of its own limit there.
+   `render-raster/examples/coverage_lattice` is the instrument that says whether a backend states
+   an edge on a lattice, with the second backend as its control, and the oracle reads at chance
+   where it read 72–100%. The oracle's pool went 993 agrees / 62 contradicted to **1010 / 45**, all
+   seventeen out of `CONTRADICTED_GLYPH_EDGES` — the group whose own diagnosis had named this
+   departure.
+
+   **So departure (1) is now about anti-aliasing alone for every mark this converter takes**: a
+   partly covered pixel is painted at the area it covers, and how finely that area is measured is no
+   longer part of it. What keeps the quantum is the population above — a path that crosses itself,
+   a stroke whose outline does, and a mark past the converter's cell budget — where the clause it is
+   declined to is §11.6.2 rather than this one.
 2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
    four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
    states one region as *many* opaque fills, every internal boundary falls inside some device

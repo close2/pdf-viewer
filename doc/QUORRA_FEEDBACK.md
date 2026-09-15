@@ -5030,3 +5030,46 @@ urgent by population — three pages of `doc/pdf.js`, and the grid shape has no 
 corpus — but the mask one is the crawl's majority mask population, 28 972 groups declaring a
 three-component `ICCBased` space, and every one of them will refuse on this backend once it
 reaches a page with such a mask.
+
+## 44. Two pages this side's own gate had been hiding from you, and one of them is a whole-page target the adapter will not take
+
+Written in this viewer's one-thousand-and-seventieth session. Neither page is a new defect on your
+side; what is new is that our corpus gate can see them at all. Its per-page pixel budget had been
+`64 << 20`, three quarters of the `1 << 28` our viewer core will hand a host, so a page between the
+two never reached your device and was counted in an anonymous *not comparable* total. It is the
+product's number now, and two pages arrived with it.
+
+**`issue19517.pdf` at 1×, a capability and not a budget.** The page is a single 12608×16806 JPEG
+2000 scan at one device pixel per point:
+
+```
+refused: issue19517.pdf: frame refused: target 12608x16806 exceeds this adapter's
+         limit of 16384 pixels per side
+```
+
+The adapter is `AMD Radeon 890M Graphics (RADV STRIX1)`, Vulkan. The refusal is correct and the
+message is exactly the one we want — it names the limit and it names the target. We are recording
+rather than asking, because we do not know whether a whole-page target larger than
+`max_texture_dimension_2d` is something `Device::render` means to serve by tiling the target or
+something it means to refuse. If it is the second, nothing is owed: our CPU backend draws the page
+and says so, and a host that wants this page on screen has a viewport smaller than the page. If it
+is the first, this is the corpus's one witness for it.
+
+**`issue9418.pdf` at 4×, the coverage sheet again.** 111 476 736 pixels at that scale, and the
+message is §40's ceiling rather than §40's budget:
+
+```
+refused: issue9418.pdf: frame refused: the frame's rasterised coverage outgrew the
+         16384x16384 scratch image this adapter allows: a 4541x2842 tile would not fit
+         a sheet at 13841x13561 holding 122 tiles and 143672336 texels
+```
+
+This is the population your ADR 0057 measured and declined to fix with a second sheet, and we are
+not reopening that: the page is pinned by name in our `REFUSED_BY_THE_DEVICE_AT_FOUR` list with
+this section cited. It is a second witness for the tiling work that ADR left open, with a tile
+whose own side is 4541 — a clipped mark's device bounds, which is the shape ADR 0057 §1 sized.
+
+One thing did move on your side while this was invisible: `issue1905.pdf`, §40's page, no longer
+prints that ceiling at 4×. It prints *frame needs 365144861 scene-derived bytes* there and
+*272158852* at 1×, so the byte budget now preempts the sheet on that page at both scales. §40
+stands as written; the sentence about the 4× ceiling in it is now a reading rather than a run.

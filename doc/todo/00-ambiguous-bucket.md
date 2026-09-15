@@ -1880,3 +1880,47 @@ rebuilt rather than refused; a `/Kids` that is one reference to a page object is
 scan; and §7.7.3.3 makes a child declaring no node a page, so a plain dictionary under `/Kids` is
 page one. **A classifier written by reading the code cannot see what the code recovers**, and the
 only thing that showed it was planting each answer and watching three of them not appear.
+
+## The undiagnosed head was empty a seventh time, so the *other* gate's two anonymous populations were opened
+
+The one-thousand-and-seventieth session's slot, on the same rule as the two sections above: the
+ranking printed no rows, so the corpus named the work. What it opened is `render-raster`'s own
+corpus gate — the one that puts the shipping backend beside the CPU oracle over 974 first pages —
+and specifically the two figures round 1064 named and did not read, *6 refused* and *17 not
+comparable*.
+
+**The six refused were already whole and stayed whole.** Each is a named page with a written
+reason: four constructions this backend's scene vocabulary cannot state (§11.6.6 and §11.7.2's
+per-pixel resolution at a group's `Do`, §11.5.3's luminosity in the space's own `Y`) and two
+budgets. The CPU backend draws all six and says so, which is `CLAUDE.md` principle 2's rule, and
+this round's run is where that is *measured* rather than asserted — see the next paragraph.
+
+**The seventeen were one number over six unrelated causes, and the number was all a round could
+read.** `tests/corpus.rs` reached them by four different `continue`s and one `Outcome::Skipped`,
+and printed a count. They are named now, by cause, in `NOT_COMPARABLE`, held to equality in both
+directions like the refusal lists beside it — and the reading is not new work: `oracle.rs`'s
+`NO_RENDER_*` groups and `pdf-model/tests/corpus.rs`'s `MAX_UNREADABLE_ENCRYPTION` and
+`MAX_PAGELESS` had read every one of these documents already, so what was owed here was the names
+and the mapping, not a second diagnosis. Eleven do not open (ten wanting a password §7.6.4.3 does
+not supply, one whose `/Encrypt` resolves to nothing) and five yield no first page. **None is a
+rasteriser's fault, and one of the six causes being empty is the finding**: not one page of the
+974 was refused by the *oracle*, so the backend `CLAUDE.md` makes the fallback drew every page the
+device would not.
+
+**The sixth cause was hiding a page, and the bound was the instrument's rather than the product's.**
+`issue19517.pdf` is 12608×16806, past the gate's `PIXEL_BUDGET` of `64 << 20` and inside
+`viewer_core::MAX_PIXELS`'s `1 << 28` — so the program draws it and the gate could not, and the
+comment above the constant said *"generous enough that no real page reaches it"*. With the
+product's number the page reaches the device, which refuses it by a capability — 16806 is past the
+adapter's 16384 pixels per side — and that is a page a person opens at 100% and does not see,
+which is precisely what the gate's refusal list exists to name. `doc/QUORRA_FEEDBACK.md` section
+44 carries it upstream. Two more pages arrive at 4× with the raise, one of them meeting ADR 0057's
+coverage-sheet ceiling.
+
+**The transferable part is about the sweep, not about the page.** The population the raise would
+move was predicted from `pdfinfo` over the corpus: 974 documents in, 953 rows out, and the 21
+silences were read as the documents that do not open. One of them was `issue9418.pdf`, which is
+6.97 megapixels and is exactly a page the raise admits — found by re-running the 4× lane, which is
+the instrument that decides, and not by the sweep that was supposed to predict it. Trap 25's rule
+is that a population comes from a manifest or the tree; the amendment this adds is that a tool's
+*short* answer is a silence with the same shape as a clean one.

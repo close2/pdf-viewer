@@ -55,8 +55,8 @@ use std::collections::BTreeMap;
 use pdf_signature::cms::{self, SignatureAlgorithm};
 use pdf_signature::revocation::Revocation;
 use pdf_signature::signature::{
-    Authenticity, Signature, SigningCertificateBinding, permissions, security_store, signatures,
-    signing_certificate_bindings,
+    Authenticity, PadesDeparture, Signature, SigningCertificateBinding, permissions,
+    security_store, signatures, signing_certificate_bindings,
 };
 use pdf_signature::trust::{Trust, TrustAnchors};
 use pdf_signature::verdict::{Acceptance, Timestamps, Verdict};
@@ -104,6 +104,24 @@ struct Counts {
     unreadable: BTreeMap<String, usize>,
     /// `/SubFilter` values, as the file spells them.
     sub_filters: BTreeMap<String, usize>,
+    /// What §12.8.3.4's structural rules answered, by [`PadesDeparture`] variant name.
+    ///
+    /// **The population is `ETSI.CAdES.detached` alone** — §12.8.3.4.1 scopes the whole subclause
+    /// to that sub-filter, and `Signature::pades_departures` answers nothing for anything else — so
+    /// the `/SubFilter` report above is what says how many signatures this one is about. Counted
+    /// because §12.8.3.4.3's row states there are none of them and states it as a bare sentence: a
+    /// claim about a population belongs to the command that produces it (trap 8).
+    pades_departures: BTreeMap<String, usize>,
+    /// Which of §12.8.3.4.4's two profiles each `PAdES` signature presents itself as.
+    pades_profiles: BTreeMap<String, usize>,
+    /// Which of §12.8.3.4.3's attributes each `PAdES` signature actually states.
+    ///
+    /// **Without this the report above cannot be read.** A rule that produced no departure did so
+    /// either because every file met it or because no file states the attribute it is about, and
+    /// those are opposite facts about the corpus — the first ranks the rule, the second says the
+    /// corpus cannot rank it at all (trap 8). Counted in both sets, because which set an attribute
+    /// is in is what three of the rules are about.
+    pades_attributes: BTreeMap<String, usize>,
     /// `SignerInfo` `signatureAlgorithm` identifiers.
     signature_algorithms: BTreeMap<String, usize>,
     /// `SignerInfo` `digestAlgorithm` identifiers.
@@ -248,6 +266,9 @@ impl Counts {
             (&mut self.format_versions, other.format_versions),
             (&mut self.unreadable, other.unreadable),
             (&mut self.sub_filters, other.sub_filters),
+            (&mut self.pades_departures, other.pades_departures),
+            (&mut self.pades_profiles, other.pades_profiles),
+            (&mut self.pades_attributes, other.pades_attributes),
             (&mut self.signature_algorithms, other.signature_algorithms),
             (&mut self.digest_algorithms, other.digest_algorithms),
             (&mut self.key_algorithms, other.key_algorithms),
@@ -264,6 +285,66 @@ impl Counts {
         }
         self.unverifiable_documents
             .append(&mut other.unverifiable_documents);
+    }
+}
+
+/// §12.8.3.4's structural rules and §12.8.3.4.4's profile, over one signature.
+///
+/// Costs nothing on a signature that is not a `PAdES` one: `Signature::pades_departures` reads
+/// `/SubFilter` first and answers with an empty list, which is §12.8.3.4.1's own scoping.
+fn count_pades(
+    path: &str,
+    signature: &Signature,
+    bytes: &pdf_syntax::FileBytes,
+    counts: &mut Counts,
+) {
+    let Ok(cms) = signature.signed_data() else {
+        return;
+    };
+    for departure in signature.pades_departures(&cms, bytes) {
+        let slot = counts
+            .pades_departures
+            .entry(format!("{departure:?}"))
+            .or_default();
+        *slot = slot.saturating_add(1);
+        // Named as well as counted, for trap 11's reason: a count says a rule fired and a name is
+        // what lets somebody open the file and check that it fired on the right thing. The three
+        // §12.8.3.4.2 departures are left out because they are about the dictionary rather than
+        // about an attribute, and hundreds of files state them.
+        if !matches!(
+            departure,
+            PadesDeparture::RangeDoesNotCoverTheFile
+                | PadesDeparture::CertEntryPresent
+                | PadesDeparture::BothSigningTimesStated
+        ) {
+            counts
+                .witnesses
+                .push(format!("{path}: §12.8.3.4 {departure:?}"));
+        }
+    }
+    let Some(profile) = signature.pades_profile(&cms) else {
+        return;
+    };
+    let slot = counts
+        .pades_profiles
+        .entry(format!("{profile:?}"))
+        .or_default();
+    *slot = slot.saturating_add(1);
+    for (name, oid) in [
+        ("signature-time-stamp", cms::ID_AA_TIME_STAMP_TOKEN),
+        ("content-time-stamp", cms::ID_AA_ETS_CONTENT_TIMESTAMP),
+        ("signer-attributes-v2", cms::ID_AA_ETS_SIGNER_ATTR_V2),
+        ("signature-policy-identifier", cms::ID_AA_ETS_SIG_POLICY_ID),
+        ("signature-policy-store", cms::ID_AA_ETS_SIG_POLICY_STORE),
+        ("commitment-type-indication", cms::ID_AA_ETS_COMMITMENT_TYPE),
+        ("mime-type", cms::ID_AA_ETS_MIME_TYPE),
+        ("signer-location", cms::ID_AA_ETS_SIGNER_LOCATION),
+    ] {
+        let stated = cms.attribute_count(oid);
+        if stated > 0 {
+            let slot = counts.pades_attributes.entry(name.to_owned()).or_default();
+            *slot = slot.saturating_add(stated);
+        }
     }
 }
 
@@ -478,6 +559,7 @@ fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Cou
                 .push(format!("{path}: §12.8.5 document timestamp"));
             count_established(signature, bytes, &mut counts);
         }
+        count_pades(path, signature, bytes, &mut counts);
         if states_indefinite_length(&signature.contents) {
             counts.indefinite_lengths = counts.indefinite_lengths.saturating_add(1);
             counts
@@ -857,6 +939,19 @@ fn main() {
     );
     report("what stopped the rest", &counts.unreadable);
     report("/SubFilter", &counts.sub_filters);
+    report(
+        "§12.8.3.4's structural rules over every ETSI.CAdES.detached signature, by departure",
+        &counts.pades_departures,
+    );
+    report(
+        "§12.8.3.4.4's two profiles, as each PAdES signature presents itself",
+        &counts.pades_profiles,
+    );
+    report(
+        "§12.8.3.4.3's attributes as PAdES signatures actually state them, which is what says \
+         whether a rule above was met or was never reached",
+        &counts.pades_attributes,
+    );
     report(
         "SignerInfo signatureAlgorithm",
         &counts.signature_algorithms,

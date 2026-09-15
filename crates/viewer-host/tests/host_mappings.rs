@@ -888,6 +888,84 @@ fn a_collection_holding_no_files_says_so() {
     assert_eq!(rows[0].action, RowAction::Inert);
 }
 
+/// §12.3.6's selection rule is asked by the panel, and only an undrawable answer is said out loud.
+///
+/// The clause is written for a processor that cannot draw everything — "an interactive PDF
+/// processor should present the first one it is capable of displaying in the order present in the
+/// array" — so conformance is asking that question with this program's own capability, which is
+/// `panel::DRAWN_LAYOUTS`. Three cases, because a sentence that fires on every navigator says
+/// nothing about this one (trap 11):
+///
+/// - a navigator naming a layout these rows *are* adds no sentence, whatever it names first;
+/// - one naming only layouts this panel cannot draw names them;
+/// - and Table 153's `/View T` is the same gap without a navigator.
+#[test]
+fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_loud() {
+    use pdf_model::collection::{Layout, Navigator, View};
+
+    let panel = |view: View, layouts: Option<Vec<Layout>>| {
+        let collection = pdf_model::collection::Collection {
+            view,
+            navigator: layouts.map(|layouts| Navigator { layouts }),
+            ..pdf_model::collection::Collection::default()
+        };
+        collection_rows(&collection, &pdf_model::collection::Initial::Container, &[])
+    };
+    let sentence = |rows: &[PanelRow]| {
+        rows.iter()
+            .find(|row| row.note && row.label.starts_with("This collection asks"))
+            .map(|row| row.label.clone())
+    };
+
+    // The file prefers a strip of thumbnails and falls back to the tree, which is what a
+    // conforming `/Layout` array looks like: something exotic, then one of D, T or H.
+    let drawable = panel(
+        View::Navigator,
+        Some(vec![
+            Layout::FilmStrip,
+            Layout::Tree,
+            Layout::View(View::Details),
+        ]),
+    );
+    assert_eq!(
+        sentence(&drawable),
+        None,
+        "`Tree` is drawn, so the selection rule is satisfied silently: {drawable:?}"
+    );
+
+    let undrawable = panel(
+        View::Navigator,
+        Some(vec![Layout::FilmStrip, Layout::Linear]),
+    );
+    assert_eq!(
+        sentence(&undrawable),
+        Some(
+            "This collection asks to be presented as FilmStrip or Linear, which this panel does \
+             not draw; its files are shown as a tree."
+                .to_owned()
+        ),
+        "the report names what it matched: {undrawable:?}"
+    );
+
+    let tiled = panel(View::Tile, None);
+    assert_eq!(
+        sentence(&tiled),
+        Some(
+            "This collection asks to be shown in tile mode; this panel shows the details view \
+             instead."
+                .to_owned()
+        ),
+        "Table 153's `/View T` is a presentation this panel is not: {tiled:?}"
+    );
+
+    let plain = panel(View::Details, None);
+    assert_eq!(
+        sentence(&plain),
+        None,
+        "the details view is what these rows are: {plain:?}"
+    );
+}
+
 /// §12.3.5.2's restricted names reach a person, and a conforming collection says nothing.
 ///
 /// The clause bounds a collection's names and then offers a choice — "[a]n interactive PDF
