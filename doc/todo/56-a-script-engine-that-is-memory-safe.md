@@ -449,16 +449,18 @@ number it landed on exists:
 
 | written as | what the checker records | verdict |
 |---|---|---|
-| `ISO 21757-1 §9` | a **foreign citation** of "ISO 21757-1" | **caught** — the gate fails, and the message teaches the spelling: write "ISO 21757-1 section N" |
-| `ISO 21757-1:2020 §9` | a citation of **ISO 32000-2 §9**, which exists | **silent pass, onto the wrong standard** |
-| `the JavaScript for Acrobat API Reference §12.5` | a citation of **ISO 32000-2 §12.5**, which exists | **silent pass, onto the wrong standard** |
+| a section sign after `ISO 21757-1` | a **foreign citation** of "ISO 21757-1" | **caught** — the gate fails, and the message teaches the spelling: write "ISO 21757-1 section N" |
+| a section sign after `ISO 21757-1:2020` | a **foreign citation** of "ISO 21757-1:2020" | **caught since the nine-hundred-and-eighty-third**, which taught the guard that a year joined by a colon is part of a standard's number (ADR 1004). This row read "silent pass, onto the wrong standard" until the one-thousand-and-ninety-sixth ran the scanner again |
+| a section sign after `the JavaScript for Acrobat API Reference` | a citation of **ISO 32000-2 §12.5**, which exists | **silent pass, onto the wrong standard** |
 | `ISO 21757-1 Table 113` in any comment | a reference to **ISO 32000-2's Table 113** — "Additional entries in Mac OS Roman encoding not in MacRomanEncoding" | **silently the wrong table** |
 
-**The second row is the one to remember, because it is the spelling a round will reach for.** The
-guard is `citation::another_document`, which recognises another document by an acronym followed by a
-plain number — `RFC 3986 §5.2`, `ISO 15076-1 §6` — and `21757-1:2020` is not a plain number, so the
-*year* defeats the guard. This file writes "ISO 21757-1:2020" a couple of dozen times, which is
-exactly the string somebody will copy into a doc comment.
+**The third row is the one to remember, because a prose title is what a round will reach for when
+the standard has no acronym.** The guard is `citation::another_document`, which recognises another
+document by an acronym followed by a number — `ISO 15076-1`, `ETSI EN 319 122-1` — or by an ITU-T
+Recommendation's single word, and a *title* is none of those, so nothing in front of the sign
+identifies a document and the number is checked against ISO 32000-2. This file writes "JavaScript
+for Acrobat API Reference" constantly, which is exactly the string somebody will copy into a doc
+comment.
 
 The shapes to write, therefore, and they are rules rather than preferences:
 

@@ -450,15 +450,39 @@ fn value_of(viewer: &Viewer, field: &str) -> String {
         .unwrap_or_default()
 }
 
-/// A `fdf` naming something this program does not read is declined **by name**.
+/// Annex O's `fdf` names "an FDF or XFDF file", and both are asked for.
 ///
-/// ISO 19444-1's XFDF is the same data in XML and would need an XML parser, which is a dependency
-/// rather than a clause — the decision `interact::request_file` already takes for §12.7.6.4's
-/// action, taken once for both by `pdf_model::action::data_format`. Trap 5: nothing is asked of
-/// the host and a person is told why.
+/// Table Annex O.4: "[t]he URI shall be either a relative or absolute URI to an FDF or XFDF file."
+/// ISO 19444-1's XFDF is read by `pdf_model::xfdf` since the one-thousand-and-ninety-fourth
+/// session (ADR 1108), so the annex's two formats are the two this program has — and which one a
+/// name states is `pdf_model::action::data_format`'s answer, read once for this clause and for
+/// §12.7.6.4's action.
 #[test]
-fn an_xfdf_a_fragment_names_is_declined_by_name() {
+fn an_xfdf_a_fragment_names_is_asked_for_like_an_fdf() {
     let Some((_, events)) = opened("form_two_pages.pdf", "fdf=answers.xfdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            Event::NeedsFile {
+                name,
+                ..
+            } if name == "answers.xfdf"
+        )),
+        "the host is asked for the file the fragment named: {events:?}"
+    );
+}
+
+/// A `fdf` naming a format neither clause names is declined **by name**.
+///
+/// Table Annex O.4 names two and `action::data_format` reads three answers off an extension, so
+/// the third — "any other data format that it supports", §12.7.6.4's words — is the one nothing
+/// reads. Trap 5: nothing is asked of the host and a person is told why.
+#[test]
+fn a_format_neither_clause_names_is_declined_by_name() {
+    let Some((_, events)) = opened("form_two_pages.pdf", "fdf=answers.xml") else {
         eprintln!("skipped: doc/pdf.js is not checked out");
         return;
     };
@@ -472,7 +496,7 @@ fn an_xfdf_a_fragment_names_is_declined_by_name() {
     assert!(
         notes
             .iter()
-            .any(|note| note.contains("answers.xfdf") && note.contains("FDF")),
+            .any(|note| note.contains("answers.xml") && note.contains("XFDF")),
         "{notes:?}"
     );
 }

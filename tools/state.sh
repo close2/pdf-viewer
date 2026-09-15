@@ -69,7 +69,7 @@ section_ledger() {
 
 section_conformance() {
     run "conformance (citations, quotations, tables, ledger rows)" \
-        '^[0-9]+ (citations|quotations)|naming a section of one of this|owe a review|^conformance ledger|^  (implemented|partial|reported|silent|inapplicable|writer-side|out-of-scope) |name .* distinct tables|name a test file' \
+        '^[0-9]+ (citations|quotations)|naming a section of one of this|instruction documents, every one|owe a review|^conformance ledger|^  (implemented|partial|reported|silent|inapplicable|writer-side|out-of-scope) |name .* distinct tables|name a test file' \
         cargo test -p conformance -- --nocapture
 }
 
@@ -327,6 +327,17 @@ section_governing() {
     # account (ADR 0989). It reports rather than fails: attribution is a proximity rule, so
     # part of what it prints is correct prose saying what CLAUDE.md *used* to state.
     python3 tools/governing-quotations.py || status=1
+}
+
+# The last twelve rounds' records, beside the budget `doc/todo/02` section 8 states.
+#
+# The budget is forty lines and nothing counted it: the six records of sessions 1086-1091 ran 44,
+# 47, 19, 40, 40 and 40, and the two over were found by a later round running `wc -l`. The figure
+# lives in the check rather than here, so there is one copy of it and it is the one that fails.
+section_records() {
+    run "records (the last twelve, against doc/todo/02 section 8's budget)" \
+        'against a budget of|^  1[0-9]{3} |records, [0-9]+ of them counted' \
+        cargo test -q -p conformance --test records -- --nocapture
 }
 
 section_counts() {
@@ -651,8 +662,8 @@ section_ratchets() {
     done
 }
 
-all="ledger conformance annex-o governing questions counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
-quick="ledger conformance annex-o governing questions counts hosts windows binaries disk"
+all="ledger conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
+quick="ledger conformance annex-o governing questions records counts hosts windows binaries disk"
 
 # Sections that compose other sections' gates rather than running a gate of their own. Not in
 # `all`, because a full run already pays for every line they run; named by `--list`, because a
@@ -697,6 +708,7 @@ for section in $sections; do
     annex-o) section_annex_o ;;
     governing) section_governing ;;
     questions) section_questions ;;
+    records) section_records ;;
     counts) section_counts ;;
     hosts) section_hosts ;;
     windows) section_windows ;;

@@ -242,6 +242,45 @@ fn an_imported_value_is_the_one_that_is_drawn() {
     assert!(reports.is_empty(), "{reports:?}");
 }
 
+/// The same sentence over §12.7.6.4's *other* named format: a hand-written XFDF file with two
+/// fields and an `<f href>`, imported and drawn.
+///
+/// The two readers meet at `FormsData`, so this test asserts the one thing that would show if they
+/// did not — that the value a target document draws after an XFDF import is the value the XML
+/// stated, matched by §12.7.4.2's fully qualified name exactly as an FDF's is. ISO 19444-1:2019
+/// section 5.6.1 is what is being exercised: importing XFDF updates the values of form fields the
+/// target document already has.
+#[test]
+fn an_imported_xfdf_value_is_the_one_that_is_drawn() {
+    let document = Document::open(form()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+
+    let data = pdf_model::xfdf::read(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <xfdf xmlns=\"http://ns.adobe.com/xfdf/\" xml:space=\"preserve\">\n\
+         <f href=\"form.pdf\"/>\n\
+         <fields>\n\
+         <field name=\"name\"><value>from the XML</value></field>\n\
+         <field name=\"agree\"><value>On</value></field>\n\
+         </fields>\n\
+         </xfdf>\n"
+            .as_bytes(),
+    )
+    .expect("a hand-written XFDF file");
+    // Section 5.6.2's `<f href>` points at the PDF document holding the form fields, which is
+    // Table 246's `/F` — a name for a person and not a path this crate opens.
+    assert_eq!(data.source.as_deref(), Some("form.pdf"));
+
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.widgets, 2, "both fields reached a widget");
+    assert!(outcome.unmatched.is_empty(), "{:?}", outcome.unmatched);
+
+    let (after, reports) = drawn(&document, &view);
+    assert!(after.contains("from the XML"), "{after:?}");
+    assert!(!after.contains("stored"), "replaced, not added: {after:?}");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
 /// An FDF field with no `/V` at all still *replaces*, so the widget is left with no value —
 /// the same state §12.7.6.3's reset leaves a field with no `/DV` in, and drawn the same way.
 #[test]

@@ -957,3 +957,238 @@ fn a_page_names_the_groups_its_content_annotations_and_forms_reach() {
         "every group the page reaches, and only those: 9 is in /OCGs and on no page"
     );
 }
+
+/// Renders a fixture with the two factors §8.11.4.4 asks this *processor* for.
+///
+/// `magnification` goes in through `ViewState::set_magnification`, which is where §8.11.4.5's
+/// reapplication happens, so these tests exercise the same path a zoom gesture does rather than
+/// a back door built for them.
+fn render_for(
+    bytes: Vec<u8>,
+    magnification: Option<f32>,
+    audience: &pdf_model::optional_content::Audience,
+) -> (pdf_render::Raster, bool) {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    let moved = state.set_audience(audience.clone());
+    let magnified = state.set_magnification(magnification);
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+    let complete = interpretation.is_complete();
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported");
+    let _ = (moved, magnified);
+    (raster, complete)
+}
+
+/// A one-group fixture whose `/AS` names one category over that group.
+fn usage_fixture(category: &str, usage: &str) -> Vec<u8> {
+    pdf(
+        &format!(
+            "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /View /Category [/{category}] \
+             /OCGs [5 0 R] >>] >> >>"
+        ),
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        &format!("5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << {usage} >> >>\nendobj\n"),
+    )
+}
+
+/// §8.11.4.5's reapplication: a change of zoom runs the `View` dictionaries again.
+///
+/// > Whenever there is a change to a factor that the usage application dictionaries with event
+/// > type View depend on (such as zoom level), the corresponding dictionaries shall be
+/// > reapplied.
+///
+/// The range is the clause's own arithmetic — "greater than or equal to min and less than max" —
+/// chosen to exclude 1.0 and include 2.0, so that one fixture answers differently at two
+/// magnifications and a reader can see which sentence decided it. Nothing in the corpus states
+/// a `/Zoom` range at all (`examples/oc_usage_census` over 963 pdf.js documents and 65 720 crawl
+/// documents finds none), which is trap 8's shape exactly and why this is a fixture.
+#[test]
+fn a_change_of_zoom_reapplies_the_view_usage_dictionaries() {
+    let bytes = || usage_fixture("Zoom", "/Zoom << /min 1.5 /max 4.0 >>");
+
+    let (unstated, _) = render_for(bytes(), None, &pdf_model::optional_content::Audience::NONE);
+    let (at_one, _) = render_for(
+        bytes(),
+        Some(1.0),
+        &pdf_model::optional_content::Audience::NONE,
+    );
+    let (at_two, _) = render_for(
+        bytes(),
+        Some(2.0),
+        &pdf_model::optional_content::Audience::NONE,
+    );
+
+    assert!(
+        !drew(&unstated),
+        "1.0 is the magnification a caller that states none is answered at, and it is below 1.5"
+    );
+    assert!(!drew(&at_one), "and stating it changes nothing");
+    assert!(
+        drew(&at_two),
+        "2.0 is inside 1.5..4.0, so the reapplication has to turn the group back on"
+    );
+}
+
+/// And a manual change survives the reapplication, which §8.11.4.5 requires in the same breath.
+///
+/// > Manual changes shall override the states that were set automatically. The states of these
+/// > groups remain overridden and shall not be readjusted based on usage application dictionaries
+/// > with event type View as long as the document is open (or until the user reverts the document
+/// > to its original state).
+#[test]
+fn a_manual_change_is_not_readjusted_by_a_later_zoom() {
+    let document =
+        Document::open(usage_fixture("Zoom", "/Zoom << /min 1.5 /max 4.0 >>")).expect("valid");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    let group = pdf_syntax::ObjectId::new(5, 0);
+
+    // The group is off at 1.0, and a person switches it on.
+    assert_eq!(
+        state.optional_content().and_then(|oc| oc.state(group)),
+        Some(false)
+    );
+    assert!(state.set_group(group, true), "the switch is not locked");
+
+    // A zoom to 2.0 would recommend ON anyway, and a zoom back to 1.0 would recommend OFF.
+    state.set_magnification(Some(2.0));
+    state.set_magnification(Some(1.0));
+    assert_eq!(
+        state.optional_content().and_then(|oc| oc.state(group)),
+        Some(true),
+        "a manual change is not readjusted by a View usage application dictionary"
+    );
+
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(
+        !interpretation.display_list.commands().is_empty(),
+        "and the page draws what the person asked for"
+    );
+}
+
+/// §8.11.4.4's `User` category, once a host has said who is reading.
+///
+/// > The Name entry shall specify a name or names to match with the user's identification. The
+/// > Type entry determines how the Name entry shall be interpreted (name, title, or
+/// > organisation). If there is an exact match, the ON state shall be used; otherwise OFF shall
+/// > be used.
+///
+/// Three answers, because the clause has three cases and only two of them are branches of that
+/// sentence: the named reader matches, a different reader does not, and a machine nobody has
+/// told is in neither branch — there is no "user's identification" for the comparison to be made
+/// against, so the configuration's state stands and the page says so.
+#[test]
+fn a_user_category_is_answered_where_a_host_says_who_is_reading() {
+    use pdf_model::optional_content::{Audience, Reader};
+
+    let bytes = || usage_fixture("User", "/User << /Type /Ind /Name (Alice) >>");
+    let named = |who: &str| Audience {
+        reader: Reader {
+            individual: vec![who.to_owned()],
+            ..Reader::NONE
+        },
+        language: None,
+    };
+
+    let (alice, alice_complete) = render_for(bytes(), None, &named("Alice"));
+    let (bob, bob_complete) = render_for(bytes(), None, &named("Bob"));
+    let (nobody, nobody_complete) = render_for(bytes(), None, &Audience::NONE);
+
+    assert!(drew(&alice), "an exact match is the clause's ON");
+    assert!(alice_complete, "and nothing is left unanswered");
+    assert!(
+        !drew(&bob),
+        "and any other identification is its otherwise OFF"
+    );
+    assert!(bob_complete, "which is an answer rather than a silence");
+    assert!(
+        drew(&nobody),
+        "with nobody named the configuration's own state stands"
+    );
+    assert!(
+        !nobody_complete,
+        "and the page reports the category it could not answer"
+    );
+}
+
+/// The same `/User` dictionary asks about an organisation, and a reader's name does not answer it.
+///
+/// Table 100 makes `/Type` decide what the names mean, so a host that said who the individual is
+/// has not said which organisation they belong to. That is a question still unanswered rather
+/// than a match that failed, and the difference is the one the test above turns on.
+#[test]
+fn a_user_type_a_host_did_not_answer_is_still_unanswered() {
+    use pdf_model::optional_content::{Audience, Reader};
+
+    let (raster, complete) = render_for(
+        usage_fixture("User", "/User << /Type /Org /Name (Acme) >>"),
+        None,
+        &Audience {
+            reader: Reader {
+                individual: vec!["Alice".to_owned()],
+                ..Reader::NONE
+            },
+            language: None,
+        },
+    );
+
+    assert!(drew(&raster), "the configuration's state stands");
+    assert!(!complete, "and the category is reported unanswered");
+}
+
+/// §8.11.4.4's `Language` category, whose rule is stated over the whole `/OCGs` list.
+///
+/// > If an exact match to the language and locale is found among the Lang entries of the optional
+/// > content groups in the usage application dict ionary's OCGs list, all groups that have exact
+/// > matches shall receive an ON recommendation. If no exact match is found, but a partial match
+/// > is found (that is, the language matches but not the locale), all partially matching groups
+/// > that have Preferred entries with a value of ON shall receive an ON recommendation. All other
+/// > groups shall receive an OFF recommendation.
+///
+/// Table 100 makes `Preferred` default to `OFF`, so the partial match is the entry that decides
+/// between the two halves of this fixture, and §14.9.2.2 makes the comparison case-insensitive:
+/// "all language tags shall be treated as case-insensitive".
+#[test]
+fn a_language_category_prefers_a_partial_match_that_says_it_is_preferred() {
+    use pdf_model::optional_content::Audience;
+
+    let speaking = |tag: &str| Audience {
+        reader: pdf_model::optional_content::Reader::NONE,
+        language: Some(tag.to_owned()),
+    };
+    let preferred = || usage_fixture("Language", "/Language << /Lang (es-MX) /Preferred /ON >>");
+    let plain = || usage_fixture("Language", "/Language << /Lang (es-MX) >>");
+
+    let (exact, exact_complete) = render_for(preferred(), None, &speaking("es-MX"));
+    let (cased, _) = render_for(preferred(), None, &speaking("ES-mx"));
+    let (partial, _) = render_for(preferred(), None, &speaking("es-ES"));
+    let (unpreferred, _) = render_for(plain(), None, &speaking("es-ES"));
+    let (other, _) = render_for(preferred(), None, &speaking("de-DE"));
+    let (unsaid, unsaid_complete) = render_for(preferred(), None, &Audience::NONE);
+
+    assert!(drew(&exact), "an exact match is an ON recommendation");
+    assert!(exact_complete, "and nothing is left unanswered");
+    assert!(drew(&cased), "and the tags are compared case-insensitively");
+    assert!(
+        drew(&partial),
+        "a partial match with /Preferred /ON is an ON recommendation"
+    );
+    assert!(
+        !drew(&unpreferred),
+        "and the same partial match without it is one of the other groups, which are OFF"
+    );
+    assert!(!drew(&other), "a language that matches nothing is OFF");
+    assert!(
+        drew(&unsaid),
+        "with no language said the configuration's own state stands"
+    );
+    assert!(!unsaid_complete, "and the page reports it");
+}

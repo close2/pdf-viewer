@@ -739,9 +739,9 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// **`issue2177.pdf` arrived on the same change, and it is a second analytic answer rather than a
 /// quantum.** Its page is three clipped circles filled with a tiling pattern of small coloured
 /// ellipses, so almost every inked pixel is somebody's curve boundary; `examples/ink_ladder` puts
-/// the two backends 0.73% apart at 1× and **0.17% apart at 8×**, and the excess halves at every
+/// the two backends 0.61% apart at 1× and **0.13% apart at 8×**, and the excess halves at every
 /// rung, which is that instrument's signature for a per-boundary cost rather than a shape. Both
-/// backends read heavier at the page's own scale than at eight times it — ours by 0.68% and
+/// backends read heavier at the page's own scale than at eight times it — ours by 0.60% and
 /// raster's by 0.12% — which is the side §10.7.4's "[t]he area covered by painted pixels shall
 /// always be at least as large as the area of the original shape" asks for. Flattening is not the
 /// difference and that is measured rather than assumed: at tolerances of 1/16, 1/64, 1/256 and
@@ -749,6 +749,20 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// converter's own tolerance is within 0.011% of its limit. The worst tile the gate prints is at
 /// (32, 224), which is the raster's own bottom row and one pixel tall — trap 26, and the verdict
 /// here rests on the differing fraction.
+///
+/// **`pr12564.pdf`'s worst tile is a sampled image at one device pixel per sample, and the
+/// difference is raster's filter.** The page is a newsletter, and the tile at (64, 64) holds a
+/// 90 × 90 seal placed by `90 0 0 90 32.08 872.42 cm` — a native placement at a fractional offset.
+/// §10.7.4 maps each device pixel's centre back into source space and forbids averaging over the
+/// pixel area, so the clause's answer there is the one sample, unfiltered; `pdf_render::Image::
+/// is_smoothed` answers `false` for it (ADR 1107 section 3) and the oracle draws exactly that.
+/// `render_raster::scene` hands quorra the samples with a mirrored copy of the older rule deciding
+/// (ADR 0702), and quorra filters — the device rectangle is 0.49 of 255 from the bilinear answer
+/// and 0.35 from the point sample, each about 10.8 from the other rule, while the ink totals agree
+/// (8949.51 against 8947.80), which is why this page sat on the edge list rather than the ink list.
+/// `doc/QUORRA_FEEDBACK.md` section 47 is the ask; the measurement that shows the two answers away from
+/// any document is `examples/image_phase`, whose control is the same image at a scale of 1.5, where
+/// both backends filter and agree.
 const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.

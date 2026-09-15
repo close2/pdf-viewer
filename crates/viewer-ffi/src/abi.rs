@@ -3039,6 +3039,97 @@ pub unsafe extern "C" fn quorra_reference_files(
     Status::Ok.code()
 }
 
+/// ISO 32000-2 §8.11.4.4's two usage categories about the *reader*: who is reading, and in what
+/// language.
+///
+/// **A library that is told, or a library that says it was not told.** Table 100 lets a document
+/// name "one or more users for whom this optional content group is primarily intended" and the
+/// language of a group's content; §8.11.4.4 says what a processor does with each — match the
+/// names "with the user's identification", and select "based on the language and locale of the
+/// application". Neither is a fact a PDF holds, and a document that could assert who is reading
+/// would be choosing its own audience. A caller that never calls this gets what it got before
+/// this entry point existed: both categories reported unanswered, and every group left at the
+/// state the document's configuration gave it.
+///
+/// The three name lists are Table 100's three `/User` `/Type` values and may not be merged: `Ind`
+/// is the individual, `Ttl` the title or position, `Org` the organisation, and a document asking
+/// about one of them is not asking about the others. Each may be null with a count of zero.
+///
+/// `language` is a NUL-terminated language tag as §14.9.2.2 defines one — "a Language-Tag as
+/// defined in BCP 47", such as `es-MX` — or null, which is *nobody has said*. A null tag and an
+/// empty one are different: §14.9.2.2 gives the empty string a meaning of its own, "to indicate
+/// that the language is unknown", and this entry point does not put that meaning in a caller's
+/// mouth for passing a pointer to a zero byte, so an empty string is read as null.
+///
+/// Calling it with every count zero and a null `language` withdraws the answer. The strings are
+/// copied before this returns.
+///
+/// **This takes no struct by value**, so [`crate::abi::QUORRA_ABI_VERSION`] does not move: an
+/// entry point *added* is one an old caller never calls.
+///
+/// # Safety
+///
+/// See the module documentation. Each of `names`, `titles` and `organisations`, where not null, is
+/// readable for its count of pointers to NUL-terminated strings; `language` is a NUL-terminated
+/// string or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_audience(
+    viewer: *mut Session,
+    names: *const *const c_char,
+    name_count: usize,
+    titles: *const *const c_char,
+    title_count: usize,
+    organisations: *const *const c_char,
+    organisation_count: usize,
+    language: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let read = |list: *const *const c_char, count: usize| -> Option<Vec<String>> {
+        if count == 0 {
+            return Some(Vec::new());
+        }
+        if list.is_null() {
+            return None;
+        }
+        let mut out = Vec::with_capacity(count);
+        for index in 0..count {
+            let given = *list.add(index);
+            if given.is_null() {
+                return None;
+            }
+            out.push(CStr::from_ptr(given).to_string_lossy().into_owned());
+        }
+        Some(out)
+    };
+    let (Some(individual), Some(title), Some(organisation)) = (
+        read(names, name_count),
+        read(titles, title_count),
+        read(organisations, organisation_count),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    let language = if language.is_null() {
+        None
+    } else {
+        let tag = CStr::from_ptr(language).to_string_lossy().into_owned();
+        (!tag.is_empty()).then_some(tag)
+    };
+    *events = Box::into_raw(Box::new(viewer.audience(
+        pdf_model::optional_content::Audience {
+            reader: pdf_model::optional_content::Reader {
+                individual,
+                title,
+                organisation,
+            },
+            language,
+        },
+    )));
+    Status::Ok.code()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]

@@ -1629,15 +1629,16 @@ impl Open {
     /// reference is the business of whoever holds the base.
     ///
     /// The format is the file name's, read once for both clauses by
-    /// [`pdf_model::action::data_format`]. ISO 19444-1's XFDF is the same data in XML and would
-    /// need an XML parser, which is a dependency rather than a clause — so it is declined by name
-    /// here exactly as `crate::interact::request_file` declines it for the action.
+    /// [`pdf_model::action::data_format`]. The annex names both formats and this program reads
+    /// both, exactly as `crate::interact::request_file` accepts both for the action.
     fn import_from(&mut self, uri: &[u8], notes: &mut Vec<String>) {
+        use pdf_model::action::DataFormat;
+
         // Lossy for the reason [`text`] is: the annex states no character encoding for the
         // argument, and what a host resolves is a name a person typed.
         let file = String::from_utf8_lossy(uri).into_owned();
         let format = pdf_model::action::data_format(&file);
-        if format == pdf_model::action::DataFormat::Fdf {
+        if matches!(format, DataFormat::Fdf | DataFormat::Xfdf) {
             notes.push(format!(
                 "this URI's fragment asks for the form data in {file}, which the host is being \
                  asked for"
@@ -1645,8 +1646,8 @@ impl Open {
             self.importing = Some(ImportData { file, format });
         } else {
             notes.push(format!(
-                "this URI's fragment asks for the form data in {file}, which is not §12.7.8's \
-                 FDF, and no other data format is read"
+                "this URI's fragment asks for the form data in {file}, which is neither \
+                 §12.7.8's FDF nor ISO 19444-1's XFDF, and no other data format is read"
             ));
         }
     }

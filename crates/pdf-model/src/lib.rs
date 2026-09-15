@@ -81,6 +81,7 @@ pub mod uri;
 mod variable_text;
 pub mod view;
 pub mod viewer_preferences;
+pub mod xfdf;
 pub mod xmp;
 
 pub use content::{

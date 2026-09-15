@@ -30,7 +30,7 @@ use crate::action::{
 };
 use crate::destination::Destination;
 use crate::forms_data::Import;
-use crate::optional_content::OptionalContent;
+use crate::optional_content::{Audience, OptionalContent};
 
 /// Deepest nesting of `/Kids` walked when a field name is resolved.
 ///
@@ -131,6 +131,16 @@ pub struct ViewState {
     /// it changes what is drawn, and rule 1 makes this state the only channel by which anything
     /// outside the file may.
     widget_appearances: WidgetAppearances,
+    /// §8.11.4.4's answers about this processor: who is reading, and in what language.
+    ///
+    /// The third thing in this struct that is a property of the *host* rather than of the
+    /// document or of anything a person did to it, and it is here for `magnification`'s reason:
+    /// Table 100's `/User` and `/Language` categories decide whether a layer is drawn, and rule
+    /// 1 makes this state the only channel by which anything outside the file may.
+    ///
+    /// [`Audience::NONE`] until a host says otherwise, under which both categories are reported
+    /// unanswered and the configuration's own state stands. ADR 1106.
+    audience: Audience,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -637,6 +647,38 @@ pub enum WidgetAppearances {
     Delegated,
 }
 
+/// What a change of magnification obliges a caller to do.
+///
+/// Two clauses read the magnification and they are owed different things, which is why this is
+/// not a `bool`. §12.5.3's `NoZoom` moves an annotation *without changing what the page draws*,
+/// so a host holding a picture of the old magnification may go on standing in with it while the
+/// new interpretation runs. §8.11.4.5's reapplication can switch a layer off, and a picture
+/// holding a layer the document now says is not there is a picture of something else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Magnified {
+    /// The magnification is what it already was.
+    Unchanged,
+    /// The page is interpreted again, and the ink it already produced still stands.
+    Placement,
+    /// The page is interpreted again and what it drew is superseded: §8.11.4.5's reapplication
+    /// moved an optional content group.
+    Visibility,
+}
+
+impl Magnified {
+    /// Whether the page has to be interpreted again at all.
+    #[must_use]
+    pub fn needs_interpreting(self) -> bool {
+        !matches!(self, Self::Unchanged)
+    }
+
+    /// Whether what the page already drew is superseded rather than merely re-placed.
+    #[must_use]
+    pub fn supersedes_ink(self) -> bool {
+        matches!(self, Self::Visibility)
+    }
+}
+
 impl ViewState {
     /// The state a document opens in.
     ///
@@ -655,6 +697,7 @@ impl ViewState {
             pointer: None,
             magnification: None,
             widget_appearances: WidgetAppearances::default(),
+            audience: Audience::NONE,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),
@@ -696,17 +739,58 @@ impl ViewState {
 
     /// Says how large the page is being drawn, in logical pixels per default user space unit.
     ///
-    /// Only §12.5.3's `NoZoom` reads it, and only an annotation setting that flag changes when
-    /// it does — which is why a host that never zooms need never call this and a host that does
-    /// may call it on every frame. `Interpretation::view_dependent` says whether this page has
-    /// anything that would notice.
+    /// Two clauses read it. §12.5.3's `NoZoom` moves one annotation — which is why a host that
+    /// never zooms need never call this and a host that does may call it on every frame, and
+    /// `Interpretation::view_dependent` says whether this page has anything that would notice.
+    /// And §8.11.4.4's `Zoom` category decides whether a layer is drawn at all, which §8.11.4.5
+    /// requires to be asked again every time this moves: "[w]henever there is a change to a
+    /// factor that the usage application dictionaries with event type View depend on (such as
+    /// zoom level), the corresponding dictionaries shall be reapplied".
     ///
-    /// Returns whether the value changed, so a caller can decide whether the page has to be
-    /// interpreted again rather than comparing two floats itself.
-    pub fn set_magnification(&mut self, magnification: Option<f32>) -> bool {
-        let changed = self.magnification != magnification;
+    /// **The reapplication happens here rather than in a second call a caller has to remember**,
+    /// which is what makes it a property of the magnification changing rather than of a host
+    /// being diligent. It costs one empty-vector test on a document that states no `/AS`.
+    ///
+    /// The answer separates the two, because they oblige a caller differently; see
+    /// [`Magnified`].
+    pub fn set_magnification(&mut self, magnification: Option<f32>) -> Magnified {
+        if self.magnification == magnification {
+            return Magnified::Unchanged;
+        }
         self.magnification = magnification;
-        changed
+        if self.reapply_view_usage() {
+            Magnified::Visibility
+        } else {
+            Magnified::Placement
+        }
+    }
+
+    /// §8.11.4.4's answers about this processor, as a host has given them.
+    #[must_use]
+    pub fn audience(&self) -> &Audience {
+        &self.audience
+    }
+
+    /// Says who is reading and in what language, for Table 100's `/User` and `/Language`.
+    ///
+    /// Returns whether any group's state moved, which is what a caller needs: §8.11 decides
+    /// what is *drawn*, so an answer that changes a state supersedes the ink the page already
+    /// produced. A host that never calls this leaves both categories unanswered, which is the
+    /// position every caller of [`ViewState::of`] is in.
+    pub fn set_audience(&mut self, audience: Audience) -> bool {
+        if self.audience == audience {
+            return false;
+        }
+        self.audience = audience;
+        self.reapply_view_usage()
+    }
+
+    /// §8.11.4.5's reapplication against whatever the two factors now are.
+    fn reapply_view_usage(&mut self) -> bool {
+        let magnification = self.magnification;
+        self.optional_content
+            .as_mut()
+            .is_some_and(|content| content.reapply(magnification, &self.audience))
     }
 
     /// The optional content configuration, as the state currently stands.

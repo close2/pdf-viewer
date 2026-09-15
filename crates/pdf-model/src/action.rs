@@ -16,7 +16,7 @@
 //! | `URI` | §12.6.4.8 | yes — the URI, resolved; opening it is the caller's |
 //! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread, in this file |
 //! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
-//! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8) |
+//! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8, ISO 19444-1) |
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
 //! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
 //! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
@@ -421,13 +421,10 @@ impl SubmitFlags {
 /// file's bytes once somebody has them, and [`crate::view::ViewState::import`] applies it.
 ///
 /// "[O]r any other data format that it supports" is what makes [`Self::format`] worth stating
-/// rather than guessing: this program supports FDF and not XFDF. **What declines XFDF is the
-/// standard that defines it and not the parser it would take.** `xmlparser` is this crate's own
-/// dependency (ADR 0186) and [`crate::popup::rich_text`] already reads XML with it, so a refusal
-/// resting on the parser would be resting on a decision that has been taken. ISO 19444-1 is not
-/// on this disk; `CLAUDE.md` principle 5 makes a grammar taken from another reader or from
-/// sample files not a reading of a specification at all, which is what implementing it from here
-/// would be.
+/// rather than guessing: this program supports the two the table names and no third.
+/// [`crate::forms_data`] reads §12.7.8's FDF and [`crate::xfdf`] reads ISO 19444-1's XFDF, which
+/// is the same data in XML — so the extension says which reader the bytes go to, and the reader
+/// says whether they were that format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportData {
     /// Table 243's `/F`, "[t]he FDF, XFDF or any other data format file from which to import the
@@ -452,8 +449,7 @@ pub struct ImportData {
 pub enum DataFormat {
     /// `.fdf` — §12.7.8's Forms Data Format, which [`crate::forms_data`] reads.
     Fdf,
-    /// `.xfdf` — ISO 19444-1's XML spelling of the same data, which this program does not read
-    /// because that standard is not on this disk to be read *from*; see the type's own comment.
+    /// `.xfdf` — ISO 19444-1's XML spelling of the same data, which [`crate::xfdf`] reads.
     Xfdf,
     /// Anything else, which §12.7.6.4's "any other data format that it supports" permits and
     /// this program supports none of.

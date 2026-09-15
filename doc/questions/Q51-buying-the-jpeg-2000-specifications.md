@@ -1,7 +1,7 @@
 # Q51 — Should the project buy ISO/IEC 15444-1 and -2, the JPEG 2000 specifications?
 
-Source: `crates/pdf-archive/src/table/graphics.rs`, the seven rows of ISO 19005-2 §6.2.8.3 /
-ISO 19005-4 §6.2.7.3. All seven were `Check::Unchecked` when this was written; five are
+Source: `crates/pdf-archive/src/table/graphics.rs`, the seven rows of ISO 19005-2 section 6.2.8.3 /
+ISO 19005-4 section 6.2.7.3. All seven were `Check::Unchecked` when this was written; five are
 implemented now that part 1 is held, and "What the tree does now that part 1 is held" below is
 the current state.
 Status: **open** — answered when `A51-buying-the-jpeg-2000-specifications.md` exists beside this file.
@@ -11,7 +11,7 @@ Status: **open** — answered when `A51-buying-the-jpeg-2000-specifications.md` 
 **The owner obtained part 1.** `doc/ISO_IEC 15444.pdf` is ISO/IEC 15444-1:2000, *Information
 technology — JPEG 2000 image coding system — Part 1: Core coding system*, gitignored by
 `/doc/*.pdf` like every other specification here, and `python3 tools/spec-md.py` has put its text
-in `doc/md/` where it can be read. It carries what most of ISO 19005-2 §6.2.8.3's rules need:
+in `doc/md/` where it can be read. It carries what most of ISO 19005-2 section 6.2.8.3's rules need:
 Annex I.5.3.3 defines the `colr` box with its `METH`, `PREC`, `APPROX` and `EnumCS` fields, and
 Annex A.5.1's `SIZ` marker segment gives the component count and each component's bit depth.
 
@@ -60,8 +60,8 @@ single sample decoded. They need to know where the `jp2h` box is, what fields `i
 coding system and the JP2 file format, Annex I) and ISO/IEC 15444-2 (the extensions and the JPX
 format, whose Annex M.9.2 is where both parts' NOTE 1 says the baseline set is defined).
 
-**Both parts name ISO/IEC 15444-2 normatively**, not merely in a note: ISO 19005-2 §6.2.8.3 and
-ISO 19005-4 §6.2.7.3 each close with a `shall` sentence requiring JPEG 2000 images to be created
+**Both parts name ISO/IEC 15444-2 normatively**, not merely in a note: ISO 19005-2 section 6.2.8.3 and
+ISO 19005-4 section 6.2.7.3 each close with a `shall` sentence requiring JPEG 2000 images to be created
 and read as that document describes. So this is not a case where the reading could be reconstructed
 from ISO 32000 — the base standard hands the question over, and `CLAUDE.md` principle 5 forbids
 reading the layout out of somebody else's implementation instead.

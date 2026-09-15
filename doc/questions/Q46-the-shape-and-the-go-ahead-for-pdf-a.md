@@ -30,7 +30,7 @@ than believing a number written here.
 
 Two things the count and the clauses settle between them:
 
-- **Levels within a part are nearly free.** ISO 19005-2 §6.2.11.7.1 and §6.7.1 state their own
+- **Levels within a part are nearly free.** ISO 19005-2 sections 6.2.11.7.1 and 6.7.1 state their own
   applicability — Level B may ignore the Unicode subclause, Level B and U may ignore logical
   structure — so 2b, 2u and 2a are **one implementation with an applicability column**, not three.
   ISO 19005-4's Annexes A and B are the same shape: modifications to clause 6 that mostly

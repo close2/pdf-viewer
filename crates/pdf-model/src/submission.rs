@@ -20,7 +20,7 @@
 //!
 //! §12.7.6.2 lists four — "HTML Form format", "Forms Data Format (FDF)", "XFDF, a version of FDF
 //! based on XML as defined by ISO 19444-1", and "PDF (in this case, the entire document shall be
-//! submitted rather than individual fields and values)". Three are composed:
+//! submitted rather than individual fields and values)". All four are composed:
 //!
 //! - **FDF** is §12.7.8's own structure and this crate already reads it; [`fdf`] writes the same
 //!   thing — a `%FDF-` header, one catalog object, a trailer naming it — with the fields as
@@ -34,12 +34,13 @@
 //!   this tree holds a copy of; it is a free W3C Recommendation at
 //!   <https://www.w3.org/TR/html401/interact/forms.html>, and the quotations below were taken
 //!   from it rather than from any reader's behaviour.
+//! - **XFDF** is that same field tree in ISO 19444-1's XML; [`xfdf`] writes it and
+//!   [`crate::xfdf`] reads one back. That standard is a licensed text and this tree holds a
+//!   preview of it, so the comments here cite its sections and paraphrase rather than quote
+//!   (`doc/third-party-data.md`); ADR 1108 is the argument for what is built from it and what is
+//!   not.
 //! - **PDF** is the document with §7.5.6's update appended, which is what
 //!   [`crate::view::ViewState::save`] already produces.
-//!
-//! **XFDF is declined by name**, for the reason §12.7.6.4's import declines it: ISO 19444-1 is
-//! not on this disk, and `CLAUDE.md` principle 5 makes a grammar taken from another reader or from
-//! sample files not a reading of a specification at all.
 //!
 //! # What is composed and what is owed, by flag
 //!
@@ -54,7 +55,7 @@
 //! | 3 | `ExportFormat` | applied: HTML Form format against FDF, and §12.7.5.3 decides which of that format's two content types |
 //! | 4 | `GetMethod` | applied; owed where set against a clear bit 3, which the table forbids, and where §12.7.5.3's body leaves a GET nowhere to put it |
 //! | 5 | `SubmitCoordinates` | applied from the click, where there was one |
-//! | 6 | `XFDF` | declined: ISO 19444-1 is not held |
+//! | 6 | `XFDF` | applied: [`xfdf`] writes the body, and it outranks bit 3 because bit 3 is meaningful only where it is clear |
 //! | 7 | `IncludeAppendSaves` | applied: Table 246's `/Differences` holds what the update appended |
 //! | 8 | `IncludeAnnotations` | applied: §12.7.8.3.4's annotation dictionaries, with Table 254's `/Page` |
 //! | 9 | `SubmitPDF` | applied |
@@ -63,12 +64,12 @@
 //! | 12 | `ExclFKey` | applied: it is what bit 14's `/F` is written against |
 //! | 14 | `EmbedForm` | applied: §7.11.4's embedded file stream, minus the path Table 43 asks for and this crate has none of |
 //!
-//! **Three of those were `owed` until the one-thousand-and-fifty-second session, and the reason
-//! they moved is that none of them was ever about a network.** Bit 7's `/Differences` is
-//! §7.5.6's update, which [`crate::view::ViewState::save`] already writes; bit 8's annotations
-//! are the document's own dictionaries; bit 14's embedded file is that same save. Bit 11 is the
-//! one that stayed, and it stayed for the standard's own reason rather than for want of code —
-//! see [`Carried`].
+//! **Two are reported rather than applied and the table is why neither can be**: bit 10's dates
+//! are known only to ECMAScript, and bit 11's user name is the *server*'s. Every other row is
+//! applied on the path the table makes it meaningful on — and where a document sets one the table
+//! puts aside in the format it asked for, it is named on [`Submission::owed`] by its bit number
+//! rather than obeyed or dropped. [`excluded_by_xfdf`] does that for bit 6's path and [`Carried`]
+//! for the FDF one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -125,6 +126,9 @@ pub enum Format {
     Fdf,
     /// "HTML Form format (described in the HTML 4.01 Specification)".
     HtmlForm,
+    /// "XFDF, a version of FDF based on XML as defined by ISO 19444-1", which
+    /// [`crate::xfdf`] reads and [`xfdf`] writes.
+    Xfdf,
     /// "PDF (in this case, the entire document shall be submitted rather than individual fields
     /// and values)".
     Pdf,
@@ -144,12 +148,16 @@ impl Format {
     /// `application/fdf`, registered 2022-04-05 by ISO TC 171/SC 2 — the committee that owns this
     /// standard — at <https://www.iana.org/assignments/media-types/application/fdf>. The older
     /// `application/vnd.fdf` is a vendor-tree name for the same bytes and is not what the
-    /// registry lists.
+    /// registry lists. XFDF's is `application/xfdf`, the same committee's and by the same
+    /// argument — its registration names ISO Technical Committee 171, Sub-Committee 2, Working
+    /// Group 8 as the body that standardizes XFDF, and makes `application/vnd.adobe.xfdf` a
+    /// "[d]eprecated alias".
     #[must_use]
     pub const fn content_type(self) -> &'static str {
         match self {
             Self::Fdf => "application/fdf",
             Self::HtmlForm => "application/x-www-form-urlencoded",
+            Self::Xfdf => "application/xfdf",
             Self::Pdf => "application/pdf",
         }
     }
@@ -158,12 +166,6 @@ impl Format {
 /// Why a submission could not be composed at all.
 #[derive(Debug, thiserror::Error)]
 pub enum Refusal {
-    /// Table 240 bit 6.
-    #[error(
-        "SubmitForm: Table 240 bit 6 asks for XFDF, whose ISO 19444-1 is not held, so no reading \
-         of it can be written"
-    )]
-    Xfdf,
     /// Table 240 bit 9 asks for the document, and §7.5.6's update cannot be appended to it.
     #[error(
         "SubmitForm: Table 240 bit 9 asks for the whole document, which cannot be written: {0}"
@@ -283,101 +285,33 @@ pub fn compose(
     if flags.submit_pdf() {
         return whole_document(document, view, action, owed);
     }
-    // Table 240 bit 6: "shall be used only if the SubmitPDF flags are clear. If set, field
-    // names and values shall be submitted as XFDF."
-    if flags.xfdf() {
-        return Err(Refusal::Xfdf);
+    let format = format_of(flags);
+    let (xfdf_format, html) = (format == Format::Xfdf, format == Format::HtmlForm);
+    if xfdf_format {
+        excluded_by_xfdf(flags, &mut owed);
     }
-    // Table 240 bit 3: "If set, field names and values shall be submitted in HTML Form format.
-    // If clear, they shall be submitted in Forms Data Format (FDF)." Two formats and not three,
-    // because bit 9's PDF returned above — which is why this is one boolean carried down rather
-    // than a match over [`Format`] with an arm that cannot happen.
-    let html = flags.export_format();
-    let format = if html { Format::HtmlForm } else { Format::Fdf };
 
     let table = widgets_by_field_name(document);
     let chosen = chosen(document, view, action, format, &table, &mut owed);
     let entries = chosen.entries;
     let fields = entries.len();
     let (url, method, body, media_type) = if html {
-        if let Some(charset) = action
-            .charset
-            .as_deref()
-            .filter(|charset| !charset.eq_ignore_ascii_case("utf-8"))
-        {
-            owed.push(format!(
-                "Table 239's /CharSet {charset} is not applied; names and values are written \
-                 in UTF-8"
-            ));
-        }
-        if flags.canonical_format() {
-            owed.push(
-                "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
-                 stated only by ECMAScript, which CLAUDE.md principle 5 excludes"
-                    .to_owned(),
-            );
-        }
-        let placed = flags
-            .submit_coordinates()
-            .then(|| coordinates(document, &table, click, &mut owed))
-            .flatten();
-        // §12.7.5.3: "For fields submitted in HTML Form format, the submission shall use the
-        // MIME content type multipart / form-data, as described in Internet RFC 2045." The
-        // condition is a file-select control being in the submission, not its file being
-        // readable, so this is `Chosen::file_select` rather than a look at the entries.
-        if chosen.file_select {
-            // Two `shall`s the document has asked for at once, and they cannot both be met: an
-            // HTTP GET carries its data in the URL and has no entity body for a media type to
-            // describe. The specific one wins — bit 4 speaks about "field names and values" in
-            // general and §12.7.5.3 about the control whose file is the reason there is a body
-            // — and the general one goes to the host as a sentence.
-            if flags.get_method() {
-                owed.push(
-                    "Table 240 bit 4's GetMethod asks for an HTTP GET, whose data is a URL \
-                     query with no body; §12.7.5.3's file-select control requires a \
-                     multipart/form-data body, so this is composed as a POST"
-                        .to_owned(),
-                );
-            }
-            let (boundary, body) = multipart(document, &entries, placed.as_ref(), &mut owed)?;
-            (
-                action.url.clone(),
-                Method::Post,
-                body,
-                format!("multipart/form-data; boundary={boundary}"),
-            )
-        } else {
-            let mut query = urlencoded(document, &entries, &mut owed);
-            if let Some(placed) = &placed {
-                if !query.is_empty() {
-                    query.push('&');
-                }
-                // The name is escaped and the full stop the table puts after it is not: the
-                // PERIOD is the format's punctuation rather than a character of the name.
-                let mut prefix = String::new();
-                if let Some(named) = &placed.named {
-                    escape(named.as_bytes(), &mut prefix);
-                    prefix.push('.');
-                }
-                let (across, down) = (placed.across, placed.down);
-                let _ = write!(query, "{prefix}x={across}&{prefix}y={down}");
-            }
-            if flags.get_method() {
-                (
-                    with_query(&action.url, &query),
-                    Method::Get,
-                    Vec::new(),
-                    format.content_type().to_owned(),
-                )
-            } else {
-                (
-                    action.url.clone(),
-                    Method::Post,
-                    query.into_bytes(),
-                    format.content_type().to_owned(),
-                )
-            }
-        }
+        html_body(
+            document,
+            action,
+            &table,
+            click,
+            chosen.file_select,
+            &entries,
+            &mut owed,
+        )?
+    } else if xfdf_format {
+        (
+            action.url.clone(),
+            Method::Post,
+            xfdf(document, &entries, &mut owed),
+            format.content_type().to_owned(),
+        )
     } else {
         let carried = Carried::read(document, view, action, &mut owed);
         (
@@ -396,6 +330,123 @@ pub fn compose(
         fields,
         owed,
     })
+}
+
+/// §12.7.6.2's "HTML Form format (described in the HTML 4.01 Specification)", composed.
+///
+/// A function of its own rather than a branch, because that specification's section 17.13.4 gives
+/// the format *two* content types and §12.7.5.3 decides between them — so this is where three
+/// clauses meet, and the arithmetic of which flag loses to which is theirs rather than
+/// [`compose`]'s.
+///
+/// # Errors
+///
+/// [`Refusal::Undelimitable`], where no part boundary separates a multipart body.
+fn html_body(
+    document: &Document,
+    action: &SubmitForm,
+    table: &BTreeMap<String, Vec<ObjectId>>,
+    click: Option<&Click>,
+    file_select: bool,
+    entries: &[Entry],
+    owed: &mut Vec<String>,
+) -> Result<(String, Method, Vec<u8>, String), Refusal> {
+    let flags = action.flags;
+    let format = Format::HtmlForm;
+    if let Some(charset) = action
+        .charset
+        .as_deref()
+        .filter(|charset| !charset.eq_ignore_ascii_case("utf-8"))
+    {
+        owed.push(format!(
+            "Table 239's /CharSet {charset} is not applied; names and values are written \
+             in UTF-8"
+        ));
+    }
+    if flags.canonical_format() {
+        owed.push(
+            "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
+             stated only by ECMAScript, which CLAUDE.md principle 5 excludes"
+                .to_owned(),
+        );
+    }
+    let placed = flags
+        .submit_coordinates()
+        .then(|| coordinates(document, table, click, owed))
+        .flatten();
+    // §12.7.5.3: "For fields submitted in HTML Form format, the submission shall use the
+    // MIME content type multipart / form-data, as described in Internet RFC 2045." The
+    // condition is a file-select control being in the submission, not its file being
+    // readable, so this is `Chosen::file_select` rather than a look at the entries.
+    Ok(if file_select {
+        // Two `shall`s the document has asked for at once, and they cannot both be met: an
+        // HTTP GET carries its data in the URL and has no entity body for a media type to
+        // describe. The specific one wins — bit 4 speaks about "field names and values" in
+        // general and §12.7.5.3 about the control whose file is the reason there is a body
+        // — and the general one goes to the host as a sentence.
+        if flags.get_method() {
+            owed.push(
+                "Table 240 bit 4's GetMethod asks for an HTTP GET, whose data is a URL \
+                 query with no body; §12.7.5.3's file-select control requires a \
+                 multipart/form-data body, so this is composed as a POST"
+                    .to_owned(),
+            );
+        }
+        let (boundary, body) = multipart(document, entries, placed.as_ref(), owed)?;
+        (
+            action.url.clone(),
+            Method::Post,
+            body,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+    } else {
+        let mut query = urlencoded(document, entries, owed);
+        if let Some(placed) = &placed {
+            if !query.is_empty() {
+                query.push('&');
+            }
+            // The name is escaped and the full stop the table puts after it is not: the
+            // PERIOD is the format's punctuation rather than a character of the name.
+            let mut prefix = String::new();
+            if let Some(named) = &placed.named {
+                escape(named.as_bytes(), &mut prefix);
+                prefix.push('.');
+            }
+            let (across, down) = (placed.across, placed.down);
+            let _ = write!(query, "{prefix}x={across}&{prefix}y={down}");
+        }
+        if flags.get_method() {
+            (
+                with_query(&action.url, &query),
+                Method::Get,
+                Vec::new(),
+                format.content_type().to_owned(),
+            )
+        } else {
+            (
+                action.url.clone(),
+                Method::Post,
+                query.into_bytes(),
+                format.content_type().to_owned(),
+            )
+        }
+    })
+}
+
+/// Which of §12.7.6.2's four formats these flags ask for, with bit 9's already answered.
+///
+/// The table ranks them itself and this is that ranking, not a preference: bit 6's XFDF "shall be
+/// used only if the `SubmitPDF` flags are clear", and bit 3's HTML Form format is "[m]eaningful only
+/// if the `SubmitPDF` and XFDF flags are clear" — so a document setting both 6 and 3 has asked for
+/// XFDF, and [`excluded_by_xfdf`] is where it is told which of its bits the table put aside.
+fn format_of(flags: crate::action::SubmitFlags) -> Format {
+    if flags.xfdf() {
+        Format::Xfdf
+    } else if flags.export_format() {
+        Format::HtmlForm
+    } else {
+        Format::Fdf
+    }
 }
 
 /// Table 240 bit 9's whole document, which "shall be submitted rather than individual fields and
@@ -533,52 +584,7 @@ fn chosen(
         };
         if file_select {
             let selected = selected_file(document, name, &value, owed);
-            match format {
-                // "For Forms Data Format (FDF) submission, the value of the V entry in the FDF
-                // field dictionary … shall be a file specification (7.11, "File specifications")
-                // identifying the selected file."
-                Format::Fdf => match selected {
-                    // §7.11.1's dictionary form carrying §7.11.4's stream: an FDF has a body to
-                    // put an indirect stream in, so the contents travel rather than the name of
-                    // a file the server has no copy of.
-                    Selected::Carried(file) => chosen.entries.push(Entry {
-                        name: name.clone(),
-                        value: None,
-                        file: Some(file),
-                    }),
-                    // §7.11.1's string form, "just the name of the target file in a standard
-                    // format". The pathname a person typed is written as typed: §7.11.2's
-                    // platform-independent spelling of a path is a host's knowledge of its own
-                    // filesystem, which this crate has none of. A choice, recorded.
-                    Selected::Elsewhere(pathname) => chosen.entries.push(Entry {
-                        name: name.clone(),
-                        value: Some(Object::String(pathname.into())),
-                        file: None,
-                    }),
-                    Selected::Nothing => {}
-                },
-                // "For fields submitted in HTML Form format, the submission shall use the MIME
-                // content type multipart / form-data, as described in Internet RFC 2045" — whose
-                // part carries the file's *contents*, which is what `multipart` writes.
-                Format::HtmlForm => match selected {
-                    Selected::Carried(file) => chosen.entries.push(Entry {
-                        name: name.clone(),
-                        value: None,
-                        file: Some(file),
-                    }),
-                    // A pathname and no file. Submitting the pathname as the value would be the
-                    // wrong value under the right name — the clause asks for the contents — so
-                    // the field is named rather than guessed at.
-                    Selected::Elsewhere(pathname) => owed.push(format!(
-                        "field {name}: a file-select control naming {}, a file outside this \
-                         document, whose contents multipart/form-data would carry and this \
-                         process has no filesystem to read",
-                        pdf_syntax::text_string(&pathname)
-                    )),
-                    Selected::Nothing => {}
-                },
-                Format::Pdf => {}
-            }
+            file_entry(format, name, selected, &mut chosen.entries, owed);
             continue;
         }
         chosen.entries.push(Entry {
@@ -589,6 +595,86 @@ fn chosen(
     }
 
     chosen
+}
+
+/// §12.7.5.3's file-select control, written the way the format it is going into can carry it.
+///
+/// Three formats and three answers, each the clause's rather than a preference: an FDF may carry
+/// §7.11.4's stream or name the file, HTML Form format carries the contents in a part, and ISO
+/// 19444-1 section 5.4.1 gives XFDF no equivalent for either. A function of its own so that the
+/// three sit beside each other and the one that cannot is visible as such.
+fn file_entry(
+    format: Format,
+    name: &str,
+    selected: Selected,
+    entries: &mut Vec<Entry>,
+    owed: &mut Vec<String>,
+) {
+    match format {
+        // "For Forms Data Format (FDF) submission, the value of the V entry in the FDF
+        // field dictionary … shall be a file specification (7.11, "File specifications")
+        // identifying the selected file."
+        Format::Fdf => match selected {
+            // §7.11.1's dictionary form carrying §7.11.4's stream: an FDF has a body to
+            // put an indirect stream in, so the contents travel rather than the name of
+            // a file the server has no copy of.
+            Selected::Carried(file) => entries.push(Entry {
+                name: name.to_owned(),
+                value: None,
+                file: Some(file),
+            }),
+            // §7.11.1's string form, "just the name of the target file in a standard
+            // format". The pathname a person typed is written as typed: §7.11.2's
+            // platform-independent spelling of a path is a host's knowledge of its own
+            // filesystem, which this crate has none of. A choice, recorded.
+            Selected::Elsewhere(pathname) => entries.push(Entry {
+                name: name.to_owned(),
+                value: Some(Object::String(pathname.into())),
+                file: None,
+            }),
+            Selected::Nothing => {}
+        },
+        // "For fields submitted in HTML Form format, the submission shall use the MIME
+        // content type multipart / form-data, as described in Internet RFC 2045" — whose
+        // part carries the file's *contents*, which is what `multipart` writes.
+        Format::HtmlForm => match selected {
+            Selected::Carried(file) => entries.push(Entry {
+                name: name.to_owned(),
+                value: None,
+                file: Some(file),
+            }),
+            // A pathname and no file. Submitting the pathname as the value would be the
+            // wrong value under the right name — the clause asks for the contents — so
+            // the field is named rather than guessed at.
+            Selected::Elsewhere(pathname) => owed.push(format!(
+                "field {name}: a file-select control naming {}, a file outside this \
+                 document, whose contents multipart/form-data would carry and this \
+                 process has no filesystem to read",
+                pdf_syntax::text_string(&pathname)
+            )),
+            Selected::Nothing => {}
+        },
+        // ISO 19444-1 section 5.4.1 gives XFDF equivalents for four FDF keys and none of
+        // them is a place to put §7.11.4's stream, so neither of the two shapes an FDF
+        // writes reaches this format. The entry still travels — [`xfdf`] names the field
+        // rather than dropping it — and a pathname naming a file outside this document
+        // is named here, where the same sentence is owed for the HTML form.
+        Format::Xfdf => match selected {
+            Selected::Carried(file) => entries.push(Entry {
+                name: name.to_owned(),
+                value: None,
+                file: Some(file),
+            }),
+            Selected::Elsewhere(pathname) => owed.push(format!(
+                "field {name}: a file-select control naming {}, a file outside this \
+                 document, whose contents §12.7.5.3 submits as the field's value and \
+                 this process has no filesystem to read",
+                pdf_syntax::text_string(&pathname)
+            )),
+            Selected::Nothing => {}
+        },
+        Format::Pdf => {}
+    }
 }
 
 /// What a file-select control's `/V` turned out to name.
@@ -1230,27 +1316,7 @@ fn fdf(
     carried: &Carried,
     owed: &mut Vec<String>,
 ) -> Vec<u8> {
-    let mut root = Node::default();
-    for entry in entries {
-        let mut node = &mut root;
-        for partial in entry.name.split('.') {
-            node = node.kid(partial);
-        }
-        if node.named {
-            owed.push(format!(
-                "field {}: named twice by the field table, written once",
-                entry.name
-            ));
-            continue;
-        }
-        node.named = true;
-        node.value.clone_from(&entry.value);
-        node.file = entry.file.as_ref().map(|file| SelectedFile {
-            name: file.name.clone(),
-            media_type: file.media_type.clone(),
-            bytes: file.bytes.clone(),
-        });
-    }
+    let root = tree(entries, owed);
     // The body's indirect objects after the catalog, which is object 1. Written to first by the
     // field tree, whose file-select controls each need §7.11.4's stream.
     let mut body: Vec<Object> = Vec::new();
@@ -1330,6 +1396,220 @@ fn fdf(
     );
     out.extend_from_slice(tail.as_bytes());
     out
+}
+
+/// §12.7.4.2's qualified names split back into the tree the two data formats both write.
+///
+/// Both of them nest: an FDF nests Table 249 dictionaries down `/Kids`, and ISO 19444-1:2019
+/// section 5.6.3 nests `<field>` elements, over the same dot notation. So the splitting is one
+/// function and the spelling is two, which is what keeps [`fdf`] and [`xfdf`] from disagreeing
+/// about which field is whose child.
+fn tree(entries: &[Entry], owed: &mut Vec<String>) -> Node {
+    let mut root = Node::default();
+    for entry in entries {
+        let mut node = &mut root;
+        for partial in entry.name.split('.') {
+            node = node.kid(partial);
+        }
+        if node.named {
+            owed.push(format!(
+                "field {}: named twice by the field table, written once",
+                entry.name
+            ));
+            continue;
+        }
+        node.named = true;
+        node.value.clone_from(&entry.value);
+        node.file = entry.file.as_ref().map(|file| SelectedFile {
+            name: file.name.clone(),
+            media_type: file.media_type.clone(),
+            bytes: file.bytes.clone(),
+        });
+    }
+    root
+}
+
+/// ISO 19444-1's file, holding these fields. Table 240 bit 6.
+///
+/// ISO 19444-1:2019 section 5.5.2 states the prologue as three requirements — UTF-8, the
+/// namespace, and `xml:space="preserve"` — and settles the first two lines of an XFDF document
+/// between them, which are the two written here. Section 5.6.2 is the rest of the shape: `<f
+/// href>`, `<ids>`, `<fields>`, and a `<field name>` per field carrying a `<value>`.
+///
+/// **`<f>` is not written and [`Submission::owed`] says so.** Section 5.6.2 explains its `href` as
+/// pointing at the PDF document holding the form fields, which is a file name this crate has none
+/// of — `CLAUDE.md` principle 3 gives it no filesystem, and Table 240 bit 14's route for carrying
+/// the document itself is one the table restricts to FDF. Section 5.6.3 lays out a form with
+/// `<fields>` and no `<f>` before it, so a file without one is a shape that standard sets out
+/// rather than one invented here.
+///
+/// **A file-select control's file cannot travel in this format**, and that is section 5.4.1's
+/// sentence rather than a limit of this writer: XFDF has equivalents for four FDF keys and a
+/// `<value>` is text, so there is nowhere in it for §7.11.4's embedded file stream that
+/// [`fdf`] writes. The field is named on `owed` instead of being sent under a value nobody wrote.
+fn xfdf(document: &Document, entries: &[Entry], owed: &mut Vec<String>) -> Vec<u8> {
+    let root = tree(entries, owed);
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <xfdf xmlns=\"",
+    );
+    out.push_str(crate::xfdf::NAMESPACE);
+    out.push_str("\" xml:space=\"preserve\">\n");
+    // ISO 19444-1:2019 section 5.4.1 maps the `ids` element's two attributes onto the FDF `/ID`
+    // entry, which Table 246 in turn takes "from the ID entry in the file's trailer dictionary" —
+    // the same pair, the same condition and the same §14.4 meaning as the `/ID` [`fdf`] writes.
+    if let Some(Object::Array(identifier)) = document.trailer().get("ID")
+        && let [first, second] = identifier.as_slice()
+        && let (Some(original), Some(modified)) = (first.as_string(), second.as_string())
+    {
+        let _ = writeln!(
+            out,
+            "  <ids original=\"{}\" modified=\"{}\"/>",
+            hexadecimal(original),
+            hexadecimal(modified)
+        );
+    }
+    owed.push(
+        "ISO 19444-1 section 5.6.2's <f href> names the PDF the fields came from, which this \
+         process has no file name for; the XFDF states its fields and not its source"
+            .to_owned(),
+    );
+    out.push_str("  <fields>\n");
+    for (name, kid) in root.kids {
+        element(&name, kid, 2, owed, &mut out);
+    }
+    out.push_str("  </fields>\n</xfdf>\n");
+    out.into_bytes()
+}
+
+/// One `<field>` element and everything under it, indented `depth` steps.
+///
+/// The `<value>` is written on one line with nothing added inside it, which
+/// `xml:space="preserve"` makes load-bearing: whitespace this writer laid out for a reader's eye
+/// would be part of the value.
+fn element(partial: &str, node: Node, depth: usize, owed: &mut Vec<String>, out: &mut String) {
+    let pad = "  ".repeat(depth);
+    out.push_str(&pad);
+    out.push_str("<field name=\"");
+    crate::xfdf::escape(partial, true, out);
+    out.push_str("\">\n");
+    if node.file.is_some() {
+        owed.push(format!(
+            "field {partial}: a file-select control, whose contents §12.7.5.3 submits as the \
+             field's value and which ISO 19444-1 section 5.4.1 gives XFDF no equivalent for"
+        ));
+    } else if let Some(value) = node.value {
+        match text_of(&value) {
+            Some(text) => {
+                out.push_str(&pad);
+                out.push_str("  <value>");
+                crate::xfdf::escape(&text, false, out);
+                out.push_str("</value>\n");
+            }
+            // A list box's `/V` may be an array and a signature's a dictionary. ISO 19444-1's
+            // `<value>` holds characters, and how those shapes are spelled is that standard's
+            // section 6.3, which the text this tree holds does not carry — so the field is
+            // written under its name with no value and the difference is said out loud.
+            None => owed.push(format!(
+                "field {partial}: its value is not a string or a name, and how ISO 19444-1 \
+                 spells one in a <value> element is its section 6.3"
+            )),
+        }
+    }
+    for (name, kid) in node.kids {
+        element(&name, kid, depth.saturating_add(1), owed, out);
+    }
+    out.push_str(&pad);
+    out.push_str("</field>\n");
+}
+
+/// A field value as the characters ISO 19444-1's `<value>` element holds.
+///
+/// Two of Table 226's value shapes and no more. A string is §7.9.2.2's text string, which is what
+/// a text field holds; a name is what a check box's `/V` is, and ISO 19444-1:2019 section 5.4.1's
+/// rule that an XFDF element or attribute maps straight onto a key of some PDF dictionary is what
+/// makes its characters the value rather than some spelling of a name object. Everything else is
+/// `None`.
+fn text_of(value: &Object) -> Option<String> {
+    match value {
+        Object::String(bytes) => Some(pdf_syntax::text_string(bytes)),
+        Object::Name(name) => Some(String::from_utf8_lossy(name.as_bytes()).into_owned()),
+        _ => None,
+    }
+}
+
+/// §14.4's identifier bytes as the uppercase hexadecimal ISO 19444-1 section 5.6.2 sets them in.
+fn hexadecimal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        let _ = write!(out, "{byte:02X}");
+    }
+    out
+}
+
+/// The bits Table 240 restricts to a submission that is *not* XFDF, named where one is.
+///
+/// Five of them say it in the same words — each "shall be used only when the form is being
+/// submitted in Forms Data Format (that is, when both the XFDF and `ExportFormat` flags are
+/// clear)"
+/// — and three more reach the same place by the chain bit 3 starts: bit 3 is "[m]eaningful only if
+/// the `SubmitPDF` and XFDF flags are clear", and bits 4 and 5 are meaningful only when bit 3 is
+/// set. A document setting one of them beside bit 6 has asked for something the table forbids, so
+/// what it gets is a sentence rather than a silence — and bit 10, which no format restricts, gets
+/// the same sentence here it gets on the other two paths.
+fn excluded_by_xfdf(flags: crate::action::SubmitFlags, owed: &mut Vec<String>) {
+    for (set, why) in [
+        (
+            flags.export_format(),
+            "Table 240 bit 3's ExportFormat is \"[m]eaningful only if the SubmitPDF and XFDF \
+             flags are clear\", and bit 6 is set; the body is XFDF rather than HTML Form format",
+        ),
+        (
+            flags.get_method(),
+            "Table 240 bit 4's GetMethod is \"meaningful only when the ExportFormat flag is \
+             set\", which bit 6 makes it not; the XFDF is sent by POST",
+        ),
+        (
+            flags.submit_coordinates(),
+            "Table 240 bit 5's SubmitCoordinates \"shall be used only when the ExportFormat flag \
+             is set\", which bit 6 makes it not; no coordinates are written into the XFDF",
+        ),
+        (
+            flags.include_append_saves(),
+            "Table 240 bit 7's IncludeAppendSaves \"shall be used only when the form is being \
+             submitted in Forms Data Format\"; an XFDF has no /Differences entry to carry the \
+             update in",
+        ),
+        (
+            flags.include_annotations(),
+            "Table 240 bit 8's IncludeAnnotations \"shall be used only when the form is being \
+             submitted in Forms Data Format\"; this XFDF states field data and no <annots>",
+        ),
+        (
+            flags.canonical_format(),
+            "Table 240 bit 10's CanonicalFormat is not applied: which fields hold dates is \
+             stated only by ECMAScript, which CLAUDE.md principle 5 excludes",
+        ),
+        (
+            flags.exclude_non_user_annotations(),
+            "Table 240 bit 11's ExclNonUserAnnots \"shall be used only when the form is being \
+             submitted in Forms Data Format\" and with bit 8 set; neither holds here",
+        ),
+        (
+            flags.exclude_f_key(),
+            "Table 240 bit 12's ExclFKey \"shall be used only when the form is being submitted \
+             in Forms Data Format\"; no <f> element is written either way",
+        ),
+        (
+            flags.embed_form(),
+            "Table 240 bit 14's EmbedForm \"shall be used only when the form is being submitted \
+             in Forms Data Format\"; an XFDF has no file specification to embed the document in",
+        ),
+    ] {
+        if set {
+            owed.push(why.to_owned());
+        }
+    }
 }
 
 /// The object number of the next thing written after the catalog, which is object 1.

@@ -224,6 +224,26 @@ pub enum Command {
     /// which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a fact about
     /// the *reader* rather than about any one file. ADR 1101.
     References(ReferenceFiles),
+    /// ISO 32000-2 §8.11.4.4's two categories about this *reader*: who they are, and what
+    /// language this application is in.
+    ///
+    /// **The eighth host-supplied policy value, and the same shape as [`Self::Trust`] and
+    /// [`Self::References`] for the same reason.** Table 100's `/User` names "one or more users
+    /// for whom this optional content group is primarily intended" and its `/Language` "the
+    /// language of the content controlled by this optional content group", and §8.11.4.4 says
+    /// what a processor does with each: match the names "with the user's identification", and
+    /// select "based on the language and locale of the application". Neither is a fact a
+    /// document holds or a renderer may invent, and a file that could assert who is reading
+    /// would be choosing its own audience.
+    ///
+    /// **Nothing changes for a host that never sends this**, which is every host by default:
+    /// both categories are reported unanswered, the configuration's own state stands, and the
+    /// page draws what this program drew before a host could answer at all.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent
+    /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
+    /// fact about the *reader* rather than about any one file. ADR 1106.
+    Audience(pdf_model::optional_content::Audience),
     /// The person's answer to [`crate::Event::Asking`].
     ///
     /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing

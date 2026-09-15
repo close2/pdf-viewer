@@ -295,11 +295,12 @@ pub enum Command {
         /// > For shape and alpha, backdrop removal can be accomplished by maintaining two
         /// > sets of variables to hold the accumulated values.
         ///
-        /// A rasteriser has one set. **It does not need the second**, because the quantity
-        /// the removal divides out is multiplied straight back in when the group's result is
-        /// composited with that same backdrop under §11.3.3. Writing `B` for the backdrop
-        /// and `E(B)` for the elements composited onto it, both premultiplied, and `w` for
-        /// [`Self::alpha`] times [`Self::mask`] at the pixel, the two steps together are
+        /// **Under [`BlendMode::Normal`] a rasteriser needs only one set**, because the
+        /// quantity the removal divides out is multiplied straight back in when the group's
+        /// result is composited with that same backdrop under §11.3.3. Writing `B` for the
+        /// backdrop and `E(B)` for the elements composited onto it, both premultiplied, and
+        /// `w` for [`Self::alpha`] times [`Self::mask`] at the pixel, the two steps together
+        /// are
         ///
         /// ```text
         /// result = (1 − w) × B + w × E(B)
@@ -310,15 +311,23 @@ pub enum Command {
         /// which is NOTE 5's flattening, and that is the case `pdf-model` never builds a
         /// group for at all.
         ///
-        /// # What is guaranteed, because the collapse has one condition
+        /// **Under any other mode the second set is owed, and it is a second run of the
+        /// elements.** The step that cancels is §11.3.3 with the Normal blend function; under
+        /// any other the group's own colour is needed and with it the group alpha, and the
+        /// identity above is false — 0.60 of full scale apart at its worst over random
+        /// inputs. So a backend handed `false` beside a non-Normal [`Self::blend`] runs
+        /// `commands` a second time onto transparency, whose accumulated alpha *is* Table
+        /// 140's group alpha — §11.4.8's recurrence for shape and alpha reads no colour, so
+        /// it is the same number whatever backdrop the first run used — performs NOTE 3's
+        /// removal with it, and composites the result once as one object. `render-cpu` does
+        /// exactly that (`blend::remove_backdrop`, ADR 1107); a backend that cannot shall
+        /// refuse by name rather than substitute §11.4.5's transparent backdrop.
         ///
-        /// The step that cancels is §11.3.3 with the **Normal** blend function. Under any
-        /// other, the group's own colour is needed and with it the group alpha, and the
-        /// identity is false — 0.60 of full scale apart at its worst over random inputs. So
-        /// `pdf-model` emits `false` only where [`Self::blend`] is [`BlendMode::Normal`]
-        /// and no enclosing group is a knockout group, and reports the groups it therefore
-        /// cannot draw. A backend may rely on both and should refuse rather than
-        /// approximate if handed anything else.
+        /// # What is guaranteed
+        ///
+        /// `pdf-model` emits `false` only where no enclosing group is a knockout group, and
+        /// reports the groups it therefore cannot draw. A backend may rely on that and
+        /// should refuse rather than approximate if handed anything else.
         ///
         /// `false` **with [`Self::knockout`] set** is §11.4.6's non-isolated knockout
         /// group, whose initial backdrop is the group's own — see [`Self::knockout`] for

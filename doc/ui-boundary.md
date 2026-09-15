@@ -229,6 +229,25 @@ gesture**: `quorra` gained `--reference-files <dir>`, which is how this host sup
 policy it has. A host that supplies nothing draws every proxy and is told nothing, which is what
 §8.10.4.1 asks of a reader with no target file. ADR 1101.
 
+**And the one-thousand-and-ninety-second added one `Command` and one entry point, on the same
+pattern again, for §8.11.4.4's two usage categories about the *reader*.** Table 100 lets a document
+name "one or more users for whom this optional content group is primarily intended" and the
+language of a group's content, and §8.11.4.4 says what a processor does with each: match the names
+"with the user's identification", and select content "based on the language and locale of the
+application". Neither is a fact the file holds, neither may be invented by a renderer, and a
+document that could assert who is reading would be choosing its own audience — so
+`Command::Audience(pdf_model::optional_content::Audience)` carries the answer, on `Command::Trust`'s
+rules. **Two consumers failed to compile**, `viewer-confined`'s wire (command kind 30: three lists
+of names, because Table 100's `/Type` decides what the names beside it mean, and a language tag with
+a flag saying whether one was stated at all) and `quorra`'s trace line;
+`QUORRA_EVENT_KIND_COUNT` stayed where it is because nothing here is an event, and the C ABI gained
+one entry point and no constants — `quorra_audience`. `QUORRA_ABI_VERSION` did not move, for the
+standing reason. **No host gained a gesture**: `quorra` gained `--reader-name`, `--reader-title`,
+`--reader-organisation` and `--interface-language`, which is how this host supplies every other
+policy it has. A host that supplies nothing gets both categories reported unanswered and every
+layer where the document's own configuration put it, which is what this program did before the
+question could be answered at all. ADR 1106.
+
 **The thousand-and-seventy-sixth added one field and no message**, and it is the shape `RenderRequest::ink`
 set: `PopupWindow::replies` carries §12.5.6.2's threaded comments, because Table 172 makes *not*
 displaying replies "individually but together in the form of threaded comments" a `shall` on the

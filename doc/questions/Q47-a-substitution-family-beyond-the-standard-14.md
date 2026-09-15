@@ -7,7 +7,7 @@ Status: **open** — answered when `A47-a-substitution-family-beyond-the-standar
 ## Why it needs the owner
 
 Both parts require that only font programs legally embeddable for unlimited universal rendering be
-used (ISO 19005-2 §6.2.11.4.1, ISO 19005-4 §6.2.10.4.1). Most fonts installed on a machine are
+used (ISO 19005-2 section 6.2.11.4.1, ISO 19005-4 section 6.2.10.4.1). Most fonts installed on a machine are
 not: a system Arial's OS/2 `fsType` bits usually permit preview and print rather than the
 unlimited embedding the clause requires, and no program can verify a licence from the bytes.
 

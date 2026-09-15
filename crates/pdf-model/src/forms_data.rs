@@ -89,14 +89,14 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 ///
 /// A form a person fills in has tens of fields and a generated one has thousands; a file
 /// claiming more than this is making a reader work rather than describing a form.
-const MAX_FIELDS: usize = 65536;
+pub(crate) const MAX_FIELDS: usize = 65536;
 
 /// How deep the `/Kids` chain is followed.
 ///
 /// §12.7.4.2's fully qualified name is built by concatenation, so a chain this long describes a
 /// name no interface could show. The bound is also what makes a `/Kids` cycle terminate — Table
 /// 249 permits a *direct* child, so a cycle needs an indirect one, and a file may write one.
-const MAX_FIELD_DEPTH: usize = 64;
+pub(crate) const MAX_FIELD_DEPTH: usize = 64;
 
 /// Most annotations listed from one FDF file's `/Annots`.
 pub(crate) const MAX_ANNOTATIONS: usize = 4096;

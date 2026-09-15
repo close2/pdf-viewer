@@ -10,7 +10,7 @@ Each writes into the output a construct the producer did not write. Neither inve
 neither is obviously outside ADR 0816's fence — and neither is obviously inside it, which is why
 they are here rather than in the code.
 
-**1. A DeviceN `/DefaultCMYK` where no CMYK profile is available.** ISO 19005-2 §6.2.4.3 NOTE 2
+**1. A DeviceN `/DefaultCMYK` where no CMYK profile is available.** ISO 19005-2 section 6.2.4.3 NOTE 2
 makes a DeviceN-based `DefaultCMYK` device independent, and ISO 32000-2 §10.4.2.5 states the
 CMYK→RGB transform outright, so the tint transform is the standard's rather than ours. It is
 non-destructive: the content stream keeps the producer's CMYK numbers and the default only says
@@ -20,8 +20,8 @@ Without it, any document containing `DeviceCMYK` is unconvertible unless the use
 profile.
 
 **2. An empty glyph where a substituted font would otherwise reference `.notdef`.** Both parts
-forbid a text-showing operator referencing `.notdef` (ISO 19005-2 §6.2.11.8, ISO 19005-4
-§6.2.10.9). Where the converter is building the substitute program anyway it chooses the mapping,
+forbid a text-showing operator referencing `.notdef` (ISO 19005-2 section 6.2.11.8, ISO 19005-4
+section 6.2.10.9). Where the converter is building the substitute program anyway it chooses the mapping,
 so it can map such a code to a real but empty glyph: the page looks exactly as it did and no
 `.notdef` is referenced. The clause's NOTE says the prohibition exists because `.notdef` carries
 no semantic value, and an empty glyph carries none either — where mapping the code to a plausible

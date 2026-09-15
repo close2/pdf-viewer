@@ -135,6 +135,15 @@ struct Counts {
     documents: BTreeMap<(&'static str, Verdict), usize>,
     /// The file names stating each refused name, so that a test can name a witness.
     witnesses: BTreeMap<&'static str, BTreeSet<String>>,
+    /// The two places ISO 19444-1's XFDF reaches this program from a document — Table 240 bit 6
+    /// on a submit-form action and an import-data action naming an `.xfdf` file — by the file
+    /// names that state each.
+    ///
+    /// Counted beside the verdicts rather than in a census of its own because it is the same
+    /// walk: both are action dictionaries, and both are written inline often enough that a
+    /// second walk bounded to numbered objects would report zero for the same reason this one
+    /// was rewritten to.
+    xfdf: BTreeMap<&'static str, BTreeSet<String>>,
 }
 
 impl Counts {
@@ -153,6 +162,9 @@ impl Counts {
                 .entry(name)
                 .or_default()
                 .extend(files.clone());
+        }
+        for (name, files) in &other.xfdf {
+            self.xfdf.entry(name).or_default().extend(files.clone());
         }
     }
 }
@@ -204,6 +216,20 @@ fn main() {
         if !said {
             println!("  /S /{name:<17}     0");
         }
+    }
+
+    println!("\nISO 19444-1's XFDF, where a document asks for it:");
+    for (what, files) in &total.xfdf {
+        let mut names: Vec<&str> = files.iter().map(String::as_str).collect();
+        names.sort_unstable();
+        println!(
+            "  {what}: {} document(s) — {}",
+            names.len(),
+            names.join(", ")
+        );
+    }
+    if total.xfdf.is_empty() {
+        println!("  none");
     }
 
     println!("\nWhich documents state a refused action:");
@@ -266,6 +292,9 @@ fn document_counts(path: &str) -> Counts {
             match object {
                 Object::Array(items) => pending.extend(items),
                 Object::Dictionary(dict) => {
+                    if let Some(what) = xfdf_in(&document, &dict) {
+                        counts.xfdf.entry(what).or_default().insert(name.clone());
+                    }
                     if let Some(verdict) = action_in(&document, &dict) {
                         bump(&mut counts.dictionaries, verdict, 1);
                         if seen.insert(verdict) {
@@ -325,4 +354,39 @@ fn action_in(
         None => Verdict::NotAnAction,
     };
     Some((name, verdict))
+}
+
+/// Whether this action dictionary asks for ISO 19444-1's XFDF, and which way.
+///
+/// Two clauses and two spellings. §12.7.6.2's Table 240 bit 6 — set, "field names and values shall
+/// be submitted as XFDF" — is read off `/Flags` here rather than through `action::read`, because
+/// the census asks what
+/// *documents* state and a reader's verdict is the other column. §12.7.6.4's Table 243 names "the
+/// FDF, XFDF or any other data format file", and the only thing that says which is the file name's
+/// extension, which `action::data_format` reads for both clauses.
+fn xfdf_in(document: &Document, dict: &pdf_syntax::Dictionary) -> Option<&'static str> {
+    if let Some(kind) = document.get_key(dict, "Type").as_name()
+        && kind.as_bytes() != b"Action"
+    {
+        return None;
+    }
+    let stated = document.get_key(dict, "S");
+    let stated = stated.as_name()?;
+    match stated.as_bytes() {
+        b"SubmitForm" => {
+            let flags = document.get_key(dict, "Flags").as_integer().unwrap_or(0);
+            u32::try_from(flags)
+                .ok()
+                .map(action::SubmitFlags)
+                .filter(|flags| flags.xfdf())
+                .map(|_| "/S /SubmitForm with Table 240 bit 6 (XFDF)")
+        }
+        b"ImportData" => match action::read(document, &Object::Dictionary(dict.clone())).first() {
+            Some(Action::ImportData(import)) if import.format == action::DataFormat::Xfdf => {
+                Some("/S /ImportData naming an .xfdf file")
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }

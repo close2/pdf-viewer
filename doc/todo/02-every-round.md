@@ -841,10 +841,16 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    first 24 rounds of row briefs, 27 did (ADR 1036, `doc/reviews/1012`). The brief carries: read the
    **clause**, never the row's note (every real defect of those rounds came from a clause, and none
    from a sweep's count — `doc/habits/measuring.md`); tier 1 plus only the tier 2 lines the change
-   reaches; one record ≤40 lines; an ADR only for a decision a later round must not re-litigate;
-   ledger notes use only `\\ \" \n \t` (a `\uXXXX` blocks tier 1 for the whole worktree); no
-   `git stash`, no `git checkout -- .`, no unscoped `cargo fmt --all`, no whole-file `cp` restore;
-   stop runs by pid. Take from both denominators: four slots on ledger rows, one on what the corpus
+   reaches; one record ≤40 lines (counted: `tools/state.sh records`); an ADR only for a decision a
+   later round must not re-litigate; ledger notes use only `\\ \" \n \t` (a `\uXXXX` blocks tier 1
+   for the whole worktree); no `git stash`, no `git checkout -- .`, no unscoped `cargo fmt --all`,
+   no whole-file `cp` restore; stop runs by pid. **Two lines the brief carries because six rounds
+   share one machine**: scratch files go under `scratchpad/r<round>/`, because a path a sibling
+   also writes is a log one of you loses — round 1091 lost one that way; and **wait on a pid you
+   hold**, never on `pgrep -f` or a `ps` match of your own command line, which contains the
+   pattern it is searching for and never goes empty (`doc/todo/02` §2's third witness, and round
+   899's deadlock in the other direction).
+   Take from both denominators: four slots on ledger rows, one on what the corpus
    names, one on instruments — and a sweep's count is not a finding until ten of its hits have
    been read against the standard.
 3. **Verify each report against the standard before believing it.** `grep -n` the quoted sentence

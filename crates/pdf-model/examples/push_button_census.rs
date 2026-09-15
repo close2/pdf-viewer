@@ -14,6 +14,12 @@
 //! the only population for which this crate would construct one of the two interactive states
 //! itself, which is why that count is printed on its own.
 //!
+//! **And Table 191's `/H` beside those**, which is the entry that decides the same question the
+//! other way: "[a] highlighting mode other than P shall override any down appearance defined for
+//! the annotation", so a widget stating both a `/D` and an `/H` that is not `P` or `T` shows its
+//! *normal* stream under the pointer and the `/D` its producer wrote is never displayed. That is
+//! the population the sentence ranks, and it is counted here rather than assumed.
+//!
 //! ```sh
 //! cargo run --release -p pdf-model --example push_button_census -- doc/pdf.js/test/pdfs/*.pdf
 //! ```
@@ -40,13 +46,13 @@ fn main() {
     let mut widgets = 0_usize;
     let mut push_buttons = 0_usize;
     let mut with_mk = 0_usize;
-    let mut stated: BTreeMap<&'static str, usize> = BTreeMap::new();
-    let mut files: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
-    let mut tp_values: BTreeMap<i64, usize> = BTreeMap::new();
+    let mut tally = Tally::default();
     let mut with_appearance = 0_usize;
-    let mut constructs: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut appearances: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut state_without_normal = 0_usize;
+    let mut highlights: BTreeMap<String, usize> = BTreeMap::new();
+    let mut overridden = 0_usize;
+    let mut overridden_files: Vec<String> = Vec::new();
 
     for path in std::env::args().skip(1) {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -76,6 +82,16 @@ fn main() {
                 if (stored.contains(&"R") || stored.contains(&"D")) && !stored.contains(&"N") {
                     state_without_normal = state_without_normal.saturating_add(1);
                 }
+                if count_highlight(
+                    &document,
+                    widget,
+                    &stored,
+                    &name,
+                    &mut highlights,
+                    &mut overridden_files,
+                ) {
+                    overridden = overridden.saturating_add(1);
+                }
                 if !is_push_button(&document, widget) {
                     continue;
                 }
@@ -97,28 +113,13 @@ fn main() {
                     continue;
                 };
                 with_mk = with_mk.saturating_add(1);
-                for entry in ENTRIES {
-                    if matches!(characteristics.get(entry), None | Some(Object::Null)) {
-                        continue;
-                    }
-                    let key = *entry;
-                    let counter = stated.entry(key).or_default();
-                    *counter = counter.saturating_add(1);
-                    let names = files.entry(key).or_default();
-                    if names.last() != Some(&name) {
-                        names.push(name.clone());
-                    }
-                    if !drawn_from_its_own_stream {
-                        let counter = constructs.entry(key).or_default();
-                        *counter = counter.saturating_add(1);
-                    }
-                    if *entry == "TP"
-                        && let Object::Integer(value) = document.get_key(characteristics, "TP")
-                    {
-                        let counter = tp_values.entry(value).or_default();
-                        *counter = counter.saturating_add(1);
-                    }
-                }
+                count_characteristics(
+                    &document,
+                    characteristics,
+                    &name,
+                    drawn_from_its_own_stream,
+                    &mut tally,
+                );
             }
         }
     }
@@ -134,22 +135,119 @@ fn main() {
         appearances.get("R").copied().unwrap_or_default(),
         appearances.get("D").copied().unwrap_or_default(),
     );
-    print_entries(&stated, &files, &constructs);
-    if !tp_values.is_empty() {
-        println!("  /TP values: {tp_values:?}");
+    println!(
+        "  /H stated by {:?}; {overridden} widget(s) state a /D that a mode other than P \
+         overrides, in {:?}",
+        highlights,
+        overridden_files.iter().take(6).collect::<Vec<&String>>()
+    );
+    print_entries(&tally);
+    if !tally.tp_values.is_empty() {
+        println!("  /TP values: {:?}", tally.tp_values);
     }
 }
 
-/// One line per Table 192 entry: how many widgets state it, how many of those construct, and where.
-fn print_entries(
-    stated: &BTreeMap<&'static str, usize>,
-    files: &BTreeMap<&'static str, Vec<String>>,
-    constructs: &BTreeMap<&'static str, usize>,
+/// Counts which of Table 192's entries one push-button's `/MK` states, and where.
+///
+/// `constructing` is whether this widget reaches the construction at all — a widget with an
+/// `/AP` `/N` of its own is drawn from that stream by §12.5.5 — so the second count is the one
+/// that says whether reading an entry could change a mark.
+fn count_characteristics(
+    document: &Document,
+    characteristics: &Dictionary,
+    name: &str,
+    constructing: bool,
+    into: &mut Tally,
 ) {
+    let Tally {
+        stated,
+        files,
+        constructs,
+        tp_values,
+    } = into;
     for entry in ENTRIES {
-        let count = stated.get(*entry).copied().unwrap_or_default();
-        let names = files.get(*entry).map(Vec::as_slice).unwrap_or_default();
-        let constructed = constructs.get(*entry).copied().unwrap_or_default();
+        if matches!(characteristics.get(entry), None | Some(Object::Null)) {
+            continue;
+        }
+        let key = *entry;
+        let counter = stated.entry(key).or_default();
+        *counter = counter.saturating_add(1);
+        let names = files.entry(key).or_default();
+        if names.last().map(String::as_str) != Some(name) {
+            names.push(name.to_owned());
+        }
+        if !constructing {
+            let counter = constructs.entry(key).or_default();
+            *counter = counter.saturating_add(1);
+        }
+        if *entry == "TP"
+            && let Object::Integer(value) = document.get_key(characteristics, "TP")
+        {
+            let counter = tp_values.entry(value).or_default();
+            *counter = counter.saturating_add(1);
+        }
+    }
+}
+
+/// Table 191's `/H`, counted, and whether this widget is one its last sentence can move.
+///
+/// ISO 32000-2 §12.5.6.19:
+///
+/// > A highlighting mode other than P shall override any down appearance defined for the
+/// > annotation.
+///
+/// So the population that ranks the sentence is a stated mode other than `P` or `T` beside a
+/// stated `/D`; `true` says this widget is in it. Every stated mode is counted whatever it is,
+/// including the ones Table 191 does not define, because those take its default of `I` and are
+/// therefore in the same population.
+fn count_highlight(
+    document: &Document,
+    widget: &Dictionary,
+    stored: &[&'static str],
+    name: &str,
+    highlights: &mut BTreeMap<String, usize>,
+    overridden_files: &mut Vec<String>,
+) -> bool {
+    let stated = document.get_key(widget, "H");
+    let Some(mode) = stated.as_name() else {
+        return false;
+    };
+    let mode = String::from_utf8_lossy(mode.as_bytes()).into_owned();
+    let counter = highlights.entry(mode.clone()).or_default();
+    *counter = counter.saturating_add(1);
+    if mode == "P" || mode == "T" || !stored.contains(&"D") {
+        return false;
+    }
+    if overridden_files.last().map(String::as_str) != Some(name) {
+        overridden_files.push(name.to_owned());
+    }
+    true
+}
+
+/// What one run counts about Table 192's entries, in one place so that the walk and the report
+/// pass it rather than four maps.
+#[derive(Default)]
+struct Tally {
+    /// How many widgets state each entry.
+    stated: BTreeMap<&'static str, usize>,
+    /// Which documents each entry was seen in.
+    files: BTreeMap<&'static str, Vec<String>>,
+    /// Of the widgets stating an entry, how many reach the construction at all.
+    constructs: BTreeMap<&'static str, usize>,
+    /// Which `/TP` caption positions the corpus states.
+    tp_values: BTreeMap<i64, usize>,
+}
+
+/// One line per Table 192 entry: how many widgets state it, how many of those construct, and where.
+fn print_entries(tally: &Tally) {
+    for entry in ENTRIES {
+        let count = tally.stated.get(*entry).copied().unwrap_or_default();
+        let names = tally
+            .files
+            .get(*entry)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let constructed = tally.constructs.get(*entry).copied().unwrap_or_default();
         println!(
             "  /{entry:<3} {count:>5} widget(s) ({constructed} of them constructing) in \
              {:>3} document(s): {}",

@@ -554,6 +554,44 @@ own edition instead (the section above).
 sections 7.4 to 7.9 — so `metadata/xmp-packets-meet-the-xmp-serialisation` stays `Unchecked` with
 that as its reason. A round wanting it needs the full text; the preview will not grow.
 
+## ISO 19444-1:2019, XFDF — a preview that reaches section 5.7.1
+
+Fetched on 2026-09-15 as `doc/ISO-19444-1-2019-preview.pdf`, 6.4 MB, from
+`https://www.sis.se/api/document/preview/80014076/` — *Document management — XML Forms Data Format
+— Part 1: Use of ISO 32000-2 (XFDF 3.0)*, second edition. `/doc/*.pdf` excludes it, `python3
+tools/spec-md.py doc/ISO-19444-1-2019-preview.pdf` put its text under the ignored `doc/md/`.
+
+**It is a licensed ISO text and nothing in this tree quotes it: cite the section and paraphrase**,
+in the code as much as in the documents. That is the position the ISO 16684-1 and ISO 15076-1
+previews above are held under and `doc/pdfa/`'s two files before them, and it binds every round
+after this one — `pdf_model::xfdf`, `pdf_model::submission`'s writer, their tests, ADR 1108 and the
+ledger rows for §12.7.6, §12.7.6.2, §12.7.6.4, §12.7.8 and §12.7.8.3.4 all cite sections and quote
+nothing. The one thing reproduced from it is the *format's* bytes rather than the standard's prose:
+section 5.5.2 settles the two lines an XFDF document begins with, and those are what a writer of
+the format writes.
+
+**The route this replaces did not work.** ISO 32000-2 cites XFDF as ISO 19444-1, which is paid, and
+the standing answer was that Adobe published the same document free as *XML Forms Data Format
+Specification, version 3.0* (2009). It no longer does: `https://www.adobe.com/go/xfdf_spec`
+answers `302` to `/404.html`, `opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/` has no
+`XFDF_Spec_3.0.pdf`, the PDF Association's own normative-references page links XFDF to
+`iso.org`'s paywall while hosting XFA 3.3 itself, and the Internet Archive was offline on the day.
+A re-host on a document-sharing site carries the text as scraped page images and is not a copy
+anybody should read as a specification. ISO's own previews are, and there are three of them:
+`cdn.standards.iteh.ai`'s 2019 sample reaches body page 5, its 2016 sample reaches page 7, and
+sis.se's reaches **page 9** — which is the one kept.
+
+**What those nine pages carry**, and it is the whole of the field half of the format: the complete
+table of contents, section 5.4's PDF/FDF/XFDF relationship with the XFDF-to-FDF key mapping,
+section 5.5.2's encoding and namespace `shall`s, section 5.6's flat and hierarchical form examples,
+and section 5.7.1's one sentence separating annotations from forms. `pdf_model::xfdf` and
+`pdf_model::submission`'s XFDF writer are written against it, which ADR 1108 argues.
+
+**What it cannot answer.** Sections 6.2 to 6.7 — the element reference, the annotation elements,
+the annotation attributes and the PDF-to-XFDF mapping tables — are the other ninety pages and are
+not in any preview. That is why an XFDF file's `<annots>` is counted and named rather than read,
+and a round wanting it needs the full text; the preview will not grow.
+
 ## PDF Association TechNote 0010, and a licence that could not be confirmed
 
 The owner obtained it on 2026-09-09 as `doc/TechNote0010.pdf` — *TechNote 0010: Clarifications of

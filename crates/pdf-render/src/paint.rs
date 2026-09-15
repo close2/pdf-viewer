@@ -495,12 +495,54 @@ fn factor(samples: u32, device: f32) -> u32 {
 ///
 /// One statement of the rule, asked by [`Image::is_smoothed`] about an image's own grid and by
 /// [`Image::reduction`] about the reduced one — which is a grid no `Image` exists for yet.
+///
+/// # One device pixel per sample is the case the clause states outright
+///
+/// ISO 32000-2 §10.7.4 says how a sampled image colours a pixel, and it names a *point*:
+///
+/// > The position of the centre of such a pixel -in other words, the point whose coordinate
+/// > values have fractional parts of one-half -shall be mapped back into source space to
+/// > determine how to colour the pixel. There shall not be averaging over the pixel area.
+///
+/// The departure this tree takes from that (ADR 0025) is for the reduced case, and its whole
+/// reason is that several source samples then share one device pixel and something has to
+/// combine them — the clause's own next sentence being that otherwise "some source samples
+/// might not be used". At **exactly one device pixel per sample** that reason is absent: the
+/// centre maps back inside exactly one sample whatever the sub-pixel offset, so the clause
+/// names the answer and there is nothing to combine. A native placement is therefore not
+/// smoothed, and the departure stays where its argument is.
+///
+/// **§8.9.5.3's `/Interpolate` does not reach that case either**, and its own sentence is why:
+/// interpolation is "an attempt to produce a smooth transition between adjacent sample values
+/// when rendering an image whose resolution is significantly lower than that of the output
+/// device". At one device pixel per sample the resolutions are equal, so the entry is outside
+/// the condition it states for itself and §10.7.4's `shall` is not qualified by anything —
+/// which is why the native test is asked before the entry rather than after it. The entry
+/// remains a hint "a PDF processor may ignore" in the clause's own words.
+///
+/// It is also the one placement on which the three backends could not have agreed. A native
+/// placement composes with `render_cpu::draw_image`'s pattern transform to a pure translation,
+/// and `tiny-skia`'s `Pattern::push_stages` substitutes `FilterQuality::Nearest` for any such
+/// transform — so the oracle point-sampled an image it had asked to filter, and said
+/// nothing, while the other two filtered it.
 fn smoothed(width: u32, height: u32, interpolate: bool, placement: Transform) -> bool {
+    let across = crate::geom::length(placement.a, placement.b);
+    let down = crate::geom::length(placement.c, placement.d);
+    #[expect(
+        clippy::float_cmp,
+        clippy::cast_precision_loss,
+        reason = "the equality is the condition rather than an approximation of it: one \
+                  device pixel per sample is where §10.7.4's own sentence applies, and a \
+                  placement a hair either side of it is magnified or reduced and is \
+                  classified below"
+    )]
+    let native = across == width as f32 && down == height as f32;
+    if native {
+        return false;
+    }
     if interpolate {
         return true;
     }
-    let across = crate::geom::length(placement.a, placement.b);
-    let down = crate::geom::length(placement.c, placement.d);
     #[expect(
         clippy::cast_precision_loss,
         reason = "an image's dimensions are bounded well below f32's exact integer range \
@@ -644,12 +686,14 @@ impl Image {
     /// The distinction matters because "the clause says nothing" is a licence to choose and
     /// "the clause says the opposite" is a debt to record. ADR 0025.
     ///
-    /// Every rasteriser asks this rather than deciding for itself — `render_cpu`'s
-    /// `draw_image`, `render_gpu::scene` and `render_raster::scene` all call it — because the
-    /// CPU backend is the oracle the other two are compared against and a difference in this
-    /// choice would show up as a disagreement about every magnified image. (The count in this
-    /// sentence was one short of the workspace's until the seven-hundred-and-ninety-seventh
-    /// session, when the third rasteriser had been calling it for hundreds of rounds.)
+    /// **Two of the three rasterisers ask this and the third mirrors it**, which is a
+    /// difference worth knowing rather than assuming: `render_cpu`'s `draw_image` and
+    /// `render_gpu::scene` call it, and `render_raster::scene` calls it only for an image
+    /// whose grid is deferred — an ordinary one crosses into raster as its samples plus
+    /// §8.9.5.3's flag, and raster's own encode resolves the filter from a copy of this rule
+    /// so that a scene survives a zoom (ADR 0702, raster's ADR 0089). The copy is what makes
+    /// a change here an *ask* rather than a change: `doc/QUORRA_FEEDBACK.md` section 47 is the
+    /// one this paragraph's own native case owes.
     #[must_use]
     pub fn is_smoothed(&self, placement: Transform) -> bool {
         smoothed(self.width, self.height, self.interpolate, placement)
@@ -1218,8 +1262,18 @@ mod resampling {
         assert!(plain.is_smoothed(drawn_at(4.0, 4.0)));
         assert!(asked.is_smoothed(drawn_at(4.0, 4.0)));
 
-        // Drawn at its own size, neither regime applies and neither answer can be seen.
-        assert!(plain.is_smoothed(drawn_at(8.0, 8.0)));
+        // Drawn at its own size, §10.7.4 states the answer outright — the pixel's centre maps
+        // back inside one sample whatever the offset — so neither regime's departure applies
+        // and the image is point-sampled. **This used to assert the opposite**, on the belief
+        // that the answer could not be seen at a native placement; `render-raster`'s
+        // `image_phase` measures it at ten sub-pixel offsets and it can.
+        assert!(!plain.is_smoothed(drawn_at(8.0, 8.0)));
+        assert!(
+            !asked.is_smoothed(drawn_at(8.0, 8.0)),
+            "and §8.9.5.3's entry does not reach it: its own sentence is about an image \
+             \"whose resolution is significantly lower than that of the output device\", \
+             which this is not"
+        );
     }
 
     /// An image drawn at its own size, or larger, keeps every sample it has.

@@ -472,12 +472,15 @@ fn perform(
 /// nothing about *which* files a document may name — because that is a property of the processor
 /// rather than of the document. So the name is handed to the host with the reason it is wanted,
 /// and the host's policy decides. What is decided here is the one thing that is about the
-/// *format*: ISO 19444-1's XFDF is the same data in XML and would need an XML parser, which is a
-/// dependency and a decision rather than a clause.
+/// *format*: Table 243 names "[t]he FDF, XFDF or any other data format file", and this program
+/// reads the first two — the third is what a processor "supports", and it supports these.
 fn request_file(open: &mut Open, import: &ImportData, outcome: &mut Outcome) {
-    if import.format != pdf_model::action::DataFormat::Fdf {
+    use pdf_model::action::DataFormat;
+
+    if !matches!(import.format, DataFormat::Fdf | DataFormat::Xfdf) {
         outcome.notes.push(format!(
-            "this link declines — {} is not §12.7.8's FDF, and no other data format is read",
+            "this link declines — {} is neither §12.7.8's FDF nor ISO 19444-1's XFDF, and no \
+             other data format is read",
             import.file
         ));
         return;
@@ -486,30 +489,49 @@ fn request_file(open: &mut Open, import: &ImportData, outcome: &mut Outcome) {
     outcome.needs_file = Some((Purpose::ImportData, import.file.clone()));
 }
 
-/// Applies §12.7.8's form data from bytes the host supplied.
+/// Applies §12.7.6.4's form data from bytes the host supplied, in either format the clause names.
+///
+/// Which reader is chosen is the file *name*'s answer and not the bytes', because that is the only
+/// answer either clause gives: `pdf_model::action::data_format` reads §12.7.8.1's extension for
+/// both §12.7.6.4's action and Annex O's `fdf` parameter, and whichever reader it picks then says
+/// for itself whether the bytes were that format. The two meet at `FormsData`, so everything below
+/// this — the `/ID` comparison, the `owed` sentences, `ViewState::import` — is written once.
 pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
+    use pdf_model::action::DataFormat;
     use pdf_model::forms_data::FormsData;
 
     let mut outcome = Outcome::default();
     let Some(import) = open.importing.take() else {
         return outcome;
     };
-    let opened = match Document::open(bytes.to_vec()) {
-        Ok(opened) => opened,
-        Err(error) => {
-            outcome
-                .notes
-                .push(format!("import-data: cannot read {}: {error}", import.file));
-            return outcome;
+    let data = if import.format == DataFormat::Xfdf {
+        match pdf_model::xfdf::read(bytes) {
+            Ok(data) => data,
+            Err(error) => {
+                outcome
+                    .notes
+                    .push(format!("import-data: {}: {error}", import.file));
+                return outcome;
+            }
         }
-    };
-    let data = match FormsData::read(&opened) {
-        Ok(data) => data,
-        Err(error) => {
-            outcome
-                .notes
-                .push(format!("import-data: {}: {error}", import.file));
-            return outcome;
+    } else {
+        let opened = match Document::open(bytes.to_vec()) {
+            Ok(opened) => opened,
+            Err(error) => {
+                outcome
+                    .notes
+                    .push(format!("import-data: cannot read {}: {error}", import.file));
+                return outcome;
+            }
+        };
+        match FormsData::read(&opened) {
+            Ok(data) => data,
+            Err(error) => {
+                outcome
+                    .notes
+                    .push(format!("import-data: {}: {error}", import.file));
+                return outcome;
+            }
         }
     };
 
@@ -519,7 +541,7 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
     if data.belongs_to(&open.document) == Some(false) {
         outcome
             .notes
-            .push("import-data: this FDF file's /ID names a different document".to_owned());
+            .push("import-data: this file's identifier names a different document".to_owned());
     }
     // Table 246's `/Status` is "a status string that shall be displayed".
     if let Some(status) = &data.status {

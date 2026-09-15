@@ -599,16 +599,20 @@ impl<'a> Encoder<'a> {
             // initial backdrop — "the group's backdrop" — is the one raster
             // gained in its ADR 0019, and the flag is how a scene asks for it.
             //
-            // **The three conditions are not re-checked here, and that is
-            // deliberate.** `pdf-model` emits `isolated: false` only where the
-            // group's own blend is Normal, it is not a knockout group and no
-            // enclosing group is one (ADR 0237, and `Command::Group`'s
-            // `isolated` states the guarantee); raster accepts exactly that set
-            // and refuses the rest at `SceneBuilder::group` as
+            // **The conditions are not re-checked here, and that is
+            // deliberate.** `pdf-model` emits `isolated: false` only outside
+            // every knockout group (`Command::Group`'s `isolated` states the
+            // guarantee); raster draws that set where the group's own blend is
+            // Normal, which is the collapse ADR 0237 derives, and refuses the
+            // rest at `SceneBuilder::group` as
             // `SceneError::NonIsolatedGroupUnsupported`, which arrives below as
             // a typed `QuorraRasterError::Scene` naming which condition broke.
-            // A copy of the condition here would be a second reading of §11.4.4
-            // free to drift from the one that decides the picture.
+            // §11.4.4's result step performed for itself is `render-cpu`'s
+            // (ADR 1107) and a scene has no lane for it, so a group the file
+            // composites under a mode of its own is a refusal here rather than
+            // a substituted backdrop. A copy of the condition here would be a
+            // second reading of §11.4.4 free to drift from the one that decides
+            // the picture.
             isolated: parts.isolated,
         };
         let mut walked = Ok(());

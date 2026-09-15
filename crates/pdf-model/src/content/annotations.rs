@@ -462,7 +462,33 @@ impl Interpreter<'_> {
         // inside it is bounded the same way one inside the page content is.
         let mark = self.list.command_count();
         self.enter_ledger_frame(super::ledger::Route::Appearance, appearance.source);
-        self.run(&data, &resources, &state);
+        match &appearance.content {
+            // §12.5.5 makes a stored appearance a transparency group whatever its dictionary
+            // says — the entry decides only which group — and states how that group meets the
+            // page it is drawn over:
+            //
+            // > The transparency group shall be composited with a backdrop consisting of the
+            // > page content along with any previously painted annotations, using the values
+            // > of the BM , ca and CA entries in the annotation dictionary (see "Table 166
+            // > -Entries common to all annotation dictionaries") and a soft mask of None .
+            //
+            // `state` is that composite as well as the content's own start, which is why one
+            // value is passed twice: §11.6.6 has [`Interpreter::run_transparency_group`] reset
+            // the blend mode, both alpha constants and the soft mask on the *inner* copy — the
+            // parameters "apply to the group as a whole" — and read the outer one for what the
+            // group is painted with. Its `/BM` is there (`crate::annotation::blend_mode`), its
+            // opacity is 1.0 because Table 166 and §12.5.2 keep `/ca` and `/CA` off a stored
+            // stream, and its soft mask is `None` because `GraphicsState::initial` starts with
+            // none and this clause asks for none.
+            crate::annotation::Content::Stored(stream) => {
+                let group = self.appearance_group(&stream.dict);
+                self.run_transparency_group(&group, &data, &resources, &state, &state);
+            }
+            // A construction (§12.7.4.3) is this program's own bytes: it states no `/Group`,
+            // and Table 166 states its `/ca` and `/CA` as the opacities its operations use
+            // rather than as a group's constant, which is what `state` already carries.
+            crate::annotation::Content::Constructed { .. } => self.run(&data, &resources, &state),
+        }
         self.leave_ledger_frame();
         self.leave_stream_structure(outer_structure);
         self.stream = outer_stream;
@@ -482,22 +508,6 @@ impl Interpreter<'_> {
                 Transform::IDENTITY,
                 self.annotations_clipped_to,
             );
-        }
-        // §12.5.5's other transparency sentence, which this path answers by *construction* for
-        // the case it names first and not at all for the case it names second: an appearance
-        // with no `/Group` "shall be treated as a non-isolated, non-knockout transparency
-        // group", which §11.4.4's NOTE 5 makes identical to painting the elements straight onto
-        // the page — and one that states a `/Group` gets "the isolated and knockout values
-        // specified in the group dictionary", which nothing here builds. Asked of the commands
-        // this appearance drew rather than of the entry alone, because both stated values are
-        // visible only under conditions the marks decide; `note_appearance_group` has each.
-        //
-        // A construction (§12.7.4.3) is this program's own bytes and states no `/Group`.
-        if let crate::annotation::Content::Stored(stream) = &appearance.content
-            && let Some(group) = self.transparency_group(&stream.dict)
-        {
-            let drawn = self.list.commands()[mark..].to_vec();
-            self.note_appearance_group(&group, &drawn);
         }
         self.base = outer_base;
     }

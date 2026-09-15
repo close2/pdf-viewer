@@ -151,6 +151,24 @@ const NOTICE: &str = viewer_host::NOTICE;
 /// need one; this window shows one at a time, so it names one.
 const DOCUMENT: DocumentId = DocumentId(0);
 
+/// The decisions `viewer_host::policy` says are a host's, as a person typed them.
+///
+/// One struct because they are one thing and they are all answered before any document is read:
+/// a policy applied halfway through is not a policy. Every one of them defaults to what this
+/// program did before the word for it existed.
+struct Policies {
+    /// How much of what a document asserts over its reader this run obeys (`CLAUDE.md`).
+    restrictions: RestrictionLevel,
+    /// The directory `--trust-anchors` named: RFC 5280 section 6.1.1's input (d).
+    trust_anchors: Option<PathBuf>,
+    /// Whether §12.8.4 material that settles nothing is acted on anyway.
+    accept_unknown_revocation: bool,
+    /// The directory `--reference-files` named: ISO 32000-2 §8.10.4's target documents.
+    reference_files: Option<PathBuf>,
+    /// Who is reading and in what language: §8.11.4.4's two categories about this reader.
+    audience: pdf_model::optional_content::Audience,
+}
+
 /// Reads the file and opens it, wherever this is called from.
 ///
 /// Split out of `main` because it is called on a thread of its own — see the comment at the call
@@ -159,15 +177,24 @@ const DOCUMENT: DocumentId = DocumentId(0);
 ///
 /// **Rule 2 lives here**: the host owns the filesystem, and this is the only place a path becomes
 /// bytes.
+///
+/// The policy values arrive as one [`Policies`] rather than one argument apiece, because they are
+/// one thing — the decisions `viewer_host::policy` says are a host's — and because five of them
+/// beside a path is past what a reader can hold in their head.
 fn open_document(
     path: &std::path::Path,
     opens_at: Option<usize>,
     fragment: Option<&str>,
-    restrictions: RestrictionLevel,
-    trust_anchors: Option<&std::path::Path>,
-    accept_unknown_revocation: bool,
-    reference_files: Option<&std::path::Path>,
+    policies: Policies,
 ) -> (Viewer, Vec<Event>) {
+    let Policies {
+        restrictions,
+        trust_anchors,
+        accept_unknown_revocation,
+        reference_files,
+        audience,
+    } = policies;
+    let (trust_anchors, reference_files) = (trust_anchors.as_deref(), reference_files.as_deref());
     // Open on disk rather than read whole: the core reads the trailer, the table and the objects
     // page one needs through the handle, and a document's size stops being its cost (ADR 0809).
     let bytes = match pdf_syntax::FileBytes::on_disk(path) {
@@ -211,6 +238,11 @@ fn open_document(
         // from where (trap 5).
         eprintln!("note: {refusal}");
     }
+    // **§8.11.4.4's two categories about the reader**, before the document for `Command::Restrict`'s
+    // reason: a policy applied halfway through is not a policy, and this one decides which layers
+    // the first interpretation draws. Nothing is read off this machine — the words a person typed
+    // are the whole of it (ADR 1106).
+    drop(viewer.handle(Command::Audience(audience)));
     let mut events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -249,10 +281,18 @@ fn main() {
         trust_anchors,
         accept_unknown_revocation,
         reference_files,
+        audience,
         proxy_pages,
         supersample,
         coverage,
     } = arguments(launch.began);
+    let policies = Policies {
+        restrictions,
+        trust_anchors,
+        accept_unknown_revocation,
+        reference_files,
+        audience,
+    };
     launch.mark("arguments");
 
     // **The document opens on a thread of its own, and this is the launch path's one lever that
@@ -268,17 +308,7 @@ fn main() {
     let opening = std::thread::spawn({
         let path = path.clone();
         let fragment = fragment.clone();
-        move || {
-            open_document(
-                &path,
-                opens_at,
-                fragment.as_deref(),
-                restrictions,
-                trust_anchors.as_deref(),
-                accept_unknown_revocation,
-                reference_files.as_deref(),
-            )
-        }
+        move || open_document(&path, opens_at, fragment.as_deref(), policies)
     });
 
     // **And the graphics instance on a second thread**, since the two-hundred-and-eighty-eighth:

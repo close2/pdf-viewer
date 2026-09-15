@@ -990,15 +990,19 @@ impl CpuRasterizer {
     ///
     /// An **isolated** group starts on transparency — §11.4.5's initial backdrop — and comes
     /// back with source-over. A **non-isolated** one starts as a *copy of the page*, which is
-    /// §11.4.4's own model, and comes back as the interpolation `Command::Group`'s `isolated`
-    /// derives: `(1 − w) × page + w × buffer`, with `w` the group's constant alpha times its
-    /// soft mask at the pixel. That is two draws — Destination-Out by `w` over the band, then
-    /// Plus of the buffer at `w` — and the pair is bounded by 1 everywhere, because the two
-    /// weights sum to 1 and each operand is a valid premultiplied sample, so `Plus` never
-    /// saturates.
+    /// §11.4.4's own model, and comes back one of two ways.
     ///
-    /// Outside the group's marks the buffer still *is* the page, and the interpolation of a
-    /// value with itself is that value, so the copy costs the region nothing.
+    /// Under §11.3.3's **Normal** blend function at the `Do` it comes back as the
+    /// interpolation `Command::Group`'s `isolated` derives: `(1 − w) × page + w × buffer`,
+    /// with `w` the group's constant alpha times its soft mask at the pixel — §11.4.4's
+    /// removal and the re-compositing having cancelled. Outside the group's marks the buffer
+    /// still *is* the page, and the interpolation of a value with itself is that value, so the
+    /// copy costs the region nothing.
+    ///
+    /// Under **any other mode** nothing cancels, so §11.4.4's result step is performed for
+    /// itself ([`CpuRasterizer::remove_the_backdrop`]) and the group is then painted like any
+    /// other single object — the clause's own sentence, that the result "shall then be treated
+    /// as if it were a single object, which in turn is composited with the group's backdrop".
     ///
     /// # Errors
     ///
@@ -1034,23 +1038,7 @@ impl CpuRasterizer {
         // per pixel, exactly the page-level construction in `rasterize` one scope down.
         // §11.4.6 with `isolated: false` is the other construction with a buffer discipline
         // of its own; everything else is one buffer and one pass.
-        let mut buffer = if let Some(blending) = group.blending {
-            self.composite_in_own_space(list, blending, &group, surface, masks, depth)?
-        } else if !group.isolated && group.compose == Compose::Knockout {
-            self.knockout_on_backdrop(pixmap, list, &group, surface, band, masks, depth)?
-        } else {
-            let mut buffer = initial_backdrop(pixmap, surface, band, &group)?;
-            self.encode(
-                &mut buffer.as_mut(),
-                list,
-                group.commands,
-                surface,
-                masks,
-                depth,
-                group.compose,
-            )?;
-            buffer
-        };
+        let mut buffer = self.group_buffer(pixmap, list, &group, (surface, band), masks, depth)?;
 
         // The elements may have evicted the soft mask this group is painted through, since
         // they share the cache; rebuilding it is what makes eviction safe here as it is for
@@ -1097,7 +1085,10 @@ impl CpuRasterizer {
         // for the rounding reason `blend::interpolate` records. The whole band is walked
         // because outside the group's marks the buffer *is* the page and the interpolation
         // has to put it back unchanged — which it does, exactly, and cheaply.
-        if !group.isolated {
+        // Only under §11.3.3's Normal blend function: the interpolation *is* the removal
+        // composited back, and a group whose `Do` states another mode had its backdrop
+        // removed above and is composited as one object by the blit below.
+        if !group.isolated && group.blend == pdf_render::BlendMode::Normal {
             let from_row = band.top.saturating_sub(surface.rows.top);
             let mut rows = band
                 .rows(pixmap, surface)
@@ -1164,6 +1155,110 @@ impl CpuRasterizer {
             tiny_skia::Transform::identity(),
             blit_mask,
         );
+        Ok(())
+    }
+
+    /// The buffer a group's elements are composited into, drawn and ready to be painted onto
+    /// the parent.
+    ///
+    /// Three constructions, and the comment at the call site says which clause each answers:
+    /// §11.6.6's own blending colour space, §11.4.6's non-isolated knockout group, and
+    /// otherwise one pass onto [`initial_backdrop`]'s backdrop, followed for a non-isolated
+    /// group under a mode of its own by §11.4.4's result step
+    /// ([`CpuRasterizer::remove_the_backdrop`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::Allocation`] and the refusals
+    /// [`initial_backdrop`], [`CpuRasterizer::composite_in_own_space`] and
+    /// [`CpuRasterizer::knockout_on_backdrop`] state.
+    fn group_buffer(
+        &self,
+        pixmap: &tiny_skia::PixmapMut<'_>,
+        list: &DisplayList,
+        group: &Group<'_>,
+        (surface, band): (Surface, Band),
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<tiny_skia::Pixmap, CpuRasterError> {
+        if let Some(blending) = group.blending {
+            return self.composite_in_own_space(list, blending, group, surface, masks, depth);
+        }
+        if !group.isolated && group.compose == Compose::Knockout {
+            return self.knockout_on_backdrop(pixmap, list, group, surface, band, masks, depth);
+        }
+        let mut buffer = initial_backdrop(pixmap, surface, band, group)?;
+        self.encode(
+            &mut buffer.as_mut(),
+            list,
+            group.commands,
+            surface,
+            masks,
+            depth,
+            group.compose,
+        )?;
+        if !group.isolated && group.blend != pdf_render::BlendMode::Normal {
+            self.remove_the_backdrop(
+                (&mut buffer, pixmap.as_ref()),
+                list,
+                group,
+                (surface, band),
+                masks,
+                depth,
+            )?;
+        }
+        Ok(buffer)
+    }
+
+    /// ISO 32000-2 §11.4.4's result step, for the non-isolated group whose `Do` composites
+    /// under anything but §11.3.3's Normal blend function.
+    ///
+    /// Under Normal the removal cancels against the re-compositing and the two steps collapse
+    /// to [`blend::interpolate`]; under any other mode they do not, and the group's own colour
+    /// and Table 140's group alpha are both needed. §11.4.4's NOTE 4 says where the second
+    /// comes from:
+    ///
+    /// > For shape and alpha, backdrop removal can be accomplished by maintaining two sets of
+    /// > variables to hold the accumulated values.
+    ///
+    /// This is that second set — the same elements run again onto transparency, whose
+    /// accumulated alpha *is* `αgn`, because §11.4.8's recurrence for shape and alpha reads no
+    /// colour and so answers the same whatever backdrop the first run was given.
+    /// [`blend::remove_backdrop`] then rewrites `buffer` into Table 139's `C` and `α`, which
+    /// the caller composites once as one object.
+    ///
+    /// **It costs a second run of the elements**, and it is paid only here: `pdf-model` emits
+    /// this combination for a group that is non-isolated, non-knockout, outside every knockout
+    /// group, holds an element that blends, and is composited under a mode of its own.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::Allocation`] for the second buffer.
+    fn remove_the_backdrop(
+        &self,
+        (buffer, backdrop): (&mut tiny_skia::Pixmap, tiny_skia::PixmapRef<'_>),
+        list: &DisplayList,
+        group: &Group<'_>,
+        (surface, band): (Surface, Band),
+        masks: &mut MaskCache,
+        depth: usize,
+    ) -> Result<(), CpuRasterError> {
+        let mut own = tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or(
+            CpuRasterError::Allocation {
+                width: surface.width(),
+                height: surface.rows.height,
+            },
+        )?;
+        self.encode(
+            &mut own.as_mut(),
+            list,
+            group.commands,
+            surface,
+            masks,
+            depth,
+            group.compose,
+        )?;
+        blend::remove_backdrop(buffer, backdrop, &own, band_pixels(surface, band));
         Ok(())
     }
 
@@ -2033,6 +2128,13 @@ impl CpuRasterizer {
         // and composing the device transform in here as well would apply it twice.
         let to_unit = Transform::new(1.0 / width, 0.0, 0.0, -1.0 / height, 0.0, 1.0);
 
+        // `tiny-skia` reserves the right to overrule this: `Pattern::push_stages` substitutes
+        // `Nearest` for *any* pure-translation pattern transform, which is what an image drawn
+        // at one device pixel per sample composes to. That used to be a silent override of a
+        // filter this tree had asked for; it is not one now, because
+        // `pdf_render::Image::is_smoothed` answers `false` at exactly that placement and for
+        // §10.7.4's own reason. The two readings agree, so nothing here is overruled — and a
+        // round that widens the rule again owes this sentence a second look.
         let filter = if image.is_smoothed(placement) {
             tiny_skia::FilterQuality::Bilinear
         } else {
@@ -3011,26 +3113,33 @@ fn group_blit_mask<'a>(
     if composed { None } else { clip.mask() }
 }
 
+/// The band's own pixels, as a range into a buffer the size of the whole surface.
+///
+/// Every buffer in this module is surface-sized and every band is a run of its rows
+/// ([`initial_backdrop`]'s own slice arithmetic), so one range indexes all of them alike.
+fn band_pixels(surface: Surface, band: Band) -> core::ops::Range<usize> {
+    let width = surface.width() as usize;
+    let first = (band.top.saturating_sub(surface.rows.top) as usize).saturating_mul(width);
+    let last = first.saturating_add((band.height as usize).saturating_mul(width));
+    first..last
+}
+
 /// # Errors
 ///
 /// [`CpuRasterError::Allocation`] if the buffer does not fit or `band` lies outside it, and
-/// [`CpuRasterError::UnsupportedCommand`] for a non-isolated group carrying anything the
-/// collapse does not hold for.
+/// [`CpuRasterError::UnsupportedCommand`] for a non-isolated group composited by §11.4.6's
+/// staged pair, whose transparent start is not this group's backdrop.
 fn initial_backdrop(
     pixmap: &tiny_skia::PixmapMut<'_>,
     surface: Surface,
     band: Band,
     group: &Group<'_>,
 ) -> Result<tiny_skia::Pixmap, CpuRasterError> {
-    if !group.isolated
-        && (group.compose != Compose::Over
-            || group.into != Compose::Over
-            || group.blend != pdf_render::BlendMode::Normal)
-    {
+    if !group.isolated && (group.compose != Compose::Over || group.into != Compose::Over) {
         return Err(CpuRasterError::UnsupportedCommand(
-            "a non-isolated group whose result is not composited by §11.3.3's Normal blend \
-             function needs Table 140's group alpha kept apart from the composite alpha \
-             (ISO 32000-2 §11.4.4 NOTE 4)"
+            "a non-isolated group composited by §11.4.6's staged pair: its elements start on \
+             the group's own backdrop, which the pair's transparent start is not \
+             (ISO 32000-2 §11.4.4, §11.4.6)"
                 .to_owned(),
         ));
     }

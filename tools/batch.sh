@@ -13,6 +13,7 @@
 #
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
+#   tools/batch.sh check                   # the six things a merge looks at by hand, one line each
 #   tools/batch.sh close batch-1038-1043   # after `git merge --ff-only` on main: remove both
 #
 # The loop itself is `doc/todo/02` §8. The gitlink guard is the same one `tools/worktree.sh`
@@ -86,6 +87,67 @@ gates() {
     tail -1 "$log"
 }
 
+# The six things a merge checks by hand before it commits, one line each, from inside the worktree.
+#
+# Every one of them has bitten a merge, and every one was a command somebody had to remember: a
+# stray file with no place in the tree, a specification written into a worktree that dies with it
+# (sessions 1071, 1079), a `\uXXXX` in a ledger note that blocks tier 1 for all six rounds, a record
+# over `doc/todo/02` section 8's budget, a symlink staged where git expects a submodule, and a
+# formatting difference that fails tier 1 after the commit. Six commands remembered is six commands
+# forgotten; this is one command, and its exit status is the answer.
+#
+# **It reports a sibling's in-flight files as findings, and that is the instrument working.** Run
+# mid-batch it says what is there now; run at the merge, after every round is in, what it says is
+# what the commit would carry.
+check_batch() {
+    cd "$wt" || return 1
+    local bad=0 found
+
+    # A file this tree has no place for. The extensions are what a round legitimately adds; a
+    # binary, an archive, an editor's leavings and a regenerated header are none of them, and the
+    # last is the one that looks innocent — a tracked `include/quorra.h` is fine and an untracked
+    # `.h` is somebody's copy.
+    found=$(git status --porcelain --untracked-files=all |
+        awk '$1 == "??" { print $2 }' |
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt)$' || true)
+    printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
+
+    # A regular PDF under this checkout's doc/ dies with the worktree, and the next merge sees the
+    # corpus shrink for a cause nobody made. `close` refuses on the same population.
+    found=$(find "$wt/doc" -maxdepth 1 -name '*.pdf' -type f 2>/dev/null || true)
+    printf 'regular PDF under doc/           %s\n' "$([ -z "$found" ] && echo none || echo present)"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; printf '    move each to %s/doc/ and symlink it here\n' "$root"; bad=1; }
+
+    # A ledger note is a TOML basic string: `\uXXXX` is not in the subset this tree writes, and one
+    # of them blocks tier 1 for every round in the worktree at once.
+    found=$(grep -nE '\\u[0-9a-fA-F]{4}' doc/conformance/ledger.toml 2>/dev/null || true)
+    printf 'ledger \\uXXXX escapes            %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) line(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | cut -c1-120 | sed 's/^/    /'; bad=1; }
+
+    # A record over budget. The count and the bound are the conformance crate's, so there is one
+    # copy of the figure and it is the one that fails.
+    local records
+    records=$(cargo test -q -p conformance --test records -- --nocapture 2>&1) && found= || found=$records
+    printf 'records over budget              %s\n' "$([ -z "$found" ] && echo none || echo over)"
+    [ -z "$found" ] || { printf '%s\n' "$found" | grep -E 'over the budget' | sed 's/^/    /'; bad=1; }
+
+    # A symlink staged where git expects a submodule. `git status` cannot see it, because the index
+    # already agrees with the working tree.
+    found=$(git ls-files --stage -- $(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}') |
+        awk '$1 != "160000" { print $4 }' || true)
+    printf 'submodules staged as gitlinks    %s\n' "$([ -z "$found" ] && echo "all $(git config -f .gitmodules --get-regexp '\.path$' | wc -l)" || echo "$(printf '%s\n' "$found" | wc -l) staged as a blob")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
+
+    # And the one tier-1 line that fails after a commit rather than before it.
+    local fmt
+    fmt=$(cargo fmt --all --check 2>&1) && found= || found=$fmt
+    printf 'cargo fmt --all --check          %s\n' "$([ -z "$found" ] && echo clean || echo differs)"
+    [ -z "$found" ] || { printf '%s\n' "$found" | grep -E '^Diff in' | sort -u | sed 's/^/    /'; bad=1; }
+
+    return "$bad"
+}
+
 close_batch() {
     # A shell whose working directory is the worktree loses it when the worktree goes: every
     # command after the close then fails with "getcwd: cannot access parent directories", which is
@@ -112,6 +174,7 @@ close_batch() {
 case "${1:-}" in
     open)  open_batch "${2:?branch name}" ;;
     gates) gates ;;
+    check) check_batch ;;
     close) close_batch "${2:?branch name}" ;;
     *) awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"; exit 1 ;;
 esac

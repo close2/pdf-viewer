@@ -57,15 +57,26 @@ fn assemble(body: &str) -> Vec<u8> {
 /// The page's own content stream is empty, so every mark in the raster came from the
 /// appearance and nothing has to be subtracted to see it.
 fn pdf_with(annotation: &str, appearance_dict: &str, appearance: &str) -> Vec<u8> {
+    pdf_over("", annotation, appearance_dict, appearance)
+}
+
+/// The same, with content on the page under the annotation.
+///
+/// §12.5.5 composites an appearance's transparency group "with a backdrop consisting of the page
+/// content along with any previously painted annotations", so a fixture about what the group
+/// composites *onto* needs a page that has something on it. `page` is drawn in the page's own
+/// default user space.
+fn pdf_over(page: &str, annotation: &str, appearance_dict: &str, appearance: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
-         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n{annotation}\nendobj\n\
          6 0 obj\n<< /Type /XObject /Subtype /Form {appearance_dict} /Length {} >>\n\
          stream\n{appearance}\nendstream\nendobj\n",
+        page.len().saturating_add(1),
         appearance.len().saturating_add(1)
     );
 
@@ -2150,6 +2161,78 @@ fn the_pointer_chooses_between_an_annotations_appearances() {
     );
 }
 
+/// Table 191's last `/H` sentence: a mode other than `P` takes the down appearance away.
+///
+/// ISO 32000-2 §12.5.6.19:
+///
+/// > A highlighting mode other than P shall override any down appearance defined for the
+/// > annotation.
+///
+/// So a widget stating `/H /N` beside a `/D` shows its **normal** stream while the button is
+/// down and draws nothing over it, where the same widget with no `/H` shows the `/D` its
+/// producer wrote (`the_pointer_chooses_between_an_annotations_appearances`, the pair this is
+/// read against). `/H /O` is the other direction of the same sentence: the normal stream again,
+/// with §11.3.5.2's Difference border over it, which is the clause's own `f(x) = 1 - x`.
+///
+/// **The sentence is a widget's alone**, which is why the fixture states `/Subtype /Widget`:
+/// Table 176 gives a link's `/H` four modes with no such sentence and a `P` that names no
+/// appearance stream, so §12.5.5's "down appearance shall be used when the mouse button is
+/// pressed" is not overridden anywhere else.
+///
+/// No corpus document can decide this (trap 8): `examples/push_button_census` finds 7 of the
+/// corpus's 833 widgets stating an `/H` at all — six `P` and one `N` — and not one of them
+/// states a `/D` for a mode to override.
+#[test]
+fn a_widgets_highlighting_mode_overrides_its_down_appearance() {
+    let colour_under = |highlight: &str, x: u32, y: u32| {
+        let bytes = with_down_appearance(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 {highlight} \
+                 /AP << /N 6 0 R /D 7 0 R >> >>"
+            ),
+            "/BBox [0 0 80 80]",
+            "1 0 0 rg 0 0 80 80 re f",
+        ));
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        let mut state = pdf_model::view::ViewState::of(&document);
+        state.set_pointer(Some((
+            pdf_syntax::ObjectId {
+                number: 5,
+                generation: 0,
+            },
+            pdf_model::view::Pointer::Down,
+        )));
+        let list = pdf_model::content::interpret_with(&document, &page, &state).display_list;
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("target");
+        let raster = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("supported");
+        colour_at(&raster, x, y)
+    };
+
+    assert_eq!(
+        colour_under("/H /N", 50, 50),
+        (255, 0, 0),
+        "`N` is no highlighting, so the press shows the normal stream and nothing over it"
+    );
+    assert_eq!(
+        colour_under("/H /O", 50, 50),
+        (255, 0, 0),
+        "`O` strokes the border, so the middle of the normal stream is untouched"
+    );
+    assert_eq!(
+        colour_under("/H /I", 50, 50),
+        (0, 255, 255),
+        "`I` inverts the normal stream's red rather than showing the blue `/D`"
+    );
+    assert_eq!(
+        colour_under("", 50, 50),
+        (0, 0, 255),
+        "the control: no `/H` at all beside a `/D` is read as `P`, and the `/D` is shown"
+    );
+}
+
 /// §12.5.3's `ToggleNoView`, Table 167 bit 9:
 ///
 /// > If set, invert the interpretation of the NoView flag for annotation selection and mouse
@@ -3498,65 +3581,103 @@ fn a_border_style_dictionary_ignores_the_border_arrays_corner_radii() {
     assert_eq!(extent(&square), (20, 20, 79, 59), "still inside /Rect");
 }
 
-/// §12.5.5's second transparency sentence: a `/Group` on the appearance is not the default one.
+/// §12.5.5's second transparency sentence: a `/Group` on the appearance decides which group.
 ///
 /// > If the appearance's stream dictionary does not contain a Group entry, it shall be treated
 /// > as a non-isolated, non-knockout transparency group. Otherwise, the isolated and knockout
 /// > values specified in the group dictionary (see 11.6.6, "Transparency group XObjects") shall
 /// > be used.
 ///
-/// The first case is what this crate builds, and §11.4.4's NOTE 5 makes it free: painting the
-/// elements straight onto the page is the group. The second is not built, and each of its two
-/// values is asserted under the condition that makes it visible — §11.4.4's NOTE 2 makes an
-/// element's blend with the backdrop "what distinguishes non-isolated groups from isolated
-/// groups", and §11.4.6 makes a knockout group differ where a later element composites over an
-/// earlier one. The middle fixture is the control: the same blending appearance under the group
-/// the sentence names by default reports nothing.
+/// Every appearance is a group, so each of the two stated values is asserted against the group
+/// the sentence names by default — the same content twice, once with the entry and once without.
+/// The default one is what §11.4.4's NOTE 5 flattens, which is why the pair is the measurement:
+/// a reader that ignored the entry would draw both halves of each pair the same.
+///
+/// §11.4.6 is what the knockout half asks for — "each individual element shall be composited
+/// with the group's initial backdrop rather than with the stack of preceding elements in the
+/// group" — so where the two half-opaque fills overlap, the later one is composited with the
+/// page as though the earlier were not there, and the overlap is the colour the later fill has
+/// where it lies over the page alone.
+///
+/// §11.4.4's NOTE 2 is what the isolated half asks for: an element's blend with the backdrop is
+/// "[w]hat distinguishes non-isolated groups from isolated groups", so a `Multiply` fill inside
+/// an isolated group multiplies with transparency — which leaves its own colour — and the same
+/// fill in the default group multiplies with the page.
 ///
 /// **The corpus has no witness and the crawl does**, which is why the fixture is a pair rather
-/// than a document (trap 8): `examples/appearance_transparency_census` finds four appearance
-/// streams stating a `/Group` across the 974, all of them non-isolated and non-knockout, and
-/// 95 isolated ones with a knockout beside them over `CC-MAIN-2021-31`'s 65 944.
+/// than a document (trap 8): `examples/appearance_transparency_census` finds five appearance
+/// streams stating a `/Group` across the curated population's 1452 documents, every one of them
+/// non-isolated and non-knockout, against 95 isolated and 1 knockout over `CC-MAIN-2021-31`'s
+/// 65 720.
 #[test]
-fn an_appearance_group_the_file_states_is_named_and_the_default_one_is_not() {
-    let isolated = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /AP << /N 6 0 R >> >>",
-        "/BBox [0 0 10 10] /Group << /S /Transparency /I true >> \
-         /Resources << /ExtGState << /G0 << /BM /Multiply >> >> >>",
-        "/G0 gs 1 0 0 rg 0 0 10 10 re f",
+fn an_appearance_group_is_isolated_and_knocked_out_as_the_file_states() {
+    // The page under the annotation: blue everywhere the appearance will draw.
+    const PAGE: &str = "0 0 1 rg 0 0 100 100 re f";
+    const ANNOTATION: &str =
+        "<< /Type /Annot /Subtype /Square /Rect [0 0 100 100] /F 4 /AP << /N 6 0 R >> >>";
+    // Two half-opaque fills, red then green, overlapping over the middle of the page.
+    const OVERLAPPING: &str = "/G0 gs 1 0 0 rg 10 10 50 50 re f 0 1 0 rg 40 40 50 50 re f";
+    const HALF: &str = "/Resources << /ExtGState << /G0 << /ca 0.5 >> >> >>";
+    // A single element that blends, and the state that makes it blend (§11.4.4 NOTE 2, below).
+    const BLENDING: &str = "/G1 gs 1 0 0 rg 10 10 80 80 re f";
+    const MULTIPLY: &str = "/Resources << /ExtGState << /G1 << /BM /Multiply >> >> >>";
+
+    let knockout = render(pdf_over(
+        PAGE,
+        ANNOTATION,
+        &format!("/BBox [0 0 100 100] /Group << /S /Transparency /I true /K true >> {HALF}"),
+        OVERLAPPING,
     ));
-    let reported = format!("{:?}", isolated.unsupported);
-    assert!(
-        reported.contains("isolated group (§12.5.5)"),
-        "an isolated appearance group whose element blends is a departure: {reported}"
+    let green_alone = colour_at(&knockout, 70, 70);
+    assert_eq!(
+        colour_at(&knockout, 50, 50),
+        green_alone,
+        "§11.4.6: in the overlap the later element is composited with the group's initial \
+         backdrop, so it is the colour it has where nothing precedes it"
     );
 
-    let default = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /AP << /N 6 0 R >> >>",
-        "/BBox [0 0 10 10] /Group << /S /Transparency >> \
-         /Resources << /ExtGState << /G0 << /BM /Multiply >> >> >>",
-        "/G0 gs 1 0 0 rg 0 0 10 10 re f",
+    let stacked = render(pdf_over(
+        PAGE,
+        ANNOTATION,
+        &format!("/BBox [0 0 100 100] /Group << /S /Transparency /I true >> {HALF}"),
+        OVERLAPPING,
     ));
-    assert!(
-        default.unsupported.is_empty(),
-        "the non-isolated, non-knockout group is the one this crate builds: {:?}",
-        default.unsupported
+    assert_eq!(
+        colour_at(&stacked, 70, 70),
+        green_alone,
+        "the control differs only in the overlap"
+    );
+    assert_ne!(
+        colour_at(&stacked, 50, 50),
+        green_alone,
+        "without /K the later element composites over the earlier one"
     );
 
-    // §11.4.6's own condition, which is the other half of the same sentence: "[i]n a knockout
-    // group, each individual element shall be composited with the group's initial backdrop
-    // rather than with the stack of preceding elements in the group", so two overlapping
-    // elements that composite are what makes the two models differ.
-    let knockout = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /AP << /N 6 0 R >> >>",
-        "/BBox [0 0 10 10] /Group << /S /Transparency /K true >> \
-         /Resources << /ExtGState << /G0 << /ca 0.5 >> >> >>",
-        "/G0 gs 1 0 0 rg 0 0 8 8 re f 0 0 1 rg 2 2 8 8 re f",
+    // §11.4.4's NOTE 2, on a single blending element: the isolated group's initial backdrop is
+    // transparent, so `Multiply` has nothing to multiply with and the element keeps its colour.
+    let isolated = render(pdf_over(
+        PAGE,
+        ANNOTATION,
+        &format!("/BBox [0 0 100 100] /Group << /S /Transparency /I true >> {MULTIPLY}"),
+        BLENDING,
     ));
-    let reported = format!("{:?}", knockout.unsupported);
-    assert!(
-        reported.contains("knockout group (§12.5.5)"),
-        "a knockout appearance group with an element over another is a departure: {reported}"
+    assert_eq!(
+        colour_at(&isolated, 50, 50),
+        (255, 0, 0),
+        "§11.4.5: an isolated group's elements composite onto transparency, so Multiply leaves \
+         the source colour"
+    );
+
+    let joined = render(pdf_over(
+        PAGE,
+        ANNOTATION,
+        &format!("/BBox [0 0 100 100] /Group << /S /Transparency >> {MULTIPLY}"),
+        BLENDING,
+    ));
+    assert_eq!(
+        colour_at(&joined, 50, 50),
+        (0, 0, 0),
+        "the default group is non-isolated, so the same fill multiplies with the blue page"
     );
 }
 

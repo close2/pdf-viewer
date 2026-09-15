@@ -714,6 +714,30 @@ int32_t quorra_reference_files(quorra_viewer *viewer, const uint8_t *const *file
                        const size_t *lengths, const char *const *names, size_t count,
                        const char *source, quorra_events **events);
 
+/* §8.11.4.4: who is reading, and in what language — the two usage categories that ask about this
+ * processor rather than about the document.
+ *
+ * Table 100 lets a document name "one or more users for whom this optional content group is
+ * primarily intended" and the language of a group's content; §8.11.4.4 says what a processor does
+ * with each — match the names "with the user's identification", and select "based on the language
+ * and locale of the application". Neither is a fact a PDF holds, and a document that could assert
+ * who is reading would be choosing its own audience. A caller that never calls this gets both
+ * categories reported unanswered and every group left where the document's configuration put it.
+ *
+ * The three lists are Table 100's three /User /Type values and may not be merged: Ind is the
+ * individual, Ttl the title or position, Org the organisation. Each may be NULL with a count of 0.
+ *
+ * language is a NUL-terminated BCP 47 tag as §14.9.2.2 defines one, such as "es-MX", or NULL,
+ * which is "nobody has said". An empty string is read as NULL rather than as §14.9.2.2's "the
+ * empty text string, to indicate that the language is unknown".
+ *
+ * Every count 0 with a NULL language withdraws the answer. The strings are copied before this
+ * returns. */
+int32_t quorra_audience(quorra_viewer *viewer, const char *const *names, size_t name_count,
+                       const char *const *titles, size_t title_count,
+                       const char *const *organisations, size_t organisation_count,
+                       const char *language, quorra_events **events);
+
 /* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */
 /* ------------------------------------------------------------------------------------------- */

@@ -2950,13 +2950,13 @@ impl Interpreter<'_> {
         //
         // Both conditions are decidable here, and together they are the *whole* of what a
         // non-isolated group's correctness needed. §11.4.4's result step removes the backdrop
-        // from the group's accumulated colour — `C = Cn + (Cn − C0) × (α0/αgn − α0)` — which
-        // this tree cannot compute on one raster, because NOTE 4 says the group alpha `αgn` has
-        // to be accumulated *separately* from the composite alpha and an opaque backdrop
-        // destroys the difference. Flattening sidesteps the arithmetic entirely by never
-        // introducing the backdrop that would have to be removed: the elements composite onto
-        // the page they were always going to composite onto, and every blend mode inside the
-        // group then sees the backdrop §11.4.4 says it should see.
+        // from the group's accumulated colour — `C = Cn + (Cn − C0) × (α0/αgn − α0)` — and NOTE
+        // 4 says the group alpha `αgn` has to be accumulated *separately* from the composite
+        // alpha, which costs a backend a second run of the elements (ADR 1107). Flattening
+        // sidesteps the arithmetic entirely by never introducing the backdrop that would have
+        // to be removed: the elements composite onto the page they were always going to
+        // composite onto, and every blend mode inside the group then sees the backdrop §11.4.4
+        // says it should see — one pass, no removal, and the same picture.
         //
         // The clip is not a condition. It reaches every element already — PDF's clipping is
         // cumulative in the graphics state, so an element inside the form carries the clip in
@@ -3028,9 +3028,14 @@ impl Interpreter<'_> {
         // what makes the clause's backdrop removal cancel against §11.3.3's re-compositing
         // — see `Command::Group`'s `isolated` and ADR 0237 — and each is load-bearing:
         //
-        // - **Normal at the `Do`.** The cancellation is of a division by Table 140's group
-        //   alpha against a multiplication by it, and only the Normal blend function
-        //   performs the second. Under any other the group's own colour is needed.
+        // - **The `Do`'s blend mode is Normal, or the backend keeps NOTE 4's second set of
+        //   variables.** Under Normal the cancellation is of a division by Table 140's group
+        //   alpha against a multiplication by it, and the two steps collapse to one
+        //   interpolation. Under any other mode the group's own colour is needed, so the
+        //   backend runs the elements a second time on transparency for Table 140's `αgn`,
+        //   performs NOTE 3's removal and composites the result once under the mode
+        //   (`render-cpu`'s `blend::remove_backdrop`, ADR 1107) — which is why this condition
+        //   is the backend's to state and not this list's.
         // - **Not a knockout group whose rule can change a pixel.** §11.4.6 composites each
         //   element with the group's *initial* backdrop, which here is the page rather than
         //   transparency, so the two stages are not the pair `Command::Shaped` states. But
@@ -3067,7 +3072,6 @@ impl Interpreter<'_> {
                 || knockout_shows
                 || knockout
                 || enclosing_knockout
-                || outer.blend != BlendMode::Normal
                 || !any_command(&commands, &command_blends));
         self.note_group_departures(
             group,
@@ -3595,55 +3599,38 @@ impl Interpreter<'_> {
         None
     }
 
-    /// Reports what an annotation appearance's own `/Group` asks for and this path does not do.
+    /// §12.5.5's transparency group for an annotation's appearance stream.
     ///
-    /// §12.5.5 states two cases and `crate::content::annotations` builds only the first:
+    /// The clause makes **every** stored appearance a transparency group and lets the entry
+    /// decide only which one:
     ///
     /// > If the appearance's stream dictionary does not contain a Group entry, it shall be
     /// > treated as a non-isolated, non-knockout transparency group. Otherwise, the isolated
     /// > and knockout values specified in the group dictionary (see 11.6.6, "Transparency
     /// > group XObjects") shall be used.
     ///
-    /// **The first case costs nothing, and §11.4.4's NOTE 5 is why** — compositing objects as
-    /// a group is the same as compositing them separately when "[t]he group is non-isolated
-    /// and has the same knockout attribute as its parent group" and "[w]hen compositing the
-    /// group's results with the group backdrop, the Normal blend mode is used, and the shape
-    /// and opacity inputs are always 1.0". An appearance is run with its elements painted
-    /// straight onto the page, which is exactly that reduction.
+    /// So the default is stated in the clause's own words rather than assumed, and the group
+    /// it describes is the one [`Interpreter::run_transparency_group`] flattens under §11.4.4's
+    /// NOTE 5 whenever the annotation composites Normal at opacity 1 — which is what makes
+    /// routing every appearance through the group machinery cost nothing for the appearance
+    /// that states no `/Group`, while giving the one that does the `/I` and `/K` the clause
+    /// asks for.
     ///
-    /// So what is left is the *stated* half, and each of the two is reported only where it can
-    /// change a pixel — the same discriminator [`Interpreter::note_group_structure`] uses for
-    /// a form `XObject`, and for the same reason: a report that fires where the output is
-    /// provably identical costs the page its place in the oracle's comparison and buys
-    /// nothing. §11.4.4's NOTE 2 makes an element's blend with the backdrop "what
-    /// distinguishes non-isolated groups from isolated groups", and §11.4.6 makes a knockout
-    /// group differ only where a later element composites over an earlier one.
+    /// A `/Group` whose subtype is not `/Transparency` takes the default too, which is
+    /// §11.6.6 rather than a reading of §12.5.5's "does not contain a Group entry": such a
+    /// form "shall not be subject to any grouping behaviour for transparency purposes", so
+    /// its `/I` and `/K` are not values §11.6.6 gives a meaning to.
     ///
-    /// Table 145's `/CS` is **not** reported here, and the clause is the reason rather than an
-    /// omission: §11.6.6 gives a group colour space only to an isolated group — "[f]or
-    /// non-isolated groups, or if no group colour space is specified, the group colour space
-    /// shall be inherited from the parent group or page" — so on the group this path actually
-    /// builds a `/CS` states nothing, and where the file also states `/I true` the first
-    /// report below already names the departure that carries it.
-    pub(super) fn note_appearance_group(
-        &mut self,
-        group: &TransparencyGroup,
-        commands: &[Command],
-    ) {
-        if group.isolated && any_command(commands, &command_blends) {
-            self.note(Unsupported::TransparencyGroup {
-                detail: "an annotation appearance's isolated group (§12.5.5), whose elements \
-                         blend with the page behind it rather than with transparency"
-                    .to_owned(),
-            });
-        }
-        if group.knockout && knockout_can_show(commands) {
-            self.note(Unsupported::TransparencyGroup {
-                detail: "an annotation appearance's knockout group (§12.5.5), and an element \
-                         composites over another"
-                    .to_owned(),
-            });
-        }
+    /// Table 145's `/CS` needs nothing said about it here for the same clause: §11.6.6 gives
+    /// a group colour space only to an isolated group — "[f]or non-isolated groups, or if no
+    /// group colour space is specified, the group colour space shall be inherited from the
+    /// parent group or page" — and [`group_blending`] already applies exactly that test.
+    pub(super) fn appearance_group(&mut self, dict: &Dictionary) -> TransparencyGroup {
+        self.transparency_group(dict).unwrap_or(TransparencyGroup {
+            isolated: false,
+            knockout: false,
+            colour_space: Object::Null,
+        })
     }
 
     /// Reports the parts of §11.4 this group asks for and does not get.
@@ -3728,9 +3715,11 @@ impl Interpreter<'_> {
         //
         // Where one does blend, the display list states the group's backdrop instead of
         // substituting §11.4.5's (ADR 0237), and `isolated_drawn` is false. What is left
-        // here is the population that construction refuses: a knockout group, an element of
-        // one, and a group composited under a blend mode of its own — plus a *mask* group,
-        // which is evaluated into a raster built on transparency whatever it declares.
+        // here is the population that construction refuses: a knockout group and an element
+        // of one — plus a *mask* group, which is evaluated into a raster built on
+        // transparency whatever it declares. A blend mode at the `Do` left this population
+        // in the one-thousand-and-ninety-third session (ADR 1107): the group's own colour is
+        // computed there rather than substituted for.
         if !isolated_by_clause
             && isolated_drawn
             && any_command(commands, &|command| command_blends(command))

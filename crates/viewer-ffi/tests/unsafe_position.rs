@@ -179,8 +179,13 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // processor classes this library is (ADR 1101). No event kind came with it, so
     // `QUORRA_EVENT_KIND_COUNT` stayed 19, and `QUORRA_ABI_VERSION` did not move for the standing
     // reason.
-    assert_eq!(no_mangle, 183, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 169, "167 `unsafe` entry points and two helpers");
+    // **And one in the thousand-and-ninety-second**: `quorra_audience` answers §8.11.4.4's two
+    // usage categories about the reader — who they are, and in what language — which decide
+    // whether a layer is drawn and which no document may assert about the person reading it
+    // (ADR 1106). No event kind came with it, so `QUORRA_EVENT_KIND_COUNT` stayed 19, and
+    // `QUORRA_ABI_VERSION` did not move for the standing reason.
+    assert_eq!(no_mangle, 184, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 170, "168 `unsafe` entry points and two helpers");
 }
 
 #[test]

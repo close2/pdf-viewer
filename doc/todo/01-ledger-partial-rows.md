@@ -3187,7 +3187,7 @@ Markdown document under `doc/` this project wrote bar `doc/history/`:
 - **The errata, from the other end** (`cargo run --release -p spec-errata -- emit doc/*.pdf`), which
   is this round's second hazard and is now a line in `doc/todo/02` §4. `check` compares *quotations
   this tree has written*, so an erratum over text nobody has quoted is invisible to it — which is how
-  ISO/TS 32001 §5.1.3's deletion went unseen until the five-hundred-and-fifty-fifth went looking.
+  ISO/TS 32001 section 5.1.3's deletion went unseen until the five-hundred-and-fifty-fifth went looking.
   `emit` prints **1097 annotations over the three documents that carry any**; twenty are structural,
   and **two of the three renumbering errata were unrecorded**: Issue #452 moves §14.7.5.1.1 up a
   level and renumbers the rest of §14.7.5, under five ledger rows and some twenty source citations,

@@ -313,6 +313,113 @@ pub(crate) fn interpolate(
     }
 }
 
+/// ISO 32000-2 §11.4.4's result step: the group's own colour and alpha, with the initial
+/// backdrop's contribution taken back out again.
+///
+/// > Essentially, these formulas remove the contribution of the group backdrop from the
+/// > computed results. This ensures that when the group is subsequently composited with that
+/// > backdrop (possibly with additional shape or opacity inputs or a different blend mode),
+/// > the backdrop's contribution is included only once.
+///
+/// `buffer` arrives holding `Cn` and `αn` — the elements composited onto a copy of
+/// `backdrop`, which for a non-isolated group is §11.4.3's initial backdrop — and leaves
+/// holding `C` and `αgn`, premultiplied: Table 139's computed colour and computed alpha,
+/// which the caller then composites once as one object under the mode at the `Do`.
+/// `group_alpha` is the same elements drawn onto transparency, so its alpha channel is Table
+/// 140's group alpha, "the accumulated source alphas of group elements E 1 to E i , excluding
+/// the initial backdrop" — §11.4.8's recurrence for shape and alpha reads no colour, so it
+/// accumulates the same number whatever backdrop the other run was given. That is NOTE 4's
+/// second set of variables, and the reason the caller pays for a second run of the elements.
+/// `band` is the run of pixels all three buffers share.
+///
+/// # The arithmetic
+///
+/// The clause's own formula, with `C0` and `α0` the backdrop's:
+///
+/// ```text
+/// C = Cn + (Cn − C0) × (α0 ÷ αgn − α0)
+/// ```
+///
+/// which its NOTE 3 describes as "essentially the reverse of compositing with the Normal
+/// blend mode" — and is exactly that: at `α0 = 1` it solves `Cn = (1 − αgn) × C0 + αgn × C`
+/// for `C`. Both colours arrive premultiplied and are divided by their own alphas first,
+/// because the formula is written on straight components.
+///
+/// Two ends of the range are worth naming rather than deriving on every read. Where the
+/// group accumulated no alpha it contributes nothing, and the pixel leaves transparent — the
+/// clause's `αgn = 0`, where the division is undefined and the object it would scale is
+/// empty. Where the backdrop and the group are both opaque the factor is zero and `C = Cn`,
+/// so the buffer is already the answer; that is the ordinary page, and it is the branch that
+/// keeps this pass proportional to what is translucent rather than to the band.
+///
+/// **What the eight-bit raster costs here is worth stating**, because the division is by
+/// `αgn`: a group alpha of one level makes the factor 254 over an opaque backdrop, so a
+/// rounding of half a level in `Cn` reaches the clamp. The clamp is where it stops, and the
+/// same alpha scales the result back down to one level when the caller composites it — so
+/// the error the amplification can put on the page is bounded by that level, which is the
+/// price NOTE 4's two sets are kept in eight bits for.
+pub(crate) fn remove_backdrop(
+    buffer: &mut tiny_skia::Pixmap,
+    backdrop: tiny_skia::PixmapRef<'_>,
+    group_alpha: &tiny_skia::Pixmap,
+    band: core::ops::Range<usize>,
+) {
+    let Some(behind) = backdrop.pixels().get(band.clone()) else {
+        return;
+    };
+    let Some(accumulated) = group_alpha.pixels().get(band.clone()) else {
+        return;
+    };
+    let Some(cells) = buffer.pixels_mut().get_mut(band) else {
+        return;
+    };
+    for ((target, b), g) in cells.iter_mut().zip(behind).zip(accumulated) {
+        let group = g.alpha();
+        if group == 0 {
+            *target = tiny_skia::PremultipliedColorU8::TRANSPARENT;
+            continue;
+        }
+        if group == u8::MAX && b.alpha() == u8::MAX {
+            // α0 = αgn = 1 makes the factor zero, and αn is their union, so `buffer` already
+            // holds C at the alpha it is about to be composited with.
+            continue;
+        }
+        let group = f32::from(group) / 255.0;
+        let whole = f32::from(target.alpha()) / 255.0;
+        let under = f32::from(b.alpha()) / 255.0;
+        let factor = under / group - under;
+        let straight = |value: u8, alpha: f32| {
+            if alpha > 0.0 {
+                f32::from(value) / 255.0 / alpha
+            } else {
+                0.0
+            }
+        };
+        let channel = |mixed: u8, initial: u8| {
+            let cn = straight(mixed, whole);
+            let own = (cn - straight(initial, under))
+                .mul_add(factor, cn)
+                .clamp(0.0, 1.0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a value in 0..=1 scaled by an alpha in 0..=1 and by 255, offset by \
+                          half a level, so the truncating cast is the rounding and stays in \
+                          range"
+            )]
+            let premultiplied = (own * group).mul_add(255.0, 0.5) as u8;
+            premultiplied.min(g.alpha())
+        };
+        *target = tiny_skia::PremultipliedColorU8::from_rgba(
+            channel(target.red(), b.red()),
+            channel(target.green(), b.green()),
+            channel(target.blue(), b.blue()),
+            g.alpha(),
+        )
+        .unwrap_or(*target);
+    }
+}
+
 /// §11.4.6's stage b) for one element of a non-isolated knockout group: the weighted
 /// average of the element's composite with the initial backdrop and the accumulation so
 /// far, weighted by the element's shape.

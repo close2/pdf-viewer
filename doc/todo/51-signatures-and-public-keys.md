@@ -19,7 +19,7 @@ cargo run --release -p pdf-signature --example signature_algorithm_census -- @/t
 into the main checkout, and `find` without it descends nothing and reports zero paths — a false
 zero of exactly the shape this file warns about, met by the six-hundred-and-eighty-ninth session.
 
-Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 §5.1, ISO/TS 32002 §5.1
+Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 section 5.1, ISO/TS 32002 section 5.1
 Code: `crates/pdf-signature/src/signature.rs`, `crates/pdf-signature/src/cms.rs`,
 `crates/pdf-signature/src/der.rs`, `crates/pdf-signature/src/x509.rs`, `crates/pdf-signature/src/pkcs1.rs`,
 `crates/pdf-signature/src/pss.rs`, `crates/pdf-signature/src/dsa.rs`, `crates/pdf-signature/src/ecdsa.rs`,

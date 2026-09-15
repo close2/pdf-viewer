@@ -154,6 +154,14 @@ pub struct Viewer {
     /// the same route [`pdf_model::view::ViewState::set_magnification`] takes and for the same
     /// reason — rule 1 makes that state the only channel into interpretation. ADR 0245.
     delegated: pdf_model::view::WidgetAppearances,
+    /// §8.11.4.4's answers about this reader: who they are, and what language this is in.
+    ///
+    /// The eighth host-supplied policy value, held here for `delegated`'s reason — it is a fact
+    /// about the *host* and not about any one file — and pushed into each document's
+    /// [`pdf_model::view::ViewState`] by [`Command::Audience`], which is the only channel into
+    /// interpretation rule 1 allows. [`pdf_model::optional_content::Audience::NONE`] until a
+    /// host says otherwise. ADR 1106.
+    audience: pdf_model::optional_content::Audience,
     /// §8.10.4's target documents, parsed once for every document this viewer holds.
     ///
     /// Handed to each [`Open`] as it is created, so that a document opened after
@@ -188,6 +196,7 @@ impl Viewer {
             restrictions: crate::RestrictionLevel::default(),
             trust: crate::TrustPolicy::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
+            audience: pdf_model::optional_content::Audience::NONE,
             references: Arc::new(pdf_model::reference::Supply::none()),
             reference_refusals: Vec::new(),
         }
@@ -501,6 +510,17 @@ impl Viewer {
                 }
             }
             Command::References(files) => self.supply_references(&files),
+            // §8.11.4.4's two categories about this reader, applied to every open document and
+            // to every one opened afterwards — `Command::Restrict`'s rule, for its reason.
+            // A document whose groups move is drawing something else, so its ink is superseded.
+            Command::Audience(audience) => {
+                self.audience = audience;
+                for open in self.documents.values_mut() {
+                    if open.view.set_audience(self.audience.clone()) {
+                        open.stale();
+                    }
+                }
+            }
             Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -582,6 +602,10 @@ impl Viewer {
                 // so a document opened after `Command::References` gets the same supply as one
                 // opened before it — `Command::Restrict`'s rule for every host-supplied value.
                 open.references = Arc::clone(&self.references);
+                // §8.11.4.4's two categories about this reader, on the same rule: a host that
+                // said who is reading said it about every document it will show. Free where
+                // nothing was said, which is every host by default.
+                open.view.set_audience(self.audience.clone());
                 // A document opened *during* a presentation arrives in the mode the host is in:
                 // §12.4.4.2's node is a property of the page being shown and NOTE 2's saved groups
                 // of the document, so both are taken here rather than only on `Command::Present`.
@@ -2516,10 +2540,21 @@ impl Viewer {
         // picture as "of another ink" and every zoom step of such a page froze for the length
         // of the real frame — the owner's "zooming is laggy", traced to 234 such refusals in
         // one gesture.
+        //
+        // **And §8.11.4.5 reads the same number**: "[w]henever there is a change to a factor that
+        // the usage application dictionaries with event type View depend on (such as zoom level),
+        // the corresponding dictionaries shall be reapplied". A reapplication that moves an
+        // optional content group changes what the page *draws*, so the picture a host is holding
+        // is of something else and `stale` is owed rather than `reinterpret` — which is why
+        // `set_magnification` answers with `Magnified` rather than a `bool`. Nothing in the corpus
+        // reaches it (`examples/oc_usage_census`), so the ordinary zoom keeps the paragraph above.
         let magnification = open
             .magnification(viewport, scale)
             .map(|device| device / scale);
-        if open.view.set_magnification(magnification) {
+        let magnified = open.view.set_magnification(magnification);
+        if magnified.supersedes_ink() {
+            open.stale();
+        } else if magnified.needs_interpreting() {
             open.reinterpret();
         }
 

@@ -284,6 +284,13 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::References(files) => {
             format!("{} reference file(s) from {:?}", files.len(), files.source)
         }
+        Command::Audience(audience) => format!(
+            "audience: {} name(s), {} title(s), {} organisation(s), language {:?}",
+            audience.reader.individual.len(),
+            audience.reader.title.len(),
+            audience.reader.organisation.len(),
+            audience.language
+        ),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),

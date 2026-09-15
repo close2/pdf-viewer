@@ -56,10 +56,19 @@
 //! the party with all three. [`trust_anchors`] is where the question is asked, and it answers
 //! *nobody* unless a person said otherwise — which is ADR 1039's decision unchanged rather than a
 //! default chosen here. ADR 1076.
+//!
+//! **And a ninth** — §8.11.4.4's `User` and `Language` usage categories, which ask who is reading
+//! and in what language. Table 100 says what a document may assert about its audience and the
+//! clause says what a processor does with it: match the names "with the user's identification",
+//! and select content "based on the language and locale of the application". Neither is a fact
+//! the file holds, and a document that could assert who is reading would be choosing its own
+//! audience. [`audience`] is where the question is asked, and the answer is *nobody, in no stated
+//! language* unless a person said otherwise. ADR 1106.
 
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use pdf_model::optional_content::{Audience, Reader};
 use pdf_model::submission::{Method, Submission};
 use pdf_signature::trust::Supply;
 use pdf_signature::verdict::Acceptance;
@@ -500,6 +509,32 @@ pub const ACCEPT_UNKNOWN_REVOCATION: &str = "--accept-unknown-revocation";
 /// [`viewer_core::Command::References`] carries, supplied the way this host supplies every other.
 pub const REFERENCE_FILES: &str = "--reference-files";
 
+/// The words a person types to say who is reading, for ISO 32000-2 §8.11.4.4's `User` category.
+///
+/// Three of them because Table 100 makes `/Type` decide what the names beside it mean — "either
+/// Ind (individual), Ttl (title or position), or Org (organisation)" — so a document asking which
+/// organisation a reader belongs to is asking something a reader's own name does not answer. Each
+/// may be repeated; a value is one name.
+///
+/// **Not a user interface for it**, on [`TRUST_ANCHORS`]'s rule: this is one policy value
+/// [`viewer_core::Command::Audience`] carries, supplied the way this host supplies every other.
+pub const READER_NAME: &str = "--reader-name";
+
+/// The same, for Table 100's `Ttl`: the title or position held.
+pub const READER_TITLE: &str = "--reader-title";
+
+/// The same, for Table 100's `Org`: the organisation.
+pub const READER_ORGANISATION: &str = "--reader-organisation";
+
+/// The word a person types to say what language this application is in (§8.11.4.4's `Language`).
+///
+/// The value is §14.9.2.2's language tag — "a Language-Tag as defined in BCP 47" — such as
+/// `es-MX`. Unset is *nobody has said*, under which the category is reported unanswered rather
+/// than guessed from a locale this host would have to read the environment for: `CLAUDE.md`
+/// principle 2 keeps environment reading off the launch path, and principle 3 keeps it out of
+/// anything that decides a mark.
+pub const INTERFACE_LANGUAGE: &str = "--interface-language";
+
 /// Why one file in the anchor directory did not become an anchor.
 ///
 /// Typed rather than a string, and every one of them is said out loud: trap 5 on a path where this
@@ -730,6 +765,42 @@ pub fn reference_files(directory: Option<&Path>) -> (ReferenceFiles, Vec<Referen
         },
         refused,
     )
+}
+
+/// **The one place a host answers "who is reading, and in what language", and the answer is
+/// *nobody* by default.**
+///
+/// The four arguments are what [`READER_NAME`], [`READER_TITLE`], [`READER_ORGANISATION`] and
+/// [`INTERFACE_LANGUAGE`] named, each empty or `None` where nobody typed it. Under that answer
+/// both of ISO 32000-2 §8.11.4.4's categories about this processor are reported unanswered, the
+/// document's own configuration decides every group, and the page draws what this program drew
+/// before the question could be answered at all.
+///
+/// **Nothing here is read off the machine**, and that is the decision rather than an omission. A
+/// host could take the language from a locale and the name from a login, and both would be this
+/// program deciding on a reader's behalf what a *document* gets told about them — which is the
+/// same objection ADR 1039 makes to picking a trust anchor. A person says it or nobody does.
+///
+/// An empty language tag is discarded rather than carried: §14.9.2.2 gives it a meaning of its
+/// own — "the empty text string, to indicate that the language is unknown" — and a word typed
+/// with nothing after it is not a person saying their language is unknown.
+#[must_use]
+pub fn audience(
+    names: &[String],
+    titles: &[String],
+    organisations: &[String],
+    language: Option<&str>,
+) -> Audience {
+    Audience {
+        reader: Reader {
+            individual: names.to_vec(),
+            title: titles.to_vec(),
+            organisation: organisations.to_vec(),
+        },
+        language: language
+            .filter(|tag| !tag.is_empty())
+            .map(ToOwned::to_owned),
+    }
 }
 
 /// Every certificate one file holds, as DER: the file itself, or each PEM block in it.

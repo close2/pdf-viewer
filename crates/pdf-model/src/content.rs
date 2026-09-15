@@ -1368,8 +1368,9 @@ fn interpret_into(
         });
     }
     // §8.11.4.4's automatic states, for the two categories that ask about this machine rather
-    // than about the document. Reported once per page rather than per group, because what a
-    // reader can do about it is the same either way.
+    // than about the document and that no host has answered. Reported once per page rather than
+    // per group, because what a reader can do about it is the same either way — and what they
+    // can do is now a thing rather than nothing, which is why the sentence names it.
     let unresolved: Vec<&'static str> = interpreter
         .optional_content
         .as_ref()
@@ -1380,7 +1381,8 @@ fn interpret_into(
         interpreter.note(Unsupported::OptionalContent {
             detail: format!(
                 "a /AS usage application dictionary asks for the {category} category, which is \
-                 a question about this processor rather than about the document"
+                 a question about this reader rather than about the document and which nothing \
+                 has answered"
             ),
         });
     }

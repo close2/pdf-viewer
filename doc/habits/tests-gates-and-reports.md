@@ -176,8 +176,8 @@ which gates a change actually needs.
   shipped asserts the weaker true thing and *prints* every cited table's title.
 - **A citation nothing checks is a citation that rots**, and **a gate that reads one file format
   checks one file format** — the ledger is 823 notes about ISO 32000-2 and the citation gate read
-  Rust sources, so none of it was checked. **A `§` means one document**: `RFC 3986 §5.2` is right
-  about the RFC and ISO 32000-2 has a §5.2 of its own.
+  Rust sources, so none of it was checked. **A `§` means one document**: a section sign after
+  `RFC 3986` is right about the RFC and ISO 32000-2 has a §5.2 of its own.
 - **A bucket that means "we failed" must not also come to mean "you have not told us the
   password".** When a ratchet fires on a change you believe in, ask whether the *category* is wrong
   before the number.

@@ -594,6 +594,14 @@ fn another_document(before: &str) -> Option<Named> {
         return Some(Named::Ours(number.to_owned()));
     }
 
+    // **An ITU-T Recommendation is named in one word**, and the `§` after it is another
+    // document's section exactly as `RFC 3986 §5.2` is. `X.690 §10.1` is the shape: this tree
+    // reads DER and quotes that Recommendation's clauses constantly, writing them in words
+    // (`X.690 clause 10`), and nothing could see the day somebody wrote the sign instead.
+    if is_recommendation(number) {
+        return Some(Named::Standard(number.to_owned()));
+    }
+
     // **A number has to have a digit in it and an acronym a letter**, and neither test said so
     // until the eight-hundred-and-thirty-second session: the character sets are permissive
     // because `ISO/IEC` needs the solidus and `32000-2` the hyphen, and `all` over a permissive
@@ -609,19 +617,31 @@ fn another_document(before: &str) -> Option<Named> {
     // was checked against ISO 32000-2 — where it resolved, because both editions number their
     // clauses alike enough for a citation of the older one to land on a clause of the newer.
     // Three sites in `pdf-archive` did exactly that (ADR 0997 section 2, ADR 1004).
-    let acronym = unwrapped(words.next()?)?;
-    if !number
-        .chars()
-        .all(|character| character.is_ascii_digit() || character == '-' || character == ':')
-        || !number.contains(|character: char| character.is_ascii_digit())
-        || !acronym.chars().all(|character| {
-            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '/'
-        })
-        || !acronym.contains(|character: char| character.is_ascii_uppercase())
-        || acronym.len() < 2
-    {
+    if !is_number(number) {
         return None;
     }
+    // **A designation can carry more than one number**, which this arm could not read until the
+    // one-thousand-and-ninety-sixth session: `ETSI EN 319 142-1 §6.3` puts `319` where the
+    // acronym has to be, so the whole word pair failed the test and the `§` was checked against
+    // ISO 32000-2. The numbers are therefore collected before the acronym is asked for, up to
+    // [`NUMBERS_IN_A_DESIGNATION`] of them, which is what the longest designation this project
+    // cites — `ETSI EN 319 122-1` — needs.
+    let mut numbers = vec![number];
+    let acronym = loop {
+        let word = unwrapped(words.next()?)?;
+        if !is_number(word) {
+            break word;
+        }
+        if numbers.len() >= NUMBERS_IN_A_DESIGNATION {
+            return None;
+        }
+        numbers.push(word);
+    };
+    if !is_acronym(acronym) {
+        return None;
+    }
+    numbers.reverse();
+    let number = numbers.join(" ");
     // This standard, with or without its year, is the document every bare `§` already names:
     // `ISO 32000-2 §9.6.5.4` and `ISO 32000-2:2020 §9.6.5.4` are the convention spelled out, not
     // another document.
@@ -635,7 +655,60 @@ fn another_document(before: &str) -> Option<Named> {
     if acronym == "ADR" || (acronym == "RFC" && number.starts_with('0')) {
         return Some(Named::Ours(format!("{acronym} {number}")));
     }
-    Some(Named::Standard(format!("{acronym} {number}")))
+    // The body in front of the designation, where the line names one: `ETSI EN 319 142-1` rather
+    // than `EN 319 142-1`. It is the name a reader has to search for, and it changes nothing
+    // about the verdict — a section of `EN 319 142-1` is another document's either way.
+    let body = words
+        .next()
+        .and_then(unwrapped)
+        .filter(|word| is_acronym(word));
+    Some(Named::Standard(match body {
+        Some(body) => format!("{body} {acronym} {number}"),
+        None => format!("{acronym} {number}"),
+    }))
+}
+
+/// The most numbers one standard's designation is read as carrying.
+///
+/// `ETSI EN 319 122-1` is three words and two numbers; the bound is one more than that, and it
+/// is a bound rather than an absence because the walk backwards is otherwise unbounded over a
+/// line of prose that happens to end in digits.
+const NUMBERS_IN_A_DESIGNATION: usize = 3;
+
+/// Whether one word is a standard's number: `32000-2`, `319`, `122-1`, `32000-1:2008`.
+fn is_number(word: &str) -> bool {
+    word.chars()
+        .all(|character| character.is_ascii_digit() || character == '-' || character == ':')
+        && word.contains(|character: char| character.is_ascii_digit())
+}
+
+/// Whether one word is a standards body's or a series' acronym: `ISO`, `ISO/IEC`, `EN`, `ETSI`.
+fn is_acronym(word: &str) -> bool {
+    word.len() >= 2
+        && word.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '/'
+        })
+        && word.contains(|character: char| character.is_ascii_uppercase())
+}
+
+/// Whether one word is an ITU-T Recommendation's designation: `X.690`, `X.509`, `T.88`.
+///
+/// One or two upper-case letters, a full stop, and digits. The letter is what separates it from
+/// an annex's own numbering — ISO 32000-2's `§A.2` carries its letter *after* the sign, never in
+/// front of it — and the full stop is what separates it from an acronym.
+fn is_recommendation(word: &str) -> bool {
+    let Some((series, number)) = word.split_once('.') else {
+        return false;
+    };
+    (1..=2).contains(&series.len())
+        && series
+            .chars()
+            .all(|character| character.is_ascii_uppercase())
+        && !number.is_empty()
+        && number
+            .chars()
+            .all(|character| character.is_ascii_digit() || character == '.')
+        && number.contains(|character: char| character.is_ascii_digit())
 }
 
 /// One word with its symmetric wrapper removed, or `None` if what is left is not a name.
@@ -1043,6 +1116,46 @@ mod tests {
         let own = scan(&ours);
         assert!(own.foreign.is_empty(), "{:?}", own.foreign);
         assert_eq!(own.citations.len(), 2);
+    }
+
+    /// **An ITU-T Recommendation is one word, and a designation can carry two numbers.**
+    ///
+    /// `X.690 §10.1` and `ETSI EN 319 142-1 §6.3` are the two shapes the acronym-and-one-number
+    /// rule could not read: the first has no acronym in front of a number at all, and the second
+    /// puts `319` where the acronym has to be. Both landed on ISO 32000-2, which has a §10.1 and
+    /// a §6.3, until the one-thousand-and-ninety-sixth session. This tree writes both documents'
+    /// clauses in words today, so the plant is the only calibration there is (trap 13).
+    #[test]
+    fn a_recommendation_and_a_two_number_designation_are_other_documents() {
+        let source = format!(
+            "{DOC} the walk X.690 {SECTION}10.1 requires\n\
+             {DOC} the attribute ETSI EN 319 142-1 {SECTION}6.3 names\n\
+             {DOC} and the imprint ETSI EN 319 122-1 {SECTION}5.3 states\n"
+        );
+        let scan = scan(&source);
+        assert!(scan.citations.is_empty(), "{:?}", scan.citations);
+        assert_eq!(
+            scan.foreign
+                .iter()
+                .map(|foreign| foreign.document.as_str())
+                .collect::<Vec<_>>(),
+            vec!["X.690", "ETSI EN 319 142-1", "ETSI EN 319 122-1"]
+        );
+    }
+
+    /// And a bare clause number is still this standard's, whatever the sentence around it says.
+    ///
+    /// The control the arms above need: a rule that caught `X.690 {SECTION}10.1` by catching
+    /// every `{SECTION}` would report nineteen thousand citations and be switched off the same
+    /// day.
+    #[test]
+    fn a_bare_clause_number_is_this_standards() {
+        let source = format!(
+            "{DOC} {SECTION}12.8.2.3 and the DER it reads, 10 words before {SECTION}7.5.6\n"
+        );
+        let scan = scan(&source);
+        assert!(scan.foreign.is_empty(), "{:?}", scan.foreign);
+        assert_eq!(scan.citations.len(), 2);
     }
 
     /// A project document's own file name before a `§` marks the citation as that document's

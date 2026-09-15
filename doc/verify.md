@@ -793,7 +793,7 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # The three routes, because a certificate reaches a PDF in three unrelated ways: §12.8.3.3.1's
   # CMS object, walked structurally, which is the second implementation ADR 0229 wanted;
   # §12.8.4.3's `/DSS` `/Certs` and Table 255's `/Cert`, which a document states as objects of its
-  # own and which are found by RFC 5280 §4.1's opening bytes in the file and in its inflated
+  # own and which are found by RFC 5280 section 4.1's opening bytes in the file and in its inflated
   # streams; and the hexadecimal in `crates/pdf-model/src/{x509,dsa,pss,ecdsa,eddsa}.rs`'s
   # `fixtures` modules. **That third route is what makes a clone's corpus complete**: the DSA
   # certificate is the only input that reaches `dsa::verify`, and the P-384, P-521,
@@ -801,8 +801,8 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # six-hundred-and-eighty-ninth session — until this route existed, this line asked a round to
   # re-make them with `openssl req -new -x509` by hand. The module documentation still has those
   # invocations, and any certificate at all is a legal input.
-  # **RFC 5280 §5.1's `CertificateList` is the near miss to know about**: a revocation list has
-  # this same three-member shape, satisfies §4.1.1.2's rule that the two algorithm identifiers
+  # **RFC 5280 section 5.1's `CertificateList` is the near miss to know about**: a revocation list has
+  # this same three-member shape, satisfies that RFC's section 4.1.1.2 rule that the two algorithm identifiers
   # agree, and sits in `/CRLs` immediately beside `/Certs` — so the second route reads as far as
   # `Validity`, where a certificate states two `Time`s and a revocation list one.
   # Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)

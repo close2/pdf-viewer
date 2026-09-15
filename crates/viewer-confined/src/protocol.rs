@@ -1012,6 +1012,12 @@ mod command_kind {
     // and the party that *parses* a PDF is inside it, which is where every other document is
     // parsed (ADR 1101).
     pub(super) const REFERENCE_FILES: u8 = 29;
+    // §8.11.4.4's two usage categories about the reader, since the one-thousand-and-ninety-second:
+    // who is reading, and in what language. Three lists of names and a language tag cross, for the
+    // reason every host-supplied policy value does — the confined worker holds the document and
+    // therefore decides which of its layers are drawn, and only the host was told who is reading
+    // (ADR 1106).
+    pub(super) const AUDIENCE: u8 = 30;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1211,6 +1217,25 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             for (name, bytes) in &files.files {
                 writer.str(name).bytes(bytes);
             }
+        }
+        // §8.11.4.4's answers about the reader. Three lists because Table 100's `/Type` decides
+        // what the names beside it mean, so they may not be flattened into one.
+        Command::Audience(audience) => {
+            writer.u8(k::AUDIENCE);
+            for names in [
+                &audience.reader.individual,
+                &audience.reader.title,
+                &audience.reader.organisation,
+            ] {
+                writer.u32(u32::try_from(names.len()).unwrap_or(u32::MAX));
+                for name in names {
+                    writer.str(name);
+                }
+            }
+            // An absent language is not an empty one: §14.9.2.2 gives the empty tag a meaning.
+            writer
+                .u8(u8::from(audience.language.is_some()))
+                .str(audience.language.as_deref().unwrap_or_default());
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -1438,6 +1463,26 @@ pub(crate) fn decode_command_holding(
                 files.push((name, reader.bytes("a reference file")?.to_vec()));
             }
             Command::References(viewer_core::ReferenceFiles { files, source })
+        }
+        k::AUDIENCE => {
+            let mut lists: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+            for names in &mut lists {
+                let count = reader.u32("a reader name count")?;
+                for _ in 0..count {
+                    names.push(reader.string("a reader's name")?);
+                }
+            }
+            let [individual, title, organisation] = lists;
+            let stated = reader.u8("whether a language was stated")? != 0;
+            let language = reader.string("the interface language")?;
+            Command::Audience(pdf_model::optional_content::Audience {
+                reader: pdf_model::optional_content::Reader {
+                    individual,
+                    title,
+                    organisation,
+                },
+                language: stated.then_some(language),
+            })
         }
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,
@@ -1966,6 +2011,7 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Format::Fdf => 0,
                     Format::HtmlForm => 1,
                     Format::Pdf => 2,
+                    Format::Xfdf => 3,
                 })
                 // §12.7.5.3 makes the media type a function of the submission rather than of the
                 // format, so it crosses as itself: a `multipart/form-data` carries RFC 2046
@@ -2167,6 +2213,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                     0 => Format::Fdf,
                     1 => Format::HtmlForm,
                     2 => Format::Pdf,
+                    3 => Format::Xfdf,
                     value => {
                         return Err(ProtocolError::Unrecognised {
                             what: "a submission's format",
@@ -3666,6 +3713,18 @@ mod tests {
                 purpose: Purpose::ImportData,
                 bytes: None,
             },
+            // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:
+            // three lists of names with a language, and the empty answer whose language is
+            // *unstated* rather than empty (§14.9.2.2 gives the empty tag its own meaning).
+            Command::Audience(pdf_model::optional_content::Audience {
+                reader: pdf_model::optional_content::Reader {
+                    individual: vec!["Alice".to_owned(), "A. Smith".to_owned()],
+                    title: vec!["Reviewer".to_owned()],
+                    organisation: vec!["Acme".to_owned()],
+                },
+                language: Some("es-MX".to_owned()),
+            }),
+            Command::Audience(pdf_model::optional_content::Audience::NONE),
         ];
         for command in &commands {
             let encoded = encode_command(command).unwrap();

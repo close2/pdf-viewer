@@ -1,6 +1,6 @@
 # Q50 — May a converter replace the deprecated `F` operator with `f`?
 
-Source: `doc/pdf-a-conversion-limits.md` §5.2, from ISO 19005-4 §5.1's rule that features
+Source: `doc/pdf-a-conversion-limits.md` §5.2, from ISO 19005-4 section 5.1's rule that features
 ISO 32000-2 deprecates shall not be used.
 Status: **open** — answered when `A50-the-deprecated-f-operator-and-the-fence.md` exists beside this file.
 

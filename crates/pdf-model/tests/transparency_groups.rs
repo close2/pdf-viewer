@@ -56,6 +56,7 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> \
+         /GN << /BM /Screen >> \
          /GM << /SMask << /S /Luminosity /G 6 0 R >> >> \
          /GA << /AIS true /SMask << /S /Luminosity /G 6 0 R >> >> \
          /GT << /AIS true >> >> \
@@ -1215,9 +1216,10 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
         "and so is a soft mask, which is what every corpus witness states"
     );
     assert!(
-        reported(non_isolated, blending, "/GB gs /Fm Do").contains("non-isolated"),
-        "a blend mode at the `Do` is where the collapse fails: the group's own colour is \
-         needed, and with it Table 140's group alpha"
+        !reported(non_isolated, blending, "/GB gs /Fm Do").contains("non-isolated"),
+        "a blend mode at the `Do` is where the collapse fails, and §11.4.4's result step is \
+         performed for itself instead: the group's own colour, and Table 140's group alpha \
+         from NOTE 4's second set of variables (ADR 1107)"
     );
     assert!(
         !reported(non_isolated, TWO_SQUARES, "/GS gs /Fm Do").contains("non-isolated"),
@@ -1261,10 +1263,113 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
             "/GB gs /Fm Do"
         )
         .contains("non-isolated"),
-        "a blend mode at the `Do` is still where the collapse fails, knockout or not: the \
-         final composite's cancellation against §11.4.4's backdrop removal is the Normal \
-         blend function's"
+        "§11.4.4's result step is performed on the group as a whole, which a knockout group \
+         whose rule can show is not: §11.4.6 gives each of its elements the group's own \
+         initial backdrop, and that is the refusal this still names"
     );
+}
+
+/// §11.4.4's final composite: the group's result, through the blend mode at the `Do`, once.
+///
+/// > The result of applying the group compositing function shall then be treated as if it
+/// > were a single object, which in turn is composited with the group's backdrop according
+/// > to the formulas defined in this subclause.
+///
+/// # The arithmetic, from the clause and not from a renderer
+///
+/// The page is an opaque 0.5 grey, so `C0 = 0.5` and `α0 = 1`; the group's one element is an
+/// opaque 0.5 grey too, and it is `/GB`'s **Multiply** that makes the two kinds of group
+/// differ at all (§11.4.4 NOTE 2). §11.3.5.2 gives Multiply as `cb × cs` and Screen as
+/// `cb + cs − cb × cs`, and §11.3.6 at `αs = αb = 1` leaves the blend function alone:
+/// `Cr = B(Cb, Cs)`.
+///
+/// - **Non-isolated.** The element composites onto the group's backdrop, so `Cn = 0.5 × 0.5
+///   = 0.25` and `αn = αgn = 1`. §11.4.4's result step is `C = Cn + (Cn − C0) × (α0/αgn −
+///   α0)`, whose factor is zero here, so `C = 0.25`. At the `Do`: Multiply gives `0.5 × 0.25
+///   = 0.125`, Screen gives `0.5 + 0.25 − 0.125 = 0.625`.
+/// - **Isolated.** §11.4.5 composites the element onto transparency, where §11.3.6 says "[a]n
+///   alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect", so `C = 0.5`. At
+///   the `Do`: Multiply gives `0.25`, Screen gives `0.75`.
+///
+/// The two columns are what §11.4.8 makes of the same page, and until the
+/// one-thousand-and-ninety-third session the non-isolated group was drawn as the isolated one
+/// and reported: the left column read the right one. That is what the inequality below pins.
+///
+/// # And a group nothing inside blends, which must read the same either way
+///
+/// With every element painting Normal the backdrop is composited in and removed again
+/// exactly, so §11.4.4's NOTE 3 makes the two models one page whatever Table 145's `/I` says
+/// — Multiply at the `Do` gives `0.25` and Screen `0.75` for both. That is the control
+/// (trap 13): it shares every line of this construction except the one the clause says
+/// decides it, and a removal that did anything at all to a group with nothing to remove
+/// would move it.
+#[test]
+fn a_blend_mode_at_the_do_is_applied_to_the_group_as_one_object() {
+    let grey = |group: &str, form: &str, mode: &str| {
+        let page = format!("0.5 g 0 0 100 100 re f {mode} gs /Fm Do");
+        i32::from(
+            pixel(
+                &interpret(fixture(group, "[0 0 100 100]", form, &page)),
+                50,
+                50,
+            )[0],
+        )
+    };
+    // A level of 255 is what an eight-bit raster states, and the composite rounds at each of
+    // its own steps, so the clause's value is met to within a level rather than to the bit.
+    let level = |value: f32| (value * 255.0).round() as i32;
+    let close = |got: i32, want: f32, what: &str| {
+        assert!(
+            (got - level(want)).abs() <= 2,
+            "{what}: {got} of 255 where §11.4.4 and §11.3.5.2 give {want} ({})",
+            level(want)
+        );
+    };
+
+    let non_isolated = "/Group << /S /Transparency >>";
+    let isolated = "/Group << /S /Transparency /I true >>";
+    let blending = "/GB gs 0.5 g 10 10 80 80 re f";
+    let flat = "0.5 g 10 10 80 80 re f";
+
+    close(
+        grey(non_isolated, blending, "/GB"),
+        0.125,
+        "non-isolated under Multiply",
+    );
+    close(
+        grey(non_isolated, blending, "/GN"),
+        0.625,
+        "non-isolated under Screen",
+    );
+    close(
+        grey(isolated, blending, "/GB"),
+        0.25,
+        "isolated under Multiply",
+    );
+    close(
+        grey(isolated, blending, "/GN"),
+        0.75,
+        "isolated under Screen",
+    );
+    assert_ne!(
+        grey(non_isolated, blending, "/GN"),
+        grey(isolated, blending, "/GN"),
+        "§11.4.5's initial backdrop is what the element blends against, and it shows"
+    );
+
+    for mode in ["/GB", "/GN"] {
+        let expected = if mode == "/GB" { 0.25 } else { 0.75 };
+        close(
+            grey(non_isolated, flat, mode),
+            expected,
+            "nothing blends, non-isolated",
+        );
+        close(
+            grey(isolated, flat, mode),
+            expected,
+            "nothing blends, isolated",
+        );
+    }
 }
 
 /// §11.4.4's own model, drawn: a non-isolated group's element blends with the page.

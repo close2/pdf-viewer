@@ -5041,6 +5041,15 @@ three shapes we would hand it are a 3×3 curves-grid-curve (this one), a four-ax
 (`BlendingSpace`, side 2 to 17) and a one-axis curve (`GreyCurve`), and one vocabulary — curves
 on either side of an N-axis grid — would hold all three.
 
+**The four-axis shape has a page of its own, and this section named the other two and not it.**
+`bug1721218_reduced.pdf`, whose whole artwork is one isolated `/CS /DeviceCMYK` group, is refused
+with *a group compositing in a blending colour space of four components: the pair resolves per
+pixel after the group composites*. It wants the **second body** as well as the conversion out —
+§11.3.4 composites per component and a texture carries three — which is the pairing the mask ask
+three paragraphs below asks for, on the same vocabulary. It is the third of the four names in
+`render-raster --test corpus`'s `REFUSED_BEFORE_THE_SCENE`, and the whole of that list is this
+section's.
+
 **The mask's luminosity.** `MaskKind::Luminosity { backdrop }` composites over the backdrop and
 weighs the channels with §11.5.3's device coefficients in its shader. For a mask group in a
 CIE-based space of three components the clause's `Y` is a sum of one function of each component
@@ -5219,3 +5228,56 @@ pixel, at 0.7559 and 0.8504 of one, and a per-command ink diff puts −3306 of i
 where the page's whole net gap is −3078 and every other command on it is inside 6. The page is the
 one remaining name on this project's `render-raster --test corpus` differing list whose cause is
 neither §45 above nor §24c.
+
+## 47. An image at **one device pixel per sample** is filtered, where §10.7.4 names the answer and there is nothing to interpolate between
+
+**The ask, in one line.** The `smoothed` rule your encode mirrors from `pdf_render::Image` answers
+"filter" for a placement of exactly one device pixel per sample; it should answer "point-sample",
+because at that placement the clause states the colour outright and the departure the rule exists
+for has no subject.
+
+**The clause.** ISO 32000-2 §10.7.4, on a sampled image rather than a filled shape:
+
+> The position of the centre of such a pixel -in other words, the point whose coordinate values
+> have fractional parts of one-half -shall be mapped back into source space to determine how to
+> colour the pixel. There shall not be averaging over the pixel area.
+
+Both projects depart from that sentence for a *reduced* image, and the departure's whole reason is
+that several source samples then share one device pixel and something has to combine them. At one
+device pixel per sample the reason is absent: the centre maps back inside exactly one sample
+whatever the sub-pixel offset. §8.9.5.3's `/Interpolate` does not reach the case either — it is "an
+attempt to produce a smooth transition between adjacent sample values when rendering an image whose
+resolution is significantly lower than that of the output device", and here the two resolutions are
+equal — and the same clause makes it a hint "a PDF processor may ignore".
+
+**The measurement, which is already an instrument on this side.**
+`cargo run -p render-raster --example image_phase` draws an 8 × 8 image of alternating black and
+white rows onto 8 device rows at ten sub-pixel offsets and prints, per backend, how many distinct
+grey levels the interior holds and how much ink it received:
+
+```text
+  offset   cpu levels  cpu ink     raster levels  raster ink
+   0.00            2     32.000               2      32.000
+   0.20            2     28.000               2      26.600
+   0.50            2     21.000               1      24.404
+   0.90            2     21.000               2      21.714
+```
+
+Raster's ink is a straight ramp and at a half-sample offset it lays **one uniform grey** over an
+image whose every row is black or white — the `levels` column reading 1. The oracle's staircase is
+the point sampler, and it is what this project now asks for on both sides. **The control is the
+1.5:1 rung in the same run**, where the placement magnifies, `/Interpolate` governs, and the two
+backends agree to 0.15 of ink at every offset — so what separates them is this placement and
+nothing else about images.
+
+**Where it bites on a real page.** `pr12564.pdf` places a 90 × 90 seal with `90 0 0 90 32.08 872.42
+cm`, which is one device pixel per sample at a fractional offset; the page is on this project's
+`render-raster --test corpus` differing list, and the two readings of that rectangle are about 10.8
+levels of 255 apart while its ink agrees to 1.7 in 8949 — a difference of *rule*, not of geometry,
+which is why no ink instrument had found it.
+
+**What changed on this side.** `pdf_render::Image::is_smoothed` now answers `false` for a native
+placement before it reads `/Interpolate`, so `render-cpu` and `render-gpu` follow the clause. Your
+encode holds a copy of that rule (your ADR 0089, this project's ADR 0702) and the copy is what the
+ask is about: an ordinary image reaches you as its samples plus the flag, and `ImageFilter::Auto`
+decides. The deferred path, which asks `is_smoothed` directly, already moved.

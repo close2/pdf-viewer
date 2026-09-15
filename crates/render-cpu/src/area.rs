@@ -626,6 +626,27 @@ fn shadow(u: f32, low: f32, high: f32) -> f32 {
 /// `pdf-model/tests/glyph_clip_direction.rs` is the scene that watches it, and it is §9.3.6's:
 /// text rendering mode 7 accumulates a glyph's outline into the clipping path, so a word set twice
 /// in one place is one path stating every outline twice.
+///
+/// # What the decline is worth, measured rather than assumed
+///
+/// It is not a rare path: **3533 marks on 232 of `doc/pdf.js`'s 974 first pages** take it, most of
+/// them a stroke whose expanded outline crosses itself at every join (`issue19802.pdf` 598,
+/// `issue14415.pdf` 546, `issue20232.pdf` 110). And lifting it is not the cheaper answer either.
+/// With the decline off, `render-raster/examples/ink_ladder` reads `issue20232.pdf` at **23 722.36**
+/// of ink at 1× against its own **18 653.77** at 8× — where the boundary is a sixteenth of the share
+/// and the page's own geometry is what is left — so the conflation is **+23%** of the page's ink,
+/// laid where the joins are. That figure lands on raster's 23 703.71 to within a tenth of a per
+/// cent, which is the tell rather than a coincidence: the other backend has no winding clamp and
+/// `doc/QUORRA_FEEDBACK.md` section 45 is the ask about exactly this. So a cell past one whole
+/// winding is declined because taking it would make this backend the page that ask is about.
+///
+/// **What an exact answer needs is the filled set and not its integral**, which is a
+/// conflation-free converter: the pixel split at the outline's own self-intersections, so that each
+/// sub-region can be clamped before it is summed. Decomposing the stroke into pieces that do not
+/// overlap — a quad per segment, a wedge per join — and unioning their coverages is not that: `max`
+/// is *light* along every seam where two pieces cover disjoint parts of one pixel, which is the side
+/// §10.7.4's third sentence forbids, and saturation is the measurement above. Neither is a fix, and
+/// the converter is a different construction from this one.
 fn read_off(
     accumulator: &Accumulator<'_>,
     target: &mut [u8],

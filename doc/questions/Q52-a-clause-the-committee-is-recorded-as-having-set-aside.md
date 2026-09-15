@@ -17,15 +17,15 @@ before the document was held, and its reasoning about part 4 survived the answer
 
 ## The question
 
-ISO 19005-2 §6.6.6 and ISO 19005-4 §6.7.5 are the file-provenance subclauses. Both recommend that
+ISO 19005-2 section 6.6.6 and ISO 19005-4 section 6.7.5 are the file-provenance subclauses. Both recommend that
 each high-level action taken on a document be recorded in the `xmpMM:History` property of the
 catalog's metadata stream, and both then state, as requirements, which fields each recorded action
 carries:
 
 | | required | recommended |
 |---|---|---|
-| ISO 19005-2 §6.6.6 | `action`, `parameters`, `when` | `softwareAgent`, `instanceID` |
-| ISO 19005-4 §6.7.5 | `action`, `when` | `parameters`, `softwareAgent`, `instanceID` |
+| ISO 19005-2 section 6.6.6 | `action`, `parameters`, `when` | `softwareAgent`, `instanceID` |
+| ISO 19005-4 section 6.7.5 | `action`, `when` | `parameters`, `softwareAgent`, `instanceID` |
 
 Both are implemented as of this session — `metadata/provenance-recorded-action-fields` and
 `metadata/provenance-recorded-action-fields-four`. **Should part 2's `parameters` requirement be

@@ -71,7 +71,7 @@ should produce, and it is the reason the validator is built before the converter
 ### 1.2 PDF/A-2's base document, and the day it stopped being a limitation
 
 ISO 19005-2 section 5.1 makes a conforming file one that adheres to **all requirements of ISO 32000-1**
-as modified by part 2, and §6.7.2.1 pulls in ISO 32000-1:2008 §14.8 wholesale for Level A. This
+as modified by part 2, and §6.7.2.1 pulls in ISO 32000-1:2008 clause 14.8 wholesale for Level A. This
 tree is written against **ISO 32000-2** — that is what the conformance ledger is written against
 and what every doc comment in `crates/` cites — so for as long as ISO 32000-1:2008 was not here,
 every PDF/A-2 requirement was being read in the wrong edition.
@@ -991,7 +991,7 @@ claims about different documents.
 
 | requirement | clause | can a converter supply it? |
 |---|---|---|
-| meet ISO 32000-1:2008 §14.8's Tagged PDF requirements | §6.7.2.1 | **no** — this is the tree itself |
+| meet ISO 32000-1:2008 clause 14.8's Tagged PDF requirements | §6.7.2.1 | **no** — this is the tree itself |
 | `/MarkInfo` with `/Marked true` in the catalog | §6.7.2.2 | **yes**, once the rest is verified — see below |
 | a structure hierarchy rooted in `/StructTreeRoot` | §6.7.3.3 | **no** — the tree itself again |
 | every non-standard structure type role-mapped, possibly indirectly, to a standard type | §6.7.3.4 | **only with the user's help** — the mapping is a statement about what the producer's own type *meant* |

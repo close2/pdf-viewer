@@ -22,7 +22,7 @@ use std::fmt::Write as _;
 
 use pdf_model::action::{Action, SubmitForm};
 use pdf_model::forms_data::FormsData;
-use pdf_model::submission::{Click, Format, Method, Refusal, Submission, compose};
+use pdf_model::submission::{Click, Format, Method, Submission, compose};
 use pdf_model::view::ViewState;
 use pdf_syntax::{Document, Object, ObjectId};
 
@@ -634,19 +634,107 @@ fn submit_pdf_still_reads_the_get_method_flag() {
 
 /// Table 240 bit 6: "If set, field names and values shall be submitted as XFDF."
 ///
-/// Refused rather than composed, and the reason is the standard: XFDF is "a version of FDF based
-/// on XML as defined by ISO 19444-1", that document is not held, and `CLAUDE.md` principle 5
-/// makes a grammar taken from another reader not a reading of a specification at all.
+/// The body is ISO 19444-1's. Its section 5.5.2 settles the first two lines of every XFDF
+/// document — the UTF-8 declaration and `<xfdf xmlns=… xml:space="preserve">` — and its section
+/// 5.6.2 lays out the `<ids>` and `<fields>` that follow. The identifier is the document's own
+/// `/ID`, written as the uppercase hexadecimal of the same two byte strings the FDF body writes.
 #[test]
-fn xfdf_is_refused_by_name_rather_than_submitted_as_something_else() {
-    let document = document();
-    let view = ViewState::of(&document);
-    let refusal = compose(&document, &view, &action(32, ""), None)
-        .expect_err("ISO 19444-1 is not on this disk");
+fn xfdf_writes_the_document_the_specification_states() {
+    let submission = composed(32, "");
+    assert_eq!(submission.format, Format::Xfdf);
+    assert_eq!(submission.media_type, "application/xfdf");
+    assert_eq!(submission.method, Method::Post);
+    let body = String::from_utf8(submission.body.clone()).expect("section 5.5.2 makes it UTF-8");
     assert!(
-        matches!(refusal, Refusal::Xfdf) && refusal.to_string().contains("19444-1"),
-        "the refusal names the document it wants: {refusal}"
+        body.starts_with(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+             <xfdf xmlns=\"http://ns.adobe.com/xfdf/\" xml:space=\"preserve\">\n"
+        ),
+        "section 5.5.2's two lines: {body}"
     );
+    assert!(
+        body.contains("<ids original=\"0102\" modified=\"0304\"/>"),
+        "section 5.4.1 maps <ids> onto the FDF /ID, which this document states as <0102> <0304>: \
+         {body}"
+    );
+    assert!(
+        body.contains("<field name=\"name\">\n      <value>a value</value>"),
+        "section 5.6.2's shape: {body}"
+    );
+    // ISO 19444-1:2019 section 5.6.3 represents a hierarchical name as nested `field` elements,
+    // so the fixture's `group.inner` is two of them and not one name with a full stop in it.
+    assert!(
+        body.contains("<field name=\"group\">") && body.contains("<field name=\"inner\">"),
+        "section 5.6.3's nesting: {body}"
+    );
+    // Section 5.6.2 explains `<f href>` as pointing at the PDF document holding the form fields,
+    // which this process has no file name for — said rather than guessed at.
+    assert!(
+        submission.owed.iter().any(|owed| owed.contains("<f href>")),
+        "the element that is not written is named: {:?}",
+        submission.owed
+    );
+}
+
+/// The round trip §12.7.6.4 and §12.7.6.2 make one question: what this program submits as XFDF is
+/// what it imports from one.
+///
+/// Trap 13's calibration in the form the two clauses give it — the writer and the reader are
+/// different code over the same grammar, so a name either of them spelled differently would show
+/// here and nowhere else.
+#[test]
+fn an_xfdf_submission_is_read_back_by_the_importer_that_reads_one() {
+    let submission = composed(32, "");
+    let read = pdf_model::xfdf::read(&submission.body).expect("what this program wrote is XFDF");
+    let names: Vec<&str> = read
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect();
+    assert!(
+        names.contains(&"name") && names.contains(&"group.inner"),
+        "§12.7.4.2's qualified names survive the nesting: {names:?}"
+    );
+    let value = read
+        .fields
+        .iter()
+        .find(|field| field.name == "name")
+        .and_then(|field| field.value.as_ref())
+        .and_then(Object::as_string)
+        .map(pdf_syntax::text_string);
+    assert_eq!(value.as_deref(), Some("a value"));
+    // §14.4's identifier crossed as the hexadecimal of the same bytes and came back as bytes.
+    assert_eq!(
+        read.identifier.as_ref().map(|pair| pair[0].clone()),
+        Some(vec![0x01, 0x02])
+    );
+}
+
+/// The eight bits Table 240 puts aside when bit 6 is set, each named rather than dropped.
+///
+/// Five of them say it in the same words — each "shall be used only when the form is being
+/// submitted in Forms Data Format", which the table then defines as both bit 6 and bit 3 being
+/// clear — and bits 3, 4 and 5 reach the same place through bit 3's own condition, which is that
+/// bits 9 and 6 are clear. A document may set all of them, and this program neither applies one
+/// nor stays quiet about it.
+#[test]
+fn the_bits_table_240_puts_aside_for_xfdf_are_named_one_by_one() {
+    // Bits 3, 4, 5, 6, 7, 8, 10, 11, 12 and 14 together.
+    let submission = composed(4 | 8 | 16 | 32 | 64 | 128 | 512 | 1024 | 2048 | 8192, "");
+    assert_eq!(
+        submission.format,
+        Format::Xfdf,
+        "bit 3 is meaningful only where bit 6 is clear, so bit 6 decides"
+    );
+    for bit in [
+        "bit 3", "bit 4", "bit 5", "bit 7", "bit 8", "bit 10", "bit 11", "bit 12", "bit 14",
+    ] {
+        assert!(
+            submission.owed.iter().any(|owed| owed.contains(bit)),
+            "{bit} is named: {:?}",
+            submission.owed
+        );
+    }
 }
 
 /// §12.7.5.3, under Table 231 bit 21:

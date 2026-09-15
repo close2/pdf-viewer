@@ -136,6 +136,15 @@ pub(crate) struct Arguments {
     /// files arrive only where a person names a directory of them. `viewer_host::reference_files`
     /// reads it, on the document's thread, for `trust_anchors`' reason.
     pub(crate) reference_files: Option<PathBuf>,
+    /// ISO 32000-2 §8.11.4.4's two categories about the *reader*, from `--reader-name`,
+    /// `--reader-title`, `--reader-organisation` and `--interface-language`.
+    ///
+    /// Empty by default, under which both are reported unanswered and every optional content
+    /// group stands where the document's configuration put it. `viewer_host::audience` builds it
+    /// and reads nothing off this machine, which is the decision rather than an omission: taking
+    /// a name from a login or a tag from a locale would be this program deciding on a reader's
+    /// behalf what a document is told about them.
+    pub(crate) audience: pdf_model::optional_content::Audience,
     /// How many whole pages the window retains a low-resolution picture of, from
     /// `--proxy-pages`, defaulting to [`crate::stale::PROXY_PAGES`].
     ///
@@ -187,6 +196,10 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut restrictions = RestrictionLevel::On;
     let mut trust_anchors = None;
     let mut reference_files = None;
+    let mut reader_names: Vec<String> = Vec::new();
+    let mut reader_titles: Vec<String> = Vec::new();
+    let mut reader_organisations: Vec<String> = Vec::new();
+    let mut interface_language: Option<String> = None;
     let mut accept_unknown_revocation = false;
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
@@ -288,6 +301,29 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                 std::process::exit(2);
             }
             reference_files = Some(directory);
+        } else if argument == viewer_host::READER_NAME
+            || argument == viewer_host::READER_TITLE
+            || argument == viewer_host::READER_ORGANISATION
+            || argument == viewer_host::INTERFACE_LANGUAGE
+        {
+            // Refused rather than ignored, on `--trust-anchors`' rule: a word with nothing after
+            // it is a person who meant to say something, and a launch that swallowed it would
+            // draw layers chosen for an audience they never named.
+            let word = argument.to_string_lossy().into_owned();
+            let Some(value) = arguments.next() else {
+                eprintln!("{word} wants a value");
+                std::process::exit(2);
+            };
+            let value = value.to_string_lossy().into_owned();
+            if argument == viewer_host::READER_NAME {
+                reader_names.push(value);
+            } else if argument == viewer_host::READER_TITLE {
+                reader_titles.push(value);
+            } else if argument == viewer_host::READER_ORGANISATION {
+                reader_organisations.push(value);
+            } else {
+                interface_language = Some(value);
+            }
         } else if argument == viewer_host::ACCEPT_UNKNOWN_REVOCATION {
             accept_unknown_revocation = true;
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
@@ -345,10 +381,37 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         trust_anchors,
         accept_unknown_revocation,
         reference_files,
+        audience: viewer_host::audience(
+            &reader_names,
+            &reader_titles,
+            &reader_organisations,
+            interface_language.as_deref(),
+        ),
         proxy_pages,
         coverage,
         supersample,
     }
+}
+
+/// The four words that answer ISO 32000-2 §8.11.4.4's two categories about the reader.
+///
+/// Its own function because [`usage`] is at the line count `clippy::pedantic` allows, and because
+/// these four are one paragraph about one decision rather than four unrelated words.
+fn audience_usage() {
+    eprintln!(
+        "  {} N | {} T | {} O | {} TAG",
+        viewer_host::READER_NAME,
+        viewer_host::READER_TITLE,
+        viewer_host::READER_ORGANISATION,
+        viewer_host::INTERFACE_LANGUAGE
+    );
+    eprintln!("                say who is reading and in what language, for the two §8.11.4.4");
+    eprintln!("                usage categories that ask about this reader rather than about the");
+    eprintln!("                document: a group may be intended for a named individual, title");
+    eprintln!("                or organisation, or carry one language's content. Repeat the");
+    eprintln!("                first three to give several. Without these words neither category");
+    eprintln!("                is answered and every layer stands where the file's own");
+    eprintln!("                configuration put it; nothing is read off this machine.");
 }
 
 /// Which coverage lane `--coverage` pinned, or the magnification policy where it
@@ -570,6 +633,7 @@ fn usage() {
     eprintln!("                ships no root list and reads no platform store, so without this");
     eprintln!("                word the answer is that nobody named one — which is a statement");
     eprintln!("                about this program and not about any document.");
+    audience_usage();
     eprintln!("  {}", viewer_host::ACCEPT_UNKNOWN_REVOCATION);
     eprintln!("                act on a signature whose revocation status the document's own");
     eprintln!("                §12.8.4 material does not settle. Nothing computes a clean answer");

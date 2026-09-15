@@ -151,11 +151,42 @@ pub(crate) fn press_changes(
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
     let down = has_down(document, annotation);
-    down || toggles_no_view(document, annotation, view)
+    let shows_down = down && !down_overridden(document, annotation, down);
+    shows_down
+        || toggles_no_view(document, annotation, view)
         || !matches!(
             highlight(document, annotation, down),
             Highlight::None | Highlight::Push
         )
+}
+
+/// Whether Table 191's `/H` takes a widget's down appearance away from a press on it.
+///
+/// ISO 32000-2 §12.5.6.19, in the last sentence of Table 191's `/H` row, and it is a widget's
+/// alone:
+///
+/// > A highlighting mode other than P shall override any down appearance defined for the
+/// > annotation.
+///
+/// So a widget stating `/H /I`, `/H /O` or `/H /N` shows its **normal** appearance while the
+/// button is down, with the mark [`pressed_mark`] draws over it — the mode is what a press does
+/// to it, in place of the artwork `/AP` `/D` holds rather than beside it.
+///
+/// **A link is not under this rule**, and the difference is the table rather than a choice:
+/// Table 176 gives `/H` four modes with no such sentence, and its `P` is "[d]isplay the
+/// annotation as if it were being pushed below the surface of the page" — which names no
+/// appearance stream. §12.5.5's "down appearance shall be used when the mouse button is pressed"
+/// therefore stands for every subtype but the one whose own table overrides it.
+///
+/// `has_down` is passed rather than read again because [`highlight`]'s default turns on it: an
+/// annotation stating a `/D` and no `/H` is read as having said `P`, so the default can never
+/// take the artwork away.
+fn down_overridden(document: &Document, annotation: &Dictionary, has_down: bool) -> bool {
+    let subtype = document.get_key(annotation, "Subtype");
+    if subtype.as_name().map(Name::as_bytes) != Some(b"Widget") {
+        return false;
+    }
+    !matches!(highlight(document, annotation, has_down), Highlight::Push)
 }
 
 /// Whether the cursor arriving changes what this annotation looks like; see
@@ -1305,6 +1336,13 @@ fn stored_appearance(
     let key = match showing {
         crate::view::Appearance::Normal => "N",
         crate::view::Appearance::Rollover => "R",
+        // Table 191's own override, which is the one place a mode decides *which stream*
+        // rather than what is drawn over it — see [`down_overridden`].
+        crate::view::Appearance::Down
+            if down_overridden(document, annotation, has_down(document, annotation)) =>
+        {
+            "N"
+        }
         crate::view::Appearance::Down => "D",
     };
     // The *entry* before it is resolved, because §14.7.5.2's Table 357 names an appearance

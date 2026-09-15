@@ -758,6 +758,11 @@ impl Session {
         self.handle(Command::References(files))
     }
 
+    /// ISO 32000-2 §8.11.4.4's answers about this reader: who they are, and in what language.
+    pub fn audience(&mut self, audience: pdf_model::optional_content::Audience) -> Events {
+        self.handle(Command::Audience(audience))
+    }
+
     /// How many pages on the screen this viewer has anything to say about.
     ///
     /// **The entry point a C caller could not have deduced**, and it exists for

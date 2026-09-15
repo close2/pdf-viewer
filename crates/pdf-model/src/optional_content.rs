@@ -45,7 +45,7 @@
 //! offering the user a layer panel … When a layer panel exists, this is the module it attaches
 //! to." The panel exists, this is the module it attached to, and the sentence stayed — which is
 //! the "capability that arrived and announced nothing" shape `doc/todo/02` §1 names. `/AS` is
-//! [`apply_auto_states`], `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
+//! [`apply_view`], `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
 //! [`OptionalContent::is_locked`] and `/Order` is [`presentation`].
 //!
 //! What is genuinely not here is Table 98's `/Configs` and the `/Name` and `/Creator` of a
@@ -67,6 +67,14 @@ use crate::action::Change;
 /// a file built to make a reader recurse. Reaching the bound is *reported* rather than
 /// treated as a visibility answer — see [`Visibility::TooDeep`].
 const MAX_EXPRESSION_DEPTH: usize = 32;
+
+/// The magnification §8.11.4.4's `Zoom` category is answered at when no caller has stated one.
+///
+/// 1.0 is the size a page is drawn at when nothing states otherwise, which is what
+/// `ViewState::magnification`'s `None` means — *nobody has said* — rather than a guess at what a
+/// window is doing. Every gate in this tree is in that position, so the answer they get is the
+/// answer they got before a magnification could reach this module at all.
+const UNSTATED_MAGNIFICATION: f32 = 1.0;
 
 /// Whether a piece of optional content is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,14 +134,28 @@ impl Policy {
 /// not pay for a lookup it will never use.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionalContent {
-    /// Every group `/OCProperties /OCGs` lists, with the state `/D` gives it.
+    /// Every group `/OCProperties /OCGs` lists, with the state it stands at now.
     states: BTreeMap<ObjectId, bool>,
+    /// The same groups with §8.11.4.5 b)'s state, before any usage application dictionary.
+    ///
+    /// Kept because the reapplication that clause requires has to start from somewhere that is
+    /// not the answer to the last zoom: "[t]his state shall be the initial state used by all PDF
+    /// processors", and the automatic adjustment is stated as running over it.
+    initial: BTreeMap<ObjectId, bool>,
+    /// The `/View` usage application dictionaries, resolved once; see [`ViewApplication`].
+    applications: Vec<ViewApplication>,
+    /// Groups a manual change has pinned, which the reapplication may not touch.
+    ///
+    /// §8.11.4.5: "[m]anual changes shall override the states that were set automatically. The
+    /// states of these groups remain overridden and shall not be readjusted based on usage
+    /// application dictionaries with event type View as long as the document is open."
+    overridden: BTreeSet<ObjectId>,
     /// Groups the configuration's `/Intent` does not cover, which therefore have no effect
     /// on visibility (§8.11.2.3).
     disregarded: BTreeSet<ObjectId>,
     /// Usage categories §8.11.4.4 asks a *viewer* for and this one cannot answer.
     ///
-    /// Reported rather than guessed; see [`apply_auto_states`].
+    /// Reported rather than guessed; see [`apply_view`] and [`Audience`].
     unresolved: Vec<&'static str>,
     /// Set when the configuration's `/Intent` is an empty array.
     ///
@@ -215,7 +237,19 @@ impl OptionalContent {
             }
         }
 
-        let unresolved = apply_auto_states(document, &configuration, &mut states);
+        let initial = states.clone();
+        let applications = view_applications(document, &configuration, &states);
+        // The magnification a page is drawn at when nothing states one, and no audience: a
+        // document being opened has had neither a zoom nor a host's answer yet, and both arrive
+        // through `ViewState` afterwards.
+        let unresolved = apply_view(
+            &applications,
+            &initial,
+            &BTreeSet::new(),
+            &mut states,
+            UNSTATED_MAGNIFICATION,
+            &Audience::NONE,
+        );
 
         let (intents, everything_visible) = intents_of(document, &configuration, b"View");
         let disregarded = states
@@ -278,6 +312,9 @@ impl OptionalContent {
 
         Some(Self {
             states,
+            initial,
+            applications,
+            overridden: BTreeSet::new(),
             disregarded,
             unresolved,
             everything_visible,
@@ -345,10 +382,53 @@ impl OptionalContent {
             };
             let now = change.applied_to(*current);
             *current = now;
+            // §8.11.4.5: "[m]anual changes shall override the states that were set
+            // automatically … and shall not be readjusted based on usage application
+            // dictionaries with event type View as long as the document is open". A change
+            // recorded here is one of the two the clause names in the sentence before that —
+            // a person at a panel, or §12.6.4.13's action — so both pin the group.
+            self.overridden.insert(*group);
             if now && preserve_radio_buttons {
                 self.exclude_others(*group);
             }
         }
+    }
+
+    /// §8.11.4.5's reapplication: runs the `/View` usage application dictionaries again.
+    ///
+    /// > Whenever there is a change to a factor that the usage application dictionaries with
+    /// > event type View depend on (such as zoom level), the corresponding dictionaries shall be
+    /// > reapplied.
+    ///
+    /// The factors are the two a host holds and a document cannot: the magnification the page is
+    /// being drawn at, and [`Audience`]'s answers to the `User` and `Language` categories.
+    /// `None` for the magnification is `ViewState::magnification`'s own *nobody has said*, and
+    /// is answered at [`UNSTATED_MAGNIFICATION`].
+    ///
+    /// Returns whether any group's state moved, so a caller can decide whether the page has to
+    /// be interpreted again — and, because §8.11 decides what is *drawn*, whether the ink it
+    /// already has is superseded rather than merely re-placed.
+    ///
+    /// **Costs one empty-vector test on a document that states no `/AS`**, which
+    /// `examples/oc_usage_census` measures as all but 475 of the 65 720 crawl documents that
+    /// open and all but six of the pdf.js corpus: the dictionaries are resolved once by
+    /// [`Self::read`], so nothing here reads the document.
+    pub fn reapply(&mut self, magnification: Option<f32>, audience: &Audience) -> bool {
+        if self.applications.is_empty() {
+            return false;
+        }
+        let before = self.states.clone();
+        self.unresolved = apply_view(
+            &self.applications,
+            &self.initial,
+            &self.overridden,
+            &mut self.states,
+            magnification.unwrap_or(UNSTATED_MAGNIFICATION),
+            audience,
+        );
+        // Table 99's `/Order` carries identities and not states, so the panel tree stands
+        // whatever moves here; what a caller reads a state through is [`Self::state`].
+        self.states != before
     }
 
     /// Turns off every other member of each radio-button collection `group` belongs to.
@@ -366,6 +446,10 @@ impl OptionalContent {
         for other in others {
             if let Some(state) = self.states.get_mut(&other) {
                 *state = false;
+                // Switched off as a consequence of a manual change, so pinned for the same
+                // sentence: a reapplication that turned one of these back on would put two
+                // members of one collection on, which Table 99 says cannot happen.
+                self.overridden.insert(other);
             }
         }
     }
@@ -381,9 +465,10 @@ impl OptionalContent {
 
     /// The usage categories §8.11.4.4 asked for and this processor could not answer.
     ///
-    /// Empty for every document that names none, which is all 974 in the corpus; see
-    /// [`apply_auto_states`] for what the two are and why leaving the state alone beats the
-    /// clause's "otherwise OFF" when the question is about this machine rather than the file.
+    /// Empty for every document that names none, which is all 974 in the corpus, and empty
+    /// again wherever a host has answered: see [`Audience`] for the two questions and
+    /// [`apply_view`] for why the clause's "otherwise OFF" is the answer to a comparison rather
+    /// than to there being nobody to compare with.
     #[must_use]
     pub fn unresolved_usage(&self) -> &[&'static str] {
         &self.unresolved
@@ -853,14 +938,364 @@ fn covers(configuration: &BTreeSet<Vec<u8>>, intent: &[u8]) -> bool {
         .any(|held| held.as_slice() == intent || held.as_slice() == b"All")
 }
 
-/// §8.11.4.4's automatic state adjustment, for the `View` event.
+/// §8.11.4.4's `View` usage application dictionaries, read once per document.
 ///
-/// §8.11.4.5 states when it runs: the base state and the `/ON`/`/OFF` arrays give "the initial
+/// §8.11.4.5 states when they run: the base state and the `/ON`/`/OFF` arrays give "the initial
 /// state used by all PDF processors", and then an interactive processor "shall examine the AS
 /// array for usage application dictionaries that have an Event of type View. For each one
 /// found, the groups listed in its OCGs array shall be adjusted". Only `View`: `Print` and
 /// `Export` apply "for the duration of the print operation" and of the export, and this is
 /// neither.
+///
+/// **Read once, applied many times, and that is what the next sentence of §8.11.4.5 costs**:
+/// "[w]henever there is a change to a factor that the usage application dictionaries with event
+/// type View depend on (such as zoom level), the corresponding dictionaries shall be reapplied".
+/// A reapplication that re-read the document would put dictionary lookups on every step of a
+/// zoom gesture; resolving Table 100's entries here instead makes [`apply_view`] a function of
+/// two numbers and a list, and makes the 99.9% of documents that state no `/AS` at all cost one
+/// empty-vector test per zoom. The census behind that share is `examples/oc_usage_census`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ViewApplication {
+    /// Table 101's `/Category`, in the order the array states them.
+    categories: Vec<Category>,
+    /// Table 101's `/OCGs`, restricted to groups the document declares, each with its
+    /// `/Usage` dictionary.
+    ///
+    /// Restricted for [`OptionalContent::read`]'s reason: Table 98 requires `/OCGs` to list
+    /// every group in the document, so an application naming something else names nothing.
+    groups: Vec<(ObjectId, Usage)>,
+}
+
+/// One of Table 101's `/Category` names, against the six §8.11.4.4 states a rule for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Category {
+    /// The state the group's `/View` `/ViewState` entry names.
+    View,
+    /// The state the group's `/Print` `/PrintState` entry names, or unchanged where it has none.
+    Print,
+    /// The state the group's `/Export` `/ExportState` entry names.
+    Export,
+    /// The magnification range, read against the one the page is being drawn at.
+    Zoom,
+    /// Who is reading, which is a question about this processor; see [`Audience`].
+    User,
+    /// Which language this application is in, likewise.
+    Language,
+    /// A name §8.11.4.4's list does not reach, which therefore recommends nothing.
+    ///
+    /// Two different things land here and neither yields a state. `PageElement` and
+    /// `CreatorInfo` *are* Table 100 entries, and §8.11.4.4's "[t]he entries in the usage
+    /// dictionary shall be used as follows" list states no rule for either — a pagination
+    /// artifact and an authoring application's private data are descriptions rather than
+    /// recommendations. A name that is no Table 100 entry at all corresponds to no usage entry,
+    /// which Table 101 requires it to do.
+    Unstated,
+}
+
+impl Category {
+    /// Reads one element of Table 101's `/Category` array.
+    fn read(name: &[u8]) -> Self {
+        match name {
+            b"View" => Self::View,
+            b"Print" => Self::Print,
+            b"Export" => Self::Export,
+            b"Zoom" => Self::Zoom,
+            b"User" => Self::User,
+            b"Language" => Self::Language,
+            _ => Self::Unstated,
+        }
+    }
+}
+
+/// Table 100's `/Zoom` range: "greater than or equal to min and less than max".
+///
+/// `Eq` is implemented rather than derived because the bounds are magnifications. Both come
+/// from a number the document states or from Table 100's own defaults of 0 and infinity, and
+/// §7.3.3's real object is digits, an optional sign and an optional point — so neither can be
+/// NaN, equality here is reflexive, and the trait's contract holds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ZoomRange {
+    /// `min`: "the minimum recommended magnification factor at which the group shall be ON".
+    low: f32,
+    /// `max`: "the magnification factor below which the group shall be ON".
+    high: f32,
+}
+
+impl Eq for ZoomRange {}
+
+/// Table 100's `/User` `/Type`: how the `/Name` entry beside it shall be interpreted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UserType {
+    /// `Ind`, an individual.
+    Individual,
+    /// `Ttl`, a title or position.
+    Title,
+    /// `Org`, an organisation.
+    Organisation,
+}
+
+/// One group's `/Usage` dictionary, resolved for the categories §8.11.4.4 states a rule for.
+///
+/// Every field is `Option`-shaped around the same sentence of the clause's own example: of a
+/// group whose usage dictionary states nothing for the category being applied, "Object 4 has
+/// none; therefore, it is not affected by zoom level changes". An entry that is not there
+/// yields no recommendation rather than an OFF.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Usage {
+    /// `/View` `/ViewState`, `false` only where the name is `OFF`; see [`recommendation`].
+    view: bool,
+    /// `/Export` `/ExportState`, on the same rule.
+    export: bool,
+    /// `/Print` `/PrintState`, `None` where the entry is absent: "the state of the optional
+    /// content group shall be left unchanged".
+    print: Option<bool>,
+    /// `/Zoom`, where the group states one.
+    zoom: Option<ZoomRange>,
+    /// `/User`: how `/Name` shall be read, and the names to match.
+    ///
+    /// `None` where `/User` is absent, and also where its `/Type` is not one of the three
+    /// Table 100 requires — a dictionary that does not say how its names are to be
+    /// interpreted states nothing to match against, which is the same position as stating no
+    /// `/User` at all.
+    user: Option<(UserType, Vec<String>)>,
+    /// `/Language`: `/Lang`, and whether `/Preferred` is `ON`.
+    ///
+    /// Table 100: `Lang` is required and `Preferred` defaults to `OFF`. An empty tag is
+    /// §14.9.2.2's "the empty text string, to indicate that the language is unknown", which
+    /// matches nothing.
+    language: Option<(String, bool)>,
+}
+
+/// §8.11.4.4's answers about *this* processor, which a host supplies.
+///
+/// Two of Table 100's categories ask questions no document can answer and no renderer may
+/// invent. §8.11.4.4, of `User`: "[t]he Name entry shall specify a name or names to match with
+/// the user's identification"; and of `Language`: "[t]his category shall allow the selection of
+/// content based on the language and locale of the application". Both are facts about the
+/// machine and the person in front of it, so `CLAUDE.md` principle 3's rule applies — the
+/// policy is asked once, in a place a host can supply — and the surfaces are the ones
+/// ADR 1076 and ADR 1101 built for a trust anchor and a referenced file.
+///
+/// **[`Audience::NONE`] is the default and is what every caller that says nothing gets.** Under
+/// it both categories are [`Recommendation::Unanswerable`], the configuration's own state
+/// stands, and the page says which category it could not answer — which is the position this
+/// program was in before a host could answer at all. ADR 1106.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Audience {
+    /// Table 100's `/User`: who the reader is, under each of the three `/Type` values.
+    pub reader: Reader,
+    /// "the language and locale of the application", as §14.9.2.2's BCP 47 language tag.
+    ///
+    /// `None` is *nobody has said*, and is not the same as the empty string, which
+    /// §14.9.2.2 gives a meaning of its own: "the empty text string, to indicate that the
+    /// language is unknown".
+    pub language: Option<String>,
+}
+
+impl Audience {
+    /// Nobody, and no language.
+    pub const NONE: Self = Self {
+        reader: Reader::NONE,
+        language: None,
+    };
+
+    /// Whether a host has answered either question.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.reader.is_empty() && self.language.is_none()
+    }
+}
+
+/// Who a host says is reading, under Table 100's three `/User` `/Type` values.
+///
+/// Three lists rather than one, because Table 100 makes `/Type` decide what the names beside it
+/// mean — "A name object that shall be either Ind (individual), Ttl (title or position), or Org
+/// (organisation)" — so a document asking which organisation a reader belongs to is asking a
+/// different question from one asking the reader's name, and a host that answered only the
+/// first must not be read as having answered the second.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reader {
+    /// `/Ind`: the individual's name or names.
+    pub individual: Vec<String>,
+    /// `/Ttl`: the title or position held.
+    pub title: Vec<String>,
+    /// `/Org`: the organisation or organisations.
+    pub organisation: Vec<String>,
+}
+
+impl Reader {
+    /// Nobody.
+    pub const NONE: Self = Self {
+        individual: Vec::new(),
+        title: Vec::new(),
+        organisation: Vec::new(),
+    };
+
+    /// Whether a host has said who is reading, under any of the three types.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.individual.is_empty() && self.title.is_empty() && self.organisation.is_empty()
+    }
+
+    /// What this reader is known as, under the type a group's `/User` dictionary states.
+    fn known_as(&self, kind: UserType) -> &[String] {
+        match kind {
+            UserType::Individual => &self.individual,
+            UserType::Title => &self.title,
+            UserType::Organisation => &self.organisation,
+        }
+    }
+}
+
+/// Reads the `/View` usage application dictionaries of one configuration, resolving Table 100.
+///
+/// `states` is the initial state map, which decides which groups the document declares.
+fn view_applications(
+    document: &Document,
+    configuration: &Dictionary,
+    states: &BTreeMap<ObjectId, bool>,
+) -> Vec<ViewApplication> {
+    let auto = document.get_key(configuration, "AS");
+    let Some(applications) = auto.as_array() else {
+        // "If no AS entry is present, states shall not be automatically adjusted based on
+        // usage information."
+        return Vec::new();
+    };
+
+    let mut read = Vec::new();
+    for application in applications {
+        let application = document.resolve(application);
+        let Some(application) = application.as_dict() else {
+            continue;
+        };
+        if document
+            .get_key(application, "Event")
+            .as_name()
+            .map(Name::as_bytes)
+            != Some(b"View")
+        {
+            continue;
+        }
+        let categories: Vec<Category> = document
+            .get_key(application, "Category")
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        document
+                            .resolve(item)
+                            .as_name()
+                            .map(|name| Category::read(name.as_bytes()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if categories.is_empty() {
+            continue;
+        }
+        let groups: Vec<(ObjectId, Usage)> = listed(document, application, "OCGs")
+            .into_iter()
+            // Adjusted, never added, for the same reason the `/ON` and `/OFF` arrays are.
+            .filter(|group| states.contains_key(group))
+            .filter_map(|group| {
+                let dictionary = document.get(group);
+                let dictionary = dictionary.as_dict()?;
+                Some((group, usage_of(document, dictionary)))
+            })
+            .collect();
+        read.push(ViewApplication { categories, groups });
+    }
+    read
+}
+
+/// Resolves one group's Table 100 `/Usage` dictionary.
+fn usage_of(document: &Document, group: &Dictionary) -> Usage {
+    let usage = document.get_key(group, "Usage");
+    let usage = usage.as_dict().cloned().unwrap_or_default();
+    let state = |key: &str, entry: &str| {
+        let dict = document.get_key(&usage, key);
+        let dict = dict.as_dict().cloned().unwrap_or_default();
+        document
+            .get_key(&dict, entry)
+            .as_name()
+            .map(|name| name.as_bytes() != b"OFF")
+    };
+
+    let zoom = document.get_key(&usage, "Zoom");
+    let zoom = zoom.as_dict().map(|zoom| {
+        let bound = |key: &str, default: f32| {
+            document
+                .get_key(zoom, key)
+                .as_number()
+                .map_or(default, |value| {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a magnification outside f32's range is not a magnification"
+                    )]
+                    {
+                        value as f32
+                    }
+                })
+        };
+        // Table 100's defaults: "Default value: 0" and "Default value: infinity".
+        ZoomRange {
+            low: bound("min", 0.0),
+            high: bound("max", f32::INFINITY),
+        }
+    });
+
+    let user = document.get_key(&usage, "User");
+    let user = user.as_dict().and_then(|user| {
+        let kind = match document.get_key(user, "Type").as_name().map(Name::as_bytes) {
+            Some(b"Ind") => UserType::Individual,
+            Some(b"Ttl") => UserType::Title,
+            Some(b"Org") => UserType::Organisation,
+            _ => return None,
+        };
+        // "A text string or array of text strings representing the name(s) of the individual,
+        // position or organisation."
+        let names = match document.get_key(user, "Name") {
+            Object::String(bytes) => vec![pdf_syntax::text_string(&bytes)],
+            Object::Array(items) => items
+                .iter()
+                .map(|item| document.resolve(item))
+                .filter_map(|item| match item {
+                    Object::String(bytes) => Some(pdf_syntax::text_string(&bytes)),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        (!names.is_empty()).then_some((kind, names))
+    });
+
+    let language = document.get_key(&usage, "Language");
+    let language = language.as_dict().and_then(|language| {
+        let tag = match document.get_key(language, "Lang") {
+            Object::String(bytes) => pdf_syntax::text_string(&bytes),
+            // `Lang` is Table 100's one required entry of this dictionary; without it the
+            // dictionary states no language to match.
+            _ => return None,
+        };
+        let preferred = document
+            .get_key(language, "Preferred")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"ON");
+        Some((tag, preferred))
+    });
+
+    Usage {
+        view: state("View", "ViewState") != Some(false),
+        export: state("Export", "ExportState") != Some(false),
+        print: state("Print", "PrintState"),
+        zoom,
+        user,
+        language,
+    }
+}
+
+/// §8.11.4.4's automatic state adjustment, for the `View` event.
 ///
 /// The rule per group is the clause's own, and it is an AND across two levels. §8.11.4.4:
 ///
@@ -873,102 +1308,78 @@ fn covers(configuration: &BTreeSet<Vec<u8>>, intent: &[u8]) -> bool {
 /// array, its state shall be ON only if all categories in all the usage application
 /// dictionaries it appears in have a state of ON ".
 ///
-/// # The three categories a page cannot answer, and what happens to them
+/// # Reapplication, and what it may not disturb
 ///
-/// `Zoom` asks whether "the current magnification level of the document is greater than or
-/// equal to min and less than max". It is answered at **1.0**, the magnification at which a page
-/// is its stated size, and that is a choice with a measurement behind it rather than an
-/// architectural limit.
+/// This runs once when the document is opened and again on every change to a factor the `View`
+/// dictionaries depend on, which §8.11.4.5 requires: "[w]henever there is a change to a factor
+/// that the usage application dictionaries with event type View depend on (such as zoom level),
+/// the corresponding dictionaries shall be reapplied". Every group an application names
+/// therefore starts again from `initial` — §8.11.4.5 b)'s state, after `/BaseState` and the
+/// array opposite it — so that the answer is a function of the factors rather than of the order
+/// the zoom steps arrived in.
 ///
-/// **The reason this comment used to give has expired.** It said "a display list has no
-/// magnification: it is built once and rasterised at whatever scale the caller asks for … the
-/// alternative is to thread a scale into `interpret` and rebuild the display list per zoom, which
-/// is a viewer's design question rather than a clause's". The tree answered that question in the
-/// two-hundred-and-seventeenth session: §12.5.3's `NoZoom` threads exactly such a scale through
-/// `ViewState::magnification`, and `Interpretation::view_dependent` says which pages notice, so
-/// 923 of the 974 corpus documents never re-interpret on a zoom (ADR 0168). §8.11.4.5 states the
-/// obligation that would follow — "[w]henever there is a change to a factor that the usage
-/// application dictionaries with event type View depend on (such as zoom level), the
-/// corresponding dictionaries shall be reapplied".
+/// `overridden` is the exception the same clause writes: "[m]anual changes shall override the
+/// states that were set automatically. The states of these groups remain overridden and shall
+/// not be readjusted based on usage application dictionaries with event type View as long as the
+/// document is open". [`OptionalContent::apply`] is where a group joins that set.
 ///
-/// **What holds it is that nothing asks.** `examples/oc_usage_census` reads every configuration's
-/// `/AS` in all 974 corpus documents: 31 state `/OCProperties`, **six** state a usage application
-/// dictionary at all, and the categories they name are `View` (6), `Print` (6) and `Export` (5)
-/// — **no `Zoom`, no `User`, no `Language` anywhere**. So the magnification would decide nothing
-/// on any document anyone has, and building the reapplication would be shipping a path nobody
-/// takes. The measurement is what makes that a decision rather than an omission, and a document
-/// that named `Zoom` would make it work to do (the three-hundred-and-twenty-fourth session).
+/// # The two categories a host answers, and the one it need not
 ///
-/// `User` matches "the user's identification" and `Language` "the language and locale of the
-/// application". Both would be answers about this machine rather than about the document, and
-/// `pdf-font`'s `substitute` module is deliberately the only place in the tree that reads one.
-/// A group whose state either would decide is therefore **left as the configuration set it and
-/// named in a report**, rather than switched off on the clause's "otherwise OFF" — which would
-/// hide content on the strength of a question nobody asked. No corpus document uses either.
-fn apply_auto_states(
-    document: &Document,
-    configuration: &Dictionary,
+/// `Zoom` is answered at the magnification the page is being drawn at, which `ViewState` has
+/// carried since §12.5.3's `NoZoom` needed it (ADR 0168), and at 1.0 — the size a page is drawn
+/// at when nothing states otherwise — where no caller has said.
+///
+/// `User` and `Language` are questions about this processor, and [`Audience`] is where a host
+/// answers them. With an answer, §8.11.4.4's own sentences decide; with none, the category is
+/// [`Recommendation::Unanswerable`], the configuration's state stands and the page reports it.
+/// **That is the clause's own division rather than a departure from it.** Of `User` it writes
+/// "[i]f there is an exact match, the ON state shall be used; otherwise OFF shall be used" —
+/// and "otherwise" is the second branch of a *comparison with the user's identification*, not a
+/// verdict on there being nobody to compare with. So a host that says who is reading gets the
+/// OFF, and a machine that has not been told anything is outside both branches: switching a
+/// group off there would hide content on the strength of a question nobody asked.
+fn apply_view(
+    applications: &[ViewApplication],
+    initial: &BTreeMap<ObjectId, bool>,
+    overridden: &BTreeSet<ObjectId>,
     states: &mut BTreeMap<ObjectId, bool>,
+    magnification: f32,
+    audience: &Audience,
 ) -> Vec<&'static str> {
-    /// The magnification a page is drawn at when nothing states one; see above.
-    const MAGNIFICATION: f32 = 1.0;
-
     let mut unresolved: Vec<&'static str> = Vec::new();
-    let auto = document.get_key(configuration, "AS");
-    let Some(applications) = auto.as_array() else {
-        // "If no AS entry is present, states shall not be automatically adjusted based on
-        // usage information."
-        return unresolved;
-    };
 
     for application in applications {
-        let application = document.resolve(application);
-        let Some(application) = application.as_dict() else {
-            continue;
-        };
-        if document
-            .get_key(application, "Event")
-            .as_name()
-            .map(|name| name.as_bytes().to_vec())
-            .as_deref()
-            != Some(b"View")
-        {
-            continue;
+        for (group, _) in &application.groups {
+            if !overridden.contains(group)
+                && let Some(was) = initial.get(group)
+                && let Some(entry) = states.get_mut(group)
+            {
+                *entry = *was;
+            }
         }
-        let categories: Vec<Vec<u8>> = document
-            .get_key(application, "Category")
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| {
-                        document
-                            .resolve(item)
-                            .as_name()
-                            .map(|n| n.as_bytes().to_vec())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if categories.is_empty() {
-            continue;
-        }
+    }
 
-        for group in listed(document, application, "OCGs") {
-            // Adjusted, never added, for the same reason the `/ON` and `/OFF` arrays are.
-            if !states.contains_key(&group) {
+    for application in applications {
+        let language = language_recommendations(application, audience.language.as_deref());
+        for (group, usage) in &application.groups {
+            if overridden.contains(group) {
                 continue;
             }
-            let dictionary = document.get(group);
-            let Some(dictionary) = dictionary.as_dict() else {
-                continue;
-            };
-            let usage = document.get_key(dictionary, "Usage");
-            let usage = usage.as_dict().cloned().unwrap_or_default();
-
             let mut recommended = Some(true);
-            for category in &categories {
-                match recommendation(document, &usage, category, MAGNIFICATION) {
+            for category in &application.categories {
+                let answer = match (category, &language) {
+                    (Category::Language, None) => Recommendation::Unanswerable("Language"),
+                    (Category::Language, Some(verdicts)) => {
+                        // "All other groups shall receive an OFF recommendation."
+                        if verdicts.contains(group) {
+                            Recommendation::On
+                        } else {
+                            Recommendation::Off
+                        }
+                    }
+                    _ => recommendation(*category, usage, magnification, &audience.reader),
+                };
+                match answer {
                     // `On`, and `Unchanged` for a `Print` category with no `/PrintState`,
                     // both leave the running AND alone: the clause's test is "if all the
                     // entries yield a recommended state of ON", and neither yields OFF.
@@ -983,7 +1394,7 @@ fn apply_auto_states(
                 }
             }
             if let Some(state) = recommended
-                && let Some(entry) = states.get_mut(&group)
+                && let Some(entry) = states.get_mut(group)
             {
                 // The AND across dictionaries: a group already switched off by an earlier
                 // usage application dictionary stays off.
@@ -995,79 +1406,112 @@ fn apply_auto_states(
     unresolved
 }
 
+/// §8.11.4.4's `Language` rule, which is stated over a whole `/OCGs` list at once.
+///
+/// > If an exact match to the language and locale is found among the Lang entries of the
+/// > optional content groups in the usage application dict ionary's OCGs list, all groups that
+/// > have exact matches shall receive an ON recommendation. If no exact match is found, but a
+/// > partial match is found (that is, the language matches but not the locale), all partially
+/// > matching groups that have Preferred entries with a value of ON shall receive an ON
+/// > recommendation. All other groups shall receive an OFF recommendation.
+///
+/// The answer is therefore a property of the *list* and not of one group, which is why this is
+/// computed per application rather than inside [`recommendation`]. `None` where the host has
+/// said no language: there is nothing to find a match against, and the clause's three cases all
+/// begin with one.
+///
+/// Comparison is ASCII case-insensitive on §14.9.2.2's authority — "all language tags shall be
+/// treated as case-insensitive" — and a partial match is the primary language subtag alone,
+/// which is what "the language matches but not the locale" names.
+fn language_recommendations(
+    application: &ViewApplication,
+    language: Option<&str>,
+) -> Option<BTreeSet<ObjectId>> {
+    let wanted = language?;
+    // §14.9.2.2: the empty text string "indicate[s] that the language is unknown", so a host
+    // that supplied one has not named a language to match.
+    if wanted.is_empty() {
+        return None;
+    }
+    let primary = |tag: &str| tag.split('-').next().unwrap_or(tag).to_owned();
+    let wanted_primary = primary(wanted);
+
+    let tags: Vec<(ObjectId, &str, bool)> = application
+        .groups
+        .iter()
+        .filter_map(|(group, usage)| {
+            let (tag, preferred) = usage.language.as_ref()?;
+            (!tag.is_empty()).then_some((*group, tag.as_str(), *preferred))
+        })
+        .collect();
+
+    let exact: BTreeSet<ObjectId> = tags
+        .iter()
+        .filter(|(_, tag, _)| tag.eq_ignore_ascii_case(wanted))
+        .map(|(group, _, _)| *group)
+        .collect();
+    if !exact.is_empty() {
+        return Some(exact);
+    }
+    Some(
+        tags.iter()
+            .filter(|(_, tag, preferred)| {
+                *preferred && primary(tag).eq_ignore_ascii_case(&wanted_primary)
+            })
+            .map(|(group, _, _)| *group)
+            .collect(),
+    )
+}
+
 /// What one of Table 100's categories recommends for a group.
 enum Recommendation {
     On,
     Off,
     /// `Print` with no `/PrintState`: "the state … shall be left unchanged".
     Unchanged,
-    /// A category this processor cannot answer; see [`apply_auto_states`].
+    /// A category this processor cannot answer; see [`apply_view`].
     Unanswerable(&'static str),
 }
 
-/// §8.11.4.4's per-category rule, for one group's usage dictionary.
+/// §8.11.4.4's per-category rule, for one group's resolved usage dictionary.
+///
+/// [`Category::Language`] is not answered here: its rule is stated over the whole `/OCGs` list,
+/// and [`language_recommendations`] is where that lives.
 fn recommendation(
-    document: &Document,
-    usage: &Dictionary,
-    category: &[u8],
+    category: Category,
+    usage: &Usage,
     magnification: f32,
+    reader: &Reader,
 ) -> Recommendation {
-    let state = |key: &str, entry: &str| {
-        let dict = document.get_key(usage, key);
-        let dict = dict.as_dict().cloned().unwrap_or_default();
-        document
-            .get_key(&dict, entry)
-            .as_name()
-            .map(|name| name.as_bytes().to_vec())
-    };
     // Only `OFF` recommends off. A name that is not `ON`, and an absent entry, both leave the
     // running AND alone: the clause's rule is "if all the entries yield a recommended state of
     // ON", and an entry the usage dictionary does not have yields none.
-    let on_or_off = |value: Option<Vec<u8>>| {
-        if value.as_deref() == Some(b"OFF") {
-            Recommendation::Off
-        } else {
+    let on_or_off = |on: bool| {
+        if on {
             Recommendation::On
+        } else {
+            Recommendation::Off
         }
     };
 
     match category {
-        b"View" => on_or_off(state("View", "ViewState")),
-        b"Export" => on_or_off(state("Export", "ExportState")),
-        b"Print" => match state("Print", "PrintState") {
-            None => Recommendation::Unchanged,
-            value => on_or_off(value),
+        Category::View => on_or_off(usage.view),
+        Category::Export => on_or_off(usage.export),
+        Category::Print => usage.print.map_or(Recommendation::Unchanged, on_or_off),
+        Category::Zoom => usage.zoom.map_or(Recommendation::On, |range| {
+            // "greater than or equal to min and less than max".
+            on_or_off(magnification >= range.low && magnification < range.high)
+        }),
+        Category::User => match &usage.user {
+            None => Recommendation::On,
+            Some((kind, names)) => match reader.known_as(*kind) {
+                // Nobody has said who is reading, under the type this group asks about.
+                [] => Recommendation::Unanswerable("User"),
+                held => on_or_off(names.iter().any(|name| held.contains(name))),
+            },
         },
-        b"Zoom" => {
-            let zoom = document.get_key(usage, "Zoom");
-            let Some(zoom) = zoom.as_dict() else {
-                return Recommendation::On;
-            };
-            let bound =
-                |key: &str, default: f32| {
-                    document.get_key(zoom, key).as_number().map_or(default, |value| {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "a magnification outside f32's range is not a magnification"
-                    )]
-                    {
-                        value as f32
-                    }
-                })
-                };
-            // "greater than or equal to min and less than max", with Table 100's defaults of
-            // 0 and infinity.
-            let (low, high) = (bound("min", 0.0), bound("max", f32::INFINITY));
-            if magnification >= low && magnification < high {
-                Recommendation::On
-            } else {
-                Recommendation::Off
-            }
-        }
-        b"User" => Recommendation::Unanswerable("User"),
-        b"Language" => Recommendation::Unanswerable("Language"),
-        // Table 101 requires each name to correspond to a Table 100 entry; one that does not
-        // corresponds to no usage entry, so it recommends nothing.
-        _ => Recommendation::On,
+        // Answered by the caller, and reached only if one forgot to.
+        Category::Language => Recommendation::Unanswerable("Language"),
+        Category::Unstated => Recommendation::On,
     }
 }
