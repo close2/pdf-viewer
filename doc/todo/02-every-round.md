@@ -850,6 +850,11 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    hold**, never on `pgrep -f` or a `ps` match of your own command line, which contains the
    pattern it is searching for and never goes empty (`doc/todo/02` §2's third witness, and round
    899's deadlock in the other direction).
+   And **every heavy walk goes behind one lock**: `RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock
+   tools/bounded.sh -- cargo test …` for `raster_golden`, the oracle, every corpus walk, every census
+   over the crawl, `callgrind` — one on the machine at a time across the batch, never two of a
+   round's own at once. Six rounds and a merge walked the corpus concurrently on 2026-09-15 and
+   the process was killed; `tools/batch.sh gates` takes the same lock.
    Take from both denominators: four slots on ledger rows, one on what the corpus
    names, one on instruments — and a sweep's count is not a finding until ten of its hits have
    been read against the standard.
@@ -878,7 +883,16 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    reading…") is the round's *first* message, not its last act. The six rounds of sessions
    1044–1049 died with 967 insertions across 21 files, a finished record, an ADR and an
    unbuildable crate in the worktree. Before relaunching: `git -C /home/AI/pdf-viewer-rounds
-   status --short` and `cargo check --workspace --all-targets`. Then relaunch the *same*
+   status --short` and `cargo check --workspace --all-targets`; and `ps -eo pid,etime,args | grep -E
+   'xargs|bounded.sh|examples/'` for **launchers the dead process left running** — three `xargs`
+   feeders of a crawl census outlived the 2026-09-15 crash and kept starting a pre-fix binary
+   that leaked a zombie per document until the scope's `pids.max` refused every fork; stop them by
+   pid before anything is resumed. If the harness reports the
+   rounds as *stopped* with their ids and transcripts saved (batch fifteen, 2026-09-15), resume
+   each by message rather than by a new brief — "the process exited; your files on disk are …;
+   check `git diff` on your paths, rebuild, finish the contract as briefed" — because a resumed
+   round keeps its whole context and a relaunched one has to re-read its predecessor. Only where
+   a resume is impossible, relaunch the *same*
    contracts, and message each new round the list of its predecessor's files — "you own it:
    read it, keep what is right, finish or revert" — naming the crate that does not build and
    which round owns it. Each resumed round read its predecessor against the clause and found

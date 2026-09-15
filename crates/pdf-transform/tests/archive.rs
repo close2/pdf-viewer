@@ -2567,6 +2567,163 @@ fn a_code_whose_glyph_name_is_nobodys_refuses_rather_than_inventing_a_meaning() 
     );
 }
 
+/// A PDF/A-2 fixture whose one font is a Type 3 calling its single glyph `name`.
+///
+/// Drawing code 0x41, with a `/ToUnicode` `CMap` that states U+0000 for it — the placeholder
+/// ISO 19005-2 section 6.2.11.7.2's last sentence forbids, and the only requirement the fixture
+/// fails. §9.6.4 requires the `/Encoding` of a Type 3 font to be a dictionary whose
+/// `/Differences` array describes the whole encoding, so the array below *is* the glyph
+/// selection §9.10.2's second method asks about.
+///
+/// The glyph procedure opens with `d1`, which §9.6.4 makes a declaration of the glyph's width
+/// and bounding box and after which "colour operators shall be ignored" — so the procedure
+/// states no colour space and section 6.2.4's rules have nothing to catch. The page selects a
+/// `CalGray` for the same reason [`a_font_whose_cmap_states`] does.
+fn a_type_three_font_naming(name: &str) -> Vec<u8> {
+    let glyph = b"1000 0 0 0 1000 1000 d1\n0 0 1000 1000 re f\n".to_vec();
+    let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CMapName /Test def\n/CMapType 2 def\n\
+         1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+         1 beginbfchar\n<41> <0000>\nendbfchar\n\
+         endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] \
+             /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 7 0 R /Encoding 8 0 R /FirstChar 65 \
+             /LastChar 65 /Widths [1000] /Resources << >> /ToUnicode 10 0 R >>"
+                .to_owned(),
+            format!("<< /{name} 9 0 R >>"),
+            format!("<< /Type /Encoding /Differences [65 /{name}] >>"),
+        ],
+        binary_objects: vec![
+            stream(&format!("/Length {}", glyph.len()), &glyph),
+            stream(&format!("/Length {}", cmap.len()), cmap.as_bytes()),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_type_three_fonts_differences_array_is_the_glyph_selection_the_cmap_is_derived_from() {
+    // ISO 19005-2 section 6.2.11.7.2's second exemption names Type 3 beside Type 1, and for the
+    // same reason: both select a glyph by name. §9.6.4 makes a Type 3 glyph a `/CharProcs`
+    // content stream rather than a program, so there is no font program to load — the name is in
+    // the `/Differences` array instead, and `/A` is a name the Adobe Glyph List answers U+0041
+    // for. Nothing is guessed: both halves are tables the standard prints (ADR 1115).
+    let source = a_type_three_font_naming("A");
+    let (report, output) = convert(&source, Target::Two(Level::U), Authorisations::default());
+    let decided = decision(&report, "fonts/to-unicode-values-are-usable");
+    assert_eq!(
+        decided.rewrite(),
+        Some(Rewrite::ToUnicode),
+        "a Type 3 font's own encoding names its glyph, so the CMap derives: {decided:?}"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::U)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    let derived = derived_cmap(&output);
+    assert!(
+        derived.contains("<41>") && derived.contains("<0041>"),
+        "the derived CMap maps the drawn code to the character its glyph name stands for: \
+         {derived}"
+    );
+}
+
+#[test]
+fn a_type_three_font_is_refused_for_its_unlisted_name_rather_than_for_being_unloadable() {
+    // The control for the test above, and the sentence is what it is about. A Type 3 font is one
+    // `pdf_font` refuses to load at all, so a converter that reached for a `LoadedFont` first
+    // told every one of them that its font could not be read — which is true of the program and
+    // says nothing about the file. What is true of *this* file is that `/g4711` is a subsetter's
+    // private label, in neither list ISO 19005-2 section 6.2.11.7.2's second exemption names.
+    let source = a_type_three_font_naming("g4711");
+    let row = "fonts/to-unicode-values-are-usable";
+    let (report, output) = convert(&source, Target::Two(Level::U), Authorisations::default());
+    let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, row) else {
+        panic!(
+            "a private glyph name derives nothing: {:?}",
+            decision(&report, row)
+        );
+    };
+    assert!(
+        because.contains("in neither the Adobe Glyph List"),
+        "and the refusal names the absence in the file rather than one in this program: {because}"
+    );
+    assert!(
+        output.is_none(),
+        "and no file is written wearing a claim it has not earned"
+    );
+}
+
+#[test]
+fn a_composite_font_is_refused_for_its_kind_rather_than_for_a_missing_glyph_name() {
+    // The `Identity` ordering is none of the four character collections ISO 19005-2 section
+    // 6.2.11.7.2's third exemption names, so this font needs a `/ToUnicode` CMap and has none.
+    // It cannot have one derived: §9.7.4.2 makes its codes select a CID, which is an index into
+    // the glyphs of the font that defined it and says nothing about any character.
+    //
+    // **The sentence is what this test is for.** The font shows CID 1, whose code fits in a
+    // byte, so a rule written about the *width* of a code lets a composite font through to a
+    // refusal about glyph names — a construction the font does not have at all. The kind is
+    // asked of the font instead (ADR 1115).
+    let source = Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <0001> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /Identity-H \
+             /DescendantFonts [7 0 R] >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans /CIDSystemInfo \
+             << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R \
+             /DW 1000 /W [1 [0]] /CIDToGIDMap /Identity >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 4 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 9 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::part_two()
+    }
+    .build();
+    let row = "fonts/to-unicode-present";
+    let (report, output) = convert(&source, Target::Two(Level::U), Authorisations::default());
+    let Decision::Refused(Because::NotBuiltYet(because)) = decision(&report, row) else {
+        panic!(
+            "a CID says nothing about a character: {:?}",
+            decision(&report, row)
+        );
+    };
+    assert!(
+        because.contains("this font is a composite one"),
+        "and the refusal is about the font's kind: {because}"
+    );
+    assert!(
+        !because.contains("selects its glyph without a name"),
+        "rather than about a glyph name a composite font never had: {because}"
+    );
+    assert!(output.is_none(), "and nothing is written");
+}
+
 /// The `/ToUnicode` `CMap` the font in a converted output names, as text.
 fn derived_cmap(output: &[u8]) -> String {
     let held = Document::open_with_limits(output.to_vec(), Limits::DEFAULT).expect("it opens");

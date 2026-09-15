@@ -1042,32 +1042,26 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         .filter(|name| !specifications.iter().any(|present| present == *name))
         .collect();
     if absent.is_empty() {
-        // A capability count may only rise, and each of these is one line of `report` above. Each
-        // prints its floor beside that count, so the distance between them — which is the fall
-        // the ratchet would admit in silence — is on the run rather than in the source (ADR 1075).
-        // 107 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 108 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
-            108,
+            109,
         );
-        // 2407 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 2444 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
-            2444,
+            2463,
         );
-        // 216_289 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 219_440);
+        // 219440 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 351_324);
         // 665 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
         // specification fetched for reading by round 1075, joined the population the way
         // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
@@ -1077,77 +1071,66 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.substituted,
             670,
         );
-        // 11_722 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
-        gate_ratchet::floor("elements placed, whole population", census.placed, 11_815);
-        // 188_198 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 11815 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        gate_ratchet::floor("elements placed, whole population", census.placed, 13_221);
+        // 190540 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            190_540,
+            191_815,
         );
-        // 23_032 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 23183 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
-            23_183,
+            36_388,
         );
-        // 33_729 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 33931 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
-            33_931,
+            47_725,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
-        // 10_905 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 10998 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
-            10_998,
+            11_258,
         );
-        // 110_478 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
+        // 112295 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            112_295,
+            113_098,
         );
-        // 885 until the merge of sessions 1068-1073, when round 1071 fetched ETSI EN 319 122-1 and -2 into
-        // `doc/`: two untagged specification PDFs, two page-ones answering the honest empty tree. The
-        // comment that stood here first blamed open-path changes; the merge of 1074-1079 found the
-        // population two short because those PDFs had been written into the worktree's `doc/` and
-        // died with it — a fetched specification lives in the main checkout's `doc/`, and
-        // `tools/batch.sh close` now refuses a worktree holding one.
-        // 195_212 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
-        gate_ratchet::floor("lines, whole population", census.lines, 198_244);
-        // 5_196_091 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
-        // specification fetched for reading by round 1075, joined the population the way
-        // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
-        // direction this floor exists to admit.
-        gate_ratchet::floor("characters, whole population", census.characters, 5_291_277);
+        // 198244 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        gate_ratchet::floor("lines, whole population", census.lines, 199_568);
+        // 5291277 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        gate_ratchet::floor("characters, whole population", census.characters, 5_354_660);
+        // 887 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
+        // specification fetched for reading by round 1098, joined the population the way every
+        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            887,
+            888,
         );
     } else {
         println!(

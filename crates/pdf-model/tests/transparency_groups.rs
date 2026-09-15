@@ -59,7 +59,8 @@ fn fixture(group: &str, bbox: &str, form: &str, page: &str) -> Vec<u8> {
          /GN << /BM /Screen >> \
          /GM << /SMask << /S /Luminosity /G 6 0 R >> >> \
          /GA << /AIS true /SMask << /S /Luminosity /G 6 0 R >> >> \
-         /GT << /AIS true >> >> \
+         /GT << /AIS true >> \
+         /GBF << /BM /Multiply /AIS false >> >> \
          /Shading << /Sh 8 0 R >> \
          /XObject << /Fm 5 0 R /In 7 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
@@ -1076,6 +1077,68 @@ fn a_stated_shape_knocks_the_element_under_it_out_entirely() {
         "a nested group's shape is where it marks, not the alpha it is painted at"
     );
     assert_eq!(pixel(&nested, 20, 80), [255, 0, 0, 255]);
+}
+
+/// §11.6.4.3's flag reinterprets a mask and two constants, so where a group states neither
+/// it describes no difference and `/AIS` stated both ways refuses nothing.
+///
+/// The flag's whole subject is which quantity two inputs are:
+///
+/// > The mask may serve as a source of either shape ( fm ) or opacity ( qm ) values, depending
+/// > on the setting of the alpha source parameter in the graphics state
+///
+/// and §11.6.4.4 says the same of `CA` and `ca`. §11.6.4.2 fixes the third input outright —
+/// "All elementary objects shall have an intrinsic opacity q j of 1.0 everywhere" — so an
+/// element that states neither a mask nor a constant has one shape under both readings, and a
+/// group of such elements is described by *both* where it used to be described by neither.
+///
+/// The fixture states the flag both ways while painting two opaque fills, the upper under
+/// `/BM /Multiply` so that §11.4.6's rule can change a pixel at all (`knockout_can_show`).
+/// The numbers are the clause's. At the overlap the knockout group composites the topmost
+/// element with the group's *initial* backdrop, which §11.4.5 makes transparent here, and
+/// §11.3.6 says what a mode does against it — "[a]n alpha value of αs = 0.0 or αb = 0.0
+/// results in no blend mode effect" — so the blue arrives whole: `(0, 0, 255)`. Without the
+/// knockout the blue multiplies against the red under it, `(1 × 0, 0 × 0, 0 × 1)`, which is
+/// black.
+///
+/// **Calibrated by planting** `AlphaSourcesSeen::settled_over` back to `settled`: the group is
+/// then refused, the overlap reads `(0, 0, 0)` and the page reports. The second fixture is
+/// the control that must *stay* refused — one fill under `/GS`, which states `ca 0.5`, is an
+/// element the flag genuinely reinterprets — and it is what says the narrowing is the clause's
+/// and not a blanket.
+#[test]
+fn ais_stated_both_ways_refuses_nothing_the_flag_reinterprets_nothing_in() {
+    let knockout = "/Group << /S /Transparency /I true /K true >>";
+    let opaque = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
+        "/GT gs 1 0 0 rg 10 10 50 50 re f /GBF gs 0 0 1 rg 30 30 50 50 re f",
+        "/Fm Do",
+    ));
+    assert!(opaque.is_complete(), "{:?}", opaque.unsupported);
+    // Page (40, 40) is inside both squares; device row 100 − 40 = 60.
+    assert_eq!(
+        pixel(&opaque, 40, 60),
+        [0, 0, 255, 255],
+        "the topmost element composites with the group's transparent initial backdrop"
+    );
+    assert_eq!(pixel(&opaque, 20, 80), [255, 0, 0, 255]);
+    assert_eq!(pixel(&opaque, 70, 30), [0, 0, 255, 255]);
+
+    // The control: the same two fills, the lower painted under `/GS`'s `ca 0.5`, which is
+    // §11.6.4.4's constant — shape under one reading and opacity under the other. No single
+    // reading describes this group's content, and it keeps §11.4.6's report.
+    let constant = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
+        "/GT gs /GS gs 1 0 0 rg 10 10 50 50 re f /GBF gs 0 0 1 rg 30 30 50 50 re f",
+        "/Fm Do",
+    ));
+    let refusal = format!("{:?}", constant.unsupported);
+    assert!(
+        refusal.contains("/AIS was stated both ways"),
+        "the control must keep the report: {refusal}"
+    );
 }
 
 /// §11.4.4's NOTE 5: a non-isolated group whose result composites trivially is not built.

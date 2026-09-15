@@ -133,7 +133,7 @@ impl Interpreter<'_> {
                 let parts = self.list.split_off_commands(mark);
                 if let Some(group) = implicit_knockout_group(
                     &parts,
-                    self.alpha_sources.settled(),
+                    self.alpha_sources,
                     self.inside_knockout,
                     self.image_masks.shape_masks(),
                 ) {

@@ -73,7 +73,7 @@ use pdf_model::submission::{Method, Submission};
 use pdf_signature::trust::Supply;
 use pdf_signature::verdict::Acceptance;
 use pdf_signature::x509::Instant;
-use viewer_core::{Extraction, ReferenceFiles, TrustPolicy};
+use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
 
 /// The word a person types to turn a document's restrictions off, in every host that has a
 /// command line.
@@ -244,6 +244,29 @@ pub fn resolve_import(directory: Option<&Path>, name: &str) -> Result<PathBuf, I
 pub fn read_import(directory: Option<&Path>, name: &str) -> Result<Vec<u8>, String> {
     let path = resolve_import(directory, name).map_err(|refusal| refusal.to_string())?;
     std::fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+/// Which clause asked for a file, in the word a host prints in front of its sentence.
+///
+/// **One function rather than a literal at each call site**, for the reason [`refused`] records:
+/// three windows each wrote `"import-data: …"` by hand, so the day a second purpose arrived every
+/// one of them would have told a person that a `/GoToE` was a form import. The word is the
+/// action's own name in Table 201, which is what a person can look up.
+#[must_use]
+pub const fn asked_for(purpose: Purpose) -> &'static str {
+    match purpose {
+        Purpose::ImportData => "import-data",
+        Purpose::TargetRoot => "GoToE",
+    }
+}
+
+/// What a host says when it will not supply a file a document named.
+///
+/// The refusal is the filesystem's or [`resolve_import`]'s; what this adds is *which* clause is
+/// going without, because a person watching a status line sees only the sentence.
+#[must_use]
+pub fn supply_note(purpose: Purpose, refusal: &str) -> String {
+    format!("{}: declined — {refusal}", asked_for(purpose))
 }
 
 /// Whether §12.7.6.2's composed submission may be **transmitted** from this machine.

@@ -61,6 +61,7 @@ pub use crate::finding::{Finding, Findings, Where};
 pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
+pub use crate::table::fonts::type3_encoding;
 pub use crate::table::interaction::{
     ForbiddenSubtype, MissingAppearance, annotation_subtype_permitted,
     annotations_of_a_forbidden_subtype, annotations_without_an_appearance,

@@ -13,6 +13,7 @@
 use pdf_signature::signature::{
     PadesDeparture, PadesProfile, ReferenceDigest, SigningCertificateBinding,
 };
+use pdf_signature::verdict::{BestSignatureTime, Proof};
 use pdf_syntax::Document;
 
 /// Everything worth saying about a document the moment it opens.
@@ -472,31 +473,24 @@ fn signatures(document: &Document, trust: &crate::TrustPolicy, notes: &mut Vec<S
         // §12.8.3.4.5 (b) names three ways a signature may be verified against a time other than
         // the current one — the security store, a document timestamp, and "a signature timestamp
         // … present in the signature as an unsigned attribute" — and states no order among them.
-        // §12.8.4.2 settles the second and §12.8.3.4.8's first sentence settles the third, so the
-        // chain is asked first because it is a statement about the *document* and the attribute
-        // second because it is a statement about one signature. Both are instants only once an
-        // authority is established, which is a host's anchor away (ADR 1039).
-        let established = established_over(&chain, index)
-            .map(|at| (at, "a document timestamp over it established (§12.8.4.2)"))
-            .or_else(|| {
-                signature_timestamps_instant(
-                    signature,
-                    &reading.anchors,
-                    &material,
-                    trust.anchors.at(),
-                )
-                .map(|at| {
-                    (
-                        at,
-                        "this signature's own timestamp attribute established (§12.8.3.4.8)",
-                    )
-                })
-            });
+        // Which of two established instants to take is not a question of order at all: ETSI
+        // EN 319 102-1 clause 5.5.4 step 3) b) takes the *earliest*, because what is wanted is the
+        // earliest moment the signature is proven to have existed. Both are instants only once an
+        // authority is established, which is a host's anchor away (ADR 1039), and the reader's
+        // clock is the ceiling neither may exceed.
+        let mut when = BestSignatureTime::now(trust.anchors.at());
+        if let Some(at) = established_over(&chain, index) {
+            when = when.proven_at(at, Proof::ADocumentTimestamp);
+        }
+        if let Some(at) =
+            signature_timestamps_instant(signature, &reading.anchors, &material, trust.anchors.at())
+        {
+            when = when.proven_at(at, Proof::ThisSignaturesTimestampAttribute);
+        }
         let asked = Asked {
             anchors: &reading.anchors,
             material: &material,
-            at: established.map_or_else(|| trust.anchors.at(), |(at, _)| at),
-            from_a_token: established.map(|(_, source)| source),
+            when,
             acceptance: trust.acceptance,
             timestamps,
         };
@@ -552,12 +546,11 @@ struct Asked<'a> {
     /// §12.8.4's CRLs and OCSP responses, out of this document.
     material: &'a pdf_signature::revocation::Material<'a>,
     /// Section 6.1.1's input (b), and which instant it is depends on the document.
-    at: pdf_signature::x509::Instant,
-    /// Where [`Self::at`] came from, where it is not the host's clock — the sentence naming it.
     ///
-    /// §12.8.3.4.5 (b) admits three sources for a past instant and this says which one answered,
-    /// because a reader told a path was validated is owed *as of when* and *on whose word*.
-    from_a_token: Option<&'static str>,
+    /// ETSI EN 319 102-1 clause 5.5.4's best-signature-time: the reader's clock unless a token
+    /// proved an earlier moment. It carries which token did, because a reader told a path was
+    /// validated is owed *as of when* and *on whose word*.
+    when: BestSignatureTime,
     /// What the host will accept where the material answers nothing.
     acceptance: pdf_signature::verdict::Acceptance,
     /// What §12.8.5's chain contributes, computed once for the document.
@@ -754,7 +747,9 @@ fn security_store(
             .map(pdf_signature::timestamp::token_of);
         notes.push(match inner {
             Some(Ok(info)) => format!(
-                "the §12.8.4.4 validation information for signature {} was recorded at {}, by a                  timestamp token (Table 262's TS). When that was is the token's claim, not this                  program's finding",
+                "the §12.8.4.4 validation information for signature {} was recorded at {}, by a \
+                 timestamp token (Table 262's TS). When that was is the token's claim, not this \
+                 program's finding",
                 vri.signature_digest,
                 String::from_utf8_lossy(info.gen_time_as_written)
             ),
@@ -1043,25 +1038,28 @@ fn about_one(
         // **Table 255's `/V` is the file saying which part of the validation matters**, and it is
         // the one sentence of that entry addressed to whoever validates: "[t]he value is 1 if the
         // Reference dictionary shall be considered critical to the validation of the signature"
-        // (§12.8.1). This program evaluates no transform method — §12.8.2.2.2's comparison of two
-        // revisions is what that would take and the ledger records it as not done — so on a file
-        // that writes `/V 1` the closing paragraph's "answers two of the three questions" is
-        // weaker than it sounds, and the file itself is what says so. The condition is the
-        // entry's own and nothing is added to it (trap 11); `/V` absent is the table's default 0.
+        // (§12.8.1). §12.8.2.2.2's and §12.8.2.3's second step is taken since the
+        // one-thousand-and-ninetieth session (ADR 1104) and `modifications` is where a reader is
+        // told what it came to — so what this sentence says is that the file asked for that answer
+        // to count, and where it does. The condition is the entry's own and nothing is added to it
+        // (trap 11); `/V` absent is the table's default 0.
         if signature.reference_is_critical() {
             notes.push(
                 "that signature states /V 1, so this file requires its signature reference \
-                 dictionary to be considered critical to validating it (Table 255) — and this \
-                 program evaluates no transform method, so nothing said above took it into account"
+                 dictionary to be considered critical to validating it (Table 255) — what the \
+                 transform method's own second step came to is said separately below"
                     .to_owned(),
             );
         }
         // **Table 256's `/DigestMethod` is the other entry of that family a reader is owed**, and
         // it names the function rather than the fact: "[a] name identifying the algorithm that
         // shall be used when computing the digest if not specified in the certificate". The digest
-        // it parameterises is §12.8.2's modification analysis and not the byte range digest, so a
-        // file that states one has named the function for a comparison this program does not make
-        // — which is worth a sentence for the same reason `/V 1` is, and for no other. Two
+        // it parameterises is §12.8.2's modification analysis and not the byte range digest, and
+        // this program's comparison of the two revisions digests nothing: ADR 1043 section 2
+        // settles an object's identity from where both cross-reference tables place it, on the byte
+        // range digest's own warrant. So a file that states one has named a function that answers
+        // a question already answered — worth a sentence for the reason `/V 1` is, and for no
+        // other. Two
         // conditions, both the entry's own and neither added to (trap 11): a name outside the six
         // the table admits is the file departing from its value list, and a name inside them is
         // the file parameterising a comparison that is not made. A dictionary stating no
@@ -1096,8 +1094,8 @@ fn about_one(
             notes.push(format!(
                 "that signature's reference dictionary states /DigestMethod {}, which Table 256 \
                  makes the algorithm for computing the digest of its transform method's \
-                 modification analysis — and this program makes no such comparison, so the name \
-                 is read and said rather than acted on",
+                 modification analysis — and this program's comparison places objects rather than \
+                 digesting them, so the name is read and said rather than acted on",
                 stated.join(", ")
             ));
         }
@@ -1147,7 +1145,11 @@ fn about_one(
             if let Some(stamped) = pdf_signature::timestamp::signature_timestamp(&cms) {
                 notes.push(match stamped {
                     Ok(stamp) => format!(
-                        "that signature carries a timestamp of its own (§12.8.3.3.1's unsigned                          signature timestamp attribute, RFC 3161 Appendix A), stating genTime {}.                          The imprint inside it {} the digest of this signature's own bytes.                          Whether the authority that issued it is one to believe is the same                          unanswered question as above",
+                        "that signature carries a timestamp of its own (§12.8.3.3.1's unsigned \
+                         signature timestamp attribute, RFC 3161 Appendix A), stating genTime \
+                         {}. The imprint inside it {} the digest of this signature's own bytes. \
+                         Whether the authority that issued it is one to believe is the same \
+                         unanswered question as above",
                         stamp.claim.stated,
                         if stamp.covers_the_signature {
                             "is"
@@ -1156,7 +1158,8 @@ fn about_one(
                         }
                     ),
                     Err(refusal) => format!(
-                        "that signature states §12.8.3.3.1's signature timestamp attribute and                          this program will not read what is in it: {refusal}"
+                        "that signature states §12.8.3.3.1's signature timestamp attribute and \
+                         this program will not read what is in it: {refusal}"
                     ),
                 });
             }
@@ -1742,24 +1745,32 @@ fn verdicts(
     if asked.anchors.is_empty() {
         return;
     }
-    let trust = signature.trust(asked.anchors, asked.material, asked.at);
+    let trust = signature.trust(asked.anchors, asked.material, asked.when.at());
     let verdict = pdf_signature::verdict::Verdict::of(
         &integrity,
         &authenticity,
         &trust,
         asked.acceptance,
         asked.timestamps,
-        asked.at,
+        asked.when,
     );
-    // Which instant the path was asked about, where it is not simply now: §12.8.4.2's own reason
-    // for a document security store is that a signature outlives its certificate, and a reader
-    // told a path validated is owed *as of when*.
-    let asked_at = asked.from_a_token.map_or_else(String::new, |source| {
-        format!(
-            ", as of {} seconds after the epoch, which {source}",
-            asked.at.unix_seconds()
-        )
-    });
+    // **Which instant the path was asked about, and on whose word** — said whichever answer it is,
+    // because "valid" without it reads as *valid now* and that is the one thing this program never
+    // establishes. §12.8.4.2's own reason for a document security store is that a signature
+    // outlives its certificate, so the instant is what decides whether an expired certificate or a
+    // later revocation stops the word (ETSI EN 319 102-1 clause 5.5.4).
+    let asked_at = format!(
+        ", as of {} seconds after the epoch, which {}",
+        asked.when.at().unix_seconds(),
+        match asked.when.proof() {
+            Proof::ADocumentTimestamp => "a document timestamp over it established (§12.8.4.2)",
+            Proof::ThisSignaturesTimestampAttribute =>
+                "this signature's own timestamp attribute established (§12.8.3.4.8)",
+            // Every other answer, this build's one and any a later one adds: nothing proved the
+            // signature existed earlier, so the instant is simply the clock the host supplied.
+            _ => "is the clock this reader was given, nothing having proven an earlier moment",
+        }
+    );
     notes.push(match &verdict {
         pdf_signature::verdict::Verdict::Valid(valid) => format!(
             "that signature is valid: the document has not changed since it was signed, the \
@@ -2509,9 +2520,9 @@ mod tests {
             "one of the three signatures states /V 1: {said:?}"
         );
         assert!(
-            critical[0].contains("this program evaluates no transform method"),
-            "the sentence names what was not done rather than only what the file asked for: \
-             {critical:?}"
+            critical[0].contains("the transform method's own second step came to is said"),
+            "the sentence points at the answer the file asked to be counted, which is made since \
+             ADR 1104: {critical:?}"
         );
     }
 
@@ -2553,8 +2564,9 @@ mod tests {
             "one of the three names a digest the table admits: {said:?}"
         );
         assert!(
-            stated[0].contains("Sha512") && stated[0].contains("makes no such comparison"),
-            "the sentence names the function and what was not done with it: {stated:?}"
+            stated[0].contains("Sha512") && stated[0].contains("places objects rather than"),
+            "the sentence names the function and what this program's comparison does instead: \
+             {stated:?}"
         );
         let outside: Vec<_> = said
             .iter()
@@ -2872,12 +2884,23 @@ mod tests {
             "the third question is asked once somebody names an anchor: {said}"
         );
         assert!(
-            said.contains("not called valid here, and this is the first thing that stopped it"),
+            said.contains("and this is the first thing that stopped it"),
             "{said}"
         );
         assert!(
             said.contains("no certification path from the signer's certificate reaches any anchor"),
             "the corpus's authorities are not this project's to anchor at (trap 8): {said}"
+        );
+        // **And *as of when*, whichever answer it is.** ETSI EN 319 102-1 clause 5.5.4's instant
+        // is the reader's clock unless a token proves an earlier moment, and this document's
+        // tokens prove nothing because no anchor of theirs is supplied — so the sentence names the
+        // clock, which is the answer a reader must not have to assume.
+        assert!(
+            said.contains(
+                "as of 1790812800 seconds after the epoch, which is the clock this \
+                 reader was given, nothing having proven an earlier moment"
+            ),
+            "a verdict is asserted as of an instant and says which: {said}"
         );
         assert!(
             !said.contains("that signature is valid"),

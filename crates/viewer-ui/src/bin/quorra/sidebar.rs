@@ -311,36 +311,11 @@ impl App {
         }
         // Ctrl is a magnification of the *page*, and the sidebar has no scale to change — so a
         // notch over the sidebar still zooms the page, with **no anchor**: there is no point of
-        // the page under the pointer to hold, and `None` is the core's word for that. A step per
-        // notch, and a step per `WHEEL_ZOOM_PIXELS` of a touchpad — the sixteen-pixels-a-line
+        // the page under the pointer to hold, and `None` is the core's word for that. How far a
+        // device has to travel for one step is `zoom_steps`'s; the sixteen-pixels-a-line
         // conversion above is a distance on a list and says nothing about a magnification.
         if self.control {
-            let whole = match delta {
-                winit::event::MouseScrollDelta::LineDelta(_, lines) => {
-                    self.pinch = 0.0;
-                    lines.trunc()
-                }
-                winit::event::MouseScrollDelta::PixelDelta(position) => {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "a scroll delta in pixels, which is tens"
-                    )]
-                    let pixels = position.y as f32;
-                    self.pinch += pixels;
-                    let whole = (self.pinch / WHEEL_ZOOM_PIXELS).trunc();
-                    self.pinch -= whole * WHEEL_ZOOM_PIXELS;
-                    whole
-                }
-            };
-            // `ZOOM_RANGE` spans 0.02 to 64, which is thirty-six steps of 1.25 end to end, so a
-            // bound of sixty-four cannot hide a magnification anybody could have reached — it is
-            // there because a `f32` cast saturates and a device reporting nonsense would
-            // otherwise be a loop of two billion commands.
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "clamped to ±64 on the line above"
-            )]
-            let steps = whole.clamp(-64.0, 64.0) as i32;
+            let steps = zoom_steps(&mut self.zoom_carry, delta);
             let zoom = if steps > 0 { Zoom::In } else { Zoom::Out };
             let at = (!self.over_panel()).then(|| self.on_page(self.cursor));
             for _ in 0..steps.unsigned_abs() {
@@ -379,5 +354,160 @@ impl App {
         } else {
             self.dispatch(Command::Scroll { dx: 0.0, dy: by });
         }
+    }
+}
+
+/// How many whole zoom steps a Ctrl + wheel delta is worth, given what earlier deltas left
+/// unspent in `carry`.
+///
+/// **A `LineDelta` is not a notch.** `winit`'s X11 backend divides an `XInput2` smooth-scroll
+/// valuator by that axis's increment, so a high-resolution wheel or a touchpad in line mode
+/// reports a *fraction* of a line per event. Truncating each event on its own therefore spent
+/// nothing at all: in the trace of 2026-09-15 the device's quantum was about a thirty-seventh of
+/// a line, and 579 Ctrl + wheel events carrying 146.4 lines of travel over seven gestures produced
+/// **one** zoom step. So the fraction is carried and spent when it completes a step — which is
+/// what the pixel arm has always done, and `carry` is in lines for both because a step is a step
+/// however the device measured it (ADR 1118).
+///
+/// `WHEEL_ZOOM_PIXELS` is what converts the one to the other, so a touchpad's fifty pixels stay
+/// one step exactly as before.
+fn zoom_steps(carry: &mut f32, delta: winit::event::MouseScrollDelta) -> i32 {
+    let lines = match delta {
+        winit::event::MouseScrollDelta::LineDelta(_, lines) => lines,
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a scroll delta in pixels, which is tens"
+        )]
+        winit::event::MouseScrollDelta::PixelDelta(position) => {
+            position.y as f32 / WHEEL_ZOOM_PIXELS
+        }
+    };
+    // An accumulator is poisoned permanently by one bad value, which a per-event truncation could
+    // not be, so a device reporting a NaN or an infinity is ignored here rather than added in.
+    if !lines.is_finite() {
+        return 0;
+    }
+    *carry += lines;
+    let whole = carry.trunc();
+    // `ZOOM_RANGE` spans 0.02 to 64, which is thirty-six steps of 1.25 end to end, so a bound of
+    // sixty-four cannot hide a magnification anybody could have reached — it is there because a
+    // `f32` cast saturates and a device reporting nonsense would otherwise be a loop of two
+    // billion commands.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "clamped to ±64 on the line above"
+    )]
+    let steps = whole.clamp(-64.0, 64.0) as i32;
+    // The whole of what `whole` claimed leaves the carry, clamped or not: a nonsense delta is
+    // refused a magnification, not banked for the next event to spend.
+    *carry -= whole;
+    steps
+}
+
+#[cfg(test)]
+mod tests {
+    use winit::dpi::PhysicalPosition;
+    use winit::event::MouseScrollDelta;
+
+    use super::{WHEEL_ZOOM_PIXELS, zoom_steps};
+
+    /// The quantum the mouse in the trace of 2026-09-15 reported, in lines. Every Ctrl + wheel
+    /// delta in that file is a multiple of it.
+    const TRACE_QUANTUM: f32 = 0.026_981_818;
+
+    /// The measurement, before and after, on the trace's own device.
+    ///
+    /// Four lines of travel arrive as 149 events of a thirty-seventh of a line each. The old
+    /// arithmetic truncated each event alone; this replays that here so the two numbers stand
+    /// beside each other in the tree rather than in a record.
+    #[test]
+    fn a_high_resolution_wheel_spends_every_line_it_travels() {
+        let events = 149;
+        let truncated_per_event: i32 = (0..events)
+            .map(|_| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "the old arithmetic, reproduced: a fraction truncates to zero"
+                )]
+                let whole = TRACE_QUANTUM.trunc() as i32;
+                whole
+            })
+            .sum();
+        assert_eq!(truncated_per_event, 0, "before: 4.0 lines bought nothing");
+
+        let mut carry = 0.0;
+        let carried: i32 = (0..events)
+            .map(|_| zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, TRACE_QUANTUM)))
+            .sum();
+        assert_eq!(carried, 4, "after: four lines of travel, four steps");
+    }
+
+    /// A whole notch is still one step on the event that carries it — a classic wheel is not
+    /// made to wait for a second notch.
+    #[test]
+    fn a_whole_notch_is_still_one_step() {
+        let mut carry = 0.0;
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 1.0)),
+            1
+        );
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, -3.0)),
+            -3
+        );
+    }
+
+    /// `WHEEL_ZOOM_PIXELS` of touchpad travel is one step, as it was before the accumulator
+    /// changed units.
+    #[test]
+    fn a_touchpad_still_takes_fifty_pixels_a_step() {
+        let mut carry = 0.0;
+        let tenth = f64::from(WHEEL_ZOOM_PIXELS) / 10.0;
+        let steps: i32 = (0..25)
+            .map(|_| {
+                zoom_steps(
+                    &mut carry,
+                    MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, tenth)),
+                )
+            })
+            .sum();
+        assert_eq!(steps, 2, "two and a half notches of travel is two steps");
+    }
+
+    /// Reversing cancels rather than banking, and a device reporting nonsense neither runs away
+    /// nor poisons the carry for the rest of the session.
+    #[test]
+    fn a_reversal_cancels_and_nonsense_does_not_poison_the_carry() {
+        let mut carry = 0.0;
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 0.9)),
+            0
+        );
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, -0.9)),
+            0
+        );
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 1.0)),
+            1
+        );
+
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 1e9)),
+            64
+        );
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, f32::NAN)),
+            0
+        );
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, f32::INFINITY)),
+            0
+        );
+        assert_eq!(
+            zoom_steps(&mut carry, MouseScrollDelta::LineDelta(0.0, 1.0)),
+            1,
+            "the carry survived the nonsense"
+        );
     }
 }

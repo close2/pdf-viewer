@@ -199,3 +199,15 @@ Read by: a round that writes code, sets or lifts a bound, or takes a dependency.
   and `git restore`: each of them restores a whole file from a state that predates whatever a
   neighbour has written since. The existing rule against `git stash` in this tree is the special
   case; this is the general one.
+
+## A child nobody waits on is a task the cgroup still counts
+
+`std::process::Child` does not wait on drop. A worker dropped alive — a handshake that timed out or
+greeted wrongly, a connection replaced without a `wait` — runs until its pipe closes and then sits
+as a zombie of a parent that never collects it; a zombie holds no memory and one pid, and the pid
+is what the scope's `pids.max` counts. Three crawl censuses leaked ten thousand of them on
+2026-09-15 and every fork in every Konsole tab returned `EAGAIN`, which killed the agent itself.
+The rule: a type that owns a `Child` implements `Drop` as kill-then-wait (`pdf_sandbox::Connection`),
+and a test plants the leak with a worker that stays alive after being refused
+(`crates/pdf-sandbox/tests/reaping.rs`). Watch `ps -eo stat | grep -c ^Z` during any crawl walk.
+

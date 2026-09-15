@@ -1182,10 +1182,23 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 ///
 /// **Substituted metrics, because the file names no usable program** — `issue2391-2.pdf`
 /// (`/Monaco`, no `/Widths`, to 12.58 pt), `issue18099_reduced.pdf` (`/Tahoma`, no `/Widths`,
-/// 1.02 pt), `issue20232.pdf` (no `/BaseFont` at all, fifteen words at 1.20–3.60 pt) and
-/// `TrueType_without_cmap.pdf` (an embedded program with no `cmap`, so each reader repairs the
-/// code-to-glyph route its own way, 4.51 pt) — all *past the horizontal bound alone*, and every
-/// delta grows along the word, which is what advances that differ per glyph look like.
+/// 1.02 pt) and `TrueType_without_cmap.pdf` (an embedded program with no `cmap`, so each reader
+/// repairs the code-to-glyph route its own way, 4.51 pt) — all *past the horizontal bound alone*,
+/// and every delta grows along the word, which is what advances that differ per glyph look like.
+///
+/// **A word box inset the same amount whatever the word is** — `issue20232.pdf`, which states no
+/// `/BaseFont` at all and carries fifteen of the tail's words, more than any other document here.
+/// It sat in the class above on the strength of its 1.20–3.60 pt range, and the per-word deltas
+/// say it is not that mechanism: they do not grow along the word — `инв.` at four characters and
+/// `Копировал` at nine both give **1.20 / 3.60** — the far edge is **three times** the near one on
+/// all fifteen, and the pair appears in one order on the page's horizontal words and the other on
+/// its vertical ones, which is [`PairDelta::in_reading_frame`]'s transposition seen from outside
+/// (`pdftotext -bbox` gives `Копировал` 50.5 × 14.03 pt and `инв.` 14.03 × 18.29 pt on one
+/// unrotated page). A delta that is constant in the word's *length* is a box convention and not an
+/// advance. It stays evidence for the reason the class above does: where a file embeds nothing,
+/// §9.5 NOTE 5 says "the results depend on the availability of fonts in the PDF processor's
+/// environment", so each reader's substitute brings its own side bearings and no clause states
+/// whose.
 ///
 /// **Text set at an angle the frame cannot follow** — `issue1905.pdf` (five oblique map labels,
 /// ≤ 1.00 pt) and `bug1771477.pdf` (a sheared faux-italic `des`, 1.91 pt), *past the horizontal

@@ -487,15 +487,67 @@ pub struct EmbeddedGoTo {
     /// source", where the action names one.
     ///
     /// `None` is the table's own default — "[i]f this entry is absent, the source and target
-    /// share the same root document" — and is the only case this program can perform, because
-    /// any other root is a file on a disk. Named rather than silently ignored.
-    pub root: Option<String>,
+    /// share the same root document" — and is the case this crate can finish on its own, because
+    /// every other root is a file this process has no filesystem to reach. Where the action names
+    /// one, the *name* crosses to whoever opened the document and the bytes come back:
+    /// [`EmbeddedGoTo::target_from_root`] is where the suspended walk resumes.
+    pub root: Option<TargetRoot>,
     /// Table 204's `/NewWindow`.
     ///
     /// The table makes it a *should* and states the fallback: "[i]f this entry is absent, the
     /// interactive PDF processor should act according to its preference." This program has one
     /// window, so its preference is to replace — and it says so rather than pretending.
     pub new_window: Option<bool>,
+}
+
+/// Table 204's `/F`, in whichever of the two forms §7.11 gives a file specification.
+///
+/// **Never a path on this machine.** §7.11.1's specification "shall be" — §7.11.2.1 — a name in
+/// the document's own words, and [`crate::file_spec`] opens nothing; what this carries is what
+/// the *document* wrote, for whoever owns a filesystem to resolve or to refuse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TargetRoot {
+    /// §7.11.2's path form, as the document wrote it.
+    File(String),
+    /// §7.11.5's URL form: "the value of the F entry in that dictionary is not a file
+    /// specification string, but a uniform resource locator (URL) of the form defined in
+    /// Internet RFC 3986".
+    ///
+    /// Resolved against Table 211's `/Base` where the catalog states one, by RFC 3986 section 5's
+    /// reference transformation — the same [`crate::uri::resolve`] §12.6.4.8's action uses. What
+    /// makes that base an action's *and* a specification's is Errata Collection 3's Issue #256,
+    /// `/State` `Review` `Completed`, which says the remaining text of §12.6.4.8 about `/Base`
+    /// and the URI dictionary applies to all relative URIs in a PDF document rather than only to
+    /// URI actions as the clause currently implies. §12.6.4.8's ledger row carries the erratum's
+    /// own words; they are not this standard's text, so they are not a blockquote here.
+    Url {
+        /// The URL, resolved where a base existed and as the document stated it where none did.
+        url: String,
+        /// Whether it is still a relative reference, so that §12.6.4.8's other sentence — a
+        /// partial reference "shall be interpreted relative to the location of the document
+        /// itself" — is still owed by whoever knows that location.
+        relative: bool,
+    },
+    /// A relative URL §7.11.2.2 does not allow, kept unresolved and named.
+    ///
+    /// > In addition, such URL-based relative file specifications shall be limited to paths as
+    /// > defined in Internet RFC 3986 . The scheme, network location/login, fragment identifier,
+    /// > query information, and parameter sections shall not be allowed.
+    ///
+    /// Resolving one would be the hazard that sentence is against: a relative reference carrying
+    /// an authority resolves against a *different host* from the document's. So it is reported
+    /// rather than resolved, and no file is asked for on its account.
+    ForbiddenUrl(String),
+}
+
+impl TargetRoot {
+    /// What the document called the root document, in whichever form it wrote it.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        match self {
+            Self::File(name) | Self::Url { url: name, .. } | Self::ForbiddenUrl(name) => name,
+        }
+    }
 }
 
 /// One element of Table 205's path from the source to the target.
@@ -547,8 +599,21 @@ pub enum AttachmentIndex {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TargetError {
     /// Table 204's `/F` names a root document other than this one's.
+    ///
+    /// What [`EmbeddedGoTo::target_in`] answers, because that function walks from the *source*
+    /// and this action does not start there. A caller with a host to ask resumes at
+    /// [`EmbeddedGoTo::target_from_root`] instead of meeting this.
     #[error("the target is in {0}, which this reader has no filesystem to open")]
     AnotherRoot(String),
+    /// §7.11.2.2 does not allow the relative URL Table 204's `/F` states.
+    #[error(
+        "§7.11.2.2 limits a relative URL file specification to a path, and {0} states a scheme, \
+         an authority, a query, a fragment or a parameter section"
+    )]
+    ForbiddenUrl(String),
+    /// Table 204's `/F` is a partial URL and nothing here knows where the document itself is.
+    #[error("{0} is a partial URL, and where the document itself is is not this reader's to know")]
+    RelativeRoot(String),
     /// A `/R /P` step from a document with no parent in this file.
     #[error("§12.6.4.4's path leaves the document this reader opened, which has no parent here")]
     NoParent,
@@ -585,18 +650,54 @@ impl EmbeddedGoTo {
     /// Every one of [`TargetError`]'s cases, each naming what the file asked for.
     pub fn target_in(&self, source: &Document) -> Result<Document, TargetError> {
         if let Some(root) = &self.root {
-            return Err(TargetError::AnotherRoot(root.clone()));
+            return Err(TargetError::AnotherRoot(root.name().to_owned()));
         }
         if self.path.is_empty() {
             return Err(TargetError::NoPath);
         }
+        self.walk(source)
+    }
+
+    /// Resumes the walk against the root document Table 204's `/F` named, once it has arrived.
+    ///
+    /// **The half of this clause that is a question about the machine rather than about the
+    /// file.** `/F` is "[t]he root document of the target relative to the root document of the
+    /// source", so it is a file on somebody's disk; the process that reads a PDF has none
+    /// (`CLAUDE.md` principle 3), and the name crosses to whoever opened the document — the same
+    /// shape §12.7.6.4's import-data already has. What comes back is parsed here, which is where
+    /// every other document this program opens is parsed, and this function is the resumption.
+    ///
+    /// **Nothing about the walk changes across the pause**, and that is the whole reason it is
+    /// this function rather than a second reading: [`MAX_TARGET_DEPTH`] bounded the path when
+    /// the action was *read*, so the list is already finite; and the bounds the target's
+    /// children are decoded under are the ones `root` was opened with, which the caller takes
+    /// from the document a person opened.
+    ///
+    /// An empty path is Table 204's own case rather than an error here — "[o]ptional if F is
+    /// present; otherwise required", and the clause's EXAMPLE object 5 is exactly it, a "[l]ink
+    /// from an embedded file to a normal file" with an `/F` and no `/T`. The root that arrived
+    /// *is* the target.
+    ///
+    /// # Errors
+    ///
+    /// The path's own cases from [`TargetError`]; never [`TargetError::AnotherRoot`], which is
+    /// about not having got here.
+    pub fn target_from_root(&self, root: Document) -> Result<Document, TargetError> {
+        if self.path.is_empty() {
+            return Ok(root);
+        }
+        self.walk(&root)
+    }
+
+    /// Table 205's path, walked from whichever document is the first current one.
+    fn walk(&self, start: &Document) -> Result<Document, TargetError> {
         // The documents descended into, in order. The current document is the last of these, or
-        // `source` where none has been opened yet — which is what makes a `Parent` step a pop
+        // `start` where none has been opened yet — which is what makes a `Parent` step a pop
         // and makes the cycle §12.6.4.4's NOTE warns about impossible: the path is a finite list
         // read once, and each step opens at most one document.
         let mut descended: Vec<Document> = Vec::new();
         for step in &self.path {
-            let current = descended.last().unwrap_or(source);
+            let current = descended.last().unwrap_or(start);
             match step {
                 TargetStep::Parent => {
                     if descended.pop().is_none() {
@@ -713,7 +814,7 @@ fn embedded_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
     Some(Action::GoToE(EmbeddedGoTo {
         destination,
         path,
-        root: file_specification(document, dict, "F"),
+        root: target_root(document, dict),
         new_window: match document.get_key(dict, "NewWindow") {
             Object::Boolean(value) => Some(value),
             _ => None,
@@ -737,6 +838,48 @@ fn child_step(document: &Document, step: &Dictionary) -> Option<TargetStep> {
         _ => return None,
     };
     Some(TargetStep::AttachedChild { page, annotation })
+}
+
+/// Table 204's `/F`, in whichever of §7.11's two forms the action wrote it.
+///
+/// **The second caller of [`crate::uri::resolve`], and Errata Collection 3 is why there is one.**
+/// §12.6.4.8's Table 211 states the base a partial reference is resolved against, and Issue #256
+/// — `/State` `Review`, `Completed` — says that text "applies to all relative URIs in a PDF
+/// document and is not limited to only URI actions as is currently implied". A `/GoToE` naming
+/// its root document by §7.11.5's URL is one of those relative URIs, and until this function it
+/// was the site the ledger recorded as having no caller: nothing in this program reached a URL,
+/// so a resolved one named nothing. It names something now — the file a host is asked for.
+///
+/// §7.11.2.2's restriction is checked before the resolution rather than after, because the thing
+/// it forbids is only dangerous once something resolves it.
+fn target_root(document: &Document, dict: &Dictionary) -> Option<TargetRoot> {
+    let spec = crate::file_spec::FileSpec::parse(document, &document.get_key(dict, "F"))?;
+    let Some(url) = spec.url() else {
+        return spec.display_name().map(TargetRoot::File);
+    };
+    if crate::uri::is_absolute(&url) {
+        return Some(TargetRoot::Url {
+            url,
+            relative: false,
+        });
+    }
+    if !crate::file_spec::FileSpec::is_valid_relative_url(&url) {
+        return Some(TargetRoot::ForbiddenUrl(url));
+    }
+    Some(match base_uri(document) {
+        Some(base) => {
+            let resolved = crate::uri::resolve(&base, &url);
+            let relative = !crate::uri::is_absolute(&resolved);
+            TargetRoot::Url {
+                url: resolved,
+                relative,
+            }
+        }
+        None => TargetRoot::Url {
+            url,
+            relative: true,
+        },
+    })
 }
 
 /// §7.11's file specification under `key`, named rather than opened.

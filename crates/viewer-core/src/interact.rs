@@ -10,7 +10,7 @@
 //! two things this program cannot do itself — resolve a URI, read a file — leave as requests.
 
 use pdf_model::Pages;
-use pdf_model::action::{Action, EmbeddedGoTo, ImportData, Trigger};
+use pdf_model::action::{Action, EmbeddedGoTo, ImportData, TargetRoot, Trigger};
 use pdf_model::navigation::Transition;
 use pdf_model::submission::Click;
 use pdf_model::view::{Pointer, Request};
@@ -33,8 +33,12 @@ pub(crate) struct Outcome {
     pub(crate) uris: Vec<String>,
     /// §12.7.6.2: submissions to transmit somewhere this program is not.
     pub(crate) submissions: Vec<pdf_model::submission::Submission>,
-    /// §12.7.6.4: a file the document asked for, which only the host can fetch.
-    pub(crate) needs_file: Option<(Purpose, String)>,
+    /// Files the document asked for, which only the host can fetch.
+    ///
+    /// A list because §12.6.2 makes `/Next` a sequence and two of its actions can each name one
+    /// — §12.7.6.4's import-data and §12.6.4.4's Table 204 `/F` — and an `Option` would have kept
+    /// whichever came last and dropped the other in silence.
+    pub(crate) needs_file: Vec<(Purpose, String)>,
     /// §12.4.4: transitions to play, for a caller that has one.
     pub(crate) transitions: Vec<Transition>,
     /// The page to show, where a request named one.
@@ -486,7 +490,9 @@ fn request_file(open: &mut Open, import: &ImportData, outcome: &mut Outcome) {
         return;
     }
     open.importing = Some(import.clone());
-    outcome.needs_file = Some((Purpose::ImportData, import.file.clone()));
+    outcome
+        .needs_file
+        .push((Purpose::ImportData, import.file.clone()));
 }
 
 /// Applies §12.7.6.4's form data from bytes the host supplied, in either format the clause names.
@@ -596,7 +602,35 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
 ///
 /// Table 204's `/NewWindow` is a *should* and this is one view, so the target replaces the source
 /// and says so.
-fn open_embedded(open: &Open, target: &EmbeddedGoTo, outcome: &mut Outcome) {
+fn open_embedded(open: &mut Open, target: &EmbeddedGoTo, outcome: &mut Outcome) {
+    // Table 204's `/F` names a root document somewhere else, and this process has no filesystem
+    // to find it (`CLAUDE.md` principle 3). So the walk suspends here and the *name* goes to
+    // whoever opened the document, which is §12.7.6.4's shape one clause over; `resume` is where
+    // the remaining `/T` steps run, against the root that comes back.
+    if let Some(root) = &target.root {
+        match root {
+            // §7.11.2.2's forbidden relative URL is the one form nothing is asked for, because
+            // asking would mean having resolved it — which is the hazard that sentence is about.
+            TargetRoot::ForbiddenUrl(url) => outcome.notes.push(format!(
+                "this link declines — GoToE: §7.11.2.2 limits a relative URL file specification \
+                 to a path, and {url} is not one"
+            )),
+            TargetRoot::Url {
+                url,
+                relative: true,
+            } => outcome.notes.push(format!(
+                "this link declines — GoToE: {url} is a partial URL and where this document \
+                 itself is is not this reader's to know"
+            )),
+            TargetRoot::File(_) | TargetRoot::Url { .. } => {
+                open.resuming = Some(target.clone());
+                outcome
+                    .needs_file
+                    .push((Purpose::TargetRoot, root.name().to_owned()));
+            }
+        }
+        return;
+    }
     let opened = match target.target_in(&open.document) {
         Ok(opened) => opened,
         Err(error) => {
@@ -606,6 +640,62 @@ fn open_embedded(open: &Open, target: &EmbeddedGoTo, outcome: &mut Outcome) {
             return;
         }
     };
+    jump_into(target, opened, outcome);
+}
+
+/// §12.6.4.4's walk resumed against the root document Table 204's `/F` named.
+///
+/// **The bounds are the source document's, unchanged across the pause.** `open_with_limits` is
+/// what carries them, which is the same sentence `pdf_model::action`'s own `open_embedded` writes
+/// about a child: a document reached through an action is held to the bounds of the one a person
+/// opened, whether it came out of that file or off a host's disk.
+///
+/// A host that declines is answered by [`decline_root`] instead, and both say so out loud: a
+/// click that silently does nothing is indistinguishable from a click on nothing (trap 5).
+pub(crate) fn resume_root(open: &mut Open, bytes: &[u8]) -> Outcome {
+    let mut outcome = Outcome::default();
+    let Some(target) = open.resuming.take() else {
+        return outcome;
+    };
+    let name = target
+        .root
+        .as_ref()
+        .map_or("", |root| root.name())
+        .to_owned();
+    let root = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+        Ok(root) => root,
+        Err(error) => {
+            outcome.notes.push(format!(
+                "this link declines — GoToE: cannot read {name}: {error}"
+            ));
+            return outcome;
+        }
+    };
+    match target.target_from_root(root) {
+        Ok(opened) => jump_into(&target, opened, &mut outcome),
+        Err(error) => outcome
+            .notes
+            .push(format!("this link declines — GoToE: {error}")),
+    }
+    outcome
+}
+
+/// What is said when a host will not supply Table 204's `/F`.
+pub(crate) fn decline_root(open: &mut Open) -> Outcome {
+    let mut outcome = Outcome::default();
+    let named = open
+        .resuming
+        .take()
+        .and_then(|target| target.root.as_ref().map(|root| root.name().to_owned()))
+        .map_or_else(String::new, |name| format!(" {name}"));
+    outcome.notes.push(format!(
+        "this link declines — GoToE:{named} was not supplied"
+    ));
+    outcome
+}
+
+/// Shows the document a completed walk ended in, at the destination the action names inside it.
+fn jump_into(target: &EmbeddedGoTo, opened: Document, outcome: &mut Outcome) {
     let mut replacement = Open::around(opened);
     if replacement.page_count == 0 {
         outcome

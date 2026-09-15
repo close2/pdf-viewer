@@ -640,6 +640,13 @@ const AUTO_SIZE_STEPS: u32 = 20;
 /// a font name `/DR` does not define. A shortfall that still leaves something to draw is
 /// reported through [`LaidOut::owed`] instead, because drawing what is stated while naming what
 /// is not says two true things rather than one.
+#[expect(
+    clippy::too_many_lines,
+    reason = "§12.7.4.3's construction is one sequence — the /DA parsed, the font set, a scaling text \
+              matrix divided out, the text measured, wrapped and sized, the lines written, the scale \
+              multiplied back — and its order is the clause's; splitting it would put that order in \
+              two places"
+)]
 pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut, Owed> {
     let appearance = DefaultAppearance::parse(request.default_appearance);
     let Some(font_name) = appearance.font.clone() else {
@@ -686,7 +693,22 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         appearance: &appearance,
     };
     let box_ = request.box_;
-    let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
+    // §12.7.4.3's `Tm`, where its linear part is a pair of lengths this layout can be measured
+    // in. A comb is excluded on Table 231 bit 25's own terms: it writes one `Tm` per cell and
+    // the `/DA`'s has nothing there to scale, which is why `comb` is handed the identity below.
+    let scaling = if matches!(request.shape, Shape::Comb(_)) {
+        None
+    } else {
+        Scale::of(appearance.matrix)
+    };
+    let scale = scaling.unwrap_or(Scale::NONE);
+    // Everything from here to the marks is measured in the space the matrix maps *from*; the box
+    // the clip is written from stays the one the caller gave.
+    let laid_box = scale.shrink(box_);
+    let (width, height) = (
+        (laid_box[2] - laid_box[0]).max(0.0),
+        (laid_box[3] - laid_box[1]).max(0.0),
+    );
 
     let size = match appearance.size {
         Some(size) if size > 0.0 => size,
@@ -707,14 +729,27 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
 
     // One value for both branches, because everything but the matrix is the same in each and two
     // spellings of it would be two chances to leave a question out of one of them.
-    let written = |matrix: [f32; 6]| Written {
+    let written = |matrix: [f32; 6], scale: Scale| Written {
         codes: &runs.codes,
         caret: runs.caret,
         selection: runs.selection,
-        point: request.asked.point,
+        point: request.asked.point.map(|point| scale.shrink_point(point)),
         offsets: &runs.offsets,
         matrix,
+        scale,
     };
+    // What is left of the report: a matrix whose linear part is neither the identity nor a pair
+    // of lengths — a rotation, a skew, or an element that mirrors — which this module cannot
+    // position "appropriately" along the one axis it lays text along. A comb is here too, because
+    // it writes the identity and the matrix the `/DA` stated is dropped rather than carried out.
+    if scaling.is_none()
+        && appearance
+            .matrix
+            .is_some_and(|stated| stated[..4] != IDENTITY[..4])
+        && owed.is_none()
+    {
+        owed = Some(Owed::TransformedTextMatrix);
+    }
     let marks = if let Shape::Comb(count) = request.shape {
         comb(
             &mut stream,
@@ -722,7 +757,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             // The identity, because a comb writes one `Tm` per cell and that is the matrix it
             // writes: Table 231 bit 25 places each character in a position of its own, so a
             // `/DA`'s own `Tm` has nothing here to translate.
-            written(IDENTITY),
+            written(IDENTITY, Scale::NONE),
             Set {
                 size,
                 metrics: &metrics,
@@ -731,13 +766,6 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             request,
         )
     } else {
-        if appearance
-            .matrix
-            .is_some_and(|stated| stated[..4] != IDENTITY[..4])
-            && owed.is_none()
-        {
-            owed = Some(Owed::TransformedTextMatrix);
-        }
         write_lines(
             &mut stream,
             &lines,
@@ -748,9 +776,11 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             },
             leading,
             request,
-            written(appearance.matrix.unwrap_or(IDENTITY)),
+            laid_box,
+            written(appearance.matrix.unwrap_or(IDENTITY), scale),
         )
     };
+    let marks = scale.grow(marks);
 
     stream.push_str("ET\nQ\nEMC\n");
     Ok(LaidOut {
@@ -770,6 +800,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
             },
             leading,
             request,
+            laid_box,
         ),
         // The invented dictionary has to reach the appearance's `/Resources` under the name
         // the `/DA` used, whichever of the two ways this crate arrived at it — the stream says
@@ -818,6 +849,84 @@ struct Set<'a> {
 
 /// The identity text matrix, which is what a `/DA` stating no `Tm` leaves.
 const IDENTITY: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+/// The scale a `/DA`'s `Tm` puts between the space this layout measures in and the space its
+/// marks land in.
+///
+/// §12.7.4.3 admits at most one `Tm` and says what a processor does with it:
+///
+/// > If this operator is present, the interactive PDF processor shall replace the horizontal and
+/// > vertical translation components with positioning values it determines to be appropriate,
+/// > based on the field value, the quadding ( Q ) attribute, and any layout rules it employs.
+///
+/// The translation is replaced, so the *rest* of the matrix stands — and a glyph advance of `w`
+/// in text space is `a·w` wide once it is drawn. Measuring the box against unscaled advances
+/// therefore wraps, auto-sizes and quads a line that is not the width of the line drawn, which is
+/// what [`Owed::TransformedTextMatrix`] used to say out loud. What closes it is a change of
+/// space rather than a second layout: the box is divided by this pair before anything is
+/// measured, so every length below is in the space the matrix maps *from*, and the positions and
+/// the answers are multiplied back by it on the way out. The identity pair is what a `/DA`
+/// stating no `Tm` gets, and then every multiplication here is by one. ADR 1114.
+#[derive(Clone, Copy)]
+struct Scale {
+    x: f32,
+    y: f32,
+}
+
+impl Scale {
+    /// The pair that changes nothing, which is what an unscaled layout runs under.
+    const NONE: Self = Self { x: 1.0, y: 1.0 };
+
+    /// The pair a `/DA`'s text matrix states, where this layout can carry that matrix out.
+    ///
+    /// **Diagonal and positive only.** A rotation or a skew puts a line's direction off the
+    /// axis this module lays text along, and a negative element mirrors it; neither is a pair of
+    /// lengths, and neither can be carried out by dividing a box. Those keep the report, which
+    /// is the answer a processor that cannot position "appropriately" owes.
+    fn of(matrix: Option<[f32; 6]>) -> Option<Self> {
+        let [a, b, c, d, _, _] = matrix?;
+        (b == 0.0 && c == 0.0 && a > 0.0 && d > 0.0).then_some(Self { x: a, y: d })
+    }
+
+    /// A rectangle in the space this layout measures in, from one in the space it draws into.
+    fn shrink(self, box_: [f32; 4]) -> [f32; 4] {
+        [
+            box_[0] / self.x,
+            box_[1] / self.y,
+            box_[2] / self.x,
+            box_[3] / self.y,
+        ]
+    }
+
+    /// A point in the space this layout measures in, from one a caller asked about.
+    fn shrink_point(self, point: [f32; 2]) -> [f32; 2] {
+        [point[0] / self.x, point[1] / self.y]
+    }
+
+    /// The layout's answers, back in the space the marks land in.
+    fn grow(self, marks: Marks) -> Marks {
+        Marks {
+            caret: marks.caret.map(|caret| Caret {
+                from: [caret.from[0] * self.x, caret.from[1] * self.y],
+                to: [caret.to[0] * self.x, caret.to[1] * self.y],
+            }),
+            offset: marks.offset,
+            selection: marks
+                .selection
+                .into_iter()
+                .map(|shape| {
+                    [
+                        shape[0] * self.x,
+                        shape[1] * self.y,
+                        shape[2] * self.x,
+                        shape[3] * self.y,
+                    ]
+                })
+                .collect(),
+            advance: marks.advance * self.x,
+        }
+    }
+}
 
 /// Table 120's `/Ascent` and `/Descent`, in text-space units where one em is 1.0.
 struct Metrics {
@@ -1183,6 +1292,11 @@ fn auto_size(measure: &Measure, codes: &[Placed], shape: Shape, width: f32, heig
 /// Where the lines sit vertically is the choice [`DEFAULT_DESCENT`] records: a single line is
 /// centred in its box, several start at the top and run down, and in both the first baseline
 /// sits one ascent below the top of the space the text occupies.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is one input a line's position depends on — the lines, their measure, \
+              the set font, the leading, the request's /Q, the box, and the matrix already written"
+)]
 fn write_lines(
     stream: &mut String,
     lines: &[std::ops::Range<usize>],
@@ -1190,9 +1304,9 @@ fn write_lines(
     set: Set,
     leading: f32,
     request: &Request,
+    box_: [f32; 4],
     written: Written,
 ) -> Marks {
-    let box_ = request.box_;
     let matrix = written.matrix;
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     let ascent = set.metrics.ascent * set.size;
@@ -1274,9 +1388,14 @@ fn write_lines(
                 nearest = Some((dy, dx, line.start.saturating_add(at)));
             }
         }
+        // §12.7.4.3's "positioning values it determines to be appropriate" are the *translation*
+        // components, which are in the space the marks land in — so a position measured in the
+        // space the matrix maps from is multiplied back by the scale that was divided out. Under
+        // [`Scale::NONE`] the two spaces are one and this is `x` and `baseline` unchanged.
+        let (tx, ty) = (x * written.scale.x, baseline * written.scale.y);
         let _ = writeln!(
             stream,
-            "{} {} {} {} {x} {baseline} Tm",
+            "{} {} {} {} {tx} {ty} Tm",
             matrix[0], matrix[1], matrix[2], matrix[3]
         );
         show(stream, codes);
@@ -1337,6 +1456,8 @@ struct Written<'a> {
     /// Which byte of the value each code came from, from [`Encoded::offsets`].
     offsets: &'a [usize],
     matrix: [f32; 6],
+    /// What [`Scale`] the lengths around this one are measured under.
+    scale: Scale,
 }
 
 impl Written<'_> {
@@ -1374,8 +1495,8 @@ fn overflows(
     set: Set,
     leading: f32,
     request: &Request,
+    box_: [f32; 4],
 ) -> bool {
-    let box_ = request.box_;
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     match request.shape {
         Shape::Comb(cells) => {

@@ -1319,7 +1319,14 @@ fn font_matrix_scale(document: &Document, font: &Dictionary) -> Option<f64> {
 /// `/Differences` array to state the font's whole encoding, so this is the code-to-procedure
 /// table rather than a partial view of one. §9.6.5.1 gives the array its shape: a code, then the
 /// names of the glyphs at that code and the codes after it.
-fn type3_encoding(document: &Document, font: &Dictionary) -> Vec<(i64, String)> {
+///
+/// **Public because two crates must read this array the same way.** This validator judges
+/// ISO 19005-2 section 6.2.11.7.2's second exemption by these names, and `pdf-transform`'s
+/// converter derives a `/ToUnicode` `CMap` from the same ones; a second reading of the array
+/// somewhere else could exempt a font here and derive nothing there, or the reverse. There is
+/// no `LoadedFont` to ask instead — §9.6.4 makes a Type 3 glyph a `/CharProcs` content stream
+/// rather than a font program, so `pdf_font` refuses to load one.
+pub fn type3_encoding(document: &Document, font: &Dictionary) -> Vec<(i64, String)> {
     let mut out = Vec::new();
     let encoding = document.get_key(font, "Encoding");
     let Some(encoding) = encoding.as_dict() else {

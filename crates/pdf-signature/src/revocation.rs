@@ -347,6 +347,15 @@ pub enum Revocation {
         /// When the issuer says the revocation took effect — a CRL entry's `revocationDate` or an
         /// OCSP `RevokedInfo`'s `revocationTime`.
         at: Instant,
+        /// RFC 5280 section 5.3.2's `invalidityDate`, where a CRL entry states one.
+        ///
+        /// Kept apart from [`Self::Revoked::at`] because the clause keeps them apart: the
+        /// revocation date "is the date at which the CA processed the revocation" and this is when
+        /// the certificate is known or suspected to have become invalid, which "may be earlier".
+        /// A caller asking whether the certificate was good at some past instant wants the earlier
+        /// of the two; one asking when the CA acted wants `at`. No OCSP response carries this —
+        /// RFC 6960's `RevokedInfo` has no such field — so it is `None` for every `OcspResponse`.
+        invalid_from: Option<Instant>,
         /// The reason, where the material states one. RFC 5280 section 5.3.1 says it may not: the
         /// reason code extension "SHOULD be absent instead of using the unspecified (0)
         /// reasonCode value".
@@ -406,6 +415,14 @@ pub struct RevokedCertificate<'a> {
     pub serial_number: &'a [u8],
     /// `revocationDate`.
     pub revoked_at: Instant,
+    /// The `invalidityDate` CRL entry extension (section 5.3.2), where the entry states one.
+    ///
+    /// A different fact from [`Self::revoked_at`] and the clause says so: this is "the date on
+    /// which it is known or suspected that the private key was compromised or that the certificate
+    /// otherwise became invalid", while the revocation date "is the date at which the CA processed
+    /// the revocation" — and "[t]his date may be earlier than the revocation date in the CRL
+    /// entry". Which matters wherever something is asked about an instant in the past.
+    pub invalid_from: Option<Instant>,
     /// The `reasonCode` CRL entry extension, where the entry states one.
     pub reason: Option<RevocationReason>,
 }
@@ -547,13 +564,17 @@ impl<'a> CertificateList<'a> {
             };
             let revoked_at = x509::read_time(&date).ok_or(MaterialRefusal::DateUnreadable)?;
             let mut reason = None;
+            let mut invalid_from = None;
             for extensions in std::iter::from_fn(|| fields.next_value().transpose()) {
                 let extensions = extensions?;
-                reason = reason_code(&extensions)?;
+                let (found, from) = entry_extensions(&extensions)?;
+                reason = found;
+                invalid_from = from;
             }
             return Ok(Some(RevokedCertificate {
                 serial_number: number.contents,
                 revoked_at,
+                invalid_from,
                 reason,
             }));
         }
@@ -921,8 +942,19 @@ fn cert_status(value: &Value<'_>) -> Result<CertStatus, MaterialRefusal> {
     Ok(CertStatus::Revoked { at, reason })
 }
 
-/// A CRL entry's `reasonCode` extension, where its `crlEntryExtensions` state one.
-fn reason_code(extensions: &Value<'_>) -> Result<Option<RevocationReason>, MaterialRefusal> {
+/// A CRL entry's `reasonCode` and `invalidityDate` extensions, where its `crlEntryExtensions`
+/// state them.
+///
+/// Both in one walk rather than two, because the bound on how many extensions are read is a bound
+/// on the walk and a second pass would double it for one more field.
+fn entry_extensions(
+    extensions: &Value<'_>,
+) -> Result<(Option<RevocationReason>, Option<Instant>), MaterialRefusal> {
+    /// `id-ce-invalidityDate`, `{ id-ce 24 }` — 2.5.29.24.
+    const INVALIDITY_DATE: &[u8] = &[0x55, 0x1D, 0x18];
+
+    let mut reason = None;
+    let mut invalid_from = None;
     let mut entries = extensions.children()?;
     let mut seen = 0usize;
     while let Some(entry) = entries.next_value()? {
@@ -933,22 +965,24 @@ fn reason_code(extensions: &Value<'_>) -> Result<Option<RevocationReason>, Mater
         let Some(extension) = extension_parts(&entry)? else {
             continue;
         };
-        if extension.id != CRL_REASONS {
-            continue;
-        }
         let Some(inner) = Reader::new(extension.value)?.next_value()? else {
             continue;
         };
-        if inner.identifier != ENUMERATED {
-            continue;
+        if extension.id == CRL_REASONS && inner.identifier == ENUMERATED {
+            reason = inner
+                .contents
+                .last()
+                .copied()
+                .map(RevocationReason::from_code);
+        } else if extension.id == INVALIDITY_DATE {
+            // Section 5.3.2 fixes the encoding — the value "MUST be expressed in Greenwich Mean
+            // Time (Zulu)" and read as section 4.1.2.5.2 defines — which is what `read_time` does.
+            // An unreadable one is left absent rather than refused: the entry still revokes the
+            // certificate, and the only thing lost is the earlier of two instants.
+            invalid_from = x509::read_time(&inner);
         }
-        return Ok(inner
-            .contents
-            .last()
-            .copied()
-            .map(RevocationReason::from_code));
     }
-    Ok(None)
+    Ok((reason, invalid_from))
 }
 
 /// The first critical `crlExtensions` entry this reader does not recognise.
@@ -1356,6 +1390,7 @@ fn from_list(
         }
         return Ok(Some(Revocation::Revoked {
             at: entry.revoked_at,
+            invalid_from: entry.invalid_from,
             reason: entry.reason,
             from: Evidence::CertificateRevocationList,
             position: subject.position,
@@ -1376,9 +1411,17 @@ fn from_list(
     let Some(next_update) = list.next_update else {
         return Err(Undetermined::Stale);
     };
-    if at.unix_seconds() < list.this_update.unix_seconds()
-        || at.unix_seconds() > next_update.unix_seconds()
-    {
+    // **Only one end of the window is a freshness test, and the other end was a defect.** ETSI
+    // EN 319 102-1 clause 5.2.5 states the rule as one comparison: with no configured maximum, the
+    // accepted freshness is the interval between `thisUpdate` and `nextUpdate`, and the list is
+    // fresh where its issuance is no earlier than the validation time minus that interval — which
+    // reduces to `nextUpdate` being after the instant asked about. A list issued *after* the
+    // instant is not stale by that rule but fresher than one issued before it, and the note under it
+    // says why: where the signing time is known, a checker set to demand zero staleness accepts
+    // revocation data only if it was issued after that moment. Refusing such a list is what
+    // would make §12.8.4's whole construction useless — a document security store is assembled
+    // after signing, so every list in one postdates the signature it is evidence about.
+    if at.unix_seconds() > next_update.unix_seconds() {
         return Err(Undetermined::Stale);
     }
     Ok(Some(Revocation::Good {
@@ -1409,6 +1452,7 @@ fn from_response(
     match single.status {
         CertStatus::Revoked { at: when, reason } => Ok(Some(Revocation::Revoked {
             at: when,
+            invalid_from: None,
             reason,
             from: Evidence::OcspResponse,
             position: subject.position,
@@ -1417,18 +1461,27 @@ fn from_response(
         // being requested", which is not a statement that it is good.
         CertStatus::Unknown => Err(Undetermined::NotCovered),
         CertStatus::Good => {
-            if at.unix_seconds() < single.this_update.unix_seconds() {
-                return Err(Undetermined::Stale);
-            }
-            // Section 2.4: "If nextUpdate is not set, the responder is indicating that newer
-            // revocation information is available all the time." A response with no window is
-            // therefore current only at the instant it was produced, and this reader will not
-            // stretch it: an absent `nextUpdate` outside the day it was made is undetermined.
-            if single
-                .next_update
-                .is_some_and(|until| at.unix_seconds() > until.unix_seconds())
-            {
-                return Err(Undetermined::Stale);
+            // **The window is one-ended where the responder states one, and the other end is where
+            // the two cases differ.** Section 2.4: "If nextUpdate is not set, the responder is
+            // indicating that newer revocation information is available all the time." So:
+            //
+            // - with a `nextUpdate`, freshness is ETSI EN 319 102-1 clause 5.2.5's single
+            //   comparison against it — `from_list` carries that argument — and a response produced
+            //   *after* the instant asked about is evidence about it rather than stale;
+            // - without one the responder has said its answer speaks for the moment it was made, so
+            //   the instant it was made is the only end this reader can state, and a question put
+            //   before it is not one this response answers.
+            match single.next_update {
+                Some(until) => {
+                    if at.unix_seconds() > until.unix_seconds() {
+                        return Err(Undetermined::Stale);
+                    }
+                }
+                None => {
+                    if at.unix_seconds() < single.this_update.unix_seconds() {
+                        return Err(Undetermined::Stale);
+                    }
+                }
             }
             Ok(Some(Revocation::Good {
                 from: Evidence::OcspResponse,

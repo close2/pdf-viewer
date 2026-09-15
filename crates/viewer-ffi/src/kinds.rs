@@ -798,6 +798,8 @@ impl MarkupKind {
 pub enum PurposeKind {
     /// §12.7.6.4's import-data action: the file holds §12.7.8's form data.
     ImportData = 0,
+    /// §12.6.4.4's embedded go-to: Table 204's `/F`, the target's root document, which is a PDF.
+    TargetRoot = 1,
 }
 
 impl PurposeKind {
@@ -806,6 +808,7 @@ impl PurposeKind {
     pub const fn from_code(code: u32) -> Option<Self> {
         Some(match code {
             0 => Self::ImportData,
+            1 => Self::TargetRoot,
             _ => return None,
         })
     }
@@ -815,6 +818,7 @@ impl PurposeKind {
     pub const fn of(purpose: Purpose) -> Self {
         match purpose {
             Purpose::ImportData => Self::ImportData,
+            Purpose::TargetRoot => Self::TargetRoot,
         }
     }
 
@@ -823,6 +827,7 @@ impl PurposeKind {
     pub const fn purpose(self) -> Purpose {
         match self {
             Self::ImportData => Purpose::ImportData,
+            Self::TargetRoot => Purpose::TargetRoot,
         }
     }
 

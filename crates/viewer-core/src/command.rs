@@ -876,6 +876,14 @@ pub enum FocusMove {
 pub enum Purpose {
     /// §12.7.6.4's import-data action: the file holds §12.7.8's form data.
     ImportData,
+    /// §12.6.4.4's embedded go-to: Table 204's `/F`, "[t]he root document of the target relative
+    /// to the root document of the source".
+    ///
+    /// The bytes are a **PDF**, and the clause says so: "[e]mbedded go-to actions work only for
+    /// files of Type PDF". What comes back replaces the document on the screen, at the
+    /// destination the action names inside it, so a host that supplies the wrong file has
+    /// answered a different question rather than made a mistake this crate can see.
+    TargetRoot,
 }
 
 /// What a worker did with a [`crate::RenderRequest`].

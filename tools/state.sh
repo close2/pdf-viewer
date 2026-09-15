@@ -298,9 +298,9 @@ section_jpeg2000() {
         cargo test --profile gates -p pdf-model --test jpeg2000 -- --nocapture
 }
 
-# Annex O's parameters, which `CLAUDE.md` used to state as "N of M carried out" and which
-# went stale. `Parameter::unhonoured` is the program's own answer: the variants that reach
-# `return None` are carried out, and each arm after it names a parameter and its reason.
+# Annex O's parameters. `Parameter::unhonoured` is the program's own answer rather than a count in
+# a document: the variants that reach `return None` are carried out, and each arm after it names a
+# parameter and the reason it is only reported (ADR 0281).
 section_annex_o() {
     local source=crates/pdf-model/src/fragment.rs
     heading "Annex O's fragment parameters" \
@@ -309,10 +309,17 @@ section_annex_o() {
     body=$(sed -n '/pub fn unhonoured/,/^    }$/p' "$source")
     printf 'carried out: %s\n' \
         "$(printf '%s\n' "$body" | sed -n '1,/return None/p' | grep -oE 'Self::[A-Za-z]+' | sed 's/Self:://' | paste -sd' ')"
-    printf 'reported:    %s\n' \
-        "$(printf '%s\n' "$body" | sed -n '/return None/,$p' | tail -n +2 | grep -oE 'Self::[A-Za-z]+' | sed 's/Self:://' | paste -sd' ')"
-    printf '\nwhy each of the reported ones is reported — the arms, verbatim:\n'
-    printf '%s\n' "$body" | sed -n '/return None/,$p' | tail -n +2 | head -n -2 | sed 's/^        //'
+    local reported
+    reported=$(printf '%s\n' "$body" | sed -n '/return None/,$p' | tail -n +2 | grep -oE 'Self::[A-Za-z]+' | sed 's/Self:://' | paste -sd' ')
+    printf 'reported:    %s\n' "${reported:-none}"
+    # A heading with nothing under it reads as an instrument that found nothing to say rather
+    # than as a program with nothing left to report, so the empty case says which it is.
+    if [ -z "$reported" ]; then
+        printf '\nevery parameter Annex O names is carried out; nothing is only reported\n'
+    else
+        printf '\nwhy each of the reported ones is reported — the arms, verbatim:\n'
+        printf '%s\n' "$body" | sed -n '/return None/,$p' | tail -n +2 | head -n -2 | sed 's/^        //'
+    fi
 }
 
 # The other populations a document used to state. Each is a `find` or a `ls`, which is the

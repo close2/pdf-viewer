@@ -693,6 +693,13 @@ not itself contain PUA values.
   font and which of six reasons stopped it. **§2.1 is the same case seen from the font's side**,
   and it is the clearest example of a document that is archivable while a claim about it is not.
 
+  **A Type 3 font derives like any other simple font**, and until session 1101 it did not: §9.6.4
+  makes its glyphs `/CharProcs` content streams, so `pdf_font` refuses to load one and the
+  derivation told every Type 3 font that its program could not be read. The names are in the
+  file — the `/Differences` array §9.6.4 requires — and `pdf_archive::type3_encoding` is the one
+  reading of it, shared with the validator that judges the second exemption by the same names.
+  ADR 1115, which also moves the composite-font refusal from a code's width to the font's kind.
+
   One thing measured rather than assumed, and it is worth knowing before reading a corpus result:
   the eight veraPDF `PDF_A-2u` documents that fail this clause are *all* of the underivable kind,
   by construction — the second exemption excuses a Type 1 or Type 3 font whose names are all

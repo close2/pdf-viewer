@@ -2941,3 +2941,91 @@ fn a_check_box_keeps_its_own_caption_under_every_pointer_state() {
         "a check box has one caption, and the twenty-letter /AC is not it"
     );
 }
+
+/// A text field whose `/DA` states `tm` as its text matrix, right-justified.
+///
+/// The same fixture [`text_field`] builds with one operator added, so the twin that states the
+/// identity differs from the scaled one in six numbers and nothing else (trap 8).
+fn matrix_field(tm: &str) -> Vec<u8> {
+    pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+             /T (field) /V (Hi) /DA (/Helv 12 Tf 0 g {tm} Tm) /Q 2 >>"
+        ),
+    )
+}
+
+/// §12.7.4.3's `Tm`: the text is measured in the space the matrix scales *from*.
+///
+/// > If this operator is present, the interactive PDF processor shall replace the horizontal and
+/// > vertical translation components with positioning values it determines to be appropriate,
+/// > based on the field value, the quadding ( Q ) attribute, and any layout rules it employs.
+///
+/// The translation is replaced and the rest of the matrix stands, so a glyph advance of `w` is
+/// `2w` wide once it is drawn. "Appropriate" positioning values are therefore ones measured
+/// against a box divided by that pair — and the visible test of it is `/Q 2`, which the clause
+/// makes end the line at the right edge of the box: a layout that measured unscaled advances
+/// puts the *start* of the line there instead and the text runs `w` past the edge.
+///
+/// §12.5.4's default border is one point wide and drawn inside `/Rect`, so the box runs 21..179.
+#[test]
+fn a_da_whose_text_matrix_scales_is_measured_in_the_space_it_scales_from() {
+    let (plain, one) = draw(matrix_field("1 0 0 1 0 0"));
+    let (reported, two) = draw(matrix_field("2 0 0 2 0 0"));
+
+    let (one_start, one_end) = ink_span(&one);
+    let (two_start, two_end) = ink_span(&two);
+
+    assert!(
+        (175..=179).contains(&one_end),
+        "the unscaled twin ends at the right edge, not {one_end}"
+    );
+    assert!(
+        (175..=179).contains(&two_end),
+        "and so does the scaled one, which is the whole of what Q states: {two_end}"
+    );
+    let (thin, wide) = (one_end - one_start, two_end - two_start);
+    assert!(
+        wide >= thin.saturating_mul(2).saturating_sub(2)
+            && wide <= thin.saturating_mul(2).saturating_add(2),
+        "the drawn line is twice as wide, because the matrix stands: {thin} then {wide}"
+    );
+    assert!(
+        plain.is_empty() && reported.is_empty(),
+        "neither is owed anything now: {plain:?} {reported:?}"
+    );
+
+    // And the glyphs are twice as tall, which is the other half of the pair and the half a
+    // horizontal-only fix would leave wrong.
+    let rows = |raster: &pdf_render::Raster| {
+        let rows = inked_rows(raster);
+        rows.iter().max().copied().unwrap_or_default()
+            - rows.iter().min().copied().unwrap_or_default()
+    };
+    let (short, tall) = (rows(&one), rows(&two));
+    assert!(
+        tall >= short.saturating_mul(2).saturating_sub(2)
+            && tall <= short.saturating_mul(2).saturating_add(2),
+        "and twice as tall: {short} then {tall}"
+    );
+}
+
+/// A `Tm` that rotates keeps the report, because a line's direction is not a pair of lengths.
+///
+/// The asymmetry is the point: a diagonal positive matrix is two lengths and a box can be
+/// divided by it, while a rotation puts the line off the axis this module lays text along and a
+/// skew shears it. Those are still said out loud rather than drawn as if the matrix were the
+/// identity (trap 5), which is what `Owed::TransformedTextMatrix` is for.
+#[test]
+fn a_da_whose_text_matrix_rotates_or_mirrors_is_still_reported() {
+    for tm in ["0 1 -1 0 0 0", "1 0 0.5 1 0 0", "-1 0 0 1 0 0"] {
+        let (reported, _) = draw(matrix_field(tm));
+        assert!(
+            reported
+                .iter()
+                .any(|note| note.contains("scales or rotates")),
+            "{tm} is not a pair of lengths and says so, got {reported:?}"
+        );
+    }
+}

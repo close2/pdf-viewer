@@ -19,6 +19,19 @@
 //! One line per group, deepest nesting last, then one summary line per document and one for the
 //! run. A document with no group on its first page prints nothing but its summary, which is the
 //! answer as often as a list of groups is.
+//!
+//! # And §11.4.6's knockout, which is the one clause that reads shape apart from opacity
+//!
+//! > The existence of the knockout feature is the main reason for maintaining a separate shape
+//! > value rather than only a single alpha that combines shape and opacity.
+//!
+//! So the same walk counts where that separation is actually *exercised*: a knockout group at
+//! all, a knockout group holding a [`Command::Shaped`] — which is exactly an element whose shape
+//! is not the coverage it is drawn with, `ca`/`CA` below 1.0 or a soft mask — and a knockout
+//! group whose initial backdrop is its own rather than transparency. Beside them, the groups
+//! §11.4.6 did **not** reach: `pdf-model` reports each with the reason it refused, and this
+//! prints them by reason, because a population of refusals ranked by cause is what decides
+//! whether a construction is owed.
 
 #![expect(
     clippy::print_stdout,
@@ -43,6 +56,15 @@ struct Tally {
     ///
     /// Expected to stay zero: our flag reads `/AIS`, which is strictly more information.
     theirs_only: usize,
+    /// Of them, §11.4.6's knockout groups — the one construction that reads a shape apart
+    /// from an opacity.
+    knockout: usize,
+    /// Of those, the ones holding at least one [`Command::Shaped`]: an element whose shape is
+    /// not the coverage it is drawn with, which is where the separation is paid for.
+    knockout_shaped: usize,
+    /// Of those, the ones whose initial backdrop is the group's own (`isolated` false beside
+    /// `knockout`), which is ADR 0327's construction and the oracle's alone.
+    knockout_on_backdrop: usize,
 }
 
 impl Tally {
@@ -52,6 +74,11 @@ impl Tally {
         self.shape = self.shape.saturating_add(other.shape);
         self.ours_only = self.ours_only.saturating_add(other.ours_only);
         self.theirs_only = self.theirs_only.saturating_add(other.theirs_only);
+        self.knockout = self.knockout.saturating_add(other.knockout);
+        self.knockout_shaped = self.knockout_shaped.saturating_add(other.knockout_shaped);
+        self.knockout_on_backdrop = self
+            .knockout_on_backdrop
+            .saturating_add(other.knockout_on_backdrop);
     }
 }
 
@@ -96,6 +123,10 @@ fn main() {
     let mut run = Tally::default();
     let mut documents = 0_usize;
     let mut with_a_set_flag = 0_usize;
+    let mut with_a_knockout = 0_usize;
+    let mut with_a_stated_shape = 0_usize;
+    let mut refused_pages = 0_usize;
+    let mut refusals: Vec<(&'static str, usize)> = Vec::new();
     for path in std::env::args().skip(1) {
         let name = std::path::Path::new(&path)
             .file_name()
@@ -113,16 +144,46 @@ fn main() {
             println!("{name}\tno page");
             continue;
         };
-        let list = interpret(&document, &page).display_list;
+        let interpreted = interpret(&document, &page);
         let mut page_tally = Tally::default();
-        walk(&name, list.commands(), 0, &mut page_tally);
+        walk(
+            &name,
+            interpreted.display_list.commands(),
+            0,
+            &mut page_tally,
+        );
+        for refused in interpreted
+            .unsupported
+            .iter()
+            .filter_map(|report| refused_knockout(&format!("{report:?}")))
+        {
+            println!("  {name}\trefused\t{refused}");
+            match refusals.iter_mut().find(|(reason, _)| *reason == refused) {
+                Some((_, count)) => *count = count.saturating_add(1),
+                None => refusals.push((refused, 1)),
+            }
+            refused_pages = refused_pages.saturating_add(1);
+        }
         println!(
             "{name}\t{} group(s), {} carrying shape, {} of them beyond a command-list proof, \
-             {} the other way",
-            page_tally.groups, page_tally.shape, page_tally.ours_only, page_tally.theirs_only
+             {} the other way; {} knockout, {} with a stated shape, {} on the group's own \
+             backdrop",
+            page_tally.groups,
+            page_tally.shape,
+            page_tally.ours_only,
+            page_tally.theirs_only,
+            page_tally.knockout,
+            page_tally.knockout_shaped,
+            page_tally.knockout_on_backdrop
         );
         if page_tally.shape > 0 {
             with_a_set_flag = with_a_set_flag.saturating_add(1);
+        }
+        if page_tally.knockout > 0 {
+            with_a_knockout = with_a_knockout.saturating_add(1);
+        }
+        if page_tally.knockout_shaped > 0 {
+            with_a_stated_shape = with_a_stated_shape.saturating_add(1);
         }
         run.add(page_tally);
     }
@@ -132,6 +193,39 @@ fn main() {
          {} the other way",
         run.groups, run.shape, run.ours_only, run.theirs_only
     );
+    println!(
+        "# knockout: {} group(s) on {with_a_knockout} page(s), {} holding a stated shape on \
+         {with_a_stated_shape} page(s), {} on the group's own backdrop; {refused_pages} \
+         refusal(s)",
+        run.knockout, run.knockout_shaped, run.knockout_on_backdrop
+    );
+    for (reason, count) in &refusals {
+        println!("#   {count}\t{reason}");
+    }
+}
+
+/// Which of `note_group_structure`'s three refusals a report is, or `None` for a report about
+/// something else.
+///
+/// The reasons are matched by the sentence the interpreter prints rather than by a code, because
+/// a report is what a reader of the gate sees and an instrument that agreed with a private enum
+/// while disagreeing with the printed sentence would be measuring the wrong thing (trap 27: the
+/// assertion is only as good as what it excludes, so the knockout prefix is required first).
+fn refused_knockout(report: &str) -> Option<&'static str> {
+    if !report.contains("knockout, and an element composites over another") {
+        return None;
+    }
+    Some(if report.contains("/AIS was stated both ways") {
+        "/AIS both ways (§11.6.4.3)"
+    } else if report.contains("non-isolated, and an element blends") {
+        "non-isolated with a blending element (§11.4.6 NOTE 6)"
+    } else if report.contains("image mask under a soft mask of its own") {
+        "a stencil under its own /SMask (SampleAlpha::Both)"
+    } else if report.contains("a non-isolated group, whose accumulated alpha") {
+        "a non-isolated group as an element (§11.3.7.2)"
+    } else {
+        "a paint or element whose shape this renderer cannot describe"
+    })
 }
 
 /// What a group's elements are, as a compact histogram.
@@ -184,6 +278,18 @@ fn walk(name: &str, commands: &[Command], depth: usize, tally: &mut Tally) {
                 tally.groups = tally.groups.saturating_add(1);
                 if *alpha_is_shape {
                     tally.shape = tally.shape.saturating_add(1);
+                }
+                if *knockout {
+                    tally.knockout = tally.knockout.saturating_add(1);
+                    if commands
+                        .iter()
+                        .any(|element| matches!(element, Command::Shaped { .. }))
+                    {
+                        tally.knockout_shaped = tally.knockout_shaped.saturating_add(1);
+                    }
+                    if !*isolated {
+                        tally.knockout_on_backdrop = tally.knockout_on_backdrop.saturating_add(1);
+                    }
                 }
                 let theirs = derivable_from_the_commands(commands);
                 match (*alpha_is_shape, theirs) {

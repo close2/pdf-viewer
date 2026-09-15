@@ -2851,22 +2851,17 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// it was measured. Five of these pages sit within a point of a bound in one direction or the
 /// other, which is what a 200 × 50 line of text does to a metric that counts channels.
 ///
-/// **And `issue6069.pdf` is now the tightest verdict in the whole contradicted pool: six channels
-/// of eighty thousand.** The seven-hundred-and-twenty-second session found it by asking every
-/// contradicted page which of the four bounds it fails on and getting *none* for this one — the
-/// gate prints `differing 6.55%` against `bound … differing 6.55%`, identical at the two decimals
-/// it writes, so its own line can no longer say what the verdict rests on (`--bin unpriced`,
-/// ADR 0606). Taken from this run's artefacts at the precision `examples/compare_rasters` prints:
-/// `poppler` against `mupdf` is **3.2738%** of channels, so the bound is **6.5475%**, and ours
-/// against `poppler` is **6.5550%**. The raster is 400 × 50, which is 80 000 channels, so that is
-/// **5244 differing against an allowance of 5238** — the six channels being 0.11% of the bound.
-/// The note's own row above read 6.62% until this session, and ours moved to 6.55% somewhere in
-/// the forty rounds after ADR 0510 measured it; what did not move is the ablation's answer, since
-/// the embedded face takes the page to 5.97% against the same 6.55% and inside it. **A page held
-/// contradicted by six channels is still contradicted** — the arithmetic is the arithmetic, and
-/// trap 12 is about reading such a margin as a statement about the page rather than about the
-/// pair. It is recorded here so that the next round to open this row is not looking for a figure
-/// the printed line no longer distinguishes.
+/// **And `issue6069.pdf` is where a printed line can stop distinguishing a verdict from its
+/// bound.** The seven-hundred-and-twenty-second session asked every contradicted page which of the
+/// four bounds it fails on and got *none* for this one, because the gate writes both figures at two
+/// decimals and the page's margin was below that (`--bin unpriced`, ADR 0606). The precision to
+/// read it at is `examples/compare_rasters`', over the gate's own artefacts: the convicting pair's
+/// spread is the bound's whole derivation, and the page's raster is 400 × 50, so an allowance
+/// stated to a hundredth of a percent is a few thousand channels either way. **A page held
+/// contradicted by a handful of channels is still contradicted** — the arithmetic is the
+/// arithmetic, and trap 12 is about reading such a margin as a statement about the page rather than
+/// about the pair. What the margin is on any given build is the gate's line to say; what is
+/// recorded here is that the line may not be able to.
 ///
 /// # Four more from a second corpus, and the cap-height constant predicted the line
 ///
@@ -3021,8 +3016,8 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// substitution is this group's mechanism; the *bound* those four verdicts rest on is that
 /// section's, and ADR 0717 is the measurement.
 ///
-/// # `bug847420.pdf` page 1 is one of three pages in the pool where a reference outside the
-/// consensus meets the bound, and on it the three references are **one face**
+/// # `bug847420.pdf` page 1 is in the pool's population where a reference outside the consensus
+/// meets the bound, and on it the three references are **one face**
 ///
 /// The gate names that population now (`name_the_pages_the_excluded_reference_survives`, ADR
 /// 0772), and this page is its head: the consensus is `poppler` and `mupdf`, and `ghostscript` —
@@ -3416,12 +3411,36 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 /// Courier visibly bolder, which is why it is not in the consensus and why the pair's own spread
 /// tightens the bound (trap 12).
 ///
-/// **The page carries a second mechanism and it is named rather than folded in.** Its heatmap is
-/// hollow letters *and* one-pixel edges around the yellow table cells, which is
-/// `CONTRADICTED_ANTIALIASED_EDGES`' subject — empty since ADR 0476 made a rectangle's coverage
-/// the exact closed form. What is established here is the ladder above; that the rectangle edges
-/// contribute nothing further is not, and trap 9's *a page can carry two of the eight* is the
-/// reason to write that down instead of assuming it.
+/// **The page carries a second mechanism, and it is one image rather than the table's edges.**
+/// The straight runs in its heatmap are not `CONTRADICTED_ANTIALIASED_EDGES`' subject: the page
+/// states one `/XObject` and draws it through
+///
+/// ```text
+///   211.6685486 0 0 317.5028076 84.9489288 367.9589233 cm  /Im0 Do
+/// ```
+///
+/// a 50 × 75 `DeviceRGB` image under an `/SMask`, and every long run of differing pixels on the
+/// page is an edge of *that* — its left at device column 84.95, its right at 296.62, its top at
+/// row 106.54 and its bottom at 424.04. Over the gate's own artefacts the band's left edge sits at
+/// **84.95** in ours on every row and at **84.00 to 84.06** in `poppler`, `mupdf` and `ghostscript`
+/// alike, with the band's width agreeing to 0.05 of a pixel. The three round the image's origin
+/// onto the device pixel grid; §10.7.4's first paragraph says a shape "is a path to be painted
+/// with the current colour or with an image" and that
+///
+/// > Its coordinates are mapped into device space but not rounded to device pixel boundaries.
+///
+/// so the clause answers this half of the page for us, as it does
+/// [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]'s — that group is the same subclause's
+/// *sampling* sentences and this is its rounding one.
+///
+/// **Masking the image's box out is the control that divides the two mechanisms, because it moves
+/// a bound.** Over the page minus that box ours against `poppler` is ssim **0.9068** and against
+/// `mupdf` **0.9058**, both inside 0.9000, where the whole page is **0.8965** and outside it — so
+/// the structural bound, the only one this group's pages fail besides the differing fraction, is
+/// the image's. The differing fraction that convicts the page stays outside with the image gone
+/// (6.20% against 5.00%) and is the glyphs'. And the convicting pair over the same masked page
+/// differs on **0.0204%** of channels at ssim 0.99995: outside that one image `poppler` and
+/// `mupdf` are the same raster, which is what puts this page's bound on its floor.
 ///
 /// # The convicting pair shares a glyph rasteriser, and the third voting reference fails the bound
 ///
@@ -3435,9 +3454,10 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 ///
 /// The measurement is `examples/compare_rasters` over the gate's own artefacts — one named
 /// pair per row, cropped top-left to the common size where the panels differ, so these are
-/// that instrument's figures and not the gate's line. Over the 32 pages the gate convicts on
-/// the differing fraction with that pair (these 27, four of `CONTRADICTED_SUBSTITUTED_FONT`'s,
-/// and `CONTRADICTED_SUBPIXEL_IMAGE`'s one), the differing fraction of:
+/// that instrument's figures and not the gate's line. Over the 32 pages the gate then convicted on
+/// the differing fraction with that pair — this group's, `CONTRADICTED_SUBSTITUTED_FONT`'s and
+/// `CONTRADICTED_SUBPIXEL_IMAGE`'s, the set [`rank_the_contradicted_by_the_bound`] counts every
+/// run — the differing fraction of:
 ///
 /// - **the convicting pair runs 0.00% to 4.37%, median 2.33%** — on `issue4061.pdf`,
 ///   `issue7580.pdf` and `issue7696.pdf` it prints an exact 0.00%, two programs agreeing to
@@ -3463,38 +3483,23 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 /// [`rank_the_contradicted_by_the_bound`] takes the count off `ExcludedReading` every run. ADR
 /// 0772.
 ///
-/// # `freeculture.pdf` page 313 is the exception, and it is where the bound falls inside one
-/// continuous spread
+/// # Where a bound falls inside a spread with no gap in it
 ///
-/// It is the one page of the 32 on which `ghostscript` is **inside** the bound — 5.32% against
-/// `poppler` and 5.35% against `mupdf`, where the bound is 6.01% — while ours is 6.05% against
-/// `poppler` and misses by 0.04 of a percentage point. Every other measure is inside with room:
-/// mean 1.88 of 5.00, worst tile 9.54 of 40.00, ssim 0.9685 of 0.9000, so the differing fraction
-/// is the whole verdict. It is therefore also one of the three pages in the whole pool where the
-/// voting reference the consensus excludes meets the bound we do not, which the gate names.
+/// The population that line names is not an accusation, and the reason is structural rather than
+/// per-page. A consensus states its bound as twice the *pair's* own spread, so the cut is a
+/// **selected minimum** over the six cross-pair distances a page has and not a gap among them:
+/// where the five distances that do not define it run within a point of each other, the cut lands
+/// inside that range, and which renderer falls on which side of it is a fact about where it sits
+/// on a continuum. That is trap 12's mechanism at its purest, and it is why a page can hold the
+/// excluded reference inside a bound our own render misses by hundredths of a percentage point.
+/// ADR 0772.
 ///
-/// **What the page is** is one leaf of a book whose other three hundred are `ambiguous`, and its
-/// diagnosis is this group's: `examples/render_at` at 1× and 8× against `pdftoppm` and
-/// `mutool draw` at 72 and 576 dpi, ink in levels of 255 with `-alpha off -channel R`, gives ours
-/// 5.854 → **5.993** against `poppler` 5.943 → **5.983** and `mupdf` 6.013 → **6.019**, so at
-/// eight times the resolution we are *between* the two references that vote and the difference at
-/// the page's own scale is glyph coverage. The marks are the right marks.
-///
-/// **And what the verdict is** is where a threshold fell in a spread with no gap in it. The five
-/// cross-pair differing fractions that do *not* define the bound run **5.32%, 5.35%, 5.88%, 6.05%
-/// and 6.15%** — `ghostscript` against each pair member, ours against each pair member, and ours
-/// against `ghostscript` — and the bound derived from the sixth, the pair's own 3.00%, lands at
-/// 6.01%, inside that range and 0.13 points from the top of it. Nobody is on one side of a
-/// boundary the page states; `ghostscript` is 0.69 points inside a cut and we are 0.04 outside it.
-/// That is trap 12's mechanism at its purest — a bound that is a *selected minimum* rather than a
-/// spread — and it is why this page's membership of the excluded-reference population is not an
-/// accusation. ADR 0772.
-///
-/// # And *32 of 32* is the pool's base rate, which is what the population could not say
+/// # And that control is the pool's base rate, which is what the population could not say
 ///
 /// The eight-hundred-and-forty-fourth session ran the same control over the **whole**
 /// contradicted pool — [`the_excluded_reference_under_the_same_bound`], counted by
-/// [`rank_the_contradicted_by_the_bound`] every run — and it holds on **52 of the 60** pages,
+/// [`rank_the_contradicted_by_the_bound`] every run, which is where the share is read rather than
+/// here — and it holds on most of the pool at any given time,
 /// across the JBIG2 pages, the `CalRGB` pages, the CMYK shading pages and the link border alike.
 /// So it is not this group's signature, it discriminates nothing, and no verdict rule can rest
 /// on it. **This group's diagnosis is untouched by that**, and the reason is worth being clear
@@ -4065,7 +4070,7 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// # `poppler` meets this page's bound by 0.06 of a level while sitting 26 times further from the
 /// page's own arithmetic than we do
 ///
-/// This is one of three pages in the pool where the voting reference the consensus excludes is
+/// This is a page where the voting reference the consensus excludes is
 /// inside the bound our own render is outside — the population
 /// [`name_the_pages_the_excluded_reference_survives`] prints, and the sharpest accusation the
 /// oracle can construct. Taken at face value it says an independent implementation managed what

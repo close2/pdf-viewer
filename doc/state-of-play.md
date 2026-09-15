@@ -33,7 +33,14 @@ this processor's own because the clause requires one and draws none, and §12.5.
 §12.5.6.16's two, whose clauses only *recommend* one and whose names name objects — and a markup
 annotation drawn from **the group it belongs to** rather than from itself, which is §12.5.6.2's
 nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
-oracle, `render-gpu` is Vello and the backend it is compared against — they agree to the channel
+oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
+§8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
+lattice, leaving the library beneath it the axis-aligned rectangle and the one case §11.6.2 forbids
+compositing with itself (ADR 1082) — `render-cpu` is also where a **non-isolated group the file
+composites under a mode other than Normal is drawn** instead of reported, by performing §11.4.4's
+backdrop removal (ADR 1107), and where §10.7.4's substituted width for a mark too thin to measure
+begins **one level of 255 below visible rather than one whole device pixel below it**, so between
+those two widths every backend draws the shape the document states (ADR 1102); `render-gpu` is Vello and the backend it is compared against — they agree to the channel
 over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
 they did not (ADR 0127) — and `render-raster` is the third, over the document renderer this project
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
@@ -66,12 +73,21 @@ what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`
 text**, whose shapes cross to the host as geometry so that it draws them in its own colour, **and
 that text can leave the program** — every one of the four consumers puts it on the platform's own
 clipboard, in §14.8.2.5's logical content order where the document's structure tree reaches every
-byte of the selection and in page content order otherwise, said out loud either way (ADR 0519);
+byte of the selection and in page content order otherwise, said out loud either way (ADR 0519) —
+with **§14.8.2.2.2 taken at its word, that content the structure tree does not include is an
+artifact even where nothing tagged it one**, so what a reader takes as text can have the page
+furniture subtracted from it and the file's own declaration stays distinguishable from this
+reader's inference (ADR 1100);
 `/`
 **searches the whole document**, one page read per turn of the host's event loop because a
 thousand pages of interpretation is not something the launch path may block for, with the readback
 kept under a per-document bound so that searching the same document twice does not cost twice
-(ADRs 0250, 0256); a person can **fill in a form field** — where the host keeps the *point* it
+(ADRs 0250, 0256); **a form's data can arrive and leave as a file**: §12.7.7's FDF and §12.7.8's XFDF both read into
+the same fully qualified names a field carries, so an import means one thing whichever format came —
+XFDF against ISO 19444-1, which ISO 32000-2 names and defines nowhere, with an `<annots>` element
+**counted and said out loud rather than read**, because the grammar that would let it create an
+annotation is in sections of that standard this tree does not hold (ADR 1108); a person can **fill
+in a form field** — where the host keeps the *point* it
 clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR
 0201), with a caret that says where the next character goes so that correcting the middle of a
 value is not deleting back to it (ADR 0211) — undo it and redo it; a person can **choose an option
@@ -123,7 +139,10 @@ six tabs, drawn in `viewer-ui` with `pdf-font`'s compiled-in Helvetica and a `pd
 list so that every rasteriser draws it, and in the two native hosts with a `GtkNotebook` of
 `GtkListView`s and a `QTabWidget` of `QTreeView`s: §12.3.3's outline, where a click
 **activates the item** and the document decides whether that is a jump or a URI; §8.11.4.3's
-layers, where a switch turns one on unless Table 99's `/Locked` forbids it; §7.11.4's embedded
+layers, where a switch turns one on unless Table 99's `/Locked` forbids it — and **§8.11.4.4's
+`User` and `Language` categories are answered from an audience a *host* supplies and never read off
+this machine**, a category with nobody named staying unanswerable rather than falling to the
+clause's default (ADR 1106); §7.11.4's embedded
 files, where a click writes the file beside the document — as does a click on §12.5.6.15's
 paperclip, because §7.11.4.1 gives an embedded file two homes and a file hung on a *page's* own
 annotation is in the one the name tree does not list — and where a document stating §12.3.5's
@@ -328,6 +347,16 @@ ambiguity by itself. The approved PDF Association errata are an input beside the
 which *withdraws* a rule from part 4. `tools/state.sh archive` prints where the comparison
 stands, and `doc/todo/02` §2 runs it every whole-sequence round (ADR 1015).
 
+**And it can *make* one.** `pdf-transform`'s `archive` verb brings a document to a stated target in
+three stages — validate with `pdf-archive`, decide each failed requirement as a refusal, an
+authorised loss or a default, then rewrite through the same structure-preserving serializer `split`
+and `merge` use — and **the output is validated again before a byte is written**, so what the report
+claims about it is a measurement rather than a promise (ADR 0947). A source that already conforms is
+copied rather than rewritten (ADR 1006), each loss the run is willing to take is asked for by name
+on that run, and an annotation that cannot stay does not take its marks with it (ADRs 1099, 1105).
+**It is a library verb and no window or command line reaches it yet**, which is the thing to know
+before building on it.
+
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
 states the NTSC weights — at a dpi (§8.3.2.3's 72 units to the inch, the oracle backend's own raster byte for
@@ -531,16 +560,34 @@ algorithm families and the fourth row ISO/TS 32002 section 5.1.2 adds beside the
 modular arithmetic and the group law under them are RustCrypto's `crypto-bigint` and curve
 packages, by owner decision (ADR 0331). **What is still refused is a *curve* rather than a family,
 and each is named at runtime by the identifier the certificate states**: of ISO/TS 32002 Table 3's
-six, the three Brainpool ones, because their packages are release-candidate-only on this tree's
-`digest` line and brainpoolP512r1 has no package at all; and of its Table 4's two, Ed448, whose
-stable package carries the field arithmetic without the signature scheme. The sentences the program uses keep every
+six, brainpoolP512r1 alone, which has no package of reviewed arithmetic at all (ADR 1063); and of
+its Table 4's two, Ed448, whose stable package carries the field arithmetic without the signature
+scheme. The sentences the program uses keep every
 asymmetry: a mismatch is decisive, a match is the absence of one kind of evidence, and a
 certificate that arrived in the same file as the signature it verifies proves the two are
 consistent with each other and nothing about who made either. **Without an anchor nothing here says
-a signature is valid**, and with one the sentence that does says whose anchors made it sayable. **And where the file marks the part this program does not do**, it says that too: Table
-255's `/V 1` states that "the Reference dictionary shall be considered critical to the validation
-of the signature", and this program evaluates no transform method, so the note that names the
-questions it answered now names that one as well (ADR 0637).
+a signature is valid**, and with one the sentence that does says whose anchors made it sayable. **And §12.8.2.2's second question — what changed after the signature — is answered without
+mutating anything**, because §7.5.6 makes a signed revision a byte prefix of the file: the prefix
+is opened as a second immutable `Document` and the two are diffed object by object, each change
+ranked by which *entries* the update wrote rather than by what the object is (ADRs 1043, 1049).
+**All three of §12.8.2's transform methods are read, scoped by their own parameters, and ranked on
+that comparison** — `/DocMDP` against Table 257's `/P`, `FieldMDP` against Table 259's `/Action` and
+`/Fields`, and `UR` against Table 258's rights, which are a *grant* rather than a restriction, so a
+save that outgrows what the signature granted withdraws the `/UR3` entry rather than leaving a grant
+the new bytes do not support — and all of it reaches a reader rather than only the crate (ADRs 0159,
+1096, 1104). **Where the file marks a part this program
+still does not do**, it says that too: Table 255's `/V 1` states that "the Reference dictionary
+shall be considered critical to the validation of the signature", so a `/Reference` naming any
+*other* transform method is named in the note beside the questions that were answered (ADR 0637).
+
+**Two more of §12.8's questions are answered from the file rather than from a network.**
+`pdf_signature::revocation` reads §12.8.4's document security store and §12.8.3.3.2's archival
+attribute, applies them to every certificate on the path, and **absence of evidence is *unknown*
+and never *good*** — a host willing to accept an unknown status says so in the open rather than
+having it assumed (ADR 1067). §12.8.5's document timestamps are *established* rather than read:
+the token has to parse, be covered by the signer's own digest attribute, verify, and reach a
+supplied anchor, with each token's path validated at the next one's stated time, and what a token
+merely claims is reported as a claim (ADR 1071).
 
 **And it speaks a page.** `viewer-accessibility` maps §14.8.4's standard structure types onto
 `accesskit::Role`, and `accesskit_unix` puts the result on AT-SPI — where a real client walks it

@@ -374,7 +374,7 @@ fn main() {
         dragging: false,
         control: false,
         shift: false,
-        pinch: 0.0,
+        zoom_carry: 0.0,
         dirty: false,
         asking: viewer_host::Asking::new(),
         report_due: viewer_host::report::Due::default(),

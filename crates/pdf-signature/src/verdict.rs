@@ -37,6 +37,14 @@
 //!   [`Revocation::Good`], and admitting one is a *host's* decision made in the open);
 //! - where the document carries §12.8.5's document timestamps, the chain is established (ADR 1071).
 //!
+//! **Every one of those is asserted *as of an instant*, and [`BestSignatureTime`] is which one.**
+//! §12.8.3.3.1 leaves what to do with a verified token's time to the signature handler; this tree
+//! is the handler and the treatment it defines is ETSI EN 319 102-1 clause 5.5.4's
+//! best-signature-time, paraphrased there. A verdict never says *valid now* — it says valid as of
+//! the earliest moment this signature is proven to have existed, which is the reader's clock unless
+//! a token proved an earlier one, and [`Valid::when`] is what a report owes a reader alongside the
+//! word.
+//!
 //! It is not a claim that the anchor is a good anchor, that the signer is who the certificate says,
 //! or that the document means what it appears to. Those are the host's, the authority's and the
 //! reader's respectively, and this program has nothing to add to any of them.
@@ -81,6 +89,96 @@ impl Anchored {
     #[must_use]
     pub const fn revocation(&self) -> &Revocation {
         &self.revocation
+    }
+}
+
+/// What proved the signature already existed at [`BestSignatureTime::at`].
+///
+/// Three answers, and the first is the absence of the other two: with nothing proving an earlier
+/// moment the instant is the reader's clock, which is not a proof of anything and is named as such.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Proof {
+    /// Nothing proved the signature existed before now, so the instant is the reader's own clock.
+    ///
+    /// The overwhelming majority of signed documents, and every one of them where no host named an
+    /// anchor: a token's instant is established only through a path to somebody's anchor
+    /// (ADR 1039, ADR 1071).
+    NothingButTheReadersClock,
+    /// §12.8.5's document timestamp over this signature established the instant.
+    ADocumentTimestamp,
+    /// §12.8.3.3.1's timestamp attribute on this signature established it.
+    ThisSignaturesTimestampAttribute,
+}
+
+/// The earliest instant at which the existence of a signature is proven — the instant its
+/// certification path is validated at.
+///
+/// **The concept is ETSI EN 319 102-1 clause 5.5.4's best-signature-time**, and the two rules that
+/// make it are that clause's steps 1 and 3 b) paraphrased: it starts as the reader's current time,
+/// and a time-stamp token whose own validation passed lowers it to that token's generation time
+/// where that is *earlier*. It never moves later than the clock it started from, which is why a
+/// token stating a `genTime` in the future proves nothing and is ignored rather than believed.
+///
+/// What it is *for* is the question §12.8.3.3.1 hands to a handler — "The specific treatment of
+/// this timestamp tokens and its processing is left to the particular signature handlers to
+/// define." This tree is the handler, and the treatment is this: the instant is RFC 5280 section
+/// 6.1.1's input (b) for the signing certificate's path, so a certificate that has since expired
+/// still validates a signature made while it was current, and it is the validation time for
+/// revocation, so a revocation that took effect after it does not reach the signature
+/// (clause 5.5.4 step 4) a)).
+///
+/// **A proof is what distinguishes the two.** Where the instant is only the reader's clock nothing
+/// is proven about the past, so neither carve-out applies; [`Self::is_proven`] is that distinction
+/// and [`Proof`] says which token supplied it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BestSignatureTime {
+    at: Instant,
+    proof: Proof,
+}
+
+impl BestSignatureTime {
+    /// The instant with nothing proving an earlier one: the reader's clock.
+    #[must_use]
+    pub const fn now(at: Instant) -> Self {
+        Self {
+            at,
+            proof: Proof::NothingButTheReadersClock,
+        }
+    }
+
+    /// A token's established instant, taken where it is earlier than what is held.
+    ///
+    /// Earlier and not merely different: the value is the earliest moment the signature is *proven*
+    /// to have existed, so a later token says nothing this one does not already say, and a token
+    /// ahead of the reader's clock would move the question into a future nobody has evidence
+    /// about. Ties keep what is held, which leaves §12.8.4.2's document timestamp ahead of
+    /// §12.8.3.4.8's attribute where both name the same second (ADR 1085 put them in that order).
+    #[must_use]
+    pub const fn proven_at(self, at: Instant, proof: Proof) -> Self {
+        if at.unix_seconds() < self.at.unix_seconds() {
+            Self { at, proof }
+        } else {
+            self
+        }
+    }
+
+    /// RFC 5280 section 6.1.1's input (b), as this signature's evidence fixes it.
+    #[must_use]
+    pub const fn at(&self) -> Instant {
+        self.at
+    }
+
+    /// What proved it, or that nothing did.
+    #[must_use]
+    pub const fn proof(&self) -> Proof {
+        self.proof
+    }
+
+    /// Whether a token established the instant, rather than the reader's clock supplying it.
+    #[must_use]
+    pub const fn is_proven(&self) -> bool {
+        !matches!(self.proof, Proof::NothingButTheReadersClock)
     }
 }
 
@@ -177,7 +275,11 @@ pub enum Reservation {
     /// does not compute on, a certificate that would not parse.
     #[error("whether the signature verifies under the signer's key could not be decided")]
     VerificationNotDecided,
-    /// §12.8.4's material revokes a certificate on the path.
+    /// §12.8.4's material revokes a certificate on the path, at or before the instant asked about.
+    ///
+    /// A revocation dated *after* a [`BestSignatureTime`] a token proved is not this: ETSI
+    /// EN 319 102-1 clause 5.5.4 step 4) a) lets such a signature go on, because the token is
+    /// evidence that it existed before the certificate was revoked.
     #[error(
         "a certificate on the certification path is revoked (certificate {position} of the path)"
     )]
@@ -215,7 +317,7 @@ pub enum Reservation {
 pub struct Valid {
     path_length: usize,
     revocation: Revocation,
-    at: Instant,
+    when: BestSignatureTime,
     timestamps: Timestamps,
 }
 
@@ -236,7 +338,14 @@ impl Valid {
     /// RFC 5280 section 6.1.1's input (b): the instant the path was validated at.
     #[must_use]
     pub const fn at(&self) -> Instant {
-        self.at
+        self.when.at()
+    }
+
+    /// That instant with what fixed it — the reader's clock, or the token that proved an earlier
+    /// one.
+    #[must_use]
+    pub const fn when(&self) -> BestSignatureTime {
+        self.when
     }
 
     /// What §12.8.5's chain contributed.
@@ -271,7 +380,7 @@ impl Verdict {
         trust: &Trust,
         acceptance: Acceptance,
         timestamps: Timestamps,
-        at: Instant,
+        when: BestSignatureTime,
     ) -> Self {
         match Anchored::of(trust) {
             Some(anchored) => Self::reached(
@@ -280,7 +389,7 @@ impl Verdict {
                 &anchored,
                 acceptance,
                 timestamps,
-                at,
+                when,
             ),
             None => Self::Reserved(match trust {
                 Trust::NoAnchorSupplied => Reservation::NoAnchorSupplied,
@@ -310,7 +419,7 @@ impl Verdict {
         anchored: &Anchored,
         acceptance: Acceptance,
         timestamps: Timestamps,
-        at: Instant,
+        when: BestSignatureTime,
     ) -> Self {
         // Question 1. `UnderTheSignersKey` is not a failure: §12.8.3.2's value and a `SignerInfo`
         // with no signed attributes record no digest in the open, and question 2's answer *is*
@@ -332,10 +441,33 @@ impl Verdict {
         // own material said about it (ADR 1067).
         match anchored.revocation() {
             Revocation::Good { .. } => {}
-            Revocation::Revoked { position, .. } => {
-                return Self::Reserved(Reservation::Revoked {
-                    position: *position,
-                });
+            Revocation::Revoked {
+                position,
+                at: took_effect,
+                invalid_from,
+                ..
+            } => {
+                // **ETSI EN 319 102-1 clause 5.5.4 step 4) a): a revocation that took effect after
+                // the signature is proven to have existed does not reach it.** The clause's own
+                // condition is what the second half of this test is: the carve-out needs a proof of
+                // existence, and the reader's clock is not one — without a token the process has no
+                // evidence that the signature predates the revocation, and the answer stays what it
+                // was. RFC 5280 section 6.3.3 states no such rule and could not: its steps (i)–(k)
+                // never look at `revocationDate` at all, which is why holding the clause's
+                // document was what this took.
+                //
+                // **And the instant compared against is the earlier of the two the issuer states.**
+                // Section 5.3.2's `invalidityDate` is when the certificate is known or suspected to
+                // have become invalid and "may be earlier than the revocation date in the CRL
+                // entry", which is only when the CA processed it — so a carve-out measured from the
+                // processing date would excuse a signature made with a key the issuer says was
+                // already compromised.
+                let from = invalid_from.unwrap_or(*took_effect);
+                if !(when.is_proven() && from.unix_seconds() > when.at().unix_seconds()) {
+                    return Self::Reserved(Reservation::Revoked {
+                        position: *position,
+                    });
+                }
             }
             Revocation::Unknown { why, .. } => {
                 if acceptance == Acceptance::RevocationMustBeGood {
@@ -356,7 +488,7 @@ impl Verdict {
         Self::Valid(Valid {
             path_length: anchored.path_length(),
             revocation: anchored.revocation().clone(),
-            at,
+            when,
             timestamps,
         })
     }

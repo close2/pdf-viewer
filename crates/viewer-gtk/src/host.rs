@@ -858,7 +858,7 @@ impl Host {
                 {
                     Ok(bytes) => Some(bytes),
                     Err(refusal) => {
-                        self.say(&format!("import-data: declined — {refusal}"));
+                        self.say(&viewer_host::policy::supply_note(purpose, &refusal));
                         None
                     }
                 };

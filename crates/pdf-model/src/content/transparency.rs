@@ -781,9 +781,10 @@ pub(super) enum AlphaSource {
 /// Which readings of §11.6.4.3's alpha source parameter the content being run painted under.
 ///
 /// `/AIS` is a graphics state parameter, so one content stream may paint some of its marks
-/// under each reading. A knockout group's construction differs between them, so a group whose
-/// content stated both is refused rather than drawn under either — which is what [`Mixed`]
-/// says and what [`Self::settled`] answers `None` for.
+/// under each reading, which is what [`Mixed`] says. What follows from that about a *group*
+/// is [`Self::settled_over`]'s rather than this type's: the flag reinterprets two inputs and
+/// nothing else, so a group stating neither is described by both readings and a group stating
+/// either is described by neither.
 ///
 /// [`Mixed`]: Self::Mixed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -812,12 +813,43 @@ impl AlphaSourcesSeen {
     }
 
     /// The one reading that describes all of it, or `None` where there is no such reading.
-    pub(super) fn settled(self) -> Option<AlphaSource> {
+    fn settled(self) -> Option<AlphaSource> {
         match self {
             Self::Opacity => Some(AlphaSource::Opacity),
             Self::Shape => Some(AlphaSource::Shape),
             Self::Mixed => None,
         }
+    }
+
+    /// The reading that describes `commands`, which [`Self::Mixed`] does not by itself
+    /// rule out (ISO 32000-2 §11.6.4.2, §11.6.4.3, §11.6.4.4).
+    ///
+    /// §11.6.4.3 and §11.6.4.4 give the flag exactly two things to reinterpret — the soft
+    /// mask, and the two alpha constants — and §11.6.4.2 fixes everything else:
+    ///
+    /// > All elementary objects shall have an intrinsic opacity q j of 1.0 everywhere. Any
+    /// > desired opacity less than 1.0 shall be applied by means of an opacity mask or
+    /// > constant
+    ///
+    /// So where nothing in `commands` states either of those two, the flag reinterprets
+    /// nothing: every element's source shape is its object shape and its source opacity is
+    /// 1.0 under **both** readings, and [`Self::Mixed`] content is described by both rather
+    /// than by neither. That is [`group_alpha_is_shape`]'s own predicate asked under
+    /// [`AlphaSource::Opacity`] — element by element and at every depth, does anything state
+    /// a mask or a constant *as opacity* — so the two questions are one question.
+    ///
+    /// [`AlphaSource::Opacity`] is the answer it then gives because Table 57 makes it the
+    /// default and because it is the cheaper of two equal display lists: under it an opaque
+    /// element's shape is the coverage a rasteriser already draws it with
+    /// ([`element_shape_is_coverage`]), where the other reading states the same shape as a
+    /// second command.
+    pub(super) fn settled_over(self, commands: &[Command]) -> Option<AlphaSource> {
+        self.settled().or_else(|| {
+            commands
+                .iter()
+                .all(|command| element_alpha_is_shape(command, AlphaSource::Opacity))
+                .then_some(AlphaSource::Opacity)
+        })
     }
 }
 
@@ -938,8 +970,11 @@ fn knockout_shape_is_coverage(commands: &[Command], alpha: AlphaSource) -> bool 
 /// fact about the buffer rather than about the commands.
 pub(super) fn group_alpha_is_shape(commands: &[Command], alpha: Option<AlphaSource>) -> bool {
     let Some(alpha) = alpha else {
-        // §11.6.4.3's flag decides which of the two arguments above applies, so content that
-        // painted under both readings is described by neither.
+        // §11.6.4.3's flag decides which of the two arguments above applies, and the caller
+        // has already asked whether it decides anything here at all
+        // ([`AlphaSourcesSeen::settled_over`]): `None` means the content painted under both
+        // readings *and* states one of the two inputs the flag reinterprets, so neither
+        // argument describes it.
         return false;
     };
     commands
@@ -1498,7 +1533,8 @@ pub(super) struct ImplicitKnockout {
 ///   group", and the construction seeds from the immediate one.
 ///
 /// The shape each element states is §11.6.4.3's `/AIS` reading's — `None` where the content
-/// painted under both, or where an element's shape cannot be stated at all
+/// painted under both readings *and the flag reinterprets something in these parts*
+/// ([`AlphaSourcesSeen::settled_over`]), or where an element's shape cannot be stated at all
 /// ([`stated_shape`]). Under `/AIS true` an element's drawn alpha *is* its shape
 /// ([`shape_the_alpha_already_is`]), so every element states the pair; under `/AIS false`
 /// an element whose shape is its coverage is drawn bare and the rest state it
@@ -1512,11 +1548,11 @@ pub(super) struct ImplicitKnockout {
 /// §11.7.4.4's NOTE 2 exists to prevent.
 pub(super) fn implicit_knockout_group(
     commands: &[Command],
-    alpha: Option<AlphaSource>,
+    seen: AlphaSourcesSeen,
     inside_knockout: bool,
     shape_masks: &ShapeMasks,
 ) -> Option<ImplicitKnockout> {
-    let alpha = alpha?;
+    let alpha = seen.settled_over(commands)?;
     if !any_command(commands, &command_blends) {
         return Some(ImplicitKnockout {
             elements: transparent_knockout_elements(commands, alpha, shape_masks)?,
@@ -1777,9 +1813,10 @@ struct KnockoutConstruction {
 /// §11.4.6's three constructions for a form `XObject`'s knockout group, tried in order, and
 /// the flat drawing with a report where none applies (ISO 32000-2 §11.4.6, §11.4.4, §11.6.4.3).
 ///
-/// `alpha` is the one reading of §11.6.4.3's `/AIS` the content painted under, or `None`:
-/// the shape §11.4.6 weights by is built one way under each reading, so a group whose
-/// content painted under both is refused. `backdrop_transparent` is NOTE 6's answer for a
+/// `alpha` is the one reading of §11.6.4.3's `/AIS` that describes the content, or `None`:
+/// the shape §11.4.6 weights by is built one way under each reading, so a group whose content
+/// painted under both *and states something the flag reinterprets* is refused
+/// ([`AlphaSourcesSeen::settled_over`]). `backdrop_transparent` is NOTE 6's answer for a
 /// group that is a direct element of a knockout group whose initial backdrop is transparent,
 /// and `enclosing_knockout` whether there is such an enclosing group at all.
 ///
@@ -3005,6 +3042,10 @@ impl Interpreter<'_> {
         // alone rather than folded into it: it is the same arithmetic in one draw instead
         // of two, and it is what §9.3.8's text objects are made of.
 
+        // §11.6.4.3's reading, resolved against the elements *before* the construction below
+        // rewrites them: a `Command::Shaped` states its shape already and is not an element
+        // the flag can reinterpret, so asking afterwards would answer a different question.
+        let settled = alpha_sources.settled_over(&commands);
         let KnockoutConstruction {
             commands,
             pair,
@@ -3016,7 +3057,7 @@ impl Interpreter<'_> {
             group,
             commands,
             pair,
-            alpha_sources.settled(),
+            settled,
             backdrop_transparent,
             enclosing_knockout,
             outer.blend,
@@ -3095,7 +3136,7 @@ impl Interpreter<'_> {
             // `group_alpha_is_shape`, which asks §11.4.6's knockout groups the same question
             // as §11.4.4's since ADR 0554. Written before the elements because it reads them
             // and the next field moves them.
-            alpha_is_shape: group_alpha_is_shape(&commands, alpha_sources.settled()),
+            alpha_is_shape: group_alpha_is_shape(&commands, settled),
             commands,
             alpha: outer.fill_alpha,
             clip: inner.clip,
@@ -3750,9 +3791,11 @@ impl Interpreter<'_> {
             // one can hold, and the most precise true statement is the one worth printing.
             // The first is asked only where there *is* a settled reading of `/AIS`, because
             // which elements have a statable shape is a different question under each — and
-            // where there is not, the third is the answer by construction.
+            // where there is not, the third is the answer by construction. This group was
+            // refused, so its elements are the ones `settled_over` was asked about at the
+            // close and the answer here is that one.
             let refusal = if let Some(element) = alpha_sources
-                .settled()
+                .settled_over(commands)
                 .and_then(|alpha| unstatable_shape(commands, alpha, self.image_masks.shape_masks()))
             {
                 element
@@ -3793,7 +3836,7 @@ mod tests {
     };
     use render_cpu::CpuRasterizer;
 
-    use super::{AlphaSource, ImplicitKnockout, implicit_knockout_group};
+    use super::{AlphaSource, AlphaSourcesSeen, ImplicitKnockout, implicit_knockout_group};
     use crate::image::ShapeMasks;
 
     const RED: Color = Color {
@@ -3892,7 +3935,7 @@ mod tests {
         ];
         let answer = implicit_knockout_group(
             &parts,
-            Some(AlphaSource::Opacity),
+            AlphaSourcesSeen::Opacity,
             true,
             &ShapeMasks::default(),
         )
@@ -3974,7 +4017,7 @@ mod tests {
         ];
         let answer = implicit_knockout_group(
             &parts,
-            Some(AlphaSource::Opacity),
+            AlphaSourcesSeen::Opacity,
             true,
             &ShapeMasks::default(),
         )
@@ -4014,7 +4057,7 @@ mod tests {
     /// §11.4.6's own backdrop, which an element of a knockout group cannot take (NOTE 6).
     #[test]
     fn parts_sharing_a_mode_carry_it_at_the_do_where_that_is_the_same_picture() {
-        let opacity = Some(AlphaSource::Opacity);
+        let opacity = AlphaSourcesSeen::Opacity;
         let multiply = implicit_knockout_group(
             &two_parts(BlendMode::Multiply),
             opacity,
@@ -4064,8 +4107,17 @@ mod tests {
             implicit_knockout_group(&differing, opacity, true, &ShapeMasks::default()).is_none(),
             "inside a knockout group the immediate backdrop is not the initial one (NOTE 6)"
         );
+        // These parts carry §11.6.4.4's constant, which is the input §11.6.4.3's flag
+        // reinterprets, so a record of both readings leaves no one shape to state — where a
+        // group of opaque parts would be described by both (`AlphaSourcesSeen::settled_over`).
         assert!(
-            implicit_knockout_group(&differing, None, false, &ShapeMasks::default()).is_none(),
+            implicit_knockout_group(
+                &differing,
+                AlphaSourcesSeen::Mixed,
+                false,
+                &ShapeMasks::default()
+            )
+            .is_none(),
             "content painted under both readings of /AIS has no one shape to state"
         );
     }
@@ -4084,7 +4136,7 @@ mod tests {
         let parts = two_parts(BlendMode::Multiply);
         let answer = implicit_knockout_group(
             &parts,
-            Some(AlphaSource::Opacity),
+            AlphaSourcesSeen::Opacity,
             true,
             &ShapeMasks::default(),
         )
@@ -4141,7 +4193,7 @@ mod tests {
         ];
         let answer = implicit_knockout_group(
             &parts,
-            Some(AlphaSource::Opacity),
+            AlphaSourcesSeen::Opacity,
             false,
             &ShapeMasks::default(),
         )
@@ -4194,7 +4246,7 @@ mod tests {
         ];
         let answer = implicit_knockout_group(
             &parts,
-            Some(AlphaSource::Opacity),
+            AlphaSourcesSeen::Opacity,
             true,
             &ShapeMasks::default(),
         )

@@ -1326,6 +1326,7 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         Command::Supply { purpose, bytes } => {
             writer.u8(k::SUPPLY).u8(match purpose {
                 Purpose::ImportData => 0,
+                Purpose::TargetRoot => 1,
             });
             match bytes {
                 Some(bytes) => {
@@ -1591,6 +1592,7 @@ pub(crate) fn decode_command_holding(
         k::SUPPLY => Command::Supply {
             purpose: match reader.u8("a purpose")? {
                 0 => Purpose::ImportData,
+                1 => Purpose::TargetRoot,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -2030,6 +2032,7 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .document(*document)
                 .u8(match purpose {
                     Purpose::ImportData => 0,
+                    Purpose::TargetRoot => 1,
                 })
                 .str(name);
         }
@@ -2235,6 +2238,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             document: reader.document(what)?,
             purpose: match reader.u8("a purpose")? {
                 0 => Purpose::ImportData,
+                1 => Purpose::TargetRoot,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -3713,6 +3717,16 @@ mod tests {
                 purpose: Purpose::ImportData,
                 bytes: None,
             },
+            // §12.6.4.4's Table 204 `/F`: the other purpose, in both of its answers, because a
+            // purpose is a number on this wire and a second one is where an encoding drifts.
+            Command::Supply {
+                purpose: Purpose::TargetRoot,
+                bytes: Some(b"%PDF-1.7".to_vec()),
+            },
+            Command::Supply {
+                purpose: Purpose::TargetRoot,
+                bytes: None,
+            },
             // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:
             // three lists of names with a language, and the empty answer whose language is
             // *unstated* rather than empty (§14.9.2.2 gives the empty tag its own meaning).
@@ -3902,6 +3916,11 @@ mod tests {
                 document,
                 purpose: Purpose::ImportData,
                 name: "data.fdf".to_owned(),
+            },
+            Event::NeedsFile {
+                document,
+                purpose: Purpose::TargetRoot,
+                name: "target.pdf".to_owned(),
             },
             Event::Transition {
                 document,

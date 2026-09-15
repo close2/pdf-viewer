@@ -396,6 +396,22 @@ pub enum Decoded {
     Raster(Raster),
 }
 
+/// A dropped connection reaps its worker.
+///
+/// A child that has exited stays a zombie — a task the cgroup still counts — until its parent
+/// waits on it, and `std::process::Child` does not wait on drop. Every path that fails after the
+/// worker is spawned, the handshake above all (a hostile decode kills the worker before it can
+/// greet), used to drop the connection with the child alive: on 2026-09-15 three crawl censuses
+/// leaked ten thousand zombies and the Konsole scope's `pids.max` refused every fork on the
+/// machine. `kill` is a no-op for a child already gone and `wait` returns a status already
+/// collected, so the explicit reaps elsewhere in this file stay correct beside this one.
+impl Drop for Connection {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 impl Connection {
     /// Starts a worker and reads its handshake.
     fn start() -> Result<Self, SandboxError> {
@@ -412,6 +428,7 @@ impl Connection {
 
         let (Some(to_worker), Some(from_worker)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
+            let _ = child.wait();
             return Err(SandboxError::Spawn(std::io::Error::other(
                 "the worker was started without pipes",
             )));

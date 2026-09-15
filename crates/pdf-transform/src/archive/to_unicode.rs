@@ -33,6 +33,22 @@
 //! those outright. So a composite font outside the exemption is a refusal here, by the standard's
 //! own account of what its codes are.
 //!
+//! **The font's kind is what decides that, rather than how wide a code came out.** The two
+//! disagree for a composite font whose text happens to show small CIDs: every code fits in a byte,
+//! and a rule written about the byte would send such a font to a refusal about *glyph names* —
+//! which is a sentence about a construction the font does not have. So `/Subtype /Type0` is asked
+//! first and the width check behind it is defence, not the rule (ADR 1115).
+//!
+//! # A Type 3 font is a simple font, and its `/CharProcs` names are the ones §9.10.2 asks for
+//!
+//! §9.6.4 makes a Type 3 glyph a content stream rather than a program, so `pdf_font` refuses to
+//! load one at all and there is no encoding table to ask. The names are in the file all the same:
+//! the clause requires such a font to state an `/Encoding` dictionary whose `/Differences` array
+//! describes its whole encoding, and *that array is the glyph selection* §9.10.2's second method
+//! is about. ISO 19005-2 section 6.2.11.7.2's second exemption names Type 3 beside Type 1 for the
+//! same reason. `pdf_archive::type3_encoding` is the one reading of that array, shared with the
+//! validator that judges the exemption by it.
+//!
 //! # What the producer already said is kept
 //!
 //! Where a font's own `/ToUnicode` states a usable value for a code, that value is carried into
@@ -46,6 +62,7 @@ use std::collections::BTreeMap;
 
 use pdf_archive::survey::Survey;
 use pdf_font::LoadedFont;
+use pdf_font::cmap::Code;
 use pdf_font::encoding::{self, SymbolicEncoding};
 use pdf_font::tounicode::ToUnicode;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
@@ -120,20 +137,18 @@ fn derive_one(
     document: &Document,
     used: &pdf_archive::survey::SelectedFont,
 ) -> Result<BTreeMap<u8, String>, &'static str> {
-    let font = LoadedFont::load(document, &used.dict, &used.name).map_err(|_| FONT_NOT_READ)?;
-    if font.is_substituted() {
-        // A substituted font answers for the substitute's glyph names rather than for the
-        // file's, so what it would derive is a statement about a font this document does not
-        // carry — the same guard `pdf_archive` applies when it rules the exemption out.
-        return Err(FONT_NOT_READ);
+    if subtype_is(document, &used.dict, b"Type0") {
+        // Asked of the font rather than of its codes: see the module comment's second section.
+        return Err(NOT_A_SIMPLE_FONT);
     }
+    let naming = Naming::of(document, used)?;
     let stated = producer_map(document, &used.dict);
     let mut out = BTreeMap::new();
     for text in used.shown.keys() {
-        for code in font.decode(text) {
+        for code in naming.codes(text) {
             let Ok(byte) = u8::try_from(code.value()) else {
-                // §9.10.3 writes a simple font's codes as one byte, and a code outside that
-                // range is a composite font's — whose codes carry no glyph name to derive from.
+                // §9.10.3 writes a simple font's codes as one byte. The kind was asked above, so
+                // reaching this is a font that says it is simple and decodes like a composite one.
                 return Err(NOT_A_SIMPLE_FONT);
             };
             if let Some(kept) = stated
@@ -143,7 +158,7 @@ fn derive_one(
                 out.insert(byte, kept);
                 continue;
             }
-            let name = font.selected_glyph_name(code).ok_or(NO_GLYPH_NAME)?;
+            let name = naming.name(code).ok_or(NO_GLYPH_NAME)?;
             out.insert(byte, characters_for(name).ok_or(NAME_NOT_LISTED)?);
         }
     }
@@ -151,6 +166,75 @@ fn derive_one(
         return Err(CODES_NOT_KNOWN);
     }
     Ok(out)
+}
+
+/// Where a font's referenced codes get the glyph names §9.10.2's second method looks up.
+///
+/// Two, because a Type 3 font has no font program to load and states its encoding in the file
+/// instead; the module comment's fourth section is the argument. Everything after the name is
+/// the same for both, which is the point of holding them behind one question.
+enum Naming {
+    /// A font this reader loaded, answering with the encoding it selected the glyph by.
+    ///
+    /// Boxed because a `LoadedFont` carries the face's bytes and its tables and is three orders
+    /// of magnitude larger than the other variant; one allocation per font, on a path that has
+    /// already parsed a font program, buys the size of every `Naming` this module moves.
+    Loaded(Box<LoadedFont>),
+    /// A Type 3 font's own `/Differences` array, code by code (§9.6.4, §9.6.5.1).
+    Differences(BTreeMap<u8, String>),
+}
+
+impl Naming {
+    /// How this font's names are to be reached, or why they cannot be.
+    fn of(
+        document: &Document,
+        used: &pdf_archive::survey::SelectedFont,
+    ) -> Result<Self, &'static str> {
+        if subtype_is(document, &used.dict, b"Type3") {
+            return Ok(Self::Differences(
+                pdf_archive::type3_encoding(document, &used.dict)
+                    .into_iter()
+                    .filter_map(|(code, name)| Some((u8::try_from(code).ok()?, name)))
+                    .collect(),
+            ));
+        }
+        let font = LoadedFont::load(document, &used.dict, &used.name).map_err(|_| FONT_NOT_READ)?;
+        if font.is_substituted() {
+            // A substituted font answers for the substitute's glyph names rather than for the
+            // file's, so what it would derive is a statement about a font this document does not
+            // carry — the same guard `pdf_archive` applies when it rules the exemption out.
+            return Err(FONT_NOT_READ);
+        }
+        Ok(Self::Loaded(Box::new(font)))
+    }
+
+    /// The codes one shown byte string holds.
+    fn codes(&self, text: &[u8]) -> Vec<Code> {
+        match self {
+            Self::Loaded(font) => font.decode(text),
+            // §9.7.1: "each byte of a string to be shown selects one glyph" in a simple font,
+            // and §9.6.4's Type 3 font is one.
+            Self::Differences(_) => text.iter().copied().map(Code::single_byte).collect(),
+        }
+    }
+
+    /// The glyph name this code selects, where the font's encoding gives it one.
+    fn name(&self, code: Code) -> Option<&str> {
+        match self {
+            Self::Loaded(font) => font.selected_glyph_name(code),
+            Self::Differences(names) => names
+                .get(&u8::try_from(code.value()).ok()?)
+                .map(String::as_str),
+        }
+    }
+}
+
+/// Whether a font dictionary states exactly this `/Subtype`.
+fn subtype_is(document: &Document, font: &Dictionary, name: &[u8]) -> bool {
+    document
+        .get_key(font, "Subtype")
+        .as_name()
+        .is_some_and(|subtype| subtype.as_bytes() == name)
 }
 
 /// The `/ToUnicode` `CMap` the producer wrote, where the font states one this reader can parse.
@@ -307,18 +391,23 @@ const FONT_NOT_READ: &str = "deriving a ToUnicode CMap means reading the encodin
      substitute for — in which case the names would be the substitute's rather than this file's";
 
 /// Why a composite font derives nothing.
-const NOT_A_SIMPLE_FONT: &str = "this font's codes are wider than one byte, so they select a CID \
-     rather than a glyph name — and ISO 32000-2 \u{a7}9.7.4.2 makes a CID an index into the \
-     glyphs of the font that defined it, which says nothing about any character. ISO 19005-2 \
-     section 6.2.11.7.2 exempts the four registered collections outright; outside them there is \
-     no evidence in the file to derive from";
+///
+/// One reason with two detections: the font's `/Subtype` says `Type0`, or — behind that, and
+/// unreachable while the kind is legible — its codes came out wider than the single byte
+/// §9.10.3 gives a simple font. Both are the same fact about the font, so both say it.
+const NOT_A_SIMPLE_FONT: &str = "this font is a composite one, so its codes select a CID rather \
+     than a glyph name — and ISO 32000-2 \u{a7}9.7.4.2 makes a CID an index into the glyphs of \
+     the font that defined it, which says nothing about any character. ISO 19005-2 section \
+     6.2.11.7.2 exempts the four registered collections outright; outside them there is no \
+     evidence in the file to derive from";
 
 /// Why a code with no glyph name derives nothing.
 const NO_GLYPH_NAME: &str = "ISO 32000-2 \u{a7}9.10.2's second method maps a code to a glyph name \
      and the name to a Unicode value, and one of this font's referenced codes selects its glyph \
-     without a name — a symbolic TrueType font reaching its cmap by code is the usual shape. \
-     What that code means is not stated anywhere in this file, and manufacturing it would \
-     manufacture the evidence Level U exists to require";
+     without a name — a symbolic TrueType font reaching its cmap by code is the usual shape, and \
+     a Type 3 font whose Differences array does not describe the code is the other. What that \
+     code means is not stated anywhere in this file, and manufacturing it would manufacture the \
+     evidence Level U exists to require";
 
 /// Why a code whose glyph name is nobody's derives nothing.
 const NAME_NOT_LISTED: &str = "one of this font's referenced codes selects a glyph whose name is \

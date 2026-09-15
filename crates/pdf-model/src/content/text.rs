@@ -1034,7 +1034,7 @@ impl Interpreter<'_> {
                 .then(|| {
                     implicit_knockout_group(
                         &elements,
-                        self.alpha_sources.settled(),
+                        self.alpha_sources,
                         self.inside_knockout,
                         self.image_masks.shape_masks(),
                     )
@@ -1171,7 +1171,7 @@ impl Interpreter<'_> {
             index = to;
             if let Some(group) = implicit_knockout_group(
                 &parts,
-                self.alpha_sources.settled(),
+                self.alpha_sources,
                 self.inside_knockout,
                 self.image_masks.shape_masks(),
             ) {

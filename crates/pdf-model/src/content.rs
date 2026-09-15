@@ -2177,6 +2177,9 @@ struct Interpreter<'a> {
     /// Within one scope it is an over-approximation in one direction only, and
     /// [`Interpreter::alpha_sources_mark`] is what keeps it from being one in the other: a
     /// reading that was in force while *nothing was painted* is replaced rather than mixed in.
+    /// The remaining over-approximation is answered where it is read rather than here: a
+    /// record of `Mixed` says the flag was stated both ways, not that it decided anything, and
+    /// `transparency::AlphaSourcesSeen::settled_over` asks the elements which.
     alpha_sources: AlphaSourcesSeen,
     /// The display list's length when [`Interpreter::alpha_sources`] last changed.
     ///

@@ -1073,6 +1073,8 @@ impl Viewer {
         };
         let outcome = match (purpose, bytes) {
             (Purpose::ImportData, Some(bytes)) => interact::import(open, bytes),
+            // §12.6.4.4's suspended walk, resumed against the root that arrived.
+            (Purpose::TargetRoot, Some(bytes)) => interact::resume_root(open, bytes),
             // Trap 5 on the one path where a *host* declines: a click that silently does
             // nothing is indistinguishable from a click on nothing.
             (Purpose::ImportData, None) => {
@@ -1086,6 +1088,7 @@ impl Viewer {
                     .push(format!("import-data: declined —{named} was not supplied"));
                 outcome
             }
+            (Purpose::TargetRoot, None) => interact::decline_root(open),
         };
         self.apply(id, outcome, events);
     }
@@ -1109,7 +1112,7 @@ impl Viewer {
                 submission: Box::new(submission),
             });
         }
-        if let Some((purpose, name)) = outcome.needs_file {
+        for (purpose, name) in outcome.needs_file {
             events.push(Event::NeedsFile {
                 document: id,
                 purpose,

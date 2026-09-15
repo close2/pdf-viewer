@@ -15,7 +15,9 @@
 
 use pdf_syntax::Document;
 
-use super::{Acceptance, Anchored, Reservation, Timestamps, Valid, Verdict};
+use super::{
+    Acceptance, Anchored, BestSignatureTime, Proof, Reservation, Timestamps, Valid, Verdict,
+};
 use crate::revocation::{Material, Revocation, Undetermined};
 use crate::signature::{Integrity, Signature, signatures};
 use crate::trust::{Supply, Trust, TrustAnchors};
@@ -58,7 +60,7 @@ fn verdict_under(roots: &[&str], acceptance: Acceptance) -> Verdict {
         &trust,
         acceptance,
         Timestamps::None,
-        AT,
+        BestSignatureTime::now(AT),
     )
 }
 
@@ -160,7 +162,7 @@ fn a_document_that_moved_is_not_valid_however_good_the_path_is() {
         &anchored,
         Acceptance::UnknownRevocationAccepted,
         Timestamps::None,
-        AT,
+        BestSignatureTime::now(AT),
     );
     assert_eq!(
         verdict,
@@ -188,6 +190,7 @@ fn a_proof_in_hand_is_not_a_verdict() {
         length: 2,
         revocation: Revocation::Revoked {
             at: AT,
+            invalid_from: None,
             reason: None,
             from: crate::revocation::Evidence::CertificateRevocationList,
             position: 1,
@@ -201,7 +204,7 @@ fn a_proof_in_hand_is_not_a_verdict() {
             &revoked,
             Acceptance::UnknownRevocationAccepted,
             Timestamps::None,
-            AT,
+            BestSignatureTime::now(AT),
         ),
         Verdict::Reserved(Reservation::Revoked { position: 1 }),
         "a revocation is never accepted by any acceptance level"
@@ -222,10 +225,124 @@ fn a_proof_in_hand_is_not_a_verdict() {
             &unknown,
             Acceptance::UnknownRevocationAccepted,
             Timestamps::NotEstablished,
-            AT,
+            BestSignatureTime::now(AT),
         ),
         Verdict::Reserved(Reservation::TimestampNotEstablished),
         "a document that states a time this program cannot establish has said something unchecked"
+    );
+}
+
+/// **A revocation dated after a proven instant does not reach the signature** — and the four
+/// things that must each stop that carve-out (trap 13).
+///
+/// ETSI EN 319 102-1 clause 5.5.4 step 4) a). The arrangement is one revoked certificate on an
+/// anchored path, held still while one input moves at a time: the instant is proven or it is not,
+/// and the revocation falls after it or before it. Only one of the four says the word, which is
+/// what makes the carve-out load-bearing rather than a branch that accepts everything.
+///
+/// The clause is the whole authority for it: RFC 5280 section 6.3.3's steps (i) to (k) set
+/// `cert_status` from a CRL entry without ever reading its `revocationDate`, so nothing in the
+/// path-validation profile would have produced this rule.
+#[test]
+fn a_revocation_after_a_proven_instant_does_not_reach_the_signature() {
+    /// A year after [`AT`], which is when the certificate was revoked.
+    const REVOKED_AT: Instant = Instant::from_unix_seconds(1_822_348_800);
+    /// A year before it, which is when a token proves the signature existed.
+    const STAMPED_AT: Instant = Instant::from_unix_seconds(1_759_276_800);
+
+    let integrity = Integrity::Unchanged {
+        digest: crate::cms::Digest::Sha256,
+    };
+    let authenticity = crate::signature::Authenticity::Verified {
+        digest: crate::cms::Digest::Sha256,
+        family: crate::signature::Family::Rsa,
+        key_bits: 2048,
+        over: crate::signature::Signed::SignedAttributes,
+    };
+    let revoked = |at: Instant, invalid_from: Option<Instant>| {
+        Anchored::of(&Trust::Anchored {
+            length: 2,
+            revocation: Revocation::Revoked {
+                at,
+                invalid_from,
+                reason: None,
+                from: crate::revocation::Evidence::CertificateRevocationList,
+                position: 1,
+            },
+        })
+        .expect("an anchored trust is a proof")
+    };
+    let verdict = |revoked_at: Instant, when: BestSignatureTime| {
+        Verdict::reached(
+            &integrity,
+            &authenticity,
+            &revoked(revoked_at, None),
+            Acceptance::RevocationMustBeGood,
+            Timestamps::None,
+            when,
+        )
+    };
+
+    let proven = BestSignatureTime::now(AT).proven_at(STAMPED_AT, Proof::ADocumentTimestamp);
+    let valid = verdict(REVOKED_AT, proven);
+    let Verdict::Valid(said) = &valid else {
+        panic!("a revocation a year after a proven instant does not reach it: {valid:?}");
+    };
+    assert_eq!(said.at(), STAMPED_AT);
+    assert_eq!(said.when().proof(), Proof::ADocumentTimestamp);
+
+    // 1. Nothing proved an earlier moment, so there is no evidence the signature predates the
+    //    revocation — and the clause's carve-out is about a proof of existence, not a date.
+    assert_eq!(
+        verdict(REVOKED_AT, BestSignatureTime::now(AT)),
+        Verdict::Reserved(Reservation::Revoked { position: 1 }),
+    );
+    // 2. The revocation is before the proven instant, so the signature was made under a revoked
+    //    certificate.
+    assert_eq!(
+        verdict(
+            Instant::from_unix_seconds(STAMPED_AT.unix_seconds() - 1),
+            proven
+        ),
+        Verdict::Reserved(Reservation::Revoked { position: 1 }),
+    );
+    // 3. The revocation is *at* the proven instant, which the clause's "posterior to" excludes.
+    assert_eq!(
+        verdict(STAMPED_AT, proven),
+        Verdict::Reserved(Reservation::Revoked { position: 1 }),
+    );
+    // 4. The CA processed the revocation after the proven instant, but says the certificate was
+    //    already invalid before it — RFC 5280 section 5.3.2's `invalidityDate`, which "may be
+    //    earlier than the revocation date in the CRL entry". The earlier instant is the one the
+    //    question is about, so the word is not said.
+    assert_eq!(
+        Verdict::reached(
+            &integrity,
+            &authenticity,
+            &revoked(
+                REVOKED_AT,
+                Some(Instant::from_unix_seconds(STAMPED_AT.unix_seconds() - 1)),
+            ),
+            Acceptance::RevocationMustBeGood,
+            Timestamps::None,
+            proven,
+        ),
+        Verdict::Reserved(Reservation::Revoked { position: 1 }),
+    );
+    // 5. The carve-out removes one reservation and no other: the document still has to be the one
+    //    that was signed.
+    assert_eq!(
+        Verdict::reached(
+            &Integrity::Changed {
+                digest: crate::cms::Digest::Sha256,
+            },
+            &authenticity,
+            &revoked(REVOKED_AT, None),
+            Acceptance::RevocationMustBeGood,
+            Timestamps::None,
+            proven,
+        ),
+        Verdict::Reserved(Reservation::TheDocumentChanged),
     );
 }
 
@@ -298,7 +415,7 @@ fn a_supply_reads_what_it_can_and_names_what_it_cannot() {
                 &trust,
                 Acceptance::UnknownRevocationAccepted,
                 Timestamps::None,
-                supply.at(),
+                BestSignatureTime::now(supply.at()),
             ),
             Verdict::Valid(_)
         ),

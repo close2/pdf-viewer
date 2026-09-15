@@ -371,10 +371,12 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
-    expected.insert(
-        "QUORRA_PURPOSE_IMPORT_DATA".to_owned(),
-        i64::from(PurposeKind::ImportData.code()),
-    );
+    for (name, kind) in [
+        ("QUORRA_PURPOSE_IMPORT_DATA", PurposeKind::ImportData),
+        ("QUORRA_PURPOSE_TARGET_ROOT", PurposeKind::TargetRoot),
+    ] {
+        expected.insert(name.to_owned(), i64::from(kind.code()));
+    }
     // Table 164's two two-valued entries, which `quorra_event_transition` answers as numbers.
     for (name, value) in [
         ("QUORRA_DIMENSION_HORIZONTAL", 0),

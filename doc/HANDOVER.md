@@ -37,6 +37,10 @@ what these files are split by.
 | [`doc/todo/README.md`](todo/README.md) | the index of owed work, one file per item, `ls` sorting by priority |
 | [`doc/todo/02-every-round.md`](todo/02-every-round.md) | what a round does around whatever it takes: which gates its change needs, the sweeps, the binaries, the commit |
 | [`tools/round.sh`](../tools/round.sh) | run it first: the next session number, the reading list for this kind of round, whether the full gate sequence is owed, and each thing a round has got wrong here before |
+| [`doc/todo/02-every-round.md`](todo/02-every-round.md) §8 | **the round's own contract**, which is what a brief is written from: the ledger rows named by number, the record budget a record is counted against, scratch under `scratchpad/r<round>/` because a path a sibling also writes is a log one of you loses, and waiting on a pid you hold rather than on a `pgrep -f` that matches its own command line |
+| **one heavy walk on the machine at a time** | six rounds share this machine, and six concurrent corpus walks is what the kernel's out-of-memory killer takes a round for. Anything that walks a corpus — a `tools/state.sh` section that runs for more than a few seconds, any `--profile gates --test … --ignored` line — goes behind `RAYON_NUM_THREADS=4 flock /home/AI/heavy-walk.lock tools/bounded.sh -- <command>`: the lock queues you, and you wait *in* it rather than polling around it. It costs wall-clock and it costs no correctness; a killed process costs the batch. `cargo test -p conformance` is not a walk and needs neither |
+| [`tools/batch.sh`](../tools/batch.sh) | the orchestrating loop's command — `open`, `gates`, `check`, `close` — with §8 as its reason. `check` prints the six things a merge would otherwise have to remember and exits non-zero if any bites; run it before reporting. A sibling's in-flight file shows up in it as a finding, which is the instrument working |
+| [`tools/worktree.sh`](../tools/worktree.sh) | the *per-round* worktree beside it — a branch with a build directory of its own, the gitignored data linked in, every gitlink pinned — and `close` takes the checkout and the build directory away together. [`doc/environment.md`](environment.md) is the prose |
 | [`doc/environment.md`](environment.md) | the machine, the agent's account, the display, the build directory, the working agreements, and the one command a fresh clone needs |
 | [`doc/traps/README.md`](traps/README.md) | the trap index: one line per trap, the position that springs it and the rule; open a group file where a line bites |
 
@@ -52,10 +56,25 @@ what these files are split by.
 | **measures** anything | [`doc/habits/measuring.md`](habits/measuring.md), [`doc/performance.md`](performance.md), [`doc/verify.md`](verify.md) — and `tools/state.sh`, because the number has to be printed rather than quoted |
 | writes a host, or adds a message | [`doc/ui-boundary.md`](ui-boundary.md), [`doc/todo/30`](todo/30-a-native-host.md)–[`33`](todo/33-annotation-editing.md) |
 | adds or questions a dependency | [`doc/stack.md`](stack.md), [`doc/third-party-data.md`](third-party-data.md), [`doc/PLAN.md`](PLAN.md) §1 |
+| quotes, or wants to quote, a standard that is not ISO 32000-2 | [`doc/third-party-data.md`](third-party-data.md), which states the position per text, and ADRs 0187 and 1085 — see the rule below |
 | runs the program | [`doc/running-the-viewer.md`](running-the-viewer.md), [`doc/environment.md`](environment.md) |
 | runs an instrument that is not a §2 gate | [`doc/verify.md`](verify.md) — `deny`, the fuzzers, callgrind, the cross-target checks, the census examples, AT-SPI |
 | looks for where something lives | [`doc/crate-map.md`](crate-map.md), [`doc/PLAN.md`](PLAN.md) |
 | asks *when* something landed | [`doc/history/`](history/README.md), one file per round from 446 on, and [`doc/history.md`](history.md) for the rows before it — that is the only place session bookkeeping goes |
+
+---
+
+## The texts under `doc/md/`, and the one rule that is not about code
+
+ISO 32000-2's sentences are quoted verbatim and the conformance gate checks every one of them
+against `doc/md/`. **Every other specification text on this disk is held as licensed to a single
+reader: cite the clause or the section and paraphrase, never quote — in a code comment as much as
+in a document — and nothing of it is committed** (`/doc/*.pdf` and `/doc/md` are ignored; what is
+tracked is the encrypted `doc/specifications.zip`). ADR 0187 is the position. ISO 19444-1, which is
+the only text this tree has of the format §12.7.8 names and defines nowhere, is held under it, and
+the three ETSI texts are stricter still — their notice permits no reproduction in any form, so
+nothing from either appears between quotation marks or after a `>` (ADR 1085).
+[`doc/third-party-data.md`](third-party-data.md) states it per text, with where each came from.
 
 ---
 
@@ -68,7 +87,7 @@ evidence and the argument — is in one of five group files grouped by **what a 
 trap, giving the position that springs it and the rule, plus the table of which group file is for
 which kind of round. A round reads the condition column against what it is about to do and opens a
 group file only where a line bites — which is the whole change ADR 1036 made, because the group a
-round "is in" was up to 917 lines and the line it needed was six of them. The index also states why
+round "is in" runs to hundreds of lines (`wc -l doc/traps/*.md`) and the line it needed is six of them. The index also states why
 every trap keeps its number and resolves any citation by number in one hop.
 
 A round that skips the trap its work is in repeats a mistake somebody paid for, and the index is how

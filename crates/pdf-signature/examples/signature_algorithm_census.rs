@@ -60,16 +60,35 @@ use pdf_signature::signature::{
     security_store, signatures, signing_certificate_bindings,
 };
 use pdf_signature::trust::{Trust, TrustAnchors};
-use pdf_signature::verdict::{Acceptance, Timestamps, Verdict};
+use pdf_signature::verdict::{Acceptance, BestSignatureTime, Timestamps, Verdict};
 use pdf_signature::x509::{self, Instant, PublicKey};
 use pdf_syntax::Document;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+
+/// The instant every anchored question in this census is asked at — 2026-06-01T00:00:00Z.
+///
+/// Fixed rather than the clock's, for the reason the corpus gate's is: a census whose answer
+/// changed with the day would be measuring the calendar. It is inside the period of the
+/// certificates most of these files carry and past the `thisUpdate` of most of their material, so a
+/// `Stale` or an expiry here is a real answer about a document rather than an artefact.
+const CENSUS_INSTANT: Instant = Instant::from_unix_seconds(1_780_272_000);
 
 /// §12.8.3.3.1's signature timestamp attribute, counted and named where a signature states one.
 ///
 /// Its own function because RFC 3161 Appendix A gives it a *check* rather than a presence: the
 /// imprint is over "the value of signature field within SignerInfo", so a witness is worth naming
 /// with whether it matched.
+///
+/// **And how large the population is that ETSI EN 319 102-1 clause 5.5.4's instant is about**, which
+/// is three more facts off the same attribute and each a different question (trap 8): how many
+/// signatures carry a token this walk can read, how many of their signing certificates have expired
+/// by [`CENSUS_INSTANT`], and how many of *those* the token's own `genTime` falls inside — the last
+/// being the verdicts the instant moves, because the path is refused at the clock and validates at
+/// the token.
+///
+/// **The token's stated `genTime` is an upper bound rather than a finding**, the way every anchored
+/// column of this census is: establishing an instant needs a path to somebody's anchor, and no
+/// anchor for these tokens exists outside the files themselves (ADR 1076 section 3).
 #[expect(
     clippy::doc_markdown,
     reason = "RFC 3161 Appendix A is quoted verbatim and names a field in camel case; a quotation \
@@ -80,7 +99,9 @@ fn count_signature_timestamp(path: &str, cms: &cms::SignedData<'_>, counts: &mut
         return;
     };
     counts.signature_timestamps = counts.signature_timestamps.saturating_add(1);
-    let covers = stamped.is_ok_and(|stamp| stamp.covers_the_signature);
+    let covers = stamped
+        .as_ref()
+        .is_ok_and(|stamp| stamp.covers_the_signature);
     if covers {
         counts.signature_timestamps_covering =
             counts.signature_timestamps_covering.saturating_add(1);
@@ -88,6 +109,46 @@ fn count_signature_timestamp(path: &str, cms: &cms::SignedData<'_>, counts: &mut
     counts.witnesses.push(format!(
         "{path}: §12.8.3.3.1 signature timestamp attribute, covers the signature: {covers}"
     ));
+
+    let Ok(stamped) = stamped else {
+        return;
+    };
+    counts.stamped_signatures = counts.stamped_signatures.saturating_add(1);
+    let Some(validity) = signer_validity(cms) else {
+        return;
+    };
+    if validity.includes(CENSUS_INSTANT) {
+        return;
+    }
+    counts.stamped_and_expired = counts.stamped_and_expired.saturating_add(1);
+    if validity.includes(stamped.claim.gen_time) {
+        counts.the_instant_would_decide = counts.the_instant_would_decide.saturating_add(1);
+        counts.witnesses.push(format!(
+            "{path}: signer certificate expired, and its own timestamp attribute states {} — \
+             inside the certificate's period",
+            stamped.claim.stated
+        ));
+    }
+}
+
+/// The signing certificate's validity period, where the `SignerInfo` names one this walk can read.
+///
+/// The same two ways RFC 5652 permits a signer to name a certificate that `Signature::authenticity`
+/// honours, and `None` for a signature naming neither — never "the only certificate present", which
+/// would measure a period nobody claimed.
+fn signer_validity(cms: &cms::SignedData<'_>) -> Option<x509::Validity> {
+    let named = |certificate: &x509::Certificate<'_>| match cms.signer_issuer_and_serial {
+        Some((issuer, serial)) => certificate.is_named_by(issuer, serial),
+        None => {
+            cms.signer_key_identifier.is_some()
+                && certificate.key_identifier == cms.signer_key_identifier
+        }
+    };
+    cms.certificates
+        .iter()
+        .filter_map(|entry| x509::read(*entry).ok())
+        .find(named)?
+        .validity
 }
 
 /// ITU-T X.690 clause 10 over one signer's `SignedAttrs`, counted and named.
@@ -182,6 +243,13 @@ struct Counts {
     signature_timestamps: usize,
     /// How many of those commit to the signature they sit on, as RFC 3161 Appendix A requires.
     signature_timestamps_covering: usize,
+    /// Signatures carrying a time-stamp token of their own — the same population, named for the
+    /// question ETSI EN 319 102-1 clause 5.5.4's instant asks of it.
+    stamped_signatures: usize,
+    /// How many of those signers' certificates are no longer current at [`CENSUS_INSTANT`].
+    stamped_and_expired: usize,
+    /// How many of *those* the token's own `genTime` falls inside — the verdicts the instant moves.
+    the_instant_would_decide: usize,
     /// §12.8.3.4.5 (a)'s answer, by variant name, for every signature stating one of §12.8.3.4.3
     /// (f)'s two attributes.
     ///
@@ -358,6 +426,15 @@ impl Counts {
         self.signature_timestamps_covering = self
             .signature_timestamps_covering
             .saturating_add(other.signature_timestamps_covering);
+        self.stamped_signatures = self
+            .stamped_signatures
+            .saturating_add(other.stamped_signatures);
+        self.stamped_and_expired = self
+            .stamped_and_expired
+            .saturating_add(other.stamped_and_expired);
+        self.the_instant_would_decide = self
+            .the_instant_would_decide
+            .saturating_add(other.the_instant_would_decide);
         self.indefinite_lengths = self
             .indefinite_lengths
             .saturating_add(other.indefinite_lengths);
@@ -1021,19 +1098,14 @@ fn count_store(path: &str, store: &pdf_signature::signature::SecurityStore, coun
     ));
 }
 
-/// What §12.8.4's material says about one signature's certification path.
-///
-/// The instant is fixed rather than the clock's, for the reason the corpus gate's is: a census
-/// whose answer changed with the day would be measuring the calendar. 2026-06-01 is inside the
-/// period of the certificates most of these files carry and past the `thisUpdate` of most of their
-/// material; a `Stale` here is therefore a real answer about a document rather than an artefact.
+/// What §12.8.4's material says about one signature's certification path, at [`CENSUS_INSTANT`].
 fn count_revocation(
     store: &pdf_signature::signature::SecurityStore,
     signature: &Signature,
     bytes: &pdf_syntax::FileBytes,
     counts: &mut Counts,
 ) {
-    let at = Instant::from_unix_seconds(1_780_272_000);
+    let at = CENSUS_INSTANT;
     let Ok(cms) = signature.signed_data() else {
         return;
     };
@@ -1077,7 +1149,7 @@ fn count_revocation(
         &trust,
         Acceptance::UnknownRevocationAccepted,
         Timestamps::None,
-        at,
+        BestSignatureTime::now(at),
     );
     let named = match &verdict {
         Verdict::Valid(valid) => format!("valid (path of {})", valid.path_length()),
@@ -1095,7 +1167,7 @@ fn count_revocation(
 /// step 4 is no longer refused for want of anybody to end a path at — which until the
 /// one-thousand-and-sixty-second session was every one of them, by name.
 fn count_established(timestamp: &Signature, bytes: &pdf_syntax::FileBytes, counts: &mut Counts) {
-    let at = Instant::from_unix_seconds(1_780_272_000);
+    let at = CENSUS_INSTANT;
     let Ok(cms) = timestamp.signed_data() else {
         return;
     };
@@ -1243,6 +1315,12 @@ fn main() {
         "{} signature values carry §12.8.3.3.1's signature timestamp attribute; {} of those \
          commit to the signature they sit on, as RFC 3161 Appendix A requires",
         counts.signature_timestamps, counts.signature_timestamps_covering,
+    );
+    println!(
+        "of those, {} carry a token this walk could read; {} of their signing certificates are past \
+         their notAfter at the census instant, and {} of those state a genTime inside the \
+         certificate's period — the verdicts ETSI EN 319 102-1 clause 5.5.4's instant moves",
+        counts.stamped_signatures, counts.stamped_and_expired, counts.the_instant_would_decide,
     );
     println!(
         "{} signature values state X.690's indefinite length, which DER forbids and \

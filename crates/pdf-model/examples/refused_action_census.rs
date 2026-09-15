@@ -144,6 +144,20 @@ struct Counts {
     /// second walk bounded to numbered objects would report zero for the same reason this one
     /// was rewritten to.
     xfdf: BTreeMap<&'static str, BTreeSet<String>>,
+    /// §12.6.4.4 Table 204's `/F`, by the form §7.11 gives the specification, with the documents
+    /// that state one.
+    ///
+    /// The entry is optional and its absence is the table's own default — "the source and target
+    /// share the same root document" — so what is counted here is the half that names a *file on
+    /// a disk*, which is the half only a host can reach.
+    roots: BTreeMap<&'static str, BTreeSet<String>>,
+    /// §12.6.4.8 Table 211's `/Base`, and the documents whose `/URI` action states a reference
+    /// that needs one.
+    ///
+    /// A document-level fact beside an action-level one, which is the pair the clause states: a
+    /// partial reference is resolved against `/Base` where the catalog has one and against the
+    /// location of the document itself where it does not.
+    uris: BTreeMap<&'static str, BTreeSet<String>>,
 }
 
 impl Counts {
@@ -165,6 +179,12 @@ impl Counts {
         }
         for (name, files) in &other.xfdf {
             self.xfdf.entry(name).or_default().extend(files.clone());
+        }
+        for (name, files) in &other.roots {
+            self.roots.entry(name).or_default().extend(files.clone());
+        }
+        for (name, files) in &other.uris {
+            self.uris.entry(name).or_default().extend(files.clone());
         }
     }
 }
@@ -232,11 +252,40 @@ fn main() {
         println!("  none");
     }
 
+    println!("\n§12.6.4.4 Table 204's /F, the root document of the target:");
+    say(&total.roots);
+
+    println!("\n§12.6.4.8 Table 211's /Base, and the references that need one:");
+    say(&total.uris);
+
     println!("\nWhich documents state a refused action:");
     for (name, files) in &total.witnesses {
         let mut names: Vec<&str> = files.iter().map(String::as_str).collect();
         names.sort_unstable();
         println!("  /S /{name}: {}", names.join(", "));
+    }
+}
+
+/// Prints one tally of documents per key, naming a few of them.
+///
+/// The names are what makes a count checkable — `CLAUDE.md`'s rule is that a finding is not a
+/// finding until its hits have been read against the standard — and they are capped because a
+/// population of ninety thousand can put a thousand file names on one line.
+fn say(tally: &BTreeMap<&'static str, BTreeSet<String>>) {
+    if tally.is_empty() {
+        println!("  none");
+        return;
+    }
+    for (what, files) in tally {
+        let mut names: Vec<&str> = files.iter().map(String::as_str).collect();
+        names.sort_unstable();
+        let shown = names.len().min(12);
+        println!(
+            "  {what}: {} document(s) — {}{}",
+            names.len(),
+            names[..shown].join(", "),
+            if names.len() > shown { ", …" } else { "" }
+        );
     }
 }
 
@@ -275,6 +324,16 @@ fn document_counts(path: &str) -> Counts {
     counts.opened = 1;
     let name = path.rsplit('/').next().unwrap_or(path).to_owned();
 
+    // Table 211's `/Base` is the catalog's and not an action's, so it is read once per document.
+    let base = base_uri(&document);
+    if base.is_some() {
+        counts
+            .uris
+            .entry("a catalog stating Table 211's /Base")
+            .or_default()
+            .insert(name.clone());
+    }
+
     let mut seen: BTreeSet<(&'static str, Verdict)> = BTreeSet::new();
     let numbers: Vec<u32> = document.xref().object_numbers().collect();
     for number in numbers {
@@ -294,6 +353,12 @@ fn document_counts(path: &str) -> Counts {
                 Object::Dictionary(dict) => {
                     if let Some(what) = xfdf_in(&document, &dict) {
                         counts.xfdf.entry(what).or_default().insert(name.clone());
+                    }
+                    if let Some(what) = root_in(&document, &dict) {
+                        counts.roots.entry(what).or_default().insert(name.clone());
+                    }
+                    if let Some(what) = partial_uri_in(&document, &dict, base.is_some()) {
+                        counts.uris.entry(what).or_default().insert(name.clone());
                     }
                     if let Some(verdict) = action_in(&document, &dict) {
                         bump(&mut counts.dictionaries, verdict, 1);
@@ -354,6 +419,66 @@ fn action_in(
         None => Verdict::NotAnAction,
     };
     Some((name, verdict))
+}
+
+/// Table 211's `/Base`, from the catalog's `/URI` dictionary — §12.6.4.8's own sentence.
+fn base_uri(document: &Document) -> Option<String> {
+    let catalog = document.catalog().ok()?;
+    let uri = document.get_key(&catalog, "URI");
+    let dict = uri.as_dict()?;
+    match document.get_key(dict, "Base") {
+        Object::String(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        _ => None,
+    }
+}
+
+/// Which form §7.11 gives Table 204's `/F`, where this dictionary is a `/GoToE` that states one.
+fn root_in(document: &Document, dict: &pdf_syntax::Dictionary) -> Option<&'static str> {
+    if let Some(kind) = document.get_key(dict, "Type").as_name()
+        && kind.as_bytes() != b"Action"
+    {
+        return None;
+    }
+    let stated = document.get_key(dict, "S");
+    if stated.as_name()?.as_bytes() != b"GoToE" {
+        return None;
+    }
+    let spec = pdf_model::file_spec::FileSpec::parse(document, &document.get_key(dict, "F"))?;
+    Some(match spec.url() {
+        Some(url) if pdf_model::uri::is_absolute(&url) => {
+            "/S /GoToE with /F, §7.11.5's URL form, absolute"
+        }
+        Some(_) => "/S /GoToE with /F, §7.11.5's URL form, relative",
+        None => "/S /GoToE with /F, §7.11.2's path form",
+    })
+}
+
+/// Whether this dictionary is a `/URI` action whose reference is partial, and what answered it.
+fn partial_uri_in(
+    document: &Document,
+    dict: &pdf_syntax::Dictionary,
+    based: bool,
+) -> Option<&'static str> {
+    if let Some(kind) = document.get_key(dict, "Type").as_name()
+        && kind.as_bytes() != b"Action"
+    {
+        return None;
+    }
+    let stated = document.get_key(dict, "S");
+    if stated.as_name()?.as_bytes() != b"URI" {
+        return None;
+    }
+    let Object::String(bytes) = document.get_key(dict, "URI") else {
+        return None;
+    };
+    if pdf_model::uri::is_absolute(&String::from_utf8_lossy(&bytes)) {
+        return None;
+    }
+    Some(if based {
+        "a partial /URI in a document with a /Base"
+    } else {
+        "a partial /URI in a document with no /Base"
+    })
 }
 
 /// Whether this action dictionary asks for ISO 19444-1's XFDF, and which way.

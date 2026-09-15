@@ -1287,7 +1287,8 @@ impl Interpreter<'_> {
             if parts.is_empty() {
                 return;
             }
-            let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled());
+            let alpha_is_shape =
+                group_alpha_is_shape(&parts, self.alpha_sources.settled_over(&parts));
             self.draw(Command::Group {
                 commands: parts,
                 // The state's constant rides the group below; this one only shapes.
@@ -1349,7 +1350,7 @@ impl Interpreter<'_> {
         // way every other group is asked — see `group_alpha_is_shape`. It changes no pixel
         // today, because this group states no clip of its own, and it is stated truthfully
         // rather than as `false` so that the field means one thing everywhere it is written.
-        let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled());
+        let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled_over(&parts));
         self.draw(Command::Group {
             commands: parts,
             alpha,

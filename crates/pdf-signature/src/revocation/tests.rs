@@ -382,6 +382,44 @@ fn a_crl_that_does_not_list_a_serial_says_the_certificate_is_not_revoked() {
     );
 }
 
+/// **A list issued after the instant asked about is evidence about it, not stale.**
+///
+/// The direction §12.8.4's whole construction depends on: a document security store is assembled
+/// after signing, so every list in one postdates the signature it is evidence about — and once the
+/// validation instant is a moment a time-stamp proved rather than the reader's clock, *every* such
+/// list is issued after it. ETSI EN 319 102-1 clause 5.2.5 is what says which end of the window is
+/// the freshness test: with no configured maximum the accepted freshness is `nextUpdate` minus
+/// `thisUpdate`, which leaves one comparison, against `nextUpdate`.
+///
+/// The control is the second half, and it is the one this file already had: past `nextUpdate` the
+/// same list says nothing (trap 13).
+#[test]
+fn a_list_issued_after_the_instant_asked_about_is_evidence_about_it() {
+    let (ca, leaf) = (hex(fixtures::CA), hex(fixtures::GOOD_LEAF));
+    let (ca, leaf) = (certificate(&ca), certificate(&leaf));
+    let crl = hex(fixtures::CRL);
+    let material = Material::read(&[&crl], &[]);
+
+    // 2025-10-01, nine months before the list's own `thisUpdate` and ten years inside its window.
+    let before_it_was_issued = Instant::from_unix_seconds(1_759_276_800);
+    assert_eq!(
+        status(&subject(&leaf, &ca), &material, before_it_was_issued),
+        Revocation::Good {
+            from: Evidence::CertificateRevocationList,
+            covered: 1,
+        },
+        "a list issued later knows more about that instant, not less"
+    );
+    assert_eq!(
+        status(&subject(&leaf, &ca), &material, LONG_AFTER),
+        Revocation::Unknown {
+            why: Undetermined::Stale,
+            position: 0,
+        },
+        "and past its own nextUpdate it is still stale"
+    );
+}
+
 /// The calibration for the sentence above, in the direction that matters.
 ///
 /// Every refusal in this module is also what a broken signature check, a misread date or a serial
@@ -545,6 +583,7 @@ fn the_worst_answer_is_the_one_a_path_reports() {
     };
     let revoked = Revocation::Revoked {
         at: AT,
+        invalid_from: None,
         reason: None,
         from: Evidence::OcspResponse,
         position: 2,

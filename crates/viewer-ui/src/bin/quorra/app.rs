@@ -205,12 +205,14 @@ pub(crate) struct App {
     /// Whether shift is held, which is the only thing that distinguishes §12.5.1's tab from
     /// its shift-tab: winit reports one key for both.
     pub(crate) shift: bool,
-    /// A touchpad's accumulated pixels, spent one zoom step at a time.
+    /// The fraction of a zoom step a wheel or a touchpad has travelled and not yet spent.
     ///
-    /// A wheel notch arrives as a line and a touchpad's pinch as a stream of pixels; sixteen
-    /// pixels is one of this program's own text rows and means nothing to a magnification, so
-    /// the pixels are counted up and a step taken per `WHEEL_ZOOM_PIXELS` rather than per event.
-    pub(crate) pinch: f32,
+    /// Counted in **lines**, because neither device delivers a step per event: a touchpad sends a
+    /// stream of pixels, and a high-resolution wheel sends a fraction of a line (sixteen pixels is
+    /// one of this program's own text rows and means nothing to a magnification, so the pixel arm
+    /// converts at `WHEEL_ZOOM_PIXELS` instead). Carried rather than discarded — a truncation per
+    /// event threw away every sub-line notch a high-resolution wheel ever sent (ADR 1118).
+    pub(crate) zoom_carry: f32,
     /// Whether anything a person did is unsaved.
     pub(crate) dirty: bool,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.

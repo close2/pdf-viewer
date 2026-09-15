@@ -506,6 +506,70 @@ fn a_path_outside_the_validity_period_is_refused_at_either_end() {
     }
 }
 
+/// **The instant is the input that decides, and a time-stamp is what may move it** (trap 13).
+///
+/// ETSI EN 319 102-1 clause 5.5.4's best-signature-time in one arrangement, with everything but the
+/// instant held still: the fixture signer is current from 2026 to 2027, the reader's clock is
+/// 2027-06-01 and a token proves the signature existed on 2026-06-01. At the clock the path is
+/// refused by RFC 5280 section 6.1.3 (a)(2); at the instant the token proved, the same path, the
+/// same certificates and the same anchor validate. The control is the second half: with no token
+/// nothing moves the instant, and the refusal stands.
+#[test]
+fn a_certificate_expired_at_the_clock_validates_at_an_instant_a_token_proved() {
+    use crate::verdict::{BestSignatureTime, Proof};
+
+    let (root, mid, leaf) = (
+        hex(fixtures::ROOT),
+        hex(fixtures::INTERMEDIATE),
+        hex(fixtures::SIGNER),
+    );
+    let anchors = TrustAnchors::of(&[certificate(&root)]);
+    let path = |when: BestSignatureTime| {
+        validate(
+            &certificate(&leaf),
+            &[certificate(&mid)],
+            &anchors,
+            &Material::none(),
+            when.at(),
+        )
+    };
+
+    let unproven = BestSignatureTime::now(AFTER_THE_SIGNER_EXPIRED);
+    assert!(!unproven.is_proven());
+    assert_eq!(
+        path(unproven),
+        Trust::Refused {
+            refusal: PathRefusal::NotCurrent,
+            examined: 2,
+        },
+        "with nothing proving an earlier moment the certificate is simply expired"
+    );
+
+    let proven = unproven.proven_at(WITHIN, Proof::ADocumentTimestamp);
+    assert!(proven.is_proven());
+    assert_eq!(proven.at(), WITHIN);
+    assert_eq!(
+        path(proven),
+        Trust::Anchored {
+            length: 2,
+            revocation: Revocation::NotChecked,
+        },
+        "a token that proved the signature existed while the certificate was current anchors it"
+    );
+
+    // And the instant only ever moves *earlier*: a token stating a moment after the clock proves
+    // nothing about the past, so clause 5.5.4 step 3) b)'s comparison leaves the clock in place.
+    let later = unproven.proven_at(
+        Instant::from_unix_seconds(
+            AFTER_THE_SIGNER_EXPIRED
+                .unix_seconds()
+                .saturating_add(86_400),
+        ),
+        Proof::ThisSignaturesTimestampAttribute,
+    );
+    assert_eq!(later, unproven);
+}
+
 #[test]
 fn a_critical_extension_this_reader_does_not_know_is_a_refusal() {
     let (root, mid, leaf) = (

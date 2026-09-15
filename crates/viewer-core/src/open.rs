@@ -19,7 +19,7 @@ use pdf_syntax::Document;
 
 use crate::command::Zoom;
 use crate::viewer::{RenderToken, px};
-use pdf_model::action::ImportData;
+use pdf_model::action::{EmbeddedGoTo, ImportData};
 use pdf_model::view::Pointer;
 use pdf_syntax::ObjectId;
 
@@ -209,6 +209,14 @@ pub(crate) struct Open {
     pub(crate) focus: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
+    /// §12.6.4.4's embedded go-to, suspended at Table 204's `/F` until the root document arrives.
+    ///
+    /// The whole action rather than what is left of it, because the rest of the walk is the
+    /// action's own `/T` and its `/D` is read in whatever document the walk ends in. Nothing
+    /// about the walk changes across the pause, which is why it can be *held* rather than
+    /// re-derived: `pdf_model::action::MAX_TARGET_DEPTH` bounded the path when the action was
+    /// read, and the limits the target's children are decoded under are this document's.
+    pub(crate) resuming: Option<EmbeddedGoTo>,
     /// An edit the document restricts, held until the person answers `Event::Asking`.
     ///
     /// The *ask* level's whole state: resolved already, for [`Done`]'s reason — what goes ahead
@@ -770,6 +778,7 @@ impl Open {
             inside: None,
             focus: None,
             importing: None,
+            resuming: None,
             asking: None,
             log: Vec::new(),
             cursor: 0,

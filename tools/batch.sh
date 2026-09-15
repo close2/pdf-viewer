@@ -48,9 +48,15 @@ open_batch() {
 
 # One line per gate: name, exit, the gate's own summary line. A failure's last thirty lines go
 # beside the log under the gate's name, so a merge reads one file and opens one more.
+#
+# Every gate runs behind /home/AI/heavy-walk.lock with four rayon threads: the rounds take the
+# same lock for their own corpus walks, so at most one heavy walk is on the machine at a time
+# across the batch. On 2026-09-15 six rounds and a merge walked the corpus at once and the whole
+# process was killed (raster_golden alone peaks past 7 GiB at twelve threads); the lock costs
+# wall-clock and a kill costs the batch.
 run() {
     local name=$1; shift; local out rc
-    out=$("$@" 2>&1) && rc=0 || rc=$?
+    out=$(RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-4}" flock /home/AI/heavy-walk.lock "$@" 2>&1) && rc=0 || rc=$?
     printf '%-24s exit=%-4s %s\n' "$name" "$rc" \
         "$(printf '%s\n' "$out" | grep -iE 'test result|documents|pages|passed|FAILED|panicked' | tail -1 | cut -c1-150)" >> "$log"
     [ "$rc" -ne 0 ] && printf '%s\n' "$out" | tail -30 > "$log.fail.$name"

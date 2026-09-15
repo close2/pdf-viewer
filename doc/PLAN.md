@@ -43,7 +43,8 @@ custom-drawn interface. What it costs is a mature widget set and a toolkit's fre
 shortcuts. ADR 0001.
 
 **Qt is in the tree, as a host rather than as the flagship's toolkit.** `crates/viewer-qt` is a
-Qt 6 Widgets application on `viewer-core`'s boundary and the only C++ in the tree (ADR 0246);
+Qt 6 Widgets application on `viewer-core`'s boundary, one of the two places C++ is written here (ADR 0246)
+and `kio/`'s worker the other;
 `crates/viewer-gtk` is the GTK4 one (ADR 0244). A host is a consumer of `Command`/`Event`, so the
 toolkits cost the core nothing and cost the flagship's build nothing: `doc/ui-boundary.md` is the
 interface and `doc/crate-map.md` says which crate is which.
@@ -56,7 +57,10 @@ rather than a dialog, and `cargo metadata` is the authority for what is linked.
 **Image codecs.** `zune-jpeg` and `zune-png` cover the common cases. `hayro-jbig2` and
 `hayro-jpeg2000` are pure-Rust JBIG2 and JPEG 2000 decoders, both `#![forbid(unsafe_code)]`, taken
 with `default-features = false` so that their optional SIMD backend — the only `unsafe` either
-would reach — stays out of the tree. There is no C in this tree at all.
+would reach — stays out of the tree. **No C or C++ library is linked into anything a document's
+bytes reach**, which is the claim that matters here: the C and C++ this tree does contain is the two
+faces it offers *outward*, `viewer-ffi`'s and `pdf-vfs-ffi`'s headers and example callers,
+`viewer-qt`'s `cxx` bridge and `kio/`'s worker.
 
 **What the sandbox is for.** Both codecs run inside it, and the reason is panic containment, an
 enforceable memory ceiling and the architecture principle 3 requires — not the containment of C,
@@ -146,8 +150,10 @@ Five questions were answered before any PDF code was written, and each answer is
 something in the tree asserts. ADRs 0003, 0004, 0005 and 0014 are the arguments; `doc/history/`
 has the rounds.
 
-- **A CPU render is byte-deterministic.** `render-cpu` on `tiny-skia`: fills, strokes and nested
-  clips, output byte-identical across runs, and all sixteen of §11.3.5's blend modes covered.
+- **A CPU render is byte-deterministic.** `render-cpu`: fills, strokes and nested clips, output
+  byte-identical across runs, and all sixteen of §11.3.5's blend modes covered. The coverage under
+  that is now this tree's own exact area rather than `tiny-skia`'s lattice, which is what makes the
+  backend an oracle and not a second opinion (ADR 1082).
 - **The GPU backend renders headless**, with no window and no display server, and agrees with
   `render-cpu` within measured tolerances — including the row-padding readback. The interactive
   half is `cargo run --release --example spike-window -p viewer-ui`, which calls the same
@@ -476,10 +482,15 @@ on the list fails immediately, while a clause on it that *has* been reviewed mus
 it. **It is a list rather than a count**, because filling rows in one sitting to make a number go
 down is exactly the rubber stamp the ledger exists to prevent.
 
-On quoting the standard: `doc/md/` is already committed, so a short attributed quotation in a
-source file is no new exposure inside this repository — but quotes in source travel with any
-code that is later published or excerpted, which the markdown does not. Keep them to the
-load-bearing sentence, which is also the right length for readability.
+On quoting the standard: `doc/md/` is **not** committed — `/doc/*.pdf` and `/doc/md` are ignored
+and only the encrypted `doc/specifications.zip` is tracked (ADR 0187) — so a quotation in a source
+file is the one copy of ISO's words this repository carries in the clear, and it travels with any
+code later published or excerpted. Keep them to the load-bearing sentence, which is also the right
+length for readability. **And this permission is ISO 32000-2's alone**: every other specification
+text under `doc/md/` is held as licensed to a single reader and is cited and paraphrased, never
+quoted, with the three ETSI texts stricter still — their notice permits no reproduction in any form,
+so nothing of them appears between quotation marks or after a `>` (ADR 1085).
+[`doc/third-party-data.md`](third-party-data.md) states the position per text.
 
 **How it gets filled.** By clause family, from ordinary work — all four subclauses of §8.9.6
 while implementing image `/Mask`, all of §8.11 while implementing optional content. A family is the
@@ -555,8 +566,8 @@ Memory safety is necessary, not sufficient.
 - **AcroForm JavaScript, if it is ever supported, is a separate sandboxing problem.** Deferred by
   `CLAUDE.md`'s exclusion list, not designed out.
 
-**There is no C in this tree at all**; the confined codecs are pure Rust, and the confinement is
-for panic containment and a memory ceiling rather than for containing C. `pdf-sandbox` is
+**No C or C++ library reaches a document's bytes**; the confined codecs are pure Rust, and the
+confinement is for panic containment and a memory ceiling rather than for containing C. `pdf-sandbox` is
 `#![forbid(unsafe_code)]` over `landlock`, `seccompiler`, `rustix` and `libc` for the system-call
 numbers — all four expose safe interfaces.
 

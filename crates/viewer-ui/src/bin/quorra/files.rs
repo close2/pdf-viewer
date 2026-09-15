@@ -150,16 +150,12 @@ impl App {
     ///
     /// Every refusal is printed, which is trap 5 on the one path where a click can decline.
     pub(crate) fn supply(&self, purpose: Purpose, name: &str) -> Option<Vec<u8>> {
-        let Purpose::ImportData = purpose;
         let path = match viewer_host::resolve_import(self.directory.as_deref(), name) {
             Ok(path) => path,
-            Err(ImportRefusal::NoDirectory) => {
-                println!("import-data: declined — the document is not in a known directory");
-                return None;
-            }
-            Err(ImportRefusal::NotAPlainName { name }) => {
+            Err(refusal @ (ImportRefusal::NoDirectory | ImportRefusal::NotAPlainName { .. })) => {
                 println!(
-                    "import-data: declined — {name} is not a plain file name beside the document"
+                    "{}",
+                    viewer_host::supply_note(purpose, &refusal.to_string())
                 );
                 return None;
             }
@@ -167,7 +163,11 @@ impl App {
         match std::fs::read(&path) {
             Ok(bytes) => Some(bytes),
             Err(error) => {
-                println!("import-data: cannot read {}: {error}", path.display());
+                println!(
+                    "{}: cannot read {}: {error}",
+                    viewer_host::asked_for(purpose),
+                    path.display()
+                );
                 None
             }
         }

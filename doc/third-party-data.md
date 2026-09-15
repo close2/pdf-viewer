@@ -660,6 +660,29 @@ this crate's own sentences under the draft's clause numbers, the same discipline
 reprints and `TechNote 0010` already impose, and the draft's own example values (`19850412`,
 `1985-W15-5`) appear in tests as data rather than as prose.
 
+## The three ETSI European Norms, and the strictest notice on this disk
+
+ETSI publishes its European Norms at no charge from `https://www.etsi.org/deliver/etsi_en/`, and
+three of them are on this disk, each prepared the way every specification here is — `python3
+tools/spec-md.py`, which reads a PDF with this tree's own `quorra-retrieve`, into the ignored
+`doc/md/`:
+
+| text | what cites it |
+|---|---|
+| **EN 319 122-1 V1.3.1 (2023-06)**, CAdES digital signatures, part 1 | §12.8.3.4.3's rules, which the clause states only by reference to it |
+| **EN 319 122-2 V1.1.1 (2016-04)**, CAdES baseline signatures | §12.8.3.4.4's profiles, whose Table 1 cardinalities are that document's |
+| **EN 319 102-1 V1.4.1**, signature creation and validation procedures | `pdf_signature::verdict` and `pdf_signature::revocation` — the vocabulary in which a verdict about a signature is stated at all |
+
+`/doc/*.pdf` and `/doc/md` were already ignored for ADR 0187's reason, so the rule written for the
+PDF Association's documents covered ETSI's with no change.
+
+**Their notice is the strictest here and it changes how the tree cites them.** It permits no
+reproduction in any form without ETSI's written permission. So clause numbers are cited and the
+rules are paraphrased — in source, in the ledger and in the documents alike — and **nothing from any
+of the three appears between quotation marks or after a `>`**. ISO 32000-2's own sentences are
+quoted as always, because the conformance checker verifies those against `doc/md/`, and the two are
+kept visibly apart. ADR 1085 is the argument and what holding them bought.
+
 ## veraPDF, and the difference between running a program and reading it
 
 The owner put a checkout of veraPDF in `doc/veraPDF-library` on 2026-09-07 and asked whether its

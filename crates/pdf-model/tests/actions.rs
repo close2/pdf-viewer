@@ -736,3 +736,229 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
         "a name outside Table 201 is not an action"
     );
 }
+
+/// Assembles a document from object bodies given as bytes, with object 1 the catalog.
+///
+/// Beside [`document`] rather than instead of it because a root document has to *embed* another
+/// PDF, and §7.11.4's embedded file stream holds that file's bytes: a builder that took `&str`
+/// would make the fixture's inner documents a different kind of thing from its outer ones.
+fn assembled(objects: &[Vec<u8>]) -> Vec<u8> {
+    let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref_at = out.len();
+    let size = objects.len().saturating_add(1);
+    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+    for offset in &offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n")
+            .as_bytes(),
+    );
+    out
+}
+
+/// A document of `pages` pages and nothing else, as the bytes a file specification would name.
+fn plain(pages: usize) -> Vec<u8> {
+    let kids = (0..pages).fold(String::new(), |mut kids, index| {
+        let _ = write!(kids, "{} 0 R ", index.saturating_add(3));
+        kids
+    });
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!("<< /Type /Pages /Count {pages} /Kids [{kids}] >>").into_bytes(),
+    ];
+    objects.extend(
+        (0..pages).map(|_| b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_vec()),
+    );
+    assembled(&objects)
+}
+
+/// A document embedding `inner` under `key` in §7.11.4's `EmbeddedFiles` name tree.
+fn embedding(key: &str, inner: &[u8]) -> Vec<u8> {
+    let mut stream = format!(
+        "<< /Type /EmbeddedFile /Subtype /application#2Fpdf /Length {} >>\nstream\n",
+        inner.len()
+    )
+    .into_bytes();
+    stream.extend_from_slice(inner);
+    stream.extend_from_slice(b"\nendstream");
+    assembled(&[
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [({key}) 5 0 R] \
+             >> >> >>"
+        )
+        .into_bytes(),
+        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_vec(),
+        stream,
+        format!("<< /Type /Filespec /F ({key}) /UF ({key}) /EF << /F 4 0 R >> >>").into_bytes(),
+    ])
+}
+
+/// §12.6.4.4 Table 204's `/F`: the walk suspends, and resumes against the root that arrives.
+///
+/// The clause makes `/F` "[t]he root document of the target relative to the root document of the
+/// source", so the target is a file on somebody's disk and `CLAUDE.md` principle 3 gives this
+/// process none. What is checked here is the half that is this crate's: that the action is read
+/// whole, that walking from the *source* still refuses by name, and that the same action walked
+/// from a root that arrived reaches the document Table 205's path describes.
+///
+/// Three shapes, because Table 204 states three: `/F` with a one-step `/T`, `/F` with a `/T`
+/// chain two deep, and `/F` with no `/T` at all — the last being the clause's own EXAMPLE object
+/// 5, "[l]ink from an embedded file to a normal file", where "Optional if F is present" makes the
+/// root the target.
+#[test]
+fn a_root_that_arrives_resumes_the_path_where_it_stopped() {
+    use pdf_model::action::{Action, TargetError, TargetRoot, TargetStep};
+
+    let grandchild = plain(3);
+    let child = embedding("grandchild.pdf", &grandchild);
+    let root = Document::open(embedding("child.pdf", &child)).expect("the root opens");
+
+    let source = |target: &str| {
+        document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            &format!("<< /Type /Action /S /GoToE /D [1 /Fit] /F (target.pdf) {target} >>"),
+        ])
+    };
+    let action = |target: &str| {
+        let document = source(target);
+        let read = pdf_model::action::read(&document, &Object::Reference(id(4)));
+        let [Action::GoToE(embedded)] = read.as_slice() else {
+            panic!("one embedded go-to, got {read:?}");
+        };
+        (embedded.clone(), document)
+    };
+
+    let (one, source_document) = action("/T << /R /C /N (child.pdf) >>");
+    assert_eq!(
+        one.root,
+        Some(TargetRoot::File("target.pdf".to_owned())),
+        "§7.11.2's path form, as the document wrote it and never as a path here"
+    );
+    assert_eq!(one.path, [TargetStep::NamedChild("child.pdf".to_owned())]);
+    assert_eq!(
+        one.target_in(&source_document).err(),
+        Some(TargetError::AnotherRoot("target.pdf".to_owned())),
+        "walked from the source there is no such root, and it is named"
+    );
+
+    let opened = one
+        .target_from_root(Document::open(embedding("child.pdf", &child)).expect("opens"))
+        .expect("the child of the supplied root opens");
+    assert_eq!(pdf_model::Pages::new(&opened).len(), 1, "the child's page");
+
+    // Two steps, into a document embedded inside the supplied root's own embedded file.
+    let (two, _) = action("/T << /R /C /N (child.pdf) /T << /R /C /N (grandchild.pdf) >> >>");
+    assert_eq!(
+        two.path,
+        [
+            TargetStep::NamedChild("child.pdf".to_owned()),
+            TargetStep::NamedChild("grandchild.pdf".to_owned())
+        ]
+    );
+    let deep = two
+        .target_from_root(Document::open(embedding("child.pdf", &child)).expect("opens"))
+        .expect("the grandchild opens");
+    let pages = pdf_model::Pages::new(&deep);
+    assert_eq!(pages.len(), 3, "the grandchild's pages, not the child's");
+    // §12.3.2.2's explicit form, read in the *target*: "[t]he first page shall be numbered 0".
+    assert_eq!(
+        pdf_model::destination::Destination::read(&deep, &two.destination)
+            .and_then(|destination| destination.page_index_in_target(&deep, &pages)),
+        Some(1),
+        "the destination is resolved against the document the walk ended in"
+    );
+
+    // Table 204: `/T` is "Optional if F is present", and the clause's EXAMPLE object 5 is it.
+    let (none, _) = action("");
+    assert!(none.path.is_empty());
+    let itself = none
+        .target_from_root(root)
+        .expect("the root that arrived is the target");
+    assert_eq!(
+        pdf_model::Pages::new(&itself).len(),
+        1,
+        "the root document itself, which has one page"
+    );
+}
+
+/// Table 204's `/F` in §7.11.5's URL form, resolved against Table 211's `/Base`.
+///
+/// **Errata Collection 3's Issue #256 is why the same base governs a specification.** The
+/// erratum says §12.6.4.8's text about `/Base` "applies to all relative URIs in a PDF document
+/// and is not limited to only URI actions as is currently implied", so a `/GoToE` naming its root
+/// by a partial URL is one of those. Four answers, and each excludes a named wrong one: absolute,
+/// resolved, still-partial, and the form §7.11.2.2 forbids.
+#[test]
+fn a_root_named_by_url_is_resolved_against_the_documents_base() {
+    use pdf_model::action::{Action, TargetRoot};
+
+    let root = |base: Option<&str>, url: &str| {
+        let catalog = base.map_or_else(
+            || "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            |base| format!("<< /Type /Catalog /Pages 2 0 R /URI << /Base ({base}) >> >>"),
+        );
+        let document = document(&[
+            &catalog,
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            &format!(
+                "<< /Type /Action /S /GoToE /D [0 /Fit] /F << /Type /Filespec /FS /URL /F \
+                 ({url}) >> >>"
+            ),
+        ]);
+        let read = pdf_model::action::read(&document, &Object::Reference(id(4)));
+        let [Action::GoToE(embedded)] = read.as_slice() else {
+            panic!("one embedded go-to, got {read:?}");
+        };
+        embedded.root.clone()
+    };
+
+    assert_eq!(
+        root(
+            Some("http://example.com/docs/a.pdf"),
+            "http://elsewhere/b.pdf"
+        ),
+        Some(TargetRoot::Url {
+            url: "http://elsewhere/b.pdf".to_owned(),
+            relative: false
+        }),
+        "an absolute reference is its own answer and the base is not consulted"
+    );
+    assert_eq!(
+        root(Some("http://example.com/docs/a.pdf"), "sub/b.pdf"),
+        Some(TargetRoot::Url {
+            url: "http://example.com/docs/sub/b.pdf".to_owned(),
+            relative: false
+        }),
+        "RFC 3986 section 5.3's merge, against the base's directory"
+    );
+    assert_eq!(
+        root(None, "sub/b.pdf"),
+        Some(TargetRoot::Url {
+            url: "sub/b.pdf".to_owned(),
+            relative: true
+        }),
+        "with no base the reference stays partial and says so"
+    );
+    assert_eq!(
+        root(Some("http://example.com/docs/a.pdf"), "//elsewhere/b.pdf"),
+        Some(TargetRoot::ForbiddenUrl("//elsewhere/b.pdf".to_owned())),
+        "§7.11.2.2 forbids a network location, and resolving it is the hazard"
+    );
+    assert_eq!(
+        root(Some("http://example.com/docs/a.pdf"), "b.pdf?v=1"),
+        Some(TargetRoot::ForbiddenUrl("b.pdf?v=1".to_owned())),
+        "and query information"
+    );
+}

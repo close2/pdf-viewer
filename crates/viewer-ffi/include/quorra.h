@@ -165,6 +165,7 @@ extern "C" {
 
 /* What a file the document asks for is wanted for. */
 #define QUORRA_PURPOSE_IMPORT_DATA  0u
+#define QUORRA_PURPOSE_TARGET_ROOT  1u
 
 /*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per
