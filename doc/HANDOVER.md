@@ -49,6 +49,7 @@ what these files are split by.
 | a round that | opens |
 |---|---|
 | asks what the program already does | [`doc/state-of-play.md`](state-of-play.md) — the capability list, and which clause each came from |
+| asks what is left, and why it is not done | [`doc/todo/65`](todo/65-the-remaining-frontier.md) — the `partial`/`reported` rows grouped by their blocker (host surface, dependency, architecture, feature depth, nothing owed), for steering the campaign |
 | wants a number | `tools/state.sh` — `quick` in seconds, the whole thing in minutes; never a document |
 | reads a clause, or writes a ledger row | [`doc/habits/reading-the-specification.md`](habits/reading-the-specification.md) and [`the-ledger-and-claims-about-this-tree.md`](habits/the-ledger-and-claims-about-this-tree.md), [`doc/ledger-and-claims.md`](ledger-and-claims.md), [`doc/errata-read.md`](errata-read.md), [`doc/todo/01`](todo/01-ledger-partial-rows.md) |
 | moves a ledger row that records **one decided departure** inside an otherwise-executed clause | it takes `departed`, not `partial`: every requirement executed except the one the note's first sentence names and its ADR prices; `tools/state.sh` counts it apart from `implemented` and `partial` (the owner's word, `doc/questions/Q63`, ADR 1119) |

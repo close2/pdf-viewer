@@ -76,3 +76,46 @@ backdrop)` and the clause asks for `transfer(blend(object, backdrop))`, a measur
 unit at a half-covered edge; and a control with no transfer, unchanged. It is the regression
 witness the build owes (trap 8, trap 13): when the channel lands, the edge's asserted value becomes
 the clause's, in one place.
+
+## Correction and sharpened pricing, session 1137
+
+The round that inherited the build looked at the two backends and found the deferral's second
+measurement wrong in its premise and its price. The design above is unchanged and correct; what
+follows corrects *why it is deferred* and plants the raster half of the fixture.
+
+- **`render-raster` is not a `tiny-skia` compositor.** It is the `raster-gpu` **wgpu compute**
+  rasteriser (`render-raster` depends on `raster-gpu`, `raster-scene`, `wgpu`), and only `render-cpu`
+  uses `tiny-skia`. So "both backends composite through `tiny-skia`" was false. `QuorraRasterizer::rasterize`
+  returns the composited pixels to the CPU and already runs several CPU-side passes over that
+  read-back — `resolve_grey`, `crop_to_page`, `impose_within`, `resolve_blending`. The transfer map
+  belongs beside them: a per-pixel final map on the read-back, needing **no change to the GPU
+  pipeline at all**.
+- **Agreement is achievable, so it is not the blocker.** §11.7.5.2's per-pixel index — the topmost
+  fully-opaque object's function at a point — is a pure function of geometry and opacity, independent
+  of colour. Both backends applying the identical final map therefore agree by construction, to
+  within the colour-composite tolerance they already share. The "whole second rasterisation pass in
+  each backend" was priced for a channel *threaded through compositing*; the colour-independence
+  makes it a coverage pass that decides the index plus a final map each backend applies to its own
+  read-back — materially smaller than this ADR and `doc/todo/13` first said, and it does not need
+  the GPU rasteriser reopened.
+- **The true blocker is the per-mark carrier.** §11.7.5.2's function is a property of an *elementary
+  object*, so it must attach to the leaf `Command::Fill` / `Command::Image` marks — groups do not
+  carry it. That is **203 `Fill` + 69 `Image` = 272 construction sites across eleven crates**,
+  including `pdf-model` (a sibling's colour work this batch), `render-gpu`, the viewer crates and
+  `test-scenes`, none of which this round owns; the field cannot be added backend-by-backend without
+  breaking compilation, and cannot land on a five-sibling shared branch. The one carrier that touches
+  almost no sites — an `Option` side-table on `DisplayList`, keyed by top-level command position — is
+  flat-list only: it cannot index a mark nested inside a transparency group, so it would silently
+  drop the grouped case (trap 5), which principle 1 forbids as much as it forbids the one-backend
+  change. So the build stays deferred — not for disagreement, which is solved, but for a carrier that
+  cannot be landed correctly this round.
+- **The population is unchanged**: still `issue6931_reduced.pdf` alone, a fully opaque image with no
+  translucent overlap (session 1118's census; no document was added to the corpus this batch). No
+  oracle witness for the antialiased-edge overlap.
+
+`render-raster/tests/transfer_edge.rs` is the raster half of the fixture, the parallel of the CPU
+one 1118 planted: it measures that the raster backend draws the same pre-composite ordering at the
+transferred edge (`blend(transfer(object), backdrop)`, gap of half a unit to the clause's
+`transfer(blend(object, backdrop))`), and that the two backends *agree* on that value within the bar
+`headless_quorra` holds them to. That agreement is the reason a channel added to one backend alone is
+forbidden, and the reason the witness must flip both backends together when the carrier lands.

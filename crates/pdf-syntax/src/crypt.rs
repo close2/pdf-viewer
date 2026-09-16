@@ -322,19 +322,13 @@ impl Encryption {
         let unsupported = |detail: String| SyntaxError::UnsupportedEncryption { detail };
 
         // Table 20: "Standard shall be the name of the built-in password-based security
-        // handler." §7.6.5's public-key handlers are a different clause and a different
-        // technology; a handler we do not know cannot be guessed at, and its `/SubFilter`
-        // — the entry that would let another handler take over — is by Table 20's own
-        // words absent in every file that does not invite one.
+        // handler." A handler we do not know cannot be guessed at, so anything but /Standard
+        // is refused by name; [`reject_non_standard_handler`] names §7.6.5 for a public-key
+        // handler and §7.6.4 for any other.
         let filter = get("Filter");
         let handler = filter.as_name().map(Name::as_bytes).unwrap_or_default();
         if handler != b"Standard" {
-            return Err(unsupported(format!(
-                "/Filter {} is not the standard security handler (§7.6.4)",
-                filter
-                    .as_name()
-                    .map_or_else(|| "(absent)".to_owned(), ToString::to_string)
-            )));
+            return Err(reject_non_standard_handler(&filter, &get("SubFilter")));
         }
 
         let version = get("V").as_integer().unwrap_or(0);
@@ -937,6 +931,39 @@ fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
 /// of the password are already the expensive part of opening an encrypted file. Reaching it
 /// produces a key that will not authenticate, which is reported as a wrong password.
 const MAX_2B_ROUNDS: usize = 256;
+
+/// The refusal for a `/Filter` that is not `/Standard`, named by the clause that owns it.
+///
+/// §7.6.5.1 names the three `/SubFilter` values a conforming public-key security handler uses —
+/// `adbe.pkcs7.s3` and `adbe.pkcs7.s4` without crypt filters, `adbe.pkcs7.s5` with them — and
+/// Table 20 makes `/SubFilter` the entry that completely specifies the format. So a document
+/// carrying one of them is a public-key handler whatever its handler-defined `/Filter` name, and
+/// it is refused by §7.6.5 rather than misattributed to §7.6.4: its file encryption key is wrapped
+/// in a per-recipient CMS envelope (RFC 5652) that only a reader holding the matching private key
+/// can unwrap, which this reader does not do (ADR 1134). Any other unknown handler is refused as
+/// not the standard security handler of §7.6.4.
+fn reject_non_standard_handler(filter: &Object, sub_filter: &Object) -> SyntaxError {
+    let name = |object: &Object| {
+        object
+            .as_name()
+            .map_or_else(|| "(absent)".to_owned(), ToString::to_string)
+    };
+    let sub = sub_filter.as_name().map(Name::as_bytes).unwrap_or_default();
+    let detail = if matches!(sub, b"adbe.pkcs7.s3" | b"adbe.pkcs7.s4" | b"adbe.pkcs7.s5") {
+        format!(
+            "/Filter {} with /SubFilter {} is a public-key security handler (§7.6.5), which this \
+             reader does not implement; only the standard security handler (§7.6.4) is implemented",
+            name(filter),
+            name(sub_filter),
+        )
+    } else {
+        format!(
+            "/Filter {} is not the standard security handler (§7.6.4)",
+            name(filter)
+        )
+    };
+    SyntaxError::UnsupportedEncryption { detail }
+}
 
 /// Table 20's `/StmF`, `/StrF` and `/EFF`, resolved against its `/CF`.
 struct CryptFilters {

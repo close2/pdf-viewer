@@ -3302,6 +3302,7 @@ dependencies = [
  "pdf-font",
  "pdf-model",
  "pdf-render",
+ "pdf-sandbox",
  "pdf-signature",
  "pdf-syntax",
  "pdfref",

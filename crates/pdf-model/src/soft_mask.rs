@@ -696,6 +696,135 @@ mod tests {
         Document::open(out.into_bytes()).expect("the fixture is a valid PDF")
     }
 
+    /// A two-way CMYK profile assembled byte by byte, for the test below alone.
+    ///
+    /// `crate::icc::fixtures` builds the same profile for the ICC parser's own tests, but it is a
+    /// `#[cfg(test)]` item and `icc` is moving behind a crate boundary (ADR 1131): a dependent
+    /// crate cannot see `#[cfg(test)]` code, so a soft-mask test that reaches across for it would
+    /// not compile once the move lands. The profile is re-derived here instead — the same answer
+    /// `crate::content`'s integration tests already give in `tests/transparency_groups.rs`, which
+    /// crossed this boundary first as an external crate. What the profile has to be is a parseable
+    /// CMYK profile carrying both an `A2B1` ("to CIE") and a `B2A1` ("from CIE") table, so that
+    /// `Press::luminance` answers; the corner values are not asserted on here.
+    mod cmyk {
+        #![expect(
+            clippy::arithmetic_side_effects,
+            reason = "layout arithmetic on a fixture's own constants, which cannot overflow"
+        )]
+
+        /// D50, the white point §8.6.5.4 gives a Lab space and ICC gives its connection space.
+        const WHITE: [f32; 3] = [0.964_2, 1.0, 0.824_9];
+
+        /// A 128-byte header, the tag count, one 12-byte entry per tag, then the tags themselves.
+        fn profile_of(
+            space: [u8; 4],
+            pcs: [u8; 4],
+            version: u8,
+            tags: &[([u8; 4], Vec<u8>)],
+        ) -> Vec<u8> {
+            let mut out = vec![0u8; 128];
+            out[8] = version;
+            out[12..16].copy_from_slice(b"prtr");
+            out[16..20].copy_from_slice(&space);
+            out[20..24].copy_from_slice(&pcs);
+            out[36..40].copy_from_slice(b"acsp");
+            out.extend_from_slice(&u32::try_from(tags.len()).expect("small").to_be_bytes());
+            let mut offset = 128 + 4 + 12 * tags.len();
+            for (name, tag) in tags {
+                out.extend_from_slice(name);
+                out.extend_from_slice(&u32::try_from(offset).expect("small").to_be_bytes());
+                out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+                offset += tag.len();
+            }
+            for (_, tag) in tags {
+                out.extend_from_slice(tag);
+            }
+            out
+        }
+
+        /// An `mft2` tag with two grid points per axis and identity curves.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the fixture's constants are written as the fixed-point values it encodes"
+        )]
+        fn mft2_tag(inputs: usize, outputs: usize, clut: &[u16]) -> Vec<u8> {
+            let mut tag = Vec::new();
+            tag.extend_from_slice(b"mft2");
+            tag.extend_from_slice(&[0; 4]);
+            tag.push(u8::try_from(inputs).expect("small"));
+            tag.push(u8::try_from(outputs).expect("small"));
+            tag.push(2);
+            tag.push(0);
+            for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+                tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+            }
+            tag.extend_from_slice(&2u16.to_be_bytes());
+            tag.extend_from_slice(&2u16.to_be_bytes());
+            for _ in 0..inputs {
+                for value in [0u16, 0xFFFF] {
+                    tag.extend_from_slice(&value.to_be_bytes());
+                }
+            }
+            assert_eq!(
+                clut.len(),
+                (1 << inputs) * outputs,
+                "a corner per grid point"
+            );
+            for value in clut {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+            for _ in 0..outputs {
+                for value in [0u16, 0xFFFF] {
+                    tag.extend_from_slice(&value.to_be_bytes());
+                }
+            }
+            tag
+        }
+
+        /// A "to CIE" table of a press whose black ink alone darkens: `XYZ = D50 × (1 − 0.9 k)`.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the fixture's constants are written as the fixed-point values it encodes"
+        )]
+        fn black_only_clut() -> Vec<u16> {
+            let mut clut = Vec::with_capacity(48);
+            for corner in 0..16usize {
+                let black = if corner & 1 == 1 { 1.0f32 } else { 0.0 };
+                for white in WHITE {
+                    clut.push((white * (1.0 - 0.9 * black) * 32768.0) as u16);
+                }
+            }
+            clut
+        }
+
+        /// A "from CIE" table whose corners state one minus each chromatic input and no black.
+        fn complement_clut() -> Vec<u16> {
+            let mut clut = Vec::with_capacity(32);
+            for corner in 0..8usize {
+                for axis in 0..3usize {
+                    let high = (corner >> (2 - axis)) & 1 == 1;
+                    clut.push(if high { 0 } else { 0xFFFF });
+                }
+                clut.push(0);
+            }
+            clut
+        }
+
+        /// A v2 CMYK profile over an XYZ connection space carrying both directions.
+        pub(super) fn two_way_cmyk_profile() -> Vec<u8> {
+            profile_of(
+                *b"CMYK",
+                *b"XYZ ",
+                2,
+                &[
+                    (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                    (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+                ],
+            )
+        }
+    }
+
     /// A `/Luminosity` group's `/DeviceCMYK` is the output intent's press where the page has
     /// one, and the assumed press's ink where it has none.
     ///
@@ -716,7 +845,7 @@ mod tests {
         // answers only for a profile with a "from CIE" table, which §8.6.5.5 requires of a
         // blending space, and a one-way intent leaves the group on the device route with the
         // departure reported.
-        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+        let profile = crate::icc::Profile::parse(&cmyk::two_way_cmyk_profile())
             .expect("the fixture profile parses");
         let identity = profile.identity();
         let intent = ColourSpace::Icc {

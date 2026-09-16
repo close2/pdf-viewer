@@ -15,6 +15,8 @@
 
 use std::fmt::Write as _;
 
+use pdf_model::colour::Conversion;
+use pdf_render::Color;
 use pdf_syntax::serialize::{ObjectStreams, Streams, flate_encode};
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::optimize::OptimizePlan;
@@ -510,11 +512,13 @@ fn image_samples_inside_a_quadpoints_region_are_destroyed_and_outside_intact() {
     assert_eq!(glyphs, 0, "no text was in this fixture");
 }
 
-/// An image behind a lossy codec (`DCTDecode`) meeting the region is refused by name, never
-/// cleared — its samples are behind a codec this removal does not re-encode (trap 5, principle 1).
+/// An image behind `JPXDecode` meeting the region is refused by name, never cleared — a
+/// codestream over the decoder's budget comes back at a reduced resolution level (§7.4.9 NOTE 3),
+/// so its raster is not the image's grid and the redaction cannot be proven to replace the
+/// full-resolution content (trap 5, principle 1). `JBIG2Decode` is refused the same way this round.
 #[test]
-fn an_image_behind_a_codec_is_refused_by_name() {
-    // The bytes are never decoded: the codec is detected from `/Filter` before any decode.
+fn an_image_behind_jpx_is_refused_by_name() {
+    // The bytes are never decoded: the codec is refused from `/Filter` before any decode.
     let objects = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
@@ -525,7 +529,7 @@ fn an_image_behind_a_codec_is_refused_by_name() {
         b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
           /QuadPoints [50 150 100 150 100 50 50 50] >>"
             .to_vec(),
-        image_object("DCTDecode", b"\xff\xd8\xff\xd9"),
+        image_object("JPXDecode", b"\x00\x00\x00\x0cjP  "),
     ];
     let bytes = assemble_bytes(&objects);
 
@@ -536,10 +540,247 @@ fn an_image_behind_a_codec_is_refused_by_name() {
         .find(|declined| declined.page == Some(1))
         .expect("the page is refused");
     assert!(
-        refused.detail.contains("DCTDecode") && refused.detail.contains("codec"),
+        refused.detail.contains("JPXDecode") && refused.detail.contains("codec"),
         "the refusal names the codec: {}",
         refused.detail
     );
+}
+
+/// The one image `XObject` as a byte object with a stated grid, colour space, bit depth, filter
+/// and (optional) decode parameters — for the codec fixtures whose grid is not the 8×8 default.
+fn codec_image_object(
+    width: u32,
+    height: u32,
+    colour_space: &str,
+    bits: u32,
+    filter: &str,
+    parms: &str,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut object = format!(
+        "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace \
+         /{colour_space} /BitsPerComponent {bits} /Filter /{filter}{parms} /Length {} >>\n\
+         stream\n",
+        data.len()
+    )
+    .into_bytes();
+    object.extend_from_slice(data);
+    object.extend_from_slice(b"\nendstream");
+    object
+}
+
+/// The output's one image `XObject`, decoded to straight-alpha `RGBA8` the interpreter's own way,
+/// with whether it is a `FlateDecode` `DeviceRGB` image (the codec re-encode's shape).
+fn read_back_codec_image(bytes: &[u8]) -> (u32, u32, Vec<u8>, bool) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    let is_flate_rgb = {
+        let filter = document.get_key(&stream.dict, "Filter");
+        let space = document.get_key(&stream.dict, "ColorSpace");
+        let flate = matches!(filter, Object::Name(name) if name.as_bytes() == b"FlateDecode");
+        let rgb = matches!(space, Object::Name(name) if name.as_bytes() == b"DeviceRGB");
+        flate && rgb
+    };
+    // The redacted page must still draw (its interpretation must not fault on the new image).
+    let _ = pdf_model::interpret(&document, &page);
+    let flattened = pdf_model::image::decode(
+        &document,
+        stream,
+        &page.resources,
+        Color::BLACK,
+        &Conversion::device(),
+    )
+    .expect("the output image decodes");
+    (
+        flattened.image.width,
+        flattened.image.height,
+        flattened.image.data.to_vec(),
+        is_flate_rgb,
+    )
+}
+
+/// The calibration trap 13 asks for on the codec case: a `DCTDecode` image (§7.4.8) over the
+/// page's [50,150]² square, a `/QuadPoints` region on its left half. After application the region
+/// pixels are the zero constant in the re-read image, the rest byte-identical to the original
+/// decode, and the output is a `FlateDecode` `DeviceRGB` image — no codec, so the cleared region
+/// cannot round-trip back through the lossy filter that would leak it.
+#[test]
+fn a_dct_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate() {
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        codec_image_object(16, 16, "DeviceRGB", 8, "DCTDecode", "", DCT_JPEG_16X16),
+    ];
+    let bytes = assemble_bytes(&objects);
+
+    // The original image decoded the interpreter's way: what "the rest is intact" is measured
+    // against. A JPEG decodes deterministically, so the output's untouched pixels are these.
+    let original = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the codec image is cleared, not refused: {:?}",
+        report.refused
+    );
+    // Principle 1: the original codec bytes are gone from the file — no orphan to recover.
+    assert!(
+        !contains(&out, DCT_JPEG_16X16),
+        "the original DCT stream is not left in the file"
+    );
+
+    let (width, height, rgba, is_flate_rgb) = read_back_codec_image(&out);
+    assert_eq!((width, height), (16, 16), "the grid survives the re-encode");
+    assert!(
+        is_flate_rgb,
+        "the output image is a FlateDecode DeviceRGB stream, not a codec"
+    );
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let at = (row * 16 + col) * 4;
+            if col < 8 {
+                assert_eq!(
+                    &rgba[at..at + 3],
+                    &[0, 0, 0],
+                    "col {col} row {row} is in the region: its sample is the zero constant"
+                );
+            } else {
+                assert_eq!(
+                    &rgba[at..at + 3],
+                    &original[at..at + 3],
+                    "col {col} row {row} is outside the region: byte-identical to the decode"
+                );
+            }
+        }
+    }
+    // The two halves of the original differ, so a preserved right half is not a cleared one.
+    assert_ne!(
+        &original[8 * 4..8 * 4 + 3],
+        &original[0..3],
+        "the fixture's halves differ, so 'intact' is a real assertion"
+    );
+
+    let Some(Origin::Redacted { images, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("the report states a redacted origin");
+    };
+    assert_eq!(images, 1, "one image had samples destroyed");
+}
+
+/// The same calibration for a `CCITTFaxDecode` image (§7.4.6). The bilevel image is decoded
+/// through the codec (in-process here, the confined worker in the program — principle 3), its
+/// region cleared, and the output written as a `FlateDecode` `DeviceRGB` raster.
+#[test]
+fn a_ccitt_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate() {
+    // In-process decode: the same routine the confined worker runs, with no worker binary needed.
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        codec_image_object(
+            16,
+            16,
+            "DeviceGray",
+            1,
+            "CCITTFaxDecode",
+            " /DecodeParms << /K -1 /Columns 16 /Rows 16 >>",
+            CCITT_G4_16X16,
+        ),
+    ];
+    let bytes = assemble_bytes(&objects);
+    let original = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the CCITT image is cleared, not refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, CCITT_G4_16X16),
+        "the original CCITT stream is not left in the file"
+    );
+
+    let (width, height, rgba, is_flate_rgb) = read_back_codec_image(&out);
+    assert_eq!((width, height), (16, 16), "the grid survives the re-encode");
+    assert!(
+        is_flate_rgb,
+        "the output image is a FlateDecode DeviceRGB stream, not a codec"
+    );
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let at = (row * 16 + col) * 4;
+            if col < 8 {
+                assert_eq!(
+                    &rgba[at..at + 3],
+                    &[0, 0, 0],
+                    "col {col} row {row} is in the region: the zero constant"
+                );
+            } else {
+                assert_eq!(
+                    &rgba[at..at + 3],
+                    &original[at..at + 3],
+                    "col {col} row {row} is outside the region: byte-identical to the decode"
+                );
+            }
+        }
+    }
+    // Left half and right half of the fixture differ (black vs white), so the intact assertion
+    // is real rather than vacuous.
+    assert_ne!(
+        &original[8 * 4..8 * 4 + 3],
+        &original[0..3],
+        "the fixture's halves differ, so 'intact' is a real assertion"
+    );
+}
+
+/// Decodes the fixture's one image `XObject` to straight-alpha `RGBA8` from the input bytes,
+/// giving the pixels the redaction's untouched region must still equal.
+fn decode_fixture_rgba(bytes: &[u8]) -> Vec<u8> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    pdf_model::image::decode(
+        &document,
+        stream,
+        &page.resources,
+        Color::BLACK,
+        &Conversion::device(),
+    )
+    .expect("the fixture image decodes")
+    .image
+    .data
+    .to_vec()
 }
 
 /// A shared image — placed on a second page as well — is refused rather than cleared, because
@@ -768,3 +1009,60 @@ fn an_inline_image_clear_of_the_region_is_left_untouched() {
     };
     assert_eq!(images, 0, "no image was destroyed");
 }
+
+// --- Codec fixtures (generated with PIL; see doc/history/1136) ---
+// There is no JPEG or CCITT encoder in the tree, so a valid codec stream cannot be built from
+// pixels in-test; these are captured bytes. Each is decoded through the real codec, and the test
+// asserts against that decode — never against a hand-predicted pixel — so what they encode is
+// self-checking. Both are 16×16, left half distinct from the right so an intact right half is not
+// a cleared one.
+
+const DCT_JPEG_16X16: &[u8] = &[
+    // 653 bytes  16x16 RGB baseline JPEG (left red, right blue), q90 4:4:4
+    0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+    0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03,
+    0x03, 0x03, 0x03, 0x04, 0x03, 0x03, 0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0A, 0x07,
+    0x07, 0x06, 0x08, 0x0C, 0x0A, 0x0C, 0x0C, 0x0B, 0x0A, 0x0B, 0x0B, 0x0D, 0x0E, 0x12, 0x10, 0x0D,
+    0x0E, 0x11, 0x0E, 0x0B, 0x0B, 0x10, 0x16, 0x10, 0x11, 0x13, 0x14, 0x15, 0x15, 0x15, 0x0C, 0x0F,
+    0x17, 0x18, 0x16, 0x14, 0x18, 0x12, 0x14, 0x15, 0x14, 0xFF, 0xDB, 0x00, 0x43, 0x01, 0x03, 0x04,
+    0x04, 0x05, 0x04, 0x05, 0x09, 0x05, 0x05, 0x09, 0x14, 0x0D, 0x0B, 0x0D, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0xFF, 0xC0,
+    0x00, 0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11,
+    0x01, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+    0x0A, 0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x10, 0x00, 0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05,
+    0x05, 0x04, 0x04, 0x00, 0x00, 0x01, 0x7D, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21,
+    0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08, 0x23,
+    0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A,
+    0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A,
+    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A,
+    0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
+    0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+    0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5,
+    0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1,
+    0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFF, 0xC4, 0x00, 0x1F, 0x01, 0x00, 0x03,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x11, 0x00,
+    0x02, 0x01, 0x02, 0x04, 0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00, 0x01, 0x02, 0x77, 0x00,
+    0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13,
+    0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52, 0xF0, 0x15,
+    0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25, 0xF1, 0x17, 0x18, 0x19, 0x1A, 0x26, 0x27,
+    0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88,
+    0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6,
+    0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4,
+    0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE2,
+    0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9,
+    0xFA, 0xFF, 0xDA, 0x00, 0x0C, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3F, 0x00, 0xF0,
+    0x2A, 0xFC, 0xC8, 0xFE, 0xE3, 0x3C, 0xA6, 0xBF, 0xD3, 0x03, 0xFC, 0xF7, 0x3D, 0x5A, 0xBF, 0xCC,
+    0xF3, 0xFD, 0x08, 0x3C, 0xA6, 0xBF, 0xD3, 0x03, 0xFC, 0xF7, 0x3F, 0xFF, 0xD9,
+];
+
+const CCITT_G4_16X16: &[u8] = &[
+    // 9 bytes  16x16 CCITT G4, photometric=1 (0=WhiteIsZero)
+    0x33, 0x17, 0xFF, 0xFF, 0xFF, 0xF0, 0x01, 0x00, 0x10,
+];

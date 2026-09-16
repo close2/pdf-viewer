@@ -61,6 +61,11 @@ thiserror.workspace = true
 [dev-dependencies]
 pdfref.workspace = true
 raster-compare.workspace = true
+# The `redact` verb's codec-image test (`tests/redact.rs`) decodes a `CCITTFaxDecode` fixture the
+# same way the interpreter does. In the program that decode runs in the confined worker (principle
+# 3); the test selects `Isolation::InProcess` so it needs no worker binary beside it, running the
+# same `decode::here` routine the worker runs.
+pdf-sandbox.workspace = true
 
 [lints]
 workspace = true

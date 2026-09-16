@@ -317,14 +317,29 @@ pattern's cell — decide which marks the first sentence hands a function to.
    **The design question is settled — ADR 1125, the one-thousand-one-hundred-and-eighteenth
    session.** The edge pixel is inside the object by the clause's own "nonzero object shape value",
    so it takes that object's function on the composited colour, applied where §11.7.5.3's NOTE puts
-   it — "only when all colour compositing has been completed". What is left is the build, and that
-   session did not start it: both backends composite through `tiny-skia`, which offers no per-pixel
-   topmost-object hook, so the index is a whole second rasterisation pass and not a field on an
-   existing one; and the population the census still measures at one fully opaque image gives it no
-   oracle witness. `render-cpu/tests/transfer_edge.rs` is the fixture that stands in for the missing
-   one — it measures the edge gap at half a unit under an inverting transfer, the interior where the
-   two orderings agree, and a no-transfer control — so the channel's later arrival is legible
-   against it.
+   it — "only when all colour compositing has been completed". `render-cpu/tests/transfer_edge.rs`
+   is the CPU half of the fixture that stands in for the missing corpus witness — it measures the
+   edge gap at half a unit under an inverting transfer, the interior where the two orderings agree,
+   and a no-transfer control.
+
+   **The build's pricing was corrected in the one-thousand-one-hundred-and-thirty-seventh session,
+   and the "matching pass in all three backends" above is where it was wrong.** `render-raster` is
+   the `raster-gpu` **wgpu compute** backend, not a `tiny-skia` one — only `render-cpu` uses
+   `tiny-skia` — and `QuorraRasterizer::rasterize` returns the composited pixels to the CPU and
+   already runs `resolve_grey`, `crop_to_page` and `impose_within` over that read-back. The index
+   §11.7.5.2 chooses is a pure function of geometry and opacity, so it need not thread through any
+   backend's compositing: a coverage pass decides it once, and each backend applies the *identical*
+   final map to its own read-back raster, which agree by construction — no GPU rewrite, and no
+   disagreement to fear. So the price is smaller than "a second rasterisation pass in each backend"
+   said. **What is not yet buildable is the per-mark carrier** the map reads: §11.7.5.2's function
+   rides on the leaf `Command::Fill`/`Command::Image` marks (groups do not carry it), which is 272
+   construction sites across eleven crates a single round does not own, and the one carrier that
+   avoids them — a side-table on `DisplayList` keyed by top-level position — cannot index a mark
+   nested in a transparency group, so it would drop the grouped case in silence (trap 5). ADR 1125's
+   correction has the argument. `render-raster/tests/transfer_edge.rs` is the raster half of the
+   fixture: it measures that the raster backend draws the same pre-composite edge value the oracle
+   does and that the two *agree* on it, so the witness flips both backends together when the carrier
+   lands.
 
 **The population, measured rather than assumed**, and it is why this is a `doc/todo` entry rather
 than a round's work: run `examples/transfer_function_census` over `doc/pdf.js` and over the SafeDocs

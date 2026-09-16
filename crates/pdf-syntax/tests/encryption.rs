@@ -1235,6 +1235,70 @@ fn an_undefined_crypt_filter_is_refused_where_the_version_names_no_method() {
     }
 }
 
+/// A public-key security handler is refused by its own clause (§7.6.5), not §7.6.4's.
+///
+/// §7.6.5.1 lists the three `/SubFilter` values a conforming public-key security handler uses;
+/// `adbe.pkcs7.s5` is the one "which shall be used when using crypt filters", and it is what
+/// every public-key document in the corpus states (ADR 1134). Such a document's file encryption
+/// key is not derived from a password but wrapped in a per-recipient CMS envelope (RFC 5652)
+/// that only the holder of a matching private key can unwrap; this reader has no such path, so
+/// the file is refused — and the refusal names §7.6.5 and the handler, rather than the generic
+/// "not the standard security handler" that would blame §7.6.4 for a clause it does not own.
+///
+/// **The control is what makes this a measurement rather than a tautology** (trap 13): the same
+/// dictionary with its `/SubFilter` changed to a name §7.6.5.1 does not list falls through to
+/// the other branch, whose message cites §7.6.4 and never §7.6.5. A detector that always
+/// produced the same text would fail the control while passing the assertion.
+#[test]
+fn a_public_key_security_handler_is_refused_by_name() {
+    let public_key = format!(
+        "<< /Filter /Adobe.PubSec /SubFilter /adbe.pkcs7.s5 /V 5 /R 6 /Length 256 \
+         /StmF /DefaultCryptFilter /StrF /DefaultCryptFilter \
+         /CF << /DefaultCryptFilter << /CFM /AESV3 /Recipients [{}] >> >> >>",
+        hex_string(&[0x30; 48]),
+    );
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
+        public_key.into_bytes(),
+    ];
+    let bytes = assemble(&objects, "/Root 1 0 R /Encrypt 4 0 R");
+
+    match Document::open_with_password(bytes, Limits::DEFAULT, "") {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => assert!(
+            detail.contains("§7.6.5")
+                && detail.contains("/Adobe.PubSec")
+                && detail.contains("/adbe.pkcs7.s5"),
+            "a public-key handler should be named by its own clause, got {detail:?}"
+        ),
+        other => panic!("a public-key security handler should be refused by name, got {other:?}"),
+    }
+
+    // The control: a /SubFilter §7.6.5.1 does not list is not a public-key handler here, so the
+    // refusal is the generic one that cites §7.6.4 and never §7.6.5.
+    let other_filter = format!(
+        "<< /Filter /Adobe.PubSec /SubFilter /adbe.other /V 5 /R 6 /Length 256 \
+         /StmF /DefaultCryptFilter /StrF /DefaultCryptFilter \
+         /CF << /DefaultCryptFilter << /CFM /AESV3 /Recipients [{}] >> >> >>",
+        hex_string(&[0x30; 48]),
+    );
+    let control = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
+        other_filter.into_bytes(),
+    ];
+    let control_bytes = assemble(&control, "/Root 1 0 R /Encrypt 4 0 R");
+    match Document::open_with_password(control_bytes, Limits::DEFAULT, "") {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => assert!(
+            detail.contains("§7.6.4") && !detail.contains("§7.6.5"),
+            "a non-public-key handler should take the generic branch, got {detail:?}"
+        ),
+        other => panic!("expected an unsupported-encryption error, got {other:?}"),
+    }
+}
+
 /// A trailer whose `/Encrypt` names an object the file does not define is refused by name.
 ///
 /// `PDFBOX-4352-0.pdf` is the one name in the corpus gate's `UNREADABLE_ENCRYPTION`, and what

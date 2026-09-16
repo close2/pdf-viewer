@@ -60,3 +60,22 @@ two `pub(crate)` helpers (`from_channels`, `channel`). `shading`/`mesh` import
 `crate::transfer::Transfer`; the colour stack now holds zero `use crate::content`. `content::Transfer`
 stays a re-export, so consumers are unchanged. Steps 2–4 remain, and step 4's ledger rewrite
 subsumes adding `transfer.rs` to the §10.5 row's `code` list. See `doc/history/1134`.
+
+**Step 2 done (round 1138).** The shared fixture is answered by re-derivation, not a shared home.
+`icc::fixtures` stays `#[cfg(test)] pub(crate)`; its only cross-crate caller was `soft_mask.rs`'s
+test, which now holds its own byte-identical two-way CMYK profile (a private `mod cmyk`) — the
+answer `tests/transparency_groups.rs` already gave as an external crate at the same boundary.
+Option (b) — export the fixture as a non-test helper — was barred: it has no non-test caller, so
+`pub` would ship test code. After the move `icc::fixtures` is reached only from `icc.rs` and
+`colour.rs`, both of which move with it, so no `#[cfg(test)]` item crosses the boundary and no
+`[features]` gate is needed. See `doc/history/1138`.
+
+**Step 3 (the crate) deferred, with a blocker step 1 introduced.** `transfer.rs` (round 1134)
+carries a `#[cfg(test)]` test calling `crate::Pages::new` — `Pages` is `page.rs`'s, a layer above
+colour — so moving `transfer` makes `pdf-colour`'s dev-deps require `pdf-model` while `pdf-model`
+depends on `pdf-colour`: a cycle `cargo metadata` reports. That test's arrangement must lose its
+`Pages` navigation before `transfer` can move. Three upward intra-doc links also break below
+`pdf-model` (`colour.rs` `[crate::image]`, `shading.rs`/`mesh.rs`
+`[crate::Unsupported::LimitReached]`), and this batch shares a worktree in which `image.rs` — the
+file step 3's `cie_to_srgb`→`pub` needs re-pointed — is a sibling's. A clean worktree moves the
+six, drops the `Pages` navigation, fixes the links and widens `cie_to_srgb` in one step.
