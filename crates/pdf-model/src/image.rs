@@ -763,6 +763,18 @@ fn samples_of(
             filter: String::from_utf8_lossy(other).into_owned(),
         }),
         None => {
+            // §8.9.5.1 Table 87 makes `/BitsPerComponent` "Required except for image masks and
+            // images that use the JPXDecode filter", and its *value* is validated in [`unpack`],
+            // which refuses anything but `1 2 4 8 16` by name. What is repaired rather than
+            // refused is its **absence** on an image that reaches this arm — raw samples, or ones
+            // a non-codec filter already decoded. For `RunLengthDecode` the table fixes the
+            // answer: that filter "shall always deliver 8-bit samples", so 8 is the only depth it
+            // can mean. For `LZWDecode`/`FlateDecode` the depth is genuinely the entry's, and 8 is
+            // then a repair of a malformed dictionary to its modal depth rather than a derivation
+            // — a deliberate choice over refusing, because no document exercises it:
+            // `examples/required_entry_census` counts 0 of the 2997 image dictionaries over 963
+            // pdf.js documents missing a required `/BitsPerComponent`. A stated value of another
+            // type is repaired the same way, for the same reason.
             let bits = if is_mask {
                 1
             } else {
@@ -1683,12 +1695,16 @@ fn decode_jbig2(
 ///
 /// # The two refusals, and why they are refusals
 ///
-/// **`/DamagedRowsBeforeError` above zero.** Table 11 defines it as the number of damaged rows
-/// tolerated before an error, where tolerating one means "locating its end in the encoded data
-/// by searching for an `EndOfLine` pattern and then substituting decoded data from the previous
-/// row". That is error *concealment*, the decoder underneath has none, and a document that
-/// asks for it is a document that expects damage — so drawing what came out anyway would be
-/// drawing an image whose producer said in advance it might be wrong.
+/// **`/DamagedRowsBeforeError` above zero, where the entry applies.** Table 11 defines it as the
+/// number of damaged rows tolerated before an error, where tolerating one means "locating its end
+/// in the encoded data by searching for an `EndOfLine` pattern and then substituting decoded data
+/// from the previous row". That is error *concealment*, and it has a precondition the same row
+/// states — "[t]his entry shall apply only if `EndOfLine` is true and K is non-negative" — because
+/// the concealment resynchronises on the end-of-line patterns and only Group 3 carries them. So a
+/// positive value with `/EndOfLine false` or `/K` negative is inert and the image decodes as
+/// though the entry were absent; a positive value that *does* apply is refused, because the
+/// decoder underneath has no concealment and answering a request for it with the ordinary
+/// truncated draw would drop the request silently.
 ///
 /// **`/Columns` disagreeing with `/Width`.** The filter delivers rows of `/Columns` samples
 /// padded to a byte boundary; §8.9.5.1 says the image is `/Width` samples wide. Where the two
@@ -1782,8 +1798,29 @@ fn decode_ccitt(
         }
     };
 
+    // §7.4.6 Table 11 gives `/DamagedRowsBeforeError` a precondition, and it is load-bearing:
+    //
+    // > This entry shall apply only if EndOfLine is true and K is non-negative.
+    //
+    // So a positive value is only a request for error concealment when the encoding carries the
+    // end-of-line patterns the concealment resynchronises on (`/EndOfLine true`) and the scheme
+    // is Group 3 (`/K` non-negative). Where either is not so the entry *does not apply* — it is
+    // inert, decoded as though absent — and refusing such an image threw away a picture over a
+    // parameter the standard itself says has no effect on it. Only the case where the entry
+    // applies is refused, because the tolerance it asks for is unbuilt (below).
     let damaged_rows = integer("DamagedRowsBeforeError", 0);
-    if damaged_rows > 0 {
+    let k = integer("K", 0);
+    let end_of_line = flag("EndOfLine", false);
+    if damaged_rows > 0 && end_of_line && k >= 0 {
+        // The applicable case, and it is a refusal rather than a truncated draw for trap 5's
+        // reason: the producer asked in advance for damage to be tolerated, so drawing only the
+        // rows before the first damaged one — what the ordinary short-decode path would do —
+        // would answer a request for concealment with a truncation and no sign the request was
+        // dropped. `hayro-ccitt` exposes neither the bit position of a failure nor a way to
+        // resume past it (its context and reader are private), so §7.4.6's "locating its end
+        // in the encoded data by searching for an EndOfLine pattern and then substituting
+        // decoded data from the previous row" cannot be built above it; that is a change to the
+        // shared decoder, not to this filter, and stays a loud refusal until it is made.
         return Err(ImageError::UnsupportedFilter {
             filter: format!("CCITTFaxDecode with /DamagedRowsBeforeError {damaged_rows}"),
         });
@@ -1815,7 +1852,7 @@ fn decode_ccitt(
 
     let end_of_block = flag("EndOfBlock", true);
     let parameters = pdf_sandbox::CcittParameters {
-        k: i32::try_from(integer("K", 0)).unwrap_or(0),
+        k: i32::try_from(k).unwrap_or(0),
         columns,
         rows: ccitt_rows(
             u32::try_from(integer("Rows", 0)).unwrap_or(0),
@@ -1823,7 +1860,7 @@ fn decode_ccitt(
             height,
         ),
         height,
-        end_of_line: flag("EndOfLine", false),
+        end_of_line,
         encoded_byte_align: flag("EncodedByteAlign", false),
         end_of_block,
         black_is_1: flag("BlackIs1", false),

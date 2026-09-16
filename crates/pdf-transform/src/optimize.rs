@@ -322,6 +322,11 @@ pub(crate) fn catalog_of(document: &Document) -> Result<ObjectId, Refusal> {
 /// catalog's `/Pages` names nothing. `pdf_model::Pages` finds their pages anyway, by looking for
 /// what §7.7.3.3's Table 31 describes, and that is right for a *reader*.
 ///
+/// **That §C.4 sits in Annex C matters: the annex is informative.** ISO 32000-2 titles it
+/// "Advice on maximising portability", so what it offers a reader is advice rather than a
+/// requirement — and reading a document by that advice, then declining to *write* one, is this
+/// program's own choice, made here, not a rule the standard imposes.
+///
 /// It is not right for a writer, and the two clauses say why. §7.5.5's Table 15: `/Root` is
 /// "( Required; shall be an indirect reference ) The catalog dictionary for the PDF file".
 /// §7.7.2's Table 29: `/Pages` is "( Required; shall be an indirect reference ) The page tree

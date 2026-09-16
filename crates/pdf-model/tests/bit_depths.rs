@@ -15,6 +15,20 @@
 //! nothing else — no 2-bit image, no 16-bit image, and no row whose width leaves a partial
 //! byte at its end, which is exactly the case the padding rule exists for. A test written
 //! against those three documents would pass with the padding rule missing.
+//!
+//! # A sibling required entry, refused the same way
+//!
+//! Table 87 makes `/ColorSpace`
+//!
+//! > Required for images, except those that use the JPXDecode filter; not permitted for image
+//! > masks
+//!
+//! — so an image that is neither a mask nor a `JPXDecode` image and states no colour space is
+//! malformed, and the sample unpacker has no space to convert into. It is refused by name for
+//! the same reason a depth outside the five is, and it shares the depth's synthetic-fixture
+//! argument to the letter: `examples/required_entry_census` counts 0 of the 2997 image
+//! dictionaries over 963 pdf.js documents missing a required `/ColorSpace`, so the refusal has
+//! no corpus witness and the fixture states the case the world does not.
 
 #![expect(
     clippy::expect_used,
@@ -205,5 +219,48 @@ fn an_unnamed_depth_is_reported() {
     assert!(
         !interpretation.is_complete(),
         "12 bits per component is not one of Table 87's five and must be reported"
+    );
+}
+
+/// The one report a refused image is, with the fixture's resource name in front of it.
+fn refused(detail: &str) -> Vec<pdf_model::Unsupported> {
+    vec![pdf_model::Unsupported::Image {
+        name: format!("Im: {detail}"),
+    }]
+}
+
+/// What page one reports for an image whose dictionary is `dict`.
+fn reports(dict: &str, data: &[u8]) -> Vec<pdf_model::Unsupported> {
+    let document = Document::open(page_with_image(dict, data)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page).unsupported
+}
+
+/// A depth between two of Table 87's five is refused by name, not snapped to a neighbour.
+///
+/// `3` is the contract's calibration value: it lies between `2` and `4`, so a reader that
+/// rounded to the nearest permitted depth would read every sample on the wrong stride rather
+/// than refuse. The refusal names the value it would not round.
+#[test]
+fn a_depth_of_three_is_refused_by_name() {
+    assert_eq!(
+        reports(
+            "/Width 4 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 3",
+            &[0; 2],
+        ),
+        refused("3 bits per component is not supported")
+    );
+}
+
+/// An image that is neither a mask nor a `JPXDecode` image and states no `/ColorSpace` is refused
+/// by name: Table 87 makes the entry required there, and the unpacker has no space to convert
+/// the samples into. The mask and `JPXDecode` exceptions are the two other tests' subjects
+/// (`image_masks.rs`'s stencils state none and draw; `jpx_channels.rs`'s codestream supplies
+/// it), so this pins the *required* case that neither of those covers.
+#[test]
+fn an_image_that_requires_a_colour_space_and_states_none_is_refused_by_name() {
+    assert_eq!(
+        reports("/Width 1 /Height 1 /BitsPerComponent 8", &[0; 1]),
+        refused("colour space absent is not supported")
     );
 }

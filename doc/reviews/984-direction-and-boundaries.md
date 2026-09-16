@@ -505,3 +505,31 @@ itself rather than at one gate.
    cognitive-complexity threshold; two `#[allow]` to `#[expect]`; the lexer's reason; the Annex C
    wording; a `pdf-archive` row and the right name in the crate map; a prefix for `raster/`'s ADR
    series.
+
+---
+
+## Addendum — round 1128: Finding 1's second extraction, measured and deferred
+
+`pdf-signature` was extracted (the crate exists); `pdf-colour` was measured before moving (trap 8)
+and is **not** the mechanical extraction "First step" and next-step 3 assumed. The blockers, with
+the coupling map in ADR 1131:
+
+- **Whole `colour icc function shading mesh` → a crate cycle.** `shading.rs:24` and `mesh.rs:50`
+  `use crate::content::Transfer`; `Transfer` (`content/ext_gstate.rs:55`) is built on
+  `function::Function`. The move makes `pdf-colour` depend on `pdf-model` (for `Transfer`) while
+  `pdf-model` depends on `pdf-colour` (for `function`) — refused. The fix relocates the
+  `Transfer`/`Stated` cluster out of the content interpreter this review keeps as a *separate*
+  concern.
+- **Subset `{colour, icc, function}` (no cycle) → a `#[cfg(test)]` fixture across the boundary.**
+  `soft_mask.rs:719` (a test) uses `crate::icc::fixtures::two_way_cmyk_profile()`, which is
+  `#[cfg(test)] pub(crate)` (`icc.rs:2092`) and so not compiled for a dependent. With no
+  `[features]` table permitted, the outs are shipping test code publicly or duplicating a fixture
+  — the `CONSISTENT`-×3 shape Finding 7 flags.
+
+Source-level the five modules are clean (`pdf-render`, `pdf-syntax`, `rayon` only). The subset is
+the right first move once the fixture question is answered, on a clean worktree — round 1128 shared
+a mid-flight batch worktree with `doc/conformance/ledger.toml` (the 110-row rewrite target) and
+`image.rs` already modified. Deferred. The Finding-7 inversion taken instead this round was the
+Annex C wording (next-step 7): `optimize.rs`'s refusal now says the annex is informative and the
+refusal a project choice. The other Finding-7 lines it names are already done — the clippy
+threshold, both `allow`→`expect`, the crate-map row and name, the lexer's reason.

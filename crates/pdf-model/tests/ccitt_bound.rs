@@ -380,3 +380,59 @@ fn a_columns_that_is_not_the_padded_width_is_refused() {
         "the refusal should name both numbers, and said {said:?}"
     );
 }
+
+/// `/DamagedRowsBeforeError` above zero is inert unless the entry applies, and applies only for
+/// `/EndOfLine true` and `/K` non-negative.
+///
+/// ISO 32000-2 §7.4.6 Table 11 gives the entry a precondition in its own row:
+///
+/// > This entry shall apply only if EndOfLine is true and K is non-negative.
+///
+/// The concealment it asks for resynchronises by "searching for an `EndOfLine` pattern", so it
+/// applies only where the encoding carries those patterns (`/EndOfLine true`) and is Group 3
+/// (`/K` non-negative). The pair below differs in `/EndOfLine` and nothing else: the same
+/// `/DamagedRowsBeforeError 2` is inert in the first, where the image decodes exactly as it does
+/// with no such entry, and applies in the second, where it is refused because the tolerance is
+/// unbuilt. Until this session both were refused — any positive value was, on a reading of the
+/// row that dropped its first sentence. The corpus states no such value at all (a census over
+/// 1450 documents of five corpora found 1048 CCITT images and not one with the entry above
+/// zero), so this is trap 8's construction: a rule no document happens to exercise, pinned by a
+/// hand-built pair.
+#[test]
+fn damaged_rows_is_inert_where_end_of_line_is_false() {
+    let (raster, said) = interpret(page_with_ccitt_image(
+        "/K 0 /Columns 8 /DamagedRowsBeforeError 2",
+        &FOUR_BLACK_LINES,
+    ));
+    for row in 0..4 {
+        assert_eq!(
+            scan_line(&raster, row),
+            0,
+            "scan line {row} is black: the entry does not apply, so the image decodes whole"
+        );
+    }
+    assert!(
+        said.is_empty(),
+        "an entry the standard says does not apply is dropped, not reported: {said:?}"
+    );
+}
+
+/// The same value with `/EndOfLine true` applies, and is refused because the tolerance is unbuilt.
+///
+/// The other half of the pair above: `/EndOfLine true` makes Table 11's precondition hold, so
+/// `/DamagedRowsBeforeError 2` is now a request for error concealment. `hayro-ccitt` exposes no
+/// way to resynchronise past a damaged code, so the request is refused out loud rather than
+/// answered with the ordinary truncated draw, which would drop it silently.
+#[test]
+fn damaged_rows_applies_and_is_refused_where_end_of_line_is_true() {
+    let (_, said) = interpret(page_with_ccitt_image(
+        "/K 0 /Columns 8 /EndOfLine true /DamagedRowsBeforeError 2",
+        &FOUR_BLACK_LINES,
+    ));
+    assert!(
+        said.iter()
+            .any(|report| report.contains("CCITTFaxDecode")
+                && report.contains("DamagedRowsBeforeError")),
+        "the refusal should name the filter and the entry, and said {said:?}"
+    );
+}

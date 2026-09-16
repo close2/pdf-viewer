@@ -130,3 +130,51 @@ fn the_clauses_own_example_produces_the_labels_it_states() {
         "the clause states these nine labels for this tree"
     );
 }
+
+/// A two-range tree whose second range is a prefix on the default `/St`.
+///
+/// Pages 0–3 are lowercase Roman (`/S /r`) and pages 4 onward are decimal with the prefix `A-`
+/// and no `/St`, so the numeric portion begins at Table 161's default — "Default value: 1." —
+/// and the first page of that range is `A-1`. This calibrates two things the clause's own
+/// nine-label example does not put at a range boundary: that a range's numbering restarts at
+/// `/St` at the page its key names ("[p]ages within a range shall be numbered sequentially in
+/// ascending order"), and that a prefix with the default start produces `A-1` at the boundary
+/// rather than carrying the previous range's count.
+#[test]
+fn a_prefix_on_the_default_start_labels_the_ranges_boundary_a_one() {
+    let objects = [
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n",
+        "4 0 obj\n<< /Nums [0 << /S /r >> 4 << /S /D /P (A-) /St 1 >>] >>\nendobj\n",
+    ];
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in objects {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let _ = write!(out, "xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1);
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+        objects.len() + 1
+    );
+
+    let document = Document::open(out.into_bytes()).expect("a valid file");
+    let labels = PageLabels::read(&document);
+    let shown: Vec<String> = (0..7)
+        .map(|index| labels.label(index).unwrap_or_default())
+        .collect();
+
+    assert_eq!(
+        shown,
+        ["i", "ii", "iii", "iv", "A-1", "A-2", "A-3"],
+        "pages 0-3 are lowercase Roman and page 4 is the A- range's first, A-1"
+    );
+}

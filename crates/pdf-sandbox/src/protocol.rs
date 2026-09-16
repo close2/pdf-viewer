@@ -134,9 +134,10 @@ pub enum Request<'a> {
 /// apply those defaults. What crosses the pipe is therefore a complete description of what to
 /// decode, which is what lets the worker hold no opinion about PDF at all.
 ///
-/// `/DamagedRowsBeforeError` is deliberately absent: it is the one entry this decoder cannot
-/// honour, so it is refused where the dictionary is read rather than dropped here — see
-/// `pdf_model::image`.
+/// `/DamagedRowsBeforeError` is deliberately absent: it asks for error concealment this decoder
+/// cannot perform, and Table 11 makes it apply only where `/EndOfLine` is true and `/K` is
+/// non-negative. Where it applies the image is refused where the dictionary is read; where it
+/// does not it is inert. Either way it never reaches the wire — see `pdf_model::image`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,

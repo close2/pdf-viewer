@@ -54,12 +54,16 @@
 //! Nothing here draws from `/B` in either case; [`Articles::beads_on_page`] answers from the
 //! threads.
 //!
-//! # What is not here
+//! # Where the bead's rectangle is applied
 //!
 //! A bead's `/R` is "[a] rectangle specifying the location of this bead on the page in default
-//! user space" — the region a viewer would zoom to. It is read, and nothing zooms: `viewer-ui`
-//! fits a whole page to its surface, which is the same reason §12.3.2.1's view parameters are
-//! carried and unapplied.
+//! user space" — the region a viewer shows when it follows the thread there. This module reads
+//! it; applying it is [`crate::action`]'s and [`crate::destination`]'s, because Table 149's
+//! `/FitR` makes the same statement about a window and following a thread composes one of
+//! §12.3.2.1's own forms rather than adding a ninth (ADR 0746). `viewer_core::interact`'s
+//! [`ThreadJump`](crate::action::ThreadJump) carries the rectangle as `/FitR`, which
+//! `Open::apply_view` turns into a zoom and a scroll — the route §12.3.2.1's row records for a
+//! destination and this clause shares.
 //!
 //! # What the corpus says about this clause, and what it was said to say
 //!

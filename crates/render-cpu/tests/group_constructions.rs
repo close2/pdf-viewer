@@ -31,7 +31,12 @@
               and the truncating casts are the rounding"
 )]
 
-use pdf_render::{Command, DisplayList, Raster, Rasterizer, TargetSpec};
+use std::sync::Arc;
+
+use pdf_render::{
+    BlendMode, Color, Command, DisplayList, FillRule, Paint, Raster, Rasterizer, Size, TargetSpec,
+    Transform,
+};
 use render_cpu::CpuRasterizer;
 
 /// Pixel budget for a target; far above the 100×100 page.
@@ -123,6 +128,121 @@ fn a_knockout_groups_element_composites_with_the_groups_own_backdrop() {
         "half a shape keeps half the accumulation and takes half of E₂",
         pixel(&raster, 30, 55),
         [89, 38, 0, 255],
+        2,
+    );
+}
+
+/// A solid fill of an axis-aligned rectangle, at the given colour and constant alpha.
+fn fill(bounds: [f32; 4], colour: Color) -> Command {
+    Command::Fill {
+        path: Arc::new(test_scenes::rect(
+            bounds[0], bounds[1], bounds[2], bounds[3],
+        )),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(colour),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    }
+}
+
+/// §11.4.6's knockout rule under the Normal blend function, calibrated against §11.3.3: a
+/// translucent element of a knockout group shows the group's *initial* backdrop through it,
+/// not the element it overlaps.
+///
+/// # Why this group is drawn as an isolated one
+///
+/// A `/K true` group all of whose elements paint Normal is §11.4.4 NOTE 3's collapse — the
+/// backdrop is composited in and removed again exactly — so `pdf-model` emits it as
+/// §11.4.5's isolated group with `knockout` set (`transparency::knockout_construction`), and
+/// the final composite over the page is `(1 − w) × P + w × buffer`. Under `ca = 1` composited
+/// back onto its own backdrop that is identical to §11.4.6's own-backdrop form for the same
+/// page, which is why the reachable knockout member is drawn on three backends rather than
+/// on the oracle alone. This fixture is that group built by hand — `isolated: true,
+/// knockout: true`, two bare fills — over an opaque **green** page `P = (0, 255, 0)`.
+///
+/// # The arithmetic, from the clause
+///
+/// The lower element is opaque **red** on `x ∈ [0, 60]`, the upper is **blue at ca ½** on
+/// `x ∈ [40, 100]`, both under Normal. §11.4.6 composites each element with the group's
+/// initial backdrop "rather than with the stack of preceding elements in the group", so
+/// where the upper's shape is 1.0 it **knocks the lower out entirely**: the overlap holds
+/// the upper's stage-a) composite `½ × blue + ½ × P`, the same value it holds where there is
+/// no lower element at all.
+///
+/// ```text
+/// lower only : red                       = (255,   0,   0)
+/// upper only : ½ blue + ½ green over P   = (  0, 127, 127)
+/// overlap    : ½ blue + ½ green          = (  0, 127, 127)   ← the page, not the red
+/// ```
+///
+/// # Where a non-knockout construction disagrees (HANDOVER trap 2)
+///
+/// Ordinary source-over — the upper composited onto the **accumulation** rather than the
+/// initial backdrop — reads the lower through at the overlap: `½ × blue + ½ × red =
+/// (127, 0, 127)`, red where the clause has none and no green at all. The overlap is the
+/// pixel that discriminates the two models, and it was confirmed to fail with `knockout`
+/// cleared: the overlap then draws `(127, 0, 127)`.
+#[test]
+fn a_translucent_knockout_element_shows_the_initial_backdrop_not_the_element_below() {
+    let green = Color {
+        r: 0.0,
+        g: 1.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    let red = Color {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    let blue_half = Color {
+        r: 0.0,
+        g: 0.0,
+        b: 1.0,
+        a: 0.5,
+    };
+
+    let mut list = DisplayList::new(Size {
+        width: 100.0,
+        height: 100.0,
+    });
+    list.push(fill([0.0, 0.0, 100.0, 100.0], green));
+    list.push(Command::Group {
+        commands: vec![
+            fill([0.0, 0.0, 60.0, 100.0], red),
+            fill([40.0, 0.0, 100.0, 100.0], blue_half),
+        ],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: true,
+        alpha_is_shape: false,
+        blending: None,
+    });
+    let raster = render(&list);
+
+    assert_close(
+        "the lower element alone: opaque red",
+        pixel(&raster, 20, 50),
+        [255, 0, 0, 255],
+        1,
+    );
+    assert_close(
+        "the upper element alone: half its blue over the green page",
+        pixel(&raster, 80, 50),
+        [0, 127, 127, 255],
+        2,
+    );
+    assert_close(
+        "the overlap: the upper knocks the lower out and composites with the page, \
+         not with the red below it",
+        pixel(&raster, 50, 50),
+        [0, 127, 127, 255],
         2,
     );
 }
