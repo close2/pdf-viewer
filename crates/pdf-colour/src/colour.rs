@@ -64,8 +64,8 @@ const MAX_DEPTH: usize = 8;
 /// level up: the display list names a quantity a backend resolves rather than carrying the
 /// components a backend would have to be taught.
 ///
-/// It lives here rather than in `crate::content` because a colour reaches a raster by three
-/// routes and only one of them is an operator: an image's samples (`crate::image`) and a
+/// It lives here rather than in `pdf_model::content` because a colour reaches a raster by three
+/// routes and only one of them is an operator: an image's samples (`pdf_model::image`) and a
 /// shading's ramp (`crate::shading`) are colours too, and a group composited in one quantity
 /// cannot have two of its three sources painting in another (ADR 0220).
 /// # Why this carries the press itself
@@ -236,7 +236,7 @@ impl Compositing {
     /// place for it to start painting black instead.
     ///
     /// That costs the luminosity branch one conversion it does not use. It is paid per
-    /// *distinct* colour rather than per sample — `crate::image`'s memo and palette are keyed
+    /// *distinct* colour rather than per sample — `pdf_model::image`'s memo and palette are keyed
     /// on the samples, not on what they convert to — and buying it back would mean a second
     /// function deciding which spaces mark the page, which is exactly the drift trap 6 exists
     /// for.
@@ -821,7 +821,7 @@ impl RgbRoute {
 /// `/Intent` on an image dictionary.
 ///
 /// **This type is why the third route is obeyed at all.** Until the six-hundred-and-seventh
-/// session every caller in `crate::image`, `crate::shading` and `crate::mesh` passed a literal
+/// session every caller in `pdf_model::image`, `crate::shading` and `crate::mesh` passed a literal
 /// `true` to [`Compositing::paint`], so the intent reached a path's colour and a glyph's and no
 /// image sample, shading ramp or mesh vertex by any route. Pairing the flag with the target
 /// that was already threaded through all three is what made that a compile error rather than a
@@ -831,7 +831,7 @@ impl RgbRoute {
 /// the object but of the page**: §14.11.5's output intent, where the document states one this
 /// tree reads. `ColourSpace::device_family` ranks it between §8.6.5.6's default and the device
 /// space itself, so it decides what `/DeviceCMYK` *means* — and an image's, a shading's and a
-/// mesh's colour spaces are parsed where their samples are converted, in `crate::image`,
+/// mesh's colour spaces are parsed where their samples are converted, in `pdf_model::image`,
 /// `crate::shading` and `crate::mesh`, after the interpreter has handed the work over. Until
 /// that session those three routes parsed with no intent, so on a page with one an image in
 /// `DeviceCMYK` drew through the assumed press beside a fill drawn through the intent (ADR
@@ -899,10 +899,10 @@ impl Conversion {
 
     /// The same conversion on a page whose output intent is `intent`.
     ///
-    /// `intent` is what `crate::content`'s `output_intent_space` answered — an
+    /// `intent` is what `pdf_model::content`'s `output_intent_space` answered — an
     /// [`ColourSpace::Icc`] built from the `/DestOutputProfile`, or nothing. It is typed as a
     /// space because that is what `ColourSpace::device_family` substitutes for a device
-    /// family, and what `crate::content::transparency` hands `press_for_entry`; only its
+    /// family, and what `pdf_model::content::transparency` hands `press_for_entry`; only its
     /// profile is kept here, and a space of any other variant is not an output intent by
     /// Table 401's definition and is not carried.
     #[must_use]
@@ -1696,7 +1696,8 @@ impl ColourSpace {
     /// [`Self::component_range`] — with one exception the table's own NOTE 2 names: an
     /// `Indexed` space's default is `[0 2^n − 1]`, so that "component values that index a
     /// colour table are passed through unchanged" rather than being scaled to 0.0..=1.0.
-    pub(crate) fn default_decode(&self, component: usize, bits: u32) -> (f32, f32) {
+    #[must_use]
+    pub fn default_decode(&self, component: usize, bits: u32) -> (f32, f32) {
         match self {
             Self::Indexed { .. } => {
                 let max = (1u32 << bits.min(16)).saturating_sub(1);
@@ -1724,9 +1725,10 @@ impl ColourSpace {
     /// Range in the ICC profile of the image's colour space".
     ///
     /// Two callers, both about a *range* rather than a value: [`Self::parse_indexed`] scales
-    /// a colour table's bytes onto the base space's components, and [`crate::image`] clamps
+    /// a colour table's bytes onto the base space's components, and `pdf_model::image` clamps
     /// what a `/Decode` array produces.
-    pub(crate) fn component_range(&self, component: usize) -> (f32, f32) {
+    #[must_use]
+    pub fn component_range(&self, component: usize) -> (f32, f32) {
         match self {
             Self::Indexed { high, .. } => {
                 #[expect(
@@ -2021,7 +2023,7 @@ impl ColourSpace {
             // that RGB is the luminosity — so its ink is one minus it. That covers the
             // CIE-based branch of §11.5.3 as well, where the clause asks for the `Y` of the
             // colour in CIE 1931 XYZ and this tree answers with the grey of the sRGB it
-            // converts everything to: the same page-wide choice `crate::soft_mask` records
+            // converts everything to: the same page-wide choice `pdf_model::soft_mask` records
             // rather than a second view of it.
             _ => 1.0 - self.to_rgb(values).grey_level(),
         }
@@ -2165,7 +2167,7 @@ impl ColourSpace {
     ///
     /// §11.7.5.3's other two bullets are §10.4.2's branch and are not in force here — they say
     /// *which* black-generation and undercolour-removal functions §10.4.2.4 uses, and a
-    /// document that states its own keeps `crate::content`'s report rather than being drawn
+    /// document that states its own keeps `pdf_model::content`'s report rather than being drawn
     /// with them ignored.
     ///
     /// A space that already resolves to `DeviceCMYK` is passed straight through, including a
@@ -3020,7 +3022,7 @@ impl Presses {
     /// The press this profile describes, or `None` if this interpretation has spent its budget.
     ///
     /// `None` is [`MAX_PRESSES`] distinct presses already named, which
-    /// `crate::content::transparency` turns into §11.7.2's report. A profile of other than four
+    /// `pdf_model::content::transparency` turns into §11.7.2's report. A profile of other than four
     /// components is not a press at all and also answers `None`; the caller asks that question
     /// first.
     #[must_use]
@@ -3996,7 +3998,8 @@ fn transform(matrix: &[f32; 9], vector: [f32; 3]) -> [f32; 3] {
 /// rasters, `poppler`'s, `mupdf`'s and `ghostscript`'s are byte-identical across the four
 /// below the header that prints those values. `oracle.rs`'s `CONTRADICTED_CALRGB_TO_SCREEN`
 /// has the measurement; `hayro` is the one renderer the entry moves.
-fn cie_to_srgb(xyz: [f32; 3], white: [f32; 3]) -> Color {
+#[must_use]
+pub fn cie_to_srgb(xyz: [f32; 3], white: [f32; 3]) -> Color {
     xyz_d50_to_srgb(adapt(xyz, white, D50))
 }
 

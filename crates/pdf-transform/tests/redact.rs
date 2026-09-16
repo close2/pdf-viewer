@@ -515,7 +515,8 @@ fn image_samples_inside_a_quadpoints_region_are_destroyed_and_outside_intact() {
 /// An image behind `JPXDecode` meeting the region is refused by name, never cleared — a
 /// codestream over the decoder's budget comes back at a reduced resolution level (§7.4.9 NOTE 3),
 /// so its raster is not the image's grid and the redaction cannot be proven to replace the
-/// full-resolution content (trap 5, principle 1). `JBIG2Decode` is refused the same way this round.
+/// full-resolution content (trap 5, principle 1). `JBIG2Decode` is now cleared, not refused
+/// (`a_jbig2_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate`).
 #[test]
 fn an_image_behind_jpx_is_refused_by_name() {
     // The bytes are never decoded: the codec is refused from `/Filter` before any decode.
@@ -755,6 +756,150 @@ fn a_ccitt_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate() {
         &original[0..3],
         "the fixture's halves differ, so 'intact' is a real assertion"
     );
+}
+
+/// The output's one image `XObject`, decoded to straight-alpha `RGBA8`, with whether it is the
+/// bilevel re-encode's shape: a `FlateDecode` 1-bit `DeviceGray` image (ADR 1143).
+fn read_back_bilevel_image(bytes: &[u8]) -> (u32, u32, Vec<u8>, bool) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    let is_flate_gray_1bit = {
+        let filter = document.get_key(&stream.dict, "Filter");
+        let space = document.get_key(&stream.dict, "ColorSpace");
+        let bits = document.get_key(&stream.dict, "BitsPerComponent");
+        let flate = matches!(filter, Object::Name(name) if name.as_bytes() == b"FlateDecode");
+        let gray = matches!(space, Object::Name(name) if name.as_bytes() == b"DeviceGray");
+        flate && gray && matches!(bits, Object::Integer(1))
+    };
+    // The redacted page must still draw: its interpretation must not fault on the new image.
+    let _ = pdf_model::interpret(&document, &page);
+    let flattened = pdf_model::image::decode(
+        &document,
+        stream,
+        &page.resources,
+        Color::BLACK,
+        &Conversion::device(),
+    )
+    .expect("the output image decodes");
+    (
+        flattened.image.width,
+        flattened.image.height,
+        flattened.image.data.to_vec(),
+        is_flate_gray_1bit,
+    )
+}
+
+/// The calibration trap 13 asks for on the bilevel-codec case: the ISO 32000-2 §7.4.7 worked
+/// example (a 52×66 `JBIG2Decode` image, a letter C drawn twice) over the page's [50,150]² square,
+/// a `/QuadPoints` region on its left half. The image is decoded through the codec (in-process
+/// here, the confined worker in the program — principle 3), its region cleared, and the output
+/// written as a `FlateDecode` **1-bit `DeviceGray`** raster (ADR 1143): a lossless, non-codec
+/// filter at the bilevel image's own depth, so the cleared region is exactly the one-bit zero
+/// constant and cannot round-trip back through the codec. The bytes are the specification's own,
+/// never another implementation's output (principle 5).
+#[test]
+fn a_jbig2_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate() {
+    // In-process decode: the same routine the confined worker runs, with no worker binary needed.
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 52 /Height 66 /ColorSpace /DeviceGray \
+         /BitsPerComponent 1 /Filter /JBIG2Decode /DecodeParms << /JBIG2Globals 7 0 R >> \
+         /Length {} >>\nstream\n",
+        JBIG2_IMAGE.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(JBIG2_IMAGE);
+    image.extend_from_slice(b"\nendstream");
+    let mut globals = format!("<< /Length {} >>\nstream\n", JBIG2_GLOBALS.len()).into_bytes();
+    globals.extend_from_slice(JBIG2_GLOBALS);
+    globals.extend_from_slice(b"\nendstream");
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        image,
+        globals,
+    ];
+    let bytes = assemble_bytes(&objects);
+    let original = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the JBIG2 image is cleared, not refused: {:?}",
+        report.refused
+    );
+    // Principle 1: the original JBIG2 segments are gone from the file — no orphan to recover.
+    assert!(
+        !contains(&out, JBIG2_IMAGE),
+        "the original JBIG2 image stream is not left in the file"
+    );
+    assert!(
+        !contains(&out, JBIG2_GLOBALS),
+        "the orphaned JBIG2 globals stream is not left in the file"
+    );
+
+    let (width, height, rgba, is_flate_gray_1bit) = read_back_bilevel_image(&out);
+    assert_eq!((width, height), (52, 66), "the grid survives the re-encode");
+    assert!(
+        is_flate_gray_1bit,
+        "the output image is a FlateDecode 1-bit DeviceGray stream, not a codec"
+    );
+    // The region is the left half of the placement: sample centres whose column maps into [50,100]
+    // in user space, which is columns 0..26 of the 52-wide image (all rows).
+    let (mut cleared_had_white, mut intact_had_white) = (false, false);
+    for row in 0..66usize {
+        for col in 0..52usize {
+            let at = (row * 52 + col) * 4;
+            if col < 26 {
+                assert_eq!(
+                    &rgba[at..at + 3],
+                    &[0, 0, 0],
+                    "col {col} row {row} is in the region: the one-bit zero constant (black)"
+                );
+                cleared_had_white |= original[at] >= 0x80;
+            } else {
+                assert_eq!(
+                    &rgba[at..at + 3],
+                    &original[at..at + 3],
+                    "col {col} row {row} is outside the region: byte-identical to the decode"
+                );
+                intact_had_white |= original[at] >= 0x80;
+            }
+        }
+    }
+    // The cleared region held white (background) pixels the redaction turned black, so clearing
+    // changed real content; the intact region held white pixels too, so 'byte-identical' is not a
+    // vacuous statement about an all-black image (a bilevel page is mostly white).
+    assert!(
+        cleared_had_white,
+        "the cleared region held white pixels the redaction destroyed"
+    );
+    assert!(
+        intact_had_white,
+        "the intact region held white pixels, so 'intact' is a real assertion"
+    );
+
+    let Some(Origin::Redacted { images, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("the report states a redacted origin");
+    };
+    assert_eq!(images, 1, "one image had samples destroyed");
 }
 
 /// Decodes the fixture's one image `XObject` to straight-alpha `RGBA8` from the input bytes,
@@ -1065,4 +1210,31 @@ const DCT_JPEG_16X16: &[u8] = &[
 const CCITT_G4_16X16: &[u8] = &[
     // 9 bytes  16x16 CCITT G4, photometric=1 (0=WhiteIsZero)
     0x33, 0x17, 0xFF, 0xFF, 0xFF, 0xF0, 0x01, 0x00, 0x10,
+];
+
+// --- JBIG2 fixture (ISO 32000-2 §7.4.7's worked example; see doc/history/1143) ---
+// There is no JBIG2 encoder in the tree, so a valid embedded stream cannot be built from pixels
+// in-test. These are the specification's own worked example, split exactly where §7.4.7 splits it:
+// a 52×66 bilevel image — a letter C drawn twice, upper half and lower — whose symbol dictionary is
+// the globals stream and whose page-information and text-region segments are the image stream.
+// Nothing here was taken from another implementation's output (principle 5); it is the same
+// bitstream `pdf-sandbox`'s own §7.4.7 test decodes. The test decodes it through the real codec and
+// asserts against that decode, never a hand-predicted pixel, so what it encodes is self-checking.
+
+/// The `/JBIG2Globals` stream: segment 0, a symbol dictionary (ISO 32000-2 §7.4.7, part (b)).
+const JBIG2_GLOBALS: &[u8] = &[
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x03, 0xFF, 0xFD,
+    0xFF, 0x02, 0xFE, 0xFE, 0xFE, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x2A, 0xE2, 0x25,
+    0xAE, 0xA9, 0xA5, 0xA5, 0x38, 0xB4, 0xD9, 0x99, 0x9C, 0x5C, 0x8E, 0x56, 0xEF, 0x0F, 0x87, 0x27,
+    0xF2, 0xB5, 0x3D, 0x4E, 0x37, 0xEF, 0x79, 0x5C, 0xC5, 0x50, 0x6D, 0xFF, 0xAC,
+];
+
+/// The image stream: segment 1, page information, and segment 2, an immediate text region
+/// (ISO 32000-2 §7.4.7, part (c)).
+const JBIG2_IMAGE: &[u8] = &[
+    0x00, 0x00, 0x00, 0x01, 0x30, 0x00, 0x01, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x34, 0x00,
+    0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x02, 0x06, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x34, 0x00, 0x00,
+    0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x00, 0x00, 0x00,
+    0x02, 0x31, 0xDB, 0x51, 0xCE, 0x51, 0xFF, 0xAC,
 ];

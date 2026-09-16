@@ -11,7 +11,10 @@
 //! its sentence.
 //!
 //! It reads every image dictionary in every object of every file named — the cheap, honest
-//! denominator for *how many images state what*, decoding nothing. `/ImageMask` and the last
+//! denominator for *how many images state what*, decoding nothing. It counts one *optional*
+//! entry beside the four required ones — Table 87's PDF 2.0 `/AF` — because §8.9.5.1's row turns
+//! on how many images carry associated files, which `attachment::associated` reads off any
+//! dictionary and which no in-scope clause makes a rendering processor consume. `/ImageMask` and the last
 //! codec of the `/Filter` chain decide which entries a given image is *required* to state, so
 //! the malformed counts are conditioned exactly as Table 87 conditions the requirement.
 //!
@@ -47,6 +50,14 @@ struct Tally {
     missing_colour_space: u64,
     /// `/ColorSpace` present on an image mask, which Table 87 forbids.
     colour_space_on_mask: u64,
+    /// Image dictionaries stating an `/AF` array — Table 87's one PDF 2.0 associated-files entry.
+    ///
+    /// Not a required entry and never a refusal: it is counted here because §8.9.5.1's row turns
+    /// on how many images carry one. `attachment::associated` reads §14.13's array off any
+    /// dictionary, so an image needs no reader of its own, and §6.3.2.2 makes a rendering
+    /// processor owe no *consumer* of an image's associated files (interchange, §14.13.1) — the
+    /// question the count answers is only whether any document exercises the carrier at all.
+    af: u64,
 }
 
 impl Tally {
@@ -89,6 +100,10 @@ impl Tally {
         } else if !is_jpx && matches!(colour_space, Object::Null) {
             self.missing_colour_space = self.missing_colour_space.saturating_add(1);
         }
+
+        if matches!(document.get_key(dict, "AF"), Object::Array(_)) {
+            self.af = self.af.saturating_add(1);
+        }
     }
 
     /// Adds another tally into this one.
@@ -106,6 +121,7 @@ impl Tally {
         self.colour_space_on_mask = self
             .colour_space_on_mask
             .saturating_add(other.colour_space_on_mask);
+        self.af = self.af.saturating_add(other.af);
     }
 
     /// Prints the census.
@@ -140,6 +156,7 @@ impl Tally {
             "  /ColorSpace present on an image mask:     {}",
             self.colour_space_on_mask
         );
+        println!("images stating an /AF array:        {}", self.af);
     }
 }
 

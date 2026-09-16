@@ -62,7 +62,7 @@ const MAX_CLUT: usize = 1 << 22;
 /// Which of a profile's "to CIE" transforms a rendering intent selects.
 ///
 /// ISO 32000-2 Table 69 names four intents and an ICC profile states at most three transforms,
-/// so this is the mapping between them rather than a fourth copy of Table 69 — `crate::content`
+/// so this is the mapping between them rather than a fourth copy of Table 69 — `pdf_model::content`
 /// owns the names a file writes. Two clauses make the mapping the standard's rather than a
 /// convention. §8.6.5.8 says where the names came from:
 ///
@@ -142,7 +142,7 @@ impl Rendering {
     /// > If the current render intent of an object is AbsColorimetric then the value of
     /// > UseBlackPtComp shall be treated as OFF .
     ///
-    /// `crate::content` asks that sentence over the object before it gets here; the type holds
+    /// `pdf_model::content` asks that sentence over the object before it gets here; the type holds
     /// it too, so that no caller building a `Rendering` by hand can compensate under
     /// [`A2b::Absolute`].
     #[must_use]

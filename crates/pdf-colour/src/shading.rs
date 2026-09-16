@@ -166,9 +166,9 @@ struct Built {
     /// program's constants together, exactly as the colours are: the same stream read again
     /// under the same build is cut in the same place. It leaves the cache as
     /// [`Shaded::truncated`] so that the interpreter can report it — a bound that stops a
-    /// document's mesh part-way and says nothing is the silent drop `crate::content`'s module
+    /// document's mesh part-way and says nothing is the silent drop `pdf_model::content`'s module
     /// documentation forbids, and every other bound in that module is already reported as
-    /// [`crate::Unsupported::LimitReached`].
+    /// `pdf_model::Unsupported::LimitReached`.
     truncated: bool,
     /// §8.7.4.4's subdivision of this mesh stopped short of §10.7.3's tolerance; see
     /// [`Shaded::coarse`].

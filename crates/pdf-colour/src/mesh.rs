@@ -250,8 +250,8 @@ pub(crate) fn read(
 /// A struct rather than the pair this returned until the nine-hundred-and-forty-fifth session,
 /// because the third member is the one a caller must not be able to ignore by accident:
 /// [`MAX_TRIANGLES`] stops a mesh part-way, and a page that drew the part without saying so is
-/// exactly the silent drop `crate::content` forbids. Every neighbouring bound in this crate is
-/// already reported as [`crate::Unsupported::LimitReached`]; this one was not, from the day it
+/// exactly the silent drop `pdf_model::content` forbids. Every neighbouring bound in this crate is
+/// already reported as `pdf_model::Unsupported::LimitReached`; this one was not, from the day it
 /// was written until that session.
 pub(crate) struct Mesh {
     /// The triangles, in the order §8.7.4.5.7's overlap rule needs them painted.

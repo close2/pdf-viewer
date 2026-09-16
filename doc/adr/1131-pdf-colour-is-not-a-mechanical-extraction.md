@@ -70,12 +70,15 @@ Option (b) — export the fixture as a non-test helper — was barred: it has no
 `colour.rs`, both of which move with it, so no `#[cfg(test)]` item crosses the boundary and no
 `[features]` gate is needed. See `doc/history/1138`.
 
-**Step 3 (the crate) deferred, with a blocker step 1 introduced.** `transfer.rs` (round 1134)
-carries a `#[cfg(test)]` test calling `crate::Pages::new` — `Pages` is `page.rs`'s, a layer above
-colour — so moving `transfer` makes `pdf-colour`'s dev-deps require `pdf-model` while `pdf-model`
-depends on `pdf-colour`: a cycle `cargo metadata` reports. That test's arrangement must lose its
-`Pages` navigation before `transfer` can move. Three upward intra-doc links also break below
-`pdf-model` (`colour.rs` `[crate::image]`, `shading.rs`/`mesh.rs`
-`[crate::Unsupported::LimitReached]`), and this batch shares a worktree in which `image.rs` — the
-file step 3's `cie_to_srgb`→`pub` needs re-pointed — is a sibling's. A clean worktree moves the
-six, drops the `Pages` navigation, fixes the links and widens `cie_to_srgb` in one step.
+**Step 3 done (round 1142).** `crates/pdf-colour` holds the six modules (`colour`, `icc`,
+`function`, `shading`, `mesh`, `transfer`) with their tests, over `pdf-syntax`, `pdf-render`,
+`rayon`, `md-5` and `thiserror` and nothing from `pdf-model`; `cargo metadata` reports no cycle.
+`pdf-model` re-exports each module — `pub use pdf_colour::{colour, function, icc, mesh, shading}`
+and `pub(crate) use pdf_colour::transfer` — so the consumer crates and the inbound modules
+(`content`, `image`, `soft_mask`) are unchanged. The four snags 1138 recorded were the only ones:
+the `transfer` test now walks the page tree through `pdf_syntax::Document` instead of `Pages`; the
+three upward doc links became prose; `cie_to_srgb` widened to `pub`. The items `content` and
+`image` reach across the boundary — `Transfer::{read, from_channels, channel}`, `Stated`,
+`ColourSpace::{default_decode, component_range}` — widened from `pub(crate)` to `pub`, the one
+visible cost of the split. The ledger rows' `code`/`test` sites moved to `crates/pdf-colour/` (111
+sites); `raster_golden` moved 0. See `doc/history/1142`.

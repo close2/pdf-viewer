@@ -3169,6 +3169,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-colour"
+version = "0.1.0"
+dependencies = [
+ "md-5",
+ "pdf-render",
+ "pdf-syntax",
+ "rayon",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "pdf-font"
 version = "0.1.0"
 dependencies = [
@@ -3198,6 +3209,7 @@ dependencies = [
  "gate-ratchet",
  "iai-callgrind",
  "md-5",
+ "pdf-colour",
  "pdf-font",
  "pdf-render",
  "pdf-sandbox",

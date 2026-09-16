@@ -1,0 +1,23 @@
+[package]
+name = "pdf-colour"
+description = "PDF colour spaces and their conversions: CIE-based and device families, ICC profiles, functions, shadings, meshes and transfer functions."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# ICC.1 section 7.2.18's profile identifier is an MD5 of the profile's bytes; `icc.rs` computes
+# it directly rather than through a signature package, so the hash is this crate's only reach for
+# one — see the note at `icc::profile_id`.
+md-5.workspace = true
+pdf-render.workspace = true
+pdf-syntax.workspace = true
+# §8.9.5's per-sample colour conversion and §8.7.4.5's mesh tessellation are embarrassingly
+# parallel; the six modules moved here carry the measurements that decided each threshold.
+rayon.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

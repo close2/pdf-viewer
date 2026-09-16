@@ -913,6 +913,43 @@ mod tests {
         assert_eq!(ticket.name, "job-ticket.jdf");
     }
 
+    /// §8.9.5.1 Table 87's `/AF` on an image `XObject` reads back through the same general reader,
+    /// and an image is owed no *consumer* of the array beyond that.
+    ///
+    /// §14.13.7 puts the array on a form or image `XObject`'s stream dictionary with the shape it
+    /// has everywhere else — the "stream dictionary shall contain an AF entry whose value is an
+    /// array of file specification dictionaries" — and that `shall` is the producer's.
+    /// [`associated`] reads §14.13's array off *any* dictionary, so an image's stream dictionary
+    /// needs no reader of its own; and §6.3.2.2's rendering obligations do not include an image's
+    /// associated files, so it needs no consumer either — they are interchange (§14.13.1), exactly
+    /// as §14.6.2's object-level metadata is a reader (`Xmp::read` over any dictionary) with no
+    /// image caller. No corpus document states one: `required_entry_census` counts 0 of the 2 997
+    /// image dictionaries over 963 pdf.js documents, and 0 over the PDF 2.0, format, `PDFBox` and
+    /// differences corpora, so this witness is built (trap 8).
+    #[test]
+    fn an_images_associated_file_reads_back_through_the_general_reader() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 \
+             /ColorSpace /DeviceGray /AF [4 0 R] /Length 1 >>\nstream\nx\nendstream",
+            "<< /Type /Filespec /F (chart-source.csv) /AFRelationship /Source \
+             /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /text#2Fcsv /Length 3 >>\nstream\ncsv\nendstream",
+        ]);
+        let object = doc.get(pdf_syntax::ObjectId {
+            number: 3,
+            generation: 0,
+        });
+        let image = object.as_stream().expect("the image XObject");
+        let files = super::associated(&doc, &image.dict);
+        let [source] = files.as_slice() else {
+            panic!("one associated file on the image, got {files:?}");
+        };
+        assert_eq!(source.name, "chart-source.csv");
+        assert_eq!(source.relationship, super::Relationship::Source);
+    }
+
     /// §14.13.8: a file associated with a `DPart` reaches the list a panel shows.
     ///
     /// > One or more files may be associated with any DPart (see 14.12, "Document parts"). To

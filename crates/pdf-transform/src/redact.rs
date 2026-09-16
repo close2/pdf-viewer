@@ -41,17 +41,18 @@
 //! original decode. Because clearing an image object modifies bytes every placement of it shares,
 //! a shared image is refused (below) rather than cleared where it would alter another placement.
 //!
-//! An image behind a lossy or bilevel **codec** — `DCTDecode` (§7.4.8) or `CCITTFaxDecode`
-//! (§7.4.6) — cannot be zeroed in its packed grid, because its bytes are the codec's input rather
+//! An image behind a **codec** — `DCTDecode` (§7.4.8), `CCITTFaxDecode` (§7.4.6) or `JBIG2Decode`
+//! (§7.4.7) — cannot be zeroed in its packed grid, because its bytes are the codec's input rather
 //! than samples. It is instead **decoded to samples the interpreter's own way**
 //! ([`pdf_model::image::decode`], so the codec runs under the process's isolation — confined in
 //! the program, principle 3), the region cleared in the decoded raster, and the result written as
-//! an 8-bit `DeviceRGB` `FlateDecode` image: a lossless, non-codec filter, so the redacted region
-//! is exactly zero and cannot round-trip back through the lossy codec that would leak it. The
-//! replacement is opaque and carries no `/Decode`, `/Mask` or `/SMask`, so a codec image that
-//! decodes with transparency (a soft mask, a colour key, or an image mask) is refused rather than
-//! flattened — the re-encode would not preserve it. `JPXDecode` and `JBIG2Decode` stay refused
-//! (below).
+//! a `FlateDecode` image: a lossless, non-codec filter, so the redacted region is exactly zero and
+//! cannot round-trip back through the codec that would leak it. A colour codec becomes an 8-bit
+//! `DeviceRGB` raster; the bilevel `JBIG2Decode` becomes a 1-bit `DeviceGray` raster, at its own
+//! depth rather than inflated (ADR 1143), its zero constant one bit of black. The replacement is
+//! opaque and carries no `/Decode`, `/Mask` or `/SMask`, so a codec image that decodes with
+//! transparency (a soft mask, a colour key, or an image mask) is refused rather than flattened —
+//! the re-encode would not preserve it. `JPXDecode` stays refused (below).
 //!
 //! An **inline image** (§8.9.7's `BI`\u{2026}`ID`\u{2026}`EI`) has its samples in the content
 //! stream itself rather than a referenced object, so destroying them is a **content-stream
@@ -74,15 +75,13 @@
 //! Three marks meeting the region stay refused with their own narrower reason, each an owed
 //! capability rather than a silence:
 //!
-//! - an **image encoded by `JPXDecode` or `JBIG2Decode`** (§8.9.5) — `JPXDecode` because a
-//!   codestream over the decoder's budget comes back at a reduced resolution level (§7.4.9 NOTE 3),
-//!   so the raster is not the image's grid and a redaction that silently changed the image's
-//!   resolution cannot be proven to have replaced the full-resolution content the region maps
-//!   into; `JBIG2Decode` because its clear is an owed capability this round did not build and prove
-//!   — the `DCTDecode`/`CCITTFaxDecode` route above is the codec case that is built. An image whose
-//!   colour space this build cannot count the components of, or whose declared grid its sample data
-//!   does not fill, or a **shared** image the guard cannot prove exclusive to the redacted page
-//!   (clearing it would alter another placement), is refused the same way;
+//! - an **image encoded by `JPXDecode`** (§8.9.5) — because a codestream over the decoder's budget
+//!   comes back at a reduced resolution level (§7.4.9 NOTE 3), so the raster is not the image's
+//!   grid and a redaction that silently changed the image's resolution cannot be proven to have
+//!   replaced the full-resolution content the region maps into. An image whose colour space this
+//!   build cannot count the components of, or whose declared grid its sample data does not fill, or
+//!   a **shared** image the guard cannot prove exclusive to the redacted page (clearing it would
+//!   alter another placement), is refused the same way;
 //! - an **inline image** (§8.9.7) encoded by a codec, or whose colour space resolves to a
 //!   resource object an inline image cannot carry, or whose declared grid its data does not fill
 //!   — the same three limits as an image `XObject`, at the splice above rather than at a `Do`;
@@ -262,11 +261,13 @@ struct ClearedImage {
     id: ObjectId,
     /// The cleared samples, re-encoded `FlateDecode`.
     encoded: Vec<u8>,
-    /// `Some((width, height))` when the image was decoded from a codec and re-expressed as an
-    /// 8-bit `DeviceRGB` raster, so [`build_cleared_image`] must write a fresh dictionary rather
-    /// than carry the source's codec `/Filter`, colour space and masks. `None` when the codec-free
-    /// samples keep the source dictionary's grid.
-    rgb: Option<(usize, usize)>,
+    /// `Some(layout)` when the image was decoded from a codec and re-expressed as a fresh raster,
+    /// so [`build_cleared_image`] must write a new dictionary stating that grid rather than carry
+    /// the source's codec `/Filter`, colour space and masks: an opaque 8-bit `DeviceRGB` raster
+    /// for a colour codec (`DCTDecode`, `CCITTFaxDecode`), a 1-bit `DeviceGray` raster for the
+    /// bilevel `JBIG2Decode` (§7.4.7). `None` when the codec-free samples keep the source
+    /// dictionary's grid.
+    codec: Option<ImageLayout>,
 }
 
 /// Groups the pages' image clears by object and destroys each image's samples once.
@@ -291,11 +292,11 @@ fn clear_images(
                 id.number
             ))
         })?;
-        let (encoded, rgb) =
+        let (encoded, codec) =
             cleared_image_samples(document, stream, &placements).map_err(|detail| {
                 Refusal::Assembly(format!("§12.5.6.23: image object {}: {detail}", id.number))
             })?;
-        cleared.push(ClearedImage { id, encoded, rgb });
+        cleared.push(ClearedImage { id, encoded, codec });
     }
     Ok(cleared)
 }
@@ -1205,23 +1206,25 @@ impl<'a> Walk<'a> {
         })
     }
 
-    /// Plans clearing a `DCTDecode` or `CCITTFaxDecode` image by decoding it to samples, or
-    /// refuses by name (§8.9.5, §7.4.8, §7.4.6).
+    /// Plans clearing a `DCTDecode`, `CCITTFaxDecode` or `JBIG2Decode` image by decoding it to
+    /// samples, or refuses by name (§8.9.5, §7.4.8, §7.4.6, §7.4.7).
     ///
     /// A codec's stream bytes are its input, not samples, so the packed-grid destruction the
     /// codec-free path takes cannot address them. The image is decoded the interpreter's own way
     /// ([`pdf_model::image::decode`], so the codec runs under the process's isolation — confined
-    /// in the program, principle 3) to straight-alpha `RGBA8`, and the opaque colour components
-    /// are carried as the samples to clear. The result is written as an 8-bit `DeviceRGB`
-    /// `FlateDecode` image ([`build_cleared_image`]): a lossless, non-codec filter, so the cleared
-    /// region is exactly zero and cannot round-trip back through a lossy codec that would leak it.
+    /// in the program, principle 3) to straight-alpha `RGBA8`, and the opaque samples are carried
+    /// to clear. The result is written as a `FlateDecode` image ([`build_cleared_image`]): a
+    /// lossless, non-codec filter, so the cleared region is exactly zero and cannot round-trip
+    /// back through a codec that would leak it. A colour codec (`DCTDecode`, `CCITTFaxDecode`) is
+    /// re-expressed as an opaque 8-bit `DeviceRGB` raster; the bilevel `JBIG2Decode` (§7.4.7) is
+    /// re-expressed at its own depth, a 1-bit `DeviceGray` raster whose zero sample is one bit
+    /// (ADR 1143), rather than inflated to eight.
     ///
-    /// Refused, each an owed capability rather than a silence (trap 5, principle 1): a codec other
-    /// than the two built here (`JPXDecode`, whose over-budget decode is a reduced resolution
-    /// level §7.4.9 NOTE 3, so the raster is not the image's grid; `JBIG2Decode`, not built this
-    /// round); an image that does not decode; one that decodes short of its grid, so the re-encode
-    /// would drop rows; or one that decodes with transparency (a soft mask, a colour key, or an
-    /// image mask), which the opaque `DeviceRGB` re-encode cannot preserve.
+    /// Refused, each an owed capability rather than a silence (trap 5, principle 1): `JPXDecode`,
+    /// whose over-budget decode is a reduced resolution level (§7.4.9 NOTE 3), so the raster is not
+    /// the image's grid; any other codec; an image that does not decode; one that decodes short of
+    /// its grid, so the re-encode would drop rows; or one that decodes with transparency (a soft
+    /// mask, a colour key, or an image mask), which the opaque re-encode cannot preserve.
     fn plan_codec_clear(
         &self,
         shown: &str,
@@ -1229,8 +1232,11 @@ impl<'a> Walk<'a> {
         stream: &Stream,
         codec: &[u8],
     ) -> Result<ImageClear, String> {
-        match codec {
-            b"DCTDecode" | b"DCT" | b"CCITTFaxDecode" | b"CCF" => {}
+        // A bilevel codec re-expresses at 1 bit; a colour codec at 8-bit RGB. Every other codec is
+        // refused by name — `JPXDecode` with its own reason (§7.4.9 NOTE 3), the rest generically.
+        let bilevel = match codec {
+            b"DCTDecode" | b"DCT" | b"CCITTFaxDecode" | b"CCF" => false,
+            b"JBIG2Decode" => true,
             other => {
                 return Err(format!(
                     "§8.9.5: the image /{shown} is encoded with the {} codec, whose samples this \
@@ -1238,7 +1244,7 @@ impl<'a> Walk<'a> {
                     String::from_utf8_lossy(other)
                 ));
             }
-        }
+        };
         let Flattened { image, shortfall } = pdf_model::image::decode(
             self.document,
             stream,
@@ -1265,24 +1271,21 @@ impl<'a> Walk<'a> {
             format!("the codec image /{shown}'s grid overflows; the page is refused")
         })?;
         // §11.6.4.2 gives the alpha channel [`pdf_model::image::decode`] leaves; only a fully
-        // opaque decode is representable as an opaque `DeviceRGB` raster. A soft mask, a colour
-        // key or an image mask leaves some sample non-opaque, and dropping it would change the
-        // picture — refuse rather than flatten (principle 1).
-        let mut samples = Vec::with_capacity(width.saturating_mul(height).saturating_mul(3));
+        // opaque decode is representable as an opaque raster. A soft mask, a colour key or an
+        // image mask leaves some sample non-opaque, and dropping it would change the picture —
+        // refuse rather than flatten (principle 1).
         for pixel in image.data.chunks_exact(4) {
-            if pixel[3] != 0xFF {
+            if pixel.get(3) != Some(&0xFF) {
                 return Err(format!(
                     "§8.9.5: the codec image /{shown} carries transparency the FlateDecode \
                      re-encode cannot preserve; the page is refused rather than flatten it"
                 ));
             }
-            samples.extend_from_slice(&pixel[..3]);
         }
-        let layout = ImageLayout {
-            width,
-            height,
-            components: 3,
-            bits: 8,
+        let (samples, layout) = if bilevel {
+            bilevel_samples(&image.data, width, height)
+        } else {
+            colour_samples(&image.data, width, height)
         };
         Ok(ImageClear {
             image_id,
@@ -1693,6 +1696,69 @@ fn positive_dim(
     }
 }
 
+/// The opaque colour components of a decoded codec image as 8-bit `DeviceRGB` samples, contiguous
+/// (§8.9.5.2 packs 8-bit samples with no intra-row padding), and the grid that describes them.
+///
+/// A colour codec (`DCTDecode`, `CCITTFaxDecode`) is re-expressed at eight bits per component so a
+/// lossless `FlateDecode` stream can carry the pixels the lossy or bilevel filter held (ADR 1133).
+/// The alpha the decode leaves was proved fully opaque before this is called, so the fourth byte
+/// of each pixel carries nothing and is dropped.
+fn colour_samples(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, ImageLayout) {
+    let mut samples = Vec::with_capacity(width.saturating_mul(height).saturating_mul(3));
+    for pixel in rgba.chunks_exact(4) {
+        if let Some(rgb) = pixel.get(..3) {
+            samples.extend_from_slice(rgb);
+        }
+    }
+    let layout = ImageLayout {
+        width,
+        height,
+        components: 3,
+        bits: 8,
+    };
+    (samples, layout)
+}
+
+/// A decoded `JBIG2Decode` image (§7.4.7) as 1-bit `DeviceGray` samples, MSB-first per row with
+/// each row filled to a byte boundary (§8.9.5.2), and the grid that describes them.
+///
+/// A bilevel codec is re-expressed at its own one bit per pixel rather than inflated to eight
+/// (ADR 1143): a white pixel is sample 1 (Dmax), a black pixel sample 0 (Dmin), which is the
+/// `DeviceGray` sense of the bits [`pdf_model::image`] delivers (Table 87). Clearing zeroes the
+/// bit ([`zero_sample`]), so the region's zero constant is one bit of black — §8.9.5.2's sample 0
+/// through the default `/Decode`. The decode was proved fully opaque before this is called.
+fn bilevel_samples(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, ImageLayout) {
+    let layout = ImageLayout {
+        width,
+        height,
+        components: 1,
+        bits: 1,
+    };
+    let stride = width.div_ceil(8);
+    let mut samples = vec![0u8; stride.saturating_mul(height)];
+    // A zero-width grid decodes to no bytes and needs none: the row walk below would divide the
+    // input into empty chunks, which `chunks_exact` forbids, so it is answered before the walk.
+    let row_pixels = width.saturating_mul(4);
+    if row_pixels == 0 {
+        return (samples, layout);
+    }
+    for (row, line) in rgba.chunks_exact(row_pixels).enumerate() {
+        let base = row.saturating_mul(stride);
+        for (col, pixel) in line.chunks_exact(4).enumerate() {
+            // A white pixel sets its sample bit; a black one leaves the zero the buffer starts at.
+            if pixel.first().is_some_and(|luma| *luma >= 0x80) {
+                let byte = base.saturating_add(col / 8);
+                if let Some(cell) = samples.get_mut(byte) {
+                    // `0x80 >> (col % 8)` is the MSB-first mask for this sample, the packing
+                    // [`zero_sample`] clears with and `pdf_model::image` reads samples back with.
+                    *cell |= 0x80u8 >> (col % 8);
+                }
+            }
+        }
+    }
+    (samples, layout)
+}
+
 /// The packed length of one image row in bytes: §8.9.5.2's samples run left to right within a
 /// row, each row filled to a byte boundary. `None` where the grid overflows `usize`.
 fn row_stride(layout: ImageLayout) -> Option<usize> {
@@ -1703,22 +1769,23 @@ fn row_stride(layout: ImageLayout) -> Option<usize> {
     Some(bits.div_ceil(8))
 }
 
-/// The re-encoded cleared samples, and the `DeviceRGB` grid the writer must redescribe them by
-/// where the source was behind a codec (`None` for a codec-free image that keeps its dictionary).
-type ClearedSamples = (Vec<u8>, Option<(usize, usize)>);
+/// The re-encoded cleared samples, and the fresh grid the writer must redescribe them by where the
+/// source was behind a codec (`None` for a codec-free image that keeps its dictionary).
+type ClearedSamples = (Vec<u8>, Option<ImageLayout>);
 
 /// The image's decoded samples with every region's samples zeroed, re-encoded with `FlateDecode`,
-/// and the `DeviceRGB` grid to redescribe it by where the source was behind a codec.
+/// and the fresh grid to redescribe it by where the source was behind a codec.
 ///
 /// §12.5.6.23: "that portion of the image data shall be destroyed". For a **codec-free** image the
 /// samples come from [`Document::image_stream`], which runs every filter before the codec, so they
 /// are the packed samples themselves; the codec-free precondition was proved at planning time
 /// ([`Walk::plan_image_clear`]) and is re-checked here rather than trusted across the two phases.
-/// For a **codec** image ([`Walk::plan_codec_clear`]) the opaque 8-bit `DeviceRGB` samples were
-/// decoded then, and travel on the placement — the source stream's bytes are the codec's input,
-/// not samples, so they are never read here. Either way every placement's region is cleared and
-/// the result re-encoded `FlateDecode`; the returned grid is `Some` exactly for the codec case, so
-/// the writer states a fresh `DeviceRGB` dictionary.
+/// For a **codec** image ([`Walk::plan_codec_clear`]) the re-expressed samples were decoded then —
+/// 8-bit `DeviceRGB` for a colour codec, 1-bit `DeviceGray` for the bilevel `JBIG2Decode` — and
+/// travel on the placement; the source stream's bytes are the codec's input, not samples, so they
+/// are never read here. Either way every placement's region is cleared and the result re-encoded
+/// `FlateDecode`; the returned grid is `Some` exactly for the codec case, so the writer states a
+/// fresh dictionary for the raster's own colour space and depth.
 fn cleared_image_samples(
     document: &Document,
     stream: &Stream,
@@ -1763,11 +1830,8 @@ fn cleared_image_samples(
     }
     let encoded = flate_encode(&samples, 6)
         .ok_or_else(|| "the cleared samples could not be re-encoded".to_owned())?;
-    let rgb = first
-        .decoded
-        .as_ref()
-        .map(|_| (layout.width, layout.height));
-    Ok((encoded, rgb))
+    let codec = first.decoded.as_ref().map(|_| layout);
+    Ok((encoded, codec))
 }
 
 /// Zeroes every sample whose centre lies in a region box under one placement.
@@ -2176,17 +2240,26 @@ fn build_page(
 /// A **codec-free** image keeps the source dictionary — its grid, colour space, bit depth,
 /// `/Decode` and masks — with references carried into the output's numbering (like
 /// [`build_page`]'s entries), because the samples are still on the grid it describes; only the
-/// encoding is replaced. A **codec** image ([`ClearedImage::rgb`]) was decoded and re-expressed as
-/// an opaque 8-bit `DeviceRGB` raster, so it gets a **fresh** dictionary stating exactly that —
-/// carrying none of the source's codec `/Filter`, `/DecodeParms`, `/Decode`, colour space, or
-/// masks, every one of which would misdescribe the new samples.
+/// encoding is replaced. A **codec** image ([`ClearedImage::codec`]) was decoded and re-expressed
+/// as a fresh raster, so it gets a **fresh** dictionary stating exactly that grid — an opaque
+/// 8-bit `DeviceRGB` raster for a colour codec, a 1-bit `DeviceGray` raster for the bilevel
+/// `JBIG2Decode` — carrying none of the source's codec `/Filter`, `/DecodeParms`, `/Decode`,
+/// colour space, or masks, every one of which would misdescribe the new samples.
 fn build_cleared_image(
     assembly: &mut Assembly<'_>,
     document: &Document,
     image: &ClearedImage,
 ) -> Result<Object, Refusal> {
     let mut dict = Dictionary::new();
-    if let Some((width, height)) = image.rgb {
+    if let Some(layout) = image.codec {
+        // One component is the bilevel `DeviceGray` raster, three the colour `DeviceRGB` one; the
+        // depth is the raster's own (§7.4.7's one bit, or eight). Both are opaque and carry no
+        // `/Decode`, `/Mask` or `/SMask`, so the default `/Decode` maps sample 0 to Dmin — black.
+        let space: &[u8] = if layout.components == 1 {
+            b"DeviceGray"
+        } else {
+            b"DeviceRGB"
+        };
         dict.insert(
             Name::new(&b"Type"[..]),
             Object::Name(Name::new(&b"XObject"[..])),
@@ -2197,17 +2270,20 @@ fn build_cleared_image(
         );
         dict.insert(
             Name::new(&b"Width"[..]),
-            Object::Integer(i64::try_from(width).unwrap_or(i64::MAX)),
+            Object::Integer(i64::try_from(layout.width).unwrap_or(i64::MAX)),
         );
         dict.insert(
             Name::new(&b"Height"[..]),
-            Object::Integer(i64::try_from(height).unwrap_or(i64::MAX)),
+            Object::Integer(i64::try_from(layout.height).unwrap_or(i64::MAX)),
         );
         dict.insert(
             Name::new(&b"ColorSpace"[..]),
-            Object::Name(Name::new(&b"DeviceRGB"[..])),
+            Object::Name(Name::new(space)),
         );
-        dict.insert(Name::new(&b"BitsPerComponent"[..]), Object::Integer(8));
+        dict.insert(
+            Name::new(&b"BitsPerComponent"[..]),
+            Object::Integer(i64::try_from(layout.bits).unwrap_or(i64::MAX)),
+        );
     } else {
         let object = document.get(image.id);
         let source = object.as_stream().ok_or_else(|| {
@@ -2272,10 +2348,22 @@ fn carry(assembly: &mut Assembly<'_>, document: &Document, value: &Object, depth
         return Object::Null;
     }
     match value {
-        Object::Reference(id) => match copy_closure(assembly, document, *id, true) {
-            Ok(mapped) => Object::Reference(mapped),
-            Err(_) => Object::Null,
-        },
+        Object::Reference(id) => {
+            // A reference to an object already placed — copied, or **replaced** by a reserved slot
+            // (a redacted page, a cleared image) — maps to that slot without walking its source
+            // value. Walking a replaced image's original dictionary would copy the codec resources
+            // the replacement dropped back into the output: a `/JBIG2Globals` symbol dictionary is
+            // the case that exposed this, and leaving it would be an orphan holding the original
+            // bilevel image's bytes (principle 1, §12.5.6.23). A codec-free replacement stated its
+            // resources inline, which is why the leak was latent until §7.4.7's globals stream.
+            if let Some(mapped) = assembly.copied(0, *id) {
+                return Object::Reference(mapped);
+            }
+            match copy_closure(assembly, document, *id, true) {
+                Ok(mapped) => Object::Reference(mapped),
+                Err(_) => Object::Null,
+            }
+        }
         Object::Array(items) => Object::Array(
             items
                 .iter()

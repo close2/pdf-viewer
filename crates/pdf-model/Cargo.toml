@@ -11,6 +11,7 @@ repository.workspace = true
 # Table 45's `/CheckSum` is an MD5 of an embedded file's bytes, and ICC.1 section 7.2.18's
 # profile identifier is a second one; §7.6's algorithms already brought the crate into the tree.
 md-5.workspace = true
+pdf-colour.workspace = true
 pdf-font.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true

@@ -1,7 +1,7 @@
 //! ISO 32000-2 §10.5's transfer function, held where the colour stack can reach it.
 //!
 //! Table 57's `/TR`, `/TR2` and `/HT` — the three ways a file states one — are read in
-//! `crate::content`'s graphics-state parameter dictionary, and composed there by its
+//! `pdf_model::content`'s graphics-state parameter dictionary, and composed there by its
 //! `TransferState`. This module holds only the function triple those entries build and the
 //! [`Stated`] answer one `/ExtGState` gives, so that [`crate::shading`] and [`crate::mesh`] depend
 //! on the colour stack rather than on the content interpreter (ADR 1131).
@@ -40,9 +40,10 @@ use pdf_syntax::{Dictionary, Document, Object};
 /// nowhere else, so this is where the type belongs; but §10.5's subject is the component value, and
 /// a ramp's stops, a mesh's corners and a function-based shading's grid are produced in
 /// [`crate::shading`] and [`crate::mesh`]. Those take one of these rather than a closure, so the
-/// clause is stated once and applied in every place a colour is made. Nothing outside this crate
-/// can construct one — [`Transfer::read`] is private and an `/ExtGState` is the only source the
-/// clause gives — so the public surface is what a caller needs to pass one on and no more.
+/// clause is stated once and applied in every place a colour is made. The two constructors are
+/// the crate's own — [`Transfer::read`] for an `/ExtGState` and [`Transfer::from_channels`] for a
+/// halftone's per-component override — and both name a §10.5 source, so a caller passes a transfer
+/// on rather than inventing one.
 ///
 /// **A channel is optional because the clause has two sources and they meet per component.** The
 /// second bullet lets a halftone dictionary carry a `TransferFunction` for one component and say
@@ -65,7 +66,7 @@ impl Transfer {
     /// state turns an inherited transfer **off** (`/Identity`, or `/TR2`'s `/Default`), or the
     /// state sets one. Folding the middle into the first would leave an inherited transfer running
     /// through a `q … /Identity gs … Q` that exists to stop it.
-    pub(crate) fn read(document: &Document, state: &Dictionary) -> Stated {
+    pub fn read(document: &Document, state: &Dictionary) -> Stated {
         let Some(entry) = ["TR2", "TR"]
             .into_iter()
             .map(|key| document.get_key(state, key))
@@ -145,17 +146,17 @@ impl Transfer {
     }
 
     /// Builds a transfer from three per-component functions, for `TransferState`'s composition of
-    /// §10.5's two bullets in `crate::content` — the one place besides [`Transfer::read`] that
+    /// §10.5's two bullets in `pdf_model::content` — the one place besides [`Transfer::read`] that
     /// makes one, combining Table 57's `/TR` with a halftone's per-component override.
     #[must_use]
-    pub(crate) fn from_channels(channels: [Option<Arc<crate::function::Function>>; 3]) -> Self {
+    pub fn from_channels(channels: [Option<Arc<crate::function::Function>>; 3]) -> Self {
         Self { channels }
     }
 
     /// One component's function, red then green then blue, so the composition above can read the
     /// stated transfer a halftone left in force for that component.
     #[must_use]
-    pub(crate) fn channel(&self, index: usize) -> Option<Arc<crate::function::Function>> {
+    pub fn channel(&self, index: usize) -> Option<Arc<crate::function::Function>> {
         self.channels[index].clone()
     }
 }
@@ -167,7 +168,8 @@ impl Transfer {
 /// inherited transfer off. `issue6931_reduced.pdf` uses both — one state sets three functions and
 /// the next sets `/Identity` — so a reader that could not tell them apart would carry the transfer
 /// on past the object it was written for.
-pub(crate) enum Stated {
+#[derive(Debug)]
+pub enum Stated {
     /// The dictionary has neither entry, or has one this reader cannot make sense of.
     Unsaid,
     /// `/Identity`, or `/TR2`'s `/Default`: no transfer from here on.
@@ -218,10 +220,22 @@ mod tests {
     }
 
     /// The `/ExtGState` of the fixture above.
+    ///
+    /// Walks the page tree by hand — catalogue, page tree, first kid, resources — rather than
+    /// through `pdf_model::Pages`, which lives a layer above this colour crate (ADR 1131 §4).
+    /// The fixture has one page, so the first kid is it.
     fn state(document: &pdf_syntax::Document) -> pdf_syntax::Dictionary {
-        let pages = crate::Pages::new(document);
-        let page = pages.get(0).expect("one page");
-        let graphics = document.get_key(&page.resources, "ExtGState");
+        let catalog = document.catalog().expect("the fixture has a catalogue");
+        let tree = document.get_key(&catalog, "Pages");
+        let tree = tree.as_dict().expect("the catalogue names a page tree");
+        let kids = document.get_key(tree, "Kids");
+        let kids = kids.as_array().expect("the page tree has kids");
+        let first = kids.first().expect("one page");
+        let page = document.resolve(first);
+        let page = page.as_dict().expect("the first kid is a page");
+        let resources = document.get_key(page, "Resources");
+        let resources = resources.as_dict().expect("the page has resources");
+        let graphics = document.get_key(resources, "ExtGState");
         let dict = graphics.as_dict().expect("the fixture states one");
         document
             .get_key(dict, "G")
