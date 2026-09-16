@@ -643,11 +643,23 @@ pub(crate) struct Committed {
     pub(crate) attachments: bool,
 }
 
-/// An edit held for `Command::Answer`, which is the *ask* level's whole state.
+/// An operation held for `Command::Answer`, which is the *ask* level's whole state.
+///
+/// Resolved before it is held, both ways round, for [`Done`]'s reason: what goes ahead on a `yes`
+/// is what was asked for at the moment it was asked, and a selection or a field value that moved
+/// while the question stood would otherwise silently change what the person agreed to.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Held {
-    /// What was asked for, resolved.
-    pub(crate) done: Done,
+pub(crate) enum Held {
+    /// An edit, resolved.
+    Edit(Done),
+    /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
+    Copy {
+        /// §14.8.2.5's logical content order, where the structure tree reached the whole
+        /// selection.
+        logical: Option<String>,
+        /// The same characters in page content order.
+        page_order: String,
+    },
 }
 
 /// A page, interpreted.

@@ -886,6 +886,20 @@ impl Rasterizer for GpuRasterizer {
                     .to_owned(),
             ));
         }
+        // ISO 32000-2 §11.7.5.2's transfer function is chosen by the topmost elementary object
+        // covering a point and applied "only when all colour compositing has been completed"
+        // (§11.7.5.3's NOTE), which `pdf_model` carries as a channel on the list and the two
+        // shipping backends apply over their own read-back (`pdf_render::resolve_transfers`).
+        // This backend has no pass of its own over a Vello scene's result, and a page drawn
+        // without the map would be drawn in the colours the file states *before* §10.5 — which
+        // for `issue6931_reduced.pdf` is a black square where the page says "The color should be
+        // red". Refused by name, which sends the frame to the CPU backend — the job `CLAUDE.md`
+        // keeps that backend for — rather than drawing it wrong in silence (trap 5).
+        if list.transfers().is_some() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a page whose marks state §10.5 transfer functions (§11.7.5.2)".to_owned(),
+            ));
+        }
         // Before the scene, because every mask a command names has to exist by the time that
         // command is encoded — and because a mask is a render of its own, at this target.
         let masks = evaluate_soft_masks(

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use pdf_model::view::WidgetAppearances;
-use viewer_core::RestrictionLevel;
+use viewer_core::{RestrictionLevel, RestrictionPolicy};
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 use viewer_qt::Host;
 
@@ -38,7 +38,7 @@ struct Arguments {
     /// the one policy value `viewer-core` asks for, supplied the way this host supplies the other
     /// one it has. `CLAUDE.md` is why it is here at all — "it shall always be possible to turn them
     /// off" — and until ADR 0604 this program printed the word and then refused it.
-    restrictions: RestrictionLevel,
+    restrictions: RestrictionPolicy,
     /// How many milliseconds to run for before quitting, or zero to run until closed.
     ///
     /// A window under `Xvfb` has nobody to close it, and a test that killed the process could not
@@ -55,12 +55,17 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
     let mut quit_after = 0;
-    let mut restrictions = RestrictionLevel::On;
+    let mut restrictions = RestrictionPolicy::default();
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
         } else if word == IGNORE_RESTRICTIONS {
-            restrictions = RestrictionLevel::Off;
+            restrictions = RestrictionPolicy::uniform(RestrictionLevel::Off);
+        } else if let Some(list) = word.strip_prefix(viewer_host::RESTRICTIONS) {
+            // `CLAUDE.md`'s four levels, one operation at a time. Not a user interface and said so
+            // where it is written down (`doc/todo/38`): it is the channel a window has today, and
+            // the levels behind it are the ones a menu will set (ADR 1144).
+            restrictions = viewer_host::restrictions(list, restrictions)?;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -90,7 +95,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let path = path.ok_or_else(|| {
         format!(
             "usage: quorra-qt [--trace[=topics]] [--draw-widget-appearances] \
-             [{IGNORE_RESTRICTIONS}] [--quit-after=<ms>] <file.pdf>"
+             [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
+             [--quit-after=<ms>] <file.pdf>"
         )
     })?;
     Ok(Arguments {
@@ -204,7 +210,8 @@ mod tests {
     /// copied sentence does. ADR 0604.
     #[test]
     fn the_word_the_refusal_names_turns_the_restrictions_off() {
-        use viewer_core::RestrictionLevel;
+        use pdf_model::restriction::Operation;
+        use viewer_core::{RestrictionLevel, RestrictionPolicy};
         let asked = arguments(
             [
                 viewer_host::IGNORE_RESTRICTIONS.to_owned(),
@@ -213,13 +220,45 @@ mod tests {
             .into_iter(),
         )
         .expect("a document");
-        assert_eq!(asked.restrictions, RestrictionLevel::Off);
+        assert_eq!(
+            asked.restrictions,
+            RestrictionPolicy::uniform(RestrictionLevel::Off)
+        );
         let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
         assert_eq!(
             asked.restrictions,
-            RestrictionLevel::On,
-            "obeying is the default, because a reader that ignored a document's restrictions \
-             without being asked would be choosing on the person's behalf in the other direction"
+            RestrictionPolicy::default(),
+            "every operation off, because `CLAUDE.md` says a document's restrictions are low \
+             priority and that turning them off shall always be possible"
+        );
+
+        // And the level a person can now name per operation, which is the half of `doc/todo/38`
+        // that was owed (ADR 1144).
+        let asked = arguments(
+            [
+                "--restrictions=copy:ask,annotate:on".to_owned(),
+                "x.pdf".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect("a document");
+        assert_eq!(
+            asked.restrictions.level(Operation::Extract),
+            RestrictionLevel::Ask
+        );
+        assert_eq!(
+            asked.restrictions.level(Operation::Annotate),
+            RestrictionLevel::On
+        );
+        assert_eq!(
+            asked.restrictions.level(Operation::FillInForm),
+            RestrictionLevel::Off,
+            "an operation the list did not name keeps the level it had"
+        );
+        assert!(
+            arguments(["--restrictions=copy:maybe".to_owned(), "x.pdf".to_owned()].into_iter())
+                .is_err(),
+            "a level this program does not have is a sentence rather than a guess"
         );
     }
 }

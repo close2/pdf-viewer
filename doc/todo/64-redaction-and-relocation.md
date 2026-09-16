@@ -1,11 +1,12 @@
 # Redaction application and clause-driven relocation — two owed builds
 
-Both were opened in batch sixteen (the owner's A64 and A65), and both were **set aside
-unbuilt**: two agents wrote each concurrently, the drafts were half-written and did not compile,
-and neither is the kind of feature to merge from entangled halves — redaction must delete bytes
-unrecoverably (principle 1, a security feature), and relocation writes onto a producer's page.
-Each is owed as **one clean single-agent build**. The design below is what those two aborted
-rounds established; it is knowledge, not code, and no line of their code survived.
+Both were opened in batch sixteen (the owner's A64 and A65), set aside unbuilt there, and **built
+in batch seventeen as single clean rounds** — redaction application by round 1112 (ADR 1124), then
+its image cases by rounds 1119, 1130, 1136 and 1143 (ADRs 1126, 1132, 1133, 1143); relocation by
+round 1113 (ADR 1123). The design below is what the two aborted drafts established and the builds
+followed; it stays here as *what is* for the redaction cases still owed — a painted path or form
+(refused: no per-region unit without geometric subtraction) and a JPXDecode image (refused: an
+over-budget decode is a reduced-resolution level, §7.4.9 NOTE 3).
 
 ## Redaction application — §12.5.6.23, the owner's A64 ("Owed.")
 

@@ -270,7 +270,19 @@ pub(crate) fn describe_command(command: &Command) -> String {
     match command {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
-        Command::Restrict(level) => format!("restrictions {level:?}"),
+        // Every operation's level, because a policy where five are `Off` and one is `Ask` is not
+        // legible from one of the six (ADR 1144).
+        Command::Restrict(policy) => format!(
+            "restrictions {}",
+            viewer_core::RestrictionPolicy::OPERATIONS
+                .map(|operation| format!(
+                    "{}:{:?}",
+                    viewer_core::RestrictionPolicy::word(operation),
+                    policy.level(operation)
+                ))
+                .join(" ")
+        ),
+        Command::Copy => "copy the selection".to_owned(),
         // The anchors' *count* and where they came from, never the certificates: a trace line is
         // read beside a verdict, and what a reader needs is whose store it was computed under.
         Command::Trust(policy) => format!(
@@ -375,6 +387,19 @@ pub(crate) fn describe_event(event: &Event) -> String {
             operation, notes, ..
         } => format!("warned about {}: {}", operation.as_str(), notes.join("; ")),
         Event::AttachmentsChanged { .. } => "attachments changed".to_owned(),
+        Event::Copied {
+            logical,
+            page_order,
+            ..
+        } => format!(
+            "copied {} character(s), {}",
+            logical.as_ref().unwrap_or(page_order).chars().count(),
+            if logical.is_some() {
+                "logical content order"
+            } else {
+                "page content order"
+            }
+        ),
         Event::Searched {
             found, remaining, ..
         } => match found {

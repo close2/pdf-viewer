@@ -175,10 +175,39 @@ pub enum Command {
     /// it: "**it shall always be possible to turn them off**".
     ///
     /// Applies to every open document and to every operation after it, until it is sent again.
-    /// [`RestrictionLevel::On`] is the default, because a reader that ignored a document's
-    /// restrictions without being asked would be making the choice on the person's behalf in the
-    /// other direction.
-    Restrict(RestrictionLevel),
+    /// [`RestrictionPolicy::default`] is what a host that never sends it gets, and every entry of
+    /// that is [`RestrictionLevel::Off`] — the level `CLAUDE.md` says "shall always be possible",
+    /// chosen as the default because the sentence before it is "[t]hey are low priority" and the
+    /// one after it is "this program is the reader's" (ADR 1144).
+    ///
+    /// **One level per operation since the one-thousand-one-hundred-and-forty-seventh session**,
+    /// which is a variant's shape changed rather than a message added — `doc/ui-boundary.md`'s own
+    /// preference, and the mechanism that makes every consumer fail to compile. A person who will
+    /// be asked before a copy leaves the program is not thereby a person who wants to be asked
+    /// before every keystroke into a form field, and one level for all five operations could not
+    /// say so. [`RestrictionPolicy::uniform`] is the one value this used to carry.
+    Restrict(RestrictionPolicy),
+    /// A person pressed copy: §7.6.4.2's bit 5, asked as an operation rather than read as a
+    /// readback.
+    ///
+    /// **The message `doc/todo/38` said this crate owed, and the reason it could not be a
+    /// query.** [`crate::Query::Selection`] is what a drag asks sixty times a second in order to
+    /// draw a highlight, and [`crate::Query::LogicalSelection`] is the same readback in
+    /// §14.8.2.5's other order; refusing either would refuse the highlight, and neither can raise
+    /// an event, so neither can carry [`RestrictionLevel::Ask`]. §7.6.4.2's Table 22 bit 5 is
+    /// about taking text *out of* the document —
+    ///
+    /// > Copy or otherwise extract text and graphics from the document
+    ///
+    /// — and only a host can say that this is what is happening, because only a host owns a
+    /// clipboard. So the gesture is a command, the policy is consulted exactly where every other
+    /// operation's is, and what comes back is [`crate::Event::Copied`].
+    ///
+    /// **§14.9's tree is deliberately not on this path.** Table 22's own row carves it out — "for
+    /// the limited purpose of providing this content to assistive technology, a PDF reader should
+    /// behave as if this bit was set to 1" — and [`crate::Query::Accessibility`] is therefore a
+    /// query still, gated by nothing.
+    Copy,
     /// §12.8.1's third question: whom this reader believes, and what it will accept not knowing.
     ///
     /// **The sixth host-supplied policy value, and the one ADR 1039 named and left unbuilt.** That
@@ -736,19 +765,17 @@ pub enum AttachHome {
 /// `pdf-model`'s. `Viewer::standing` asks `pdf_model::restriction::decide` once per edit and
 /// matches its verdict exhaustively. ADR 0803.
 ///
-/// **Which level a person is at is the host's to supply and never asked here**: `On` is the
-/// default for the reason its own entry gives, and a window without a way to set the other three
-/// is a window at `On` — or at `Off`, by the word `viewer_host::IGNORE_RESTRICTIONS`, because
-/// `CLAUDE.md` says that one "shall always be possible".
+/// **Which level a person is at is the host's to supply and never asked here**, and since the
+/// one-thousand-one-hundred-and-forty-seventh session the host supplies one *per operation*
+/// ([`RestrictionPolicy`]) rather than one for all of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RestrictionLevel {
     /// Obey what the document asserts: the operation is refused and the reason is said, as
     /// [`crate::Event::Refused`].
     ///
-    /// The default, and §7.6.4.1's `shall` — "PDF readers shall respect the intent of the
-    /// document creator by restricting user access to an encrypted PDF file according to the
-    /// permissions contained in the file" — is kept by a reader who leaves it alone.
-    #[default]
+    /// §7.6.4.1's `shall` — "PDF readers shall respect the intent of the document creator by
+    /// restricting user access to an encrypted PDF file according to the permissions contained in
+    /// the file" — is kept by a reader at this level.
     On,
     /// Ignore what the document asserts and perform the operation.
     ///
@@ -756,6 +783,14 @@ pub enum RestrictionLevel {
     /// whose grant a save exceeds still happens, because that is not a restriction on the reader
     /// — it is a statement the *file* would be making about bytes nobody signed. Turning a
     /// restriction off is the reader's; making the file lie is not.
+    ///
+    /// **The default**, and it is the project owner's sentence rather than a convenience:
+    /// `CLAUDE.md` says a document's restrictions "are low priority" and that "it shall always be
+    /// possible to turn them off", because "[a] restriction a reader cannot switch off is a
+    /// restriction imposed on the reader by somebody else's file, and this program is the
+    /// reader's". §7.6.4.1's `shall` is not thereby unread: it is the level above, one command
+    /// away, and a reader who wants it has it (ADR 1144).
+    #[default]
     Off,
     /// Put what the document asserts to the person and wait: [`crate::Event::Asking`], answered
     /// by [`Command::Answer`], with the edit held in between and nothing done until a `yes`.
@@ -775,6 +810,128 @@ impl RestrictionLevel {
             Self::Ask => pdf_model::restriction::Level::Ask,
             Self::Warn => pdf_model::restriction::Level::Warn,
         }
+    }
+}
+
+/// One [`RestrictionLevel`] per operation a document can restrict — the reader's policy, whole.
+///
+/// **A level per operation rather than one for the window**, which is `CLAUDE.md` principle 3's
+/// four levels applied where the principle's own subject lives: §7.6.4.2's Table 22 does not
+/// state one permission, it states eight positions with eight different subjects, and a reader
+/// who wants to be asked before text leaves the program has said nothing at all about whether
+/// they want to be asked before each keystroke into a form field. One level could not tell those
+/// apart, and a person forced to choose the stricter of the two would have had a restriction
+/// imposed on them by the shape of this type (ADR 1144).
+///
+/// **Every entry is [`RestrictionLevel::Off`] by default.** See that variant for the owner's
+/// sentence; the short form is that a restriction the reader did not ask for is somebody else's
+/// file deciding what the reader may do with it.
+///
+/// **Total over `pdf_model::restriction::Operation`**, including the two operations this crate
+/// does not perform — `Print` and `Assemble` are `pdf_transform`'s verbs, and they are entries
+/// here so that a reader states one policy for this program rather than one per face, and so that
+/// the day a window gains a print path the level is already the reader's to set. That is the
+/// contract's "carried for the day those operations exist" and it is deliberate rather than
+/// speculative: a policy with a hole in it would have to grow a message to fill it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RestrictionPolicy {
+    copy: RestrictionLevel,
+    annotate: RestrictionLevel,
+    fill_in_form: RestrictionLevel,
+    print: RestrictionLevel,
+    modify: RestrictionLevel,
+    assemble: RestrictionLevel,
+}
+
+impl RestrictionPolicy {
+    /// Every operation a policy holds a level for, in one order.
+    ///
+    /// The order is this type's own and is what the wire, the C ABI and a command line all
+    /// enumerate in, so that the three cannot drift: a policy is six levels and this says which
+    /// six and in what sequence.
+    pub const OPERATIONS: [pdf_model::restriction::Operation; 6] = {
+        use pdf_model::restriction::Operation as O;
+        [
+            O::Extract,
+            O::Annotate,
+            O::FillInForm,
+            O::Print,
+            O::Modify,
+            O::Assemble,
+        ]
+    };
+
+    /// The same level for every operation — the one value [`Command::Restrict`] used to carry.
+    #[must_use]
+    pub const fn uniform(level: RestrictionLevel) -> Self {
+        Self {
+            copy: level,
+            annotate: level,
+            fill_in_form: level,
+            print: level,
+            modify: level,
+            assemble: level,
+        }
+    }
+
+    /// The level this reader set for one operation.
+    #[must_use]
+    pub const fn level(self, operation: pdf_model::restriction::Operation) -> RestrictionLevel {
+        use pdf_model::restriction::Operation as O;
+        match operation {
+            O::Extract => self.copy,
+            O::Annotate => self.annotate,
+            O::FillInForm => self.fill_in_form,
+            O::Print => self.print,
+            O::Modify => self.modify,
+            O::Assemble => self.assemble,
+        }
+    }
+
+    /// The same policy with one operation's level replaced.
+    #[must_use]
+    pub const fn with(
+        mut self,
+        operation: pdf_model::restriction::Operation,
+        level: RestrictionLevel,
+    ) -> Self {
+        use pdf_model::restriction::Operation as O;
+        match operation {
+            O::Extract => self.copy = level,
+            O::Annotate => self.annotate = level,
+            O::FillInForm => self.fill_in_form = level,
+            O::Print => self.print = level,
+            O::Modify => self.modify = level,
+            O::Assemble => self.assemble = level,
+        }
+        self
+    }
+
+    /// The word a person types for one operation, and the word a wire spells it as.
+    ///
+    /// Chosen for the reader rather than for Table 22: `copy` is what a person presses and what
+    /// bit 5's own row calls it first — "[c]opy or otherwise extract text and graphics from the
+    /// document" — while `pdf_model::restriction::Operation::Extract` is named for the batch
+    /// tool's verb. The other five are the operations' own words.
+    #[must_use]
+    pub const fn word(operation: pdf_model::restriction::Operation) -> &'static str {
+        use pdf_model::restriction::Operation as O;
+        match operation {
+            O::Extract => "copy",
+            O::Annotate => "annotate",
+            O::FillInForm => "fill",
+            O::Print => "print",
+            O::Modify => "modify",
+            O::Assemble => "assemble",
+        }
+    }
+
+    /// The operation a word names, if any — [`RestrictionPolicy::word`] read backwards.
+    #[must_use]
+    pub fn operation_named(word: &str) -> Option<pdf_model::restriction::Operation> {
+        Self::OPERATIONS
+            .into_iter()
+            .find(|operation| Self::word(*operation) == word)
     }
 }
 

@@ -166,10 +166,12 @@ pub struct Host {
     ///
     /// The other policy value beside the one above, and the same kind of thing: a fact about what
     /// *this reader* has been asked to do rather than about the file.
-    /// [`viewer_core::RestrictionLevel::On`] unless [`viewer_host::IGNORE_RESTRICTIONS`] was on the
-    /// command line — which this program refused as an unknown option while telling every person
-    /// who hit a refusal to use it (ADR 0604).
-    restrictions: viewer_core::RestrictionLevel,
+    /// One level per operation, every one of them [`viewer_core::RestrictionLevel::Off`] unless
+    /// [`viewer_host::RESTRICTIONS`] or [`viewer_host::IGNORE_RESTRICTIONS`] was on the command
+    /// line — the first of which this program did not have, and the second of which it refused as
+    /// an unknown option while telling every person who hit a refusal to use it (ADR 0604, ADR
+    /// 1144).
+    restrictions: viewer_core::RestrictionPolicy,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -312,7 +314,7 @@ impl Host {
         path: &Path,
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
-        restrictions: viewer_core::RestrictionLevel,
+        restrictions: viewer_core::RestrictionPolicy,
         trace: Trace,
     ) -> Result<Self, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -1107,26 +1109,16 @@ impl Host {
     /// Which order the text is in is [`viewer_host::copied`] and not this host's, because it is
     /// the same decision in all three windowed hosts.
     fn copy_selection(&mut self) {
-        // Owned before the second question, because both answers borrow the viewer.
-        let page_order = match self.viewer.query(Query::Selection) {
-            Answer::Selected(selected) => selected.text.into_owned(),
-            _ => String::new(),
-        };
-        let logical = match self.viewer.query(Query::LogicalSelection) {
-            Answer::LogicalSelection(text) => Some(text),
-            _ => None,
-        };
-        let Some(copied) = viewer_host::copied(logical, &page_order) else {
+        // **A command rather than two questions**, since the one-thousand-one-hundred-and-forty-
+        // seventh session: §7.6.4.2's bit 5 restricts taking text out of the document, and a
+        // readback cannot be refused, asked about or warned of. The two answers still compose the
+        // text — they arrive together on `Event::Copied` — and this host's part is unchanged
+        // below (ADR 1144).
+        if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
             self.say("nothing on the page is selected to copy");
             return;
-        };
-        self.say(&format!(
-            "copied {} characters in {}",
-            copied.text.chars().count(),
-            copied.order
-        ));
-        self.clipboard = copied.text;
-        self.update.clipboard = true;
+        }
+        self.dispatch(Command::Copy);
     }
 
     /// The text a copy is putting on the clipboard, which this also clears.
@@ -1969,6 +1961,21 @@ impl Host {
             // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
             // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => {
+                if let Some(copied) = viewer_host::copied(logical, &page_order) {
+                    self.say(&format!(
+                        "copied {} characters in {}",
+                        copied.text.chars().count(),
+                        copied.order
+                    ));
+                    self.clipboard = copied.text;
+                    self.update.clipboard = true;
+                }
+            }
             Event::Asking {
                 document, notes, ..
             } => {
@@ -2523,7 +2530,8 @@ mod tests {
     /// `CLAUDE.md`'s rule is that turning a document's restrictions off is always possible, and
     /// this is where a test can see whether the value the command line supplies reaches the core
     /// at all — no display, no `QApplication`, and a real file asserting a real `/P`.
-    fn opened_under(path: &Path, restrictions: viewer_core::RestrictionLevel) -> Host {
+    fn opened_under(path: &Path, level: viewer_core::RestrictionLevel) -> Host {
+        let restrictions = viewer_core::RestrictionPolicy::uniform(level);
         let mut host = Host::open(
             path,
             None,

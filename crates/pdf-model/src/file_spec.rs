@@ -67,12 +67,102 @@ pub enum FileSystem {
     Other(String),
 }
 
+/// The encrypted payload dictionary §7.11.3's Table 43 hangs off `/EP`, defined by §7.6.7.
+///
+/// ISO 32000-2 §7.11.3, Table 43, states what the entry is for:
+///
+/// > The value of this key is an encrypted payload dictionary which identifies that the file
+/// > specified in the EF dictionary is an encrypted payload.
+///
+/// ISO 32000-2 §7.6.7's construction is a PDF carrying another PDF: a producer using a handler
+/// this standard does not define embeds the encrypted document inside an ordinary unencrypted one,
+/// so that a reader without the handler still has something to open and something to read.
+///
+/// > An unencrypted wrapper should provide guidance informing users of the security handler that
+/// > is needed to decrypt the embedded encrypted PDF file ( encrypted payload ).
+///
+/// # What a reader that cannot decrypt it owes, and what it does not
+///
+/// This program has no cryptographic filter outside §7.6.5's standard one, so the payload is a
+/// file it cannot open — and the clause says that case is expected rather than exceptional:
+/// "PDF processors without the custom security handler will present the unencrypted wrapper
+/// document with helpful instructions to the user", which is what drawing the wrapper's own pages
+/// already does. What was missing was the *naming*: until this dictionary was read, an attachment
+/// that is an encrypted payload was listed as an ordinary embedded file whose bytes happened to be
+/// undecodable, and the one thing the file says about why — which filter would open it — was not
+/// read by anybody. [`Self::filter`] is that sentence, and it is why this reader exists without a
+/// consumer that decrypts anything.
+///
+/// Presenting the payload *instead of* the wrapper is §12.3.5's collection, not this clause's, and
+/// it stays out of reach for the same reason: there is no handler for what `/Subtype` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncryptedPayload {
+    /// §7.6.7's Table 28 `/Subtype`, **required**: "[t]he name of the cryptographic filter used
+    /// to encrypt the encrypted payload document."
+    ///
+    /// > This allows a PDF processor to easily determine whether it has the appropriate
+    /// > cryptographic filter.
+    ///
+    /// `None` is a file that stated an encrypted payload dictionary and left out the one entry
+    /// that says what it is encrypted with, which is the clause's single `shall` on a producer
+    /// here. It is kept as `None` rather than refused, because the dictionary's *presence* is
+    /// already the fact a reader needs — this file is a wrapper — and the name is what it cannot
+    /// act on either way.
+    pub filter: Option<String>,
+    /// Table 28's `/Version`: "[t]he version number of the cryptographic filter used to encrypt
+    /// the encrypted payload referenced by this dictionary."
+    ///
+    /// A *name*, and the table's NOTE says how to read it: "[t]he value of Version is not to be
+    /// interpreted as a real number but as integers with a PERIOD (2Eh) between them." So it is
+    /// carried as the producer spelled it and never parsed into a number.
+    pub version: Option<String>,
+    /// Whether §7.6.7's Table 28 `/Type` is present and says what the table requires.
+    ///
+    /// > (Optional) The type of PDF object that this dictionary describes; if present, shall be
+    /// > EncryptedPayload for an encrypted payload file specification.
+    ///
+    /// `true` for an absent entry, because an absent optional entry breaks nothing; `false` is a
+    /// document stating a `/Type` the table forbids, which is worth being able to say.
+    pub permitted_type: bool,
+}
+
+impl EncryptedPayload {
+    /// Reads Table 43's `/EP` off a file specification dictionary.
+    ///
+    /// `None` where the specification states none — which is every file specification in every
+    /// corpus on this disk, measured by
+    /// `crates/pdf-model/examples/name_dictionary_and_file_spec_census.rs`. The construction is
+    /// PDF 2.0's and rare, so a fixture is the witness and the census is what says so.
+    #[must_use]
+    pub fn read(document: &Document, specification: &Dictionary) -> Option<Self> {
+        let payload = document.get_key(specification, "EP");
+        let payload = payload.as_dict()?;
+        let name = |key: &str| {
+            document
+                .get_key(payload, key)
+                .as_name()
+                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+        };
+        Some(Self {
+            filter: name("Subtype"),
+            version: name("Version"),
+            permitted_type: name("Type").is_none_or(|stated| stated == "EncryptedPayload"),
+        })
+    }
+}
+
 /// ISO 32000-2 §7.11's file specification, in either of the two forms §7.11.1 gives it.
 ///
-/// A specification is read whole and opened never. `Thumb`, `EP`, `CI`, `EF` and `RF` are read
-/// by the modules that own what they point at — [`crate::attachment`] and
-/// [`crate::collection`] — and are recorded here only as *presence*, because whether a
-/// specification carries its file along is the one thing every caller asks.
+/// A specification is read whole and opened never. `/CI`, `/EF` and `/RF` are read by the modules
+/// that own what they point at — [`crate::attachment`] and [`crate::collection`] — and `/EF` is
+/// recorded here only as *presence*, because whether a specification carries its file along is
+/// the one thing every caller asks. `/Thumb` is [`crate::thumbnail::of_file_spec`]'s, for the
+/// same reason and with the same shape: an image is decoded when somebody wants to look at it.
+///
+/// **That sentence named `/Thumb` and `/EP` among the entries other modules read, and neither was
+/// read anywhere** until the eleven-hundred-and-forty-ninth session — the one `/Thumb` reader
+/// outside a page's was Table 159's collection flag, which is a boolean. `/EP` is now
+/// [`Self::payload`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileSpec {
     /// Table 43's `/FS`.
@@ -97,6 +187,8 @@ pub struct FileSpec {
     /// Whether an `/EF` dictionary is present, which is what makes a specification an
     /// attachment rather than a reference to something outside the document.
     pub embedded: bool,
+    /// Table 43's `/EP`, §7.6.7's encrypted payload dictionary, where the file states one.
+    pub payload: Option<EncryptedPayload>,
     /// Whether one of Table 43's three deprecated platform keys supplied `bytes`.
     ///
     /// `/DOS`, `/Mac` and `/Unix` are "deprecated in PDF 2.0" and are read only where neither
@@ -172,6 +264,7 @@ impl FileSpec {
             },
             volatile: matches!(document.get_key(dict, "V"), Object::Boolean(true)),
             embedded: document.get_key(dict, "EF").as_dict().is_some(),
+            payload: EncryptedPayload::read(document, dict),
         }
     }
 
@@ -392,7 +485,114 @@ impl FileSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileSpec, FileSystem};
+    use super::{EncryptedPayload, FileSpec, FileSystem};
+    use pdf_syntax::{Dictionary, Document, Object};
+
+    /// Builds a document from object bodies numbered from 1, the catalog first.
+    fn document(objects: &[&str]) -> Document {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let _ = write!(
+            out,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            objects.len().saturating_add(1)
+        );
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            objects.len().saturating_add(1)
+        );
+        Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// Object 3 of [`wrapper`], which is the file specification.
+    fn specification(doc: &Document) -> Dictionary {
+        let object = doc.resolve(&Object::Reference(pdf_syntax::ObjectId::new(3, 0)));
+        object.as_dict().cloned().expect("the file specification")
+    }
+
+    /// The specification §7.6.7's EXAMPLE writes, with `extra` replacing its `/EP`.
+    fn wrapper(extra: &str) -> Document {
+        document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+            &format!(
+                "<< /Type /Filespec /F (AcmeCustomCrypto Protected PDF.pdf) \
+                 /UF (AcmeCustomCrypto Protected PDF.pdf) /EF << /F 4 0 R >> \
+                 /AFRelationship /EncryptedPayload {extra} >>"
+            ),
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nhi\nendstream",
+        ])
+    }
+
+    /// The specification in §7.6.7's own EXAMPLE, read — and the same one without its `/EP`.
+    ///
+    /// ISO 32000-2 §7.6.7:
+    ///
+    /// > The file specification dictionary for the encrypted payload shall include the
+    /// > AFRelationship key with a value of EncryptedPayload , and shall include an encrypted
+    /// > payload dictionary (see "Table 28 -Entries in an encrypted payload dictionary") with
+    /// > details of the cryptographic filter needed to decrypt the encrypted payload.
+    ///
+    /// The calibration is the second half (trap 13): the same dictionary with the entry removed
+    /// answers `None`, so the reader is measuring the entry rather than the fixture. No document
+    /// in any corpus on this disk states one, which is why this is a fixture at all.
+    #[test]
+    fn an_encrypted_payload_is_named_by_its_cryptographic_filter() {
+        let doc =
+            wrapper("/EP << /Type /EncryptedPayload /Subtype /AcmeCustomCrypto /Version /1.0 >>");
+        let spec = FileSpec::from_dictionary(&doc, &specification(&doc));
+        let payload = spec.payload.as_ref().expect("Table 43's /EP");
+        assert_eq!(payload.filter.as_deref(), Some("AcmeCustomCrypto"));
+        assert_eq!(
+            payload.version.as_deref(),
+            Some("1.0"),
+            "a name, kept as the producer spelled it rather than parsed as a number"
+        );
+        assert!(payload.permitted_type);
+
+        let plain = wrapper("");
+        assert!(
+            FileSpec::from_dictionary(&plain, &specification(&plain))
+                .payload
+                .is_none(),
+            "no /EP is not an encrypted payload, whatever the /AFRelationship says"
+        );
+    }
+
+    /// Table 28's two producer-side rules, recorded rather than refused.
+    ///
+    /// `/Subtype` is the table's one Required entry and `/Type`, "if present, shall be
+    /// EncryptedPayload". A file breaking either has still said it carries a payload, which is
+    /// the fact a reader with no handler for it acts on.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the doc quotes Table 28's cell verbatim, and a quotation is not marked up"
+    )]
+    #[test]
+    fn a_payload_missing_its_required_subtype_is_still_a_payload() {
+        let doc = wrapper("/EP << /Type /Filespec >>");
+        let payload = FileSpec::from_dictionary(&doc, &specification(&doc))
+            .payload
+            .expect("the dictionary is present");
+        assert_eq!(
+            payload,
+            EncryptedPayload {
+                filter: None,
+                version: None,
+                permitted_type: false,
+            }
+        );
+    }
 
     /// A specification built straight from a string, as §7.11.1's simple form.
     fn spec(path: &str) -> FileSpec {

@@ -810,6 +810,8 @@ fn attachment(name: &str, size: i64) -> pdf_model::attachment::Attachment {
             data: std::sync::Arc::from(&b""[..]),
             decryption_failed: false,
         }),
+        thumbnail: None,
+        payload: None,
     }
 }
 

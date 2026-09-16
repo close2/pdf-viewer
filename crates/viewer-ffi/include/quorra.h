@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 20u
+#define QUORRA_EVENT_KIND_COUNT 21u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -97,6 +97,10 @@ extern "C" {
  * and `quorra_events_bytes` gives the body. */
 #define QUORRA_EVENT_SUBMIT            19u
 
+/* quorra_copy went ahead: §7.6.4.2 bit 5's operation, granted. quorra_event_copied gives the text
+ * and says which of §14.8.2.5's two orders it is in. */
+#define QUORRA_EVENT_COPIED            20u
+
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
 #define QUORRA_POINTER_PRESSED   1u
@@ -112,13 +116,26 @@ extern "C" {
 #define QUORRA_FOCUS_PREVIOUS  1u
 #define QUORRA_FOCUS_NONE      2u
 
-/* How much of what a document asserts about its reader this viewer obeys. ON is the default. */
+/* How much of what a document asserts about its reader this viewer obeys. OFF is the default, for
+ * every operation: CLAUDE.md says a document's restrictions are low priority and that turning them
+ * off shall always be possible, because this program is the reader's (ADR 1144). */
 #define QUORRA_RESTRICT_ON   0u
 #define QUORRA_RESTRICT_OFF  1u
 /* ASK holds the edit behind a QUORRA_EVENT_ASKING until quorra_answer; WARN does it and then sends a
  * QUORRA_EVENT_WARNED. CLAUDE.md's four levels, all four (ADR 0814). */
 #define QUORRA_RESTRICT_ASK  2u
 #define QUORRA_RESTRICT_WARN 3u
+
+/* Which operation a level is being set for: CLAUDE.md's four levels, per restriction (ADR 1144).
+ * Table 22 states eight positions with eight different subjects, and a reader who wants to be
+ * asked before text leaves the program has said nothing about form filling. PRINT and ASSEMBLE
+ * are settable and performed by no entry point yet. */
+#define QUORRA_RESTRICTED_COPY     0u
+#define QUORRA_RESTRICTED_ANNOTATE 1u
+#define QUORRA_RESTRICTED_FILL     2u
+#define QUORRA_RESTRICTED_PRINT    3u
+#define QUORRA_RESTRICTED_MODIFY   4u
+#define QUORRA_RESTRICTED_ASSEMBLE 5u
 
 /* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
  * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC
@@ -667,8 +684,19 @@ int32_t quorra_tick(quorra_viewer *viewer, uint32_t millis, quorra_events **even
 int32_t quorra_present(quorra_viewer *viewer, uint32_t mode, quorra_events **events);
 /* Table 29's arrangement, as the reader has chosen it. QUORRA_LAYOUT_*. */
 int32_t quorra_layout(quorra_viewer *viewer, uint32_t layout, quorra_events **events);
-/* The reader's policy about the document's restrictions. QUORRA_RESTRICT_*. */
+/* The reader's policy about the document's restrictions. QUORRA_RESTRICT_*. Sets all six. */
 int32_t quorra_restrict(quorra_viewer *viewer, uint32_t level, quorra_events **events);
+/* The same for one operation alone. QUORRA_RESTRICTED_* and QUORRA_RESTRICT_*; the other five are
+ * left where this caller last put them. */
+int32_t quorra_restrict_operation(quorra_viewer *viewer, uint32_t operation, uint32_t level,
+                       quorra_events **events);
+/* A person pressed copy: §7.6.4.2 bit 5, asked as an operation and not as a readback. The text
+ * arrives as a QUORRA_EVENT_COPIED; nothing selected sends nothing. */
+int32_t quorra_copy(quorra_viewer *viewer, quorra_events **events);
+/* A QUORRA_EVENT_COPIED's text, with *logical set to whether it is §14.8.2.5's logical content
+ * order rather than page content order. */
+int32_t quorra_event_copied(const quorra_events *events, size_t index, bool *logical, char *out,
+                       size_t cap, size_t *needed);
 /* §6.3.2.2's "unless otherwise instructed". QUORRA_DELEGATE_*. Re-interprets the page. */
 int32_t quorra_delegate(quorra_viewer *viewer, uint32_t appearances, quorra_events **events);
 /* §12.8.1's third question: which certification authorities this reader will end a path at.

@@ -131,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        184,
+        187,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -235,6 +235,9 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         // §12.7.6.2's composed submission, written here in the same commit as the `#define`, for
         // the reason the paragraph above records.
         ("QUORRA_EVENT_SUBMIT", EventKind::Submit),
+        // `quorra_copy` granted: §7.6.4.2 bit 5's operation, written here in the same commit as
+        // the `#define` for the reason the paragraph above records (ADR 1144).
+        ("QUORRA_EVENT_COPIED", EventKind::Copied),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
@@ -298,6 +301,30 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         // arrived with the event and the entry point that answer it (ADR 0814).
         ("QUORRA_RESTRICT_ASK", RestrictKind::Ask),
         ("QUORRA_RESTRICT_WARN", RestrictKind::Warn),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    // Which operation a level is being set for, since the one-thousand-one-hundred-and-forty-
+    // seventh session: `CLAUDE.md`'s four levels, one restriction at a time (ADR 1144).
+    for (name, kind) in [
+        ("QUORRA_RESTRICTED_COPY", viewer_ffi::RestrictedKind::Copy),
+        (
+            "QUORRA_RESTRICTED_ANNOTATE",
+            viewer_ffi::RestrictedKind::Annotate,
+        ),
+        (
+            "QUORRA_RESTRICTED_FILL",
+            viewer_ffi::RestrictedKind::FillInForm,
+        ),
+        ("QUORRA_RESTRICTED_PRINT", viewer_ffi::RestrictedKind::Print),
+        (
+            "QUORRA_RESTRICTED_MODIFY",
+            viewer_ffi::RestrictedKind::Modify,
+        ),
+        (
+            "QUORRA_RESTRICTED_ASSEMBLE",
+            viewer_ffi::RestrictedKind::Assemble,
+        ),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

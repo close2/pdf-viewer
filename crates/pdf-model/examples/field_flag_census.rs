@@ -6,10 +6,25 @@
 //! question "which of them does any real document set" stopped being idle: a flag no file states
 //! is a clause with no witness, and one with a witness is work.
 //!
+//! It counts two things beside the flags, because both are read off the same walk of the field
+//! tree and neither is a flag. Table 231 bit 25's own condition — "[m]ay be set only if the MaxLen
+//! entry is present in the text field dictionary" — is what a comb layout needs beside the flag,
+//! and Table 192's `/R` turns a widget's whole appearance in quarter steps. The `/DA` text matrix
+//! that turns the text *inside* a widget is a different rotation over a wider population, and
+//! `examples/variable_text_census` counts that one.
+//!
 //! ```sh
 //! cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
+//! cargo run --release -p pdf-model --example field_flag_census -- @<list-of-paths>
 //! ```
+//!
+//! The second form is the crawl's: 65 944 paths are more than one command line holds, and a
+//! census split into chunks prints a dozen partial answers instead of one number.
 
+#![expect(
+    clippy::doc_markdown,
+    reason = "the module doc quotes Table 231 verbatim, and a quotation is not marked up"
+)]
 #![expect(
     clippy::print_stdout,
     reason = "an example whose entire output is a measurement"
@@ -177,8 +192,16 @@ fn main() {
     let mut rich_text = 0_usize;
     let mut rich_text_with_rv = 0_usize;
     let mut rich_text_regenerated: Vec<String> = Vec::new();
+    // Table 231 bit 25's own population. The flag is counted above; what a layout needs beside it
+    // is `/MaxLen`, which the bit's own condition requires ("[m]ay be set only if the MaxLen entry
+    // is present"), and whether the `/DA` states a `Tm` for the cells to be written under.
+    let mut comb_with_max_len = 0_usize;
+    let mut comb_without_max_len: Vec<String> = Vec::new();
+    // Table 192's `/R`, the other rotation — of the widget's whole appearance rather than of the
+    // text inside it, and in quarter steps rather than by an arbitrary matrix.
+    let mut widget_rotation: BTreeMap<i64, usize> = BTreeMap::new();
 
-    for path in std::env::args().skip(1) {
+    for path in paths() {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
@@ -217,6 +240,26 @@ fn main() {
                     if names.last() != Some(&name) {
                         names.push(name.clone());
                     }
+                }
+                // Every field type whose widget §12.7.4.3 lays text into: a text field's value,
+                // a choice field's options and a button's caption all go through one layout, and
+                // Table 192's `/R` turns all three.
+                if matches!(field_type.as_deref(), Some("Tx" | "Ch" | "Btn")) {
+                    if field_type.as_deref() == Some("Tx") && flags & (1 << 24) != 0 {
+                        if inherited(&document, widget, "MaxLen").is_some() {
+                            comb_with_max_len = comb_with_max_len.saturating_add(1);
+                        } else {
+                            comb_without_max_len.push(format!("{name} {field}"));
+                        }
+                    }
+                    let turn = document
+                        .get_key(widget, "MK")
+                        .as_dict()
+                        .map(|characteristics| document.get_key(characteristics, "R"))
+                        .and_then(|value| value.as_integer())
+                        .unwrap_or_default();
+                    let counter = widget_rotation.entry(turn).or_default();
+                    *counter = counter.saturating_add(1);
                 }
                 if field_type.as_deref() == Some("Tx") && flags & (1 << 25) != 0 {
                     rich_text = rich_text.saturating_add(1);
@@ -278,6 +321,20 @@ fn main() {
         rich_text_regenerated.len(),
         witnesses(&rich_text_regenerated),
     );
+
+    println!(
+        "\nTable 231 bit 25's own population — a comb field and whether its own condition \
+         holds:\n  \
+         Comb with Table 232's /MaxLen:  {comb_with_max_len:>3} widget(s)\n  \
+         Comb without one:               {:>3} widget(s){}",
+        comb_without_max_len.len(),
+        witnesses(&comb_without_max_len),
+    );
+
+    println!("\nTable 192's /R, the widget appearance's own quarter turn:");
+    for (degrees, count) in &widget_rotation {
+        println!("  {degrees:>4} degrees {count:>5} widget(s)");
+    }
 
     println!(
         "\n§12.7.5.2.4's own population — a radio field whose widgets share an /AP /N on state:\n  \
@@ -379,4 +436,19 @@ fn inherited_flags(document: &Document, widget: &Dictionary) -> i64 {
         current = parent.clone();
     }
     0
+}
+
+/// The paths to walk: the arguments, and the lines of any argument beginning with `@`.
+fn paths() -> Vec<String> {
+    let mut out = Vec::new();
+    for argument in std::env::args().skip(1) {
+        match argument.strip_prefix('@') {
+            Some(list) => match std::fs::read_to_string(list) {
+                Ok(text) => out.extend(text.lines().map(str::to_owned)),
+                Err(error) => println!("{list}: {error}"),
+            },
+            None => out.push(argument),
+        }
+    }
+    out
 }

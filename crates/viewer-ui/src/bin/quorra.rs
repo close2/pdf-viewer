@@ -119,7 +119,7 @@ mod window;
 
 use std::path::PathBuf;
 
-use viewer_core::{Command, DocumentId, Event, PageTarget, RestrictionLevel, Viewer};
+use viewer_core::{Command, DocumentId, Event, PageTarget, RestrictionPolicy, Viewer};
 use viewer_ui::chrome::{About, Chrome, FindBar, Sidebar};
 use winit::event_loop::{ControlFlow, EventLoop};
 
@@ -158,7 +158,7 @@ const DOCUMENT: DocumentId = DocumentId(0);
 /// program did before the word for it existed.
 struct Policies {
     /// How much of what a document asserts over its reader this run obeys (`CLAUDE.md`).
-    restrictions: RestrictionLevel,
+    restrictions: RestrictionPolicy,
     /// The directory `--trust-anchors` named: RFC 5280 section 6.1.1's input (d).
     trust_anchors: Option<PathBuf>,
     /// Whether §12.8.4 material that settles nothing is acted on anyway.

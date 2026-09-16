@@ -7,12 +7,14 @@
 
 use pdf_render::display_list::Command;
 use pdf_render::geom::{Rect, Transform};
+use pdf_render::paint::Color;
 use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Object, ObjectId};
 
 use super::Interpreter;
 use super::report::Unsupported;
+use crate::transfer::Transfer;
 
 /// One open marked-content section, `BMC`/`BDC` to `EMC`.
 ///
@@ -174,6 +176,76 @@ impl Interpreter<'_> {
     /// runs of a page share: with the chain walked per command it was 1.46 M rather than 1.15 M.
     /// The walk under both is [`pdf_render::geom::Path::hull`], computed once per distinct path
     /// and kept, so a page repeating one glyph outline pays for it once.
+    /// One elementary mark, with the §11.7.5.2 function in force when it was painted.
+    ///
+    /// The transfer is *not* applied to the mark's colour: ISO 32000-2 §11.7.5.3's NOTE puts the
+    /// mapping "only when all colour compositing has been completed", and §11.7.5.2 chooses the
+    /// function by the topmost object covering a point rather than by the object whose colour is
+    /// being made. So the function rides on the mark instead, and a backend applies it once over
+    /// the finished raster — `pdf_render::resolve_transfers`, ADR 1125.
+    ///
+    /// **Not recorded from inside a soft mask's group.** §11.7.5.2 is addressed throughout to
+    /// "any given point on the page", and §11.5.3 makes such a group's result a luminosity, so no
+    /// mark inside one is the topmost object anywhere on the page — it neither chooses a function
+    /// nor occludes one (`Interpreter::transfer_for_mark` withholds the function for the same
+    /// reason, ADR 0570).
+    pub(super) fn draw_mark(&mut self, command: Command, transfer: Option<Arc<Transfer>>) {
+        if self.soft_mask_depth == 0 {
+            let map = transfer.map(|transfer| self.transfer_map(&transfer));
+            self.transfers.push(map, &command);
+        }
+        self.draw(command);
+    }
+
+    /// One [`pdf_render::TransferMap`] per distinct [`Transfer`] the page has stated.
+    ///
+    /// §10.5's functions are evaluated here, at every eight-bit input, so that neither backend
+    /// evaluates a PDF function and the two cannot disagree about what one means — the same
+    /// bargain [`pdf_render::Ramp`] and `pdf_render::Transfer` strike. The sampling is *exact*:
+    /// the value a map is asked about is one byte of a finished raster, and the table holds every
+    /// byte there is.
+    ///
+    /// Memoised against the `Arc` the graphics state holds, because a page states a handful of
+    /// transfers and paints thousands of marks under them.
+    fn transfer_map(&mut self, transfer: &Arc<Transfer>) -> Arc<pdf_render::TransferMap> {
+        if let Some((_, map)) = self
+            .transfer_maps
+            .iter()
+            .find(|(stated, _)| Arc::ptr_eq(stated, transfer))
+        {
+            return Arc::clone(map);
+        }
+        let mut channels = [[0_u8; 256]; 3];
+        for index in 0..256_usize {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "an index of a 256-entry table is exactly representable in f32"
+            )]
+            let value = index as f32 / 255.0;
+            let mapped = transfer.apply(Color {
+                r: value,
+                g: value,
+                b: value,
+                a: 1.0,
+            });
+            for (channel, out) in channels.iter_mut().zip([mapped.r, mapped.g, mapped.b]) {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "clamped to 0..=255 before the cast, and NaN clamps to the low bound"
+                )]
+                let byte = (out * 255.0).clamp(0.0, 255.0).round() as u8;
+                if let Some(slot) = channel.get_mut(index) {
+                    *slot = byte;
+                }
+            }
+        }
+        let map = Arc::new(pdf_render::TransferMap::from_samples(channels));
+        self.transfer_maps
+            .push((Arc::clone(transfer), Arc::clone(&map)));
+        map
+    }
+
     pub(super) fn draw(&mut self, command: Command) {
         if !self.marking.is_empty() {
             let bounds = command.device_bounds(Transform::IDENTITY);

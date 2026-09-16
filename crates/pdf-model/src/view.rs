@@ -1478,6 +1478,11 @@ impl ViewState {
                     <md5::Md5 as md5::Digest>::digest(filed.filing.bytes.bytes()).to_vec(),
                 ),
                 relationship: crate::attachment::Relationship::Unspecified,
+                // A file this session attached carries neither: Table 43's `/Thumb` is a
+                // miniature a producer made of a file it already had, and `/EP` says the payload
+                // is encrypted with a handler this program does not have. Filing writes neither.
+                thumbnail: None,
+                payload: None,
                 stream,
             });
         }

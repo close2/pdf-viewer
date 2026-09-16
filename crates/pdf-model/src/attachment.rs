@@ -154,6 +154,25 @@ pub struct Attachment {
     pub checksum: Option<Vec<u8>>,
     /// Table 43's `/AFRelationship`, **default `Unspecified`**, which is §14.13's whole point.
     pub relationship: Relationship,
+    /// Table 43's `/Thumb`: "[a] stream object defining the thumbnail image for the file
+    /// specification", **undecoded**.
+    ///
+    /// The stream rather than the picture, and `CLAUDE.md` principle 2 is why: listing a
+    /// document's attachments is a cheap walk of a name tree, and inflating a miniature for every
+    /// file in it would put an image decode on a path that only wanted names.
+    /// [`crate::thumbnail::of_file_spec`] is what a caller that has decided to show one calls,
+    /// and this field is how it knows there is one to show.
+    ///
+    /// 11 file specifications state one across the corpora on this disk, five of them in one
+    /// Acrobat portfolio — which is the construction the entry is for.
+    pub thumbnail: Option<Arc<Stream>>,
+    /// Table 43's `/EP`, §7.6.7's encrypted payload dictionary, where this attachment is one.
+    ///
+    /// `Some` means the file says this attachment is a whole PDF encrypted with a security
+    /// handler the standard does not define, and names the filter that would open it. Nothing
+    /// here opens it; naming it is the answer §7.6.7 expects from a processor that has no such
+    /// handler — see [`crate::file_spec::EncryptedPayload`].
+    pub payload: Option<crate::file_spec::EncryptedPayload>,
     /// The stream the bytes are in, for a caller that has decided to extract them.
     pub stream: Arc<Stream>,
 }
@@ -640,6 +659,11 @@ pub fn read(document: &Document, specification: &Dictionary, name: String) -> Op
     Some(Attachment {
         name,
         relationship: Relationship::read(document, specification),
+        thumbnail: document
+            .get_key(specification, "Thumb")
+            .as_stream()
+            .cloned(),
+        payload: crate::file_spec::EncryptedPayload::read(document, specification),
         file_name: crate::file_spec::FileSpec::from_dictionary(document, specification)
             .display_name(),
         description: text(specification, "Desc"),
@@ -1211,5 +1235,57 @@ mod tests {
             "<< /Type /Filespec /F (elsewhere.csv) >>",
         ]);
         assert!(of_annotation(&doc, &annotation(&doc)).is_none());
+    }
+    /// An attachment carries Table 43's `/Thumb` and its `/EP`, listed beside its name.
+    ///
+    /// Both entries were unread until the eleven-hundred-and-forty-ninth session, and they are
+    /// one fixture because they sit on one dictionary and answer the same question: what a
+    /// person's attachment list can say about a file this program will not open. The thumbnail
+    /// is kept **undecoded** — `attachments` walks a name tree and inflating an image per entry
+    /// would put a decode on a path that wanted names — and the payload is read only far enough
+    /// to name the filter that would decrypt it.
+    ///
+    /// The corpus witnesses the first half and not the second: 11 file specifications state a
+    /// `/Thumb` and none states an `/EP`.
+    #[test]
+    fn an_attachments_thumbnail_and_encrypted_payload_are_listed_with_it() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 4 0 R >> \
+             /Collection << /D (protected.pdf) /View /H >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /Names [(protected.pdf) 5 0 R] >>",
+            "<< /Type /Filespec /F (protected.pdf) /UF (protected.pdf) /EF << /F 6 0 R >> \
+             /AFRelationship /EncryptedPayload \
+             /EP << /Type /EncryptedPayload /Subtype /AcmeCustomCrypto /Version /1.0 >> \
+             /Thumb 7 0 R >>",
+            "<< /Type /EmbeddedFile /Length 5 >>\nstream\na,b,c\nendstream",
+            "<< /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 \
+             /Filter /ASCIIHexDecode /Length 13 >>\nstream\nFF000000FF00>\nendstream",
+        ]);
+        let attachments = attachments(&doc);
+        let [attachment] = attachments.as_slice() else {
+            panic!("one attachment, got {attachments:?}");
+        };
+        assert_eq!(attachment.relationship.as_str(), "EncryptedPayload");
+        let payload = attachment.payload.as_ref().expect("Table 43's /EP");
+        assert_eq!(
+            payload.filter.as_deref(),
+            Some("AcmeCustomCrypto"),
+            "the filter §7.6.7 says a processor determines it does not have"
+        );
+        let thumb = attachment.thumbnail.as_ref().expect("Table 43's /Thumb");
+        assert!(
+            doc.decoded_stream_data(thumb).is_some(),
+            "the stream is carried, and decoding it is the caller's decision"
+        );
+        let specification = doc.resolve(&pdf_syntax::Object::Reference(pdf_syntax::ObjectId::new(
+            5, 0,
+        )));
+        let specification = specification.as_dict().expect("the file specification");
+        let decoded = crate::thumbnail::of_file_spec(&doc, specification)
+            .expect("a /Thumb")
+            .expect("it decodes");
+        assert_eq!(decoded.image.width, 2);
     }
 }

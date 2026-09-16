@@ -1,13 +1,12 @@
-//! §11.7.5.2 at an antialiased edge, measured on **both** backends: they agree today, and a
-//! one-backend fix would split them.
+//! §11.7.5.2 at an antialiased edge, measured on **both** backends: they draw the clause's value
+//! and they agree on it.
 //!
-//! `render-cpu/tests/transfer_edge.rs` planted this measurement for the CPU oracle in the
-//! one-thousand-one-hundred-and-eighteenth session; this is its raster half. The point of the
-//! pair is `CLAUDE.md` principle 2: the two backends must agree, so the per-pixel transfer
-//! channel ADR 1125 designs has to land in both at once. Until it does, both backends draw the
-//! same *pre-composite* ordering at a transferred edge — this file measures that they do, so the
-//! divergence from §11.7.5.2 is a cross-backend fact rather than a CPU-only one, and so the
-//! witness flips on both backends together when the channel arrives.
+//! `render-cpu/tests/transfer_edge.rs` is the other half. The point of the pair is `CLAUDE.md`
+//! principle 2: the two backends must agree, so the per-pixel transfer channel ADR 1125 designs
+//! had to land in both at once — and this file is what says it did. Session 1118 planted the CPU
+//! half measuring the *divergence*, session 1137 planted this one measuring that the divergence
+//! was the same on both, and session 1148 built `pdf_render::resolve_transfers`, after which both
+//! files measure the clause.
 //!
 //! # The reading this measures
 //!
@@ -19,25 +18,23 @@
 //! > which the point is inside the object).
 //!
 //! A pixel an antialiased edge covers partially has a **nonzero** shape there, so it is inside
-//! that object and takes that object's function on the *composited* colour — §11.7.5.3's NOTE
-//! puts the mapping "only when all colour compositing has been completed". So at an edge pixel the
-//! clause draws `transfer(blend(object, backdrop))`. This tree applies §10.5's transfer to a
-//! colour *before* compositing (`pdf-model`'s `fill_paint`, `stroke_paint` and image sample map),
-//! so at the same pixel each backend draws `blend(transfer(object), backdrop)`. The two agree
-//! wherever the object fully covers the pixel — the interior — and diverge at the edge by as much
-//! as the transfer bends the colour.
+//! that object and takes that object's function on the *composited* colour — §11.7.5.3's NOTE puts
+//! the mapping "only when all colour compositing has been completed". So at an edge pixel the
+//! clause draws `transfer(blend(object, backdrop))`, and at an interior pixel `transfer(object)`.
 //!
-//! # Why this is a measurement rather than a fix
+//! # Why this is a fixture and not a corpus page
 //!
-//! Closing the gap needs the per-pixel transfer channel ADR 1125 and `doc/todo/13` derive, and it
-//! must land in both backends or they disagree at every transferred edge. That the raster backend
-//! is the `raster-gpu` compute rasteriser rather than a `tiny-skia` one does not stand in the way
-//! of *agreement* — the channel's per-pixel index is a pure function of geometry and opacity, so
-//! both backends can apply the identical final map to the read-back raster (this backend already
-//! runs such passes; see `QuorraRasterizer::rasterize`). What is not yet buildable is the per-mark
-//! carrier the map reads: §11.7.5.2's function is a property of an elementary object, so it rides
-//! on `Command::Fill`/`Command::Image`, whose construction sites span crates this round does not
-//! own. ADR 1125 records the corrected pricing; this test is the raster half of its fixture.
+//! `pdf-model`'s `examples/transfer_function_census` counts the population that can move at
+//! **one** document — `issue6931_reduced.pdf`, a fully opaque image with no translucent mark over
+//! it — so the edge case has no corpus witness and this stands in for one (trap 8, trap 13).
+//!
+//! # Why the two backends can agree at all
+//!
+//! The index §11.7.5.2 chooses is a pure function of geometry and opacity, independent of colour,
+//! so it need not thread through either backend's compositing: `pdf_render::resolve_transfers`
+//! rasterises the marks' shapes through whichever backend is asking and applies the identical map
+//! to its own read-back. This backend is the `raster-gpu` compute rasteriser and the oracle is
+//! `tiny-skia`; what they share is the pass, not the pipeline.
 
 #![expect(
     clippy::expect_used,
@@ -51,7 +48,7 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Raster,
-    Rasterizer, Size, TargetSpec, Transform,
+    Rasterizer, Size, TargetSpec, TransferBuilder, TransferMap, Transform,
 };
 use render_cpu::CpuRasterizer;
 use render_raster::QuorraRasterizer;
@@ -71,7 +68,7 @@ const CPU_TOLERANCE: f32 = 3.0 / 255.0;
 /// See [`CPU_TOLERANCE`].
 const RASTER_TOLERANCE: f32 = 6.0 / 255.0;
 /// Cross-backend tolerance at one antialiased edge pixel: the localised bar `headless_quorra`
-/// holds the two backends to, expressed in `0.0..=1.0`. Far below the half-unit gap to the clause.
+/// holds the two backends to, expressed in `0.0..=1.0`.
 const AGREEMENT: f32 = 6.0 / 255.0;
 
 /// The object's own grey, before any transfer. One value on all three channels.
@@ -82,6 +79,17 @@ const OBJECT: f32 = 0.25;
 /// `0.75`, far enough from the input that a pixel drawn with the wrong ordering is unmistakable.
 fn transfer(value: f32) -> f32 {
     1.0 - value
+}
+
+/// The same inversion as [`pdf_render::TransferMap`] carries it: one table per component,
+/// evaluated at every eight-bit input, which is what `pdf_model` builds out of the file's
+/// functions.
+fn inverting() -> TransferMap {
+    let mut table = [0_u8; 256];
+    for (index, entry) in table.iter_mut().enumerate() {
+        *entry = 255_u8.saturating_sub(u8::try_from(index).unwrap_or(255));
+    }
+    TransferMap::from_samples([table, table, table])
 }
 
 /// A closed axis-aligned rectangle.
@@ -98,25 +106,33 @@ fn rectangle(x0: f32, y0: f32, x1: f32, y1: f32) -> Path {
 /// One opaque grey fill on a white page. The right edge sits at device x = 12.5, so column 12 is
 /// covered a half — the antialiased edge this file measures — while column 7 is an interior pixel.
 ///
-/// `grey` is the colour handed to the paint: `OBJECT` for the raw scene the clause composites,
-/// `transfer(OBJECT)` for the scene this tree draws, the transfer already inside the colour.
-fn scene(grey: f32) -> DisplayList {
+/// `transferred` is what `pdf_model` does with a `/TR` in force: the colour stays *raw* and the
+/// function rides on the mark, which is §11.7.5.2's channel.
+fn scene(transferred: bool) -> DisplayList {
     let mut list = DisplayList::new(PAGE);
-    list.push(Command::Fill {
+    let mark = Command::Fill {
         path: Arc::new(rectangle(3.0, 3.0, 12.5, 13.0)),
         // Device y counts down from the top of the page; x maps straight through.
         transform: Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, PAGE.height),
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(Color {
-            r: grey,
-            g: grey,
-            b: grey,
+            r: OBJECT,
+            g: OBJECT,
+            b: OBJECT,
             a: 1.0,
         }),
         clip: None,
         mask: None,
         blend: BlendMode::Normal,
-    });
+    };
+    if transferred {
+        let mut channel = TransferBuilder::default();
+        channel.push(Some(Arc::new(inverting())), &mark);
+        if let Some(channel) = channel.finish() {
+            list.set_transfers(channel);
+        }
+    }
+    list.push(mark);
     list
 }
 
@@ -153,30 +169,21 @@ fn render<R: Rasterizer>(rasterizer: &mut R, list: &DisplayList) -> Raster {
         .unwrap_or_else(|_| panic!("a solid fill is supported"))
 }
 
-/// The raw and pipeline edge channels a backend draws: `(raw_edge, pipeline_edge)`.
-///
-/// `raw_edge` is the plain composite `blend(object, backdrop)` — what the clause would then map
-/// once; `pipeline_edge` is the transferred scene's edge, `blend(transfer(object), backdrop)` —
-/// what this tree draws, the transfer already inside the colour before compositing.
+/// The raw and transferred edge channels a backend draws: `(raw_edge, transferred_edge)`.
 fn edges<R: Rasterizer>(rasterizer: &mut R) -> (f32, f32) {
-    let raw = render(rasterizer, &scene(OBJECT));
-    let transferred = render(rasterizer, &scene(transfer(OBJECT)));
+    let raw = render(rasterizer, &scene(false));
+    let transferred = render(rasterizer, &scene(true));
     (
         channel(&raw, EDGE.0, EDGE.1),
         channel(&transferred, EDGE.0, EDGE.1),
     )
 }
 
-/// The raster backend draws the same pre-composite ordering the CPU oracle does at a transferred
-/// edge, and diverges from §11.7.5.2 by the same half unit.
-///
-/// The clause maps the finished composite once — `transfer(blend(object, backdrop))` — and this
-/// tree instead composites the already-transferred colour — `blend(transfer(object), backdrop)`.
-/// The test asserts, on the raster backend, that the pipeline draws the second and that the second
-/// is nowhere near the clause's first, exactly as `render-cpu`'s fixture asserts for the oracle.
+/// The raster backend draws §11.7.5.2's value at a transferred edge: the function of the
+/// composite, not the composite of the function.
 #[test]
-fn the_raster_edge_diverges_from_the_clause_as_the_oracle_does() {
-    let (raw_edge, pipeline_edge) = edges(&mut raster());
+fn the_raster_edge_takes_the_clause_value() {
+    let (raw_edge, transferred_edge) = edges(&mut raster());
 
     // The edge is genuinely partial: strictly between the object and the white backdrop.
     assert!(
@@ -184,35 +191,29 @@ fn the_raster_edge_diverges_from_the_clause_as_the_oracle_does() {
         "EDGE must be an antialiased pixel; raw coverage put it at {raw_edge}"
     );
 
-    // What the pipeline actually draws: the composite of the transferred colour with the same
-    // backdrop, at this backend's own edge coverage, recovered from `raw_edge`.
-    let coverage = (1.0 - raw_edge) / (1.0 - OBJECT);
-    let pipeline_expected = coverage * transfer(OBJECT) + (1.0 - coverage) * 1.0;
+    // §11.7.5.2 with §11.7.5.3's NOTE: composite first, map once.
+    let clause_edge = transfer(raw_edge);
     assert!(
-        (pipeline_edge - pipeline_expected).abs() <= RASTER_TOLERANCE,
-        "the raster edge should draw blend(transfer(object), backdrop) = {pipeline_expected}, \
-         was {pipeline_edge}"
+        (transferred_edge - clause_edge).abs() <= RASTER_TOLERANCE,
+        "the raster edge should carry §11.7.5.2's transfer(composite) = {clause_edge}, was \
+         {transferred_edge}"
     );
 
-    // The clause maps the finished composite once; the measured gap is half a unit at a
-    // half-covered edge under an inverting transfer. This is what the per-pixel transfer channel
-    // (ADR 1125, doc/todo/13) closes on both backends at once.
-    let clause_edge = transfer(raw_edge);
-    let gap = (pipeline_edge - clause_edge).abs();
+    // And nowhere near what the pre-composite ordering drew, so this cannot pass by accident.
+    let coverage = (1.0 - raw_edge) / (1.0 - OBJECT);
+    let pre_composite = coverage * transfer(OBJECT) + (1.0 - coverage) * 1.0;
     assert!(
-        gap > 0.25,
-        "the raster edge should diverge from §11.7.5.2's transfer(composite) = {clause_edge} by \
-         much more than antialiasing tolerance; measured gap was {gap}"
+        (transferred_edge - pre_composite).abs() > 0.25,
+        "the raster edge must not be the pre-composite ordering's {pre_composite}"
     );
 }
 
-/// The two backends agree on the transferred edge today — so the fix must move both, and a
-/// one-backend change would split them.
+/// The two backends agree on the transferred edge, which is what makes the change shippable.
 ///
-/// This is the linchpin of the deferral `CLAUDE.md` principle 2 requires: the CPU oracle and the
-/// raster backend draw the same pipeline value at the edge, within the localised bar
-/// `headless_quorra` holds them to. A channel added to one backend alone would break this
-/// agreement at every transferred edge; a correct channel flips both to the clause value together.
+/// `CLAUDE.md` principle 2: a channel added to one backend alone would split them at every
+/// transferred edge. They share `pdf_render::resolve_transfers` and nothing else about how the
+/// pixel got there, so this is a real cross-backend claim rather than a shared implementation
+/// asserting about itself.
 #[test]
 fn the_two_backends_agree_on_the_transferred_edge() {
     let (_, cpu_edge) = edges(&mut CpuRasterizer::new());
@@ -225,24 +226,15 @@ fn the_two_backends_agree_on_the_transferred_edge() {
     );
 }
 
-/// At a fully covered pixel the two orderings agree, so both backends carry the transfer of the
-/// object there — the interior is where this tree's per-object application is already §11.7.5.2's
-/// per-point one, and where a channel would change nothing.
+/// At a fully covered pixel the composite is the object's colour, so both backends carry the
+/// transfer of the object there — and agree.
 #[test]
 fn the_interior_agrees_and_carries_the_transfer() {
     let mut cpu = CpuRasterizer::new();
     let mut raster = raster();
 
-    let cpu_interior = channel(
-        &render(&mut cpu, &scene(transfer(OBJECT))),
-        INTERIOR.0,
-        INTERIOR.1,
-    );
-    let raster_interior = channel(
-        &render(&mut raster, &scene(transfer(OBJECT))),
-        INTERIOR.0,
-        INTERIOR.1,
-    );
+    let cpu_interior = channel(&render(&mut cpu, &scene(true)), INTERIOR.0, INTERIOR.1);
+    let raster_interior = channel(&render(&mut raster, &scene(true)), INTERIOR.0, INTERIOR.1);
 
     assert!(
         (cpu_interior - transfer(OBJECT)).abs() <= CPU_TOLERANCE,
@@ -258,5 +250,19 @@ fn the_interior_agrees_and_carries_the_transfer() {
         (cpu_interior - raster_interior).abs() <= AGREEMENT,
         "the two backends must agree at the interior: oracle {cpu_interior}, raster \
          {raster_interior}"
+    );
+}
+
+/// A list that states no transfer is byte for byte the list it was before the channel existed, on
+/// this backend as on the oracle: no channel, no shape pass, no map.
+#[test]
+fn a_list_without_a_transfer_is_untouched() {
+    let mut raster = raster();
+    let control = render(&mut raster, &scene(false));
+    let again = render(&mut raster, &scene(false));
+    assert!(scene(false).transfers().is_none());
+    assert!(
+        control.data == again.data,
+        "a list with no transfer must rasterise identically every time"
     );
 }

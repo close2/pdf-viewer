@@ -322,6 +322,27 @@ pattern's cell — decide which marks the first sentence hands a function to.
    edge gap at half a unit under an inverting transfer, the interior where the two orderings agree,
    and a no-transfer control.
 
+   **Built in the one-thousand-one-hundred-and-forty-eighth session** (ADR 1125's last section).
+   The carrier is not a field on the mark — that is the 272 sites — and not a side-table keyed by
+   position, which cannot reach a mark inside a group. It is a **parallel channel on the
+   `DisplayList`**, beside the companion list §11.4.7's four-component page already carries:
+   `pdf_render::TransferBuilder` collects every elementary mark the interpreter draws, in painting
+   order, as an opaque shape with the function in force when it was drawn, and groups consecutive
+   marks sharing a function into *runs*. Run numbers rise with painting order, so the topmost object
+   covering a pixel is the one in the highest run covering it; `pdf_render::resolve_transfers` walks
+   the runs top down, takes the first whose coverage at a pixel is nonzero — the clause's own
+   "nonzero object shape value" — and maps the finished pixel once. Both backends call it with a
+   closure that rasterises one shape list through their own machinery, so the rule is stated once
+   (trap 2) and they agree by construction. The builder is inert until a mark carries a function, so
+   the 973 documents that state none pay one `Option::is_none` per mark and rasterise nothing extra.
+   **What is left is two paints**: a shading's ramp is sampled under the function where its colours
+   are made (ADR 0479) and a tiling cell is interpreted once and copied to every site (ADR 0430), so
+   both keep §10.5's pre-composite application and `Unsupported::TransferFunction` is narrowed to
+   them. `issue6931_reduced.pdf` is the one corpus raster that moves: its ink goes to **3.45863**
+   against `poppler` 2.96392, `hayro` 3.44317 and `ghostscript` 3.48165 — closer to the three that
+   apply the function than before, because the image's samples are now resampled raw and mapped at
+   the device pixel, which is where §11.7.5.3's NOTE puts the map.
+
    **The build's pricing was corrected in the one-thousand-one-hundred-and-thirty-seventh session,
    and the "matching pass in all three backends" above is where it was wrong.** `render-raster` is
    the `raster-gpu` **wgpu compute** backend, not a `tiny-skia` one — only `render-cpu` uses

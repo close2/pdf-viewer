@@ -248,6 +248,28 @@ policy it has. A host that supplies nothing gets both categories reported unansw
 layer where the document's own configuration put it, which is what this program did before the
 question could be answered at all. ADR 1106.
 
+**And the one-thousand-one-hundred-and-forty-seventh changed one `Command`'s shape and added one
+`Command` and one `Event`, which is the fifth use of the shape mechanism and the first message pair
+in forty rounds.** `Command::Restrict` carries a `RestrictionPolicy` — one `RestrictionLevel` per
+`pdf_model::restriction::Operation` — because §7.6.4.2's Table 22 states eight positions with eight
+different subjects, and a reader who wants to be asked before text leaves the program has said
+nothing whatever about whether they want to be asked before each keystroke into a form field. The
+message pair is the operation that had no message: `Command::Copy` and `Event::Copied`, for Table
+22's bit 5. **A query could not carry it**, and that is this section's test applied twice —
+`Query::Selection` is what a drag asks sixty times a second in order to draw a highlight, so
+refusing it would refuse the highlight; and a query raises no events, so nothing can wait on one
+and the *ask* level cannot exist over a readback at all. `Event::Copied` carries **both** of
+§14.8.2.5's orders rather than one, because `viewer_host::copied` is where the choice between them
+is already made once for three windows and a C caller. **Five consumers failed to compile**:
+`viewer-confined`'s wire (command kind 31 for the copy, six level bytes where the restriction used
+to spell one, event kind 20), and all three windows, each of which now sends the gesture instead of
+asking twice. `QUORRA_EVENT_KIND_COUNT` moved **20 → 21**, and the C ABI gained three entry points
+and seven constants — `quorra_restrict_operation`, `quorra_copy`, `quorra_event_copied`,
+`QUORRA_EVENT_COPIED` and the six `QUORRA_RESTRICTED_*`. `QUORRA_ABI_VERSION` did not move, for the
+standing reason: no struct crosses by value. **Every host gained a word**, `--restrictions=`, which
+is the first piece of `doc/todo/38`'s interface and is a command line rather than the menu that
+entry still wants. ADR 1144.
+
 **The thousand-and-seventy-sixth added one field and no message**, and it is the shape `RenderRequest::ink`
 set: `PopupWindow::replies` carries §12.5.6.2's threaded comments, because Table 172 makes *not*
 displaying replies "individually but together in the form of threaded comments" a `shall` on the

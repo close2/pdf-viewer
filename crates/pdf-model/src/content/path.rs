@@ -58,20 +58,21 @@ impl Interpreter<'_> {
             {
                 self.tile(&shared, state.transform, Tiled::Fill(rule), &tiling, state);
             } else if let Some(rule) = fill {
-                let transfer = self.transfer_for_mark(state, Painted::of(state, false));
-                // A shading pattern's colours are built here rather than read (§11.6.7), so this
-                // is asked once and the answer is used by the command and by §11.6.2's question
-                // below.
-                let paint = self.fill_paint(state, transfer);
-                self.draw(Command::Fill {
-                    path: Arc::clone(&shared),
-                    transform: state.transform,
-                    fill_rule: rule,
-                    paint,
-                    clip: fill_clip,
-                    mask: state.soft_mask,
-                    blend: state.blend,
-                });
+                let (inside, transfer) =
+                    self.mark_transfer(state, Painted::of(state, false), false);
+                let paint = self.fill_paint(state, inside.as_ref());
+                self.draw_mark(
+                    Command::Fill {
+                        path: Arc::clone(&shared),
+                        transform: state.transform,
+                        fill_rule: rule,
+                        paint,
+                        clip: fill_clip,
+                        mask: state.soft_mask,
+                        blend: state.blend,
+                    },
+                    transfer,
+                );
             }
             // §8.7.2 makes a pattern a colour for `SCN` exactly as for `scn`, so a stroke
             // whose colour is a *tiling* pattern is the cell replayed across the stroked
@@ -89,17 +90,20 @@ impl Interpreter<'_> {
                     state,
                 );
             } else if stroke.is_some() {
-                let transfer = self.transfer_for_mark(state, Painted::of(state, true));
-                let paint = self.stroke_paint(state, transfer);
-                self.draw(Command::Stroke {
-                    path: Arc::clone(&shared),
-                    transform: state.transform,
-                    stroke: state.stroke.clone(),
-                    paint,
-                    clip: stroke_clip,
-                    mask: state.soft_mask,
-                    blend: state.blend,
-                });
+                let (inside, transfer) = self.mark_transfer(state, Painted::of(state, true), true);
+                let paint = self.stroke_paint(state, inside.as_ref());
+                self.draw_mark(
+                    Command::Stroke {
+                        path: Arc::clone(&shared),
+                        transform: state.transform,
+                        stroke: state.stroke.clone(),
+                        paint,
+                        clip: stroke_clip,
+                        mask: state.soft_mask,
+                        blend: state.blend,
+                    },
+                    transfer,
+                );
             }
             // §11.6.2: the fill and the stroke are two parts of one object, and "[p]ortions
             // of an object shall not be composited with one another". They are two commands

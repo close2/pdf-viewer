@@ -136,9 +136,10 @@ pub struct Viewer {
     ///
     /// The whole of the policy `CLAUDE.md`'s "a document's restrictions are the reader's to set"
     /// asks for: one value, held here rather than deduced anywhere, set by
-    /// [`Command::Restrict`] and asked **once per operation** in [`Self::edit`]. Defaults to
-    /// obeying. ADR 0212.
-    restrictions: crate::RestrictionLevel,
+    /// [`Command::Restrict`] and asked **once per operation** in [`Self::standing`] — one level
+    /// per operation since the one-thousand-one-hundred-and-forty-seventh session, every one of
+    /// them `Off` until a host says otherwise. ADR 0212, ADR 1144.
+    restrictions: crate::RestrictionPolicy,
     /// Whom this reader believes — §12.8.1's third question, which no state machine over a file
     /// can answer for itself.
     ///
@@ -193,7 +194,7 @@ impl Viewer {
             stepping: false,
             presenting: crate::PresentationMode::default(),
             holds_rasters: true,
-            restrictions: crate::RestrictionLevel::default(),
+            restrictions: crate::RestrictionPolicy::default(),
             trust: crate::TrustPolicy::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
             audience: pdf_model::optional_content::Audience::NONE,
@@ -455,6 +456,12 @@ impl Viewer {
     /// The split is what keeps a scheduling decision from being made twice: every command that
     /// changes what should be on the screen ends by having changed only the state, and exactly
     /// one place works out whether that means a new render.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per variant of `Command`, and the count is that enum's. Splitting it \
+                  would put half the vocabulary in another function and lose the property this \
+                  match rests on: the compiler naming the command nobody handled"
+    )]
     fn act(&mut self, command: Command, events: &mut Vec<Event>) {
         match command {
             Command::Open {
@@ -498,7 +505,8 @@ impl Viewer {
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::View(view) => self.restore(view, events),
-            Command::Restrict(level) => self.restrictions = level,
+            Command::Restrict(policy) => self.restrictions = policy,
+            Command::Copy => self.copy(events),
             // A document's report is a function of the file *and* of whom this reader believes, so
             // the wording already produced is no longer the wording this policy would produce.
             // `Open::about` is a `OnceCell` over exactly that function (ADR 1044), and forgetting
@@ -1384,7 +1392,7 @@ impl Viewer {
                 });
             }
             Standing::Ask(notes) => {
-                open.asking = Some(crate::open::Held { done });
+                open.asking = Some(crate::open::Held::Edit(done));
                 events.push(Event::Asking {
                     document: id,
                     operation,
@@ -1405,8 +1413,77 @@ impl Viewer {
         let Some(held) = open.asking.take() else {
             return;
         };
-        if proceed {
-            commit(document, open, held.done, events);
+        if !proceed {
+            return;
+        }
+        match held {
+            crate::open::Held::Edit(done) => commit(document, open, done, events),
+            // Nothing to commit: a copy changes no document. What the `yes` releases is the text
+            // itself, taken at the moment the question was asked.
+            crate::open::Held::Copy {
+                logical,
+                page_order,
+            } => events.push(Event::Copied {
+                document,
+                logical,
+                page_order,
+            }),
+        }
+    }
+
+    /// [`Command::Copy`]: §7.6.4.2's bit 5 asked as an operation, and the text if it is granted.
+    ///
+    /// The selection is taken **before** the policy is asked and in both of §14.8.2.5's orders,
+    /// for `crate::open::Done`'s reason: under [`crate::RestrictionLevel::Ask`] the answer may
+    /// come after the person has dragged somewhere else, and what goes ahead on a `yes` has to be
+    /// what they were asked about. Nothing selected is nothing copied and nothing said — a
+    /// question about an empty copy would be a question about nothing.
+    fn copy(&mut self, events: &mut Vec<Event>) {
+        use pdf_model::restriction::Operation;
+
+        let Some(id) = self.focused else { return };
+        let Some(open) = self.focused() else { return };
+        let Some(selected) = self.selected(open) else {
+            return;
+        };
+        let page_order = selected.text.into_owned();
+        if page_order.is_empty() {
+            return;
+        }
+        let logical = Self::logical_selection(open);
+        match self.standing(id, Operation::Extract, None, None) {
+            Standing::Refuse(refused) => events.push(refused),
+            Standing::Proceed => events.push(Event::Copied {
+                document: id,
+                logical,
+                page_order,
+            }),
+            Standing::Warn(notes) => {
+                events.push(Event::Copied {
+                    document: id,
+                    logical,
+                    page_order,
+                });
+                events.push(Event::Warned {
+                    document: id,
+                    operation: Operation::Extract,
+                    notes,
+                });
+            }
+            Standing::Ask(notes) => {
+                let Some(open) = self.documents.get_mut(&id) else {
+                    return;
+                };
+                open.asking = Some(crate::open::Held::Copy {
+                    logical,
+                    page_order,
+                });
+                events.push(Event::Asking {
+                    document: id,
+                    operation: Operation::Extract,
+                    notes,
+                });
+            }
         }
     }
 
@@ -1456,7 +1533,7 @@ impl Viewer {
             return Standing::Proceed;
         };
         match pdf_model::restriction::decide(
-            self.restrictions.level(),
+            self.restrictions.level(operation).level(),
             &open.document,
             operation,
             field,

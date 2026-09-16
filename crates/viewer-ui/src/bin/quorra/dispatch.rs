@@ -235,6 +235,11 @@ answers in two places"
             // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
             // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
             Event::Warned { notes, .. } => println!("note: {}", viewer_host::warned(&notes)),
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => self.copied(logical, &page_order),
             Event::Asking {
                 document, notes, ..
             } => {

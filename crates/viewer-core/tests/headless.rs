@@ -7066,7 +7066,14 @@ fn certified_form(level: i64) -> Vec<u8> {
 /// Opens a document under a host-chosen restriction level, draining the events.
 fn opened_with(bytes: Vec<u8>, level: RestrictionLevel) -> Viewer {
     let mut viewer = Viewer::new(800, 1000, 1.0);
-    viewer.handle(Command::Restrict(level)).for_each(drop);
+    // The same level for every operation, which is what this command carried before the policy
+    // became one level per operation; `tests/restriction_levels.rs` is where the six are told
+    // apart (ADR 1144).
+    viewer
+        .handle(Command::Restrict(viewer_core::RestrictionPolicy::uniform(
+            level,
+        )))
+        .for_each(drop);
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -9011,7 +9018,9 @@ fn an_attached_file_is_listed_at_once_undone_redone_detached_and_saved() {
 
     // A certification at /P 2 withholds bit 4's residual; the reader turns that off.
     viewer
-        .handle(Command::Restrict(RestrictionLevel::Off))
+        .handle(Command::Restrict(viewer_core::RestrictionPolicy::uniform(
+            RestrictionLevel::Off,
+        )))
         .for_each(drop);
     let events: Vec<_> = viewer
         .handle(Command::Edit(attach(

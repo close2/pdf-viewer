@@ -339,9 +339,15 @@ pub(super) fn encode_attachments(writer: &mut Writer, attachments: &[FileAttachm
             modified,
             checksum,
             relationship,
-            // The one field this encoding does not carry, named so that the pattern stays
-            // exhaustive: a field added to `Attachment` still fails to compile here.
+            // The three fields this encoding does not carry, named so that the pattern stays
+            // exhaustive: a field added to `Attachment` still fails to compile here. The stream
+            // is the payload, which crosses one file at a time by `Command::Extract`; Table 43's
+            // `/Thumb` is a second stream and would cross the same way for the same reason; and
+            // `/EP` is read by nothing on this side of the pipe, because §7.6.7's answer for a
+            // handler this program does not have is to name it where a person is looking.
             stream: _,
+            thumbnail: _,
+            payload: _,
         } = attachment;
         writer
             .str(name)

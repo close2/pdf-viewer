@@ -152,7 +152,8 @@ pub use kinds::{
     ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
     FolderTextKind, InitialKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind,
     PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind,
-    PurposeKind, RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
+    PurposeKind, RestrictKind, RestrictedKind, RowKind, ScopeKind, SelectKind, ShortfallKind,
+    TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
 pub use session::{FrameInfo, Session, rasterise};

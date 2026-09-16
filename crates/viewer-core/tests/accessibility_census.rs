@@ -20,9 +20,11 @@
 //!
 //! - **the file names elements for the page and the answer is empty** — a page that should answer
 //!   and does not, which is the defect class this census exists to make visible;
-//! - **the page states no `/StructParents`**, so §14.7.5.4 has not been told and the walk falls
-//!   back to the whole document's tree — ADR 0325's first recorded residue, where an empty answer
-//!   on a *large* document is the bound running out and on a small one is the tree naming nothing;
+//! - **§14.7.5.4 named no elements for the page**, so the walk falls back to the whole document's
+//!   tree — ADR 0325's first recorded residue, where an empty answer on a *large* document is the
+//!   bound running out and on a small one is the tree naming nothing. Two files reach it: one
+//!   states no `/StructParents` at all, and one states it and has no array under that key in the
+//!   parent tree. The witness says which;
 //! - **the file names no elements for the page**, which is the honest case and needs no fix.
 //!
 //! **The predicate is not independent of the answer, and that is stated rather than hidden**
@@ -157,8 +159,22 @@ struct Census {
     answered_pages: usize,
     /// An empty answer where §14.7.5.4's parent tree names elements for the page: the defect class.
     named_but_silent: Vec<(String, String)>,
-    /// An empty answer where the page states no `/StructParents` — ADR 0325's first residue.
+    /// An empty answer where §14.7.5.4 named no elements for the page — ADR 0325's first residue.
+    ///
+    /// **Two files answer this way and the witness says which**, because
+    /// [`Tree::elements_on_page`] has one `None` for both and they are different findings. Either
+    /// the page states no `/StructParents`, which is Table 359's required entry missing and the
+    /// residue as ADR 0325 recorded it; or the page states one and the parent tree holds no array
+    /// under it, which is a file whose two halves of §14.7.5.4 do not meet. The constant that
+    /// names this population keeps the first case's name because ADRs 0970, 0979 and 1005 cite it
+    /// (ADR 0232 section 2), and the `why` beside each page is what tells the two apart.
     no_parent_key_silent: Vec<(String, String)>,
+    /// How many of those state the key and find no array under it, which is the second of the two.
+    ///
+    /// A count beside the witnesses because [`WITNESSES`] caps the list: a class that holds two
+    /// findings and prints thirty of them can say which each of the thirty is and still leave the
+    /// split unreadable.
+    parent_key_without_array: usize,
     /// An empty answer where the file names no elements for the page: the honest case.
     nothing_named: usize,
     /// Answers that reach [`ANSWER_BOUND`], which may have been cut with nothing saying so.
@@ -314,6 +330,9 @@ impl Census {
         self.answered_pages = self.answered_pages.saturating_add(from.answered_pages);
         self.named_but_silent.extend(from.named_but_silent);
         self.no_parent_key_silent.extend(from.no_parent_key_silent);
+        self.parent_key_without_array = self
+            .parent_key_without_array
+            .saturating_add(from.parent_key_without_array);
         self.nothing_named = self.nothing_named.saturating_add(from.nothing_named);
         self.at_bound.extend(from.at_bound);
         self.nodes = self.nodes.saturating_add(from.nodes);
@@ -733,11 +752,12 @@ fn sweep(
             ));
         }
         if nodes.is_empty() {
+            let page = pages.get(index);
             classify_silence(
                 census,
                 document,
                 tree,
-                pages.get(index).map(|page| page.dict),
+                page.as_ref().map(|page| &page.dict),
                 where_,
                 &mut sized,
             );
@@ -756,11 +776,12 @@ fn classify_silence(
     census: &mut Census,
     document: &Document,
     tree: &Tree,
-    page: Option<pdf_syntax::Dictionary>,
+    page: Option<&pdf_syntax::Dictionary>,
     where_: String,
     sized: &mut Option<(usize, bool)>,
 ) {
-    match page.and_then(|page| tree.elements_on_page(document, &page)) {
+    let named = page.and_then(|page| tree.elements_on_page(document, page));
+    match named {
         Some(elements) if !elements.is_empty() => census.named_but_silent.push((
             where_,
             format!(
@@ -771,11 +792,29 @@ fn classify_silence(
         Some(_) => census.nothing_named = census.nothing_named.saturating_add(1),
         None => {
             let (elements, truncated) = *sized.get_or_insert_with(|| tree_size(document, tree));
+            // **Which of the two silences this is**, asked of the page rather than assumed. Table
+            // 359 makes `/StructParents` "[r]equired for all content streams containing
+            // marked-content sequences that are structural content items", and a page that states
+            // one has said its half; the tree answering nothing under that key is the other half
+            // missing, which is a different file and a different fix. See `Census::
+            // no_parent_key_silent`.
+            let said = match page
+                .and_then(|page| document.get_key(page, "StructParents").as_integer())
+            {
+                None => "no /StructParents".to_owned(),
+                Some(key) => {
+                    census.parent_key_without_array =
+                        census.parent_key_without_array.saturating_add(1);
+                    format!(
+                        "/StructParents {key}, under which §14.7.5.4's parent tree holds no array"
+                    )
+                }
+            };
             census.no_parent_key_silent.push((
                 where_,
                 format!(
-                    "no /StructParents, so the fallback walks the document's tree of {elements} \
-                     element(s), {}",
+                    "{said}, so the fallback walks the document's tree of {elements} element(s), \
+                     {}",
                     if elements > ANSWER_BOUND || truncated {
                         "which is larger than the walk's bound — ADR 0325's residue"
                     } else {
@@ -785,6 +824,35 @@ fn classify_silence(
             ));
         }
     }
+}
+
+/// Prints the four classes an empty answer falls into — see this module's own documentation.
+///
+/// Separated from [`report`] because the classification is the census's first count and has its
+/// own argument; keeping it here also keeps `report` a list of the counts in the order they were
+/// argued for rather than a mixture of the two.
+fn report_silence(census: &Census) {
+    print_witnesses(
+        "the file names elements for the page and the answer is empty",
+        &census.named_but_silent,
+    );
+    print_witnesses(
+        "§14.7.5.4 named no elements for the page, and the whole-tree fallback answered nothing",
+        &census.no_parent_key_silent,
+    );
+    println!(
+        "    of those, {} state Table 359's /StructParents and the parent tree holds no array \
+         under it",
+        census.parent_key_without_array
+    );
+    println!(
+        "  the file names no elements for the page, which is the honest case: {}",
+        census.nothing_named
+    );
+    print_witnesses(
+        "answers reaching viewer-core's node bound, which nothing says out loud",
+        &census.at_bound,
+    );
 }
 
 /// Prints one class of witness, capped, with its length.
@@ -818,22 +886,7 @@ fn report(census: &Census, files: usize, seconds: f64) {
         "pages that answer at all: {} of {} pages of documents with structure",
         census.answered_pages, census.structured_pages
     );
-    print_witnesses(
-        "the file names elements for the page and the answer is empty",
-        &census.named_but_silent,
-    );
-    print_witnesses(
-        "no /StructParents, and the whole-tree fallback answered nothing",
-        &census.no_parent_key_silent,
-    );
-    println!(
-        "  the file names no elements for the page, which is the honest case: {}",
-        census.nothing_named
-    );
-    print_witnesses(
-        "answers reaching viewer-core's node bound, which nothing says out loud",
-        &census.at_bound,
-    );
+    report_silence(census);
     println!("elements reached: {}", census.nodes);
     println!(
         "  §14.9.3's /Alt or §14.9.5's /E carried: {}",

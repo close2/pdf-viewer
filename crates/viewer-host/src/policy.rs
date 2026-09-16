@@ -28,7 +28,9 @@
 //! a document's restrictions "are the reader's to set" and "**it shall always be possible to turn
 //! them off**". [`IGNORE_RESTRICTIONS`] is the word that turns them off and [`refused`] is the
 //! sentence that names it, and they are one unit here for the reason ADR 0604 records: they were
-//! apart, and two of the three windows said the word without taking it.
+//! apart, and two of the three windows said the word without taking it. [`RESTRICTIONS`] is the
+//! rest of that vocabulary: all four levels, one operation at a time, since the owner lifted
+//! `doc/todo/38`'s no-interface deferral (ADR 1144).
 //!
 //! **And a fifth, which used to be four words inside `pdf_model::action::refused`** — whether a
 //! submit-form action's request leaves this machine. §12.7.6.2's `shall` is to "transmit the
@@ -87,11 +89,85 @@ use viewer_core::{Extraction, Purpose, ReferenceFiles, TrustPolicy};
 /// turn them off" — true in one host of three, and the sentence saying otherwise was the copy
 /// that made it look closed (ADR 0604).
 ///
-/// **Not a user interface**, which `doc/todo/38` says is not to be built until the project owner
-/// asks for one: it is the single policy value [`viewer_core::Command::Restrict`] carries, supplied
-/// the way each host supplies every other one it has. The four levels the owner named — off, on,
-/// ask, warn — are still two, and nothing here has to be revisited to add the other two.
+/// **It names a level rather than a state**, and since the default became `off` it is the level a
+/// host would have had anyway: what it still does is say so out loud, in the sentence
+/// [`refused`] prints and in a parser that takes the word. [`RESTRICTIONS`] is the rest of the
+/// vocabulary — the other three levels, one operation at a time.
 pub const IGNORE_RESTRICTIONS: &str = "--ignore-restrictions";
+
+/// The word a person types to set a level *per restriction* — `CLAUDE.md`'s four, one operation at
+/// a time.
+///
+/// **The user interface `doc/todo/38` said this program owed, in the one form every host already
+/// has.** A command line is not a menu and this file said so for five hundred sessions; what it is
+/// is the channel a person can reach today, in all three windows and the C ABI's caller alike, and
+/// the levels behind it are the ones a menu will set when there is one. `--restrictions=off` is
+/// still the whole policy at one level, which is what [`IGNORE_RESTRICTIONS`] says in one word.
+pub const RESTRICTIONS: &str = "--restrictions=";
+
+/// Reads [`RESTRICTIONS`]'s list onto a policy, or says what is wrong with it.
+///
+/// `copy:ask,annotate:on,fill:warn` — an operation's word, a colon, one of `off`, `on`, `ask`,
+/// `warn`; the operations are `viewer_core::RestrictionPolicy::word`'s and the levels
+/// `pdf_model::restriction::Level::as_str`'s, so a person reads the same six words and the same
+/// four everywhere this program takes them. A bare level with no colon sets **all six**, which is
+/// the spelling `pdf-transform`'s `--restrictions=on` has had since ADR 0803 and is why this takes
+/// the same word.
+///
+/// `standing` is what the policy is before the list is read, so that two of these on one command
+/// line compose rather than the second forgetting the first.
+///
+/// # Errors
+///
+/// A sentence naming the word that is wrong and what the alternatives are, for a host to print. An
+/// empty list is an error rather than a no-op: a person who typed `--restrictions=` meant
+/// something.
+pub fn restrictions(
+    list: &str,
+    standing: viewer_core::RestrictionPolicy,
+) -> Result<viewer_core::RestrictionPolicy, String> {
+    use pdf_model::restriction::Level;
+    use viewer_core::{RestrictionLevel, RestrictionPolicy};
+
+    let named = |level: Level| match level {
+        Level::Off => RestrictionLevel::Off,
+        Level::On => RestrictionLevel::On,
+        Level::Ask => RestrictionLevel::Ask,
+        Level::Warn => RestrictionLevel::Warn,
+    };
+    let levels = "off, on, ask or warn";
+    if list.is_empty() {
+        return Err(format!(
+            "--restrictions= wants {levels}, or an operation and one of them"
+        ));
+    }
+    let mut policy = standing;
+    for entry in list.split(',') {
+        match entry.split_once(':') {
+            None => {
+                let level = Level::parse(entry)
+                    .ok_or_else(|| format!("--restrictions: {entry:?} is not {levels}"))?;
+                policy = RestrictionPolicy::uniform(named(level));
+            }
+            Some((operation, level)) => {
+                let operation = RestrictionPolicy::operation_named(operation).ok_or_else(|| {
+                    let words: Vec<&str> = RestrictionPolicy::OPERATIONS
+                        .iter()
+                        .map(|operation| RestrictionPolicy::word(*operation))
+                        .collect();
+                    format!(
+                        "--restrictions: {operation:?} is not one of {}",
+                        words.join(", ")
+                    )
+                })?;
+                let level = Level::parse(level)
+                    .ok_or_else(|| format!("--restrictions: {level:?} is not {levels}"))?;
+                policy = policy.with(operation, named(level));
+            }
+        }
+    }
+    Ok(policy)
+}
 
 /// The word a person types to let a window's confined worker be given the machine's own faces.
 ///

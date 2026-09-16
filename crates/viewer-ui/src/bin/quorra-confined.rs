@@ -533,6 +533,12 @@ impl Host {
     ///
     /// Exhaustive on purpose: a message added to the boundary must fail to compile here rather
     /// than fall into a catch-all arm (`doc/ui-boundary.md`'s rule).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per variant of `viewer_core::Event`, and the count is that enum's. \
+                  Splitting it would lose the property the match rests on: a message added to \
+                  the core is named here rather than swallowed by a catch-all"
+    )]
     fn event(&mut self, event: Event) {
         if self.trace.on(Topic::Events) {
             self.trace
@@ -633,6 +639,22 @@ impl Host {
             // like another one in silence.
             Event::Warned { notes, .. } => {
                 eprintln!("note: {}", viewer_host::warned(&notes));
+            }
+            // This window has no copy gesture, so nothing here sends `Command::Copy` and this
+            // cannot arrive; the arm exists because `doc/ui-boundary.md`'s rule is that a message
+            // added to the core is named here rather than swallowed by a catch-all.
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => {
+                if let Some(copied) = viewer_host::copied(logical, &page_order) {
+                    eprintln!(
+                        "note: copied {} characters in {}",
+                        copied.text.chars().count(),
+                        copied.order
+                    );
+                }
             }
             Event::Asking {
                 document, notes, ..

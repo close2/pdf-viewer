@@ -1,5 +1,5 @@
 Status: complete
-Given: 2026-09-14, in conversation — transcribed by the round
+Given: 2026-09-16, in conversation — transcribed by the round
 Owes: none
 
 > Shared crate below both. Wait for a real trigger.

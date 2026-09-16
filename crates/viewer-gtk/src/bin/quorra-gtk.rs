@@ -17,7 +17,7 @@ use pdf_model::view::WidgetAppearances;
 
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
-use viewer_core::RestrictionLevel;
+use viewer_core::{RestrictionLevel, RestrictionPolicy};
 use viewer_gtk::Host;
 use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 
@@ -34,14 +34,13 @@ struct Arguments {
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
     widget_appearances: WidgetAppearances,
     /// What this reader does with the restrictions a document asserts, per
-    /// [`viewer_host::IGNORE_RESTRICTIONS`].
+    /// [`viewer_host::RESTRICTIONS`] and [`viewer_host::IGNORE_RESTRICTIONS`].
     ///
-    /// **Not a user interface for them**, which `doc/todo/38` says is not to be built yet: it is
-    /// the one policy value `viewer-core` asks for, supplied the way this host supplies the other
-    /// one it has (§6.3.2.2's widget appearances, one field up). `CLAUDE.md` is why it is here at
-    /// all — "it shall always be possible to turn them off" — and until ADR 0604 this program
-    /// printed the word and then refused it.
-    restrictions: RestrictionLevel,
+    /// One level per operation, all six [`RestrictionLevel::Off`] unless a person said otherwise:
+    /// `CLAUDE.md` is why — "it shall always be possible to turn them off" — and until ADR 0604
+    /// this program printed the word and then refused it. A command line is not the menu
+    /// `doc/todo/38` still wants, and it is the channel a window has today (ADR 1144).
+    restrictions: RestrictionPolicy,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -50,12 +49,15 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut fragment = None;
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
-    let mut restrictions = RestrictionLevel::On;
+    let mut restrictions = RestrictionPolicy::default();
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
         } else if word == IGNORE_RESTRICTIONS {
-            restrictions = RestrictionLevel::Off;
+            restrictions = RestrictionPolicy::uniform(RestrictionLevel::Off);
+        } else if let Some(list) = word.strip_prefix(viewer_host::RESTRICTIONS) {
+            // `CLAUDE.md`'s four levels, one operation at a time (ADR 1144).
+            restrictions = viewer_host::restrictions(list, restrictions)?;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -202,7 +204,8 @@ mod tests {
     /// ADR 0604.
     #[test]
     fn the_word_the_refusal_names_turns_the_restrictions_off() {
-        use viewer_core::RestrictionLevel;
+        use pdf_model::restriction::Operation;
+        use viewer_core::{RestrictionLevel, RestrictionPolicy};
         let asked = arguments(
             [
                 viewer_host::IGNORE_RESTRICTIONS.to_owned(),
@@ -211,13 +214,29 @@ mod tests {
             .into_iter(),
         )
         .expect("a document");
-        assert_eq!(asked.restrictions, RestrictionLevel::Off);
+        assert_eq!(
+            asked.restrictions,
+            RestrictionPolicy::uniform(RestrictionLevel::Off)
+        );
         let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
         assert_eq!(
             asked.restrictions,
-            RestrictionLevel::On,
-            "obeying is the default, because a reader that ignored a document's restrictions \
-             without being asked would be choosing on the person's behalf in the other direction"
+            RestrictionPolicy::default(),
+            "every operation off, because `CLAUDE.md` says a document's restrictions are low \
+             priority and that turning them off shall always be possible"
+        );
+
+        let asked =
+            arguments(["--restrictions=copy:warn".to_owned(), "x.pdf".to_owned()].into_iter())
+                .expect("a document");
+        assert_eq!(
+            asked.restrictions.level(Operation::Extract),
+            RestrictionLevel::Warn
+        );
+        assert_eq!(
+            asked.restrictions.level(Operation::Annotate),
+            RestrictionLevel::Off,
+            "an operation the list did not name keeps the level it had"
         );
     }
 }

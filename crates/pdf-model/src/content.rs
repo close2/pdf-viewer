@@ -899,6 +899,9 @@ impl<'a> Interpreter<'a> {
             // conditions hold vacuously until a `Do` or a pattern fill narrows them.
             opaque_ancestry: true,
             transfer_painted_opaquely: false,
+            transfers: pdf_render::TransferBuilder::default(),
+            transfer_maps: Vec::new(),
+            tiling_cell: false,
             nested_space_departed: false,
             into_parent: BTreeMap::new(),
             presses,
@@ -1001,6 +1004,11 @@ impl<'a> Interpreter<'a> {
             black_generation_stated,
             opaque_ancestry,
             transfer_painted_opaquely,
+            transfers,
+            transfer_maps,
+            // Scoped by `Interpreter::tile` with `mem::replace`, so a checkpoint's rollback
+            // cannot land inside a cell and nothing has to be carried across one.
+            tiling_cell: _,
             nested_space_departed,
         } = self;
         Checkpoint {
@@ -1044,6 +1052,8 @@ impl<'a> Interpreter<'a> {
             black_generation_stated: *black_generation_stated,
             opaque_ancestry: *opaque_ancestry,
             transfer_painted_opaquely: *transfer_painted_opaquely,
+            transfers: transfers.clone(),
+            transfer_maps: transfer_maps.clone(),
             nested_space_departed: *nested_space_departed,
         }
     }
@@ -1094,6 +1104,8 @@ impl<'a> Interpreter<'a> {
             black_generation_stated,
             opaque_ancestry,
             transfer_painted_opaquely,
+            transfers,
+            transfer_maps,
             nested_space_departed,
         } = checkpoint;
         self.list = list;
@@ -1136,6 +1148,8 @@ impl<'a> Interpreter<'a> {
         self.black_generation_stated = black_generation_stated;
         self.opaque_ancestry = opaque_ancestry;
         self.transfer_painted_opaquely = transfer_painted_opaquely;
+        self.transfers = transfers;
+        self.transfer_maps = transfer_maps;
         self.nested_space_departed = nested_space_departed;
     }
 }
@@ -1251,6 +1265,10 @@ struct Checkpoint {
     opaque_ancestry: bool,
     /// See [`Interpreter::transfer_painted_opaquely`].
     transfer_painted_opaquely: bool,
+    /// See [`Interpreter::transfers`].
+    transfers: pdf_render::TransferBuilder,
+    /// See [`Interpreter::transfer_maps`].
+    transfer_maps: Vec<(Arc<Transfer>, Arc<pdf_render::TransferMap>)>,
     /// See [`Interpreter::nested_space_departed`].
     nested_space_departed: bool,
 }
@@ -1560,6 +1578,11 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
     // than in `interpreted` so that `replace` — which rebuilds the list from a checkpoint
     // under the same compositing — states it again.
     let mut list = interpreter.list;
+    // §11.7.5.2's channel, where any mark on the page carried a function. `None` on every page
+    // that states none, which is what leaves those pages rasterising exactly as before.
+    if let Some(channel) = interpreter.transfers.finish() {
+        list.set_transfers(channel);
+    }
     match &interpreter.compositing {
         Compositing::Calibrated(route) => list.set_grey_curve(route.curve().clone()),
         Compositing::Additive(route) => list.set_colour_cube(route.cube().clone()),
@@ -2272,6 +2295,30 @@ struct Interpreter<'a> {
     /// it can no longer put a wrong colour under anything. See
     /// [`Interpreter::transfer_for_mark`].
     transfer_painted_opaquely: bool,
+    /// §11.7.5.2's channel: every elementary mark the page paints, with the function in force
+    /// when it was painted, so that a backend can apply the clause's choice per pixel after all
+    /// compositing rather than per colour before it.
+    ///
+    /// Inert until a mark carries a function, which is what keeps the pages that state none —
+    /// all but one of the corpus (`examples/transfer_function_census`) — paying nothing for it.
+    /// `finished` puts it on the list; see [`pdf_render::TransferBuilder`] and ADR 1125.
+    transfers: pdf_render::TransferBuilder,
+    /// One [`pdf_render::TransferMap`] per distinct [`Transfer`] this page has stated.
+    ///
+    /// Building a map evaluates the file's functions at every one of 768 eight-bit inputs, and a
+    /// page states a handful of transfers against thousands of marks, so the answer is memoised
+    /// against the `Arc` the graphics state holds rather than rebuilt per mark.
+    transfer_maps: Vec<(Arc<Transfer>, Arc<pdf_render::TransferMap>)>,
+    /// Whether a tiling pattern's cell is being interpreted.
+    ///
+    /// §8.7.3.1's cell is interpreted **once** and its commands copied to every site
+    /// (`Interpreter::repeat_cell`, ADR 0430), so a mark drawn inside one stands for as many
+    /// marks as the tiling has sites and §11.7.5.2's channel cannot carry it: one shape would
+    /// occlude one tile. So a cell's marks keep §10.5's pre-composite application, exactly as
+    /// they had it before the channel existed, and [`Interpreter::tile`] records the *finished*
+    /// tiling's commands as occluders instead — which is what keeps a transferred mark under a
+    /// tiling from being mapped a second time. See [`Interpreter::mark_transfer`].
+    tiling_cell: bool,
     /// Whether a group changed the blending space in force, with something compositing in
     /// it, while colours were being resolved for a space that is not the device's.
     ///

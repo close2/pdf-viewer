@@ -1577,6 +1577,12 @@ impl Tree {
     /// annotations would be a *complete-looking* answer that silently omitted every paragraph on
     /// the page. Found by comparing this route against the whole-tree walk over the corpus, on a
     /// document whose pages carry widget annotations and no `/StructParents` at all; ADR 0325.
+    ///
+    /// **A page that states the entry answers `None` too where the parent tree holds no array
+    /// under that key**, and a caller that reports the first reason for the second is saying
+    /// something false about the file. The commonest reason for it is the one ADR 1151 measured:
+    /// the entry is read here as the tree *states* it, and a file is free to write the array as an
+    /// object of its own.
     #[must_use]
     pub fn elements_on_page(
         &self,

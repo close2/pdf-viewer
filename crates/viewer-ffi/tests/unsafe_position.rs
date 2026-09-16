@@ -184,8 +184,14 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // whether a layer is drawn and which no document may assert about the person reading it
     // (ADR 1106). No event kind came with it, so `QUORRA_EVENT_KIND_COUNT` stayed 19, and
     // `QUORRA_ABI_VERSION` did not move for the standing reason.
-    assert_eq!(no_mangle, 184, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 170, "168 `unsafe` entry points and two helpers");
+    // **And three in the thousand-one-hundred-and-forty-seventh**: `quorra_restrict_operation`
+    // sets one operation's level of `CLAUDE.md`'s four, `quorra_copy` is §7.6.4.2 bit 5 asked as
+    // an operation rather than read as a readback, and `quorra_event_copied` hands over what it
+    // granted (ADR 1144). One event kind came with them, so `QUORRA_EVENT_KIND_COUNT` moved
+    // 20 → 21; `QUORRA_ABI_VERSION` did not, for the standing reason — no struct crosses by value
+    // and an entry point *added* is one an old caller never calls.
+    assert_eq!(no_mangle, 187, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 173, "171 `unsafe` entry points and two helpers");
 }
 
 #[test]

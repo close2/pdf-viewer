@@ -30,7 +30,7 @@ use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
     Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
     FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query,
-    RestrictionLevel, Selection, TrustPolicy, Zoom,
+    RestrictionLevel, RestrictionPolicy, Selection, TrustPolicy, Zoom,
 };
 
 use pdf_signature::verdict::Acceptance;
@@ -1018,6 +1018,11 @@ mod command_kind {
     // therefore decides which of its layers are drawn, and only the host was told who is reading
     // (ADR 1106).
     pub(super) const AUDIENCE: u8 = 30;
+    // §7.6.4.2's bit 5 asked as an operation, since the one-thousand-one-hundred-and-forty-seventh:
+    // a person pressed copy. It crosses because the confined worker holds the document and
+    // therefore the policy, exactly as `RESTRICT` does — and because a query could not be asked,
+    // held or refused (ADR 1144).
+    pub(super) const COPY: u8 = 31;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1174,13 +1179,21 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::VIEW);
             encode_viewing(&mut writer, *view);
         }
-        Command::Restrict(level) => {
-            writer.u8(k::RESTRICT).u8(match level {
-                RestrictionLevel::On => 0,
-                RestrictionLevel::Off => 1,
-                RestrictionLevel::Ask => 2,
-                RestrictionLevel::Warn => 3,
-            });
+        // One byte per operation, in `RestrictionPolicy::OPERATIONS`'s order, which is the one
+        // order the wire, the C ABI and a command line all enumerate a policy in (ADR 1144).
+        Command::Restrict(policy) => {
+            writer.u8(k::RESTRICT);
+            for operation in RestrictionPolicy::OPERATIONS {
+                writer.u8(match policy.level(operation) {
+                    RestrictionLevel::On => 0,
+                    RestrictionLevel::Off => 1,
+                    RestrictionLevel::Ask => 2,
+                    RestrictionLevel::Warn => 3,
+                });
+            }
+        }
+        Command::Copy => {
+            writer.u8(k::COPY);
         }
         Command::Answer { document, proceed } => {
             writer.u8(k::ANSWER).document(*document).bool(*proceed);
@@ -1485,18 +1498,28 @@ pub(crate) fn decode_command_holding(
                 language: stated.then_some(language),
             })
         }
-        k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
-            0 => RestrictionLevel::On,
-            1 => RestrictionLevel::Off,
-            2 => RestrictionLevel::Ask,
-            3 => RestrictionLevel::Warn,
-            value => {
-                return Err(ProtocolError::Unrecognised {
-                    what: "a restriction level",
-                    value: u32::from(value),
-                });
+        k::RESTRICT => {
+            let mut policy = RestrictionPolicy::default();
+            for operation in RestrictionPolicy::OPERATIONS {
+                policy = policy.with(
+                    operation,
+                    match reader.u8("a restriction level")? {
+                        0 => RestrictionLevel::On,
+                        1 => RestrictionLevel::Off,
+                        2 => RestrictionLevel::Ask,
+                        3 => RestrictionLevel::Warn,
+                        value => {
+                            return Err(ProtocolError::Unrecognised {
+                                what: "a restriction level",
+                                value: u32::from(value),
+                            });
+                        }
+                    },
+                );
             }
-        }),
+            Command::Restrict(policy)
+        }
+        k::COPY => Command::Copy,
         k::PRESENT => Command::Present(match reader.u8("a presentation mode")? {
             0 => PresentationMode::Off,
             1 => PresentationMode::On,
@@ -1940,6 +1963,8 @@ mod event_kind {
     pub(super) const ATTACHMENTS_CHANGED: u8 = 18;
     /// §12.7.6.2's composed submission, for a host with a network. ADR 1062.
     pub(super) const SUBMIT: u8 = 19;
+    /// `Command::Copy` granted, with §14.8.2.5's two orders of the text. ADR 1144.
+    pub(super) const COPIED: u8 = 20;
 }
 
 /// Encodes one event.
@@ -2095,6 +2120,17 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 // fragment, and one on the far side of a pipe needs them as much as one in the
                 // same process (ADR 0431).
                 .option_str(fragment.as_deref());
+        }
+        Event::Copied {
+            document,
+            logical,
+            page_order,
+        } => {
+            writer
+                .u8(k::COPIED)
+                .document(*document)
+                .option_str(logical.as_deref())
+                .str(page_order);
         }
         Event::Refused {
             document,
@@ -2296,6 +2332,11 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             name: reader.string("an attachment's name")?,
             bytes: reader.owned_bytes("an attachment")?,
             fragment: reader.option_string("a fragment identifier")?,
+        },
+        k::COPIED => Event::Copied {
+            document: reader.document(what)?,
+            logical: reader.option_string("§14.8.2.5's logical content order")?,
+            page_order: reader.string("the selected text")?,
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
@@ -3588,11 +3629,21 @@ mod tests {
                 zoom: Zoom::FitWidth,
                 scroll: (0.0, 0.0),
             }),
-            Command::Restrict(RestrictionLevel::Off),
-            Command::Restrict(RestrictionLevel::On),
+            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::Off)),
+            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::On)),
             // The other two of `CLAUDE.md`'s four levels, and the answer that makes the third
             // one a level, since the eight-hundred-and-eighty-fifth session (ADR 0814).
-            Command::Restrict(RestrictionLevel::Ask),
+            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::Ask)),
+            // And a level per operation, since the one-thousand-one-hundred-and-forty-seventh:
+            // six bytes rather than one, and a policy that is *not* uniform is what catches a
+            // wire that lost the order they go in (ADR 1144).
+            Command::Restrict(
+                RestrictionPolicy::default()
+                    .with(Operation::Extract, RestrictionLevel::Ask)
+                    .with(Operation::Annotate, RestrictionLevel::On)
+                    .with(Operation::Assemble, RestrictionLevel::Warn),
+            ),
+            Command::Copy,
             // §12.8.1's third question: the empty policy every host starts with, and a populated
             // one. Both, because the empty set is not a degenerate case — it is this program's
             // standing answer (ADR 1039) and a wire that lost it would turn *nobody named one*
@@ -3609,7 +3660,7 @@ mod tests {
                 ),
                 acceptance: Acceptance::UnknownRevocationAccepted,
             }),
-            Command::Restrict(RestrictionLevel::Warn),
+            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::Warn)),
             Command::Answer {
                 document: DocumentId(3),
                 proceed: true,
@@ -4434,6 +4485,8 @@ mod tests {
                 data: b"hello".as_slice().into(),
                 decryption_failed: false,
             }),
+            thumbnail: None,
+            payload: None,
         }];
         let Reply::Attachments(read) = round_trip(&Answer::Attachments(attachments)) else {
             panic!("an attachment list comes back as one");

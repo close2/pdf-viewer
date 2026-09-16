@@ -2947,13 +2947,47 @@ fn a_check_box_keeps_its_own_caption_under_every_pointer_state() {
 /// The same fixture [`text_field`] builds with one operator added, so the twin that states the
 /// identity differs from the scaled one in six numbers and nothing else (trap 8).
 fn matrix_field(tm: &str) -> Vec<u8> {
+    matrix_field_quadded(tm, 2)
+}
+
+/// The same, with Table 228's `/Q` given — which is the entry that makes a mirror visible.
+fn matrix_field_quadded(tm: &str, quadding: u8) -> Vec<u8> {
     pdf_with(
         "",
         &format!(
             "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
-             /T (field) /V (Hi) /DA (/Helv 12 Tf 0 g {tm} Tm) /Q 2 >>"
+             /T (field) /V (Hi) /DA (/Helv 12 Tf 0 g {tm} Tm) /Q {quadding} >>"
         ),
     )
+}
+
+#[expect(
+    clippy::doc_markdown,
+    reason = "the doc quotes Table 231 verbatim, and a quotation is not marked up"
+)]
+/// A comb field of six cells holding two characters, with the `/DA` matrix given.
+///
+/// Table 231 bit 25 "[m]ay be set only if the MaxLen entry is present", so the fixture states one.
+fn comb_matrix_field(tm: &str) -> Vec<u8> {
+    pdf_with(
+        "",
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+             /T (field) /V (Hi) /MaxLen 6 /Ff 16777216 \
+             /DA (/Helv 12 Tf 0 g {tm} Tm) /Q 0 >>"
+        ),
+    )
+}
+
+/// The tallest run of ink, top to bottom, as a count of rows.
+fn ink_height(raster: &pdf_render::Raster) -> u32 {
+    let rows = inked_rows(raster);
+    assert!(!rows.is_empty(), "nothing was drawn at all");
+    rows.iter()
+        .max()
+        .copied()
+        .unwrap_or_default()
+        .saturating_sub(rows.iter().min().copied().unwrap_or_default())
 }
 
 /// §12.7.4.3's `Tm`: the text is measured in the space the matrix scales *from*.
@@ -3011,23 +3045,202 @@ fn a_da_whose_text_matrix_scales_is_measured_in_the_space_it_scales_from() {
     );
 }
 
-/// A `Tm` that rotates keeps the report, because a line's direction is not a pair of lengths.
+/// A `Tm` that turns a quarter lays the line down the box, because the clause left it standing.
 ///
-/// The asymmetry is the point: a diagonal positive matrix is two lengths and a box can be
-/// divided by it, while a rotation puts the line off the axis this module lays text along and a
-/// skew shears it. Those are still said out loud rather than drawn as if the matrix were the
-/// identity (trap 5), which is what `Owed::TransformedTextMatrix` is for.
+/// ISO 32000-2 §12.7.4.3:
+///
+/// > If this operator is present, the interactive PDF processor shall replace the horizontal and
+/// > vertical translation components with positioning values it determines to be appropriate,
+/// > based on the field value, the quadding ( Q ) attribute, and any layout rules it employs.
+///
+/// `0 1 −1 0` sends text space's x-axis to the appearance's y, so the line of text runs *up* the
+/// widget and the room it has is the widget's height. Laid out in the space the matrix maps from,
+/// that is the same arithmetic as an upright line in a box whose sides were exchanged — which is
+/// the whole of ADR 1130's argument, and what the picture has to show: the ink is taller than it
+/// is wide, and the unturned twin is wider than it is tall.
 #[test]
-fn a_da_whose_text_matrix_rotates_or_mirrors_is_still_reported() {
-    for tm in ["0 1 -1 0 0 0", "1 0 0.5 1 0 0", "-1 0 0 1 0 0"] {
+fn a_da_whose_text_matrix_turns_a_quarter_runs_the_line_up_the_box() {
+    let (upright_owed, upright) = draw(matrix_field("1 0 0 1 0 0"));
+    let (turned_owed, turned) = draw(matrix_field("0 1 -1 0 0 0"));
+
+    let (left, right) = ink_span(&upright);
+    assert!(
+        right - left > ink_height(&upright),
+        "the unturned line is wider than it is tall: {} by {}",
+        right - left,
+        ink_height(&upright)
+    );
+    let (left, right) = ink_span(&turned);
+    assert!(
+        ink_height(&turned) > right - left,
+        "and the turned one is taller than it is wide: {} by {}",
+        right - left,
+        ink_height(&turned)
+    );
+    // `/Q 2` ends the line at the box's far end, and a quarter turn counterclockwise makes that
+    // the *top*. §12.5.4's default border is one point wide and inside `/Rect`, so 41..69.
+    let top = inked_rows(&turned)
+        .iter()
+        .max()
+        .copied()
+        .unwrap_or_default();
+    assert!(
+        (64..=69).contains(&top),
+        "the right-quadded line ends at the top of the box, not {top}"
+    );
+    assert!(
+        upright_owed.is_empty() && turned_owed.is_empty(),
+        "neither is owed anything now: {upright_owed:?} {turned_owed:?}"
+    );
+}
+
+/// A `Tm` with a negative element mirrors the layout, quadding and all.
+///
+/// The translation is replaced and the rest stands, so `−1 0 0 1` makes every advance run
+/// leftwards. Laying out in the space it maps from and carrying the position forward puts a
+/// right-quadded line at the *left* edge of the box, running back towards it — which is what a
+/// mirror does to a line of text and is exactly what a layout that measured unmirrored advances
+/// could not produce.
+#[test]
+fn a_da_whose_text_matrix_mirrors_puts_the_quadded_line_at_the_other_edge() {
+    let (plain_owed, plain) = draw(matrix_field("1 0 0 1 0 0"));
+    let (mirror_owed, mirror) = draw(matrix_field("-1 0 0 1 0 0"));
+
+    let (plain_start, plain_end) = ink_span(&plain);
+    let (mirror_start, mirror_end) = ink_span(&mirror);
+    assert!(
+        (175..=179).contains(&plain_end),
+        "the unmirrored line ends at the right edge, not {plain_end}"
+    );
+    assert!(
+        (21..=25).contains(&mirror_start),
+        "and the mirrored one starts at the left edge, not {mirror_start}"
+    );
+    let (plain_width, mirror_width) = (plain_end - plain_start, mirror_end - mirror_start);
+    assert!(
+        plain_width.abs_diff(mirror_width) <= 2,
+        "the same line, the same width: {plain_width} then {mirror_width}"
+    );
+    assert!(
+        plain_owed.is_empty() && mirror_owed.is_empty(),
+        "neither is owed anything now: {plain_owed:?} {mirror_owed:?}"
+    );
+}
+
+/// A `Tm` that shears keeps the line on its axis and leans the glyphs across it.
+///
+/// `1 0 0.5 1` leaves text space's x-axis alone, so the line still runs along the box's width and
+/// the advances are unchanged; what moves is where the line *lands*, by `0.5 ·` the baseline. The
+/// layout answers that by starting the line that much earlier — `Frame::drift` — so a
+/// left-quadded line still begins at the box's left edge, and the lean is in the glyphs rather
+/// than in the position. A layout that ignored the shear would put the whole line to the right of
+/// where the box states, which is what the second assertion measures.
+#[test]
+fn a_da_whose_text_matrix_shears_keeps_the_line_where_the_box_states() {
+    let (plain_owed, plain) = draw(matrix_field_quadded("1 0 0 1 0 0", 0));
+    let (shear_owed, shear) = draw(matrix_field_quadded("1 0 0.5 1 0 0", 0));
+
+    let (plain_start, _) = ink_span(&plain);
+    let (shear_start, _) = ink_span(&shear);
+    assert!(
+        (21..=25).contains(&plain_start) && shear_start.abs_diff(plain_start) <= 2,
+        "both lines start at the box's left edge: {plain_start} then {shear_start}"
+    );
+    // The lean itself: the glyphs' tops sit right of their feet, by half the height between them.
+    let rows = inked_rows(&shear);
+    let (low, high) = (
+        rows.iter().min().copied().unwrap_or_default(),
+        rows.iter().max().copied().unwrap_or_default(),
+    );
+    let leftmost = |row: u32| {
+        let scan = shear.height.saturating_sub(1).saturating_sub(row);
+        (0..shear.width).find(|x| opacity(&shear, *x, scan) > 0)
+    };
+    let (foot, head) = (leftmost(low), leftmost(high));
+    match (foot, head) {
+        (Some(foot), Some(head)) => assert!(
+            head > foot,
+            "the glyph tops lean right of their feet: {foot} then {head}"
+        ),
+        other => panic!("both ends of the sheared text are inked: {other:?}"),
+    }
+    assert!(
+        plain_owed.is_empty() && shear_owed.is_empty(),
+        "neither is owed anything now: {plain_owed:?} {shear_owed:?}"
+    );
+}
+
+#[expect(
+    clippy::doc_markdown,
+    reason = "the doc quotes Table 231 verbatim, and a quotation is not marked up"
+)]
+/// A comb's cells carry the `/DA`'s own matrix, because §12.7.4.3 replaces the translation only.
+///
+/// Table 231 bit 25 divides the box "into as many equally spaced positions, or combs, as the
+/// value of MaxLen", so the cells are the box's whichever space it is measured in — and the
+/// matrix is what decides how big the character inside one is drawn. Six cells either way; twice
+/// the glyph under `2 0 0 2`, and nothing owed, where the matrix used to be dropped and reported.
+#[test]
+fn a_comb_fields_cells_carry_the_das_own_matrix() {
+    let (plain_owed, plain) = draw(comb_matrix_field("1 0 0 1 0 0"));
+    let (scaled_owed, scaled) = draw(comb_matrix_field("2 0 0 2 0 0"));
+
+    let (short, tall) = (ink_height(&plain), ink_height(&scaled));
+    assert!(
+        tall >= short.saturating_mul(2).saturating_sub(2)
+            && tall <= short.saturating_mul(2).saturating_add(2),
+        "the scaled comb's characters are twice as tall: {short} then {tall}"
+    );
+    // The cells are the box's own, so the first character still sits in the first cell of six —
+    // 158 points wide inside the border, so the cell is 26 and the glyph is centred in it.
+    let (plain_start, _) = ink_span(&plain);
+    let (scaled_start, _) = ink_span(&scaled);
+    assert!(
+        (21..=47).contains(&plain_start) && (21..=47).contains(&scaled_start),
+        "both start inside the first of six cells: {plain_start} then {scaled_start}"
+    );
+    assert!(
+        plain_owed.is_empty() && scaled_owed.is_empty(),
+        "neither is owed anything now: {plain_owed:?} {scaled_owed:?}"
+    );
+}
+
+/// A `Tm` whose line runs off both of the box's axes keeps the report, and so does a singular one.
+///
+/// The asymmetry is the point, and it is geometric rather than cautious: where the linear part
+/// sends the line along one of the box's own axes, the box states a length the line can be
+/// measured against and the layout runs in the space the matrix maps from. A turn by anything
+/// other than a multiple of 90° sends it off both, so no length the box states is the room that
+/// line has; a singular matrix leaves no box at all. Both are said out loud rather than drawn as
+/// if the matrix were the identity (trap 5), which is what `Owed::TransformedTextMatrix` is for.
+#[test]
+fn a_da_whose_text_matrix_leaves_both_axes_is_still_reported() {
+    for tm in [
+        "0.7071 0.7071 -0.7071 0.7071 0 0",
+        "1 2 2 4 0 0",
+        "1 0 2 0 0 0",
+    ] {
         let (reported, _) = draw(matrix_field(tm));
         assert!(
             reported
                 .iter()
-                .any(|note| note.contains("a rotation, a skew or a mirror")),
-            "{tm} is not a pair of lengths and says so, got {reported:?}"
+                .any(|note| note.contains("off both axes of the box")),
+            "{tm} leaves no length for a line to be measured against and says so, got {reported:?}"
         );
     }
+
+    // **And the matrix still reaches the stream.** The clause replaces the translation and
+    // nothing else, so dropping the rest would depart from it further than the mispositioning the
+    // report names: a turn of half a right angle draws the value on the diagonal, which is taller
+    // than the same value upright and is only taller if the producer's `Tm` was written.
+    let (_, upright) = draw(matrix_field("1 0 0 1 0 0"));
+    let (_, turned) = draw(matrix_field("0.7071 0.7071 -0.7071 0.7071 0 0"));
+    assert!(
+        ink_height(&turned) > ink_height(&upright),
+        "the refused matrix is still what the glyphs are drawn under: {} then {}",
+        ink_height(&upright),
+        ink_height(&turned)
+    );
 }
 
 /// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws it plain.

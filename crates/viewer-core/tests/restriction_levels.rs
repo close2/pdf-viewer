@@ -1,0 +1,338 @@
+//! `CLAUDE.md`'s four restriction levels, one per operation, against a document that states a `/P`.
+//!
+//! The reading is `pdf-model`'s and is tested there as arithmetic over §7.6.4.2's Table 22; this is
+//! the other end — the *policy*, which `CLAUDE.md` principle 3 makes the reader's. That principle
+//! calls a document's restrictions low priority, requires that turning them off shall always be
+//! possible, and gives the reason: a restriction a reader cannot switch off is one somebody else's
+//! file imposed on them, and this program is the reader's.
+//!
+//! What is asserted here is that each of the four levels does its own thing, that a level set for
+//! one operation says nothing about another, and that a document which restricts nothing is never
+//! the subject of a question at any level. ADR 1144.
+
+#![expect(
+    clippy::panic,
+    clippy::expect_used,
+    reason = "test code: a fixture that cannot exercise the rule must fail loudly rather than \
+              pass by doing nothing"
+)]
+
+use std::path::{Path, PathBuf};
+
+use pdf_model::restriction::Operation;
+use pdf_model::view::Markup;
+use pdf_render::Rasterizer;
+use render_cpu::CpuRasterizer;
+use viewer_core::{
+    Answer, Command, DocumentId, Edit, Event, Query, Rendered, RestrictionLevel, RestrictionPolicy,
+    Selection, Viewer,
+};
+
+/// The document every test here opens.
+const DOCUMENT: DocumentId = DocumentId(1);
+
+/// A corpus document's bytes, or `None` when the submodule is not checked out.
+fn corpus_bytes(name: &str) -> Option<Vec<u8>> {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs")
+        .join(name);
+    std::fs::read(path).ok()
+}
+
+/// The PDF Association's note, which is committed and states no `/Encrypt` at all.
+fn unrestricted_bytes() -> Vec<u8> {
+    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf");
+    std::fs::read(&path).unwrap_or_else(|error| panic!("{} is committed: {error}", path.display()))
+}
+
+/// Opens a document under one policy, draws page one and selects all of its text.
+///
+/// The selection is what a copy is *of*, so it is part of the fixture rather than part of a test:
+/// `Command::Copy` on a page with nothing selected sends nothing at all, which is its own
+/// assertion below.
+fn reading(bytes: Vec<u8>, policy: RestrictionPolicy) -> Viewer {
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer.handle(Command::Restrict(policy)).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = events
+        .iter()
+        .find_map(|event| match event {
+            Event::NeedsRender(request) => Some(request.clone()),
+            _ => None,
+        })
+        .expect("a render was asked for");
+    let raster = CpuRasterizer::new()
+        .rasterize(&request.list, request.target)
+        .expect("the CPU backend draws this page");
+    viewer
+        .handle(Command::RenderReady {
+            token: request.token,
+            rendered: Rendered::Raster(raster),
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    viewer
+}
+
+/// The same viewer over `bug1815476.pdf`, whose flag word is the fixture this file rests on.
+///
+/// `/R 4` and `/P −1084`, which is `0xFFFFFBC4`: **bit 5 clear**, so §7.6.4.2's Table 22 withholds
+/// "[c]opy or otherwise extract text and graphics from the document"; **bit 6 clear**, so it
+/// withholds "[a]dd or modify text annotations"; and **bit 9 set**, which at revision 3 or greater
+/// grants "[f]ill in existing interactive form fields (including signature fields), even if bit 6
+/// is clear". One document, two operations withheld and a third granted, which is what makes it
+/// evidence that the three are read apart rather than together.
+fn restricted(policy: RestrictionPolicy) -> Option<Viewer> {
+    Some(reading(corpus_bytes("bug1815476.pdf")?, policy))
+}
+
+/// Everything one command produced.
+fn sent(viewer: &mut Viewer, command: Command) -> Vec<Event> {
+    viewer.handle(command).collect()
+}
+
+/// The text of the one [`Event::Copied`] in a list, or `None` where there is none.
+fn copied(events: &[Event]) -> Option<String> {
+    events.iter().find_map(|event| match event {
+        Event::Copied {
+            logical,
+            page_order,
+            ..
+        } => Some(logical.clone().unwrap_or_else(|| page_order.clone())),
+        _ => None,
+    })
+}
+
+/// Whether a list holds an event of this shape.
+fn holds(events: &[Event], shape: fn(&Event) -> bool) -> bool {
+    events.iter().any(shape)
+}
+
+/// All four levels over §7.6.4.2 bit 5, on a document whose `/P` clears it.
+///
+/// The calibration `CLAUDE.md` principle 3 asks for, one level at a time: `Off` copies, `On`
+/// refuses by name, `Ask` holds the text until somebody answers, `Warn` copies and then says what
+/// the document said.
+#[test]
+fn a_copy_obeys_the_level_the_reader_set_for_copying() {
+    let Some(mut viewer) = restricted(RestrictionPolicy::default()) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let events = sent(&mut viewer, Command::Copy);
+    let text = copied(&events).expect("`Off` is the default and copies");
+    assert!(
+        text.contains("ANEXO") || text.contains("A N E X O"),
+        "the page's own characters: {:?}",
+        &text[..40.min(text.len())]
+    );
+    assert!(
+        !holds(&events, |event| matches!(
+            event,
+            Event::Refused { .. } | Event::Asking { .. } | Event::Warned { .. }
+        )),
+        "a reader at `Off` asked to be told nothing"
+    );
+
+    // `On`: §7.6.4.1's `shall` kept, with the bit named for a person.
+    let mut viewer = restricted(RestrictionPolicy::uniform(RestrictionLevel::On))
+        .expect("the submodule is checked out");
+    let events = sent(&mut viewer, Command::Copy);
+    assert!(copied(&events).is_none(), "nothing left the document");
+    let Some(Event::Refused {
+        operation, notes, ..
+    }) = events
+        .iter()
+        .find(|event| matches!(event, Event::Refused { .. }))
+    else {
+        panic!("the copy is refused by name: {events:?}");
+    };
+    assert_eq!(*operation, Operation::Extract);
+    assert!(
+        notes.iter().any(|note| note.contains("7.6.4.2")),
+        "the clause is named: {notes:?}"
+    );
+
+    // `Ask`: the text is held, and a `no` forgets it without a word.
+    let mut viewer = restricted(RestrictionPolicy::uniform(RestrictionLevel::Ask))
+        .expect("the submodule is checked out");
+    let events = sent(&mut viewer, Command::Copy);
+    assert!(copied(&events).is_none(), "nothing until it is answered");
+    assert!(
+        holds(&events, |event| matches!(
+            event,
+            Event::Asking {
+                operation: Operation::Extract,
+                ..
+            }
+        )),
+        "the question is asked: {events:?}"
+    );
+    let declined = sent(
+        &mut viewer,
+        Command::Answer {
+            document: DOCUMENT,
+            proceed: false,
+        },
+    );
+    assert!(declined.is_empty(), "a question declined says nothing");
+    // And the same question answered `yes` copies exactly what it was asked about.
+    let mut viewer = restricted(RestrictionPolicy::uniform(RestrictionLevel::Ask))
+        .expect("the submodule is checked out");
+    sent(&mut viewer, Command::Copy);
+    let granted = sent(
+        &mut viewer,
+        Command::Answer {
+            document: DOCUMENT,
+            proceed: true,
+        },
+    );
+    assert_eq!(
+        copied(&granted),
+        Some(text.clone()),
+        "what goes ahead on a yes is what was asked about"
+    );
+
+    // `Warn`: the copy, and then the sentence about it.
+    let mut viewer = restricted(RestrictionPolicy::uniform(RestrictionLevel::Warn))
+        .expect("the submodule is checked out");
+    let events = sent(&mut viewer, Command::Copy);
+    assert_eq!(copied(&events), Some(text));
+    let copied_at = events
+        .iter()
+        .position(|event| matches!(event, Event::Copied { .. }))
+        .expect("the copy happened");
+    let warned_at = events
+        .iter()
+        .position(|event| matches!(event, Event::Warned { .. }))
+        .expect("and was warned about");
+    assert!(copied_at < warned_at, "the state first, then the sentence");
+}
+
+/// A level set for one operation says nothing whatever about another.
+///
+/// The whole reason the policy is six levels rather than one: this document withholds copying
+/// *and* annotating, and a reader who asked to be stopped from copying did not ask to be stopped
+/// from marking a page up.
+#[test]
+fn one_operations_level_says_nothing_about_another() {
+    let policy = RestrictionPolicy::default().with(Operation::Extract, RestrictionLevel::On);
+    let Some(mut viewer) = restricted(policy) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let events = sent(&mut viewer, Command::Copy);
+    assert!(copied(&events).is_none(), "copying is the level set to on");
+
+    let events = sent(
+        &mut viewer,
+        Command::Edit(Edit::Markup {
+            kind: Markup::Highlight,
+            colour: [1.0, 1.0, 0.0],
+        }),
+    );
+    assert!(
+        !holds(&events, |event| matches!(event, Event::Refused { .. })),
+        "and annotating, which this /P also withholds, was left off: {events:?}"
+    );
+    assert!(
+        matches!(viewer.query(Query::Dirty), Answer::Dirty(true)),
+        "the highlight is in the edit log"
+    );
+
+    // And the other way round, which is the half a one-level policy could never express.
+    let policy = RestrictionPolicy::default().with(Operation::Annotate, RestrictionLevel::On);
+    let mut viewer = restricted(policy).expect("the submodule is checked out");
+    let events = sent(
+        &mut viewer,
+        Command::Edit(Edit::Markup {
+            kind: Markup::Highlight,
+            colour: [1.0, 1.0, 0.0],
+        }),
+    );
+    assert!(
+        holds(&events, |event| matches!(
+            event,
+            Event::Refused {
+                operation: Operation::Annotate,
+                ..
+            }
+        )),
+        "annotating is the level set to on: {events:?}"
+    );
+    assert!(
+        copied(&sent(&mut viewer, Command::Copy)).is_some(),
+        "and copying was left off"
+    );
+}
+
+/// A document that restricts nothing is never asked about, at any of the four levels.
+///
+/// `pdf_model::restriction::Level::verdict` answers `Proceed` for an empty list whatever the level
+/// is, and this is that rule where a person would notice it: turning every restriction on does not
+/// turn a plain document into one that argues back.
+#[test]
+fn a_document_that_restricts_nothing_proceeds_silently_at_every_level() {
+    for level in [
+        RestrictionLevel::Off,
+        RestrictionLevel::On,
+        RestrictionLevel::Ask,
+        RestrictionLevel::Warn,
+    ] {
+        let mut viewer = reading(unrestricted_bytes(), RestrictionPolicy::uniform(level));
+        let events = sent(&mut viewer, Command::Copy);
+        assert!(
+            copied(&events).is_some(),
+            "{level:?}: the copy goes ahead, because nothing withholds it"
+        );
+        assert!(
+            !holds(&events, |event| matches!(
+                event,
+                Event::Refused { .. } | Event::Asking { .. } | Event::Warned { .. }
+            )),
+            "{level:?}: and nothing is said about it: {events:?}"
+        );
+
+        let events = sent(
+            &mut viewer,
+            Command::Edit(Edit::Markup {
+                kind: Markup::Highlight,
+                colour: [1.0, 1.0, 0.0],
+            }),
+        );
+        assert!(
+            !holds(&events, |event| matches!(
+                event,
+                Event::Refused { .. } | Event::Asking { .. } | Event::Warned { .. }
+            )),
+            "{level:?}: nor about an annotation: {events:?}"
+        );
+    }
+}
+
+/// Nothing selected is nothing copied, and nothing said — at every level.
+///
+/// A question about an empty copy would be a question about nothing, and a `QUORRA_EVENT_COPIED`
+/// carrying no characters would be a lie about the selection (`doc/todo/38`).
+#[test]
+fn a_copy_of_nothing_asks_nobody_anything() {
+    for level in [RestrictionLevel::On, RestrictionLevel::Ask] {
+        let mut viewer = reading(unrestricted_bytes(), RestrictionPolicy::uniform(level));
+        viewer
+            .handle(Command::Select(Selection::None))
+            .for_each(drop);
+        assert!(
+            sent(&mut viewer, Command::Copy).is_empty(),
+            "{level:?}: nothing is selected, so there is nothing to ask about"
+        );
+    }
+}

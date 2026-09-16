@@ -172,21 +172,56 @@ this tree reports rather than guesses. **This is the bucket principle 5 says dec
 claim is a claim about the specification, so a revisiting round re-reads the titles around the clause
 before trusting the word (the DeviceCMYK and transfer-function precedents in `CLAUDE.md`).
 
+**Every row below has been read against its clause and against Errata Collection 3, and each one's
+note now records the reading.** Four claims decayed and left the bucket by the door at the bottom of
+this section; two more kept their disposition and lost the reason they gave for it, which is written
+into their notes rather than here. The membership below is what survived.
+
 - §12.6.4.9, §12.6.4.10 (`reported`) — Sound and Movie: clause 13 multimedia, excluded by principle 5.
 - §12.5.6.11, §12.5.6.12 (`reported`) — a caret's `/Sy` symbol and a rubber stamp's `/IT`, whose
   artwork the standard states nowhere (`doc/todo/26`); every corpus instance carries an appearance.
-- §10.7, §10.4.2.3 — scan-conversion departures §10.7.1's NOTE licenses, and a grey-to-CMYK formula
-  §10.4.2.1 ranks below the ICC route so nothing calls it.
+- §10.7, §10.4.2.3 — scan-conversion departures §10.7.1's NOTE licenses, and a grey-to-CMYK
+  conversion §10.4.2.1 ranks below the ICC route this tree takes. (The second is a *departure*
+  rather than a formula nothing calls — `colour::rgb_to_cmyk` evaluates it as the nominal
+  separation — and is the one candidate for `departed` a round with an ADR to write could take.)
 - §9.8.3.3 — an FD class descriptor: the reader's half is done; enforcement is a validator's job the
   reader does not own.
 - §12.7.4.1 — a field-inheritance bound the clause forbids, kept at 32 because principle 3's resource
   budgets outrank a depth no legitimate form approaches; reaching it is reported.
-- §12.5.6.2, §12.7.8.3.1, §12.7.8.3.2, §12.7.8.3.3 — XFA-formatted `/RC`, deprecated `/EmbeddedFDFs`,
-  and FDF branches whose alternative would write onto an immutable document.
+- §12.5.6.2, §12.7.8.3.3 — XFA-formatted `/RC`, and the `/Rename` branch whose alternative would
+  write fields onto an immutable document. (`/ExData` is disposed of by Table 173 stating no entries
+  for `MarkupGeo`, not by a scope claim: geospatial is §12.10's and is in scope.)
 - §12.7.5.4 — a choice field's selection: the clause states no appearance for it, so the page shows
   the list and reports which item `/V` names.
-- §8.9.6.4 — colour-key masking for a JPEG 2000 image, whose bit depth Table 87 leaves to the
-  processor; reported as unusable.
-- §12.8.3.4.4 — a CAdES profile requirement needing a signature policy no file carries.
 - §12.11, §12.11.3 — acting on document requirements: the program draws and reports rather than
-  refusing, and has no second document to weight a penalty against.
+  refusing (§12.11.6's own `departed` row), and has no second document to choose between.
+  (§12.11.3's *other* weighting is over one document's own requirements array and is performed.)
+
+### What left this bucket, and where it went
+
+Four claims decayed when the rows were re-read against their clauses. Each row's note carries the
+reading; this is only where they went.
+
+- **§12.7.8.3.1** — `/EmbeddedFDFs` was carried here as *deprecated in PDF 2.0*. Table 246's cell
+  states no deprecation, only Table 247's `/EncryptionRevision` does, and Errata Collection 3's
+  Issue #173 rewrites the ambiguous prose so that the deprecation is FDF *encryption*'s. The entry
+  is an ordinary PDF 1.4 array and its import is owed → **bucket 4, feature depth**.
+- **§12.8.3.4.4** — carried here as needing a signature policy no file carries. ETSI EN 319 122-1
+  clause 5.2.10 defines the attribute that carries the policy document inside the signature; what
+  is missing is the specification that defines the policy's syntax → **bucket 2,
+  external-dependency-blocked**.
+- **§12.7.8.3.2** — carried here as an FDF branch that would write onto an immutable document. The
+  row's own note has said since ADR 0907 that the unapplied `/AP`, `/APRef`, `/IF`, `/A` and `/AA`
+  are requirements of the clause's replacing sentence unmet; only `/RV` is the XFA exclusion →
+  **bucket 4, feature depth**.
+- **§8.9.6.4** — carried here as a bit depth Table 87 leaves undefined. The same table says the
+  depth *is* determined by the processor while decoding, and ADR 1121 settled that the residue is
+  this tree's eight-bit raster → **bucket 4, feature depth**.
+
+Two rows kept their place and lost their stated reason, which is the same decay one step short of a
+move: §12.5.6.2's `/ExData` (a scope claim `CLAUDE.md` does not support, replaced by Table 173's own
+sentence) and §12.11.3 (a residue quoted across a join, half of which needs no second document and
+is performed). **§10.4.2.3 is the one candidate for a status this sweep could not take**: the
+clause defines the grey-to-CMYK conversion outright, `colour::rgb_to_cmyk` evaluates exactly it for
+a grey, and the residue is a departure of §10.4.2.5's shape on §10.4.2.1's ranking — which is a
+decision, and a decision needs a round that can write the ADR.

@@ -1206,7 +1206,12 @@ impl Interpreter<'_> {
             && state.blend == BlendMode::Normal
             && state.soft_mask.is_none();
         let ancestry = std::mem::replace(&mut self.opaque_ancestry, inside);
+        // §11.7.5.2's channel carries one shape per mark and a cell's marks are copied to every
+        // site, so a cell's own marks keep §10.5's pre-composite application and the finished
+        // tiling is recorded as occluders below. See `Interpreter::tiling_cell`.
+        let outer_cell = std::mem::replace(&mut self.tiling_cell, true);
         let box_clip = self.run_cell(tiling, offset.then(tiling.to_page), clip);
+        self.tiling_cell = outer_cell;
         self.opaque_ancestry = ancestry;
         // Table 74's box, and the marks it halves: both are settled on the cell itself, so
         // every site is a copy of the settled figure rather than a repetition of the question.
@@ -1256,6 +1261,31 @@ impl Interpreter<'_> {
         // The two groups the finished tiling may want, and which of §11.6.4.1's sources of
         // shape and opacity each one carries.
         self.compose_tiling(mark, alpha, shape, state);
+        self.occlude_tiling(mark);
+    }
+
+    /// Records a finished tiling's marks in §11.7.5.2's channel, as occluders and nothing more.
+    ///
+    /// The cell's own marks carry §10.5's function in their colours (`Interpreter::tiling_cell`),
+    /// so what the channel must say about the pixels a tiling covers is *not* the page's business
+    /// to map a second time — and it must say something, because a transferred mark underneath
+    /// would otherwise choose the function at those pixels and the tiling's already-mapped
+    /// colours would go through it again. So every tile is pushed with no function of its own,
+    /// which is the page's default and therefore no map at all.
+    ///
+    /// Nothing walks here on a page that has stated no transfer, which is all but one of the
+    /// corpus (`examples/transfer_function_census`).
+    fn occlude_tiling(&mut self, mark: usize) {
+        if !self.transfers.is_live() {
+            return;
+        }
+        let tiles = self
+            .list
+            .commands()
+            .get(mark..)
+            .unwrap_or_default()
+            .to_vec();
+        occlude(&tiles, &mut self.transfers);
     }
 
     /// Wraps a finished tiling in the groups its region and its graphics state ask for.
@@ -1414,6 +1444,9 @@ impl Interpreter<'_> {
         // makes `sh` a non-stroking painting operation, which is which of Table 51's two alpha
         // constants §11.7.5.2's first condition reads.
         let transfer = self.transfer_for_mark(state, Painted::Shading { stroking: false });
+        // An `sh` samples the function into its colours as a shading pattern does, so it arms the
+        // same report — see `Interpreter::mark_transfer`.
+        self.transfer_painted_opaquely |= transfer.is_some();
         let conversion = self.conversion(state);
         let colouring = crate::shading::Colouring::new(
             state.smoothness,
@@ -1462,17 +1495,27 @@ impl Interpreter<'_> {
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
 
-                self.draw(Command::Fill {
-                    path: Arc::new(path),
-                    transform,
-                    fill_rule: FillRule::NonZero,
-                    // §11.6.4.4's non-stroking constant applies to `sh` as to any other
-                    // non-stroking painting operation.
-                    paint: Paint::Shading(shading_with_alpha(&Arc::new(shading), state.fill_alpha)),
-                    clip,
-                    mask: state.soft_mask,
-                    blend: state.blend,
-                });
+                // `None` for §11.7.5.2's channel rather than `transfer`: an `sh` builds its
+                // colours here and `Colouring` has already put the function inside them (ADR
+                // 0479), so the mark is recorded for what it *occludes* and nothing is applied
+                // to it a second time. See [`Interpreter::shading_transfer`].
+                self.draw_mark(
+                    Command::Fill {
+                        path: Arc::new(path),
+                        transform,
+                        fill_rule: FillRule::NonZero,
+                        // §11.6.4.4's non-stroking constant applies to `sh` as to any other
+                        // non-stroking painting operation.
+                        paint: Paint::Shading(shading_with_alpha(
+                            &Arc::new(shading),
+                            state.fill_alpha,
+                        )),
+                        clip,
+                        mask: state.soft_mask,
+                        blend: state.blend,
+                    },
+                    None,
+                );
             }
             Err(error) => self.note(Unsupported::Shading {
                 name: format!("/{label}: {error}"),
@@ -1831,6 +1874,47 @@ impl Interpreter<'_> {
         };
         let pattern = Rc::clone(pattern);
         self.shading_paint(&pattern, transfer, state.fill_alpha)
+    }
+
+    /// §11.7.5.2's function for one mark, split into the half that goes inside the colour and
+    /// the half that rides on the mark.
+    ///
+    /// §11.7.5.2 chooses the function by the topmost object covering a point and §11.7.5.3's NOTE
+    /// applies it "only when all colour compositing has been completed", so the function belongs
+    /// on the mark — [`Interpreter::draw_mark`] — and not in the colour. **A shading pattern is
+    /// the one exception**: its colours are a ramp, and ADR 0479 applies the transfer where those
+    /// colours are *made*, because mapping a simplified ramp's two stops draws the chord between
+    /// the transferred ends rather than the transfer's own curve. So a shading paint keeps the
+    /// function inside the colour, as it has since the six-hundred-and-fiftieth session, and the
+    /// mark then carries none: it would otherwise be applied twice.
+    ///
+    /// Returns `(inside, on_mark)`, at most one of which is `Some`. `stroking` picks which of
+    /// §8.7.2's two pattern slots decides, the same way [`Interpreter::fill_paint`] and
+    /// [`Interpreter::stroke_paint`] do.
+    pub(super) fn mark_transfer(
+        &mut self,
+        state: &GraphicsState,
+        painted: Painted,
+        stroking: bool,
+    ) -> (
+        Option<Arc<crate::content::Transfer>>,
+        Option<Arc<crate::content::Transfer>>,
+    ) {
+        let transfer = self.transfer_for_mark(state, painted).cloned();
+        let pattern = if stroking {
+            &state.stroke_pattern
+        } else {
+            &state.fill_pattern
+        };
+        if self.tiling_cell || matches!(pattern, Some(PatternPaint::Shading(_))) {
+            // The two routes left on which §11.7.5.2's ordering can still be seen — a shading's
+            // sampled ramp, and a tiling cell interpreted once for every site — so this is where
+            // `Unsupported::TransferFunction`'s condition is armed; see
+            // `Interpreter::transfer_for_mark`, which is the only reader of the flag.
+            self.transfer_painted_opaquely |= transfer.is_some();
+            return (transfer, None);
+        }
+        (None, transfer)
     }
 
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
@@ -2204,5 +2288,20 @@ pub(super) fn shading_with_alpha(shading: &Arc<Shading>, alpha: f32) -> Arc<Shad
         Arc::new(shading.with_alpha(alpha))
     } else {
         Arc::clone(shading)
+    }
+}
+
+/// Every leaf of `commands` pushed into §11.7.5.2's channel as an occluder and nothing more.
+///
+/// The recursion is what a group costs: §11.7.5.2's elementary objects are the leaves, and a
+/// [`Command::Group`] is the compositing around them rather than an object the clause can choose a
+/// function from. See [`Interpreter::occlude_tiling`], the one caller.
+fn occlude(commands: &[Command], into: &mut pdf_render::TransferBuilder) {
+    for command in commands {
+        match command {
+            Command::Group { commands, .. } => occlude(commands, into),
+            Command::Shaped { object, .. } => occlude(std::slice::from_ref(object), into),
+            leaf => into.push(None, leaf),
+        }
     }
 }

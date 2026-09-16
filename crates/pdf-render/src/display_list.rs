@@ -729,6 +729,9 @@ pub struct DisplayList {
     /// §14.11.2.1's boundary, in this list's own space, or `None` for a list that is not a
     /// page. See [`DisplayList::content_clip`].
     content_clip: Option<Rect>,
+    /// §11.7.5.2's transfer function per elementary mark, where any mark on the page carried
+    /// one. See [`DisplayList::set_transfers`].
+    transfers: Option<Box<crate::transfer_channel::TransferChannel>>,
 }
 
 impl DisplayList {
@@ -746,6 +749,55 @@ impl DisplayList {
             grey_curve: None,
             colour_cube: None,
             content_clip: None,
+            transfers: None,
+        }
+    }
+
+    /// States which transfer function §11.7.5.2 chooses at each point of this page.
+    ///
+    /// ISO 32000-2 §11.7.5.2 picks the function by the topmost elementary object covering a
+    /// point rather than by the colour under it, and §11.7.5.3's NOTE puts the mapping after all
+    /// compositing — so the answer cannot ride on a colour and cannot be applied while one is
+    /// being made. The channel carries every elementary mark's own function to the backend, which
+    /// applies it once over the finished raster: see [`crate::resolve_transfers`], which is the
+    /// one place the clause's rule is stated (trap 2).
+    ///
+    /// Set by `pdf_model`'s interpreter, and only where a mark on the page actually carried a
+    /// function — a list without one is unchanged, and rasterises exactly as it did before the
+    /// channel existed.
+    pub fn set_transfers(&mut self, channel: crate::transfer_channel::TransferChannel) {
+        self.transfers = Some(Box::new(channel));
+    }
+
+    /// §11.7.5.2's channel for this page, or `None` where no mark carried a transfer function.
+    #[must_use]
+    pub fn transfers(&self) -> Option<&crate::transfer_channel::TransferChannel> {
+        self.transfers.as_deref()
+    }
+
+    /// This list's clips and page, with `commands` in place of its own and no channel of its own.
+    ///
+    /// What [`crate::resolve_transfers`] rasterises to read §11.7.5.2's shapes off. A mark's
+    /// [`ClipId`] names this list's clip table — "a group's elements are clipped by chains that
+    /// begin outside it", which is why one table serves every nesting level — so a list of marks
+    /// taken out of this one is only rasterisable beside the table they name.
+    ///
+    /// The blending colour spaces are deliberately not carried: those decide what a composited
+    /// *colour* means, and a shape list is read for its alpha alone.
+    #[must_use]
+    pub fn shape_list(&self, commands: Vec<Command>) -> Self {
+        Self {
+            page_size: self.page_size,
+            commands,
+            clips: self.clips.clone(),
+            soft_masks: self.soft_masks.clone(),
+            clip_index: self.clip_index.clone(),
+            blending: None,
+            black: None,
+            grey_curve: None,
+            colour_cube: None,
+            content_clip: self.content_clip,
+            transfers: None,
         }
     }
 

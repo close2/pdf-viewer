@@ -298,7 +298,7 @@ pub struct Host {
     /// [`viewer_core::RestrictionLevel::On`] unless [`viewer_host::IGNORE_RESTRICTIONS`] was on the
     /// command line — which this program refused as an unknown option while telling every person
     /// who hit a refusal to use it (ADR 0604).
-    restrictions: viewer_core::RestrictionLevel,
+    restrictions: viewer_core::RestrictionPolicy,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -418,7 +418,7 @@ impl Host {
         path: &Path,
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
-        restrictions: viewer_core::RestrictionLevel,
+        restrictions: viewer_core::RestrictionPolicy,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -897,6 +897,20 @@ impl Host {
             // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
             // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => {
+                if let Some(copied) = viewer_host::copied(logical, &page_order) {
+                    self.ui.chrome.clipboard().set_text(&copied.text);
+                    self.say(&format!(
+                        "copied {} characters in {}",
+                        copied.text.chars().count(),
+                        copied.order
+                    ));
+                }
+            }
             Event::Asking {
                 document, notes, ..
             } => {
@@ -1647,25 +1661,15 @@ impl Host {
     /// of it is where two of them would stop agreeing. What is this host's is the two questions
     /// and the toolkit.
     fn copy_selection(&mut self) {
-        // Owned before the second question, because both answers borrow the viewer.
-        let page_order = match self.viewer.query(Query::Selection) {
-            Answer::Selected(selected) => selected.text.into_owned(),
-            _ => String::new(),
-        };
-        let logical = match self.viewer.query(Query::LogicalSelection) {
-            Answer::LogicalSelection(text) => Some(text),
-            _ => None,
-        };
-        let Some(copied) = viewer_host::copied(logical, &page_order) else {
+        // **A command rather than two questions**, since the one-thousand-one-hundred-and-forty-
+        // seventh session: §7.6.4.2's bit 5 restricts taking text out of the document, and a
+        // readback can be neither refused, asked about nor warned of. The two answers arrive
+        // together on `Event::Copied` and the choice between them is unchanged (ADR 1144).
+        if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
             self.say("nothing on the page is selected to copy");
             return;
-        };
-        self.ui.chrome.clipboard().set_text(&copied.text);
-        self.say(&format!(
-            "copied {} characters in {}",
-            copied.text.chars().count(),
-            copied.order
-        ));
+        }
+        self.dispatch(Command::Copy);
     }
 
     /// A page turn: the title bar, and what the pages now on the screen could not draw.

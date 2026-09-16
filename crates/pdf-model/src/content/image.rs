@@ -13,63 +13,10 @@ use pdf_syntax::{Dictionary, Object};
 use crate::colour::Conversion;
 
 use super::colour::Intent;
-use super::ext_gstate::Transfer;
 use super::pattern::{PatternPaint, Tiled};
 use super::report::Unsupported;
 use super::transparency::Painted;
 use super::{GraphicsState, Interpreter};
-
-/// One decoded image through §10.5's transfer function, or unchanged where none is in effect.
-///
-/// Straight alpha in, straight alpha out: the samples are RGBA and only the three colour
-/// components are mapped, for [`Transfer::apply`]'s reason.
-///
-/// **The cost is one lookup per sample and it is paid only where a file states a transfer** — 1 of
-/// the 974 corpus documents, measured by `examples/transfer_function_census`, and 13 state a `/TR`
-/// at all with the other 12 saying `/Identity`. An image with no transfer is moved rather than
-/// touched.
-fn transferred_image(image: pdf_render::Image, transfer: Option<&Transfer>) -> pdf_render::Image {
-    let Some(transfer) = transfer else {
-        return image;
-    };
-    let mut image = image;
-    // A memo over the 8-bit triple, because a transfer is a pure function of a colour and a
-    // photograph repeats its colours: the same argument `image::SampleMemo` records for
-    // §8.6's spaces, one clause along.
-    let mut memo: std::collections::HashMap<[u8; 3], [u8; 3]> = std::collections::HashMap::new();
-    // The samples are shared, so a transfer takes a copy — which is right rather than merely
-    // necessary: the same XObject drawn twice under two graphics states is two pictures, and
-    // writing through the `Arc` would make the second overwrite the first.
-    let mut data = image.data.to_vec();
-    for pixel in data.chunks_exact_mut(4) {
-        let Some(rgb) = pixel.get(..3) else { continue };
-        let key = [rgb[0], rgb[1], rgb[2]];
-        let mapped = *memo.entry(key).or_insert_with(|| {
-            let out = transfer.apply(Color {
-                r: f32::from(key[0]) / 255.0,
-                g: f32::from(key[1]) / 255.0,
-                b: f32::from(key[2]) / 255.0,
-                a: 1.0,
-            });
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "clamped to 0..=1 by Transfer::apply, so the product is a byte"
-            )]
-            let bytes = [
-                (out.r * 255.0).round() as u8,
-                (out.g * 255.0).round() as u8,
-                (out.b * 255.0).round() as u8,
-            ];
-            bytes
-        });
-        if let Some(three) = pixel.get_mut(..3) {
-            three.copy_from_slice(&mapped);
-        }
-    }
-    image.data = Arc::from(data.as_slice());
-    image
-}
 
 impl Interpreter<'_> {
     /// How this image's samples are converted: §11.4's target, and §8.6.5.9's black point under
@@ -288,12 +235,8 @@ impl Interpreter<'_> {
         // §11.7.5.2's fourth condition is about the image's own dictionary rather than about the
         // graphics state — "[i]f the object is an image XObject and there is not an SMask entry
         // in its image dictionary" — so it is answered here, where the dictionary is.
-        let transfer = self.transfer_for_mark(
-            state,
-            Painted::Image {
-                soft_mask: !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null),
-            },
-        );
+        let soft_mask = !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null);
+        let (_, transfer) = self.mark_transfer(state, Painted::Image { soft_mask }, false);
         match self.image_rasters.parts(
             self.document,
             image,
@@ -311,35 +254,35 @@ impl Interpreter<'_> {
                         name: format!("{name}: {detail}"),
                     });
                 }
-                // §10.5 applies to "any object for which transfer functions are in effect", and an
-                // image is one object however many samples it has: the clause's input is "the
-                // value of a colour component in the device's native colour space", which by this
-                // point every sample is. Done here rather than in `image::decode_parts` because a
-                // transfer belongs to the *graphics state* the image is drawn under and not to the
-                // image, and the same XObject drawn twice under two states is two pictures.
-                // What the alpha channel is made of travels in the raster itself
-                // (`pdf_render::Image::sample_alpha`, decided in `image::decode_parts`), so
-                // §10.5's transfer — which produces a new raster out of the old one's
-                // components — carries it forward with everything else the decode settled.
-                let image =
-                    picture.source(|image| transferred_image(image, transfer.map(Arc::as_ref)));
-                self.draw(Command::Image {
-                    image,
-                    transform: state.transform,
-                    alpha: state.fill_alpha,
-                    clip: state.clip,
-                    // §11.6.4.3: an image's own `/SMask`, `/SMaskInData` or `/Mask` "shall
-                    // override, for this image object only, the current soft mask in the
-                    // graphics state" — so the two are never applied together, and the state's
-                    // mask survives for whatever is drawn next.
-                    mask: (!crate::image::overrides_graphics_state_mask(
-                        self.document,
-                        &stream.dict,
-                    ))
-                    .then_some(state.soft_mask)
-                    .flatten(),
-                    blend: state.blend,
-                });
+                // §10.5 applies to "any object for which transfer functions are in effect", and
+                // an image is one object however many samples it has — but §11.7.5.2 chooses the
+                // function by the topmost object covering a *point* and §11.7.5.3's NOTE applies
+                // it "only when all colour compositing has been completed", so it no longer goes
+                // into the samples here. It rides on the mark instead and a backend applies it
+                // once over the finished raster (`Interpreter::draw_mark`, ADR 1125), which is
+                // what makes the image's own antialiased edge take the clause's value rather than
+                // the composite of an already-transferred colour.
+                let image = picture.source(|image| image);
+                self.draw_mark(
+                    Command::Image {
+                        image,
+                        transform: state.transform,
+                        alpha: state.fill_alpha,
+                        clip: state.clip,
+                        // §11.6.4.3: an image's own `/SMask`, `/SMaskInData` or `/Mask` "shall
+                        // override, for this image object only, the current soft mask in the
+                        // graphics state" — so the two are never applied together, and the state's
+                        // mask survives for whatever is drawn next.
+                        mask: (!crate::image::overrides_graphics_state_mask(
+                            self.document,
+                            &stream.dict,
+                        ))
+                        .then_some(state.soft_mask)
+                        .flatten(),
+                        blend: state.blend,
+                    },
+                    transfer,
+                );
             }
             Err(error) => self.note(Unsupported::Image {
                 name: format!("{name}: {error}"),
@@ -485,16 +428,19 @@ impl Interpreter<'_> {
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
-        let transfer = self.transfer_for_mark(state, Painted::of(state, false));
-        let paint = self.fill_paint(state, transfer);
-        self.draw(Command::Fill {
-            path: Arc::new(path),
-            transform: state.transform,
-            fill_rule: FillRule::NonZero,
-            paint,
-            clip,
-            mask: Some(mask),
-            blend: state.blend,
-        });
+        let (inside, transfer) = self.mark_transfer(state, Painted::of(state, false), false);
+        let paint = self.fill_paint(state, inside.as_ref());
+        self.draw_mark(
+            Command::Fill {
+                path: Arc::new(path),
+                transform: state.transform,
+                fill_rule: FillRule::NonZero,
+                paint,
+                clip,
+                mask: Some(mask),
+                blend: state.blend,
+            },
+            transfer,
+        );
     }
 }

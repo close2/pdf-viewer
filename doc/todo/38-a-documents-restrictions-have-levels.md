@@ -1,11 +1,12 @@
 # A document's restrictions are the reader's to set, and they have levels
 
-Status: **the reading, the four levels, the verdict, the events, the command and — since session
-916 — the *question* are built (ADR 0212, session 373; ADR 0803, session 872; ADR 0814, session
-885; ADRs 0874 and 0875, session 916). Two faces put the question to a person today: KIO through
-`WorkerBase::messageBox`, and `pdf-transform` on a terminal. What is left is a way for a person to
-*choose* a level, and a dialogue in the three windows.** No user interface is to be built until
-the project owner asks for one.
+Status: **the reading, the four levels, the verdict, the events, the command, the question and —
+since session 1147 — a level *per restriction*, a way for a person to choose one, and the copy
+operation are built** (ADR 0212, session 373; ADR 0803, session 872; ADR 0814, session 885;
+ADRs 0874 and 0875, session 916; ADR 1144, session 1147). **The owner lifted the no-interface
+deferral on 2026-09-16**, and the first piece of it is a command line every face takes:
+`--restrictions=copy:ask,annotate:on`. What is left is a *menu* and a dialogue in the three
+windows, and the operations `Print` and `Assemble` await verbs this program does not have.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
@@ -141,17 +142,40 @@ And `Refusal::Declined` is a third sentence beside `Restricted` and `Unanswered`
 program is obeying the document", "a reader decided" and "nobody was asked" are three events and
 were two.
 
+## What the one-thousand-one-hundred-and-forty-seventh session built
+
+**A level per restriction, `off` as the default, a way to set one, and the copy operation.** ADR
+1144 has the argument and the census; the shape is:
+
+| | where |
+|---|---|
+| `RestrictionPolicy` — one `RestrictionLevel` per `Operation`, total over all six | `viewer_core::command` |
+| every entry `Off` by default, in the viewer as in every other face | `RestrictionPolicy::default` |
+| `Command::Restrict` carries the policy; `uniform` is the one value it used to carry | `viewer_core::command` |
+| `Command::Copy` / `Event::Copied` — §7.6.4.2 bit 5 as an *operation* | `Viewer::copy`, `Viewer::standing` |
+| six level bytes on the wire, in `RestrictionPolicy::OPERATIONS`'s order | `viewer-confined` |
+| `quorra_restrict_operation`, `quorra_copy`, `quorra_event_copied`; kinds 20 → 21 | `viewer-ffi` |
+| `--restrictions=copy:ask,annotate:on`, one parser for three windows | `viewer_host::restrictions` |
+
+**The census this rests on**, over the 90 763 files of `doc/pdf.js`, `doc/corpora/` and
+`corpus-cache/`: 2 186 state an `/Encrypt` this reader reads, 4 open as the owner, **1 539 withhold
+copying** and **1 901 withhold copying or annotating**. Bit 5 was consulted by `pdf-transform` and
+by nothing a person could press.
+
+**`Print` and `Assemble` are entries with no verb behind them in this crate**, deliberately: a
+policy with a hole in it would have to grow a message to fill it, and the day a window gains a print
+path the level is already the reader's to set.
+
 ## What is left
 
-- **A way to choose a level, and a dialogue in the three windows.** A menu with four entries and,
-  probably, the per-document override the viewer-wide value does not express today — plus a prompt
-  for `Event::Asking` in each window. **A command line is not one**, which is worth restating
-  because it is what kept two hosts without any way out for the whole of their lives: nothing in
-  the owner's instruction was blocking the flag, and nobody checked. **Nor is an environment
-  variable**: `PDF_KIO_RESTRICTIONS` is the only channel a `kioworker` has and it is a placeholder
-  for a configuration page, said so in `pdfworker.cpp` rather than left to be discovered.
-  The *dialogue* half of this entry is done in two faces (ADR 0875); the *choosing* half is owed
-  everywhere but the command line.
+- **A menu, and a dialogue in the three windows.** The *choosing* half arrived in session 1147 as
+  `--restrictions=`, one parser in `viewer_host::restrictions` for all three windows, and
+  `quorra_restrict_operation` for a C caller. **A command line is still not a menu**, which is
+  worth restating because a sentence claiming otherwise is what kept two hosts without any way out
+  for the whole of their lives (ADR 0604). What is owed is four entries per operation in a window's
+  own chrome, the per-document override the viewer-wide policy does not express, and a prompt for
+  `Event::Asking` in each of the three — which each still answers with
+  `viewer_host::unanswerable` and `proceed: false`, out loud.
 - **The gestures that send `Edit::Attach` and `Edit::Detach`.** No drag-and-drop, no command
   palette, no file dialog was built in the eight-hundred-and-eighty-fifth session, by the owner's
   word that the mockups are being reviewed first. What each window gained is the *display* half:
@@ -167,16 +191,14 @@ were two.
   the host opens the file, the worker never sees a path, and a large attachment stops being copied
   through a pipe. `encode_edit`'s arm 4 is where it lands, and what it needs is a `Payload` that can
   name an open file rather than a `Vec`.
-- **Table 22's bit 5, and the copy operation nothing here can name.** The bit is "[c]opy or
-  otherwise extract text and graphics from the document", and this crate hands a host a *readback*
-  — the same `Query::Selection` that a drag asks sixty times a second in order to draw a
-  highlight. Refusing that would refuse the highlight. The bit also carves itself: "for the limited
-  purpose of providing this content to assistive technology, a PDF reader should behave as if this
-  bit was set to 1", so §14.9's tree must never be gated by it. What is needed is a host saying
-  *this is a copy* — plausibly `Query::LogicalSelection`, whose own doc comment already says "[a]
-  host asks this when a person presses copy", made to answer differently under the policy. It
-  wants an `Answer` variant rather than `Answer::None`, because a copy that came back empty would
-  be a lie about the selection.
+- **Table 22's bit 5 is consulted since session 1147, and it took a command rather than a query.**
+  The entry above said a host had to say *this is a copy* and guessed at `Query::LogicalSelection`;
+  the guess was wrong for a reason it named and one it did not. A readback cannot be refused without
+  refusing the highlight a drag draws — and a query raises no events, so nothing can wait on one and
+  the *ask* level cannot exist over it at all. So `Command::Copy` is the gesture, `Viewer::standing`
+  is the consultation, and `Event::Copied` carries **both** of §14.8.2.5's orders because
+  `viewer_host::copied` already chooses between them once for three windows and a C caller. §14.9's
+  tree is still a query and is gated by nothing, on Table 22's own carve-out. ADR 1144.
 - **Annex O's `ef`, which is the same four levels arriving from `doc/todo/39`.** "[S]ecurity should
   be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
@@ -190,7 +212,9 @@ were two.
 
 ## What not to do
 
-- **No user interface**, by the owner's instruction, until it is asked for.
+- **No menu invented ahead of the mockups.** The interface deferral was lifted on 2026-09-16 and
+  the command line is its first piece; a window's own chrome follows the owner's HTML mockups, as
+  the attach and detach gestures do.
 - **No level enum shipped with one caller**, which is why two of four were absent rather than
   stubbed for five hundred sessions and arrived in the eight-hundred-and-eighty-fifth *with* the
   event and the command. ADR 0178's lesson, and it is discharged rather than retired: the next

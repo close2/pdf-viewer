@@ -241,6 +241,31 @@ pub enum Event {
         /// One sentence per restriction that applied, worded for after the fact.
         notes: Vec<String>,
     },
+    /// [`crate::Command::Copy`] went ahead: the selected text, in both of §14.8.2.5's orders.
+    ///
+    /// **An event rather than an answer, because a copy is an operation and a readback is not.**
+    /// §7.6.4.2's bit 5 restricts taking text out of the document, so a copy has to be able to be
+    /// refused, asked about and warned of like every other operation — which a
+    /// [`crate::Query`] cannot be, since a query produces no events and nothing can wait on one.
+    /// A copy at [`crate::RestrictionLevel::On`] sends [`Self::Refused`] and this event does not
+    /// arrive; at `Ask` it arrives only after [`crate::Command::Answer`] says to proceed.
+    ///
+    /// **Both orders, because the choice between them is the host's and is already made once.**
+    /// §14.8.2.5.1 defines a page content order and a logical content order and says they
+    /// "should" coincide without requiring it; `viewer_host::copied` is the one place in this
+    /// tree that decides which a clipboard gets, and it takes exactly these two values. Nothing
+    /// is sent where nothing is selected.
+    Copied {
+        /// Which document.
+        document: DocumentId,
+        /// §14.8.2.5's logical content order, where the structure tree reaches every byte of the
+        /// selection — `None` otherwise, which is [`crate::Query::LogicalSelection`]'s own rule
+        /// and not a failure.
+        logical: Option<String>,
+        /// The same characters in page content order, which is what
+        /// [`crate::Query::Selection`] answers with and what a host falls back to.
+        page_order: String,
+    },
     /// §7.11.4's list of embedded files is not what [`crate::Query::Attachments`] last answered:
     /// a file was attached or detached, or an undo or a redo crossed such an edit. Ask again.
     ///

@@ -99,6 +99,20 @@ pub enum Uncodable {
          which this format does not carry"
     )]
     DeferredColours,
+    /// The list carries §11.7.5.2's transfer channel, which this format does not carry.
+    ///
+    /// ISO 32000-2 §11.7.5.2 chooses the transfer function at a point by the topmost elementary
+    /// object covering it, so the function rides on the marks rather than on their colours
+    /// (`pdf_render::TransferChannel`) and a backend applies it once over the finished raster.
+    /// Encoding it means encoding a second sequence of commands per run of marks, which this
+    /// format has no shape for — and the page is drawn correctly either way, because a list this
+    /// refuses crosses as pixels drawn by the confined process's own CPU backend, which applies
+    /// the channel. One corpus document states a function at all
+    /// (`pdf-model`'s `examples/transfer_function_census`).
+    #[error(
+        "a display list carries §11.7.5.2's transfer channel, which this format does not carry"
+    )]
+    TransferChannel,
     /// The list nests deeper than any backend in this tree composites.
     #[error("a display list nesting {depth} deep is past the {MAX_GROUP_DEPTH} a backend draws")]
     TooDeep {
@@ -405,6 +419,12 @@ fn write_list(
     page: bool,
     budget: usize,
 ) -> Result<(), Uncodable> {
+    // §11.7.5.2's channel is a second sequence of marks per run and this format has no shape
+    // for one; a list that carries it crosses as pixels instead (`Uncodable::TransferChannel`),
+    // drawn by the confined process's own CPU backend, which applies the clause.
+    if list.transfers().is_some() {
+        return Err(Uncodable::TransferChannel);
+    }
     let mut tables = Tables::default();
     let mut body = Writer::new();
 

@@ -33,7 +33,13 @@
     reason = "test code: a malformed fixture should fail loudly and say what it found instead, \
               and these pages are 100 units square where no arithmetic can overflow"
 )]
-
+#![expect(
+    clippy::map_unwrap_or,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a level clamped to 0..=255 and rounded cannot truncate or lose its sign, and the \
+              map/unwrap_or is a test's own reading of an Option"
+)]
 use std::fmt::Write as _;
 use std::sync::Arc;
 
@@ -84,11 +90,19 @@ fn fixture(resources: &str, content: &str, extra: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// Every solid fill colour the page paints, in the order the display list holds them.
+/// Every solid fill colour the page paints **as a device receives it**, in painting order.
 ///
 /// Recursive, because a transparency group's marks are a [`Command::Group`]'s elements rather than
 /// commands of the page — and the clause under test is precisely about what a group does to the
 /// marks inside it.
+///
+/// §10.5's function is no longer inside the colour: §11.7.5.2 chooses it by the topmost object
+/// covering a point and §11.7.5.3's NOTE applies it "only when all colour compositing has been
+/// completed", so it rides on the mark and a backend maps the finished pixel
+/// (`pdf_render::resolve_transfers`, ADR 1125). Every fixture here paints one mark over nothing,
+/// where the composite *is* the mark's colour and the clause's value is therefore the transfer of
+/// it — so applying the mark's own map here asks exactly the question these tests have always
+/// asked, one step further along the pipeline.
 fn filled_colours(bytes: Vec<u8>) -> Vec<pdf_render::Color> {
     fn walk(commands: &[Command], into: &mut Vec<pdf_render::Color>) {
         for command in commands {
@@ -106,9 +120,47 @@ fn filled_colours(bytes: Vec<u8>) -> Vec<pdf_render::Color> {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let interpretation = pdf_model::interpret(&document, &page);
+    let list = &interpretation.display_list;
     let mut colours = Vec::new();
-    walk(interpretation.display_list.commands(), &mut colours);
+    walk(list.commands(), &mut colours);
+    // Which map each mark carries, in the same painting order the walk above collects colours in.
+    let mut maps: Vec<Option<&pdf_render::TransferMap>> = Vec::new();
+    for run in list
+        .transfers()
+        .map(pdf_render::TransferChannel::runs)
+        .unwrap_or(&[])
+    {
+        for _ in run.shapes() {
+            maps.push(run.map());
+        }
+    }
+    // The runs start at the first mark that carried a function, so a page whose transfer begins
+    // part way down leaves the marks above it untouched: they take the page's default.
+    let skipped = colours.len().saturating_sub(maps.len());
+    for (index, colour) in colours.iter_mut().enumerate() {
+        if let Some(Some(map)) = index.checked_sub(skipped).and_then(|at| maps.get(at)) {
+            *colour = through(map, *colour);
+        }
+    }
     colours
+}
+
+/// One colour through a [`pdf_render::TransferMap`], which is the eight-bit table a device is
+/// handed rather than the file's function: `Transfer::apply` in the units the map holds.
+fn through(map: &pdf_render::TransferMap, colour: pdf_render::Color) -> pdf_render::Color {
+    let mut pixel = [
+        (colour.r * 255.0).round().clamp(0.0, 255.0) as u8,
+        (colour.g * 255.0).round().clamp(0.0, 255.0) as u8,
+        (colour.b * 255.0).round().clamp(0.0, 255.0) as u8,
+        255,
+    ];
+    map.apply_to(&mut pixel);
+    pdf_render::Color {
+        r: f32::from(pixel[0]) / 255.0,
+        g: f32::from(pixel[1]) / 255.0,
+        b: f32::from(pixel[2]) / 255.0,
+        a: colour.a,
+    }
 }
 
 /// Every [`pdf_model::Unsupported::TransferFunction`] this page raises, in the order they sort.
@@ -189,32 +241,37 @@ fn a_translucent_marks_own_transfer_function_is_used_at_no_point() {
     );
 }
 
-/// A page stating a transfer function and painting one translucent mark **over** an opaque one.
+/// A page painting one translucent mark **over** a fully opaque *shading*, which is reported.
 ///
 /// ISO 32000-2 §11.7.5.2:
 ///
 /// > For portions of the page whose topmost object is not fully opaque or that are never painted
 /// > at all, the default halftone and transfer function for the page shall be used
 ///
-/// One stated function and one `ca` below 1.0 is the whole of the condition — no second function
-/// competing with a first, which is what the ledger's row claimed for two hundred sessions.
+/// The clause composites raw colours and maps the result once, per point, with the topmost
+/// object's function. Since the one-thousand-one-hundred-and-forty-eighth session every mark but
+/// one carries its function to the backend rather than into its colour, and the backend does
+/// exactly that (`pdf_render::resolve_transfers`, ADR 1125) — so the two agree and there is
+/// nothing to report. **The exception is a shading**, whose ramp is sampled *under* the function
+/// where its colours are made (ADR 0479), because mapping a simplified ramp's two stops would draw
+/// the chord between the transferred ends instead of the transfer's own curve. A shading's colours
+/// therefore arrive already mapped, and where a translucent mark covers one the clause asks for a
+/// composite of the raw ramp instead. That is what this reports and what the first arm below pins.
 ///
-/// **What is left to report is one shape, and it takes two marks.** The clause composites raw
-/// colours and maps the result once, per point, with the topmost object's function; this tree maps
-/// each fully opaque contributor's colour before compositing. Where the topmost object is fully
-/// opaque the two are the same picture, because the six conditions "ensure that only the object
-/// itself shall contribute to the colour at the given point". Where it is not, this tree's
-/// composite is right unless something *underneath* it was fully opaque and carried a function —
-/// which is the red rectangle below, seen through the blue one. The colours the two marks carry
-/// are asserted beside the report, because the report is only worth what the picture under it is.
-///
-/// The mutation is the same page painted opaque throughout, where the clause and this tree agree.
+/// The two mutations are the same page with a *solid* fill under the translucent mark — closed by
+/// the channel and no longer named — and the shading painted opaque throughout.
 #[test]
-fn a_transferred_opaque_mark_seen_through_a_translucent_one_is_reported() {
-    let resources = format!("/ExtGState << /Solid << /TR {INVERT} >> /Half << /ca 0.5 >> >>");
-    let content = "/Solid gs 1 0 0 rg 0 0 50 50 re f /Half gs 0 0 1 rg 10 10 50 50 re f";
+fn a_transferred_opaque_shading_seen_through_a_translucent_one_is_reported() {
+    let resources = format!(
+        "/ExtGState << /Solid << /TR {INVERT} >> /Half << /ca 0.5 >> >> \
+         /Pattern << /P << /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB \
+         /Coords [0 0 100 100] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] \
+         /C1 [1 1 1] /N 1 >> /Extend [true true] >> >> >>"
+    );
+    let shading = "/Solid gs /Pattern cs /P scn 0 0 50 50 re f";
+    let content = format!("{shading} /Half gs 0 0 1 rg 10 10 50 50 re f");
 
-    let translucent = transfer_reports(fixture(&resources, content, ""));
+    let translucent = transfer_reports(fixture(&resources, &content, ""));
     assert_eq!(
         translucent.len(),
         1,
@@ -222,27 +279,28 @@ fn a_transferred_opaque_mark_seen_through_a_translucent_one_is_reported() {
     );
     let detail = translucent.first().expect("the report just counted");
     assert!(
-        detail.contains("§11.7.5.2") && detail.contains("non-stroking alpha constant is below 1.0"),
-        "the report names the clause and the condition that matched: {detail}"
+        detail.contains("§11.7.5.2")
+            && detail.contains("shading")
+            && detail.contains("non-stroking alpha constant is below 1.0"),
+        "the report names the clause, the paint and the condition that matched: {detail}"
     );
 
-    let colours = filled_colours(fixture(&resources, content, ""));
-    let [under, over] = colours.as_slice() else {
-        panic!("the page paints two fills: {colours:?}");
-    };
+    // A solid fill under the same translucent mark: the channel carries its function to the
+    // backend, the clause's ordering is what gets drawn, and nothing is owed.
+    let solid = transfer_reports(fixture(
+        &resources,
+        "/Solid gs 1 0 0 rg 0 0 50 50 re f /Half gs 0 0 1 rg 10 10 50 50 re f",
+        "",
+    ));
     assert!(
-        under.r < LEVEL && (under.g - 1.0).abs() < LEVEL && (under.b - 1.0).abs() < LEVEL,
-        "the opaque mark is topmost where the other misses it, so it keeps its own \
-         function: {under:?}"
-    );
-    assert!(
-        over.r < LEVEL && over.g < LEVEL && (over.b - 1.0).abs() < LEVEL,
-        "and the translucent mark over it is drawn with the page's default: {over:?}"
+        solid.is_empty(),
+        "a solid mark's function rides on the mark, so §11.7.5.2 is drawn rather than \
+         reported: {solid:?}"
     );
 
     let opaque = transfer_reports(fixture(
         &resources,
-        "/Solid gs 1 0 0 rg 0 0 50 50 re f 0 0 1 rg 10 10 50 50 re f",
+        &format!("{shading} 0 0 1 rg 10 10 50 50 re f"),
         "",
     ));
     assert!(
@@ -656,28 +714,13 @@ fn a_pattern_is_painted_under_the_transfer_function_the_mark_states() {
     );
 }
 
-/// The colour of the one solid fill a page paints, or a panic if it paints anything else.
+/// The colour of the one solid fill a page paints as a device receives it, or a panic if the
+/// page paints anything else. [`filled_colours`] for the reason the map is applied here.
 fn filled_colour(bytes: Vec<u8>) -> pdf_render::Color {
-    let document = Document::open(bytes).expect("the fixture is a valid PDF");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
-    interpretation
-        .display_list
-        .commands()
-        .iter()
-        .find_map(|command| match command {
-            Command::Fill {
-                paint: Paint::Solid(colour),
-                ..
-            } => Some(*colour),
-            _ => None,
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "the page paints no solid fill: {:?}",
-                interpretation.unsupported
-            )
-        })
+    let colours = filled_colours(bytes);
+    *colours
+        .first()
+        .unwrap_or_else(|| panic!("the page paints no solid fill"))
 }
 
 /// A §7.10.3 exponential that halves its input: `/C0 [0] /C1 [0.5] /N 1`.

@@ -62,7 +62,8 @@ use crate::kinds::{
     AcceptKind, AttachKind, BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind,
     EventKind, FocusKind, FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind,
     PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
-    PurposeKind, RestrictKind, RowKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
+    PurposeKind, RestrictKind, RestrictedKind, RowKind, SelectKind, ShortfallKind, TextKind,
+    ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -2851,7 +2852,9 @@ pub unsafe extern "C" fn quorra_layout(
 /// **`CLAUDE.md` states it: "it shall always be possible to turn them off."** A document's
 /// restrictions — §7.6.4.2's Table 22, §12.8.2.2's `/DocMDP` — are the *reader's* to set, and a
 /// state machine over the file cannot know how much of somebody else's file a person's own program
-/// should obey. `QUORRA_RESTRICT_ON` is the default; what is refused arrives as a
+/// should obey. **`QUORRA_RESTRICT_OFF` is the default, for every operation**, because the
+/// sentence before the one above is "[t]hey are low priority" and the one after it is "this
+/// program is the reader's" (ADR 1144); what is refused arrives as a
 /// `QUORRA_EVENT_REFUSED`, which is deliberately not a `QUORRA_EVENT_REPORTED`: one says what the
 /// *document* could not do and the other what the reader's own policy did.
 ///
@@ -2871,6 +2874,67 @@ pub unsafe extern "C" fn quorra_restrict(
         return Status::WrongKind.code();
     };
     *events = Box::into_raw(Box::new(viewer.restrict(kind.level())));
+    Status::Ok.code()
+}
+
+/// The same, for one operation alone — `CLAUDE.md`'s four levels, per restriction.
+///
+/// §7.6.4.2's Table 22 does not state one permission; it states eight positions with eight
+/// different subjects, and a reader who wants to be asked before text leaves the program has said
+/// nothing whatever about whether they want to be asked before each keystroke into a form field.
+/// `operation` is a `QUORRA_RESTRICTED_*` and `level` a `QUORRA_RESTRICT_*`; every other operation's
+/// level is left where this caller last put it, so a policy is built one call at a time.
+///
+/// **This takes no struct by value**, so [`QUORRA_ABI_VERSION`] does not move: an entry point
+/// *added* is one an old caller never calls, and `quorra_restrict` still sets all six at once.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_restrict_operation(
+    viewer: *mut Session,
+    operation: u32,
+    level: u32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let (Some(restricted), Some(kind)) = (
+        RestrictedKind::from_code(operation),
+        RestrictKind::from_code(level),
+    ) else {
+        return Status::WrongKind.code();
+    };
+    *events = Box::into_raw(Box::new(
+        viewer.restrict_operation(restricted.operation(), kind.level()),
+    ));
+    Status::Ok.code()
+}
+
+/// A person pressed copy: §7.6.4.2's bit 5, asked as an operation.
+///
+/// **Not a second way to read the selection.** `quorra_selection_copy_text` is a readback, and a
+/// drag asks for one sixty times a second in order to draw a highlight; bit 5 restricts taking
+/// text *out of* the document — "[c]opy or otherwise extract text and graphics from the document"
+/// — and only a caller owning a clipboard can say that this is what is happening. So this is the
+/// gesture, the reader's policy is consulted exactly where every other operation's is, and the
+/// text arrives as a `QUORRA_EVENT_COPIED`. Under `QUORRA_RESTRICT_ON` a `QUORRA_EVENT_REFUSED`
+/// arrives instead; under `QUORRA_RESTRICT_ASK` a `QUORRA_EVENT_ASKING` does, and the copy follows
+/// a `quorra_answer` of `true`.
+///
+/// Nothing selected sends nothing at all.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_copy(viewer: *mut Session, events: *mut *mut Events) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.copy()));
     Status::Ok.code()
 }
 
@@ -3276,6 +3340,41 @@ pub unsafe extern "C" fn quorra_event_open_uri(
     };
     match events.open_uri(index) {
         Ok(uri) => copy_out(uri, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// A `QUORRA_EVENT_COPIED`'s text, in whichever of §14.8.2.5's two orders the core could give.
+///
+/// `logical` is written 1 where the string is §14.8.2.5.1's logical content order — the document's
+/// structure tree, depth first — and 0 where it is page content order, the sequence the content
+/// stream showed the glyphs in. The clause says the two "should" coincide without requiring it, so
+/// a caller that says which it got is telling a person something true; one that does not is
+/// guessing on their behalf.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null; `logical` is writable
+/// or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_copied(
+    events: *const Events,
+    index: usize,
+    logical: *mut bool,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(events) = events.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match events.copied(index) {
+        Ok((text, is_logical)) => {
+            if let Some(slot) = logical.as_mut() {
+                *slot = is_logical;
+            }
+            copy_out(text, out, cap, needed)
+        }
         Err(status) => status.code(),
     }
 }

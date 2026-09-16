@@ -1,5 +1,5 @@
-//! What §11.7.5.2 asks for at the antialiased edge of a transferred object, and where this
-//! tree's pre-composite application of §10.5's transfer function diverges from it.
+//! What §11.7.5.2 asks for at the antialiased edge of a transferred object, and that this tree
+//! now draws it.
 //!
 //! # The reading this measures
 //!
@@ -18,25 +18,20 @@
 //! > when all colour compositing has been completed and rasterization is being performed.
 //!
 //! So the clause composites the raw colours first and maps the finished pixel once: at an edge
-//! pixel the clause draws `transfer(blend(object, backdrop))`. This tree applies §10.5's transfer
-//! to the object's colour *before* compositing (`pdf-model`'s `fill_paint`, `stroke_paint` and
-//! image sample map), so at the same pixel it draws `blend(transfer(object), backdrop)`. The two
-//! agree wherever the object fully covers the pixel — the interior — and diverge at the edge by
-//! as much as the transfer bends the colour.
+//! pixel the clause draws `transfer(blend(object, backdrop))`, and at an interior pixel — where
+//! the composite *is* the object's colour — `transfer(object)`, which is the same number a
+//! pre-composite application would have produced. The two orderings agree over the interior and
+//! diverge at the edge by as much as the transfer bends the colour.
 //!
-//! # Why this is a measurement rather than a fix
+//! # Why this is a fixture and not a corpus page
 //!
-//! Closing the gap needs the per-pixel transfer-identity channel `doc/todo/13` and ADR 1125
-//! derive: composite raw, carry per pixel the index of the topmost opaque object's function, and
-//! map once at the end. That is a second channel in every backend's target, and both backends
-//! here composite through `tiny-skia`, which exposes no per-pixel "topmost object" hook — so the
-//! index is a separate rasterisation pass, not a field on an existing one. `examples/`'
-//! `transfer_function_census` measures the population that would move at **one** document, a
-//! fully opaque image with no translucent overlap, so the change has no corpus witness and this
-//! is the fixture (trap 8, trap 13) that stands in for one: it plants the divergence and confirms
-//! the raster shows it, so the channel's later arrival is legible against it. When the channel
-//! lands, [`the_edge_pixel_diverges_from_the_clause`]'s asserted pipeline value becomes the
-//! clause value and this file's arithmetic says so in one place.
+//! `pdf-model`'s `examples/transfer_function_census` counts the population that can move at
+//! **one** document — `issue6931_reduced.pdf`, a fully opaque image with no translucent mark over
+//! it — so the edge case has no corpus witness at all and this stands in for one (trap 8, trap
+//! 13). Session 1118 planted it measuring the *divergence*; session 1148 built
+//! `pdf_render::resolve_transfers` and it measures the clause instead, in one place.
+//! `render-raster/tests/transfer_edge.rs` is its other half: the same three numbers on the other
+//! backend, and that the two agree (`CLAUDE.md` principle 2).
 
 #![expect(
     clippy::expect_used,
@@ -49,7 +44,7 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Raster,
-    Rasterizer, Size, TargetSpec, Transform,
+    Rasterizer, Size, TargetSpec, TransferBuilder, TransferMap, Transform,
 };
 use render_cpu::CpuRasterizer;
 
@@ -76,6 +71,17 @@ fn transfer(value: f32) -> f32 {
     1.0 - value
 }
 
+/// The same inversion as [`pdf_render::TransferMap`] carries it: one table per component,
+/// evaluated at every eight-bit input, which is what `pdf_model` builds out of the file's
+/// functions.
+fn inverting() -> TransferMap {
+    let mut table = [0_u8; 256];
+    for (index, entry) in table.iter_mut().enumerate() {
+        *entry = 255_u8.saturating_sub(u8::try_from(index).unwrap_or(255));
+    }
+    TransferMap::from_samples([table, table, table])
+}
+
 /// A closed axis-aligned rectangle.
 fn rectangle(x0: f32, y0: f32, x1: f32, y1: f32) -> Path {
     let mut path = Path::new();
@@ -90,25 +96,34 @@ fn rectangle(x0: f32, y0: f32, x1: f32, y1: f32) -> Path {
 /// One opaque grey fill on a white page. The right edge sits at device x = 12.5, so column 12 is
 /// covered a half — the antialiased edge this file measures — while column 7 is an interior pixel.
 ///
-/// `grey` is the colour handed to the paint: `OBJECT` for the raw scene the clause composites,
-/// `transfer(OBJECT)` for the scene this tree draws, the transfer already inside the colour.
-fn scene(grey: f32) -> DisplayList {
+/// `transferred` is what `pdf_model` does with a `/TR` in force: the colour stays *raw* and the
+/// function rides on the mark, which is §11.7.5.2's channel. `false` is the control, the scene a
+/// page that states no transfer builds.
+fn scene(transferred: bool) -> DisplayList {
     let mut list = DisplayList::new(PAGE);
-    list.push(Command::Fill {
+    let mark = Command::Fill {
         path: Arc::new(rectangle(3.0, 3.0, 12.5, 13.0)),
         // Device y counts down from the top of the page; x maps straight through.
         transform: Transform::new(1.0, 0.0, 0.0, -1.0, 0.0, PAGE.height),
         fill_rule: FillRule::NonZero,
         paint: Paint::Solid(Color {
-            r: grey,
-            g: grey,
-            b: grey,
+            r: OBJECT,
+            g: OBJECT,
+            b: OBJECT,
             a: 1.0,
         }),
         clip: None,
         mask: None,
         blend: BlendMode::Normal,
-    });
+    };
+    if transferred {
+        let mut channel = TransferBuilder::default();
+        channel.push(Some(Arc::new(inverting())), &mark);
+        if let Some(channel) = channel.finish() {
+            list.set_transfers(channel);
+        }
+    }
+    list.push(mark);
     list
 }
 
@@ -131,17 +146,12 @@ const INTERIOR: (u32, u32) = (7, 7);
 /// The half-covered edge pixel: the object's right edge is device x = 12.5.
 const EDGE: (u32, u32) = (12, 7);
 
-/// At a fully covered pixel the two orderings agree, and the transfer reaches it.
-///
-/// Where coverage is 1.0 the composite *is* the object's colour, so `transfer(blend) =
-/// transfer(object) = blend(transfer(object))`: the interior is where this tree's per-object
-/// application is already exactly §11.7.5.2's per-point one. The test is that the transferred
-/// scene's interior is the transfer of the raw scene's interior — that the function is applied at
-/// all, and applied correctly where the clause and the code cannot differ.
+/// At a fully covered pixel the composite *is* the object's colour, so the clause's mapping of it
+/// is the transfer of the object.
 #[test]
 fn the_interior_pixel_is_the_transfer_of_the_object() {
-    let raw = render(&scene(OBJECT));
-    let transferred = render(&scene(transfer(OBJECT)));
+    let raw = render(&scene(false));
+    let transferred = render(&scene(true));
 
     let raw_interior = channel(&raw, INTERIOR.0, INTERIOR.1);
     let transferred_interior = channel(&transferred, INTERIOR.0, INTERIOR.1);
@@ -157,18 +167,18 @@ fn the_interior_pixel_is_the_transfer_of_the_object() {
     );
 }
 
-/// At the antialiased edge the pipeline draws `blend(transfer(object), backdrop)` where the
-/// clause asks for `transfer(blend(object, backdrop))`, and the gap is large.
+/// At the antialiased edge the pixel takes §11.7.5.2's value: the function of the *composite*.
 ///
-/// The raw scene's edge pixel is the composite the clause would then map: `blend(object,
-/// backdrop)`. §11.7.5.2 maps it once, giving `transfer` of it. This tree's transferred scene
-/// instead composites the already-transferred colour, giving `blend(transfer(object), backdrop)`.
-/// The test asserts both — that the pipeline is the second, and that the second is nowhere near
-/// the clause's first — so the divergence is a measured quantity and not a claim.
+/// The raw scene's edge pixel is `blend(object, backdrop)`, which is what the clause then maps —
+/// the object's shape there is nonzero, so the point is inside it and takes its function. Before
+/// `pdf_render::resolve_transfers` this tree composited the already-transferred colour and drew
+/// `blend(transfer(object), backdrop)` instead: 0.875 against the clause's 0.375 at a half-covered
+/// edge under an inverting transfer, which is the half-unit gap sessions 1118 and 1137 measured
+/// and this asserts is gone.
 #[test]
-fn the_edge_pixel_diverges_from_the_clause() {
-    let raw = render(&scene(OBJECT));
-    let transferred = render(&scene(transfer(OBJECT)));
+fn the_edge_pixel_takes_the_clause_value() {
+    let raw = render(&scene(false));
+    let transferred = render(&scene(true));
 
     let raw_edge = channel(&raw, EDGE.0, EDGE.1);
     let pipeline_edge = channel(&transferred, EDGE.0, EDGE.1);
@@ -179,28 +189,20 @@ fn the_edge_pixel_diverges_from_the_clause() {
         "EDGE must be an antialiased pixel; raw coverage put it at {raw_edge}"
     );
 
-    // The clause maps the finished composite once: transfer(blend(object, backdrop)).
+    // §11.7.5.2 with §11.7.5.3's NOTE: composite first, map once.
     let clause_edge = transfer(raw_edge);
-
-    // What the pipeline actually draws: the composite of the transferred colour with the same
-    // backdrop, blend(transfer(object), backdrop). The blend weight is the raw edge's coverage,
-    // recovered from `raw_edge = coverage·OBJECT + (1 − coverage)·1`.
-    let coverage = (1.0 - raw_edge) / (1.0 - OBJECT);
-    let pipeline_expected = coverage * transfer(OBJECT) + (1.0 - coverage) * 1.0;
     assert!(
-        (pipeline_edge - pipeline_expected).abs() <= TOLERANCE,
-        "the pipeline should draw blend(transfer(object), backdrop) = {pipeline_expected} at the \
-         edge, was {pipeline_edge}"
+        (pipeline_edge - clause_edge).abs() <= TOLERANCE,
+        "the edge should carry §11.7.5.2's transfer(composite) = {clause_edge}, was {pipeline_edge}"
     );
 
-    // The measured gap: half a unit at a half-covered edge under an inverting transfer. This is
-    // what the per-pixel transfer channel (ADR 1125, doc/todo/13) closes; until it lands, the
-    // edge carries the pipeline value above rather than `clause_edge`.
-    let gap = (pipeline_edge - clause_edge).abs();
+    // And it is nowhere near what the pre-composite ordering drew, so this cannot pass by
+    // accident on a pipeline that applies the function to the colour instead.
+    let coverage = (1.0 - raw_edge) / (1.0 - OBJECT);
+    let pre_composite = coverage * transfer(OBJECT) + (1.0 - coverage) * 1.0;
     assert!(
-        gap > 0.25,
-        "the edge should diverge from §11.7.5.2's transfer(composite) = {clause_edge} by much \
-         more than antialiasing tolerance; measured gap was {gap}"
+        (pipeline_edge - pre_composite).abs() > 0.25,
+        "the edge must not be the pre-composite ordering's {pre_composite}"
     );
 }
 
@@ -208,17 +210,38 @@ fn the_edge_pixel_diverges_from_the_clause() {
 ///
 /// A scene whose colour is `OBJECT` and which states no transfer is what every one of the 973
 /// corpus documents without a `/TR` is, and its edge pixel must be `blend(object, backdrop)` with
-/// nothing applied to it — the value both the clause and this tree agree on when the function is
-/// the identity.
+/// nothing applied to it. Unchanged by the channel, which is what
+/// [`pdf_render::DisplayList::transfers`] being `None` buys those pages.
 #[test]
 fn without_a_transfer_the_edge_is_unchanged() {
-    let raw = render(&scene(OBJECT));
+    let raw = render(&scene(false));
     let raw_edge = channel(&raw, EDGE.0, EDGE.1);
 
     let coverage = (1.0 - raw_edge) / (1.0 - OBJECT);
     let plain = coverage * OBJECT + (1.0 - coverage) * 1.0;
     assert!(
         (raw_edge - plain).abs() <= TOLERANCE,
-        "the control edge should be the plain composite {plain}, was {raw_edge}"
+        "the control edge should be the plain composite {plain}, was {plain}"
     );
+    assert!(
+        render(&scene(false)).data == raw.data,
+        "a list with no transfer must rasterise identically every time"
+    );
+}
+
+/// The channel is `None` where nothing states a function, so no second rasterisation runs.
+///
+/// The cost rule this tree binds itself to (`CLAUDE.md` principle 2): a page that states no
+/// transfer must be exactly the page it was before the channel existed.
+#[test]
+fn a_list_without_a_transfer_carries_no_channel() {
+    assert!(scene(false).transfers().is_none());
+    assert!(scene(true).transfers().is_some());
+    // The identity is not a function worth a pass: `/TR /Identity` states one and asks for
+    // nothing, which is what `TransferMap::is_identity` is read for.
+    let mut identity = [0_u8; 256];
+    for (index, entry) in identity.iter_mut().enumerate() {
+        *entry = u8::try_from(index).unwrap_or(255);
+    }
+    assert!(TransferMap::from_samples([identity, identity, identity]).is_identity());
 }

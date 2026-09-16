@@ -1,6 +1,6 @@
 # ADR 1125 — §11.7.5.2's transfer function is chosen by shape, and applied after compositing
 
-Status: accepted, 2026-09-16. Session 1118. Settles the design question `doc/todo/13` says a round
+Status: accepted, 2026-09-16. Session 1118; **built in session 1148**, whose section is last. Settles the design question `doc/todo/13` says a round
 taking §11.7.5.2's last shape inherits — how the clause's "nonzero object shape value" decides the
 transfer function at a partly covered pixel — and records the construction that follows from it,
 which is deferred rather than started for the reasons below. No pixel moves in this session: the
@@ -119,3 +119,50 @@ transferred edge (`blend(transfer(object), backdrop)`, gap of half a unit to the
 `transfer(blend(object, backdrop))`), and that the two backends *agree* on that value within the bar
 `headless_quorra` holds them to. That agreement is the reason a channel added to one backend alone is
 forbidden, and the reason the witness must flip both backends together when the carrier lands.
+
+
+## Built, session 1148: the carrier, and what it turned out to be
+
+The blocker 1137 named was the carrier, and the answer is that it is not a field on the mark at
+all. A field on `Command::Fill`/`Command::Image` is the 272 sites; a side-table keyed by position
+cannot reach a mark nested in a group. What reaches both is a **parallel channel on the
+`DisplayList`**, the construction `set_blending`'s companion list already uses one clause over.
+
+- **`pdf_render::TransferBuilder`** collects every elementary mark the interpreter draws, in
+  painting order, as an opaque *shape* — the same path, transform, clip and fill rule, painted
+  white under Normal with no mask — together with the function in force when it was drawn. It
+  reaches nested marks because it is filled at leaf creation (`Interpreter::draw_mark`), which is
+  the one route every mark takes, groups included; ordering survives because a group's leaves are
+  drawn before the `Command::Group` that collects them and therefore in the page's own order.
+- **Runs, not indices.** Consecutive marks sharing a function are one `TransferRun`, and run
+  numbers rise with painting order — so the topmost object covering a pixel is the one in the
+  *highest* run covering it, and nothing per-pixel has to carry an ordering. `resolve_transfers`
+  walks the runs top down and takes the first whose coverage at a pixel is nonzero, which is the
+  clause's own "nonzero object shape value" and means every mark is rasterised at most once.
+- **Zero where nothing states a function.** The builder is inert until a mark carries one, so a
+  page that states none records no shape and `DisplayList::transfers()` is `None`; on ISO 32000-2
+  page 101 under callgrind no instruction of the channel executes at all.
+- **Both backends, the same pass.** `resolve_transfers` takes a closure that rasterises one shape
+  list; `render-cpu` supplies `encode_in_strips` onto transparency and `render-raster`
+  `QuorraRasterizer::render`. Each maps its own read-back, so the rule is stated once (trap 2) and
+  the two agree by construction — `render-raster/tests/transfer_edge.rs` measures that they do.
+
+**What the fixtures now say.** Both halves assert §11.7.5.2's own value at the half-covered edge —
+0.375 under an inverting transfer over white, where the pre-composite ordering drew 0.875 — and the
+no-transfer control is unchanged.
+
+**What is left, and it is two paints.** A *shading*'s colours are sampled under the function where
+they are made, because mapping a simplified ramp's two stops draws the chord between the transferred
+ends (ADR 0479); a *tiling* cell is interpreted once and copied to every site (ADR 0430), so one
+recorded shape cannot stand for its marks. Both keep §10.5's pre-composite application,
+`Interpreter::tile` records the finished tiling as occluders so that nothing beneath it is mapped
+twice, and `Unsupported::TransferFunction` is narrowed to exactly those two. **ADR 0479's reason
+does not survive the channel** — a raw ramp simplified and then mapped per device pixel has no chord
+— so a later round can put a shading on the channel too; that is an amendment to 0479 and was not
+taken here.
+
+`render-gpu` has no pass of its own over a Vello scene's result and refuses a list carrying the
+channel by name, which sends the frame to the CPU backend. `viewer-confined`'s wire format has no
+shape for a second sequence of marks per run, so such a page crosses as pixels its own CPU backend
+drew (`Uncodable::TransferChannel`) — which is the same picture, by the route two of `doc/pdf.js`'s
+pages already take.

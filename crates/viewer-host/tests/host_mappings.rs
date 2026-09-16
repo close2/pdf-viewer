@@ -529,6 +529,56 @@ fn the_refusal_names_the_word_that_turns_the_restrictions_off() {
     );
 }
 
+/// `--restrictions` reads a level per operation, composes, and refuses a word it does not know.
+///
+/// **One parser for three windows**, which is this module's standing argument: the third copy of a
+/// decision is where two hosts stop agreeing, and `--ignore-restrictions` is the incident behind
+/// it (ADR 0604). The words a person types are the operations' own — `RestrictionPolicy::word` —
+/// and the levels are `pdf_model::restriction::Level::as_str`'s, so what is spelled here is what
+/// `pdf-transform`, the KIO face and `pdf-fuse` already spell (ADR 1144).
+#[test]
+fn a_restriction_level_can_be_set_for_one_operation_at_a_time() {
+    use pdf_model::restriction::Operation;
+    use viewer_core::{RestrictionLevel, RestrictionPolicy};
+
+    let policy = viewer_host::restrictions("copy:ask,annotate:on", RestrictionPolicy::default())
+        .expect("two operations and two levels this program has");
+    assert_eq!(policy.level(Operation::Extract), RestrictionLevel::Ask);
+    assert_eq!(policy.level(Operation::Annotate), RestrictionLevel::On);
+    assert_eq!(
+        policy.level(Operation::FillInForm),
+        RestrictionLevel::Off,
+        "an operation the list does not name keeps the level it had"
+    );
+
+    // Composing, because two of these on one command line are one policy and not the last one.
+    let policy = viewer_host::restrictions("fill:warn", policy).expect("one more");
+    assert_eq!(policy.level(Operation::Extract), RestrictionLevel::Ask);
+    assert_eq!(policy.level(Operation::FillInForm), RestrictionLevel::Warn);
+
+    // A bare level is all six, which is `pdf-transform`'s own spelling.
+    let policy = viewer_host::restrictions("on", policy).expect("a level with no operation");
+    for operation in RestrictionPolicy::OPERATIONS {
+        assert_eq!(
+            policy.level(operation),
+            RestrictionLevel::On,
+            "{operation:?}"
+        );
+    }
+
+    // And a word this program does not have is a sentence naming the alternatives, never a guess.
+    let complaint = viewer_host::restrictions("copy:maybe", RestrictionPolicy::default())
+        .expect_err("`maybe` is not a level");
+    assert!(complaint.contains("off, on, ask or warn"), "{complaint}");
+    let complaint = viewer_host::restrictions("scribble:on", RestrictionPolicy::default())
+        .expect_err("`scribble` is not an operation");
+    assert!(complaint.contains("annotate"), "{complaint}");
+    assert!(
+        viewer_host::restrictions("", RestrictionPolicy::default()).is_err(),
+        "a person who typed --restrictions= meant something"
+    );
+}
+
 /// The middle of a widget, which is the point an assistive technology's click resolves to.
 ///
 /// `viewer_accessibility::Act::Click` takes the *node's* centre and a `Form` element's place is its

@@ -892,22 +892,25 @@ impl Interpreter<'_> {
             );
             return;
         }
-        let transfer = self.transfer_for_mark(state, Painted::of(state, false));
-        let paint = self.fill_paint(state, transfer);
-        self.draw(Command::Fill {
-            // The font hands out shared outlines and the display list keeps them shared: a
-            // page of text is the same few dozen glyphs over and over, so this is a refcount
-            // rather than a copy of the segments.
-            path: Arc::clone(outline),
-            transform,
-            // Glyph outlines are non-zero filled; even-odd would hollow out counters that
-            // overlap, such as in a bold 'B'.
-            fill_rule: FillRule::NonZero,
-            paint,
-            clip,
-            mask: state.soft_mask,
-            blend: state.blend,
-        });
+        let (inside, transfer) = self.mark_transfer(state, Painted::of(state, false), false);
+        let paint = self.fill_paint(state, inside.as_ref());
+        self.draw_mark(
+            Command::Fill {
+                // The font hands out shared outlines and the display list keeps them shared: a
+                // page of text is the same few dozen glyphs over and over, so this is a refcount
+                // rather than a copy of the segments.
+                path: Arc::clone(outline),
+                transform,
+                // Glyph outlines are non-zero filled; even-odd would hollow out counters that
+                // overlap, such as in a bold 'B'.
+                fill_rule: FillRule::NonZero,
+                paint,
+                clip,
+                mask: state.soft_mask,
+                blend: state.blend,
+            },
+            transfer,
+        );
     }
 
     /// Strokes one glyph outline, ISO 32000-2 §9.3.6 rendering modes 1, 2, 5 and 6.
@@ -957,17 +960,20 @@ impl Interpreter<'_> {
             return;
         }
         let glyph_stroke_clip = self.paint_clip(state, false);
-        let transfer = self.transfer_for_mark(state, Painted::of(state, true));
-        let paint = self.stroke_paint(state, transfer);
-        self.draw(Command::Stroke {
-            path: in_user_space,
-            transform: state.transform,
-            stroke: state.stroke.clone(),
-            paint,
-            clip: glyph_stroke_clip,
-            mask: state.soft_mask,
-            blend: state.blend,
-        });
+        let (inside, transfer) = self.mark_transfer(state, Painted::of(state, true), true);
+        let paint = self.stroke_paint(state, inside.as_ref());
+        self.draw_mark(
+            Command::Stroke {
+                path: in_user_space,
+                transform: state.transform,
+                stroke: state.stroke.clone(),
+                paint,
+                clip: glyph_stroke_clip,
+                mask: state.soft_mask,
+                blend: state.blend,
+            },
+            transfer,
+        );
     }
 
     /// Turns the glyph outlines a text object accumulated into a clip, at its `ET`.

@@ -3558,17 +3558,21 @@ impl Interpreter<'_> {
         let Some(because) = self.not_fully_opaque(state, painted) else {
             // Every mark's function is the one its own state states, shadings included since the
             // rebuild landed — so this is the whole of "a fully opaque mark carried one".
-            let stated = state.transfer.shared();
-            self.transfer_painted_opaquely |= stated.is_some();
-            return stated;
+            return state.transfer.shared();
         };
+        // **Narrowed to the one paint whose function is still inside its colour.** §11.7.5.2's
+        // channel carries every other mark's function to the backend, which applies it to the
+        // finished pixel (ADR 1125), so the ordering this report was about is the clause's now.
+        // What is left is a *shading*, whose ramp is sampled under the function where its colours
+        // are made (ADR 0479) — see `Interpreter::mark_transfer`, the one place that sets the flag.
         if self.transfer_painted_opaquely {
             self.note(Unsupported::TransferFunction {
                 detail: format!(
-                    "§11.7.5.2: a fully opaque mark on this page carried a transfer function, and \
-                     {because} — so where such an object covers one of those marks the clause \
-                     puts the page's default function on the whole composited colour, and this \
-                     tree has already put the opaque mark's own on the colour underneath"
+                    "§11.7.5.2: a fully opaque shading on this page was painted under a transfer \
+                     function, which is sampled into its colours rather than carried on the mark, \
+                     and {because} — so where such an object covers that shading the clause puts \
+                     the page's default function on the whole composited colour, and this tree \
+                     has already put the shading's own on the colours underneath"
                 ),
             });
         }

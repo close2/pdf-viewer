@@ -3432,15 +3432,17 @@ pub(crate) fn selection(
         ..Asked::default()
     };
     let (laid_out, onto_page) = ask(document, annotation, view, asked)?;
+    // The layout already answers in four corners, because a `/DA`'s own `Tm` can turn or shear the
+    // space it measures in and a rectangle sheared is a parallelogram (ADR 1130). What is left
+    // here is §12.5.5's placement, applied corner by corner.
     Some(
         laid_out
             .selection
             .iter()
-            .map(|[x0, y0, x1, y1]| {
-                let corners = [(*x0, *y1), (*x1, *y1), (*x1, *y0), (*x0, *y0)];
+            .map(|shape| {
                 let mut quad = [0.0_f32; 8];
-                for (corner, place) in corners.iter().zip(quad.chunks_exact_mut(2)) {
-                    let point = onto_page.apply(Point::new(corner.0, corner.1));
+                for (corner, place) in shape.chunks_exact(2).zip(quad.chunks_exact_mut(2)) {
+                    let point = onto_page.apply(Point::new(corner[0], corner[1]));
                     place[0] = point.x;
                     place[1] = point.y;
                 }

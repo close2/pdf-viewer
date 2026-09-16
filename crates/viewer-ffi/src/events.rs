@@ -85,6 +85,12 @@ impl Events {
     /// # Errors
     ///
     /// [`Status::OutOfRange`] where there is no such event.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per variant of `viewer_core::Event`, and the count is that enum's. \
+                  Splitting it would hide the property it rests on: a message added to that crate \
+                  fails to compile here until somebody words it for a C caller"
+    )]
     pub fn describe(&self, index: usize) -> Result<String, Status> {
         let event = self.events.get(index).ok_or(Status::OutOfRange)?;
         Ok(match event {
@@ -175,6 +181,19 @@ impl Events {
             Event::Warned {
                 operation, notes, ..
             } => restricted(*operation, notes, "was done and warned about"),
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => format!(
+                "{} character(s) copied, in {}",
+                logical.as_ref().unwrap_or(page_order).chars().count(),
+                if logical.is_some() {
+                    "§14.8.2.5's logical content order"
+                } else {
+                    "page content order"
+                }
+            ),
             Event::AttachmentsChanged { document } => format!(
                 "document {}'s embedded files changed; read the panel again",
                 document.0
@@ -285,7 +304,8 @@ impl Events {
             | Event::Asking { document, .. }
             | Event::Warned { document, .. }
             | Event::AttachmentsChanged { document }
-            | Event::Submit { document, .. } => document.0,
+            | Event::Submit { document, .. }
+            | Event::Copied { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })
@@ -324,6 +344,29 @@ impl Events {
             Event::Extracted { name, asked, .. } => {
                 Ok((name.as_str(), matches!(asked, Extraction::Asked)))
             }
+            _ => Err(Status::WrongKind),
+        }
+    }
+
+    /// [`Event::Copied`]: the text, and whether it is in §14.8.2.5's logical content order.
+    ///
+    /// One string rather than two, because a clipboard takes one: the core answers both orders
+    /// and the choice between them — `viewer_host::copied`'s — is made here, so that three hosts
+    /// and a C caller cannot make it four different ways. The flag is what a caller tells a person.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`], as [`Self::opened`].
+    pub fn copied(&self, index: usize) -> Result<(&str, bool), Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Copied {
+                logical,
+                page_order,
+                ..
+            } => Ok(match logical {
+                Some(text) => (text.as_str(), true),
+                None => (page_order.as_str(), false),
+            }),
             _ => Err(Status::WrongKind),
         }
     }

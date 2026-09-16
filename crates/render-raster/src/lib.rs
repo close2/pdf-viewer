@@ -408,6 +408,30 @@ impl Rasterizer for QuorraRasterizer {
             demultiply(&mut data);
         }
 
+        // ISO 32000-2 §11.7.5.2's transfer function, last of all because §11.7.5.3's NOTE puts it
+        // there: "the current halftone and transfer function, whose values are used only when all
+        // colour compositing has been completed and rasterization is being performed". The clause
+        // chooses the function by the topmost elementary object covering a point rather than by
+        // the colour under it, so `pdf_model` leaves it off the colours and hands the marks'
+        // shapes over on the list instead. `pdf_render::resolve_transfers` is the one statement of
+        // what that means — the CPU oracle runs the identical pass over its own read-back, which
+        // is what keeps the two from answering it apart (trap 2).
+        //
+        // A shape list is a scene like any other, so it goes through [`Self::render`]: it is the
+        // page's own marks with their paint replaced, and the alpha that comes back *is*
+        // §11.7.5.2's object shape. The frame's counters are the *page's* and not the shape
+        // passes', so they are saved across them.
+        if let Some(channel) = list.transfers() {
+            let page_cost = self.last;
+            let page_residue = self.residue;
+            pdf_render::resolve_transfers(channel, list, target, &mut data, |shapes| {
+                let mut cost = FrameCost::default();
+                self.render(shapes, target, &mut cost)
+            })?;
+            self.last = page_cost;
+            self.residue = page_residue;
+        }
+
         self.last.total = began.elapsed();
         Ok(Raster {
             width: target.width,

@@ -86,6 +86,9 @@ pub enum EventKind {
     /// [`viewer_core::Event::Submit`] — §12.7.6.2's composed request, for a caller with a
     /// network. `quorra_events_bytes` hands over its body.
     Submit = 19,
+    /// [`viewer_core::Event::Copied`] — `quorra_copy` went ahead. `quorra_events_copied` hands over
+    /// the text.
+    Copied = 20,
 }
 
 impl EventKind {
@@ -94,7 +97,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 20;
+    pub const COUNT: u32 = 21;
 
     /// Which kind an event is.
     ///
@@ -124,6 +127,7 @@ impl EventKind {
             Event::Warned { .. } => Self::Warned,
             Event::AttachmentsChanged { .. } => Self::AttachmentsChanged,
             Event::Submit { .. } => Self::Submit,
+            Event::Copied { .. } => Self::Copied,
         }
     }
 
@@ -155,6 +159,7 @@ impl EventKind {
             Self::Warned => "Warned\0",
             Self::AttachmentsChanged => "AttachmentsChanged\0",
             Self::Submit => "Submit\0",
+            Self::Copied => "Copied\0",
         }
     }
 
@@ -186,6 +191,7 @@ impl EventKind {
             17 => Self::Warned,
             18 => Self::AttachmentsChanged,
             19 => Self::Submit,
+            20 => Self::Copied,
             _ => return None,
         })
     }
@@ -498,6 +504,59 @@ impl RestrictKind {
             Self::Off => RestrictionLevel::Off,
             Self::Ask => RestrictionLevel::Ask,
             Self::Warn => RestrictionLevel::Warn,
+        }
+    }
+}
+
+/// Which operation a restriction level is being set for — `CLAUDE.md`'s levels, per restriction.
+///
+/// The numbers are `viewer_core::RestrictionPolicy::OPERATIONS`'s order, which is the one order
+/// the wire, this ABI and a command line all enumerate a policy in (ADR 1144).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum RestrictedKind {
+    /// §7.6.4.2's bit 5: taking text out of the document — `quorra_copy`.
+    Copy = 0,
+    /// Bit 6: adding or changing an annotation.
+    Annotate = 1,
+    /// Bits 6 and 9: putting a value into a field the document already holds.
+    FillInForm = 2,
+    /// Bit 3: printing. **No entry point performs it yet**; the level is settable so that a
+    /// reader's policy does not have to be revisited the day one does.
+    Print = 3,
+    /// Bit 4: every other change to the document, which is what an embedded file is.
+    Modify = 4,
+    /// Bit 11: taking pages into a new document. **No entry point performs it yet**, for
+    /// [`RestrictedKind::Print`]'s reason.
+    Assemble = 5,
+}
+
+impl RestrictedKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Copy,
+            1 => Self::Annotate,
+            2 => Self::FillInForm,
+            3 => Self::Print,
+            4 => Self::Modify,
+            5 => Self::Assemble,
+            _ => return None,
+        })
+    }
+
+    /// What `pdf-model` calls it.
+    #[must_use]
+    pub const fn operation(self) -> pdf_model::restriction::Operation {
+        use pdf_model::restriction::Operation as O;
+        match self {
+            Self::Copy => O::Extract,
+            Self::Annotate => O::Annotate,
+            Self::FillInForm => O::FillInForm,
+            Self::Print => O::Print,
+            Self::Modify => O::Modify,
+            Self::Assemble => O::Assemble,
         }
     }
 }

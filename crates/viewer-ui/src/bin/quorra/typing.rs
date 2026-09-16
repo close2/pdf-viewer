@@ -251,17 +251,21 @@ impl App {
     /// refuses is reported rather than swallowed, and the copy still happened *inside* the
     /// program, which is the honest thing to say about it.
     pub(crate) fn copy_selection(&mut self) {
-        // Owned before the second question, because both answers borrow the viewer.
-        let page_order = match self.viewer.query(Query::Selection) {
-            Answer::Selected(selection) => selection.text.into_owned(),
-            _ => String::new(),
-        };
-        let logical = match self.viewer.query(Query::LogicalSelection) {
-            Answer::LogicalSelection(text) => Some(text),
-            _ => None,
-        };
-        let Some(copied) = viewer_host::copied(logical, &page_order) else {
+        // **A command rather than two questions**, since the one-thousand-one-hundred-and-forty-
+        // seventh session: §7.6.4.2's bit 5 restricts taking text out of the document and a
+        // readback can be neither refused, asked about nor warned of, so the gesture is
+        // `Command::Copy` and both orders arrive together on `Event::Copied` (ADR 1144). What
+        // stays here is the platform and the sentence, which is what a host actually owns.
+        if !matches!(self.viewer.query(Query::Selection), Answer::Selected(_)) {
             println!("note: nothing on the page is selected to copy");
+            return;
+        }
+        self.dispatch(Command::Copy);
+    }
+
+    /// [`viewer_core::Event::Copied`]: the text the core granted, onto this session's clipboard.
+    pub(crate) fn copied(&mut self, logical: Option<String>, page_order: &str) {
+        let Some(copied) = viewer_host::copied(logical, page_order) else {
             return;
         };
         println!(

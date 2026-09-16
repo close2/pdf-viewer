@@ -372,6 +372,35 @@ impl Rasterizer for CpuRasterizer {
                 pdf_render::impose_within(rows, target.width, first, area, medium);
             });
 
+        let mut data = pixmap.take_demultiplied();
+
+        // ISO 32000-2 §11.7.5.2's transfer function, last of all because §11.7.5.3's NOTE puts it
+        // there: "the current halftone and transfer function, whose values are used only when all
+        // colour compositing has been completed and rasterization is being performed". The clause
+        // chooses the function by the topmost elementary object covering a point rather than by
+        // the colour under it, so `pdf_model` leaves it off the colours and hands the marks'
+        // shapes over on the list instead; `pdf_render::resolve_transfers` is the one statement of
+        // what that means, which is what keeps the two backends from answering it apart (trap 2).
+        //
+        // Nothing runs here on a list that states no transfer, which is all but one of the corpus
+        // (`pdf-model`'s `examples/transfer_function_census`).
+        if let Some(channel) = list.transfers() {
+            let coverage_of = |shapes: &DisplayList| -> Result<Vec<u8>, CpuRasterError> {
+                // Onto transparency and without the medium, so the alpha read back *is*
+                // §11.7.5.2's object shape — the same path the page itself took above, minus the
+                // passes that put a colour under it.
+                let mut coverage = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+                    CpuRasterError::Allocation {
+                        width: target.width,
+                        height: target.height,
+                    },
+                )?;
+                self.encode_in_strips(&mut coverage, shapes, target)?;
+                Ok(coverage.take())
+            };
+            pdf_render::resolve_transfers(channel, list, target, &mut data, coverage_of)?;
+        }
+
         Ok(Raster {
             width: target.width,
             height: target.height,
@@ -379,7 +408,7 @@ impl Rasterizer for CpuRasterizer {
             // `tiny-skia` stores premultiplied alpha internally; `Raster` is documented
             // as straight alpha, so the conversion happens here at the backend boundary
             // rather than being left to every consumer to remember.
-            data: pixmap.take_demultiplied(),
+            data,
         })
     }
 }

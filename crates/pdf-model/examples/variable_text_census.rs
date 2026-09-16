@@ -123,6 +123,8 @@ struct Counts {
     composite: usize,
     /// Of those, the ones whose `CMap` asks for §9.7.5.1's writing mode 1, which is refused.
     composite_vertical: usize,
+    /// Objects by what their `/DA`'s one `Tm` does to the space the layout is measured in.
+    matrices: BTreeMap<LinearPart, usize>,
 }
 
 impl Counts {
@@ -151,6 +153,10 @@ impl Counts {
         self.composite_vertical = self
             .composite_vertical
             .saturating_add(counts.composite_vertical);
+        for (part, count) in &counts.matrices {
+            let total = self.matrices.entry(*part).or_default();
+            *total = total.saturating_add(*count);
+        }
         for (verdict, count) in &counts.verdicts {
             let total = self.verdicts.entry(*verdict).or_default();
             *total = total.saturating_add(*count);
@@ -185,6 +191,12 @@ struct Census {
     /// count is trusted: a name that needs escaping is one this program used to write wrongly and
     /// used to look up wrongly, and which of the two mattered depends on what the name is.
     escaping_witnesses: BTreeSet<(String, String)>,
+    /// Every object whose `/DA` states a `Tm` that is not the identity, with its document.
+    ///
+    /// Printed rather than counted, for trap 11's reason: a linear part is what decides whether
+    /// the layout can be measured under it, and which one a document states has to be read rather
+    /// than summed.
+    matrix_witnesses: BTreeSet<(String, String)>,
 }
 
 impl Census {
@@ -203,6 +215,7 @@ impl Census {
             &name,
             &mut self.moving,
             &mut self.escaping_witnesses,
+            &mut self.matrix_witnesses,
         );
         if counts.laid_out == 0 && counts.list_boxes == 0 && counts.free_text == 0 {
             return;
@@ -264,6 +277,14 @@ impl Census {
         );
         for (document, name) in &self.escaping_witnesses {
             println!("  {document}: /{name}");
+        }
+        println!("\n§12.7.4.3's one Tm, by where its linear part sends the layout's two axes:");
+        for part in LINEAR_PARTS {
+            let count = totals.matrices.get(&part).copied().unwrap_or_default();
+            println!("  {count:6} {}", part.name());
+        }
+        for (document, matrix) in &self.matrix_witnesses {
+            println!("  {document}: {matrix}");
         }
         println!(
             "\n§9.7 + §12.7.4.3: {} object(s) whose /DA names a composite font, {} of them in \
@@ -372,6 +393,7 @@ fn walk(
     name: &str,
     moving: &mut BTreeMap<String, BTreeSet<String>>,
     escaping: &mut BTreeSet<(String, String)>,
+    matrices: &mut BTreeSet<(String, String)>,
 ) -> Counts {
     let mut counts = Counts::default();
     let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
@@ -429,6 +451,7 @@ fn walk(
                 record(verdict, name, moving);
                 take_composite(document, dict, &mut counts);
                 take_font_name(document, dict, name, &mut counts, escaping);
+                take_text_matrix(document, dict, name, &mut counts, matrices);
             }
         }
         // §12.5.6.6 sends a free text annotation's `/DA` to §12.7.4.3 as well — "[t]he default
@@ -449,9 +472,168 @@ fn walk(
             record(verdict, name, moving);
             take_composite(document, dict, &mut counts);
             take_font_name(document, dict, name, &mut counts, escaping);
+            take_text_matrix(document, dict, name, &mut counts, matrices);
         }
     }
     counts
+}
+
+/// How a `/DA`'s `Tm` linear part stands to the box its layout is measured in.
+///
+/// §12.7.4.3 admits at most one `Tm` and replaces its *translation* components only, so the four
+/// remaining numbers stand over every mark the appearance makes. What decides whether a layout
+/// can be measured under them is where they send the two axes: the text runs along text space's
+/// x-axis and its lines stack along the y, and a box is a pair of lengths on the appearance's
+/// axes. These are the cases, and they are the population `Owed::TransformedTextMatrix`'s
+/// condition is drawn from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum LinearPart {
+    /// No `Tm` in the `/DA` at all, which leaves Table 105's initial text matrix.
+    Absent,
+    /// A `Tm` whose linear part is the identity, so it states a translation and nothing else.
+    Identity,
+    /// Diagonal with both elements positive: a pair of lengths.
+    Scale,
+    /// Diagonal with an element negative: a mirror, and a half turn where both are.
+    Mirror,
+    /// Anti-diagonal: a quarter turn, with whatever scale and mirror it carries.
+    QuarterTurn,
+    /// The line runs along an appearance axis and the lines stack across it obliquely: a shear.
+    Shear,
+    /// The line direction is off both of the appearance's axes — a turn by something that is not
+    /// a multiple of 90°.
+    OffAxis,
+    /// Not invertible, so it maps the box to a segment or a point.
+    Singular,
+}
+
+/// The eight, in the order the report prints them.
+const LINEAR_PARTS: [LinearPart; 8] = [
+    LinearPart::Absent,
+    LinearPart::Identity,
+    LinearPart::Scale,
+    LinearPart::Mirror,
+    LinearPart::QuarterTurn,
+    LinearPart::Shear,
+    LinearPart::OffAxis,
+    LinearPart::Singular,
+];
+
+impl LinearPart {
+    /// The name this census prints.
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Absent => "no Tm stated",
+            Self::Identity => "identity",
+            Self::Scale => "diagonal, both positive",
+            Self::Mirror => "diagonal, an element negative",
+            Self::QuarterTurn => "anti-diagonal (a quarter turn)",
+            Self::Shear => "sheared, line along a box axis",
+            Self::OffAxis => "line off both box axes",
+            Self::Singular => "singular",
+        }
+    }
+
+    #[expect(
+        clippy::float_cmp,
+        reason = "the census classifies the linear part by the numbers the file wrote, and a written 1 \
+                  is exactly 1 — the comparison is against the document, not a computed value"
+    )]
+    /// Classifies the four numbers a `Tm` states before its translation.
+    fn of(matrix: Option<[f64; 6]>) -> Self {
+        let Some([a, b, c, d, _, _]) = matrix else {
+            return Self::Absent;
+        };
+        if a.mul_add(d, -(b * c)) == 0.0 {
+            return Self::Singular;
+        }
+        if b == 0.0 && c == 0.0 {
+            if a == 1.0 && d == 1.0 {
+                return Self::Identity;
+            }
+            return if a > 0.0 && d > 0.0 {
+                Self::Scale
+            } else {
+                Self::Mirror
+            };
+        }
+        if b == 0.0 {
+            return Self::Shear;
+        }
+        if a == 0.0 {
+            return if d == 0.0 {
+                Self::QuarterTurn
+            } else {
+                Self::Shear
+            };
+        }
+        Self::OffAxis
+    }
+}
+
+/// The one `Tm` §12.7.4.3 admits in a `/DA`, or `None` where the string states none.
+///
+/// > The default appearance string shall contain at most one Tm (text matrix) operator.
+///
+/// The last one wins where a string breaks that `shall`, which is what a stream interpreter would
+/// do with two of them and is the only reading that needs no second rule.
+fn text_matrix_of(bytes: &[u8]) -> Option<[f64; 6]> {
+    let mut lexer = pdf_syntax::Lexer::new(bytes);
+    let mut operands: Vec<f64> = Vec::new();
+    let mut found = None;
+    while let Some(token) = lexer.next_token() {
+        match token {
+            pdf_syntax::Token::Integer(value) => {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a matrix element written as an integer, compared against zero and one"
+                )]
+                operands.push(value as f64);
+            }
+            pdf_syntax::Token::Real(value) => operands.push(value),
+            pdf_syntax::Token::Keyword(word) => {
+                if word == b"Tm" && operands.len() >= 6 {
+                    let tail = operands.split_off(operands.len().saturating_sub(6));
+                    let mut matrix = [0.0; 6];
+                    matrix.copy_from_slice(&tail);
+                    found = Some(matrix);
+                }
+                operands.clear();
+            }
+            _ => operands.clear(),
+        }
+    }
+    found
+}
+
+/// Counts one object's `/DA` text matrix by what its linear part does to the layout's space.
+///
+/// The population is every object this clause lays text out for — a field's widget and
+/// §12.5.6.6's free text annotation alike — because the matrix is read off the `/DA` and both
+/// have one. An object with no `/DA` at all is counted nowhere rather than under [`Absent`],
+/// which is the population §12.7.4.3 has nothing to say about.
+///
+/// [`Absent`]: LinearPart::Absent
+fn take_text_matrix(
+    document: &Document,
+    widget: &Dictionary,
+    file: &str,
+    counts: &mut Counts,
+    matrices: &mut BTreeSet<(String, String)>,
+) {
+    let Some(appearance) = inherited(document, widget, "DA") else {
+        return;
+    };
+    let matrix = text_matrix_of(&appearance);
+    let part = LinearPart::of(matrix);
+    let counter = counts.matrices.entry(part).or_default();
+    *counter = counter.saturating_add(1);
+    if let (Some([a, b, c, d, _, _]), false) = (matrix, part == LinearPart::Identity) {
+        matrices.insert((
+            file.to_owned(),
+            format!("{a} {b} {c} {d} Tm — {}", part.name()),
+        ));
+    }
 }
 
 /// Counts one object's `/DA` font *name*, whether or not `/DR` defines anything under it.

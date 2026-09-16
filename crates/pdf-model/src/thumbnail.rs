@@ -8,6 +8,12 @@
 //! carries rather than the catalog — and this module decodes it into the same RGBA raster every
 //! other image in this tree becomes.
 //!
+//! **Two tables carry the entry and one clause decides both.** §7.11.3's Table 43 gives a *file
+//! specification* a `/Thumb` of its own, "[a] stream object defining the thumbnail image for the
+//! file specification", and sends the reader to §12.3.4 for what it means — so [`of_file_spec`]
+//! is [`read`] with a different carrier and the same subtraction. A third `/Thumb` is not an
+//! image at all: Table 159's, in [`crate::collection`], is a collection folder's flag.
+//!
 //! # The clause takes entries away, and that is the whole of the work
 //!
 //! A thumbnail is an image dictionary with most of an image dictionary's meaning removed:
@@ -129,7 +135,40 @@ pub struct Thumbnail {
 /// [`ImageError`], for a `/Thumb` that is a stream this crate cannot decode — the same errors
 /// and the same route as any other image, since after [`significant`] it *is* any other image.
 pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, ImageError>> {
-    let thumb = document.get_key(page, "Thumb");
+    decode(document, &document.get_key(page, "Thumb"))
+}
+
+/// Reads and decodes §7.11.3 Table 43's `/Thumb`: "[a] stream object defining the thumbnail image
+/// for the file specification."
+///
+/// The entry sends the reader to the same clause a page's does — "(See 12.3.4, "Thumbnail
+/// images")" — so the miniature of an attached file is decoded under §12.3.4's subtraction rule
+/// exactly as a miniature of a page is, and [`decode`] is that sentence once for both carriers.
+/// The two entries are different tables and were different readers: this one did not exist until
+/// the eleven-hundred-and-forty-ninth session, and the one `/Thumb` read outside a page's was
+/// [`crate::collection`]'s, which is **Table 159's** folder flag and not an image at all.
+///
+/// 11 file specifications state one across the corpora on this disk — five in one Acrobat
+/// portfolio, one on a `PDFBox` attachment, five more in a sample of the crawl — and every one of
+/// them is a `DeviceRGB` `FlateDecode` image under 160 pixels on its longest side, which is what
+/// a collection view puts beside a file name.
+///
+/// `None` for a specification with no `/Thumb`, which is all but those; the entry is Optional.
+///
+/// # Errors
+///
+/// [`ImageError`], on the same terms as [`read`].
+pub fn of_file_spec(
+    document: &Document,
+    specification: &Dictionary,
+) -> Option<Result<Thumbnail, ImageError>> {
+    decode(document, &document.get_key(specification, "Thumb"))
+}
+
+/// §12.3.4 applied to whichever `/Thumb` a caller found.
+///
+/// `None` where the entry is absent or is not a stream, which the two tables agree it shall be.
+fn decode(document: &Document, thumb: &Object) -> Option<Result<Thumbnail, ImageError>> {
     let stream = thumb.as_stream()?;
     let permitted_colour_space = colour_space_is_permitted(document, &stream.dict);
     let permitted_subtype = document
@@ -138,9 +177,9 @@ pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, 
         .is_none_or(|subtype| subtype.as_bytes() == b"Image");
     let stream = significant(stream);
 
-    // A thumbnail hangs off a page rather than off a content stream, so there is no resource
-    // dictionary in scope and a `/ColorSpace` naming one could not be resolved by anybody. The
-    // three forms the clause permits are all stated inline.
+    // A thumbnail hangs off a page or a file specification rather than off a content stream, so
+    // there is no resource dictionary in scope and a `/ColorSpace` naming one could not be
+    // resolved by anybody. The three forms the clause permits are all stated inline.
     let resources = Dictionary::new();
     Some(
         crate::image::decode(
@@ -228,8 +267,8 @@ fn colour_space_is_permitted(document: &Document, dict: &Dictionary) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{read, significant};
-    use pdf_syntax::Document;
+    use super::{of_file_spec, read, significant};
+    use pdf_syntax::{Document, Object};
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
@@ -397,5 +436,52 @@ mod tests {
         ]);
         let page = crate::Pages::new(&doc).get(0).expect("a page");
         assert!(read(&doc, &page.dict).is_none());
+    }
+    /// §7.11.3 Table 43's `/Thumb` is decoded under §12.3.4's rule, like a page's.
+    ///
+    /// The calibration is the pair (trap 13): the same specification with the entry and without
+    /// it. `attachment.pdf` and `digitally_signed_3D_Portfolio.pdf` are the corpus's witnesses —
+    /// `DeviceRGB` `FlateDecode` miniatures on `/EmbeddedFiles` specifications — and this fixture
+    /// is the same construction with two hexadecimal pixels instead, carrying a `/SMask` so that
+    /// the subtraction is shown to reach this carrier and not only a page's.
+    #[test]
+    fn a_file_specifications_thumbnail_is_read_and_a_specification_without_one_is_not() {
+        let with_thumb = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R >>",
+            "<< /Type /Filespec /F (drawing.pdf) /UF (drawing.pdf) /EF << /F 5 0 R >> \
+             /Thumb 6 0 R >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nhi\nendstream",
+            "<< /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 \
+             /Filter /ASCIIHexDecode /Length 13 /SMask 7 0 R >>\nstream\nFF000000FF00>\nendstream",
+            "<< /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 \
+             /Filter /ASCIIHexDecode /Length 5 >>\nstream\n0000>\nendstream",
+        ]);
+        let spec = with_thumb.resolve(&Object::Reference(pdf_syntax::ObjectId::new(4, 0)));
+        let spec = spec.as_dict().expect("the file specification");
+        let thumbnail = of_file_spec(&with_thumb, spec)
+            .expect("Table 43's /Thumb")
+            .expect("it decodes");
+        assert_eq!(thumbnail.image.width, 2);
+        assert_eq!(
+            thumbnail.image.data.as_ref(),
+            [255, 0, 0, 255, 0, 255, 0, 255],
+            "opaque red and green: §12.3.4's subtraction reaches Table 43's carrier too"
+        );
+
+        let without = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R >>",
+            "<< /Type /Filespec /F (drawing.pdf) /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nhi\nendstream",
+        ]);
+        let spec = without.resolve(&Object::Reference(pdf_syntax::ObjectId::new(4, 0)));
+        let spec = spec.as_dict().expect("the file specification");
+        assert!(
+            of_file_spec(&without, spec).is_none(),
+            "the entry is Optional and its absence is not a failure"
+        );
     }
 }

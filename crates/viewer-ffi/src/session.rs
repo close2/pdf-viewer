@@ -37,6 +37,13 @@ use crate::status::Status;
 pub struct Session {
     /// The state machine.
     viewer: Viewer,
+    /// The reader's restriction policy, as this caller has set it.
+    ///
+    /// Held here because `quorra_restrict_operation` sets *one* operation's level and
+    /// `viewer_core::Command::Restrict` carries the whole policy: a C caller that had to resend
+    /// all six would be keeping this crate's state for it. The viewer's own copy is the same
+    /// value; this is the one a partial change is applied to (ADR 1144).
+    restrictions: viewer_core::RestrictionPolicy,
 }
 
 impl Session {
@@ -49,6 +56,7 @@ impl Session {
     pub fn new(width: u32, height: u32, scale: f32) -> Self {
         Self {
             viewer: Viewer::new(width, height, scale),
+            restrictions: viewer_core::RestrictionPolicy::default(),
         }
     }
 
@@ -729,7 +737,27 @@ impl Session {
     /// How much of what a document asserts about its reader this viewer obeys.
     #[must_use]
     pub fn restrict(&mut self, level: viewer_core::RestrictionLevel) -> Events {
-        self.handle(Command::Restrict(level))
+        self.restrictions = viewer_core::RestrictionPolicy::uniform(level);
+        let policy = self.restrictions;
+        self.handle(Command::Restrict(policy))
+    }
+
+    /// The same, for one operation alone — `CLAUDE.md`'s four levels, per restriction.
+    #[must_use]
+    pub fn restrict_operation(
+        &mut self,
+        operation: pdf_model::restriction::Operation,
+        level: viewer_core::RestrictionLevel,
+    ) -> Events {
+        self.restrictions = self.restrictions.with(operation, level);
+        let policy = self.restrictions;
+        self.handle(Command::Restrict(policy))
+    }
+
+    /// §7.6.4.2's bit 5 asked as an operation: a person pressed copy.
+    #[must_use]
+    pub fn copy(&mut self) -> Events {
+        self.handle(Command::Copy)
     }
 
     /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.

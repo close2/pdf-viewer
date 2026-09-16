@@ -887,7 +887,12 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    'xargs|bounded.sh|examples/'` for **launchers the dead process left running** — three `xargs`
    feeders of a crawl census outlived the 2026-09-15 crash and kept starting a pre-fix binary
    that leaked a zombie per document until the scope's `pids.max` refused every fork; stop them by
-   pid before anything is resumed. If the harness reports the
+   pid before anything is resumed. **A launch can fire more agents than it was briefed** — batch
+   sixteen (2026-09-16) got ten where six were briefed, two per contract writing the same files:
+   after every launch, `ListAgents` and confirm the count equals the slots; on a surplus, freeze
+   every suspect by message (stop writing, report round + `git status` + complete-or-mid-edit),
+   keep the one that is ahead per contract, stand the other down, and never let two edit
+   `ledger.toml` at once. If the harness reports the
    rounds as *stopped* with their ids and transcripts saved (batch fifteen, 2026-09-15), resume
    each by message rather than by a new brief — "the process exited; your files on disk are …;
    check `git diff` on your paths, rebuild, finish the contract as briefed" — because a resumed

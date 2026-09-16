@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use render_raster::QuorraWindowRenderer;
-use viewer_core::RestrictionLevel;
+use viewer_core::{RestrictionLevel, RestrictionPolicy};
 
 use crate::trace::{Trace, parse_topics, speak_up, topic_names};
 
@@ -106,13 +106,13 @@ pub(crate) struct Arguments {
     /// Annex O's fragment identifier, where the argument carried one after a `#`.
     pub(crate) fragment: Option<String>,
     /// What this reader does with the restrictions a document asserts, from
-    /// `--ignore-restrictions`.
+    /// `--restrictions=` and `--ignore-restrictions`.
     ///
     /// **Not a user interface for them**, which `CLAUDE.md` says is not to be built yet: it is
     /// the one policy value `viewer-core` asks for, supplied the way this host supplies every
     /// other one it has — the sandbox, the backend, the page to open at. The four levels the
     /// project owner named, and the menu that will offer them, are later.
-    pub(crate) restrictions: RestrictionLevel,
+    pub(crate) restrictions: RestrictionPolicy,
     /// The directory `--trust-anchors` named, or nothing, which is the default and means nobody.
     ///
     /// **§12.8.1's third question, as a host's input.** RFC 5280 section 6.1.1 makes the trust
@@ -193,7 +193,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut backend = DEFAULT_BACKEND;
     let mut backend_asked_for = false;
     let mut opens_at = None;
-    let mut restrictions = RestrictionLevel::On;
+    let mut restrictions = RestrictionPolicy::default();
     let mut trust_anchors = None;
     let mut reference_files = None;
     let mut reader_names: Vec<String> = Vec::new();
@@ -326,11 +326,25 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             }
         } else if argument == viewer_host::ACCEPT_UNKNOWN_REVOCATION {
             accept_unknown_revocation = true;
+        } else if let Some(list) = argument
+            .to_string_lossy()
+            .strip_prefix(viewer_host::RESTRICTIONS)
+            .map(str::to_owned)
+        {
+            // `CLAUDE.md`'s four levels, one operation at a time. A command line is not the menu
+            // `doc/todo/38` still wants; it is the channel this program has today (ADR 1144).
+            match viewer_host::restrictions(&list, restrictions) {
+                Ok(policy) => restrictions = policy,
+                Err(complaint) => {
+                    eprintln!("{complaint}");
+                    std::process::exit(2);
+                }
+            }
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
             // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
             // prints has to name a word every host's parser takes — and for two hosts of three it
             // did not (ADR 0604).
-            restrictions = RestrictionLevel::Off;
+            restrictions = RestrictionPolicy::uniform(RestrictionLevel::Off);
         } else if argument == "--page" {
             // A page number as the title bar shows it, which is one-based. §12.3.2.1's
             // `/OpenAction` is the document's own answer to the same question and wins where
@@ -623,9 +637,20 @@ fn usage() {
     eprintln!("                else: --trace=frames to chase a slow page, --trace=-pointer for");
     eprintln!("                everything but the flood a moving mouse makes.");
     eprintln!("  {}", viewer_host::IGNORE_RESTRICTIONS);
-    eprintln!("                perform an operation a document says its reader may not — filling");
-    eprintln!("                in a field under §7.6.4.2's permission flags or an author's");
-    eprintln!("                §12.8.2.2 certification. The default is to obey and say so.");
+    eprintln!("                perform every operation a document says its reader may not —");
+    eprintln!("                filling in a field or copying text under §7.6.4.2's permission");
+    eprintln!("                flags, or an author's §12.8.2.2 certification. This is the");
+    eprintln!("                default, because CLAUDE.md says a document's restrictions are the");
+    eprintln!("                reader's and that turning them off shall always be possible.");
+    eprintln!(
+        "  {}L or {}O:L,O:L",
+        viewer_host::RESTRICTIONS,
+        viewer_host::RESTRICTIONS
+    );
+    eprintln!("                obey them, per operation: O is copy, annotate, fill, print,");
+    eprintln!("                modify or assemble and L is off, on, ask or warn — ask holds the");
+    eprintln!("                operation until it is answered, warn does it and says what the");
+    eprintln!("                document said. --restrictions=copy:ask,annotate:on.");
     eprintln!("  {} D", viewer_host::TRUST_ANCHORS);
     eprintln!("                believe the certification authorities in directory D, as PEM or");
     eprintln!("                DER, when answering the third of the three questions a signature");
