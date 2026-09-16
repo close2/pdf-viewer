@@ -314,6 +314,18 @@ pattern's cell — decide which marks the first sentence hands a function to.
    approaches conditional on "an output device that requires halftoned output", so it licenses
    nothing here — but the fringe it names is the artefact this construction has to get right.
 
+   **The design question is settled — ADR 1125, the one-thousand-one-hundred-and-eighteenth
+   session.** The edge pixel is inside the object by the clause's own "nonzero object shape value",
+   so it takes that object's function on the composited colour, applied where §11.7.5.3's NOTE puts
+   it — "only when all colour compositing has been completed". What is left is the build, and that
+   session did not start it: both backends composite through `tiny-skia`, which offers no per-pixel
+   topmost-object hook, so the index is a whole second rasterisation pass and not a field on an
+   existing one; and the population the census still measures at one fully opaque image gives it no
+   oracle witness. `render-cpu/tests/transfer_edge.rs` is the fixture that stands in for the missing
+   one — it measures the edge gap at half a unit under an inverting transfer, the interior where the
+   two orderings agree, and a no-transfer control — so the channel's later arrival is legible
+   against it.
+
 **The population, measured rather than assumed**, and it is why this is a `doc/todo` entry rather
 than a round's work: run `examples/transfer_function_census` over `doc/pdf.js` and over the SafeDocs
 crawl. One document of the first states a function that is not `/Identity` or `/Default`, and it

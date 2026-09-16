@@ -15,7 +15,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_syntax::serialize::{ObjectStreams, Streams};
+use pdf_syntax::serialize::{ObjectStreams, Streams, flate_encode};
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::redact::RedactPlan;
@@ -372,5 +372,217 @@ fn the_isartor_witness_opens_and_its_region_resolves() {
     assert!(
         report.outputs.len() == 1,
         "the verb wrote a document for the witness"
+    );
+}
+
+/// Assembles a §7.5.4 cross-referenced file from byte objects, numbered from one — the binary
+/// counterpart of [`assemble`], for a fixture whose image stream is not valid UTF-8.
+fn assemble_bytes(objects: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = Vec::from(&b"%PDF-1.7\n"[..]);
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj ", index + 1).as_bytes());
+        out.extend_from_slice(object);
+        out.extend_from_slice(b" endobj\n");
+    }
+    let at = out.len();
+    let size = objects.len() + 1;
+    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+    for offset in &offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n").as_bytes(),
+    );
+    out
+}
+
+/// An 8×8 `DeviceGray` image whose sample `(col, row)` is `col*8 + row + 1` — every sample
+/// distinct and non-zero, so a cleared sample (zero) is unmistakable and a mixed-up row would be
+/// caught.
+fn distinct_samples() -> Vec<u8> {
+    let mut samples = Vec::with_capacity(64);
+    for row in 0..8u8 {
+        for col in 0..8u8 {
+            samples.push(col * 8 + row + 1);
+        }
+    }
+    samples
+}
+
+/// The one image `XObject` as a byte object, `/Filter` and data given.
+fn image_object(filter: &str, data: &[u8]) -> Vec<u8> {
+    let mut object = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+         /BitsPerComponent 8 /Filter /{filter} /Length {} >>\nstream\n",
+        data.len()
+    )
+    .into_bytes();
+    object.extend_from_slice(data);
+    object.extend_from_slice(b"\nendstream");
+    object
+}
+
+/// The output's one image `XObject` decoded back to its packed samples.
+fn read_back_samples(bytes: &[u8]) -> Vec<u8> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let xobjects = document.get_key(&page.resources, "XObject");
+    let entry = xobjects
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    // Re-interpret the page too: the destroyed image must not stop it drawing (it renders).
+    let _ = pdf_model::interpret(&document, &page);
+    document
+        .image_stream(stream)
+        .expect("the image decodes to samples")
+        .data
+        .to_vec()
+}
+
+/// The calibration trap 13 asks for on the image case (§12.5.6.23, "that portion of the image
+/// data shall be destroyed"): an 8×8 image is placed over the page's [50,150]² square, and a
+/// `/QuadPoints` region covers its left half. After application the left four columns are zero in
+/// the decoded image and unrecoverable, the right four columns are byte-identical, and the file
+/// re-opens and its image decodes.
+#[test]
+fn image_samples_inside_a_quadpoints_region_are_destroyed_and_outside_intact() {
+    let samples = distinct_samples();
+    let encoded = flate_encode(&samples, 6).expect("the fixture image deflates");
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        image_object("FlateDecode", &encoded),
+    ];
+    let bytes = assemble_bytes(&objects);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the image is cleared, not refused: {:?}",
+        report.refused
+    );
+    // Principle 1: the original stream bytes are gone from the file, not left as an orphan the
+    // new one sits beside — the destruction is a destruction.
+    assert!(
+        !contains(&out, &encoded),
+        "the original image stream is not left in the file"
+    );
+
+    let out_samples = read_back_samples(&out);
+    assert_eq!(out_samples.len(), 64, "the grid survives");
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let got = out_samples[row * 8 + col];
+            if col < 4 {
+                assert_eq!(
+                    got, 0,
+                    "col {col} row {row} is in the region: its sample is destroyed"
+                );
+            } else {
+                let want = u8::try_from(col * 8 + row + 1).expect("small");
+                assert_eq!(
+                    got, want,
+                    "col {col} row {row} is outside the region: its sample is byte-identical"
+                );
+            }
+        }
+    }
+
+    let Some(Origin::Redacted { images, glyphs, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("the report states a redacted origin");
+    };
+    assert_eq!(images, 1, "one image had samples destroyed");
+    assert_eq!(glyphs, 0, "no text was in this fixture");
+}
+
+/// An image behind a lossy codec (`DCTDecode`) meeting the region is refused by name, never
+/// cleared — its samples are behind a codec this removal does not re-encode (trap 5, principle 1).
+#[test]
+fn an_image_behind_a_codec_is_refused_by_name() {
+    // The bytes are never decoded: the codec is detected from `/Filter` before any decode.
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        image_object("DCTDecode", b"\xff\xd8\xff\xd9"),
+    ];
+    let bytes = assemble_bytes(&objects);
+
+    let (report, _out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused.detail.contains("DCTDecode") && refused.detail.contains("codec"),
+        "the refusal names the codec: {}",
+        refused.detail
+    );
+}
+
+/// A shared image — placed on a second page as well — is refused rather than cleared, because
+/// overwriting its samples would destroy the other page's picture (the single-referrer guard).
+#[test]
+fn a_shared_image_is_refused_rather_than_cleared() {
+    let samples = distinct_samples();
+    let encoded = flate_encode(&samples, 6).expect("the fixture image deflates");
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        image_object("FlateDecode", &encoded),
+        // A second page placing the very same image object 6.
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 8 0 R >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+    ];
+    let bytes = assemble_bytes(&objects);
+
+    let (report, out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the shared-image page is refused");
+    assert!(
+        refused.detail.contains("shared"),
+        "the refusal says the image is shared: {}",
+        refused.detail
+    );
+    // The image is left whole: the other page's picture is intact.
+    let out_samples = read_back_samples(&out);
+    assert_eq!(
+        out_samples,
+        distinct_samples(),
+        "the shared image is untouched"
     );
 }

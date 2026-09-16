@@ -942,6 +942,8 @@ pub enum Origin {
         annotations: usize,
         /// How many glyphs the removal deleted from the content streams.
         glyphs: usize,
+        /// How many image `XObject`s had samples destroyed within the region (§12.5.6.23).
+        images: usize,
     },
     /// One document converted to a part and level of ISO 19005 — `archive`'s output.
     ///
@@ -1247,12 +1249,14 @@ impl Origin {
                 pages,
                 annotations,
                 glyphs,
+                images,
             } => vec![
                 ("kind".to_owned(), Value::text("redacted")),
                 ("source".to_owned(), Value::count(*source)),
                 ("pages".to_owned(), Value::count(*pages)),
                 ("annotations".to_owned(), Value::count(*annotations)),
                 ("glyphs".to_owned(), Value::count(*glyphs)),
+                ("images".to_owned(), Value::count(*images)),
             ],
             // Every other origin is answered by `to_json`, which is the only caller.
             Self::Page { .. }

@@ -141,6 +141,30 @@ fn a_page_the_document_does_not_have_is_named_rather_than_guessed() {
     );
 }
 
+/// A malformed number carried through the whole open path. `pdf_model::fragment`'s
+/// `a_malformed_number_is_refused_rather_than_salvaged` proves the parser refuses `page=12pt` and
+/// keeps it as an unread parameter; this is the other end of the same wire — `Command::Open` with
+/// that fragment leaves the viewer at page one and reports the refusal rather than swallowing it.
+///
+/// The annex states no salvage for a number it cannot read, and §O.2 requires the parameters be
+/// "processed … from left to right", so a `page` whose argument is not a page number is passed
+/// over and named. Opening page one silently would tell a reader the URI's `page=12pt` meant
+/// nothing when it meant something the program could not do.
+#[test]
+fn a_malformed_page_number_opens_at_page_one_and_is_named() {
+    let Some((viewer, events)) = opened("vertical.pdf", "page=12pt") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    assert_eq!(page(&viewer), 0, "the malformed page number moved nothing");
+    let notes = notes(&events);
+    assert!(
+        notes.iter().any(|note| note.contains("page")
+            && note.contains("its arguments are not what Annex O states for it")),
+        "{notes:?}"
+    );
+}
+
 /// Table Annex O.3's `nameddest`: "the PDF processor shall open the document to the page referred
 /// to by the named destination."
 ///

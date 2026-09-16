@@ -193,3 +193,79 @@ fn the_properties_the_pdf_clauses_name_are_the_ones_the_corpus_states() {
         );
     }
 }
+
+/// §14.3.2's *object-level* metadata: a `/Metadata` stream on a form `XObject` reads back.
+///
+/// Table 348 attaches metadata to a component "through the Metadata entry in a stream or
+/// dictionary representing the object", and NOTE 1 names a form among the carriers. The corpus
+/// states one on a catalog (319), an image (3) and other streams (55) but **not one on a form
+/// `XObject`** — `pdf-model --example object_metadata_census` reads zero across 66 918 documents —
+/// so the carrier the clause's own sentence about property-list metadata points at is unexercised
+/// by the world and has to be planted to be checked (trap 13).
+///
+/// What this asserts is that `Xmp::read` is general over Table 348's carriers, not special to the
+/// catalog: handed a form `XObject`'s dictionary, it resolves the `/Metadata` reference and reads
+/// the packet. It is the reader §14.6.2's property-list metadata and §14.3.2's object-level
+/// metadata both reach; there is no in-scope *consumer* of an object-level packet, which is why
+/// this is a calibration rather than a rendering path.
+#[test]
+fn a_metadata_stream_on_a_form_xobject_reads_back() {
+    use std::fmt::Write as _;
+
+    use pdf_syntax::ObjectId;
+
+    const PACKET: &str = "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+        <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+        <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+        <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n\
+        <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">A drawing</rdf:li></rdf:Alt></dc:title>\n\
+        </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+    const FORM: &str = "/Fm0 Do";
+
+    // 1 catalog, 2 pages, 3 page, 4 contents, 5 the form XObject bearing /Metadata, 6 the packet.
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{FORM}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Metadata 6 0 R \
+         /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /Metadata /Subtype /XML /Length {} >>\nstream\n{PACKET}\nendstream\n\
+         endobj\n",
+        FORM.len(),
+        PACKET.len(),
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len() + 1;
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+
+    let document = Document::open(out.into_bytes()).expect("the fixture is a valid PDF");
+    let form = document.get(ObjectId {
+        number: 5,
+        generation: 0,
+    });
+    let form = form.as_stream().expect("the form XObject is a stream");
+    let read = Xmp::read(&document, &form.dict)
+        .expect("the form XObject states a /Metadata stream")
+        .expect("the packet on the form XObject reads back");
+    assert_eq!(
+        read.title(),
+        Some("A drawing"),
+        "the form XObject's own metadata is what the general reader returns"
+    );
+}

@@ -27,15 +27,43 @@
 //! tracks. The walk is held to the interpreter by a **code count**: where the two disagree the
 //! page is refused rather than cut wrong (trap 13's calibration).
 //!
+//! # Destroying image data (§12.5.6.23)
+//!
+//! §12.5.6.23: "If a portion of an image is contained in a redaction region, that portion of the
+//! image data shall be destroyed; clipping or image masks shall not be used to hide that data."
+//! An image `XObject` whose placement meets the region has its **samples overwritten in the
+//! source grid**: each sample whose centre, mapped through the placing transform into the display
+//! list's space, lies in a region box has all of its component bits set to **zero** — the image's
+//! own zero in the integer sample domain of §8.9.5.2, which maps through any `/Decode` array to
+//! that array's `Dmin` and so carries none of the original sample. The image is then re-encoded
+//! with `FlateDecode` and written as a new stream, so the cleared samples are gone from the
+//! decoded image rather than covered. Samples outside every region are byte-identical to the
+//! original decode. Because clearing an image object modifies bytes every placement of it shares,
+//! a shared image is refused (below) rather than cleared where it would alter another placement.
+//!
 //! # What is refused, never cut wrong (trap 5)
 //!
 //! A page is refused by name — its content and its `/Redact` annotations left as the file
 //! wrote them — where removal cannot be proven to leave no trace: a Type 3 font (§9.6.5's glyph
 //! procedures draw outside the advance box this walk measures), a composite font not encoded
 //! `Identity-H` (§9.7.5's codespace decides the code-byte width), the `sh` operator (§8.7.4.2
-//! paints the whole clip), a soft-mask group, an image or a painted path or a form meeting the
-//! region, or any code count the interpreter does not confirm. An encrypted document is refused
-//! outright, because this writer emits no `/Encrypt`.
+//! paints the whole clip), a soft-mask group, or any code count the interpreter does not confirm.
+//! An encrypted document is refused outright, because this writer emits no `/Encrypt`.
+//!
+//! Three marks meeting the region stay refused with their own narrower reason, each an owed
+//! capability rather than a silence:
+//!
+//! - an **image encoded by a codec** (`DCTDecode`, `JPXDecode`, `CCITTFaxDecode`, `JBIG2Decode`,
+//!   §8.9.5) — its samples are behind a codec this removal does not re-encode — or an image whose
+//!   colour space this build cannot count the components of, or whose declared grid its sample
+//!   data does not fill; or a **shared** image the guard cannot prove exclusive to the redacted
+//!   page (clearing it would alter another placement);
+//! - an **inline image** (§8.9.7) — clearing its samples in place is a content-stream splice this
+//!   build does not yet do;
+//! - a **painted path** or a **form** (§8.5) — removing only the portion of a vector mark within
+//!   the region needs geometric path subtraction, and deleting the whole painting operator would
+//!   destroy content the annotation did not identify (its bbox reaches outside the region), which
+//!   is the opposite failure from the one the clause forbids.
 //!
 //! # What is a documented departure (A64/A65's fence)
 //!
@@ -44,10 +72,12 @@
 //! `CLAUDE.md`'s authoring line. So the removal happens and the overlay is not drawn, reported
 //! as a per-page [`crate::Departure`] from §12.5.6.23's full application semantics.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
+use pdf_model::colour::ColourSpace;
 use pdf_model::content::{Interpretation, base_transform, interpret};
 use pdf_model::{Page, Pages};
 use pdf_render::Transform;
@@ -55,7 +85,7 @@ use pdf_render::geom::Point;
 use pdf_syntax::Document;
 use pdf_syntax::lexer::{Lexer, Token};
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
+use pdf_syntax::serialize::{Assembly, Form, Options, flate_encode, serialize};
 
 use crate::optimize::{catalog_of, copy_closure, refuse_a_document_only_recovery_reads};
 use crate::pattern::{Fill, Pattern};
@@ -107,8 +137,15 @@ pub(crate) fn run(
         ));
     }
 
+    // The single-referrer guard on image clearing (see `exclusively_owned`) reads how many
+    // times each object is referenced across the whole document. It is counted once here rather
+    // than per placement; `redact` is an offline verb, so the one walk of every in-use object is
+    // affordable where it would not be on the launch path.
+    let counts = reference_counts(document);
+
     let pages = Pages::new(document);
     let mut applied: Vec<AppliedPage> = Vec::new();
+    let mut clears: Vec<ImageClear> = Vec::new();
     let mut annotations = 0usize;
     let mut glyphs = 0usize;
     let mut departures: Vec<usize> = Vec::new();
@@ -124,10 +161,11 @@ pub(crate) fn run(
         if regions.is_empty() {
             continue;
         }
-        match plan_page(document, &page, &regions) {
+        match plan_page(document, &page, &regions, &counts) {
             Ok(edit) => {
                 annotations = annotations.saturating_add(regions.len());
                 glyphs = glyphs.saturating_add(edit.removed);
+                clears.extend(edit.clears);
                 if regions.iter().any(|region| region.has_overlay) {
                     departures.push(index.saturating_add(1));
                 }
@@ -146,7 +184,12 @@ pub(crate) fn run(
         }
     }
 
-    let written = write_document(document, root, &mut applied, plan, sinks)?;
+    // §12.5.6.23: destroy the image data. The single-referrer guard has already refused any
+    // shared image, so each cleared object belongs to one page.
+    let cleared_images = clear_images(document, clears)?;
+    let images = cleared_images.len();
+
+    let written = write_document(document, root, &mut applied, &cleared_images, plan, sinks)?;
     if written.dangling {
         report.warnings.push(Warning {
             source: plan.source,
@@ -165,6 +208,7 @@ pub(crate) fn run(
             pages: pages.len(),
             annotations,
             glyphs,
+            images,
         },
     });
     for page in departures {
@@ -178,6 +222,36 @@ pub(crate) fn run(
         });
     }
     Ok(())
+}
+
+/// Groups the pages' image clears by object and destroys each image's samples once.
+///
+/// A page may draw one image twice, so the placements of one object are unioned into a single
+/// cleared stream (§12.5.6.23). The single-referrer guard ([`Walk::exclusively_owned`]) has
+/// already refused any image a second page shares, so this cannot destroy another page's picture.
+fn clear_images(
+    document: &Document,
+    clears: Vec<ImageClear>,
+) -> Result<Vec<(ObjectId, Vec<u8>)>, Refusal> {
+    let mut grouped: HashMap<ObjectId, Vec<ImageClear>> = HashMap::new();
+    for clear in clears {
+        grouped.entry(clear.image_id).or_default().push(clear);
+    }
+    let mut cleared: Vec<(ObjectId, Vec<u8>)> = Vec::with_capacity(grouped.len());
+    for (id, placements) in grouped {
+        let object = document.get(id);
+        let stream = object.as_stream().ok_or_else(|| {
+            Refusal::Assembly(format!(
+                "§8.9.5: image object {} is not a stream where its samples must be destroyed",
+                id.number
+            ))
+        })?;
+        let encoded = cleared_image_samples(document, stream, &placements).map_err(|detail| {
+            Refusal::Assembly(format!("§12.5.6.23: image object {}: {detail}", id.number))
+        })?;
+        cleared.push((id, encoded));
+    }
+    Ok(cleared)
 }
 
 /// A page whose redactions were applied: the object it is, the slot it takes in the output, and
@@ -288,14 +362,46 @@ fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
     a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
 }
 
-/// A page's content stream with the region's content removed, and how many glyphs went.
+/// A page's content stream with the region's content removed, how many glyphs went, and which
+/// image `XObject`s the page's placements ask the removal to clear (§12.5.6.23).
 struct PageEdit {
     content: Vec<u8>,
     removed: usize,
+    clears: Vec<ImageClear>,
+}
+
+/// One image `XObject` placement the removal clears: which object, the transform that placed its
+/// unit square into the display list's space, and the page's region boxes in that same space.
+#[derive(Clone)]
+struct ImageClear {
+    /// The image `XObject` to overwrite.
+    image_id: ObjectId,
+    /// The placement: the unit square [0,1]² of image space maps through this into the display
+    /// list's coordinates, where the region boxes are.
+    ctm: Transform,
+    /// The display-space region boxes a sample centre is tested against.
+    regions: Vec<[f32; 4]>,
+    /// The sample grid and packing, read once at planning time so the clearing needs no
+    /// resources: width, height, colour components, and bits per component (§8.9.5).
+    layout: ImageLayout,
+}
+
+/// An image's sample layout: enough of §8.9.5 to address one packed sample.
+#[derive(Clone, Copy)]
+struct ImageLayout {
+    width: usize,
+    height: usize,
+    components: usize,
+    bits: usize,
 }
 
 /// Plans one page's removal, or refuses it by name (trap 5: never cut it wrong).
-fn plan_page(document: &Document, page: &Page, regions: &[Redaction]) -> Result<PageEdit, String> {
+fn plan_page(
+    document: &Document,
+    page: &Page,
+    regions: &[Redaction],
+    counts: &HashMap<u32, usize>,
+) -> Result<PageEdit, String> {
     let draw = crate::render::page_to_draw(page, None, false);
     let interpretation = interpret(document, &draw);
     let base = base_transform(page);
@@ -306,7 +412,7 @@ fn plan_page(document: &Document, page: &Page, regions: &[Redaction]) -> Result<
         .collect();
 
     let content = page.content(document);
-    let walk = Walk::new(document, page, &interpretation, region_boxes);
+    let walk = Walk::new(document, page, &interpretation, region_boxes, counts);
     walk.run(&content)
 }
 
@@ -382,6 +488,11 @@ struct Walk<'a> {
     code_index: usize,
     removed: usize,
     edits: Vec<(usize, usize, Vec<u8>)>,
+    /// How many times each object number is referenced across the document — the single-referrer
+    /// guard on clearing a shared image (`exclusively_owned`).
+    counts: &'a HashMap<u32, usize>,
+    /// The image `XObject` placements this page asks the removal to clear.
+    clears: Vec<ImageClear>,
 }
 
 impl<'a> Walk<'a> {
@@ -390,6 +501,7 @@ impl<'a> Walk<'a> {
         page: &'a Page,
         interpretation: &Interpretation,
         regions: Vec<[f32; 4]>,
+        counts: &'a HashMap<u32, usize>,
     ) -> Self {
         Self {
             document,
@@ -412,6 +524,8 @@ impl<'a> Walk<'a> {
             code_index: 0,
             removed: 0,
             edits: Vec::new(),
+            counts,
+            clears: Vec::new(),
         }
     }
 
@@ -465,6 +579,7 @@ impl<'a> Walk<'a> {
         Ok(PageEdit {
             content: apply_edits(content, self.edits),
             removed: self.removed,
+            clears: self.clears,
         })
     }
 
@@ -872,23 +987,26 @@ impl<'a> Walk<'a> {
         bbox[3] = bbox[3].max(point.y);
     }
 
-    /// A painted path that meets the region is a mark this walk does not remove; refuse.
+    /// A painted path that meets the region is refused: removing only the portion of a vector
+    /// mark within the region needs geometric path subtraction this build does not do, and
+    /// dropping the whole painting operator would destroy content outside the region (the path's
+    /// bbox reaches past it) — the opposite failure from the one §12.5.6.23 forbids.
     fn paint_path(&mut self, keyword: &[u8]) -> Result<(), String> {
         let bbox = self.path.take();
         if let Some(bbox) = bbox
             && self.regions.iter().any(|region| overlaps(*region, bbox))
         {
             return Err(format!(
-                "§8.5: a painted path ({}) meets the region; the page is refused rather than \
-                 leave a mark the removal does not reach",
+                "§8.5: a painted path ({}) meets the region; removing only its portion within the \
+                 region needs geometric subtraction this build does not do; the page is refused",
                 String::from_utf8_lossy(keyword)
             ));
         }
         Ok(())
     }
 
-    /// `Do`: an image or form that meets the region is refused; §12.5.6.23 requires an image's
-    /// data destroyed, which this walk does not do.
+    /// `Do`: an image that meets the region is cleared (§12.5.6.23); a form or an image the
+    /// removal cannot clear is refused by its own narrower reason.
     fn do_xobject(&mut self, operands: &[(Operand, usize)]) -> Result<(), String> {
         let Some(name) = operands.iter().find_map(|(operand, _)| match operand {
             Operand::Name(bytes) => Some(bytes.clone()),
@@ -897,14 +1015,21 @@ impl<'a> Walk<'a> {
             return Ok(());
         };
         let xobjects = self.document.get_key(&self.page.resources, "XObject");
-        let object = xobjects
+        let Some(entry) = xobjects
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name.as_slice())))
-            .map(|entry| self.document.resolve(entry));
-        let Some(dict) = object.as_ref().and_then(Object::as_dict) else {
+            .cloned()
+        else {
             return Err(format!(
                 "the content draws /{} which /Resources /XObject does not define; the page is \
                  refused",
+                String::from_utf8_lossy(&name)
+            ));
+        };
+        let object = self.document.resolve(&entry);
+        let Some(dict) = object.as_dict() else {
+            return Err(format!(
+                "the content draws /{}, which does not resolve to a stream; the page is refused",
                 String::from_utf8_lossy(&name)
             ));
         };
@@ -914,21 +1039,183 @@ impl<'a> Walk<'a> {
             .as_name()
             .map(|name| name.as_bytes().to_vec())
             .unwrap_or_default();
-        let bbox = match subtype.as_slice() {
-            b"Form" => match numbers(self.document, dict, "BBox") {
-                Some(values) if values.len() >= 4 => self.transformed_box(&values),
-                _ => self.unit_square(),
-            },
-            _ => self.unit_square(),
-        };
-        if self.regions.iter().any(|region| overlaps(*region, bbox)) {
+        match subtype.as_slice() {
+            b"Image" => {
+                if !self
+                    .regions
+                    .iter()
+                    .any(|region| overlaps(*region, self.unit_square()))
+                {
+                    // The image is nowhere near a redaction: it crosses the output untouched.
+                    return Ok(());
+                }
+                let clear = self.plan_image_clear(&name, &entry, &object)?;
+                self.clears.push(clear);
+                Ok(())
+            }
+            b"Form" => {
+                let bbox = match numbers(self.document, dict, "BBox") {
+                    Some(values) if values.len() >= 4 => self.transformed_box(&values),
+                    _ => self.unit_square(),
+                };
+                if self.regions.iter().any(|region| overlaps(*region, bbox)) {
+                    return Err(
+                        "§8.5: a form XObject meets the region; removing only the portion of its \
+                         marks within the region needs geometric subtraction this build does not \
+                         do, and dropping the whole form would destroy content outside the \
+                         region; the page is refused"
+                            .to_owned(),
+                    );
+                }
+                Ok(())
+            }
+            _ => {
+                if self
+                    .regions
+                    .iter()
+                    .any(|region| overlaps(*region, self.unit_square()))
+                {
+                    return Err(format!(
+                        "§12.5.6.23: a /{} XObject meets the region, whose content the removal \
+                         does not reach; the page is refused",
+                        String::from_utf8_lossy(&subtype)
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Plans clearing an image `XObject` that meets the region (§12.5.6.23), or refuses by name.
+    ///
+    /// The clearing itself is deferred to [`cleared_image_stream`], because a page may draw one
+    /// image twice and the destroyed samples are the union across its placements. What this does
+    /// is prove the image *can* be cleared without trace — it is not behind a codec, its layout is
+    /// known, and it is not shared — so the refusal is decided here, at the page.
+    fn plan_image_clear(
+        &self,
+        name: &[u8],
+        entry: &Object,
+        object: &Object,
+    ) -> Result<ImageClear, String> {
+        let shown = String::from_utf8_lossy(name);
+        let Some(image_id) = entry.as_reference() else {
             return Err(format!(
-                "§12.5.6.23: a /{} XObject meets the region, whose content the removal does not \
-                 reach; the page is refused",
-                String::from_utf8_lossy(&subtype)
+                "the image /{shown} is a direct object rather than an indirect reference this \
+                 removal can replace; the page is refused"
+            ));
+        };
+        if !self.exclusively_owned(image_id) {
+            return Err(format!(
+                "§12.5.6.23: the image /{shown} is shared, so overwriting its samples would \
+                 destroy content in another placement; the page is refused rather than reach past \
+                 the region"
             ));
         }
-        Ok(())
+        let Some(stream) = object.as_stream() else {
+            return Err(format!(
+                "the image /{shown} is not a stream; the page is refused"
+            ));
+        };
+        let image = self.document.image_stream(stream).ok_or_else(|| {
+            format!("the image /{shown} did not decode to samples; the page is refused")
+        })?;
+        if let Some(codec) = &image.codec {
+            return Err(format!(
+                "§8.9.5: the image /{shown} is encoded with the {} codec, whose samples this \
+                 removal does not re-encode; the page is refused",
+                String::from_utf8_lossy(codec)
+            ));
+        }
+        let layout = self.image_layout(&stream.dict, &shown)?;
+        let stride = row_stride(layout)
+            .ok_or_else(|| format!("the image /{shown}'s grid overflows; the page is refused"))?;
+        let expected = stride
+            .checked_mul(layout.height)
+            .ok_or_else(|| format!("the image /{shown}'s grid overflows; the page is refused"))?;
+        if image.data.len() < expected {
+            return Err(format!(
+                "§8.9.5: the image /{shown}'s sample data is shorter than its {}×{} grid; the \
+                 page is refused rather than clear samples that are not there",
+                layout.width, layout.height
+            ));
+        }
+        Ok(ImageClear {
+            image_id,
+            ctm: self.ctm,
+            regions: self.regions.clone(),
+            layout,
+        })
+    }
+
+    /// The image's sample layout (§8.9.5): its grid, colour components and bit depth.
+    fn image_layout(&self, dict: &Dictionary, shown: &str) -> Result<ImageLayout, String> {
+        let width = positive_dim(self.document, dict, "Width", shown)?;
+        let height = positive_dim(self.document, dict, "Height", shown)?;
+        let is_mask = matches!(
+            self.document.get_key(dict, "ImageMask"),
+            Object::Boolean(true)
+        );
+        let (components, bits) = if is_mask {
+            // §8.9.6.2: an image mask is one bit per sample and carries no colour space of its
+            // own; §8.9.5.1 Table 87 requires /BitsPerComponent 1 where it is stated at all.
+            (1, 1)
+        } else {
+            let space = self.document.get_key(dict, "ColorSpace");
+            let components = ColourSpace::parse(self.document, &space, &self.page.resources)
+                .map(|resolved| resolved.components())
+                .filter(|components| *components > 0)
+                .ok_or_else(|| {
+                    format!(
+                        "the image /{shown}'s colour space is one this removal cannot count the \
+                         components of; the page is refused"
+                    )
+                })?;
+            let bits = match self.document.get_key(dict, "BitsPerComponent").as_integer() {
+                Some(bits @ (1 | 2 | 4 | 8 | 16)) => usize::try_from(bits).unwrap_or(8),
+                _ => {
+                    return Err(format!(
+                        "§8.9.5: the image /{shown}'s /BitsPerComponent is not 1, 2, 4, 8 or 16; \
+                         the page is refused"
+                    ));
+                }
+            };
+            (components, bits)
+        };
+        Ok(ImageLayout {
+            width,
+            height,
+            components,
+            bits,
+        })
+    }
+
+    /// Whether an image object is safe to overwrite in place: referenced exactly once in the
+    /// document, and reached by a resource path this page does not share, so its samples are the
+    /// redacted page's alone. A shared image is refused rather than cleared (trap 5).
+    fn exclusively_owned(&self, image_id: ObjectId) -> bool {
+        if self.counts.get(&image_id.number).copied() != Some(1) {
+            return false;
+        }
+        // The page's own /Resources must be private: a direct dictionary on the page dict, or an
+        // indirect object referenced once. Inherited resources (no /Resources on the page dict)
+        // are an ancestor's, shared by construction.
+        match self.page.dict.get("Resources") {
+            Some(Object::Dictionary(_)) => self.xobject_private(),
+            Some(Object::Reference(id)) => {
+                self.counts.get(&id.number).copied() == Some(1) && self.xobject_private()
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the page's `/XObject` resource subdictionary is not itself a shared object.
+    fn xobject_private(&self) -> bool {
+        let resources = self.document.get_key(&self.page.dict, "Resources");
+        match resources.as_dict().and_then(|dict| dict.get("XObject")) {
+            Some(Object::Reference(id)) => self.counts.get(&id.number).copied() == Some(1),
+            _ => true,
+        }
     }
 
     /// `gs`: a soft mask in the named graphics state is refused (§11.6.4.3 over the region).
@@ -977,8 +1264,8 @@ impl<'a> Walk<'a> {
         let bbox = self.unit_square();
         if self.regions.iter().any(|region| overlaps(*region, bbox)) {
             return Err(
-                "§8.9.7: an inline image meets the region, whose data the removal does \
-                        not destroy; the page is refused"
+                "§8.9.7: an inline image meets the region; clearing its samples in place is a \
+                        content-stream splice this build does not yet do; the page is refused"
                     .to_owned(),
             );
         }
@@ -1119,6 +1406,252 @@ fn apply_edits(content: &[u8], mut edits: Vec<(usize, usize, Vec<u8>)>) -> Vec<u
     out
 }
 
+/// How many times each object number is referenced across the whole document.
+///
+/// The single-referrer guard on clearing a shared image ([`Walk::exclusively_owned`]) reads this:
+/// an image referenced exactly once, from a resource path the redacted page does not share, is
+/// the redacted page's alone, so overwriting its samples cannot destroy another placement's
+/// picture. Counted over the trailer and every in-use object; [`Document::get`] keys its cache by
+/// object number, so generation zero reaches every object.
+fn reference_counts(document: &Document) -> HashMap<u32, usize> {
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for (_key, value) in document.trailer().iter() {
+        tally_references(value, &mut counts, 0);
+    }
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId {
+            number,
+            generation: 0,
+        });
+        tally_references(&object, &mut counts, 0);
+    }
+    counts
+}
+
+/// Adds every indirect reference in `object` to `counts`, following arrays, dictionaries and a
+/// stream's dictionary; bounded by [`MAX_DEPTH`] against a pathological nesting.
+fn tally_references(object: &Object, counts: &mut HashMap<u32, usize>, depth: usize) {
+    if depth >= MAX_DEPTH {
+        return;
+    }
+    let next = depth.saturating_add(1);
+    match object {
+        Object::Reference(id) => {
+            let count = counts.entry(id.number).or_insert(0);
+            *count = count.saturating_add(1);
+        }
+        Object::Array(items) => {
+            for item in items {
+                tally_references(item, counts, next);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_key, value) in dict.iter() {
+                tally_references(value, counts, next);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_key, value) in stream.dict.iter() {
+                tally_references(value, counts, next);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A positive integer dimension entry (`/Width`, `/Height`), or a refusal naming it.
+fn positive_dim(
+    document: &Document,
+    dict: &Dictionary,
+    key: &str,
+    shown: &str,
+) -> Result<usize, String> {
+    match document.get_key(dict, key).as_integer() {
+        Some(value) if value > 0 => usize::try_from(value)
+            .map_err(|_| format!("the image /{shown}'s /{key} overflows; the page is refused")),
+        _ => Err(format!(
+            "the image /{shown} has no positive /{key}; the page is refused"
+        )),
+    }
+}
+
+/// The packed length of one image row in bytes: §8.9.5.2's samples run left to right within a
+/// row, each row filled to a byte boundary. `None` where the grid overflows `usize`.
+fn row_stride(layout: ImageLayout) -> Option<usize> {
+    let bits = layout
+        .width
+        .checked_mul(layout.components)?
+        .checked_mul(layout.bits)?;
+    Some(bits.div_ceil(8))
+}
+
+/// The image's decoded samples with every region's samples zeroed, re-encoded with `FlateDecode`.
+///
+/// §12.5.6.23: "that portion of the image data shall be destroyed". The samples come from
+/// [`Document::image_stream`], which runs every filter before the codec — so for a codec-free
+/// image they are the packed samples themselves — and the codec-free precondition was already
+/// proved at planning time ([`Walk::plan_image_clear`]); it is re-checked here rather than
+/// trusted across the two phases.
+fn cleared_image_samples(
+    document: &Document,
+    stream: &Stream,
+    placements: &[ImageClear],
+) -> Result<Vec<u8>, String> {
+    let layout = placements
+        .first()
+        .map(|clear| clear.layout)
+        .ok_or_else(|| "no placement to clear".to_owned())?;
+    let image = document
+        .image_stream(stream)
+        .ok_or_else(|| "the image no longer decodes to samples".to_owned())?;
+    if image.codec.is_some() {
+        return Err(
+            "the image is behind a codec whose samples this removal does not re-encode".to_owned(),
+        );
+    }
+    let stride = row_stride(layout).ok_or_else(|| "the image grid overflows".to_owned())?;
+    let expected = stride
+        .checked_mul(layout.height)
+        .ok_or_else(|| "the image grid overflows".to_owned())?;
+    if image.data.len() < expected {
+        return Err("the image sample data is shorter than its declared grid".to_owned());
+    }
+    let mut samples = image.data.to_vec();
+    for clear in placements {
+        clear_region(
+            &mut samples,
+            stride,
+            clear.layout,
+            clear.ctm,
+            &clear.regions,
+        );
+    }
+    flate_encode(&samples, 6)
+        .ok_or_else(|| "the cleared samples could not be re-encoded".to_owned())
+}
+
+/// Zeroes every sample whose centre lies in a region box under one placement.
+///
+/// The region is inverse-mapped into image space to bound the work, then each sample centre in
+/// that block is mapped forward and tested exactly — so a rotated placement clears only the
+/// samples truly inside the region, and the destruction is the region's and no more.
+fn clear_region(
+    samples: &mut [u8],
+    stride: usize,
+    layout: ImageLayout,
+    ctm: Transform,
+    regions: &[[f32; 4]],
+) {
+    let Some(inverse) = ctm.invert() else {
+        return;
+    };
+    let (cols, rows) = candidate_block(inverse, layout, regions);
+    let width = as_f32(layout.width);
+    let height = as_f32(layout.height);
+    for row in rows.0..rows.1 {
+        for col in cols.0..cols.1 {
+            // §8.9.5.2: the image is a unit square with the first sample at the upper-left, so
+            // the first row is the top and v runs down as `row` increases.
+            let u = (as_f32(col) + 0.5) / width;
+            let v = 1.0 - (as_f32(row) + 0.5) / height;
+            let point = ctm.apply(Point::new(u, v));
+            if regions.iter().any(|region| contains(*region, point)) {
+                zero_sample(samples, stride, layout, row, col);
+            }
+        }
+    }
+}
+
+/// The block of sample columns and rows a region can reach, over-approximated from its inverse-
+/// mapped corners and padded by one sample; the exact per-sample test narrows it.
+fn candidate_block(
+    inverse: Transform,
+    layout: ImageLayout,
+    regions: &[[f32; 4]],
+) -> ((usize, usize), (usize, usize)) {
+    let mut left = f32::INFINITY;
+    let mut right = f32::NEG_INFINITY;
+    let mut bottom = f32::INFINITY;
+    let mut top = f32::NEG_INFINITY;
+    for region in regions {
+        for (x, y) in [
+            (region[0], region[1]),
+            (region[2], region[1]),
+            (region[2], region[3]),
+            (region[0], region[3]),
+        ] {
+            let point = inverse.apply(Point::new(x, y));
+            left = left.min(point.x);
+            right = right.max(point.x);
+            bottom = bottom.min(point.y);
+            top = top.max(point.y);
+        }
+    }
+    // v is measured up the unit square, `row` down from the top, so the smaller row bounds the
+    // larger v.
+    (
+        span(left, right, layout.width),
+        span(1.0 - top, 1.0 - bottom, layout.height),
+    )
+}
+
+/// A padded, clamped `[start, end)` index range for a normalised span `lo..hi` over `n` samples.
+fn span(lo: f32, hi: f32, n: usize) -> (usize, usize) {
+    let scale = as_f32(n);
+    let start = clamp_index((lo * scale).floor() - 1.0, n);
+    let end = clamp_index((hi * scale).ceil() + 1.0, n);
+    (start, end.max(start))
+}
+
+/// A finite scalar clamped into `[0, max]` and taken as an index; a non-finite one is `0`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped into [0, max] before the cast, so it is a valid usize index"
+)]
+fn clamp_index(value: f32, max: usize) -> usize {
+    if !value.is_finite() {
+        return 0;
+    }
+    value.clamp(0.0, as_f32(max)) as usize
+}
+
+/// A sample count as `f32` for the sample-centre arithmetic.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a MAX_SAMPLES-bounded count's imprecision only shifts the candidate block, which \
+              the exact per-sample test then narrows; it never leaves a region sample uncleared"
+)]
+fn as_f32(value: usize) -> f32 {
+    value as f32
+}
+
+/// Whether a point lies in an axis-aligned box, edges included (a sample centre on the boundary
+/// is cleared — the safe direction).
+fn contains(box_: [f32; 4], point: Point) -> bool {
+    point.x >= box_[0] && point.x <= box_[2] && point.y >= box_[1] && point.y <= box_[3]
+}
+
+/// Zeroes the `components × bits` bits of one sample, MSB first within the row (§8.9.5.2). All
+/// bit depths go through the same bit loop, so a 1-bit mask and a 16-bit colour need no special
+/// case; the arithmetic cannot overflow because [`row_stride`] proved the grid fits `usize`.
+fn zero_sample(samples: &mut [u8], stride: usize, layout: ImageLayout, row: usize, col: usize) {
+    let per_sample = layout.components.saturating_mul(layout.bits);
+    let bit_start = col.saturating_mul(per_sample);
+    let row_base = row.saturating_mul(stride);
+    for offset in 0..per_sample {
+        let bit = bit_start.saturating_add(offset);
+        let byte = row_base.saturating_add(bit / 8);
+        if let Some(cell) = samples.get_mut(byte) {
+            // `0x80 >> (bit % 8)` is the MSB-first mask for this bit within its byte, the same
+            // packing `pdf_model::image` reads samples back with.
+            *cell &= !(0x80u8 >> (bit % 8));
+        } else {
+            break;
+        }
+    }
+}
+
 /// Writes a number into a `TJ` array with a minimal, re-lexable representation.
 fn write_number(out: &mut String, value: f64) {
     if !value.is_finite() {
@@ -1176,6 +1709,7 @@ fn write_document(
     document: &Document,
     root: ObjectId,
     applied: &mut [AppliedPage],
+    cleared_images: &[(ObjectId, Vec<u8>)],
     plan: &RedactPlan,
     sinks: &dyn Sinks,
 ) -> Result<Written, Refusal> {
@@ -1184,6 +1718,18 @@ fn write_document(
         page.placed = assembly
             .replace(0, page.page_id)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    }
+    // A cleared image is replaced the same way a redacted page is: its slot is reserved before
+    // the closure walk, so `copy_closure` short-circuits on it and the original samples are
+    // reached from nowhere and never copied — which is what makes the destruction a destruction
+    // rather than the file still holding the pixels behind a new object.
+    let mut placed_images: Vec<(ObjectId, ObjectId, &[u8])> =
+        Vec::with_capacity(cleared_images.len());
+    for (image_id, encoded) in cleared_images {
+        let placed = assembly
+            .replace(0, *image_id)
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+        placed_images.push((placed, *image_id, encoded));
     }
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
@@ -1204,6 +1750,13 @@ fn write_document(
         let object = build_page(&mut assembly, document, page)?;
         assembly
             .place(page.placed, object)
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    }
+
+    for (placed, source, encoded) in placed_images {
+        let object = build_cleared_image(&mut assembly, document, source, encoded)?;
+        assembly
+            .place(placed, object)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
 
@@ -1283,6 +1836,50 @@ fn build_page(
         dict.insert(Name::new(&b"Annots"[..]), annots);
     }
     Ok(Object::Dictionary(dict))
+}
+
+/// Builds a cleared image's replacement stream: the source image's dictionary with the destroyed
+/// samples re-encoded as `FlateDecode`, and every reference carried into the output's numbering
+/// (like [`build_page`]'s entries).
+fn build_cleared_image(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    image_id: ObjectId,
+    encoded: &[u8],
+) -> Result<Object, Refusal> {
+    let object = document.get(image_id);
+    let source = object.as_stream().ok_or_else(|| {
+        Refusal::Assembly(format!(
+            "image object {} is not a stream at clearing time",
+            image_id.number
+        ))
+    })?;
+    let mut dict = Dictionary::new();
+    for (key, value) in source.dict.iter() {
+        match key.as_bytes() {
+            // The old encoding is dropped and §7.3.8.2's /Length re-stated for the new bytes;
+            // /Filter becomes the one filter this writer emits. Every other entry — /Width,
+            // /Height, /ColorSpace, /BitsPerComponent, /Decode, /ImageMask, /SMask, /Mask — is
+            // carried unchanged, because the samples are still on the grid it describes.
+            b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
+            _ => {
+                dict.insert(key.clone(), carry(assembly, document, value, 0));
+            }
+        }
+    }
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(encoded.len()).unwrap_or(i64::MAX)),
+    );
+    Ok(Object::Stream(Arc::new(Stream {
+        dict,
+        data: Arc::from(encoded),
+        decryption_failed: false,
+    })))
 }
 
 /// The page's annotations with every `/Redact` removed, carried into the output — or `None`
