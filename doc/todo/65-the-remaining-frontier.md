@@ -26,14 +26,15 @@ forcing them into a bucket would mislead: **aggregate** rows, which state no deb
 move only when a child does, and **not-owed** rows, whose residue is a documented choice, an
 exclusion, a deprecation, or a case the standard leaves undefined.
 
-### 1. Host-UI-blocked — waiting on a surface principle 3 defers
+### 1. Host-UI — a surface now in scope to build
 
-`CLAUDE.md` principle 3 says a document's restrictions have four levels and *no user interface yet
-and none is to be built now*; the same deferral covers printing, a collection's alternate
+`CLAUDE.md` principle 3 gives a document's restrictions four levels (`off`/`on`/ask/warn) whose
+interface is now in scope to build (the earlier "none is to be built now" deferral was lifted by
+the owner on 2026-09-16); the same surface covers printing, a collection's alternate
 presentations, opening a URI, and dragging a measurement. These rows
-are blocked on a product decision about a surface, not on a gap in the reading. **What would unblock
-them:** the host work of `doc/todo/30`–`38` and RFC 0004's print path — a decision to build the
-surface, after which each row's core is already in place.
+are not a gap in the reading — each one's core is already in place, waiting only on the surface and
+the operation it drives. **What builds them:** the host work of `doc/todo/30`–`38` and RFC 0004's
+print path.
 
 - §6.3.2.1, §7.6.4.1 — Table 22's printing, assembling and copying gated by an operation this
   program does not have; copying needs a host that says *this is a copy* (`doc/todo/38`).
@@ -117,16 +118,17 @@ a normal round extending the existing code.
 - §12.7.4.3 — variable text whose `/DA` matrix rotates, skews or mirrors, off the one axis this
   layout lays text along (`doc/todo/22`).
 
-### 5. Owner-question-blocked — waiting on an answer
+### 5. Answered, awaiting a real trigger — the public-key security handler
 
-**One open question, and it gates a coherent cluster: the public-key security handler.**
-`doc/questions/Q66` (raised by round 1139) asks where §7.6.5's decryption stack lives — a public-key
-CMS/RSA surface duplicated into `pdf-syntax`, against `doc/stack.md`'s one-place rule, or a shared
-crypto crate below both `pdf-syntax` and `pdf-signature`. Until it is answered the build cannot
-start, and the host-supplied private key it would then need is deferred behind it (ADR 1134). **What
-would unblock them:** the owner's answer to Q66. The robustness gain is nil — the five corpus
-documents that state a public-key handler carry no recipient certificate this reader could match — so
-this is a coverage row, low urgency, and its urgency is the owner's to weigh.
+**One cluster, decided by the owner (`doc/questions/A66`, 2026-09-16) and waiting for a trigger,
+not an answer.** §7.6.5's decryption stack lives in **a shared crypto crate below both `pdf-syntax`
+and `pdf-signature`** — the `der`/`cms`/`x509`/`bigint` seam extracted once (the second extraction
+of that seam after ADR 1020), with `EnvelopedData` and RSADP added there, its fuzz targets carried
+from the first commit, and the private key a host input (ADR 1134). **What starts the build:** a real
+trigger — a document whose recipient list could match a certificate the user holds, or a host asking
+to supply a private key — not the clause's own sake. The robustness gain is nil (the five corpus
+documents carry no recipient certificate this reader could match), so the calibrated refusal
+(ADR 1134) is the honest state until then.
 
 - §7.6.5, §7.6.5.1 (`reported`), §7.6.5.2 (`reported`), §7.6.5.3 (`reported`) — the handler itself and
   its dictionary and algorithms, refused by name before Table 23 is read.

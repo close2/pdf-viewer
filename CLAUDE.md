@@ -116,14 +116,12 @@ and not about the sandbox, which is the opposite direction and is not negotiable
   restriction a reader cannot switch off is a restriction imposed on the reader by somebody
   else's file, and this program is the reader's.
 - **The finished product has four levels**: `off`, `on`, *ask before the operation*, and
-  *warn before the operation*. There is no user interface for them yet and none is to be
-  built now.
-- **What binds today is the shape rather than the feature.** Whenever a restriction is
-  implemented or touched for any reason, it is written so that those four levels can be
-  added later without revisiting the decision: the *policy* is asked, once, in a place a
-  host can supply — not hard-coded as a refusal at the point of the operation, and not
-  decided inside `pdf-model` where no host can reach it. A refusal that cannot become an
-  "ask" is the thing to avoid.
+  *warn before the operation*, and the interface that offers them is in scope to build.
+- **The shape they attach to is settled.** Whenever a restriction is implemented or
+  touched, the *policy* is asked once, in a place a host can supply — not hard-coded as a
+  refusal at the point of the operation, and not decided inside `pdf-model` where no host
+  can reach it — so the four levels and their controls attach to that one place without
+  revisiting the decision. A refusal that cannot become an "ask" is the thing to avoid.
 
 ### 4. Exemplary — a project others can learn from
 
