@@ -782,6 +782,21 @@ fn classify_silence(
 ) {
     let named = page.and_then(|page| tree.elements_on_page(document, page));
     match named {
+        // **The bound first, because it is a different silence and the answer cannot say so.**
+        // `viewer-core` gathers before it prunes, so a page whose subtree is larger than
+        // [`ANSWER_BOUND`] fills the bound with elements and then keeps whichever of them are on
+        // the page — and where none is, the empty list it answers with is indistinguishable from
+        // a page with no structure. The file says which: a parent tree naming at least as many
+        // elements as the answer may hold has already exceeded it, so this page is *at the bound*
+        // rather than one the walk failed on. See `Census::at_bound`, which names it.
+        Some(elements) if elements.len() >= ANSWER_BOUND => census.at_bound.push((
+            where_,
+            format!(
+                "§14.7.5.4's parent tree names {} element(s) for the page, which is past \
+                 viewer-core's bound of {ANSWER_BOUND}",
+                elements.len()
+            ),
+        )),
         Some(elements) if !elements.is_empty() => census.named_but_silent.push((
             where_,
             format!(
@@ -1114,7 +1129,15 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // 219440 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 351_324);
+        // 351324 until session 1154 read §14.7.5.4's array through §7.3.10: the entry may be
+        // written as an object of its own and 75 of the 109 documents with a structure tree write
+        // it so, which had left ADR 0325's page-scoped walk unreachable on them and their whole
+        // tree counted once per page. The fall is that double count going: 123 705 of it is
+        // `ISO-19444-1-2019-preview.pdf`'s one tree over 19 pages (131 884 -> 8 179), whose
+        // elements state no `/Pg` so the fallback kept every one of them for every page, and the
+        // last is `pr20043.pdf`'s `Annot` element, whose only content item is an object the
+        // page's `/Annots` does not list. Every element that lost was placeless (ADR 1151).
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 227_618);
         // 665 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
         // specification fetched for reading by round 1075, joined the population the way
         // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
@@ -1127,7 +1150,10 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // 11815 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        gate_ratchet::floor("elements placed, whole population", census.placed, 13_221);
+        // 13221 until session 1154, and the 1080 that left are `ISO-19444-1-2019-preview.pdf`'s
+        // `/BBox`-bearing elements counted once per page — the same double count as the floor
+        // above, from the same cause (ADR 1151).
+        gate_ratchet::floor("elements placed, whole population", census.placed, 12_141);
         // 190540 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
@@ -1139,18 +1165,22 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // 23183 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 36388 until session 1154: 12 510 of these were `ISO-19444-1-2019-preview.pdf`'s cells
+        // counted once per page, and the document answers 695 where it answered 13 205 (ADR 1151).
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
-            36_388,
+            23_878,
         );
         // 33931 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 47725 until session 1154, the associations of the cells the floor above lost, and
+        // from the same cause (ADR 1151).
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
-            47_725,
+            34_657,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
         // 10998 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
@@ -1229,6 +1259,29 @@ const RATCHETED_SPECIFICATIONS: &[&str] = &[
     "icc_1_2001-12.pdf",
 ];
 
+/// Every page whose file names elements for it and whose answer is empty, by name.
+///
+/// One page, and the file is why. `bug1365930.pdf`'s structure tree root names one child, a
+/// `Document` element, and that element states no `/K` at all — where Table 355 makes `/K` "[t]he
+/// children of this structure element". So the two chains the document states about itself
+/// disagree: §14.7.5.4's parent tree names two elements for page 1 and §14.7.2's `/K` reaches
+/// neither, because the only element it reaches is childless. ADR 0325's second case runs the whole-tree walk for exactly this disagreement
+/// and it answers nothing, because the root names nothing. Held here rather than counted for
+/// `NO_PARENT_KEY_SILENT`'s reason, and this page was in *that* list until session 1154 read the
+/// parent tree's array and the census could say which of the two silences it is (ADR 1151).
+const NAMED_BUT_SILENT: &[&str] = &["bug1365930.pdf p1"];
+
+/// Every page whose answer is cut at [`ANSWER_BOUND`], by name.
+///
+/// One page, and the file is why. §14.7.5.3 requires an object content item to be "identified in
+/// the structure element's K entry by an object reference dictionary" and this document states no
+/// `/K` on any of the 32 768 `Link` elements its annotations' `/StructParent` entries name — so
+/// every one of them is an element with nothing under it, the page's subtree is four times what
+/// `viewer_core::accessibility::MAX_NODES` admits, and the walk fills the bound before it can
+/// prune. Naming it here is the whole of what this gate asks: the answer is cut, and it is cut
+/// *out loud* rather than passing as a page with no structure (ADR 1151).
+const AT_BOUND: &[&str] = &["bug1978317.pdf p1"];
+
 /// Every page the whole-tree fallback answers nothing for, by name.
 ///
 /// Held as names rather than as a count because the population is not fixed: see `ratchet`. A name
@@ -1239,9 +1292,7 @@ const NO_PARENT_KEY_SILENT: &[&str] = &[
     // the merge of sessions 1074-1079): a tagged document whose page 8 states no /StructParents
     // and none of whose 3115 elements is on that page — the honest empty answer, the ICC.1 shape.
     "T-REC-X.690-202102.pdf p8",
-    "bug1365930.pdf p1",
     "bug1755507.pdf p1",
-    "bug1978317.pdf p1",
     "bug816075.pdf p1",
     "comments.pdf p1",
     "comments.pdf p10",
@@ -1378,7 +1429,12 @@ fn ratchet(
         tracked_census.answered_pages,
         132,
     );
-    gate_ratchet::floor("elements reached", tracked_census.nodes, 4060);
+    // 4060 until session 1154. The one element is `pr20043.pdf`'s `Annot`, whose `/K` is an
+    // object reference to an annotation the page's own `/Annots` does not list: reached only by
+    // the whole-tree fallback that document took while §14.7.5.4's array went unread, placeless
+    // because `annotation_rectangles` holds the page's annotations and not that one, and outside
+    // the page's subtree now that the parent tree is read (ADR 1151).
+    gate_ratchet::floor("elements reached", tracked_census.nodes, 4059);
     gate_ratchet::floor("§14.9.3's /Alt carried", tracked_census.substituted, 21);
     gate_ratchet::floor("elements placed", tracked_census.placed, 437);
     gate_ratchet::floor(
@@ -1419,12 +1475,36 @@ fn ratchet(
     // A defect class may only fall. The first two are already empty and stay so; the other two are
     // populations with a number, and each has its own entry in `doc/todo/31`. `report` above names
     // every page in either list, so the count here is the whole of what a failure needs to add.
-    gate_ratchet::ceiling(
-        "pages whose file names elements and whose answer is empty",
-        census.named_but_silent.len(),
-        0,
+    // **Held by name, and it has one member.** A count of zero was what this class carried while
+    // §14.7.5.4's array went unread on most of the tagged corpus — the page below was in
+    // `NO_PARENT_KEY_SILENT` instead, because nothing could say what the parent tree named for it.
+    // Naming it is the stronger gate of the two: a page that joins the class has to be argued for,
+    // and a page that *leaves* it is as much a finding as one that joins.
+    let contradicted: Vec<_> = census
+        .named_but_silent
+        .iter()
+        .filter(|(where_, _)| !NAMED_BUT_SILENT.contains(&where_.as_str()))
+        .collect();
+    assert!(
+        contradicted.is_empty(),
+        "pages whose file names elements for them and whose answer is empty, and which are not in \
+         `NAMED_BUT_SILENT`: {contradicted:?}"
     );
-    gate_ratchet::ceiling("answers cut at the node bound", census.at_bound.len(), 0);
+    // **Held by name rather than by count, because one page is in it on purpose.** A page whose
+    // own subtree is larger than `ANSWER_BOUND` cannot be answered completely, and answering it
+    // with what fits is the decision ADR 0325 took — so what this gate owes is that the page is
+    // *named* instead of the truncation passing as a page with nothing to say. A page that joins
+    // this class has to be argued for; a name absent from a run proves nothing, for
+    // `NO_PARENT_KEY_SILENT`'s reason.
+    let unbounded: Vec<_> = census
+        .at_bound
+        .iter()
+        .filter(|(where_, _)| !AT_BOUND.contains(&where_.as_str()))
+        .collect();
+    assert!(
+        unbounded.is_empty(),
+        "answers cut at viewer-core's node bound which are not in `AT_BOUND`: {unbounded:?}"
+    );
     // **This one is held by name rather than by count, and the count is why.** Its population is
     // `population()`'s `read_dir` of `doc/`, which holds the specifications this project has
     // bought — and those are gitignored, so a neighbouring round that downloads one changes this
@@ -1527,6 +1607,37 @@ fn the_census_names_an_element_that_encloses_something_the_page_refused() {
         "these elements drew text of their own, so they have a place: {:?}",
         census.placeless_and_refused
     );
+}
+
+/// And the file whose widgets state none of Table 359's keys, un-ignored.
+///
+/// `prefilled_f1040.pdf` states 242 widget annotations and 242 `Form` elements whose `/K` is an
+/// object reference naming one of them, and not one of those annotations carries the
+/// `/StructParent` that table requires "for all objects that are structural content items". So
+/// §14.7.5.4 cannot name their elements for the page, and what reaches them is §14.7.5.3's
+/// direction — Table 368's "[i]n a tagged PDF, Form shall be used for each PDF widget annotation
+/// that belongs to the real content of the document" is why this file gets a search and a page of
+/// silent links does not (ADR 1151).
+///
+/// The three numbers are this document's own, through the same boundary every count above comes
+/// through: what a screen reader is told about it, and what the fix to §14.7.5.4's array would
+/// have cost if the route this pins had not been built with it.
+#[test]
+fn the_census_keeps_the_widgets_of_a_file_that_omits_their_parent_key() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/prefilled_f1040.pdf");
+    if !path.exists() {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    }
+    let census = examine(&path);
+    assert_eq!(census.nodes, 1248, "elements reached over its two pages");
+    assert_eq!(census.controls, 242, "§12.7.5's controls, one per widget");
+    assert_eq!(
+        census.annotations, 242,
+        "elements whose content is an annotation"
+    );
+    assert!(census.at_bound.is_empty(), "its tree is 1922 elements");
 }
 
 /// And an untagged one, which is 885 of the corpus's 974: the honest empty answer, counted as

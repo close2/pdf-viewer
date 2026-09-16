@@ -152,6 +152,24 @@ const MAX_CHILDREN: usize = 65_536;
 /// file without stopping a large one. The whole 129 389 take **151 ms** to produce.
 const MAX_ELEMENTS: usize = 1 << 20;
 
+/// Most structure elements [`Tree::unkeyed_widget_owners`]'s search may enter.
+///
+/// That search runs §14.7.5.3's association backwards — from a widget annotation to the element
+/// whose `/K` names it — and finding an element by its content is a walk of the tree, which is
+/// exactly the cost ADR 0325 took off a page turn. So it is bounded by what one page's *answer*
+/// may cost rather than by the tree's size: `viewer_core::accessibility::MAX_NODES` is 8192 and
+/// documented as how many nodes one page's tree may hold, and a recovery free to enter more
+/// elements than the answer may hold would spend a page's whole budget looking for one of its
+/// content items.
+///
+/// The standard states no number here, so this is a decision rather than a derivation (trap 38),
+/// and what it buys is measured: a page that omits Table 359's key costs a bounded search instead
+/// of the 114 ms ISO 32000-2's 129 389-element tree takes to walk, on each of the 37 of its pages
+/// that state a widget without that key. [`Reading::truncated`] says when it bit, and no corpus
+/// document loses an element to it — the two whose trees name an object stating no
+/// `/StructParent` hold 527 and 1922 elements (ADR 1151).
+const MAX_OBJECT_SEARCH: usize = 8192;
+
 /// One child of a structure element, in the four forms §14.7.5.1.1 defines.
 ///
 /// > Content items are of two kinds:
@@ -1580,9 +1598,15 @@ impl Tree {
     ///
     /// **A page that states the entry answers `None` too where the parent tree holds no array
     /// under that key**, and a caller that reports the first reason for the second is saying
-    /// something false about the file. The commonest reason for it is the one ADR 1151 measured:
-    /// the entry is read here as the tree *states* it, and a file is free to write the array as an
-    /// object of its own.
+    /// something false about the file. [`Self::parent_tree_array`] is where the two forms
+    /// §7.3.10 allows the array to be written are read as one.
+    ///
+    /// **The sixth route runs backwards, and only for a file that broke a `shall`**:
+    /// [`Self::unkeyed_widget_owners`] asks §14.7.5.3's `/K` for the elements of this page's
+    /// widget annotations that state no `/StructParent`, which Table 359 requires of them. It is
+    /// the only route here that searches rather than looks up, and the clause that makes it a
+    /// recovery rather than an invention is Table 368's — quoted there — so it is spent only on
+    /// the pages that state such a widget.
     #[must_use]
     pub fn elements_on_page(
         &self,
@@ -1593,9 +1617,7 @@ impl Tree {
         // value shall be an array of indirect references to the sequences' parent structure
         // elements."
         let key = document.get_key(page, "StructParents").as_integer()?;
-        let Some(Object::Array(items)) = self.parent_tree_entry(document, key) else {
-            return None;
-        };
+        let items = self.parent_tree_array(document, key)?;
         let mut out: BTreeSet<ObjectId> = items
             .iter()
             .take(MAX_CHILDREN)
@@ -1623,7 +1645,162 @@ impl Tree {
             }
         }
         self.xobject_owners(document, page, 0, &mut visited, &mut out);
+        // The sixth route. Its own answer is empty for every page whose widgets state the key
+        // Table 359 requires, which is every page of a conforming file, so nothing is searched
+        // unless the file has already contradicted itself.
+        out.extend(self.unkeyed_widget_owners(document, page).items);
         Some(out)
+    }
+
+    /// The elements §14.7.5.3 names for this page's widget annotations that state no
+    /// `/StructParent` — the route that is left when Table 359's key is missing.
+    ///
+    /// # Why a widget, and not any annotation
+    ///
+    /// Because §14.8.4.7.2's Table 368 states one `shall` about annotations and structure
+    /// elements, and it is about this one alone:
+    ///
+    /// > In a tagged PDF, Form shall be used for each PDF widget annotation that belongs to the
+    /// > real content of the document.
+    ///
+    /// Its neighbours in the same table are permissions rather than obligations. `Annot` is
+    /// "[e]ither an association between the content enclosed by the Annot structure element and
+    /// one or more corresponding PDF annotations …, or a mechanism to include one or more PDF
+    /// annotations in the structure tree", and "[a]ll other annotation types may be referenced by
+    /// this structure element"; `Link` is "[a]n association between content enclosed by the Link
+    /// structure element and a corresponding link annotation", which says what a `Link` element
+    /// means and not that one has to exist. So a link or a text annotation that states no
+    /// `/StructParent` is a file saying it is not a content item — and a *widget* that states
+    /// none is a file that has broken a requirement, which is what makes looking for its element
+    /// the other way round a recovery of something the standard says is there rather than an
+    /// invention of something it does not.
+    ///
+    /// # The route
+    ///
+    /// §14.7.5.3 states the association in the direction the parent tree cannot:
+    ///
+    /// > When a structure element's content consists of an entire PDF object, such as an XObject
+    /// > directly or indirectly referenced by a page description or an annotation, the object
+    /// > shall be identified in the structure element's K entry by an object reference dictionary
+    /// > ("Table 358 -Entries in an object reference dictionary").
+    ///
+    /// and that is a statement the *element* makes, needing no parent tree. §14.7.5.4 asks for
+    /// both halves — "[t]he tree shall contain an entry for each object that is a content item of
+    /// at least one structure element" — so a file missing the key has contradicted itself, and
+    /// the half still standing is the `/K`.
+    ///
+    /// # What it costs
+    ///
+    /// Finding an element by its content is a search, which is the cost ADR 0325 took off a page
+    /// turn, so this is spent only where the page states such a widget and is bounded at
+    /// [`MAX_OBJECT_SEARCH`] elements. An element the search cannot name by identity is passed
+    /// over rather than descended into, because [`Self::ancestry`] and the walk that consumes
+    /// this both work in identities: an element inside its parent's `/K` is one no page-scoped
+    /// walk could enter even if this found something below it.
+    #[must_use]
+    pub fn unkeyed_widget_owners(
+        &self,
+        document: &Document,
+        page: &Dictionary,
+    ) -> Reading<ObjectId> {
+        let nothing = Reading {
+            items: Vec::new(),
+            truncated: false,
+        };
+        let wanted = Self::unkeyed_widgets(document, page);
+        if wanted.is_empty() {
+            return nothing;
+        }
+        let mut search = OwnerSearch {
+            wanted: &wanted,
+            entered: BTreeSet::new(),
+            budget: MAX_OBJECT_SEARCH,
+            found: nothing,
+        };
+        self.search_owners(document, None, 0, &mut search);
+        search.found
+    }
+
+    /// The page's `/Widget` annotations that state none of §14.7.5.4 Table 359's `/StructParent`,
+    /// which that table makes "[r]equired for all objects that are structural content items".
+    fn unkeyed_widgets(document: &Document, page: &Dictionary) -> BTreeSet<ObjectId> {
+        let mut out = BTreeSet::new();
+        let Object::Array(annotations) = document.get_key(page, "Annots") else {
+            return out;
+        };
+        for annotation in annotations.iter().take(MAX_CHILDREN) {
+            let Some(id) = annotation.as_reference() else {
+                continue;
+            };
+            let resolved = document.get(id);
+            let Some(dict) = resolved.as_dict() else {
+                continue;
+            };
+            if document
+                .get_key(dict, "Subtype")
+                .as_name()
+                .is_some_and(|subtype| subtype.as_bytes() == b"Widget")
+                && document
+                    .get_key(dict, "StructParent")
+                    .as_integer()
+                    .is_none()
+            {
+                out.insert(id);
+            }
+        }
+        out
+    }
+
+    /// [`Self::unkeyed_widget_owners`]'s descent: the identity of every element whose `/K` holds
+    /// an object reference naming one of the wanted objects.
+    fn search_owners(
+        &self,
+        document: &Document,
+        element: Option<(&Dictionary, ObjectId)>,
+        depth: usize,
+        search: &mut OwnerSearch,
+    ) {
+        if depth >= MAX_DEPTH {
+            return;
+        }
+        let here = element.map(|(_, id)| id);
+        let node = element.map(|(dict, _)| dict);
+        for (child, id) in self.identified_children(document, node) {
+            match child {
+                Child::Object { object, .. } => {
+                    if let Some(here) = here
+                        && search.wanted.contains(&object)
+                        && !search.found.items.contains(&here)
+                    {
+                        search.found.items.push(here);
+                    }
+                }
+                Child::Element(dict) => {
+                    // An element with no identity of its own is passed over rather than
+                    // descended into, for the reason the page-scoped walk skips one: Table 355
+                    // makes `/P` an indirect reference, so a walk pruned to a set of identities
+                    // could not enter it even if this found something below it.
+                    let Some(id) = id else {
+                        continue;
+                    };
+                    if !search.entered.insert(id) {
+                        continue;
+                    }
+                    if search.budget == 0 {
+                        search.found.truncated = true;
+                        return;
+                    }
+                    search.budget = search.budget.saturating_sub(1);
+                    self.search_owners(
+                        document,
+                        Some((&dict, id)),
+                        depth.saturating_add(1),
+                        search,
+                    );
+                }
+                Child::MarkedContent { .. } => {}
+            }
+        }
     }
 
     /// The elements owed to one annotation's appearance streams (§12.5.5, §14.7.5.4).
@@ -1730,6 +1907,32 @@ impl Tree {
         })
     }
 
+    /// §14.7.5.4's *array* form of a parent tree entry, resolved.
+    ///
+    /// > For a content stream containing marked-content sequences that are content items, the
+    /// > value shall be an array of indirect references to the sequences' parent structure
+    /// > elements.
+    ///
+    /// The array is the entry's **value**, and §7.3.10 puts no condition on how a value is
+    /// written — "[a]ny object in a PDF file may be labelled as an indirect object" — so
+    /// §14.7.5.4's own EXAMPLE 2 spells one `/Nums` both ways, `6 [1 0 R]` beside `0 101 0 R`.
+    /// A reference to the array and the array itself are therefore two spellings of one entry,
+    /// and this resolves before matching.
+    ///
+    /// [`Self::parent_tree_entry`] stays unresolved, and the difference is what each form's
+    /// content is: the object form's whole content is an identity, which resolution destroys,
+    /// while here the identities are the array's *elements* and the array is their container.
+    /// ADR 1151 measured what matching the direct spelling alone cost: **77 of the 109 corpus
+    /// documents that state a structure tree write at least one `/Nums` array as an object of its
+    /// own**, `structure_simple.pdf` among them, so [`Self::elements_on_page`] answered `None` for
+    /// most of the tagged corpus and ADR 0325's page-scoped walk never ran on it.
+    fn parent_tree_array(&self, document: &Document, key: i64) -> Option<Vec<Object>> {
+        match document.resolve(&self.parent_tree_entry(document, key)?) {
+            Object::Array(items) => Some(items),
+            _ => None,
+        }
+    }
+
     /// Whether §14.7.5.3's object-reference route reaches this object.
     ///
     /// §14.7.5.1.1 makes "[c]omplete PDF objects such as annotations and `XObjects`" one of the two
@@ -1778,7 +1981,7 @@ impl Tree {
         let Some(key) = document.get_key(stream, "StructParents").as_integer() else {
             return;
         };
-        let Some(Object::Array(items)) = self.parent_tree_entry(document, key) else {
+        let Some(items) = self.parent_tree_array(document, key) else {
             return;
         };
         out.extend(
@@ -2086,6 +2289,23 @@ impl Tree {
         }
         out
     }
+}
+
+/// [`Tree::unkeyed_widget_owners`]'s state, in one place because it is one search.
+///
+/// Four things travel together down a descent that is looking for something: what it is looking
+/// for, which elements it has entered, how many more it may enter, and what it has found. Passing
+/// them separately is what the argument count above seven is warning about, and a struct that
+/// exists once per search is what they are.
+struct OwnerSearch<'a> {
+    /// The objects whose element is wanted: this page's widgets that state no `/StructParent`.
+    wanted: &'a BTreeSet<ObjectId>,
+    /// Every element entered, by identity, so that a `/K` naming its own ancestor terminates.
+    entered: BTreeSet<ObjectId>,
+    /// How many more elements may be entered, from [`MAX_OBJECT_SEARCH`] downwards.
+    budget: usize,
+    /// The elements found, and whether the budget ran out before the tree did.
+    found: Reading<ObjectId>,
 }
 
 /// A reading of the structure tree, and whether the bound cut it short.
@@ -4905,6 +5125,143 @@ mod tests {
         let bare = Tree::of(&plain).expect("a structure tree root");
         let page = crate::page::Pages::new(&plain).get(0).expect("page one");
         assert_eq!(bare.elements_on_page(&plain, &page.dict), None);
+    }
+
+    /// §14.7.5.4's array written as an object of its own, which §7.3.10 permits of any value.
+    ///
+    /// > Any object in a PDF file may be labelled as an indirect object.
+    ///
+    /// The clause's own EXAMPLE 2 spells one `/Nums` both ways — `6 [1 0 R]` beside `0 101 0 R` —
+    /// and this is the second spelling: the page's key resolves to a reference, and the array is
+    /// behind it. Matching `Object::Array` on what the tree *states* reads such a page as having
+    /// said nothing, which is what 75 of the 109 corpus documents with a structure tree were read
+    /// as until ADR 1151.
+    #[test]
+    fn the_parent_trees_array_may_be_an_object_of_its_own() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /ParentTree 7 0 R >>",
+            "<< /Type /StructElem /S /Sect /P 4 0 R /Pg 3 0 R /K [6 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /Pg 3 0 R /K [0] >>",
+            "<< /Nums [0 8 0 R] >>",
+            "[6 0 R]",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let page = crate::page::Pages::new(&doc).get(0).expect("page one");
+
+        let reference = |number| pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        };
+        assert_eq!(
+            tree.elements_on_page(&doc, &page.dict),
+            Some([reference(6)].into_iter().collect::<BTreeSet<_>>()),
+            "the array is the entry's value however the file spelled it"
+        );
+    }
+
+    /// §14.8.4.7.2 Table 368's `shall`, when the file has broken §14.7.5.4 Table 359's.
+    ///
+    /// The widget here states no `/StructParent`, which Table 359 requires "for all objects that
+    /// are structural content items", so the parent tree cannot name its element and the array
+    /// for the page does not hold it. §14.7.5.3's direction survives — "the object shall be
+    /// identified in the structure element's K entry by an object reference dictionary" — and
+    /// that is what [`Tree::unkeyed_widget_owners`] asks, two levels below anything the parent
+    /// tree named. Table 368 is why it is asked for a widget and not for every annotation, and
+    /// that clause's own words are quoted there.
+    ///
+    /// The `Link` beside it is the control: its annotation is silent in exactly the same way, and
+    /// Table 368 asks only that a `Link` element *mean* an association rather than that one exist,
+    /// so nothing looks for it and the element that names it stays out of the answer.
+    #[test]
+    fn a_widget_without_table_359s_key_is_found_through_its_elements_object_reference() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 \
+             /Annots [11 0 R 13 0 R] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /ParentTree 10 0 R >>",
+            "<< /Type /StructElem /S /Sect /P 4 0 R /Pg 3 0 R /K [6 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /P /P 5 0 R /Pg 3 0 R /K [0] >>",
+            "<< /Type /StructElem /S /Div /P 5 0 R /K [8 0 R 9 0 R] >>",
+            "<< /Type /StructElem /S /Form /P 7 0 R \
+             /K [<< /Type /OBJR /Obj 11 0 R /Pg 3 0 R >>] >>",
+            "<< /Type /StructElem /S /Link /P 7 0 R \
+             /K [<< /Type /OBJR /Obj 13 0 R /Pg 3 0 R >>] >>",
+            "<< /Nums [0 12 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] >>",
+            "[6 0 R]",
+            "<< /Type /Annot /Subtype /Link /Rect [1 1 2 2] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let page = crate::page::Pages::new(&doc).get(0).expect("page one");
+
+        let reference = |number| pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        };
+        let found = tree
+            .elements_on_page(&doc, &page.dict)
+            .expect("the page states `/StructParents`");
+        assert_eq!(
+            found,
+            [reference(6), reference(8)]
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            "the sequence's element, and the `Form` the parent tree could not name"
+        );
+        // And the ancestry reaches it, which is what a walk coming down from the root needs: the
+        // `Div` between them is named by nobody and is on the only path to the `Form`.
+        assert!(tree.ancestry(&doc, &found).contains(&reference(7)));
+
+        let owners = tree.unkeyed_widget_owners(&doc, &page.dict);
+        assert_eq!(owners.items, vec![reference(8)]);
+        assert!(
+            !owners.truncated,
+            "a tree of five elements is inside the bound"
+        );
+    }
+
+    /// And nothing is searched for where every widget states the key Table 359 requires.
+    ///
+    /// The cost of running §14.7.5.3's association backwards is a search of the tree, which is
+    /// what ADR 0325 took off a page turn, so the page that pays it has to be one whose file has
+    /// already contradicted itself. This is the same fixture with the key restored.
+    #[test]
+    fn a_widget_that_states_the_key_is_looked_up_and_not_searched_for() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 \
+             /Annots [8 0 R] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /ParentTree 7 0 R >>",
+            "<< /Type /StructElem /S /Sect /P 4 0 R /Pg 3 0 R /K [6 0 R] >>",
+            "<< /Type /StructElem /S /Form /P 5 0 R \
+             /K [<< /Type /OBJR /Obj 8 0 R /Pg 3 0 R >>] >>",
+            "<< /Nums [0 9 0 R 1 6 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] /StructParent 1 >>",
+            "[]",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let page = crate::page::Pages::new(&doc).get(0).expect("page one");
+
+        let reference = |number| pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        };
+        assert!(
+            tree.unkeyed_widget_owners(&doc, &page.dict)
+                .items
+                .is_empty(),
+            "every widget on the page states its key, so there is nothing to search for"
+        );
+        assert_eq!(
+            tree.elements_on_page(&doc, &page.dict),
+            Some([reference(6)].into_iter().collect::<BTreeSet<_>>()),
+            "and the element arrives by the lookup Table 359 exists for"
+        );
     }
 
     /// §14.7.2's tree, walked from the root, with §14.7.3's role map applied.
