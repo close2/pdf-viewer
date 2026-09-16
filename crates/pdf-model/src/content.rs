@@ -31,8 +31,8 @@ use crate::icc::Rendering;
 use crate::page::Page;
 use crate::reference::Supply;
 
+pub use crate::transfer::Transfer;
 use colour::{BlackPoint, Intent, output_intent_space};
-pub use ext_gstate::Transfer;
 use ext_gstate::TransferState;
 use font::{Font, FontKey};
 use pattern::{PatternInitial, PatternPaint};

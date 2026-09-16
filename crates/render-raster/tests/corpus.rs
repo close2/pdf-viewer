@@ -809,8 +809,8 @@ const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
 /// than either moving toward the other, ADR 0226) and 8-px text
 /// (`issue16316`, `standard_fonts`) — where the two rasterisers put the same ink on different sides
 /// of a pixel boundary. **`22060_A1_01_Plans.pdf` belongs with none of them**: it is four sampled
-/// images, its whole gap is in their reduction, and the paragraph near the end of this note is what
-/// measures that. Matching `tiny-skia`'s sub-pixel distribution
+/// images, its whole gap is in their deferred soft-masked path, and the paragraph near the end of
+/// this note is what measures that. Matching `tiny-skia`'s sub-pixel distribution
 /// byte-for-byte would be curve-fitting to another renderer, which raster's charter forbids;
 /// they stay listed so a *growth* in their numbers is still a finding.
 ///
@@ -1025,14 +1025,19 @@ const DIFFERS_IN_SHAPE: [&str; 6] = [
 /// 2480 × 2630 scans; `pdf-model/examples/sub_pixel_width_census` says the page states **four**
 /// strokes under a device pixel, at 0.7559 and 0.8504, and a per-command ink diff puts **−3306** of
 /// ink on those four `Command::Image`s where the page's whole net gap is −3078 and every other
-/// command on it is inside 6. The gap is
-/// in the *reduction*: `pdf_render::Image::area_averaged` divides the grid by (6, 6) on both
-/// backends, and what each does with the residual under two-to-one is its own. At 1× the four read
+/// command on it is inside 6. At 1× the four read
 /// cpu 6979.08, 9602.65, 10 260.44 and 5128.87 against raster 8200.65, 10 652.49, 10 852.24 and
 /// 5571.69; at **8×**, where the placement magnifies the samples and no reduction happens, they
 /// read 7013.58, 9579.85, 10 248.22 and 5122.83 against 7018.59, 9583.59, 10 250.42 and 5124.96 —
 /// **0.07% apart**. That rung is the control: cpu holds one figure across the whole ladder and
-/// raster is 15–19% heavy wherever it reduces. `doc/QUORRA_FEEDBACK.md` section 46 is the ask.
+/// raster is 15–19% heavy wherever it reduces. The heaviness is **not** the ordinary residual it
+/// once read as: `examples/image_residual` reduces stripes, thin rules and a continuous-tone
+/// grating at every ratio through the two-stage floor-then-residual, at this page's own 6→1.15 and
+/// 3.44→1.72 geometry, and cpu and raster agree to ≤ 0.10% on all of them. What sets these four
+/// apart is the *path* — each is a `DCTDecode` `DeviceGray` scan carrying an `/SMask`, so it takes
+/// `render_raster::scene`'s deferred `AtDeviceScale` arm (§11.6.5.2's mask on a device grid), not
+/// the ordinary reduce the reproduction drives — and `doc/QUORRA_FEEDBACK.md` section 46 is the
+/// ask, re-pointed there.
 ///
 /// **`issue15150.pdf` is 449 bytes and the two backends still part on it**:
 /// `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s` on a 10 × 10 page, whose stroked region is the device

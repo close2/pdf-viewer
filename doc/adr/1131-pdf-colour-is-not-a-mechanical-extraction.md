@@ -52,3 +52,11 @@ target) and `image.rs` are already modified. A crate move here would collide.
    with a `pub use pdf_colour::{…}` re-export in `pdf-model` so the ~15 consumer crates and the
    inbound modules are unchanged, on a clean worktree. The ledger rewrite is `sed` over 110 rows
    (`grep -cE "pdf-model/src/(colour|icc|function|shading|mesh)\.rs" doc/conformance/ledger.toml`).
+
+**Step 1 done (round 1134).** `Transfer`, `Stated`, `read` and `apply` now live in
+`crates/pdf-model/src/transfer.rs`, a colour-stack sibling of `function`; `TransferState`,
+`Component` and `compose` stay in `content/ext_gstate.rs`, depending on `crate::transfer` through
+two `pub(crate)` helpers (`from_channels`, `channel`). `shading`/`mesh` import
+`crate::transfer::Transfer`; the colour stack now holds zero `use crate::content`. `content::Transfer`
+stays a re-export, so consumers are unchanged. Steps 2–4 remain, and step 4's ledger rewrite
+subsumes adding `transfer.rs` to the §10.5 row's `code` list. See `doc/history/1134`.

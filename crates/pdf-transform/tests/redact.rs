@@ -586,3 +586,185 @@ fn a_shared_image_is_refused_rather_than_cleared() {
         "the shared image is untouched"
     );
 }
+
+/// The first offset of `needle` in `haystack`, or `None`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+/// A one-page fixture whose content places an 8×8 `DeviceGray` inline image over the page's
+/// [50,150]² square, with the given filter/data spelling written between `ID` and `EI`. `prefix`
+/// and `suffix` bracket the `BI`…`EI` run so a test can prove they cross the output byte for byte.
+fn inline_fixture(image: &[u8], quadpoints: &str) -> Vec<u8> {
+    let mut content = b"q 100 0 0 100 50 50 cm\n".to_vec();
+    content.extend_from_slice(image);
+    content.extend_from_slice(b"\nQ");
+
+    let mut content_object = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
+    content_object.extend_from_slice(&content);
+    content_object.extend_from_slice(b"\nendstream");
+
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Contents 4 0 R \
+          /Annots [5 0 R] >>"
+            .to_vec(),
+        content_object,
+        format!(
+            "<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] /QuadPoints [{quadpoints}] >>"
+        )
+        .into_bytes(),
+    ];
+    assemble_bytes(&objects)
+}
+
+/// The first-page content stream of `bytes`, the inline image's decoded samples, and the content
+/// split around the `BI`\u{2026}`EI` run: everything before `BI` and everything after `EI`.
+fn read_back_inline(bytes: &[u8]) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let content = page.content(&document);
+    // The spliced image must still draw: interpreting the page must not stumble on the new run.
+    let _ = pdf_model::interpret(&document, &page);
+    let bi = find(&content, b"BI").expect("a BI operator in the content");
+    let scan = pdf_model::inline_image::scan(&document, &content, bi + 2, &page.resources, true);
+    let stream = scan.image.expect("the inline image reads back");
+    let samples = document
+        .image_stream(&stream)
+        .expect("the inline image decodes to samples")
+        .data
+        .to_vec();
+    let before = content[..bi].to_vec();
+    let after = content[scan.resume.min(content.len())..].to_vec();
+    (content, samples, before, after)
+}
+
+/// The calibration trap 13 asks for on the inline-image case (§8.9.7, §12.5.6.23): an 8×8
+/// unfiltered inline image is placed over the page's [50,150]² square and a `/QuadPoints` region
+/// covers its left half. After application the left four columns are zero in the spliced image
+/// and unrecoverable, the right four columns are byte-identical, every byte of the content stream
+/// outside the `BI`…`EI` run is unchanged, and the file re-opens and the image decodes and draws.
+#[test]
+fn inline_image_samples_inside_a_quadpoints_region_are_destroyed_and_the_stream_is_spliced() {
+    let samples = distinct_samples();
+    let mut image = b"BI /W 8 /H 8 /BPC 8 /CS /G ID\n".to_vec();
+    image.extend_from_slice(&samples);
+    image.extend_from_slice(b"\nEI");
+    let bytes = inline_fixture(&image, "50 150 100 150 100 50 50 50");
+
+    let (report, out) = redact(&bytes);
+    // The same fixture, read before redaction, gives the surrounding bytes to compare against.
+    let (_before_content, in_samples, in_before, in_after) = read_back_inline(&bytes);
+    assert_eq!(
+        in_samples,
+        distinct_samples(),
+        "the input image reads back whole"
+    );
+
+    let (content, out_samples, out_before, out_after) = read_back_inline(&out);
+    assert!(
+        report.refused.is_empty(),
+        "the inline image is spliced, not refused: {:?}",
+        report.refused
+    );
+    assert_eq!(out_samples.len(), 64, "the grid survives the splice");
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let got = out_samples[row * 8 + col];
+            if col < 4 {
+                assert_eq!(got, 0, "col {col} row {row} is in the region: destroyed");
+            } else {
+                let want = u8::try_from(col * 8 + row + 1).expect("small");
+                assert_eq!(got, want, "col {col} row {row} is outside: byte-identical");
+            }
+        }
+    }
+
+    // The surrounding stream is byte-identical: everything before BI, and everything after EI up
+    // to the trailing white space the content reader appends afresh on each read (which a
+    // redaction round-trip bakes into the stored stream, ADR 1124's apply-on-reader-output).
+    assert_eq!(
+        out_before, in_before,
+        "the content before the run is byte-identical"
+    );
+    let trim = |b: &[u8]| {
+        let end = b
+            .iter()
+            .rposition(|c| !c.is_ascii_whitespace())
+            .map_or(0, |i| i + 1);
+        b[..end].to_vec()
+    };
+    assert_eq!(
+        trim(&out_after),
+        trim(&in_after),
+        "the content after the run is byte-identical but for reader trailing white space"
+    );
+    // Principle 1: the original sample block is gone from the decoded content, not covered \u2014 the
+    // left columns are the constant and the block never appears whole again.
+    assert!(
+        find(&content, &samples).is_none(),
+        "the original inline sample block is not left in the spliced content"
+    );
+
+    let Some(Origin::Redacted { images, glyphs, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("the report states a redacted origin");
+    };
+    assert_eq!(images, 1, "one inline image had its samples destroyed");
+    assert_eq!(glyphs, 0, "no text was in this fixture");
+}
+
+/// An inline image behind a lossy codec (`DCTDecode`) meeting the region is refused by name, never
+/// spliced — its samples are behind a codec this removal does not re-encode (trap 5, principle 1).
+#[test]
+fn an_inline_image_behind_a_codec_is_refused_by_name() {
+    // The four bytes are never decoded: the codec is seen from `/F` before any decode is tried.
+    let image = b"BI /W 8 /H 8 /BPC 8 /CS /G /F /DCT /L 4 ID\n\xff\xd8\xff\xd9\nEI".to_vec();
+    let bytes = inline_fixture(&image, "50 150 100 150 100 50 50 50");
+
+    let (report, _out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused.detail.contains("DCTDecode") && refused.detail.contains("codec"),
+        "the refusal names the codec: {}",
+        refused.detail
+    );
+}
+
+/// An inline image the redaction does not touch crosses the output byte for byte: the run is
+/// skipped, never spliced, when its placement is nowhere near a region.
+#[test]
+fn an_inline_image_clear_of_the_region_is_left_untouched() {
+    let samples = distinct_samples();
+    let mut image = b"BI /W 8 /H 8 /BPC 8 /CS /G ID\n".to_vec();
+    image.extend_from_slice(&samples);
+    image.extend_from_slice(b"\nEI");
+    // The region is the page's top-right corner [150,190]², clear of the image's [50,150]² square.
+    let bytes = inline_fixture(&image, "150 190 190 190 190 150 150 150");
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "no page is refused: {:?}",
+        report.refused
+    );
+    let (_content, out_samples, _before, _after) = read_back_inline(&out);
+    assert_eq!(
+        out_samples, samples,
+        "the untouched inline image is byte-identical"
+    );
+    let Some(Origin::Redacted { images, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("the report states a redacted origin");
+    };
+    assert_eq!(images, 0, "no image was destroyed");
+}

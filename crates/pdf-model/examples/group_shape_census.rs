@@ -62,6 +62,13 @@ struct Tally {
     /// Of those, the ones holding at least one [`Command::Shaped`]: an element whose shape is
     /// not the coverage it is drawn with, which is where the separation is paid for.
     knockout_shaped: usize,
+    /// Of those, the ones holding at least one **bare** element whose drawn alpha is below
+    /// 1.0 — a §11.6.4.4 constant (`ca`/`CA`) read as opacity, or an image's constant. Its
+    /// shape *is* its coverage, so it goes to the backend unwrapped and §11.4.6's `1 − f`
+    /// backdrop weight is carried by Porter-Duff `Source`, not by a stated shape. This is the
+    /// population `a_bare_translucent_knockout_element_reads_its_constant_as_opacity`
+    /// calibrates: where the distinction is owed but a second channel is not.
+    knockout_translucent: usize,
     /// Of those, the ones whose initial backdrop is the group's own (`isolated` false beside
     /// `knockout`), which is ADR 0327's construction and the oracle's alone.
     knockout_on_backdrop: usize,
@@ -76,6 +83,9 @@ impl Tally {
         self.theirs_only = self.theirs_only.saturating_add(other.theirs_only);
         self.knockout = self.knockout.saturating_add(other.knockout);
         self.knockout_shaped = self.knockout_shaped.saturating_add(other.knockout_shaped);
+        self.knockout_translucent = self
+            .knockout_translucent
+            .saturating_add(other.knockout_translucent);
         self.knockout_on_backdrop = self
             .knockout_on_backdrop
             .saturating_add(other.knockout_on_backdrop);
@@ -195,9 +205,9 @@ fn main() {
     );
     println!(
         "# knockout: {} group(s) on {with_a_knockout} page(s), {} holding a stated shape on \
-         {with_a_stated_shape} page(s), {} on the group's own backdrop; {refused_pages} \
-         refusal(s)",
-        run.knockout, run.knockout_shaped, run.knockout_on_backdrop
+         {with_a_stated_shape} page(s), {} holding a bare translucent element, {} on the \
+         group's own backdrop; {refused_pages} refusal(s)",
+        run.knockout, run.knockout_shaped, run.knockout_translucent, run.knockout_on_backdrop
     );
     for (reason, count) in &refusals {
         println!("#   {count}\t{reason}");
@@ -226,6 +236,25 @@ fn refused_knockout(report: &str) -> Option<&'static str> {
     } else {
         "a paint or element whose shape this renderer cannot describe"
     })
+}
+
+/// Whether a knockout element goes to the backend **bare** and carries a drawn alpha below
+/// 1.0 — the §11.6.4.4 constant read as opacity that `Compose::Knockout`'s `Source` mode
+/// weights the backdrop against, rather than a stated [`Command::Shaped`] shape.
+///
+/// A [`Command::Shaped`] is excluded because its opacity is already stated apart from its
+/// shape; a group is excluded because it reaches the backend as a raster. What is left is an
+/// elementary mark whose alpha is a constant: a solid paint below full opacity, or an image
+/// drawn at a constant below 1.0. A shading below 1.0 arrives as a `Command::Shaped` instead
+/// (its coverage is not its colour), so it is not bare and not counted here.
+fn bare_translucent(command: &Command) -> bool {
+    match command {
+        Command::Fill { paint, .. } | Command::Stroke { paint, .. } => {
+            matches!(paint, Paint::Solid(colour) if colour.a < 1.0)
+        }
+        Command::Image { alpha, .. } => *alpha < 1.0,
+        _ => false,
+    }
 }
 
 /// What a group's elements are, as a compact histogram.
@@ -286,6 +315,9 @@ fn walk(name: &str, commands: &[Command], depth: usize, tally: &mut Tally) {
                         .any(|element| matches!(element, Command::Shaped { .. }))
                     {
                         tally.knockout_shaped = tally.knockout_shaped.saturating_add(1);
+                    }
+                    if commands.iter().any(bare_translucent) {
+                        tally.knockout_translucent = tally.knockout_translucent.saturating_add(1);
                     }
                     if !*isolated {
                         tally.knockout_on_backdrop = tally.knockout_on_backdrop.saturating_add(1);

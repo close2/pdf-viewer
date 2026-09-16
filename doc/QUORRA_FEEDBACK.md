@@ -5229,6 +5229,25 @@ where the page's whole net gap is −3078 and every other command on it is insid
 one remaining name on this project's `render-raster --test corpus` differing list whose cause is
 neither §45 above nor §24c.
 
+**Added in this project's one-thousand-one-hundred-and-thirty-fifth session: the residual filter is
+*excluded*, and the ask is re-pointed.** This section had no reproduction away from `22060`, so this
+round built one — `render-raster/examples/image_residual` draws stripes, thin rules and a
+continuous-tone grating that aliases under the reduction, at every reduction from a pure residual in
+`1.0 ..= 2.0` through the two-stage floor-then-residual, and at `22060`'s own geometry (a 2480-sample
+scan reduced by 6 onto ~360 device pixels, residual ~1.15, and again onto 720, residual ~1.72). On
+**every** rung and content, at every phase, cpu and raster hold to **≤ 0.10%**; the widest gap in the
+whole table is the magnifying control's edge anti-aliasing at 0.27%. So the ordinary reduce your
+encode mirrors is not where the 15–19% lives, and the residual filter this section named is ruled
+out. What separates the reproduction from the page is the *path*: `22060`'s four heavy images are each
+a `DCTDecode` `DeviceGray` scan carrying an `/SMask` (six `/SMask` refs in the file, four on the big
+scans), so each takes `render_raster::scene`'s **deferred** `AtDeviceScale` arm — §11.6.5.2's mask on
+a grid of its own, where quorra reduces on this side and uploads — not the ordinary arm the section's
+prose describes ("`area_averaged` … `raster-gpu/reduce.rs` mirrors it"). The ask is therefore
+re-pointed at that arm — the soft mask's own reduction and residual on the device grid, which the
+composited ink turns on — and a reproduction there is what would let the mechanism be pinned rather
+than inferred. This project's `render-raster/tests/corpus.rs` note on `22060` carries the same
+correction.
+
 ## 47. An image at **one device pixel per sample** is filtered, where §10.7.4 names the answer and there is nothing to interpolate between
 
 **The ask, in one line.** The `smoothed` rule your encode mirrors from `pdf_render::Image` answers

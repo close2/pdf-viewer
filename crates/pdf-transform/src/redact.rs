@@ -41,6 +41,15 @@
 //! original decode. Because clearing an image object modifies bytes every placement of it shares,
 //! a shared image is refused (below) rather than cleared where it would alter another placement.
 //!
+//! An **inline image** (§8.9.7's `BI`\u{2026}`ID`\u{2026}`EI`) has its samples in the content
+//! stream itself rather than a referenced object, so destroying them is a **content-stream
+//! splice**: the whole run is replaced with a freshly built inline image whose region samples are
+//! the same zero constant, re-encoded `FlateDecode`, and every byte of `/Contents` outside the
+//! run is left exactly as it was. The replacement carries every §8.9.7 key the source stated
+//! (grid, colour space, `/Decode`, `/ImageMask`\u{2026}) with only the encoding replaced; a value
+//! an inline image cannot hold — a colour space resolved to a resource object carrying a §7.3.8
+//! reference or stream — refuses the page rather than write indirection into a content stream.
+//!
 //! # What is refused, never cut wrong (trap 5)
 //!
 //! A page is refused by name — its content and its `/Redact` annotations left as the file
@@ -58,8 +67,9 @@
 //!   colour space this build cannot count the components of, or whose declared grid its sample
 //!   data does not fill; or a **shared** image the guard cannot prove exclusive to the redacted
 //!   page (clearing it would alter another placement);
-//! - an **inline image** (§8.9.7) — clearing its samples in place is a content-stream splice this
-//!   build does not yet do;
+//! - an **inline image** (§8.9.7) encoded by a codec, or whose colour space resolves to a
+//!   resource object an inline image cannot carry, or whose declared grid its data does not fill
+//!   — the same three limits as an image `XObject`, at the splice above rather than at a `Do`;
 //! - a **painted path** or a **form** (§8.5) — removing only the portion of a vector mark within
 //!   the region needs geometric path subtraction, and deleting the whole painting operator would
 //!   destroy content the annotation did not identify (its bbox reaches outside the region), which
@@ -148,6 +158,7 @@ pub(crate) fn run(
     let mut clears: Vec<ImageClear> = Vec::new();
     let mut annotations = 0usize;
     let mut glyphs = 0usize;
+    let mut inline_images = 0usize;
     let mut departures: Vec<usize> = Vec::new();
 
     for index in 0..pages.len() {
@@ -165,6 +176,7 @@ pub(crate) fn run(
             Ok(edit) => {
                 annotations = annotations.saturating_add(regions.len());
                 glyphs = glyphs.saturating_add(edit.removed);
+                inline_images = inline_images.saturating_add(edit.inline_images);
                 clears.extend(edit.clears);
                 if regions.iter().any(|region| region.has_overlay) {
                     departures.push(index.saturating_add(1));
@@ -187,7 +199,9 @@ pub(crate) fn run(
     // §12.5.6.23: destroy the image data. The single-referrer guard has already refused any
     // shared image, so each cleared object belongs to one page.
     let cleared_images = clear_images(document, clears)?;
-    let images = cleared_images.len();
+    // §12.5.6.23's destroyed images are the image XObjects cleared as new streams and the inline
+    // images spliced in the content stream — both had their region samples set to the constant.
+    let images = cleared_images.len().saturating_add(inline_images);
 
     let written = write_document(document, root, &mut applied, &cleared_images, plan, sinks)?;
     if written.dangling {
@@ -368,6 +382,9 @@ struct PageEdit {
     content: Vec<u8>,
     removed: usize,
     clears: Vec<ImageClear>,
+    /// How many inline images (§8.9.7) this page spliced — each had its region samples
+    /// destroyed in the content stream, so each counts among the report's destroyed images.
+    inline_images: usize,
 }
 
 /// One image `XObject` placement the removal clears: which object, the transform that placed its
@@ -493,6 +510,8 @@ struct Walk<'a> {
     counts: &'a HashMap<u32, usize>,
     /// The image `XObject` placements this page asks the removal to clear.
     clears: Vec<ImageClear>,
+    /// How many inline images this page has spliced (§8.9.7), for the destroyed-image count.
+    inline_cleared: usize,
 }
 
 impl<'a> Walk<'a> {
@@ -526,6 +545,7 @@ impl<'a> Walk<'a> {
             edits: Vec::new(),
             counts,
             clears: Vec::new(),
+            inline_cleared: 0,
         }
     }
 
@@ -560,7 +580,7 @@ impl<'a> Walk<'a> {
                 Token::ArrayClose | Token::DictClose => {}
                 Token::Keyword(keyword) => {
                     if keyword == b"BI" {
-                        self.inline_image(content, &mut lexer)?;
+                        self.inline_image(content, &mut lexer, start)?;
                     } else {
                         self.operator(keyword, start, &operands)?;
                     }
@@ -580,6 +600,7 @@ impl<'a> Walk<'a> {
             content: apply_edits(content, self.edits),
             removed: self.removed,
             clears: self.clears,
+            inline_images: self.inline_cleared,
         })
     }
 
@@ -1250,9 +1271,20 @@ impl<'a> Walk<'a> {
         Ok(())
     }
 
-    /// An inline image (§8.9.7): skipped so its data is never lexed, and refused where it meets
-    /// the region.
-    fn inline_image(&mut self, content: &[u8], lexer: &mut Lexer<'_>) -> Result<(), String> {
+    /// An inline image (§8.9.7): its `BI`\u{2026}`ID`\u{2026}`EI` run is spliced when it meets the
+    /// region, and skipped so its data is never lexed otherwise.
+    ///
+    /// Unlike an image `XObject`, an inline image lives in the content stream itself, so
+    /// destroying the samples §12.5.6.23 asks for is a byte-range edit of `/Contents` rather than
+    /// the replacement of a referenced object — the whole run is replaced with a freshly built
+    /// inline image whose region samples are zero, and every byte outside `[bi_start, resume)` is
+    /// left exactly as it was.
+    fn inline_image(
+        &mut self,
+        content: &[u8],
+        lexer: &mut Lexer<'_>,
+        bi_start: usize,
+    ) -> Result<(), String> {
         let scan = pdf_model::inline_image::scan(
             self.document,
             content,
@@ -1262,14 +1294,76 @@ impl<'a> Walk<'a> {
         );
         lexer.seek(scan.resume);
         let bbox = self.unit_square();
-        if self.regions.iter().any(|region| overlaps(*region, bbox)) {
+        if !self.regions.iter().any(|region| overlaps(*region, bbox)) {
+            // The image is nowhere near a redaction: its run crosses the output byte for byte.
+            return Ok(());
+        }
+        // The run meets the region, so its samples must be destroyed. A run that could not be read
+        // is refused rather than left in place under a redaction (principle 1).
+        let stream = scan.image.map_err(|error| {
+            format!(
+                "§8.9.7: an inline image meets the region but could not be read ({error}); the \
+                 page is refused rather than leave its samples under a redaction"
+            )
+        })?;
+        let replacement = self.spliced_inline_image(&stream)?;
+        // `scan.resume` is past `EI` *and* the white space that delimits it (§7.2.3); the edit
+        // ends at `EI` itself so that separator crosses the output byte for byte with the rest of
+        // the surrounding stream. Trimming the white space back off `resume` finds it.
+        let end = end_of_ei(content, bi_start, scan.resume);
+        self.edits.push((bi_start, end, replacement));
+        self.inline_cleared = self.inline_cleared.saturating_add(1);
+        Ok(())
+    }
+
+    /// Builds the replacement `BI`\u{2026}`ID`\u{2026}`EI` run for an inline image whose region
+    /// samples are destroyed (§12.5.6.23), or refuses the page by name where it cannot be cleared
+    /// without trace (trap 5, principle 1).
+    ///
+    /// The samples come from [`Document::image_stream`] exactly as an image `XObject`'s do, are
+    /// zeroed by [`clear_region`] under this placement, re-encoded `FlateDecode`, and written back
+    /// under a dictionary carrying every §8.9.7 key the source stated (its `/Width`, `/Height`,
+    /// `/BitsPerComponent`, colour space, `/Decode`, `/ImageMask`\u{2026}) with only the old
+    /// encoding replaced. Zero is the sample domain's own constant: §8.9.5.2 maps it through any
+    /// `/Decode` to that array's `Dmin`, carrying none of the original sample (ADR 1126).
+    fn spliced_inline_image(&self, stream: &Stream) -> Result<Vec<u8>, String> {
+        let image = self.document.image_stream(stream).ok_or_else(|| {
+            "§8.9.7: an inline image meeting the region did not decode to samples; the page is \
+             refused"
+                .to_owned()
+        })?;
+        if let Some(codec) = &image.codec {
+            return Err(format!(
+                "§8.9.5: an inline image meeting the region is encoded with the {} codec, whose \
+                 samples this removal does not re-encode; the page is refused",
+                String::from_utf8_lossy(codec)
+            ));
+        }
+        let layout = self.image_layout(&stream.dict, "an inline image")?;
+        let stride = row_stride(layout).ok_or_else(|| {
+            "§8.9.5: an inline image meeting the region has a grid that overflows; the page is \
+             refused"
+                .to_owned()
+        })?;
+        let expected = stride.checked_mul(layout.height).ok_or_else(|| {
+            "§8.9.5: an inline image meeting the region has a grid that overflows; the page is \
+             refused"
+                .to_owned()
+        })?;
+        if image.data.len() < expected {
             return Err(
-                "§8.9.7: an inline image meets the region; clearing its samples in place is a \
-                        content-stream splice this build does not yet do; the page is refused"
+                "§8.9.5: an inline image meeting the region has less sample data than its declared \
+                 grid; the page is refused rather than clear samples that are not there"
                     .to_owned(),
             );
         }
-        Ok(())
+        let mut samples = image.data.to_vec();
+        clear_region(&mut samples, stride, layout, self.ctm, &self.regions);
+        let encoded = flate_encode(&samples, 6).ok_or_else(|| {
+            "§8.9.7: an inline image's cleared samples could not be re-encoded; the page is refused"
+                .to_owned()
+        })?;
+        build_inline_image(&stream.dict, &encoded)
     }
 
     /// The unit square mapped through the current transform — an image or form's placement.
@@ -1649,6 +1743,98 @@ fn zero_sample(samples: &mut [u8], stride: usize, layout: ImageLayout, row: usiz
         } else {
             break;
         }
+    }
+}
+
+/// The offset just past the `EI` that ends an inline image, given `resume` (past `EI` and its
+/// delimiting white space) and the run's start.
+///
+/// [`pdf_model::inline_image::scan`] resumes past the white space §7.2.3 lets follow `EI`; the
+/// splice ends at `EI` itself so that separator, part of the surrounding stream, is left exactly
+/// as it was. Where the bytes before the trimmed point are not `EI` — a scan this walk did not
+/// produce — the untrimmed `resume` is used, which never leaves the run half-spliced.
+fn end_of_ei(content: &[u8], start: usize, resume: usize) -> usize {
+    let mut end = resume.min(content.len());
+    while end > start
+        && content
+            .get(end.saturating_sub(1))
+            .is_some_and(u8::is_ascii_whitespace)
+    {
+        end = end.saturating_sub(1);
+    }
+    if end >= start.saturating_add(2) && content.get(end.saturating_sub(2)..end) == Some(&b"EI"[..])
+    {
+        end
+    } else {
+        resume
+    }
+}
+
+/// Builds an inline image's `BI` … `ID` … `EI` run from a source dictionary and freshly encoded
+/// data (§8.9.7), or refuses where a carried entry cannot be written inline.
+///
+/// The source dictionary is the one [`pdf_model::inline_image::scan`] expanded — Table 91's keys
+/// in full and Table 92's colour-space and filter abbreviations resolved — so every entry is
+/// written the long way, which §8.9.7 permits ("the abbreviations … may be used in place of the
+/// full names"). The old encoding is dropped and this writer's own `/Filter /FlateDecode` and
+/// exact `/Length` stated for the re-encoded bytes; every other entry — the grid, the colour
+/// space, `/Decode`, `/ImageMask`, `/Interpolate`, `/Intent` — is carried unchanged, because the
+/// cleared samples are still on the grid it describes.
+///
+/// A carried value must be one an inline image may hold: §8.9.7 makes the run part of a content
+/// stream, where §7.3.8's indirect references cannot appear, so a colour space resolved to a
+/// resource object that holds a reference or a stream (an `/ICCBased` space, a `/Separation`
+/// tint) cannot be restated inline. Such a page is **refused by name** rather than written with a
+/// reference no content stream can carry (principle 1).
+fn build_inline_image(dict: &Dictionary, encoded: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::from(&b"BI"[..]);
+    for (key, value) in dict.iter() {
+        match key.as_bytes() {
+            // Dropped: the old encoding is replaced below. §8.9.7's `/L` and `/Length` are one
+            // key, and `/DP` is `/DecodeParms`; the scan has already expanded both.
+            b"Filter" | b"DecodeParms" | b"DP" | b"Length" | b"L" => continue,
+            _ => {}
+        }
+        if !inline_safe(value) {
+            return Err(format!(
+                "§8.9.7: an inline image meeting the region states /{}, a value an inline image \
+                 cannot carry (an indirect reference or stream lives in no content stream); the \
+                 page is refused",
+                String::from_utf8_lossy(key.as_bytes())
+            ));
+        }
+        out.push(b' ');
+        pdf_syntax::write::object(&Object::Name(key.clone()), &mut out);
+        out.push(b' ');
+        pdf_syntax::write::object(value, &mut out);
+    }
+    out.extend_from_slice(b" /Filter /FlateDecode /Length ");
+    let mut length = String::new();
+    let _ = write!(length, "{}", encoded.len());
+    out.extend_from_slice(length.as_bytes());
+    // §8.9.7: "the ID operator shall be followed by a single white-space character, and the next
+    // character shall be interpreted as the first byte of image data" — one LINE FEED here — and
+    // the /Length above "exclud[es] the white-space delimiting" the operators, so one LINE FEED
+    // delimits the EI that follows the data.
+    out.extend_from_slice(b" ID\n");
+    out.extend_from_slice(encoded);
+    out.extend_from_slice(b"\nEI");
+    Ok(out)
+}
+
+/// Whether an object is one an inline image dictionary may carry (§8.9.7): a name, number,
+/// boolean, string or an array of such. A dictionary, stream or indirect reference is not — a
+/// content stream carries no §7.3.8 indirection — so a value holding one refuses the splice.
+fn inline_safe(value: &Object) -> bool {
+    match value {
+        Object::Null
+        | Object::Boolean(_)
+        | Object::Integer(_)
+        | Object::Real(_)
+        | Object::String(_)
+        | Object::Name(_) => true,
+        Object::Array(items) => items.iter().all(inline_safe),
+        Object::Dictionary(_) | Object::Stream(_) | Object::Reference(_) => false,
     }
 }
 

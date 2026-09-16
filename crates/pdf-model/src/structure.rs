@@ -4715,8 +4715,9 @@ mod tests {
         Artifact, ArtifactKind, AttributeObject, BlockProgression, BlockSpacing, CellFacts,
         CellPlacement, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
         MAX_TABLE_COLUMNS, Owner, ParentTree, Priority, StandardType, TableGrid, TableStack, Tree,
-        WritingMode, actual_text, allocation_rectangle, annotation_languages,
-        annotation_rectangles, list_predecessors, table_cell_rectangles, well_formed_language_tag,
+        WritingMode, actual_text, allocation_rectangle, alternate_description,
+        annotation_languages, annotation_rectangles, language, list_predecessors,
+        table_cell_rectangles, well_formed_language_tag,
     };
     use pdf_syntax::{Dictionary, Document, Object};
     use std::collections::BTreeSet;
@@ -5001,6 +5002,60 @@ mod tests {
         assert!(
             matches!(walked.get(2), Some((1, Child::Element(_)))),
             "the nested element is a child at depth 1 and has none of its own"
+        );
+    }
+
+    /// §14.9.2's language and §14.9.3's Unicode text are read and answered where a phoneme would
+    /// be spoken; the pronunciation hint itself is not processed, on the permission §14.9.6 states
+    /// outright:
+    ///
+    /// > A PDF processor is not required to process pronunciation hints.
+    ///
+    /// Table 355 (§14.7.2) defines `/PhoneticAlphabet` and `/Phoneme`; §14.9.6 is where the
+    /// decision not to process them lives, on the NOTE that a text-to-speech function does well
+    /// enough from Unicode text and a language. No corpus document states `/Phoneme` — it is a
+    /// PDF 2.0 entry and the pdf.js corpus predates PDF 2.0 — so this fixture is the calibration
+    /// for that silence (trap 13): the element answers its `/Lang` and its `/Alt`, and the
+    /// phoneme string is none of those answers. A reader that began consulting the hint would
+    /// return it here, and the last assertion would fail.
+    #[test]
+    fn a_phoneme_is_read_past_and_the_language_and_unicode_text_answered_in_its_place() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K 5 0 R >>",
+            "<< /Type /StructElem /S /P /Lang (fr-FR) /Alt (tomato) \
+             /PhoneticAlphabet /ipa /Phoneme (tuh-MAY-toh) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let top = tree.children(&doc, None);
+        let Some(Child::Element(paragraph)) = top.first() else {
+            panic!("the root's child is an element: {top:?}");
+        };
+
+        assert_eq!(tree.role(&doc, paragraph).as_deref(), Some("P"));
+        assert_eq!(
+            language(&doc, paragraph).as_deref(),
+            Some("fr-FR"),
+            "§14.9.2's language is read"
+        );
+        assert_eq!(
+            alternate_description(&doc, paragraph).as_deref(),
+            Some("tomato"),
+            "§14.9.3's Unicode text is answered where a phoneme would be spoken"
+        );
+        let phoneme = "tuh-MAY-toh";
+        assert!(
+            [
+                language(&doc, paragraph),
+                alternate_description(&doc, paragraph),
+                actual_text(&doc, paragraph),
+            ]
+            .into_iter()
+            .flatten()
+            .all(|answer| answer != phoneme),
+            "the pronunciation hint is read past, never answered (§14.9.6's permission)"
         );
     }
 

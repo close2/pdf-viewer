@@ -21,8 +21,8 @@ use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{ColourSpace, Compositing, Conversion};
-use crate::content::Transfer;
 use crate::function::{Function, Value};
+use crate::transfer::Transfer;
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
 ///

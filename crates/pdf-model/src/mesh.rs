@@ -47,9 +47,9 @@ use pdf_render::{Color, Corners, Point, Ramp, Triangle};
 use pdf_syntax::{Dictionary, Document, Stream};
 
 use crate::colour::ColourSpace;
-use crate::content::Transfer;
 use crate::function::{BitReader, Function};
 use crate::shading::{Colouring, transferred};
+use crate::transfer::Transfer;
 
 /// How finely a Bézier patch is evaluated along each axis.
 ///

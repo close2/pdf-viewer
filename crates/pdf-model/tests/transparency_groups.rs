@@ -987,6 +987,124 @@ fn a_knockout_group_of_opaque_marks_carries_its_shape() {
     );
 }
 
+/// §11.6.4.4's constant read as *opacity* at the pixel, for a bare knockout element.
+///
+/// # The gap this closes
+///
+/// `a_knockout_group_of_opaque_marks_carries_its_shape` builds exactly this display list —
+/// two translucent solid fills in an isolated knockout group — but asserts only the flag.
+/// The elements go to the backend **bare** rather than as a `Command::Shaped`, because
+/// `element_shape_is_coverage` holds a translucent solid's shape to be its coverage: its
+/// alpha is §11.6.4.4's constant, which the clause makes opacity, so the one number a
+/// rasteriser draws it with (`coverage × ca`) already separates as `shape × opacity`. Under
+/// `Compose::Knockout` that draw is Porter-Duff **Source**, which weights the backdrop by
+/// `1 − coverage` — the shape — and not by `1 − coverage × ca`. Every calibrated knockout
+/// pixel until now took its opacity from a `/Luminosity` soft mask or a nested group's
+/// constant, both of which arrive stated; the bare constant had no pixel of its own.
+///
+/// # The arithmetic, from the clause
+///
+/// `/GS` sets `ca 0.5`, so each fill is a solid at opacity ½ with shape 1 inside its path.
+/// In an isolated knockout group every element composites with the transparent initial
+/// backdrop (§11.4.6), so the red buffer is premultiplied `(0.5, 0, 0; 0.5)` and the blue,
+/// where it covers, **replaces** it — a shape of 1 knocks the red out whole (NOTE 5) —
+/// leaving `(0, 0, 0.5; 0.5)`. Over the white page each adds `1 − 0.5` of white:
+///
+/// ```text
+/// red only     (1.0, 0.5, 0.5)  = (255, 128, 128)
+/// overlap/blue (0.5, 0.5, 1.0)  = (128, 128, 255)
+/// ```
+///
+/// Reading the constant as **shape** instead — the bare draw as source-over — would
+/// composite the blue *over* the red in the overlap: `(0,0,0.5;0.5)` over `(0.5,0,0;0.5)` is
+/// `(0.25, 0, 0.5; 0.75)`, which over white is `(128, 64, 191)` — a band 64 of 255 away on
+/// two channels. Changing `Compose::Knockout`'s mode from `Source` to `SourceOver` is what
+/// makes the overlap assertion fail with that value.
+#[test]
+fn a_bare_translucent_knockout_element_reads_its_constant_as_opacity() {
+    let knockout = "/Group << /S /Transparency /I true /K true >>";
+    let drawn = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
+        "/GS gs 1 0 0 rg 10 10 50 50 re f 0 0 1 rg 30 30 50 50 re f",
+        "/Fm Do",
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    // Page (20, 20) is red only (blue starts at 30); device row 100 − 20 = 80.
+    let red_only = pixel(&drawn, 20, 80);
+    for (channel, expected) in red_only.iter().zip([255_u8, 128, 128, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 1,
+            "half-opaque red over white is (255, 128, 128), not {red_only:?}"
+        );
+    }
+    // Page (40, 40) is inside both: the blue's shape is 1, so it knocks the red out whole
+    // and the constant is its opacity alone. Device row 60.
+    let overlap = pixel(&drawn, 40, 60);
+    for (channel, expected) in overlap.iter().zip([128_u8, 128, 255, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 1,
+            "the constant is opacity, so the blue knocks the red out whole: {overlap:?}"
+        );
+    }
+    // Page (70, 70) is blue only, and equal to the overlap: knockout leaves no trace of the
+    // red under the topmost element. Device row 30.
+    assert_eq!(
+        pixel(&drawn, 70, 30),
+        pixel(&drawn, 40, 60),
+        "the overlap holds the topmost element alone, as blue-only does"
+    );
+}
+
+/// §11.4.6's `1 − f` backdrop weight for a bare constant, at a **half-covered** edge.
+///
+/// The companion above knocks out at a shape of 1, where `1 − f` and `1 − f × q` agree. This
+/// one puts a half-covered pixel under a half-opaque bare mark, where they do not — the same
+/// pixel `the_object_is_added_to_the_backdrop_the_shape_left_behind` measures for a
+/// `Command::Shaped`, drawn here through the one-step `Source` path instead.
+///
+/// The blue rectangle starts at page x = 10.5, so device column 10 has shape `f = ½`; `/GS`
+/// makes its opacity `q = ½`. Over the opaque red first element inside the isolated knockout
+/// group, §11.4.6 gives premultiplied
+///
+/// ```text
+/// P' = (1 − f) × P + f × q × blue = ½ × (1, 0, 0; 1) + ¼ × (0, 0, 1; 1)
+///    = (0.5, 0, 0.25; 0.75)
+/// ```
+///
+/// and over the white page `(0.75, 0.25, 0.5)` = **(191, 64, 128)** — the value the soft-mask
+/// fixture reaches by a different route, which is what says the bare constant is the same
+/// opacity a mask is. Reading the constant as shape — `Compose::Knockout`'s mode changed from
+/// `Source` to `SourceOver` — composites the half-covered blue *over* the opaque red instead
+/// of knocking `1 − f` of it out, and gives `(191, 0, 64)`, which is what this fails with.
+#[test]
+fn a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge() {
+    let drawn = interpret(fixture(
+        "/Group << /S /Transparency /I true /K true >>",
+        "[0 0 100 100]",
+        "1 0 0 rg 0 0 100 100 re f /GS gs 0 0 1 rg 10.5 10 50 50 re f",
+        "/Fm Do",
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    let edge = pixel(&drawn, 10, 60);
+    for (channel, expected) in edge.iter().zip([191_u8, 64, 128, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 1,
+            "half a shape keeps half the backdrop and adds the half-opaque object: {edge:?}"
+        );
+    }
+    // The columns either side are the ends of the same formula: shape 0 keeps the red whole,
+    // shape 1 replaces it with the half-opaque blue over white.
+    assert_eq!(pixel(&drawn, 9, 60), [255, 0, 0, 255]);
+    let inside = pixel(&drawn, 11, 60);
+    for (channel, expected) in inside.iter().zip([127_u8, 127, 255, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 1,
+            "a shape of 1 holds the blue at half opacity over white: {inside:?}"
+        );
+    }
+}
+
 /// The reading is a graphics state parameter, so what a group's *content* painted under
 /// decides it — and where that is both readings, no single one describes the group.
 ///

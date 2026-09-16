@@ -76,6 +76,7 @@ pub mod structure;
 pub mod submission;
 pub mod tab_order;
 pub mod thumbnail;
+mod transfer;
 pub mod type3;
 pub mod uri;
 mod variable_text;
