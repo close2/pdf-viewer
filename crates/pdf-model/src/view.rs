@@ -184,6 +184,16 @@ pub struct ViewState {
     /// save writes the tree without it — §7.5.6's "shall be marked as deleted by means of their
     /// cross-reference entries" — and what another home still reaches is left in use and said.
     unfiled: Vec<Vec<u8>>,
+    /// What a host says the time is, for Table 166's `/M` on what a save writes.
+    ///
+    /// The fourth thing in this struct that is a property of the *host* rather than of the
+    /// document, and the only one that changes no pixel: it decides what goes into the file
+    /// rather than what is drawn. `CLAUDE.md`'s rule 3 gives this crate no clock, and Table 166
+    /// asks for "[t]he date and time when the annotation was most recently modified" — a fact
+    /// about a machine, which nothing here can read and which is therefore supplied or absent.
+    ///
+    /// `None` until a host says otherwise, under which no `/M` is written at all. ADR 1160.
+    modified: Option<pdf_syntax::Date>,
     /// How many object numbers this state has handed out since it last held nothing added.
     ///
     /// One counter for annotations and attachments alike, and it only ever grows while anything
@@ -702,6 +712,7 @@ impl ViewState {
             retyped: BTreeMap::new(),
             filed: Vec::new(),
             unfiled: Vec::new(),
+            modified: None,
             allocated: 0,
         }
     }
@@ -783,6 +794,28 @@ impl ViewState {
         }
         self.audience = audience;
         self.reapply_view_usage()
+    }
+
+    /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
+    ///
+    /// The entry is "[t]he date and time when the annotation was most recently modified", and
+    /// `CLAUDE.md`'s rule 3 is why it arrives this way rather than being read: a renderer with no
+    /// clock cannot know when anything happened, and an instant invented here would be a claim
+    /// about a machine dressed as a fact about a document.
+    ///
+    /// **The instant written is the one last stated, and that is the whole of the contract.** So a
+    /// host reads its clock immediately before the save and states what it read; a host that
+    /// states nothing writes no `/M` at all, which is what every caller of [`Self::of`] does until
+    /// one does otherwise. Nothing is derived from it, nothing expires, and no page is drawn
+    /// differently for it. ADR 1160.
+    pub fn set_modification_time(&mut self, at: Option<pdf_syntax::Date>) {
+        self.modified = at;
+    }
+
+    /// The instant a host last stated, for Table 166's `/M`.
+    #[must_use]
+    pub fn modification_time(&self) -> Option<pdf_syntax::Date> {
+        self.modified
     }
 
     /// §8.11.4.5's reapplication against whatever the two factors now are.
@@ -1851,7 +1884,7 @@ impl ViewState {
     /// # What is written
     ///
     /// One replacement object per field a value was typed into, carrying Table 226's `/V`, and
-    /// the interactive form dictionary with Table 224's `/NeedAppearances` set true. Every
+    /// §12.7.4.3's appearance stream for each of its widgets ([`Update::write_appearance`]). Every
     /// annotation a person added, with its page's `/Annots` extended
     /// ([`ViewState::write_additions`]); and every free text annotation of the file's **own** that
     /// a person retyped, with Table 166's `/Contents` and a replaced appearance
@@ -1859,15 +1892,25 @@ impl ViewState {
     /// changed, replaced, or deleted", and the producer's own bytes are still in the file beneath
     /// it.
     ///
-    /// **The flag is the honest half of this, and it is a decision with a cost.** A widget's
-    /// appearance stream still says what the field said before, and a writer has two ways to fix
-    /// that: regenerate every affected stream, or tell the next reader to. Table 224 exists for
-    /// the second — "a flag specifying whether to construct appearance streams and appearance
-    /// dictionaries for all widget annotations in the document" — and it is what this writes,
-    /// because regenerating means writing content streams into somebody else's file and this
-    /// program's own reading of them is what it would be writing. The cost, written down: a
-    /// reader that ignores the flag shows the value the field had before. Every reader this
-    /// project compares against honours it.
+    /// **Table 224's `/NeedAppearances` is written for what is left over, and the entry's own row
+    /// states that condition** (§12.7.3):
+    ///
+    /// > A PDF writer shall include this key, with a value of true , if it has not provided
+    /// > appearance streams for all visible widget annotations present in the document.
+    ///
+    /// So the flag goes in exactly where a widget's stream could not be produced, or could be
+    /// produced only in part, and [`Written::unconstructed`] names every field that happened to:
+    /// the entry says something is owed and the report says by whom. A document whose every
+    /// changed widget got a stream is written without it, which is what the same row's NOTE
+    /// expects of a file of this vintage — "Appearance streams are required in PDF 2.0 and later"
+    /// — and the entry itself is deprecated in PDF 2.0.
+    ///
+    /// **Table 166's `/M` goes on every annotation this update writes, and only where a host has
+    /// said what time it is.** The entry is "[t]he date and time when the annotation was most
+    /// recently modified"; `CLAUDE.md`'s rule 3 gives this crate no clock, and an instant invented
+    /// here would be a claim about a machine nothing in this crate can see.
+    /// [`ViewState::set_modification_time`] is where a host states one, and a host that states
+    /// none writes the bytes this program wrote before it could be asked. ADR 1160.
     ///
     /// # What is deliberately **not** written
     ///
@@ -1894,7 +1937,7 @@ impl ViewState {
     /// document is no longer among them: §7.6.2's ciphers run on the way out, so the `/V` this
     /// writes reaches the file in the form the document's own key expects.
     pub fn save(&self, document: &Document) -> Result<Written, pdf_syntax::write::UpdateError> {
-        let mut update = Update::beside(document);
+        let mut update = Update::beside(document, self.modified);
         let mut withheld = Vec::new();
         let (freed, still_reached) = self.write_filings(document, &mut update);
         self.write_additions(document, &mut update);
@@ -1961,6 +2004,9 @@ impl ViewState {
             }
             update.put(id, Object::Dictionary(field));
             update.write_appearance(document, widget, &dict, value);
+            // Table 166's `/M` is the *annotation's*, so it goes on the widget rather than on
+            // whichever ancestor §12.7.4.1 keeps the value on.
+            update.stamp_annotation(document, widget);
         }
         if !update.is_empty()
             && let Some((id, mut form)) = interactive_form(document)
@@ -1971,7 +2017,7 @@ impl ViewState {
             // field" — so a document whose every changed widget got a new stream is one where
             // that obligation is *kept*, and asking the next reader to redo the work would be
             // saying otherwise.
-            if update.needs_appearances {
+            if !update.owed.is_empty() {
                 form.insert(Name::new(&b"NeedAppearances"[..]), Object::Boolean(true));
                 update.put(id, Object::Dictionary(form));
             }
@@ -1981,14 +2027,24 @@ impl ViewState {
         {
             update.put(id, Object::Dictionary(catalog));
         }
+        // Named by field rather than by widget, because that is what a person typed into: a
+        // field §12.7.4.1 spreads over two widgets is one name and one sentence.
+        let mut unconstructed: Vec<String> = update
+            .owed
+            .iter()
+            .map(|widget| field_name_of(document, *widget))
+            .collect();
         let bytes =
             pdf_syntax::write::incremental_update_freeing(document, &update.replacements, &freed)?;
         withheld.sort_unstable();
         withheld.dedup();
+        unconstructed.sort_unstable();
+        unconstructed.dedup();
         Ok(Written {
             bytes,
             withheld,
             unappeared,
+            unconstructed,
             still_reached,
         })
     }
@@ -2151,6 +2207,7 @@ impl ViewState {
                 Name::new(&b"Contents"[..]),
                 Object::String(pdf_syntax::text_string::encode_text_string(text).into()),
             );
+            update.stamp(&mut dict);
             if !write_retyped_appearance(document, update, &mut dict, text) {
                 unappeared.push(*annotation);
             }
@@ -2193,6 +2250,10 @@ impl ViewState {
         for added in &self.added {
             let mut dict = added.dict.clone();
             dict.insert(Name::new(&b"P"[..]), Object::Reference(added.page));
+            // Table 166's `/M`, for [`Update::stamp`]'s reason and at [`Self::write_retypings`]'s
+            // site: an annotation a person made this session was most recently modified when the
+            // host says it was.
+            update.stamp(&mut dict);
             write_added_appearance(document, update, &mut dict);
             update.put(added.id, Object::Dictionary(dict));
 
@@ -2810,8 +2871,18 @@ struct Update {
     replacements: BTreeMap<ObjectId, Object>,
     /// The next object number nothing in the file uses.
     next: u32,
-    /// Whether any widget's appearance had to be left to the next reader.
-    needs_appearances: bool,
+    /// Every widget whose appearance had to be left to the next reader, in object order.
+    ///
+    /// The condition Table 224's `/NeedAppearances` states, held by name rather than as a flag:
+    /// the entry binds a writer that "has not provided appearance streams for all visible widget
+    /// annotations present in the document", so the writer that sets it knows which widgets it
+    /// means and a person is owed that list (ADR 1159).
+    owed: Vec<ObjectId>,
+    /// What a host says the time is, for Table 166's `/M`.
+    ///
+    /// `None` is a host that has said nothing, and nothing is then written: this crate has no
+    /// clock (`CLAUDE.md` rule 3), and the entry is Optional. ADR 1160.
+    modified: Option<pdf_syntax::Date>,
 }
 
 impl Update {
@@ -2823,7 +2894,7 @@ impl Update {
     /// §7.5.5 ledger row, where the same understatement costs 66 documents their page tree if the
     /// clause's ignore rule is applied. Trusting `/Size` alone here would be worse than that: a
     /// new object would land on an existing one's number and silently replace it.
-    fn beside(document: &Document) -> Self {
+    fn beside(document: &Document, modified: Option<pdf_syntax::Date>) -> Self {
         let highest = document.xref().object_numbers().max().unwrap_or_default();
         let stated = document
             .trailer()
@@ -2834,8 +2905,54 @@ impl Update {
         Self {
             replacements: BTreeMap::new(),
             next: highest.saturating_add(1).max(stated),
-            needs_appearances: false,
+            owed: Vec::new(),
+            modified,
         }
+    }
+
+    /// Writes Table 166's `/M` on one annotation dictionary, where a host has said what time it
+    /// is.
+    ///
+    /// §12.5.2, the entry's own row:
+    ///
+    /// > The date and time when the annotation was most recently modified. The format should be a
+    /// > date string as described in 7.9.4, "Dates" but interactive PDF processors shall accept
+    /// > and display a string in any format.
+    ///
+    /// The `should` is met rather than taken advantage of: §7.9.4's string is what every reader
+    /// can *order*, and the second half of the sentence is about what a reader accepts rather
+    /// than about what a writer may invent. The date is written whole, in the fields the host
+    /// stated it in.
+    ///
+    /// Nothing is written where no host has said anything, which is every caller of
+    /// [`ViewState::of`] until one does. ADR 1160.
+    fn stamp(&self, dict: &mut Dictionary) {
+        let Some(at) = self.modified else {
+            return;
+        };
+        dict.insert(
+            Name::new(&b"M"[..]),
+            Object::String(crate::attachment::filing::pdf_date(at).into_bytes().into()),
+        );
+    }
+
+    /// The same entry on an annotation this update is otherwise writing nothing of.
+    ///
+    /// A field's value lives on the *field*, which §12.7.4.1 lets be an ancestor of the widget,
+    /// and a widget whose stored stream was replaced has its bytes rewritten in another object —
+    /// so the annotation a person changed is not always one this update was going to write. Table
+    /// 166 is the annotation dictionary's table, so the entry belongs on the widget in both
+    /// cases, and the extra object is the price of saying so. It is paid only by a host that
+    /// supplies an instant. ADR 1160.
+    fn stamp_annotation(&mut self, document: &Document, annotation: ObjectId) {
+        if self.modified.is_none() {
+            return;
+        }
+        let Some(mut dict) = self.current(document, annotation) else {
+            return;
+        };
+        self.stamp(&mut dict);
+        self.put(annotation, Object::Dictionary(dict));
     }
 
     /// States [`FREE_TEXT_FONT`] in Table 224's `/DR`, where the document states nothing there.
@@ -2989,10 +3106,10 @@ impl Update {
     /// `/Matrix` and anything else its producer stated survives, and its object number, so the
     /// update replaces one object rather than adding one and orphaning another.
     ///
-    /// A widget this cannot produce a stream for — and one it can produce only part of — leaves
-    /// [`Self::needs_appearances`] set, which is what Table 224's flag is for. Writing a stream
-    /// that is missing a glyph *and* setting the flag says both true things: here is what could
-    /// be laid out, and it is not all of it.
+    /// A widget this cannot produce a stream for — and one it can produce only part of — goes on
+    /// [`Self::owed`], which is what Table 224's flag is for and what [`Written::unconstructed`]
+    /// names. Writing a stream that is missing a glyph *and* setting the flag says both true
+    /// things: here is what could be laid out, and it is not all of it.
     fn write_appearance(
         &mut self,
         document: &Document,
@@ -3004,11 +3121,13 @@ impl Update {
             crate::appearance::ForSaving::Stream(built) => built,
             crate::appearance::ForSaving::Selected => return,
             crate::appearance::ForSaving::Owed => {
-                self.needs_appearances = true;
+                self.owed.push(widget);
                 return;
             }
         };
-        self.needs_appearances |= built.report.is_some();
+        if built.report.is_some() {
+            self.owed.push(widget);
+        }
 
         let added = built.existing.is_none();
         let (stream_id, mut stream_dict) = match built.existing {
@@ -3378,9 +3497,10 @@ fn rectangle_covers(document: &Document, annotation: &Dictionary, x: f64, y: f64
 
 /// A saved document, and what this program declined to put in it.
 ///
-/// Three values rather than bytes alone because the other two are not errors and must not be
-/// silent: a save that quietly dropped what a person typed would be their work lost without a
-/// word, and this one drops two things on purpose. See [`ViewState::save`] for the clauses.
+/// More than bytes alone because the rest is not an error and must not be silent: a save that
+/// quietly dropped what a person typed would be their work lost without a word, and this one
+/// drops some things on purpose and leaves others to the next reader. See [`ViewState::save`]
+/// for the clauses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     /// The whole file: the document as it was opened, with §7.5.6's update appended.
@@ -3398,6 +3518,17 @@ pub struct Written {
     /// annotations. Empty unless a retyped annotation's `/DA` names a font its document does not
     /// define. See [`ViewState::save`].
     pub unappeared: Vec<ObjectId>,
+    /// §12.7.4.2's qualified name of every field whose widget was written without a complete
+    /// appearance stream, which is what Table 224's `/NeedAppearances` in the written file is for.
+    ///
+    /// The entry's own row binds a writer "if it has not provided appearance streams for all
+    /// visible widget annotations present in the document", so a file this program wrote with the
+    /// flag set is a file with something outstanding in it — and the flag names no widget. This
+    /// does. Empty for every save where §12.7.4.3's layout produced the whole of every changed
+    /// widget's stream, and non-empty exactly where that layout declined or reported — a value
+    /// whose characters no font in reach can spell is the standing case (`doc/todo/22`). See
+    /// [`ViewState::save`].
+    pub unconstructed: Vec<String>,
     /// Every file detached from the tree whose stream another home still reaches, with the
     /// sentence naming the home.
     ///

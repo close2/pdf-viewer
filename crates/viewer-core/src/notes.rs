@@ -392,6 +392,25 @@ pub(crate) fn restricted(
                 // here; saying which one arrived is better than a sentence that claims a rule.
                 other => format!("this document's /DocMDP states {other:?} — {tail}"),
             },
+            // §12.7.5.5's Table 236 `/P`, whose entry opens "[t]he access permissions granted
+            // for this document" and says what they reach: "any incremental changes to the
+            // document following the signature of which this key is part". A person is told the
+            // signature's own lock rather than the author's certification, because they are two
+            // clauses and a reader who would accept one may refuse the other (ADR 1156).
+            Restriction::LockPermission { level } => match level {
+                Modification::None => format!(
+                    "a signature in this document permits no change to it at all (§12.7.5.5's \
+                     /Lock /P 1) — {tail}"
+                ),
+                Modification::FormFilling => format!(
+                    "a signature in this document permits only form filling and signing \
+                     (§12.7.5.5's /Lock /P 2), which does not include {} — {tail}",
+                    operation.as_str()
+                ),
+                // Level 3 and an undefined level both permit, so `asserted` never names them
+                // here; saying which one arrived is better than a sentence that claims a rule.
+                other => format!("this document's /Lock /P states {other:?} — {tail}"),
+            },
             // §7.6.4.2's Table 22, and §7.6.4.1's sentence about it: "PDF readers shall respect
             // the intent of the document creator by restricting user access to an encrypted PDF
             // file according to the permissions contained in the file."

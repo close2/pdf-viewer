@@ -163,7 +163,7 @@ use pdf_syntax::object::Object;
 use crate::merge::{Duplicates, Placement, inherited};
 use crate::pattern::Pattern;
 use crate::range::Selection;
-use crate::{Origin, Output, Refusal, Report, Sinks, Warning, merge};
+use crate::{Origin, Output, Protect, Refusal, Report, Sinks, Warning, merge};
 
 /// One document's pages deleted, inserted, moved and rotated.
 #[derive(Debug, Clone, PartialEq)]
@@ -250,6 +250,7 @@ pub(crate) fn run(
     at: usize,
     documents: &[Document],
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
     report: &mut Report,
 ) -> Result<(), Refusal> {
     let document = documents.get(at).ok_or(Refusal::NoSuchSource {
@@ -295,6 +296,7 @@ pub(crate) fn run(
         Duplicates::Copy,
         &plan.names,
         sinks,
+        protect,
         report,
     )?;
     report.outputs.push(Output {

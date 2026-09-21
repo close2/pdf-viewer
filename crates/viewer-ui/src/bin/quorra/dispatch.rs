@@ -21,6 +21,17 @@ impl App {
         self.pump(VecDeque::from([command]));
     }
 
+    /// Reads this machine's clock for ISO 32000-2 Table 166's `/M`, on the way to a save.
+    ///
+    /// The core has no clock (rule 3) and writes the instant it was last given, so the host reads
+    /// one here — immediately before the save, which is the moment the entry is about. A clock
+    /// this host cannot read states nothing, and the file is then written without the entry,
+    /// which Table 166 allows. ADR 1160.
+    fn state_the_time(&mut self) {
+        let now = viewer_host::modification::now();
+        self.pump(VecDeque::from([Command::Clock(now)]));
+    }
+
     /// Reacts to events that were produced somewhere other than a [`Self::dispatch`].
     ///
     /// One caller: the thread that opens the document while the window and the graphics device
@@ -48,6 +59,12 @@ impl App {
     /// Runs commands until nothing is left, reacting to what each produces.
     fn pump(&mut self, mut queue: VecDeque<Command>) {
         while let Some(command) = queue.pop_front() {
+            // Table 166's `/M` is what a save writes it into, so the clock is read on the way
+            // there rather than kept — and never inside [`App::state_the_time`]'s own pump, which
+            // would be a loop.
+            if matches!(command, Command::Save) {
+                self.state_the_time();
+            }
             let started = std::time::Instant::now();
             // The pointer is its own topic and not `events`: 285 of the 1490 lines of the trace
             // that raised ADR 0227 were pointer moves, and they arrive faster than a person
@@ -182,12 +199,13 @@ answers in two places"
             // that does open links, or `doc/todo/38`'s ask and warn levels, is a change in
             // `viewer_host::policy` and not in four `println!`s (ADR 1079).
             Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
-                let refused = viewer_host::policy::may_open_uri(&uri).err();
-                println!(
-                    "{}",
-                    viewer_host::policy::uri_note(&uri, refused.as_deref())
-                );
+                let uri = viewer_host::resolve_uri(Some(&self.path), &uri);
+                match viewer_host::link(&uri, self.links) {
+                    viewer_host::Link::Say(note) => println!("{note}"),
+                    viewer_host::Link::Ask(words) => {
+                        self.put_a_question(crate::app::Pending::Link { uri }, &words);
+                    }
+                }
             }
             // §12.7.6.2: the policy is `viewer_host::policy::may_submit`'s and not this
             // window's, so that a host with a network — or `doc/todo/38`'s ask and warn levels —
@@ -246,9 +264,14 @@ answers in two places"
                 operation,
                 notes,
             } => {
-                self.asked = Some((document, operation));
-                self.question.ask(&viewer_host::asked(operation, &notes));
-                self.redraw();
+                let words = viewer_host::asked(operation, &notes);
+                self.put_a_question(
+                    crate::app::Pending::Restricted {
+                        document,
+                        operation,
+                    },
+                    &words,
+                );
             }
             // §7.11.4's list moved: the copy `gather` took when the document opened is stale,
             // which is the one way "a property of an immutable document" stopped being true of
@@ -388,13 +411,35 @@ impl App {
     pub(crate) fn question_answered(&mut self, proceed: bool) {
         self.question.answered();
         self.redraw();
-        let Some((document, operation)) = self.asked.take() else {
+        let Some(about) = self.asked.take() else {
             return;
         };
-        if !proceed {
-            println!("note: {}", viewer_host::declined(operation));
+        match about {
+            crate::app::Pending::Restricted {
+                document,
+                operation,
+            } => {
+                if !proceed {
+                    println!("note: {}", viewer_host::declined(operation));
+                }
+                self.dispatch(Command::Answer { document, proceed });
+            }
+            // §12.6.4.8: the act is this host's own rather than an edit the core is holding, so
+            // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
+            crate::app::Pending::Link { uri } => {
+                println!("{}", viewer_host::answered(&uri, proceed));
+            }
         }
-        self.dispatch(Command::Answer { document, proceed });
+    }
+
+    /// Puts one question on the card, whatever it is about.
+    ///
+    /// One place rather than two, so that a subject added here cannot arrive without the card
+    /// going up or without the repaint that shows it.
+    fn put_a_question(&mut self, about: crate::app::Pending, words: &viewer_host::Question) {
+        self.asked = Some(about);
+        self.question.ask(words);
+        self.redraw();
     }
 
     /// `CLAUDE.md`'s four levels: moving through the menu, choosing one, and closing it.

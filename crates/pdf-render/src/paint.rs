@@ -385,9 +385,10 @@ impl Default for Stroke {
 
 /// How a drawing operation combines with what is already present.
 ///
-/// These are the sixteen PDF blend modes. The first four are separable and
-/// inexpensive; the final four operate on whole colours and require the backdrop
-/// colour, which constrains how aggressively a backend may batch.
+/// Table 134 and Table 135's sixteen PDF blend modes, and §11.7.4.3's seventeenth, which no
+/// document can name. The first twelve are separable and inexpensive; four operate on whole
+/// colours and require the backdrop colour, which constrains how aggressively a backend may
+/// batch; [`BlendMode::Overprint`] is separable and carries its own value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlendMode {
     /// Source replaces backdrop, modulated by alpha.
@@ -423,6 +424,9 @@ pub enum BlendMode {
     Color,
     /// Source luminosity with backdrop hue and saturation.
     Luminosity,
+    /// ISO 32000-2 §11.7.4.3's special overprinting blend mode, in the one case whose value
+    /// is not the source colour. See [`Overprint`].
+    Overprint(Overprint),
 }
 
 impl BlendMode {
@@ -431,12 +435,66 @@ impl BlendMode {
     /// Separable modes can be evaluated per channel, which lets a backend process
     /// them in a single pass. The four non-separable modes need the complete
     /// backdrop colour and are therefore more expensive to batch.
+    ///
+    /// [`BlendMode::Overprint`] is separable: §11.7.4.3 decides each process colour component
+    /// on its own component value, which is what makes it expressible as a per-channel choice
+    /// at all.
     #[must_use]
     pub fn is_separable(self) -> bool {
         !matches!(
             self,
             Self::Hue | Self::Saturation | Self::Color | Self::Luminosity
         )
+    }
+}
+
+/// Which channels §11.7.4.3's special overprinting blend mode leaves to the backdrop.
+///
+/// The mode is not one of Table 134's: no document names it, it is invoked implicitly while
+/// overprinting is enabled, and its value is decided by the overprint parameters rather than
+/// by arithmetic over the two colours. ISO 32000-2 §11.7.4.3's first bullet is the whole of
+/// what it computes here:
+///
+/// > If the overprint mode is 1 (nonzero overprint mode) and the current colour space and
+/// > group colour space are both DeviceCMYK , then process colour components with nonzero
+/// > values shall replace the corresponding component values of the backdrop; components with
+/// > zero values leave the existing backdrop value unchanged.
+///
+/// # Why the choice is carried rather than tested at the pixel
+///
+/// The test §8.6.7 states is on the document's own number, not on the raster's:
+///
+/// > Determination of whether a tint value is zero or non-zero shall be made on the tint value
+/// > defined within the PDF file, before quantisation into a device tint value for the output
+/// > device.
+///
+/// A source component quantised to the raster's whitest level is not necessarily a tint of
+/// zero, so a backend comparing the channel it was handed against 1.0 would be answering a
+/// different question from the clause's. The interpreter holds the tints the file stated, and
+/// a fill, a stroke or a glyph paints one colour, so which channels are left alone is fixed
+/// for the whole command and travels on it. ADR 1157.
+///
+/// The three channels are the raster's, which under a four-component blending colour space
+/// carry cyan, magenta and yellow in one pass and the black component in all three of the
+/// other (see [`crate::blending`]). A mode that keeps no channel is Normal by the clause's own
+/// bullet, which is why [`Overprint::new`] declines to build one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Overprint {
+    kept: [bool; 3],
+}
+
+impl Overprint {
+    /// The mode leaving exactly the channels marked `true` to the backdrop, or `None` where
+    /// that is none of them and the mode is therefore Normal.
+    #[must_use]
+    pub fn new(kept: [bool; 3]) -> Option<Self> {
+        kept.iter().any(|keep| *keep).then_some(Self { kept })
+    }
+
+    /// Which channels take the backdrop component `C_b` rather than the source's `C_s`.
+    #[must_use]
+    pub fn kept(self) -> [bool; 3] {
+        self.kept
     }
 }
 

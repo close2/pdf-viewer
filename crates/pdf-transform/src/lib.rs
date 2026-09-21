@@ -72,6 +72,7 @@ use std::sync::{Arc, Mutex};
 
 pub use pdf_model::restriction::{Level, Operation};
 use pdf_model::restriction::{Restriction, Verdict};
+pub use pdf_syntax::Access;
 use pdf_syntax::{Document, Limits, SyntaxError};
 
 pub use viewer_core::Secret;
@@ -252,6 +253,95 @@ impl Default for Policy {
         Self {
             restrictions: Level::Off,
         }
+    }
+}
+
+/// What a caller supplies to have a derived file protected by §7.6.4's standard security handler.
+///
+/// **It is supplied, never carried over**, and that is a reading of the clause rather than a
+/// simplification. Every object this crate hands the serializer is plaintext, because a
+/// `Document` decrypts on load; re-encrypting a derivative therefore means writing a *new*
+/// encryption dictionary, and at the one revision §7.6.4.1 does not deprecate — `/R` 6 — both
+/// `/U` and `/O` hold only an Algorithm 2.B hash of their password. A program that opened a
+/// document with one password can compute neither the other password nor a fresh entry for the
+/// one it holds, so there is nothing to carry. The passwords and the permissions of a derived
+/// file are the caller's statement about the derived file. ADR 1161.
+///
+/// The verbs that read it are the ones that write whole files: `split`, `merge`, `pages`,
+/// `optimize` and `redact`. Where it is absent each keeps what it did before — a warning naming
+/// §7.6 for the four that write anyway, and for `redact` a refusal, because a redaction whose
+/// output is less protected than its input is a decision somebody has to make on purpose (ADR
+/// 1162).
+///
+/// `archive` never reads it: ISO 19005 part 2 section 6.1.3 forbids an encrypted file, so a
+/// conversion that encrypted its output would not conform.
+#[derive(Debug)]
+pub struct Protect {
+    /// §7.6.4.1's user password. Empty is the default user password, which opens without a
+    /// prompt and leaves [`Protect::access`] as the whole of what the file asserts.
+    pub user_password: Secret,
+    /// §7.6.4.1's owner password, whose holder gets "full (owner) access".
+    pub owner_password: Secret,
+    /// Table 22's flags. [`Access::ALL`] is the default a caller should want: `CLAUDE.md`
+    /// principle 3 makes a restriction the reader's to set, so nothing is withheld that the
+    /// person asking did not withhold.
+    pub access: Access,
+    /// Table 21's `/EncryptMetadata`, whose own default is `true`.
+    pub encrypt_metadata: bool,
+}
+
+impl Protect {
+    /// A password on the document and nothing withheld from whoever supplies it.
+    #[must_use]
+    pub fn owner_only(owner_password: Secret) -> Self {
+        Self {
+            user_password: Secret::new(),
+            owner_password,
+            access: Access::ALL,
+            encrypt_metadata: true,
+        }
+    }
+
+    /// Writes one finished assembly, encrypted where this is `Some` and in the clear where it is
+    /// not.
+    ///
+    /// **An encrypted output is not byte-deterministic, and the clause is why.** §7.6.3.3
+    /// requires "a 16-byte random number" in front of every string and stream, so two writes of
+    /// one plan differ — RFC 0002 section 9's first layer is a property of the plaintext writer
+    /// and this is the standard's own exception to it. The randomness is `SystemEntropy`, which
+    /// is the one place in `apply` that reaches outside its arguments.
+    pub(crate) fn write<W: Write>(
+        protect: Option<&Self>,
+        assembly: &pdf_syntax::Assembly<'_>,
+        version: pdf_syntax::Version,
+        options: pdf_syntax::Options,
+        out: &mut W,
+    ) -> Result<pdf_syntax::Written, pdf_syntax::SerializeError> {
+        let Some(protect) = protect else {
+            return pdf_syntax::serialize(assembly, version, options, out);
+        };
+        pdf_syntax::serialize_encrypted(
+            assembly,
+            version,
+            options,
+            &pdf_syntax::Protection {
+                user_password: protect.user_password.reveal(),
+                owner_password: protect.owner_password.reveal(),
+                access: protect.access,
+                encrypt_metadata: protect.encrypt_metadata,
+            },
+            &mut pdf_syntax::SystemEntropy,
+            out,
+        )
+    }
+
+    /// The sentence a verb reports where it wrote an unprotected derivative of a protected
+    /// source.
+    pub(crate) fn lost(what: &str) -> String {
+        format!(
+            "§7.6: the source is encrypted and {what} is not, because no passwords were supplied \
+             to encrypt it with"
+        )
     }
 }
 
@@ -1309,6 +1399,29 @@ pub fn apply(
     apply_borrowed(plan, &borrowed, sinks, policy, budget)
 }
 
+/// [`apply_borrowed`], with §7.6 over whatever whole files the plan writes.
+///
+/// The sixth argument is separate from [`Policy`] and from [`Plan`] on purpose. It is not the
+/// plan's, because a plan is data a caller can log and compare and a password is neither; it is
+/// not the policy's, because [`Policy`] is about what *this document* asserts over its reader
+/// and this is about what the *output* will assert over its next one. It sits beside
+/// [`Source`], which is where §7.6.4.1's other password already lives.
+///
+/// # Errors
+///
+/// [`apply`]'s, plus a [`Refusal::Assembly`] naming §7.6.4 where a password or a randomness
+/// source refuses.
+pub fn apply_protected(
+    plan: &Plan,
+    sources: &[&Source],
+    sinks: &dyn Sinks,
+    policy: &Policy,
+    budget: &Budget,
+    protect: Option<&Protect>,
+) -> Result<Report, Refusal> {
+    run_plan(plan, sources, sinks, *policy, budget, protect)
+}
+
 /// [`apply`], over sources the caller holds one at a time.
 ///
 /// The same function; the borrow is the whole difference. A caller that keeps one [`Source`] for
@@ -1327,6 +1440,18 @@ pub fn apply_borrowed(
     sinks: &dyn Sinks,
     policy: &Policy,
     budget: &Budget,
+) -> Result<Report, Refusal> {
+    run_plan(plan, sources, sinks, *policy, budget, None)
+}
+
+/// The body of [`apply_borrowed`] and [`apply_protected`], which differ in one argument.
+fn run_plan(
+    plan: &Plan,
+    sources: &[&Source],
+    sinks: &dyn Sinks,
+    policy: Policy,
+    budget: &Budget,
+    protect: Option<&Protect>,
 ) -> Result<Report, Refusal> {
     let wanted = plan.sources();
     let mut opened = Vec::with_capacity(wanted.len());
@@ -1374,11 +1499,11 @@ pub fn apply_borrowed(
         Plan::Render(plan) => render::run(plan, first, sinks, budget, &mut report)?,
         Plan::Images(plan) => images::run(plan, first, sinks, &mut report)?,
         Plan::Attachments(plan) => attachments::run(plan, first, sinks, &mut report)?,
-        Plan::Split(plan) => split::run(plan, first, sinks, &mut report)?,
-        Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
-        Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, &mut report)?,
-        Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, &mut report)?,
-        Plan::Redact(plan) => redact::run(plan, 0, &opened, sinks, &mut report)?,
+        Plan::Split(plan) => split::run(plan, first, sinks, protect, &mut report)?,
+        Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, protect, &mut report)?,
+        Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, protect, &mut report)?,
+        Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, protect, &mut report)?,
+        Plan::Redact(plan) => redact::run(plan, 0, &opened, sinks, protect, &mut report)?,
         Plan::Archive(plan) => archive::run(plan, 0, &opened, sinks, &mut report)?,
         Plan::Update(plan) => update::run(plan, &wanted, &opened, sinks, &mut report)?,
     }
@@ -1542,6 +1667,20 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
         // Neither names a field or an annotation this crate's verbs touch; `decide` is asked
         // with no field and no annotation, so neither can arrive. Worded all the same, because
         // a variant a match cannot word is a sentence waiting to be missing.
+        // §12.7.5.5's Table 236 `/P`: "[t]he access permissions granted for this document",
+        // which reach "any incremental changes to the document following the signature of which
+        // this key is part" — so this one *does* arrive here, on a file this crate writes into.
+        Restriction::LockPermission { level } => match level {
+            Modification::None => {
+                "a signature in it permits no change to the document (§12.7.5.5's /Lock /P 1)"
+                    .to_owned()
+            }
+            Modification::FormFilling => {
+                "a signature in it permits only form filling and signing (§12.7.5.5's /Lock /P 2)"
+                    .to_owned()
+            }
+            other => format!("its /Lock /P states {other:?}"),
+        },
         Restriction::FieldLocked => "a signature locks the field (§12.7.5.5)".to_owned(),
         Restriction::FieldCovered => {
             "a signature's FieldMDP transform covers the field (§12.8.2.4)".to_owned()

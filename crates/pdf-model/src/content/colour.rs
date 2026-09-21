@@ -228,10 +228,12 @@ impl Interpreter<'_> {
             self.colour(&space, &initial, state.rendering())
         };
         if fill {
+            state.fill_tints = cmyk_tints(&space, &initial);
             state.fill_space = space;
             state.fill = colour;
             state.fill_pattern = None;
         } else {
+            state.stroke_tints = cmyk_tints(&space, &initial);
             state.stroke_space = space;
             state.stroke_colour = colour;
             state.stroke_pattern = None;
@@ -256,8 +258,10 @@ impl Interpreter<'_> {
             let pattern = self.pattern(name, resources, &tint, state, fill);
             if fill {
                 state.fill_pattern = pattern;
+                state.fill_tints = None;
             } else {
                 state.stroke_pattern = pattern;
+                state.stroke_tints = None;
             }
             return;
         }
@@ -283,23 +287,26 @@ impl Interpreter<'_> {
         // a device space with a matching component count is the likeliest intent — the
         // device space *as this page defines it*, so that the recovery lands on the same
         // colour the matching `g`, `rg` or `k` would have.
-        let colour = match (values.len(), space.components()) {
+        // The space the operands were actually read in, which is the current colour space
+        // §11.7.4.3 NOTE 2 means and is not always the one `cs` selected — see the recovery
+        // above. [`Interpreter::overprint_blend`] asks §8.6.7's question of it.
+        let (colour, read_in) = match (values.len(), space.components()) {
             (0, _) => return,
             (given, expected) if given == expected => {
                 let space = space.clone();
-                self.colour(&space, &values, state.rendering())
+                (self.colour(&space, &values, state.rendering()), space)
             }
             (1, _) => {
                 let space = self.device_space("DeviceGray", resources);
-                self.colour(&space, &values, state.rendering())
+                (self.colour(&space, &values, state.rendering()), space)
             }
             (3, _) => {
                 let space = self.device_space("DeviceRGB", resources);
-                self.colour(&space, &values, state.rendering())
+                (self.colour(&space, &values, state.rendering()), space)
             }
             (4, _) => {
                 let space = self.device_space("DeviceCMYK", resources);
-                self.colour(&space, &values, state.rendering())
+                (self.colour(&space, &values, state.rendering()), space)
             }
             (given, expected) => {
                 self.note(Unsupported::Shading {
@@ -309,10 +316,13 @@ impl Interpreter<'_> {
             }
         };
 
+        let tints = cmyk_tints(&read_in, &values);
         if fill {
             state.fill = colour;
+            state.fill_tints = tints;
         } else {
             state.stroke_colour = colour;
+            state.stroke_tints = tints;
         }
     }
 
@@ -353,16 +363,46 @@ pub(super) fn assign_colour(
     fill: bool,
     colour: Color,
     space: ColourSpace,
+    values: &[f32],
 ) {
+    let tints = cmyk_tints(&space, values);
     if fill {
         state.fill = colour;
         state.fill_space = space;
         state.fill_pattern = None;
+        state.fill_tints = tints;
     } else {
         state.stroke_colour = colour;
         state.stroke_space = space;
         state.stroke_pattern = None;
+        state.stroke_tints = tints;
     }
+}
+
+/// §8.6.7's "tint value defined within the PDF file", where the current colour is a
+/// `DeviceCMYK` one the content stream stated directly.
+///
+/// `None` is every other case, and each is a case Table 146 answers with `C_s` in all three of
+/// its columns. Only its first row — "DeviceCMYK , specified directly, not in a sampled image"
+/// — has an `OP true, OPM 1` cell that is not the source colour, and §8.6.7 draws the same
+/// boundary in words: non-zero overprint mode "shall apply only to painting operations that
+/// use the current colour in the graphics state when the current colour space is DeviceCMYK",
+/// and "shall not, however, apply to the painting of images or shadings".
+///
+/// A `Separation` or `DeviceN` reverting to a `DeviceCMYK` alternate is deliberately not this
+/// case. §11.7.4.3 NOTE 2 makes the alternate the current colour space, but the four numbers
+/// the zero test is about are then the tint transform's output rather than anything "defined
+/// within the PDF file", and Table 146 puts such a space in its own rows. The components a
+/// producer meant to leave alone are the ones it wrote, which is what the special mode is for.
+/// ADR 1157.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the table cell and the clause sentence above are quotations, and a quotation may               not gain backticks"
+)]
+fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<[f32; 4]> {
+    matches!(space, ColourSpace::Cmyk)
+        .then(|| <[f32; 4]>::try_from(values).ok())
+        .flatten()
 }
 
 /// Converts a colour, honouring the graphics state's black point setting.

@@ -323,6 +323,12 @@ pub(crate) fn describe_command(command: &Command) -> String {
             audience.reader.organisation.len(),
             audience.language
         ),
+        // Table 166's `/M`, as §7.9.4 spells it, because that is the form it reaches the file in
+        // and a trace read beside a saved document has to be comparable with it.
+        Command::Clock(at) => match at {
+            Some(at) => format!("clock {}", pdf_model::attachment::filing::pdf_date(*at)),
+            None => "clock: nothing stated".to_owned(),
+        },
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),

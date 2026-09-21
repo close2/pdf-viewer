@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use pdf_font::Code;
 use pdf_render::display_list::Clip;
-use pdf_render::{ClipId, Command, FillRule, Path, Point, Rect, Transform};
+use pdf_render::{BlendMode, ClipId, Command, FillRule, Path, Point, Rect, Transform};
 
 use super::font::Font;
 use super::pattern::{PatternPaint, Tiled};
@@ -95,6 +95,10 @@ struct GlyphPainting {
     knockout_can_show: bool,
     /// Whether §11.7.4.4's implicit group could change a pixel of this glyph.
     combining: bool,
+    /// The blend mode the fill is painted under, §11.7.4.3's special one included.
+    fill_blend: BlendMode,
+    /// The blend mode the stroke is painted under.
+    stroke_blend: BlendMode,
 }
 
 impl GlyphPainting {
@@ -106,10 +110,12 @@ impl GlyphPainting {
     /// past the end of a marked-content section shall be the same whether the optional content
     /// is visible or not". The clip a text object leaves behind is one of those, since it
     /// outlives the `ET` that built it.
-    fn read(mode: i64, hidden: bool, state: &GraphicsState) -> Self {
+    fn read(mode: i64, hidden: bool, state: &GraphicsState, parts: Parts) -> Self {
         let fills = matches!(mode, 0 | 2 | 4 | 6) && !hidden;
         let strokes = matches!(mode, 1 | 2 | 5 | 6) && !hidden;
         Self {
+            fill_blend: parts.fill,
+            stroke_blend: parts.stroke,
             fills,
             strokes,
             clipping: matches!(mode, 4..=7),
@@ -130,12 +136,41 @@ impl GlyphPainting {
             // condition from the one above, not a special case of it. The other two halves are
             // §11.6.2's, for the same reason they are there: the paint has to composite at
             // all, and both parts have to mark the page.
+            // A part that keeps a component of the backdrop composites with what is under it
+            // however opaque it is, which is one more way for the portions of an object to be
+            // composited with one another; and §11.7.4.4's *first* bullet, where it applies,
+            // is the two commands as they stand rather than a group, so a pair under it is
+            // not recorded here. `Interpreter::combined_overprint` decides that and names the
+            // general case it does not build.
             combining: fills
                 && strokes
-                && state.paint_composites()
+                && !parts.first_bullet
+                && (state.paint_composites() || parts.overprints())
                 && state.fill_marks()
                 && state.stroke_marks(),
         }
+    }
+}
+
+/// What §11.7.4's reading of the graphics state answered for one glyph's two parts.
+///
+/// Three values that always travel together, for the reason `ImagePlacement` is a struct: a
+/// call site that would otherwise be a row of unlabelled booleans.
+#[derive(Debug, Clone, Copy)]
+struct Parts {
+    /// The blend mode the fill paints under (`Interpreter::overprint_blend`).
+    fill: BlendMode,
+    /// The blend mode the stroke paints under.
+    stroke: BlendMode,
+    /// Whether §11.7.4.4's first bullet applies to the pair.
+    first_bullet: bool,
+}
+
+impl Parts {
+    /// Whether either part carries §11.7.4.3's special overprinting blend mode.
+    fn overprints(self) -> bool {
+        matches!(self.fill, BlendMode::Overprint(_))
+            || matches!(self.stroke, BlendMode::Overprint(_))
     }
 }
 
@@ -329,7 +364,23 @@ impl Interpreter<'_> {
         // §9.3.6 requires it — "The e and f components of Tm shall be updated for each glyph
         // drawn when using text rendering mode 3 or 7 in exactly the same way as would be
         // done for other text rendering modes."
-        let painting = GlyphPainting::read(state.text.render_mode, self.is_hidden(), state);
+        // ISO 32000-2 §11.7.4.3's special overprinting blend mode, once per show-text operator
+        // rather than once per glyph: it is a function of the graphics state, which no glyph of
+        // one operator changes. `state.blend` on every page that does not overprint inside a
+        // four-component blending colour space.
+        let mut parts = Parts {
+            fill: self.overprint_blend(state, false),
+            stroke: self.overprint_blend(state, true),
+            first_bullet: false,
+        };
+        if matches!(state.text.render_mode, 2 | 6) && !self.is_hidden() {
+            parts.first_bullet = self.combined_overprint(
+                state,
+                [parts.fill, parts.stroke],
+                "a glyph filled and stroked by text rendering mode 2 or 6",
+            );
+        }
+        let painting = GlyphPainting::read(state.text.render_mode, self.is_hidden(), state, parts);
         let GlyphPainting {
             fills,
             strokes,
@@ -877,6 +928,7 @@ impl Interpreter<'_> {
         transform: Transform,
         state: &GraphicsState,
         clip: Option<ClipId>,
+        blend: BlendMode,
     ) {
         // Borrowed rather than cloned: this runs once per glyph, and cloning the whole
         // `Option<PatternPaint>` would bump a shading's refcount on every glyph of a page whose
@@ -907,7 +959,7 @@ impl Interpreter<'_> {
                 paint,
                 clip,
                 mask: state.soft_mask,
-                blend: state.blend,
+                blend,
             },
             transfer,
         );
@@ -944,6 +996,7 @@ impl Interpreter<'_> {
         outline: &Arc<Path>,
         glyph_to_user: Transform,
         state: &GraphicsState,
+        blend: BlendMode,
     ) {
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
@@ -970,7 +1023,7 @@ impl Interpreter<'_> {
                 paint,
                 clip: glyph_stroke_clip,
                 mask: state.soft_mask,
-                blend: state.blend,
+                blend,
             },
             transfer,
         );
@@ -1114,10 +1167,10 @@ impl Interpreter<'_> {
         }
         let parts_at = self.list.command_count();
         if painting.fills {
-            self.fill_glyph(outline, transform, state, fill_clip);
+            self.fill_glyph(outline, transform, state, fill_clip, painting.fill_blend);
         }
         if painting.strokes {
-            self.stroke_glyph(outline, glyph_to_user, state);
+            self.stroke_glyph(outline, glyph_to_user, state, painting.stroke_blend);
         }
         // §11.7.4.4 makes this glyph's fill and stroke one object; the range is recorded and
         // `ET` decides what to build from it. Fewer than two commands is a glyph that marked

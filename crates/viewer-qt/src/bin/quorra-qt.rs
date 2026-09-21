@@ -39,6 +39,13 @@ struct Arguments {
     /// one it has. `CLAUDE.md` is why it is here at all — "it shall always be possible to turn them
     /// off" — and until ADR 0604 this program printed the word and then refused it.
     restrictions: RestrictionPolicy,
+    /// §12.6.4.8: what this window does when a link asks for a URI, per [`viewer_host::LINKS`].
+    ///
+    /// The other direction from the entry above: what a *document* asserts over its reader there,
+    /// and what a document asks this machine to start here. `viewer_host::Links::Ask` unless a
+    /// person said otherwise, which is the level that hands nothing over without a press and still
+    /// performs the act the clause describes (ADR 1155).
+    links: viewer_host::Links,
     /// How many milliseconds to run for before quitting, or zero to run until closed.
     ///
     /// A window under `Xvfb` has nobody to close it, and a test that killed the process could not
@@ -56,6 +63,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut widget_appearances = WidgetAppearances::Delegated;
     let mut quit_after = 0;
     let mut restrictions = RestrictionPolicy::default();
+    let mut links = viewer_host::Links::default();
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
@@ -66,6 +74,9 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             // where it is written down (`doc/todo/38`): it is the channel a window has today, and
             // the levels behind it are the ones a menu will set (ADR 1144).
             restrictions = viewer_host::restrictions(list, restrictions)?;
+        } else if let Some(level) = word.strip_prefix(viewer_host::LINKS) {
+            // §12.6.4.8's act, at one of the same four levels (ADR 1155).
+            links = viewer_host::links(level)?;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -96,7 +107,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         format!(
             "usage: quorra-qt [--trace[=topics]] [--draw-widget-appearances] \
              [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
-             [--quit-after=<ms>] <file.pdf>"
+             [--links=refuse|ask|warn|open] [--quit-after=<ms>] <file.pdf>"
         )
     })?;
     Ok(Arguments {
@@ -105,6 +116,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         topics,
         widget_appearances,
         restrictions,
+        links,
         quit_after,
     })
 }
@@ -130,6 +142,7 @@ fn main() -> std::process::ExitCode {
         arguments.fragment,
         arguments.widget_appearances,
         arguments.restrictions,
+        arguments.links,
         trace,
     ) {
         Ok(host) => host,
@@ -193,6 +206,39 @@ mod tests {
         let complaint = arguments(["--quit-after=soon".to_owned(), "x.pdf".to_owned()].into_iter())
             .expect_err("a millisecond count is a number");
         assert!(complaint.contains("soon"), "{complaint}");
+    }
+
+    /// §12.6.4.8's level is the reader's, and the word that sets it is one every window takes.
+    ///
+    /// **The defect this is written against is `doc/todo/30`'s levelness rule**, which two hosts
+    /// of three have already failed once over `--ignore-restrictions` (ADR 0604): a word one
+    /// window's parser takes and another's rejects is a policy that exists in one build. This is
+    /// this window's end of it; `viewer-host`'s `four_levels_decide_whether_a_link_reaches_this_
+    /// machine` is the other (ADR 1155).
+    #[test]
+    fn the_level_a_link_is_opened_at_is_the_readers_to_set() {
+        let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
+        assert_eq!(
+            asked.links,
+            viewer_host::Links::Ask,
+            "nothing is handed to another program without a keypress, and nothing has to be \
+             configured before a link works"
+        );
+        for level in viewer_host::Links::ALL {
+            let word = format!("{}{}", viewer_host::LINKS, level.as_str());
+            let asked = arguments([word.clone(), "x.pdf".to_owned()].into_iter())
+                .unwrap_or_else(|complaint| panic!("{word}: {complaint}"));
+            assert_eq!(asked.links, level);
+        }
+        let complaint = arguments(
+            [
+                format!("{}sometimes", viewer_host::LINKS),
+                "x.pdf".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect_err("a level that does not exist is a mistake worth reporting");
+        assert!(complaint.contains("sometimes"), "{complaint}");
     }
 
     #[test]

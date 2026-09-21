@@ -80,6 +80,10 @@ pub(crate) fn color(c: Color) -> peniko::Color {
 /// `peniko::Mix` carries exactly the sixteen PDF blend modes, so this mapping is
 /// total. Composition is always source-over: PDF's blend mode selects the *mix*
 /// function, while the Porter-Duff composite operator stays source-over.
+#[expect(
+    clippy::match_same_arms,
+    reason = "the overprinting arm is unreachable — `GpuRasterizer::rasterize` refuses such a               list — and shares Normal's value only because Vello has none of its own. Merging               it into Normal would state that they are the same mode, which is the error"
+)]
 fn blend_mode(mode: BlendMode) -> peniko::BlendMode {
     let mix = match mode {
         BlendMode::Normal => peniko::Mix::Normal,
@@ -98,6 +102,10 @@ fn blend_mode(mode: BlendMode) -> peniko::BlendMode {
         BlendMode::Saturation => peniko::Mix::Saturation,
         BlendMode::Color => peniko::Mix::Color,
         BlendMode::Luminosity => peniko::Mix::Luminosity,
+        // §11.7.4.3's special overprinting blend mode, which `GpuRasterizer::rasterize`
+        // refuses by name before a command of such a list reaches here — Vello's `Mix` has no
+        // arm for it, and Normal is the value the clause's own bullet does *not* give.
+        BlendMode::Overprint(_) => peniko::Mix::Normal,
     };
     peniko::BlendMode::new(mix, peniko::Compose::SrcOver)
 }

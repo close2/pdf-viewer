@@ -455,6 +455,11 @@ fn write_list(
     }
 
     writer.f32(list.page_size.width).f32(list.page_size.height);
+    // §11.7.4.3's special overprinting blend mode is a property of the list as well as of the
+    // commands that carry it, because the two refusing backends read it once rather than
+    // walking (`DisplayList::overprints`). Derived on this side from commands that are already
+    // written, and restated here so that the decoder need not walk either.
+    writer.u8(u8::from(list.overprints()));
     match list.content_clip() {
         Some(region) => {
             writer.u8(1);
@@ -1128,11 +1133,16 @@ fn read_sample_alpha(reader: &mut Reader<'_>) -> Result<SampleAlpha, ProtocolErr
     }
 }
 
-/// The sixteen modes of §11.3.5, in the order the standard's own table lists them.
+/// The sixteen modes of §11.3.5, in the order the standard's own table lists them, and
+/// §11.7.4.3's seventeenth after them.
 ///
 /// Written out both ways rather than derived from the discriminant: `BlendMode` is a closed
 /// enumeration, so naming every variant here is what makes an addition to it a build failure in
 /// this file instead of a mode that crossed as a different one.
+///
+/// The special overprinting blend mode carries a value — which of the raster's three channels
+/// it leaves to the backdrop — and [`pdf_render::Overprint`] guarantees at least one of them,
+/// so its seven possibilities are tags 16 to 22 with the channels as the low three bits.
 fn blend_tag(blend: BlendMode) -> u8 {
     match blend {
         BlendMode::Normal => 0,
@@ -1151,6 +1161,11 @@ fn blend_tag(blend: BlendMode) -> u8 {
         BlendMode::Saturation => 13,
         BlendMode::Color => 14,
         BlendMode::Luminosity => 15,
+        BlendMode::Overprint(overprint) => {
+            let kept = overprint.kept();
+            let bits = u8::from(kept[0]) | (u8::from(kept[1]) << 1) | (u8::from(kept[2]) << 2);
+            15_u8.saturating_add(bits)
+        }
     }
 }
 
@@ -1193,6 +1208,9 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
         reader.f32("a page's height")?,
     );
     let mut list = DisplayList::new(size);
+    if reader.bool("a list's overprinting")? {
+        list.note_overprinting();
+    }
     if reader.bool("a content clip")? {
         list.set_content_clip(read_rect(reader, "a content clip")?);
     }
@@ -1770,6 +1788,18 @@ fn read_mark_state(
         13 => BlendMode::Saturation,
         14 => BlendMode::Color,
         15 => BlendMode::Luminosity,
+        value @ 16..=22 => {
+            let bits = value.saturating_sub(15);
+            let kept = [bits & 1 != 0, bits & 2 != 0, bits & 4 != 0];
+            // The tags 16 to 22 are exactly the seven non-empty subsets, so this cannot be
+            // `None`; the `ok_or` is what says so rather than assuming it.
+            BlendMode::Overprint(pdf_render::Overprint::new(kept).ok_or(
+                ProtocolError::Unrecognised {
+                    what: "a command's overprinting blend mode",
+                    value: u32::from(value),
+                },
+            )?)
+        }
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "a command's blend mode",
@@ -1960,10 +1990,11 @@ mod tests {
 
     use super::*;
 
-    /// The header every hand-built message starts with: a page size and no content clip.
+    /// The header every hand-built message starts with: a page size, no overprinting and no
+    /// content clip.
     fn head() -> Writer {
         let mut writer = Writer::new();
-        writer.f32(10.0).f32(20.0).u8(0);
+        writer.f32(10.0).f32(20.0).u8(0).u8(0);
         writer
     }
 

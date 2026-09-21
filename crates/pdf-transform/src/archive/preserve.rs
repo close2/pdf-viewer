@@ -28,9 +28,17 @@
 //!
 //! Everything this cannot do losslessly refuses by name rather than half-doing it — the round's
 //! rule, and `CLAUDE.md` principle 1's: *a promise nothing will keep is worse than a refusal with
-//! a sentence*. The refusals are [`NO_STRUCTURE_ENTRIES`], [`NO_FACE`],
-//! [`NO_OUTPUT_INTENT`], [`LABELS_NOT_EXTENDABLE`], [`NO_PAGE_TO_MEASURE`], [`NO_MEASURE`],
-//! [`NOT_TEXT`], [`TOO_MANY_PAGES`] and [`NO_SPARE_OBJECT`], and each says what it waits on.
+//! a sentence*. The refusals are [`NO_FACE`], [`NO_OUTPUT_INTENT`], [`LABELS_NOT_EXTENDABLE`],
+//! [`NO_PAGE_TO_MEASURE`], [`NO_MEASURE`], [`NOT_TEXT`], [`TOO_MANY_PAGES`] and
+//! [`NO_SPARE_OBJECT`], with [`super::tagged`]'s five beside them, and each says what it waits
+//! on.
+//!
+//! # A document that describes its content
+//!
+//! A page appended to a tagged document owes that document's structure tree a description of what
+//! is on it, and [`super::tagged`] is where every §14.7 entry it owes is built: a marked-content
+//! sequence per line here, and the elements, the `/StructParents` and the parent-tree entry there.
+//! `doc/adr/1163`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -45,6 +53,7 @@ use super::COMPRESSION_LEVEL;
 use super::decision::Because;
 use super::prepare::Spare;
 use super::report::{Preserved, SetIn};
+use super::tagged::{self, Described, Planned, Reference};
 
 /// The type size the preserved text is set at, in text space units.
 ///
@@ -105,21 +114,6 @@ const MOST_LINES_TO_A_PAGE: usize = 300;
 /// The same argument as [`MOST_PAGES`]: the walk is over a document's own resources, and a file
 /// naming ten thousand fonts should cost a refusal rather than ten thousand font loads.
 const MOST_FONTS: usize = 64;
-
-/// Why a document whose logical structure describes its content gets no appended page.
-///
-/// ISO 19005-2 section 6.7 requires a Level A file's structure tree to describe its content, and
-/// `doc/adr/1014` section 5 makes the entries an appended page owes part of the same permission
-/// rather than a separate one. They are not built, so a document that carries a structure tree —
-/// or claims tagged conventions with `/MarkInfo` — is refused rather than given a page its own
-/// tree does not describe. `doc/adr/1025` section 6 says what building them needs.
-pub(super) const NO_STRUCTURE_ENTRIES: &str = "this document carries a logical structure tree, \
-     and a page appended to it would be content that tree does not describe — which ISO 19005-2 \
-     clause 6.7 forbids at Level A and makes a /MarkInfo claim false at any level. The structure \
-     entries an appended page owes are inside the same permission as the page (doc/adr/1014 \
-     section 5) and are not built, so the page is not written either. Converting a document with \
-     no structure tree, or authorising the loss with --authorise metadata-property, are the two \
-     answers today";
 
 /// Why a document that embeds no usable face gets no appended page.
 ///
@@ -220,6 +214,12 @@ pub(super) struct Composed {
     /// The prepend and closing streams themselves are in [`Self::written`]; a page reached by
     /// relocation appends no page at all, so it is absent from [`Self::pages`].
     pub(super) relocations: BTreeMap<ObjectId, RelocatedPage>,
+    /// What a tagged document's structure tree gains, where the document describes its content.
+    ///
+    /// `None` for a document that states neither a `/StructTreeRoot` nor a `/MarkInfo` claim:
+    /// §14.8.2.2 divides content into real content and artifacts only for a tagged file, so an
+    /// untagged document's appended page owes §14.7 nothing at all. `doc/adr/1163`.
+    pub(super) structure: Option<Described>,
 }
 
 /// The two entries a relocation writes onto the producer's own page.
@@ -309,7 +309,19 @@ pub(super) fn compose(
     if sets_text && !has_output_intent {
         return Err(Because::NotBuiltYet(NO_OUTPUT_INTENT));
     }
-    refuse_a_document_whose_structure_would_not_describe_the_page(document)?;
+    // **The marks are the shape this conversion will not describe**, and the refusal is
+    // [`tagged::MARKS_IN_A_TAGGED_DOCUMENT`]'s rather than a shortfall: Table 355 makes a structure
+    // element's `/S` required and what an annotation's appearance is semantically is a fact only
+    // its producer held. Checked before the tree is read so that its own refusals cannot speak for
+    // this one.
+    if tagged::describes_its_content(document)
+        && keeps
+            .iter()
+            .any(|keep| matches!(keep.content, Kept::Marks(_)))
+    {
+        return Err(Because::NotBuiltYet(tagged::MARKS_IN_A_TAGGED_DOCUMENT));
+    }
+    let mut planned = Planned::of(document)?;
     let tree = Pages::new(document);
     // Every keep is laid out on pages of its own, so that the report can say which pages carry
     // which of the document's objects rather than "somewhere in the six pages appended".
@@ -319,6 +331,7 @@ pub(super) fn compose(
         labels: None,
         carried: Vec::new(),
         relocations: BTreeMap::new(),
+        structure: None,
     };
     let first = tree.len();
     let face = sets_text
@@ -332,7 +345,15 @@ pub(super) fn compose(
         match &keep.content {
             Kept::Text(bytes) => {
                 let face = face.as_ref().ok_or(Because::NotBuiltYet(NO_FACE))?;
-                set_the_text(document, bytes, face, &tree, spare, &mut composed)?;
+                set_the_text(
+                    document,
+                    bytes,
+                    face,
+                    &tree,
+                    spare,
+                    &mut planned,
+                    &mut composed,
+                )?;
             }
             Kept::Marks(marks) => {
                 place_the_marks(document, marks, spare, &mut composed)?;
@@ -366,6 +387,14 @@ pub(super) fn compose(
     if !composed.pages.is_empty() {
         composed.labels = labels_extended(document, first)?;
     }
+    // §14.7.2's elements and §14.7.5.4's keys, built once over every page that was laid out — the
+    // hierarchy has to know which sequences fell on which page, and that is not decided until the
+    // last keep has been set. `doc/adr/1163`.
+    if let Some(planned) = planned {
+        let (described, elements) = planned.finish(document, spare)?;
+        composed.written.extend(elements);
+        composed.structure = Some(described);
+    }
     Ok(composed)
 }
 
@@ -390,12 +419,17 @@ fn a_face_for(document: &Document, keeps: &[Keep<'_>], spare: &mut Spare) -> Res
 }
 
 /// Lays one keep's text out on pages the size of the page a reader has been looking at.
+///
+/// `planned` is `Some` for a document that describes its content, and each line set on a page is
+/// recorded there as the marked-content sequence it became — §14.7.5.2's identifier and the page
+/// holding it — so that [`Planned::finish`] can build §14.7.2's elements over the whole layout.
 fn set_the_text(
     document: &Document,
     bytes: &[u8],
     face: &Face,
     tree: &Pages<'_>,
     spare: &mut Spare,
+    planned: &mut Option<Planned>,
     composed: &mut Composed,
 ) -> Result<(), Because> {
     let (width, height) = the_size_of_the_page_a_reader_has_been_looking_at(tree)?;
@@ -416,6 +450,12 @@ fn set_the_text(
     let lines_to_a_page = (lines_to_a_page as usize).min(MOST_LINES_TO_A_PAGE);
     let readable = std::str::from_utf8(bytes).map_err(|_| Because::NotBuiltYet(NOT_TEXT))?;
     let lines = wrapped(readable, face, measure)?;
+    let sources = lines
+        .iter()
+        .map(|line| line.source)
+        .max()
+        .map_or(0, |last| last.saturating_add(1));
+    let mut references: Vec<Vec<Reference>> = vec![Vec::new(); sources];
     for page in lines.chunks(lines_to_a_page) {
         if composed.pages.len() >= MOST_PAGES {
             return Err(Because::NotBuiltYet(TOO_MANY_PAGES));
@@ -426,14 +466,42 @@ fn set_the_text(
         let at = spare
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        // §14.7.5.2's identifier "uniquely identifies the marked-content sequence within its
+        // content stream", so the numbering begins again at zero on every page and its NOTE's
+        // request — that the values "be as small as possible to conserve space in the array" — is
+        // met by counting only the lines that put marks on the page.
+        let mut set = Vec::with_capacity(page.len());
+        let mut mcid: i64 = 0;
+        for line in page {
+            let identifier = (planned.is_some() && !line.bytes.is_empty()).then(|| {
+                let identifier = mcid;
+                mcid = mcid.saturating_add(1);
+                if let Some(held) = references.get_mut(line.source) {
+                    held.push(Reference {
+                        page: at,
+                        mcid: identifier,
+                    });
+                }
+                identifier
+            });
+            set.push(SetLine {
+                bytes: &line.bytes,
+                mcid: identifier,
+            });
+        }
+        let key = planned.as_mut().map(|planned| planned.key_for_a_page(at));
         composed.written.push((
             content,
-            stream_of(page, width, height).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
+            stream_of(&set, width, height).ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?,
         ));
-        composed
-            .written
-            .push((at, page_dictionary(document, face, content, width, height)?));
+        composed.written.push((
+            at,
+            page_dictionary(document, face, content, width, height, key)?,
+        ));
         composed.pages.push(at);
+    }
+    if let Some(planned) = planned.as_mut() {
+        planned.set(references);
     }
     Ok(())
 }
@@ -904,24 +972,6 @@ fn the_size_of_the_page_a_reader_has_been_looking_at(
     Ok((width, height))
 }
 
-/// Refuses a document whose own logical structure would not describe the page.
-fn refuse_a_document_whose_structure_would_not_describe_the_page(
-    document: &Document,
-) -> Result<(), Because> {
-    let Ok(catalog) = document.catalog() else {
-        return Ok(());
-    };
-    let tagged = !document.get_key(&catalog, "StructTreeRoot").is_null()
-        || document
-            .get_key(&catalog, "MarkInfo")
-            .as_dict()
-            .is_some_and(|info| document.get_key(info, "Marked") == Object::Boolean(true));
-    if tagged {
-        return Err(Because::NotBuiltYet(NO_STRUCTURE_ENTRIES));
-    }
-    Ok(())
-}
-
 /// A face the document itself embeds that can set every character of the text.
 ///
 /// The population is every font object the document's own pages name in their resources, in
@@ -997,14 +1047,25 @@ fn a_face_the_document_carries(document: &Document, text: &str) -> Option<Face> 
 
 /// Whether a character of the content is one a face has to draw.
 ///
-/// Three are not, and each for a reason rather than for convenience. A line feed is the break
-/// between two lines and is set as one. A byte-order mark is what ISO 16684-1 puts at the head of
+/// Four are not, and each for a reason rather than for convenience. **A line feed and a carriage
+/// return are the break between two lines** and are set as one: §7.2.3's Table 1 makes both of
+/// them white-space characters and says what a pair of them is: "[t]he CARRIAGE RETURN (0Dh) and
+/// LINE FEED (0Ah) characters, also called newline characters, shall be treated as end-of-line
+/// (EOL) markers. The combination of a CARRIAGE RETURN followed immediately by a LINE FEED shall
+/// be treated as one EOL marker." So a packet a producer wrote with CRLF states one break rather
+/// than a break and a character. A byte-order mark is what ISO 16684-1 puts at the head of
 /// an XMP packet to say how the packet is encoded — every packet this remedy is asked about starts
 /// with one — and it marks the bytes rather than saying anything in them; no text face has a glyph
 /// for it, and setting it would put a `.notdef` on the page, which ISO 19005-2 section 6.2.11.8
 /// forbids. Its reversal, U+FFFE, is the same fact read the other way round.
+///
+/// **The carriage return is the byte-order mark's argument, and the face search and the layout
+/// have to agree about it.** [`wrapped`] trims the end of every line it splits, so a CRLF packet
+/// never *sets* a carriage return — a face search that demanded a glyph for one would refuse a
+/// document over a character no page was going to carry, which is what it did to both of the
+/// corpus documents this remedy refused (`doc/adr/1163` section 8).
 fn is_set(character: char) -> bool {
-    !matches!(character, '\n' | '\u{feff}' | '\u{fffe}')
+    !matches!(character, '\n' | '\r' | '\u{feff}' | '\u{fffe}')
 }
 
 /// Every font object the document's pages name, in object order.
@@ -1527,9 +1588,14 @@ end
 /// whitespace with no glyph of its own in any text face. Whitespace-only lines at the end of the
 /// content are dropped — an XMP packet carries kilobytes of them as the padding ISO 16684-1
 /// recommends, and setting them would cost pages that preserve nothing.
-fn wrapped(text: &str, face: &Face, measure: f32) -> Result<Vec<Vec<u8>>, Because> {
-    let mut out: Vec<Vec<char>> = Vec::new();
-    for source in text.split('\n') {
+fn wrapped(text: &str, face: &Face, measure: f32) -> Result<Vec<Line>, Because> {
+    // §7.2.3's three spellings of one break, reduced to one before the split: "[t]he CARRIAGE
+    // RETURN (0Dh) and LINE FEED (0Ah) characters, also called newline characters, shall be
+    // treated as end-of-line (EOL) markers. The combination of a CARRIAGE RETURN followed
+    // immediately by a LINE FEED shall be treated as one EOL marker."
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out: Vec<(usize, Vec<char>)> = Vec::new();
+    for (at, source) in text.split('\n').enumerate() {
         let source = source.trim_end();
         let mut line: Vec<char> = Vec::new();
         let mut width = 0.0;
@@ -1542,20 +1608,48 @@ fn wrapped(text: &str, face: &Face, measure: f32) -> Result<Vec<Vec<u8>>, Becaus
                 if line.is_empty() {
                     return Err(Because::NotBuiltYet(NO_MEASURE));
                 }
-                out.push(std::mem::take(&mut line));
+                out.push((at, std::mem::take(&mut line)));
                 width = 0.0;
             }
             width += advance;
             line.push(character);
         }
-        out.push(line);
+        out.push((at, line));
     }
-    while out.last().is_some_and(Vec::is_empty) {
+    while out.last().is_some_and(|(_, line)| line.is_empty()) {
         out.pop();
     }
     out.iter()
-        .map(|line| face.encode(line).ok_or(Because::NotBuiltYet(NO_FACE)))
+        .map(|(source, line)| {
+            Ok(Line {
+                source: *source,
+                bytes: face.encode(line).ok_or(Because::NotBuiltYet(NO_FACE))?,
+            })
+        })
         .collect()
+}
+
+/// One line as it is set on a page, and which of the producer's own lines it came from.
+///
+/// The second half is what lets a line the measure broke become **one** structure element rather
+/// than two: `doc/adr/1025` section 4's fifth choice adds nothing to mark a break, so the division
+/// of content the producer wrote is the source line and not the piece of it that fitted.
+struct Line {
+    /// The producer's own line, counted from zero over the whole content.
+    source: usize,
+    /// The bytes a show operator takes, in the face the page is set in.
+    bytes: Vec<u8>,
+}
+
+/// One line as a page's content stream carries it.
+struct SetLine<'a> {
+    /// The bytes a show operator takes.
+    bytes: &'a [u8],
+    /// §14.7.5.2's identifier, where the page is described in a structure tree.
+    ///
+    /// `None` for an untagged document, which needs no marked-content sequence at all, and for a
+    /// blank line the producer wrote, which puts no marks on the page for a sequence to bracket.
+    mcid: Option<i64>,
 }
 
 /// One page's content stream: the lines, set from the top margin down.
@@ -1563,32 +1657,54 @@ fn wrapped(text: &str, face: &Face, measure: f32) -> Result<Vec<Vec<u8>>, Becaus
 /// **No colour operator is written**, and that is deliberate rather than an omission: ISO 32000-2
 /// Table 51 makes `DeviceGray` the initial colour space and section 8.6.4.2 makes 0.0 black in it,
 /// so the text is black without this program stating a colour the document did not choose.
-fn stream_of(lines: &[Vec<u8>], width: f32, height: f32) -> Option<Object> {
+///
+/// **One text object per line, and its position stated rather than stepped.** §9.4.2 makes `Td`
+/// "[m]ove to the start of the next line, offset from the start of the current line", so the
+/// operand is relative *within* a text object and absolute after a `BT` — which resets the text
+/// matrix. A line of its own is what lets §14.7.5.2's sequence bracket exactly one line's
+/// operators on a tagged page, and it is written the same way on an untagged one so that the two
+/// are one layout rather than two.
+///
+/// Where a line carries an identifier the sequence is written as the clause has it — "[t]he
+/// operators shall be bracketed as a marked-content sequence between BDC and EMC operators", with
+/// a property list "containing an MCID entry" — and the tag is `P`, which §14.7.5.2 asks for:
+/// "[a]lthough the tag associated with a marked-content sequence is not directly related to the
+/// document's logical structure, it should be the same as the structure type of the associated
+/// structure element." The list is written inline, which §14.6.2 admits because its one value is
+/// a direct object.
+fn stream_of(lines: &[SetLine<'_>], width: f32, height: f32) -> Option<Object> {
     use std::fmt::Write as _;
     let margin = the_margin_for(width, height);
     let mut content = String::new();
-    content.push_str("BT\n/PreservedText ");
-    content.push_str(&number(SIZE));
-    content.push_str(" Tf\n");
-    content.push_str(&number(LEADING));
-    content.push_str(" TL\n");
-    content.push_str(&number(margin));
-    content.push(' ');
-    // The first baseline sits one line below the top margin, so that the tallest ascender of the
-    // first line clears it.
-    content.push_str(&number(height - margin - SIZE));
-    content.push_str(" Td\n");
     for (index, line) in lines.iter().enumerate() {
-        if index > 0 {
-            content.push_str("T*\n");
+        if line.bytes.is_empty() {
+            continue;
         }
-        content.push('<');
-        for byte in line {
+        if let Some(mcid) = line.mcid {
+            let _ = writeln!(content, "/P <</MCID {mcid}>> BDC");
+        }
+        content.push_str("BT\n/PreservedText ");
+        content.push_str(&number(SIZE));
+        content.push_str(" Tf\n");
+        content.push_str(&number(margin));
+        content.push(' ');
+        // The first baseline sits one line below the top margin, so that the tallest ascender of
+        // the first line clears it.
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the index of a line on one page, which MOST_LINES_TO_A_PAGE bounds at 300"
+        )]
+        let baseline = height - margin - SIZE - (index as f32) * LEADING;
+        content.push_str(&number(baseline));
+        content.push_str(" Td\n<");
+        for byte in line.bytes {
             let _ = write!(content, "{byte:02X}");
         }
-        content.push_str("> Tj\n");
+        content.push_str("> Tj\nET\n");
+        if line.mcid.is_some() {
+            content.push_str("EMC\n");
+        }
     }
-    content.push_str("ET\n");
     let data = flate_encode(content.as_bytes(), COMPRESSION_LEVEL)?;
     let mut dict = Dictionary::new();
     dict.insert(
@@ -1697,12 +1813,17 @@ fn number(value: f32) -> String {
 /// `/MediaBox` and `/CropBox` are both stated so that nothing the page tree's root node says about
 /// either reaches this page, and `/Rotate 0` for the same reason: the page is composed upright in
 /// its own box, and an inherited quarter turn would lay the text on its side.
+///
+/// `key` is §14.7.5.4's `/StructParents`, where the document describes its content: Table 359
+/// makes it "[r]equired for all content streams containing marked-content sequences that are
+/// structural content items", which every page of a tagged document's preserved text is.
 fn page_dictionary(
     document: &Document,
     face: &Face,
     content: ObjectId,
     width: f32,
     height: f32,
+    key: Option<i64>,
 ) -> Result<Object, Because> {
     let root = document
         .catalog()
@@ -1732,6 +1853,9 @@ fn page_dictionary(
     dict.insert(Name::new(&b"Rotate"[..]), Object::Integer(0));
     dict.insert(Name::new(&b"Resources"[..]), Object::Dictionary(resources));
     dict.insert(Name::new(&b"Contents"[..]), Object::Reference(content));
+    if let Some(key) = key {
+        dict.insert(Name::new(&b"StructParents"[..]), Object::Integer(key));
+    }
     Ok(Object::Dictionary(dict))
 }
 

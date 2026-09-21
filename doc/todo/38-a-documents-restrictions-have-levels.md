@@ -7,6 +7,14 @@ windows and the prompt the *ask* level needs are built** (ADR 0212, session 373;
 session 1155). **The owner lifted the no-interface deferral on 2026-09-16.** What is left is the
 *attach and detach gestures*, which wait on the owner's HTML mockups, and the operations `Print`
 and `Assemble`, which await verbs this program does not have.
+
+**A second policy with the same four levels sits beside this one and is not part of it**, because
+the direction is the other one: `viewer_host::Links` is what this machine does when §12.6.4.8's
+link asks it to start another program on a string the *document* chose (`--links=refuse|ask|warn|
+open`, `ask` by default, ADR 1155). The levels here are a reader deciding how much of what a
+document asserts *over them* to obey; there they are a reader deciding what a document may ask
+their machine to do. One vocabulary for both would have made `off` mean the permissive end in one
+and the restrictive end in the other.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
@@ -227,6 +235,11 @@ screen still takes the bar — that sentence is the reader asking rather than th
   is the consultation, and `Event::Copied` carries **both** of §14.8.2.5's orders because
   `viewer_host::copied` already chooses between them once for three windows and a C caller. §14.9's
   tree is still a query and is gated by nothing, on Table 22's own carve-out. ADR 1144.
+- **§12.7.5.5's Table 236 `/P` is the sixth reason `asserted` returns**, since ADR 1156 discharged
+  ADR 0502's deferral: what made the reading safe to take is this file's own default, because a
+  level every face opens at *off* withholds nothing from a reader who did not ask for it. It is the
+  standing answer to a two-voiced entry — read it, route it through the levels, and let the reader
+  decide.
 - **Annex O's `ef`, which is the same four levels arriving from `doc/todo/39`.** "[S]ecurity should
   be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an

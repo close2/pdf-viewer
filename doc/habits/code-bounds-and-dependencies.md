@@ -211,3 +211,20 @@ The rule: a type that owns a `Child` implements `Drop` as kill-then-wait (`pdf_s
 and a test plants the leak with a worker that stays alive after being refused
 (`crates/pdf-sandbox/tests/reaping.rs`). Watch `ps -eo stat | grep -c ^Z` during any crawl walk.
 
+
+## A writer of a construct the reader already reads owes a mirror, not a second reading
+
+Twice while §7.6 was built on the way out the defect would have been a writer making a choice the
+reader would not make: a `/Crypt` filter carried from a source, which this reader resolves to
+`Identity` while the writer would have encrypted the stream under `/StmF` anyway, and §7.5.7's
+amended shall-not list (Errata Issue #439), recorded as satisfied only because no encrypted output
+existed. Write down what the reader does with the bytes about to be emitted, and make the writer
+ask the same questions in the same order — `Protected::method` mirrors `Document::stream_method`
+(ADR 1161).
+
+## A second policy with four levels shares the words only if it shares the direction
+
+`--restrictions=` runs `off` to `on` with `off` the permissive end, because its subject is a
+restriction a document asserts; a link's policy has its permissive end at `open`. Reusing
+`off|on|ask|warn` would have made one word permissive in one policy and restrictive in the other.
+Ask what the most permissive value is called in each before reusing a vocabulary (ADR 1155).

@@ -70,7 +70,8 @@ use pdf_transform::split::{Pieces, SplitPlan};
 
 use pdf_syntax::serialize::{ObjectStreams, Streams};
 use pdf_transform::{
-    Budget, Exit, Level, Listed, Plan, Policy, Refusal, Report, Secret, Sinks, Source, apply,
+    Access, Budget, Exit, Level, Listed, Plan, Policy, Protect, Refusal, Report, Secret, Sinks,
+    Source, apply_protected,
 };
 
 /// What went wrong before or while applying the plan.
@@ -189,6 +190,8 @@ const VALUED: &[&str] = &[
     "--min-pixels",
     "--save",
     "--password-fd",
+    "--encrypt-owner-fd",
+    "--encrypt-user-fd",
     "--restrictions",
     "--report",
     "--max-pixels",
@@ -269,6 +272,8 @@ const KNOWN: &[&str] = &[
     "--claim-conformance",
     "--depart-from-the-standard",
     "--password-fd",
+    "--encrypt-owner-fd",
+    "--encrypt-user-fd",
     "--restrictions",
     "--report",
     "--max-pixels",
@@ -414,14 +419,18 @@ fn run() -> Result<Exit, Failure> {
     }
     ask_before_the_operation(&plan, &sources, &mut policy, &budget)?;
 
+    let protect = protection(&arguments, &plan)?;
+    let borrowed: Vec<&Source> = sources.iter().collect();
+
     let mut plan = plan;
     let mut passes = 0_usize;
     let report = loop {
-        let report = if to_stdout {
-            apply(&plan, &sources, &StdoutSinks::default(), &policy, &budget)?
+        let sinks: &dyn Sinks = if to_stdout {
+            &StdoutSinks::default()
         } else {
-            apply(&plan, &sources, &FileSinks, &policy, &budget)?
+            &FileSinks
         };
+        let report = apply_protected(&plan, &borrowed, sinks, &policy, &budget, protect.as_ref())?;
         // **`doc/questions/A54`, in one command.** The owner's doubt about the recommendation was
         // that "a normal user would expect it just to happen", and this loop is what makes that
         // true while `apply` itself starts nothing: a pass that needs an external program returns
@@ -1334,6 +1343,53 @@ fn directory_or_pattern(output: Option<&str>, what: &str) -> Result<Pattern, Fai
         .map_err(|error| Failure::Usage(format!("-o: {error}")))
 }
 
+/// §7.6.4's protection over whatever whole file the verb writes, from the two descriptor flags.
+///
+/// **There is no `--encrypt-owner`, for the reason there is no `--password`**: argv is public,
+/// and a password on a command line is in every process listing and every shell history. The
+/// flags name a descriptor and this reads one line from it, exactly as `--password-fd` does.
+///
+/// **Every permission is granted, and that is a decision rather than a gap.** `CLAUDE.md`
+/// principle 3 makes a document's restrictions the reader's to set and ranks them low; a program
+/// encrypting a file on somebody's behalf has no business withholding from its next reader what
+/// the person running it did not ask to withhold. Table 22's seven bits are
+/// `pdf_transform::Access`, so a caller of the library can state them; a flag that spells them
+/// on a command line is a separate argument nobody has made.
+fn protection(arguments: &Arguments, plan: &Plan) -> Result<Option<Protect>, Failure> {
+    let owner = arguments.parsed::<u32>(&["--encrypt-owner-fd"])?;
+    let user = arguments.parsed::<u32>(&["--encrypt-user-fd"])?;
+    if owner.is_none() && user.is_none() {
+        return Ok(None);
+    }
+    // The verbs that write a whole file are the ones the serializer writes for; every other verb
+    // produces a PNG, a listing or an appended update, none of which an encryption dictionary
+    // belongs in. A flag that was silently ignored would be worse than one refused.
+    if !matches!(
+        plan,
+        Plan::Split(_) | Plan::Merge(_) | Plan::Pages(_) | Plan::Optimize(_) | Plan::Redact(_)
+    ) {
+        return Err(Failure::Usage(
+            "--encrypt-owner-fd and --encrypt-user-fd apply to split, merge, pages, optimize and \
+             redact, which are the verbs that write a whole file"
+                .to_owned(),
+        ));
+    }
+    Ok(Some(Protect {
+        // §7.6.4.1: the empty string is the default user password, which every reader tries
+        // first, so a file given only an owner password opens without a prompt.
+        user_password: match user {
+            Some(fd) => password_from(fd)?,
+            None => Secret::new(),
+        },
+        owner_password: match owner {
+            Some(fd) => password_from(fd)?,
+            None => Secret::new(),
+        },
+        access: Access::ALL,
+        encrypt_metadata: true,
+    }))
+}
+
 /// One line from an open descriptor, without its line ending — what a script hands over.
 fn password_from(fd: u32) -> Result<Secret, Failure> {
     let file = std::fs::File::open(format!("/dev/fd/{fd}"))
@@ -1687,6 +1743,9 @@ options for every verb:
   --quiet-warnings      exit 0 rather than 3 on a warning
   --password-fd <n>     read the password, one line, from descriptor n;
                         there is no --password, because argv is public
+  --encrypt-owner-fd <n>  encrypt the output (ISO 32000-2 §7.6.4, /V 5 /R 6) with the
+  --encrypt-user-fd <n>   owner and user passwords read from those descriptors;
+                        split, merge, pages, optimize and redact only
   --restrictions=off|on|ask|warn
                         whether what the document asserts over its reader — Table 22's /P bits,
                         §12.8.2.2's certification — is honoured (default off: the program is

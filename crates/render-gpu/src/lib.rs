@@ -865,6 +865,16 @@ impl Rasterizer for GpuRasterizer {
                 "a page composited in a four-component blending colour space (§11.4.7)".to_owned(),
             ));
         }
+        // ISO 32000-2 §11.7.4.3's special overprinting blend mode is not one of Table 135's
+        // sixteen: no document names it, its value comes from the overprint parameters, and no
+        // rasteriser's scene vocabulary has it. Refused by name, because a page whose producer
+        // asked for a component of the backdrop to be left alone and got it erased instead is a
+        // silent difference from the backend `CLAUDE.md` keeps as the oracle. ADR 1157.
+        if list.overprints() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a mark composited under §11.7.4.3's special overprinting blend mode".to_owned(),
+            ));
+        }
         // And its one-component form, a `CalGray` or `ICCBased` 'GRAY' page group whose
         // composited component leaves through a curve (`pdf_render::blending::GreyCurve`):
         // the scene's colours would be components and not light, and a Vello scene has no

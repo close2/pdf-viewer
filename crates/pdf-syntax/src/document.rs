@@ -2202,7 +2202,7 @@ fn delimiting(filter: &[u8], parms: Option<&Dictionary>) -> Option<crate::Delimi
 /// What identifies one with no `/Type` is what Table 255 requires of every signature carrying
 /// a byte range digest: `/ByteRange`, "[a]n array of pairs of integers", and `/Contents`, the
 /// signature value. Nothing else in ISO 32000-2 has a `/ByteRange`.
-fn is_signature_dictionary(dict: &Dictionary) -> bool {
+pub(crate) fn is_signature_dictionary(dict: &Dictionary) -> bool {
     match dict
         .get("Type")
         .and_then(Object::as_name)

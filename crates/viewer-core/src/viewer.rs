@@ -167,6 +167,14 @@ pub struct Viewer {
     /// interpretation rule 1 allows. [`pdf_model::optional_content::Audience::NONE`] until a
     /// host says otherwise. ADR 1106.
     audience: pdf_model::optional_content::Audience,
+    /// What the host's clock says, for Table 166's `/M` on what a save writes.
+    ///
+    /// The ninth host-supplied policy value, held here for `audience`'s reason — it is a fact
+    /// about the *host's machine* and not about any one file — and pushed into each document's
+    /// [`pdf_model::view::ViewState`] by [`Command::Clock`], which is where the writer reads it.
+    /// `None` until a host says otherwise, under which no annotation this program writes carries
+    /// the entry. ADR 1160.
+    clock: Option<pdf_syntax::Date>,
     /// §8.10.4's target documents, parsed once for every document this viewer holds.
     ///
     /// Handed to each [`Open`] as it is created, so that a document opened after
@@ -202,6 +210,7 @@ impl Viewer {
             trust: crate::TrustPolicy::default(),
             delegated: pdf_model::view::WidgetAppearances::default(),
             audience: pdf_model::optional_content::Audience::NONE,
+            clock: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
             reference_refusals: Vec::new(),
         }
@@ -545,6 +554,15 @@ impl Viewer {
                     }
                 }
             }
+            // Table 166's `/M`, applied to every open document and to every one opened
+            // afterwards — `Command::Restrict`'s rule, for its reason. Nothing is redrawn: the
+            // entry decides what a save writes and no mark on any page.
+            Command::Clock(at) => {
+                self.clock = at;
+                for open in self.documents.values_mut() {
+                    open.view.set_modification_time(at);
+                }
+            }
             Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -630,6 +648,10 @@ impl Viewer {
                 // said who is reading said it about every document it will show. Free where
                 // nothing was said, which is every host by default.
                 open.view.set_audience(self.audience.clone());
+                // Table 166's `/M`, on the same rule: a host with a clock has one for every
+                // document it will show. No entry where nothing was said, which is every host by
+                // default.
+                open.view.set_modification_time(self.clock);
                 // A document opened *during* a presentation arrives in the mode the host is in:
                 // §12.4.4.2's node is a property of the page being shown and NOTE 2's saved groups
                 // of the document, so both are taken here rather than only on `Command::Present`.
@@ -1238,6 +1260,23 @@ impl Viewer {
                              it and no appearance stream, because this program could not lay that \
                              text out (ISO 32000-2 §12.5.6.6)",
                             annotation.number, annotation.generation
+                        )],
+                    });
+                }
+                // Table 224's `/NeedAppearances` is in the written file, and a flag names
+                // nobody. The entry's own row binds a writer "if it has not provided appearance
+                // streams for all visible widget annotations present in the document", so a file
+                // written with it set has something outstanding in it and this says which field
+                // — trap 5's rule on the one path where a *save* falls short of the clause.
+                for field in written.unconstructed {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes: vec![format!(
+                            "{field} was written with its value and without the whole of the \
+                             appearance stream this program lays out for it, so the file asks \
+                             the next reader to construct it (ISO 32000-2 §12.7.4.3, Table 224's \
+                             /NeedAppearances)"
                         )],
                     });
                 }

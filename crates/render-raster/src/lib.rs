@@ -331,6 +331,17 @@ impl Rasterizer for QuorraRasterizer {
         // what it did before refusing — the same bargain [`present::FrameSlot::render`] keeps
         // with its caller, and the reason `self.last` is assigned before the `?` rather than
         // after it.
+        // ISO 32000-2 §11.7.4.3's special overprinting blend mode is not one of Table 135's
+        // sixteen: no document names it, its value comes from the overprint parameters, and
+        // `raster_scene::BlendMode` has no arm for it. Refused by name before anything is
+        // drawn, because a page whose producer asked for a component of the backdrop to be
+        // left alone and got it erased instead is a silent difference from the backend
+        // `CLAUDE.md` keeps as the oracle. ADR 1157.
+        if list.overprints() {
+            return Err(QuorraRasterError::Unsupported(
+                "a mark composited under §11.7.4.3's special overprinting blend mode".to_owned(),
+            ));
+        }
         let mut cost = FrameCost::default();
         let drawn = self.render(list, target, &mut cost);
         self.last = cost;

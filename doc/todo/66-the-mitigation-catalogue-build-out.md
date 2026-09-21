@@ -43,7 +43,9 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   above), the XFA packet removed or, at 4f, attached (catalogue section 7's `preserve`).
 - **Metadata** (`metadata/*`, eight): a fresh packet written by the existing XMP writer with the
   old one attached at 4f/4e or appended as a page (catalogue section 9; the owner's *append or
-  prefix the packet as a page*). The extension-schema container site is the top refusal at 2b.
+  prefix the packet as a page*). The appended page is built, including the structure entries it
+  owes a tagged document (ADRs 1025, 1163). The extension-schema container site is the top refusal
+  at 2b.
 - **File structure and encryption** (`file-structure/no-encryption`, `crypt-filter-is-identity`,
   `permissions-dictionary-keys`): decrypt on the way out — RFC 0006 section 5.4 calls it the
   easiest requirement — with the producer's permissions kept as a statement (catalogue item 5).

@@ -111,11 +111,11 @@ use pdf_render::{Color, Transform};
 use pdf_syntax::Document;
 use pdf_syntax::lexer::{Lexer, Token};
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, Form, Options, flate_encode, serialize};
+use pdf_syntax::serialize::{Assembly, Form, Options, flate_encode};
 
 use crate::optimize::{catalog_of, copy_closure, refuse_a_document_only_recovery_reads};
 use crate::pattern::{Fill, Pattern};
-use crate::{Declined, Departure, Origin, Output, Refusal, Report, Sinks, Warning};
+use crate::{Declined, Departure, Origin, Output, Protect, Refusal, Report, Sinks, Warning};
 
 /// The deepest a reference chain is followed when carrying a replaced page's entries.
 const MAX_DEPTH: usize = 64;
@@ -143,6 +143,7 @@ pub(crate) fn run(
     at: usize,
     documents: &[Document],
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
     report: &mut Report,
 ) -> Result<(), Refusal> {
     let document = documents.get(at).ok_or(Refusal::NoSuchSource {
@@ -151,14 +152,17 @@ pub(crate) fn run(
     })?;
     let root = catalog_of(document)?;
     refuse_a_document_only_recovery_reads(document, root)?;
-    if document.is_encrypted() {
-        // §7.6: this writer emits no /Encrypt, so a copied stream's bytes would be written
-        // without the key that reads them, and the original encrypted content would sit in the
-        // file besides. Both are the far side of "remove all traces", so the whole operation is
-        // refused rather than a redaction produced whose removed content might be recoverable.
+    if document.is_encrypted() && protect.is_none() {
+        // §12.5.6.23 requires a redaction to "remove all traces of the specified content", and a
+        // person who put a password on a document meant its contents not to be read. Writing the
+        // survivors into a file with no `/Encrypt` would answer the first requirement by
+        // breaking the second, and it would do so silently — every remaining page of a
+        // protected document in the clear. So a source the caller stated no protection for is
+        // refused rather than downgraded; supplying one, through `apply_protected`, writes a
+        // redaction protected by §7.6.4's handler instead. ADR 1162.
         return Err(Refusal::Assembly(
-            "§7.6: this document is encrypted, and redaction is refused rather than write a file \
-             whose removed content might be recoverable"
+            "§7.6: this document is encrypted and no passwords were supplied to encrypt the \
+             redaction with, so it is refused rather than written unprotected"
                 .to_owned(),
         ));
     }
@@ -219,7 +223,15 @@ pub(crate) fn run(
     // images spliced in the content stream — both had their region samples set to the constant.
     let images = cleared_images.len().saturating_add(inline_images);
 
-    let written = write_document(document, root, &mut applied, &cleared_images, plan, sinks)?;
+    let written = write_document(
+        document,
+        root,
+        &mut applied,
+        &cleared_images,
+        plan,
+        sinks,
+        protect,
+    )?;
     if written.dangling {
         report.warnings.push(Warning {
             source: plan.source,
@@ -2108,6 +2120,7 @@ fn write_document(
     cleared_images: &[ClearedImage],
     plan: &RedactPlan,
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
 ) -> Result<Written, Refusal> {
     let mut assembly = Assembly::new(vec![document]);
     for page in applied.iter_mut() {
@@ -2170,7 +2183,8 @@ fn write_document(
         name: expanded.name.clone(),
         error,
     })?;
-    let written = serialize(
+    let written = Protect::write(
+        protect,
         &assembly,
         version,
         Options::new(Form::of(document)),

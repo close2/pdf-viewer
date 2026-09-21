@@ -281,6 +281,34 @@ pub enum Command {
     /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
     /// fact about the *reader* rather than about any one file. ADR 1106.
     Audience(pdf_model::optional_content::Audience),
+    /// What time it is, as the host's clock reads it — ISO 32000-2 Table 166's `/M`.
+    ///
+    /// **The ninth host-supplied policy value, and the same shape as [`Self::Trust`],
+    /// [`Self::References`] and [`Self::Audience`] for the same reason.** Table 166's entry is
+    /// "[t]he date and time when the annotation was most recently modified", and rule 3 gives
+    /// this crate no clock: an instant invented here would be a claim about a machine this crate
+    /// cannot see, which is why ADR 0196 wrote no `/M` at all rather than guess one.
+    ///
+    /// **[`Self::Tick`] is the other half of rule 3 and answers a different question.** That one
+    /// says how much time has *passed*, in milliseconds, because §12.4.4.1's `/Dur` needs a
+    /// duration; this one says what time it *is*, because §7.9.4's date needs an instant. Neither
+    /// can be derived from the other.
+    ///
+    /// **The instant last stated is the instant written**, on every annotation a save writes: one
+    /// a person added, one whose note they retyped, and the widget of a field they typed into. So
+    /// a host reads its clock immediately before [`Self::Save`] and sends what it read; `None`
+    /// withdraws it again. Nothing here keeps a second value or lets one expire — a state machine
+    /// with no clock cannot tell how stale a date it was given is, and pretending otherwise is
+    /// the invention rule 3 forbids.
+    ///
+    /// **Nothing changes for a host that never sends this**, which is every host by default: no
+    /// annotation carries the entry, which is what this tree wrote for its whole life and what
+    /// Table 166 allows — the entry is Optional. Nothing drawn depends on it.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent
+    /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
+    /// fact about the *reader's machine* rather than about any one file. ADR 1160.
+    Clock(Option<pdf_syntax::Date>),
     /// The person's answer to [`crate::Event::Asking`].
     ///
     /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing

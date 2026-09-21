@@ -75,7 +75,8 @@ use std::collections::BTreeMap;
 
 use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{
-    BlockCipherDecrypt, BlockModeDecrypt, BlockModeEncrypt, KeyInit, KeyIvInit, StreamCipher,
+    BlockCipherDecrypt, BlockCipherEncrypt, BlockModeDecrypt, BlockModeEncrypt, KeyInit, KeyIvInit,
+    StreamCipher,
 };
 use aes::{Aes128, Aes256};
 use sha2::Digest;
@@ -106,7 +107,16 @@ const PAD: [u8; 32] = [
 /// which this file has always written and always stripped: it was derivable before the erratum
 /// from the surviving sentence two paragraphs below, "the pad is present when M is evenly
 /// divisible by 16; it contains 16 bytes of 0x10".
-const AES_BLOCK: usize = 16;
+pub(crate) const AES_BLOCK: usize = 16;
+
+/// The name §7.6.4.1 gives the standard security handler's own crypt filter.
+///
+/// > The support shall be limited to the Identity crypt filter … and crypt filters named
+/// > StdCF whose dictionaries contain an AuthEvent value of DocOpen .
+///
+/// A reader takes whatever name a file states; a writer has one to choose, and this is the one
+/// the clause permits a revision 6 handler to be limited to.
+pub(crate) const STANDARD_CRYPT_FILTER: &[u8] = b"StdCF";
 
 /// How one crypt filter transforms data — ISO 32000-2 §7.6.6 Table 25's `/CFM`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -552,6 +562,69 @@ impl Encryption {
                 Some(out)
             }
             Method::AesV2 | Method::AesV3 => aes_cbc_encrypt(&self.object_key(method, id), data),
+        }
+    }
+
+    /// [`Self::encrypt`] with §7.6.3.3's initialisation vector supplied rather than generated.
+    ///
+    /// The vector is an input of a whole-file write rather than something the write reaches for,
+    /// so that [`crate::serialize`]'s output is a function of its assembly, its options and one
+    /// [`Entropy`]. `iv` is ignored for every method but AES: §7.6.3.1 gives RC4 none, and
+    /// `Identity` passes the data through.
+    pub(crate) fn encrypt_with_iv(
+        &self,
+        method: Method,
+        id: ObjectId,
+        iv: [u8; AES_BLOCK],
+        data: &[u8],
+    ) -> Option<Vec<u8>> {
+        if method != Method::Identity && !self.authenticated {
+            return None;
+        }
+        match method {
+            Method::Identity => Some(data.to_vec()),
+            Method::Rc4 => {
+                let mut out = data.to_vec();
+                rc4_apply(&self.object_key(method, id), &mut out)?;
+                Some(out)
+            }
+            Method::AesV2 | Method::AesV3 => {
+                aes_cbc_encrypt_with_iv(&self.object_key(method, id), iv, data)
+            }
+        }
+    }
+
+    /// The handler a file this program *writes* is encrypted with: Table 20's `/V` 5 over
+    /// Table 25's `AESV3`.
+    ///
+    /// One configuration and no choice of one, which §7.6.4.1 states twice over: "For revision
+    /// 6, the filter CFM value shall be AESV3 (AES-256)", and Table 21 makes every revision
+    /// below 6 deprecated in PDF 2.0 — "Use of security handler revisions 1, 2, 3, 4 and 5 is
+    /// deprecated in PDF 2.0". A writer picks the revision, so a writer picks the one that is
+    /// not deprecated; a reader meets whatever it is handed, which is why this crate still
+    /// reads all five.
+    ///
+    /// The three defaults are the ones Table 20 names — `/StmF`, `/StrF` and `/EFF` — and all
+    /// three are the same `StdCF`, so a stream, a string and an embedded file are protected
+    /// alike. `/EFF` is stated rather than left out because Table 20 says of it that the entry
+    /// "shall be provided by the security handler", and this is the security handler.
+    ///
+    /// [`Self::permissions`] is filled in as the owner's, and nothing reads it: §7.6.4.1 gives
+    /// the owner "full (owner) access", and whoever is writing the file is the party choosing
+    /// what it grants. The flags are carried so that this handler answers the same questions the
+    /// reading one does rather than holding a default nobody chose.
+    pub(crate) fn for_output(key: [u8; 32], flags: i32, encrypt_metadata: bool) -> Self {
+        let mut filters = BTreeMap::new();
+        filters.insert(Name::new(STANDARD_CRYPT_FILTER), Method::AesV3);
+        Self {
+            key: key.to_vec(),
+            authenticated: true,
+            stream: Method::AesV3,
+            string: Method::AesV3,
+            embedded_file: Method::AesV3,
+            filters,
+            encrypt_metadata,
+            permissions: Permissions::from_flags(i64::from(flags), true, 6),
         }
     }
 
@@ -1412,7 +1485,15 @@ fn aes_cbc_decrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 fn aes_cbc_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
     let mut iv = [0u8; AES_BLOCK];
     getrandom::fill(&mut iv).ok()?;
+    aes_cbc_encrypt_with_iv(key, iv, data)
+}
 
+/// [`aes_cbc_encrypt`] with §7.6.3.3's initialisation vector supplied rather than generated.
+///
+/// A whole file written by [`crate::serialize`] takes every unpredictable byte from one
+/// [`Entropy`], so that the write is a function of its inputs and a test can state the file it
+/// expects. §7.5.6's incremental update has no such seam and reaches the platform directly.
+fn aes_cbc_encrypt_with_iv(key: &[u8], iv: [u8; AES_BLOCK], data: &[u8]) -> Option<Vec<u8>> {
     let padded = data
         .len()
         .checked_div(AES_BLOCK)?
@@ -1443,7 +1524,8 @@ fn aes_cbc_encrypt(key: &[u8], data: &[u8]) -> Option<Vec<u8>> {
 /// Which way [`aes_cbc_decrypt_raw_with`] runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
-    /// Algorithm 2.B step (b) is the only place §7.6 asks a *reader* to encrypt.
+    /// Algorithm 2.B step (b) under a 128-bit key, and Algorithm 8 step (b) and Algorithm 9
+    /// step (b) under a 256-bit one.
     Encrypt,
     /// Algorithm 2.A steps (d) and (e), which unwrap `/OE` and `/UE`.
     Decrypt,
@@ -1455,6 +1537,15 @@ enum Direction {
 /// initialization vector of zero" — and so does Algorithm 2.B, in the other direction.
 fn aes_cbc_decrypt_raw(key: &[u8], iv: [u8; AES_BLOCK], data: &[u8]) -> Option<Vec<u8>> {
     aes_cbc_decrypt_raw_with(Direction::Decrypt, key, &iv, data)
+}
+
+/// [`aes_cbc_decrypt_raw`]'s inverse: the same mode, run forwards.
+///
+/// §7.6.4.4.7 step (b) and §7.6.4.4.8 step (b) ask for exactly this — AES-256 in CBC mode with
+/// no padding and an initialisation vector of zero — over the 32-byte file encryption key,
+/// which is two whole blocks and so needs no padding to be a whole number of them.
+fn aes_cbc_encrypt_raw(key: &[u8], iv: [u8; AES_BLOCK], data: &[u8]) -> Option<Vec<u8>> {
+    aes_cbc_decrypt_raw_with(Direction::Encrypt, key, &iv, data)
 }
 
 /// The body of [`aes_cbc_decrypt_raw`], with the direction chosen by the caller.
@@ -1473,6 +1564,12 @@ fn aes_cbc_decrypt_raw_with(
     match (direction, key.len()) {
         (Direction::Encrypt, 16) => {
             let mut cipher = cbc::Encryptor::<Aes128>::new_from_slices(key, iv).ok()?;
+            for block in blocks {
+                cipher.encrypt_block(block.into());
+            }
+        }
+        (Direction::Encrypt, 32) => {
+            let mut cipher = cbc::Encryptor::<Aes256>::new_from_slices(key, iv).ok()?;
             for block in blocks {
                 cipher.encrypt_block(block.into());
             }
@@ -1531,6 +1628,209 @@ fn perms_block(key: &[u8], perms: &[u8]) -> Option<PermsBlock> {
         flags: u32::from_le_bytes(<[u8; 4]>::try_from(block.get(..4)?).ok()?),
         encrypt_metadata: block.get(8) == Some(&b'T'),
     })
+}
+
+/// Where §7.6.4.4.7 step (a)'s "strong random number generator" bytes come from.
+///
+/// Three of §7.6.4's writer-side steps need bytes nobody can predict — Algorithm 8 step (a)'s
+/// and Algorithm 9 step (a)'s sixteen salt bytes, Algorithm 10 step (e)'s four filler bytes —
+/// and §7.6.3.3 needs a fresh initialisation vector in front of every string and stream. None
+/// of them is derivable from the document, so they enter the writer from outside it. That is
+/// what this trait is: the one seam through which a whole-file write stops being a function of
+/// its inputs, named so that a caller can supply it and a test can supply a fixed one.
+///
+/// A source that refuses is a refusal and never a weaker answer: [`Entropy::fill`] returning
+/// `false` aborts the write rather than writing a salt somebody could guess.
+pub trait Entropy {
+    /// Fills `out` with unpredictable bytes, answering whether it could.
+    fn fill(&mut self, out: &mut [u8]) -> bool;
+}
+
+/// The platform's own cryptographic source.
+///
+/// What a host supplies when it has no reason to supply anything else; `getrandom` is the
+/// same call [`aes_cbc_encrypt`] makes for §7.5.6's incremental update.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SystemEntropy;
+
+impl Entropy for SystemEntropy {
+    fn fill(&mut self, out: &mut [u8]) -> bool {
+        getrandom::fill(out).is_ok()
+    }
+}
+
+/// The five entries a revision 6 encryption dictionary states, and the key they protect.
+///
+/// §7.6.4.4.7's Algorithm 8 computes `/U` and `/UE`, §7.6.4.4.8's Algorithm 9 computes `/O`
+/// and `/OE`, and §7.6.4.4.9's Algorithm 10 computes `/Perms`. All three take the file
+/// encryption key as an input rather than producing it, which is the difference between this
+/// revision and Algorithm 2's: at revision 4 and earlier the key is a hash *of* the password,
+/// so there is nothing to choose; here the key is the writer's own 32 bytes and each password
+/// gets a wrapping of it.
+#[derive(Debug, Clone)]
+pub(crate) struct Revision6 {
+    /// The file encryption key §7.6.3.3's Algorithm 1.A uses on every string and stream.
+    pub(crate) key: [u8; 32],
+    /// Table 21's `/U`: Algorithm 8 step (a)'s hash, User Validation Salt and User Key Salt.
+    pub(crate) user: [u8; 48],
+    /// Table 21's `/UE`: the file encryption key wrapped under the user password.
+    pub(crate) user_encryption: [u8; 32],
+    /// Table 21's `/O`: Algorithm 9 step (a)'s hash, Owner Validation Salt and Owner Key Salt.
+    pub(crate) owner: [u8; 48],
+    /// Table 21's `/OE`: the file encryption key wrapped under the owner password.
+    pub(crate) owner_encryption: [u8; 32],
+    /// Table 21's `/Perms`: Algorithm 10's encrypted copy of `/P` and `/EncryptMetadata`.
+    pub(crate) perms: [u8; 16],
+}
+
+/// The bytes §7.6.4.4's writer-side algorithms cannot derive from anything.
+///
+/// Held as one value so that [`revision6`] is a pure function of its arguments: the caller takes
+/// these from an [`Entropy`] and names its own refusal, and the algorithms below never reach for
+/// a source of their own.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Unpredictable {
+    /// The file encryption key §7.6.3.3's Algorithm 1.A will use.
+    ///
+    /// **Where it comes from is the writer's, and the standard says so by omission.** Algorithms
+    /// 8 and 9 both say to "encrypt the file encryption key", taking it as something that already
+    /// exists; §7.6.4.3.1 says a security handler's function is "to generate a file encryption
+    /// key" and, for revision 6, sends the reader to Algorithm 2.A, which *retrieves* one.
+    /// Nothing states how a writer picks it, so it is picked the only way a key nobody can derive
+    /// from the file can be picked.
+    pub(crate) key: [u8; 32],
+    /// Algorithm 8 step (a)'s sixteen bytes then Algorithm 9 step (a)'s, in that order.
+    pub(crate) salts: [u8; 32],
+    /// Algorithm 10 step (e)'s "4 bytes of random data, which will be ignored".
+    pub(crate) filler: [u8; 4],
+}
+
+/// Runs §7.6.4.4.7's Algorithm 8, §7.6.4.4.8's Algorithm 9 and §7.6.4.4.9's Algorithm 10.
+///
+/// `flags` is Table 22's word as `/P` will state it, and `encrypt_metadata` Table 21's entry;
+/// both go into the `/Perms` block so that a reader can tell a tampered copy from the file the
+/// writer wrote.
+///
+/// # Errors
+///
+/// [`SyntaxError::PasswordRequired`] where §7.6.4.1's `SASLprep` preparation refuses a password,
+/// and [`SyntaxError::UnsupportedEncryption`] where the cipher refuses a key or a block this
+/// function built.
+pub(crate) fn revision6(
+    user_password: &str,
+    owner_password: &str,
+    flags: i32,
+    encrypt_metadata: bool,
+    random: &Unpredictable,
+) -> SyntaxResult<Revision6> {
+    let refused = |detail: &str| SyntaxError::UnsupportedEncryption {
+        detail: detail.to_owned(),
+    };
+
+    // §7.6.4.1: "All passwords for revision 6 shall be based on Unicode", prepared by SASLprep
+    // and truncated to 127 bytes — §7.6.4.3.3 steps (a) and (b), which every "UTF-8 password"
+    // below means.
+    let user_bytes = utf8_password(user_password)?;
+    let owner_bytes = utf8_password(owner_password)?;
+    let key = random.key;
+
+    // Algorithm 8 step (a): "Generate 16 random bytes of data using a strong random number
+    // generator. The first 8 bytes are the User Validation Salt. The second 8 bytes are the
+    // User Key Salt." Algorithm 9 step (a) says the same of the owner's sixteen, which is why
+    // one run of thirty-two bytes is split rather than two of sixteen: the order they are
+    // consumed in is then stated here rather than by the number of calls a caller made.
+    let (user_salts, owner_salts) = random.salts.split_at(16);
+    let (user_validation, user_key_salt) = user_salts.split_at(8);
+    let (owner_validation, owner_key_salt) = owner_salts.split_at(8);
+
+    // Algorithm 8 step (a), second half: the 48-byte /U is the hash, then both salts.
+    let mut user = [0u8; 48];
+    let user_hash = hash_2b(&user_bytes, user_validation, &[]);
+    fill_48(&mut user, &user_hash, user_validation, user_key_salt)
+        .ok_or_else(|| refused("§7.6.4.4.7 step (a) produced no 32-byte hash"))?;
+
+    // Step (b): the intermediate key wraps the file encryption key with no padding and a zero
+    // initialisation vector, which is the exact inverse of Algorithm 2.A step (e).
+    let user_encryption = wrap_key(&hash_2b(&user_bytes, user_key_salt, &[]), &key)
+        .ok_or_else(|| refused("§7.6.4.4.7 step (b) could not wrap the file encryption key"))?;
+
+    // Algorithm 9 step (a): the owner's hash takes the 48-byte /U as well, which is why /U is
+    // computed first and is the reason the two algorithms are one function.
+    let mut owner = [0u8; 48];
+    let owner_hash = hash_2b(&owner_bytes, owner_validation, &user);
+    fill_48(&mut owner, &owner_hash, owner_validation, owner_key_salt)
+        .ok_or_else(|| refused("§7.6.4.4.8 step (a) produced no 32-byte hash"))?;
+
+    // Step (b), with the same /U appended.
+    let owner_encryption = wrap_key(&hash_2b(&owner_bytes, owner_key_salt, &user), &key)
+        .ok_or_else(|| refused("§7.6.4.4.8 step (b) could not wrap the file encryption key"))?;
+
+    let perms = perms_entry(&key, flags, encrypt_metadata, random.filler)
+        .ok_or_else(|| refused("§7.6.4.4.9 step (f) could not encrypt the permissions block"))?;
+
+    Ok(Revision6 {
+        key,
+        user,
+        user_encryption,
+        owner,
+        owner_encryption,
+        perms,
+    })
+}
+
+/// Lays Algorithm 8's and Algorithm 9's three sections into one 48-byte entry.
+fn fill_48(out: &mut [u8; 48], hash: &[u8], validation: &[u8], key_salt: &[u8]) -> Option<()> {
+    out.get_mut(..32)?.copy_from_slice(hash.get(..32)?);
+    out.get_mut(32..40)?.copy_from_slice(validation.get(..8)?);
+    out.get_mut(40..48)?.copy_from_slice(key_salt.get(..8)?);
+    Some(())
+}
+
+/// Algorithm 8 step (b) and Algorithm 9 step (b): "encrypt the file encryption key using
+/// AES-256 in CBC mode with no padding and an initialization vector of zero".
+///
+/// The inverse of [`file_key_from`], and it is written as one function for the same reason that
+/// one is: a wrapping and an unwrapping that disagreed about the mode would produce a file this
+/// reader could not open, and there is one place to get it right.
+fn wrap_key(intermediate: &[u8], key: &[u8; 32]) -> Option<[u8; 32]> {
+    let wrapped = aes_cbc_encrypt_raw(intermediate, [0; AES_BLOCK], key)?;
+    <[u8; 32]>::try_from(wrapped.as_slice()).ok()
+}
+
+/// §7.6.4.4.9, Algorithm 10: the 16-byte `/Perms` block, filled and encrypted.
+///
+/// The inverse of [`perms_block`], step for step. Step (a) extends "the permissions (contents
+/// of the P integer) to 64 bits by setting the upper 32 bits to all 1's", step (b) records
+/// "the 8 bytes of permission in the bytes 0-7 of the block, low order byte first", step (c)
+/// sets byte 8 "to the ASCII character 'T' or 'F' according to the EncryptMetadata boolean",
+/// step (d) sets bytes 9 to 11 to `a`, `d`, `b`, and step (e) sets bytes 12 to 15 "to 4 bytes
+/// of random data, which will be ignored".
+#[expect(
+    clippy::doc_markdown,
+    reason = "the clause's five steps are quoted verbatim, and a quotation with backticks added \
+              to please a lint is no longer a quotation"
+)]
+fn perms_entry(
+    key: &[u8; 32],
+    flags: i32,
+    encrypt_metadata: bool,
+    filler: [u8; 4],
+) -> Option<[u8; 16]> {
+    let extended = u64::from(flags.cast_unsigned()) | 0xFFFF_FFFF_0000_0000;
+    let mut block = [0u8; AES_BLOCK];
+    block.get_mut(..8)?.copy_from_slice(&extended.to_le_bytes());
+    *block.get_mut(8)? = if encrypt_metadata { b'T' } else { b'F' };
+    block.get_mut(9..12)?.copy_from_slice(b"adb");
+    block.get_mut(12..16)?.copy_from_slice(&filler);
+
+    // Step (f): "Encrypt the 16-byte block using AES-256 in ECB mode … using the file
+    // encryption key as the key." One block under one key is one application of the block
+    // cipher, so there is no mode to configure; Errata Collection 3's Issue #24 struck the
+    // initialisation vector out of all three of the clause's ECB sentences for that reason
+    // (ADR 0253), and this function is the writing half of what `perms_block` reads.
+    let cipher = Aes256::new_from_slice(key).ok()?;
+    cipher.encrypt_block((&mut block).into());
+    Some(block)
 }
 
 #[cfg(test)]

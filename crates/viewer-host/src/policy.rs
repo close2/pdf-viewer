@@ -41,13 +41,15 @@
 //! [`submission_note`] is the sentence, and they are one unit here for [`refused`]'s reason
 //! (ADR 1062).
 //!
-//! **And a sixth, which was a `println!` in each of four windows** — whether a link's URI is
-//! handed to whatever this machine opens one with. §12.6.4.8's `shall` is that "[a] URI action
-//! causes a URI to be resolved", and the same division applies for the third time: what the URI
-//! *is* — Table 210's `/URI` against Table 211's `/Base`, then [`resolve_uri`] against the
-//! location of the document itself, which is a fact about this machine and so cannot be the
-//! core's — is answered before a host sees it, and [`may_open_uri`] is the one question left
-//! (ADR 1079).
+//! **And a sixth** — whether a link's URI is handed to whatever this machine opens one with.
+//! §12.6.4.8 says "[a] URI action causes a URI to be resolved", and the same division applies for
+//! the third time: what the URI *is* — Table 210's `/URI` against Table 211's `/Base`, then
+//! [`resolve_uri`] against the location of the document itself, which is a fact about this machine
+//! and so cannot be the core's — is answered before a host sees it, and [`may_open_uri`] is the one
+//! question left (ADR 1079). It is asked at one of [`Links`]'s four levels, because starting
+//! another program on a string a document chose is exactly the decision `CLAUDE.md` principle 3
+//! says must be able to become a question: [`link`] carries the level out and [`answered`] takes
+//! the person's word back (ADR 1155).
 //!
 //! **And a seventh, which ADR 1039 named in the one-thousand-and-twenty-second session and left
 //! unbuilt for forty rounds** — §12.8.1's third question, *is the signer anyone to believe*. RFC
@@ -457,6 +459,117 @@ fn file_url(path: &Path) -> Option<String> {
     Some(url)
 }
 
+/// The word a person types to say what this reader does with a link's URI.
+///
+/// `CLAUDE.md`'s four levels, spelled for the one act they govern here: `refuse`, `ask`, `warn`
+/// and `open`. [`RESTRICTIONS`]'s four words are deliberately **not** reused, and the reason is
+/// that they would mean the opposite thing: there *off* is the permissive end, because the subject
+/// is a restriction the document asserts and turning it off lets the operation through. The
+/// subject here is this machine starting another program on a string a document chose, so the
+/// permissive end is `open`, and a reader who read `off` as permissive would have turned the wrong
+/// way. ADR 1155.
+pub const LINKS: &str = "--links=";
+
+/// What this reader does when §12.6.4.8's action reaches a resolved URI.
+///
+/// `CLAUDE.md` principle 3's four levels over the one decision [`may_open_uri`] takes. The levels
+/// are the same four and the *direction* is the other one, which is what [`LINKS`] spells out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Links {
+    /// Hand it to nothing: the link is declined and the URI said out loud.
+    Refuse,
+    /// Put the URI to the person first, and hand it over on a `yes`.
+    ///
+    /// **The default, and it is a choice rather than a convenience.** Two things have to hold at
+    /// once: a document never reaches another program on this machine by itself, and a reader is
+    /// not refused by their own viewer the act the clause describes. *Ask* is the only level that
+    /// is both — nothing is handed over without a person pressing a key, and nobody has to
+    /// configure the program before a link works. [`Links::Refuse`] is one word away for a reader
+    /// who wants neither the question nor the link, and a face with no dialogue answers this level
+    /// with [`unanswerable`] and hands nothing over, which is what keeps *ask* from behaving like
+    /// *open* in silence. ADR 1155.
+    #[default]
+    Ask,
+    /// Hand it over, and say afterwards what was handed to what.
+    Warn,
+    /// Hand it over without asking.
+    Open,
+}
+
+impl Links {
+    /// All four, in the order a person reads them: least permissive to most.
+    pub const ALL: [Self; 4] = [Self::Refuse, Self::Ask, Self::Warn, Self::Open];
+
+    /// The word [`LINKS`] takes for this level.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Ask => "ask",
+            Self::Warn => "warn",
+            Self::Open => "open",
+        }
+    }
+
+    /// The level a word names, or `None` for a word that names none.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.as_str() == word)
+    }
+}
+
+/// Reads [`LINKS`]'s word onto a level, or says what is wrong with it.
+///
+/// # Errors
+///
+/// The sentence to print, naming every word this option takes — [`restrictions`]'s shape, because
+/// a person meets both on the same command line.
+pub fn links(word: &str) -> Result<Links, String> {
+    Links::parse(word).ok_or_else(|| {
+        format!(
+            "{LINKS}{word}: no such level. One of {}",
+            Links::ALL.map(Links::as_str).join(", ")
+        )
+    })
+}
+
+/// The schemes this reader will hand to another program, whatever the level.
+///
+/// **A documented choice, and the narrowest one that still performs what the clause describes.**
+/// §12.6.4.8 introduces the string as one that "identifies (resolves to) a resource on the
+/// Internet", so a scheme naming something else on this machine is outside what the clause is
+/// about — and a document free to pick any scheme would be picking which of this machine's
+/// handlers runs. `file` is deliberately absent although [`resolve_uri`] produces one for every
+/// partial reference beside the document: opening a file a *document* named is §12.7.6.4's hazard
+/// one clause over, where [`read_import`] answers it with a directory a **person** supplied, and
+/// nothing here may be looser than that. Widening this list is a change in one place. ADR 1155.
+pub const LINK_SCHEMES: [&str; 3] = ["http", "https", "mailto"];
+
+/// The program this machine opens a URI with.
+///
+/// The desktop's own handler rather than a browser named here: which program a scheme belongs to
+/// is the person's setting and not this reader's, and a viewer that named one would be choosing it
+/// for them.
+pub const URI_HANDLER: &str = "xdg-open";
+
+/// What a host does about one §12.6.4.8 URI, under the level the reader set.
+///
+/// `pdf_model::restriction::Verdict`'s four arms, for the reason that type has them: a policy with
+/// four levels answers in four ways, and a host matching three of them would have a level that
+/// silently behaved like another one. Closed, and **not** `#[non_exhaustive]`, for
+/// `doc/ui-boundary.md`'s reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Opening {
+    /// Hand it to [`open_uri`] now.
+    Proceed,
+    /// Hand it to [`open_uri`] now, and say this afterwards.
+    Warn(String),
+    /// Put this question to the person, and hand it over on a `yes`.
+    Ask(crate::restriction::Question),
+    /// Do not hand it over. The sentence says why, for [`uri_note`].
+    Refuse(String),
+}
+
 /// Whether §12.6.4.8's resolved URI may be **handed to whatever this machine opens one with**.
 ///
 /// §12.6.4.8 says "[a] URI action causes a URI to be resolved", of a string the clause introduces
@@ -466,30 +579,211 @@ fn file_url(path: &Path) -> Option<String> {
 /// have to start, on a string the *document* chose, and that is a decision about this machine.
 ///
 /// **A function rather than a refusal written at each call site**, for [`may_submit`]'s reason and
-/// ADR 1062's: the policy is asked once, in a place a host can supply, so a host that does open
-/// links — or `doc/todo/38`'s *ask* and *warn* levels, which is what a person would want in front
-/// of this one — is a change here and nowhere else. Four windows each said this in a `println!` of
-/// their own until the thousand-and-sixty-fifth session, which is exactly the shape `CLAUDE.md`
-/// calls a refusal that cannot become an "ask".
+/// ADR 1062's: the policy is asked once, in a place a host can supply, so a level a reader sets is
+/// a value here rather than four windows' worth of editing (ADR 1079). `CLAUDE.md` principle 3 is
+/// what makes that shape the requirement — "[a] refusal that cannot become an 'ask' is the thing
+/// to avoid" — and [`Links`] is the ask.
 ///
-/// # Errors
-///
-/// The sentence to say to the person. Two of them, because the clause makes two different things
-/// go wrong: a reference nothing could resolve names no resource at all, and a resolved one is
-/// declined by this machine.
-pub fn may_open_uri(uri: &str) -> Result<(), String> {
-    if pdf_model::uri::is_absolute(uri) {
-        return Err(
-            "this reader opens nothing itself — handing a string the document chose to \
-                    another program is a decision about this machine, not about the file"
+/// **Two questions are answered before the level is consulted, and the order is the point.** A
+/// reference nothing could resolve names no resource at any level, and a scheme outside
+/// [`LINK_SCHEMES`] is one this machine does not hand to a handler however permissive the reader
+/// is — so neither is a thing *open* turns on. What the level decides is the one act that is left.
+#[must_use]
+pub fn may_open_uri(uri: &str, level: Links) -> Opening {
+    if !pdf_model::uri::is_absolute(uri) {
+        return Opening::Refuse(
+            "it is still a relative reference and names no resource: the document states no /Base \
+             and this window could not name its own location (ISO 32000-2 §12.6.4.8)"
                 .to_owned(),
         );
     }
-    Err(
-        "it is still a relative reference and names no resource: the document states no /Base \
-         and this window could not name its own location (ISO 32000-2 §12.6.4.8)"
-            .to_owned(),
+    let Some(scheme) = scheme_of(uri) else {
+        return Opening::Refuse(
+            "it states no scheme this reader could read, so there is nothing to open it with \
+             (ISO 32000-2 §12.6.4.8, RFC 3986 section 3.1)"
+                .to_owned(),
+        );
+    };
+    if !LINK_SCHEMES.contains(&scheme.as_str()) {
+        return Opening::Refuse(format!(
+            "{scheme}: is not one of the schemes this reader hands to another program ({}), and a \
+             document does not get to choose which of this machine's handlers runs",
+            LINK_SCHEMES.join(", ")
+        ));
+    }
+    match level {
+        Links::Refuse => Opening::Refuse(format!(
+            "this reader is set to open nothing itself ({LINKS}{}); {LINKS}{} puts the URI to you \
+             first",
+            Links::Refuse.as_str(),
+            Links::Ask.as_str()
+        )),
+        Links::Ask => Opening::Ask(asked_to_open(uri)),
+        Links::Warn => Opening::Warn(format!(
+            "it was handed to {URI_HANDLER} without asking you first, because this reader is \
+             set to {LINKS}{}",
+            Links::Warn.as_str()
+        )),
+        Links::Open => Opening::Proceed,
+    }
+}
+
+/// RFC 3986 section 3.1's scheme, lower-cased.
+///
+/// The grammar is a letter followed by letters, digits, `+`, `.` and `-`, up to the first colon.
+/// Lower-cased because that section accepts any case while asking a producer for lower case, so a
+/// `HTTP:` link is the same link and a comparison against [`LINK_SCHEMES`] that missed it would
+/// refuse for the wrong reason.
+///
+/// A *policy* question rather than URI arithmetic, which is why it is answered here and not in
+/// `pdf_model::uri`: what is decided is which of this machine's handlers a document may start, and
+/// `pdf_model::uri::resolve` neither knows that nor should.
+fn scheme_of(uri: &str) -> Option<String> {
+    let colon = uri.find(':')?;
+    let scheme = uri.get(..colon)?;
+    let mut characters = scheme.chars();
+    if !characters.next()?.is_ascii_alphabetic() {
+        return None;
+    }
+    characters
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '+' | '.' | '-'))
+        .then(|| scheme.to_ascii_lowercase())
+}
+
+/// What a window puts in front of a person at [`Links::Ask`].
+///
+/// [`crate::restriction::asked`]'s two-string shape, because a reader who has met one of this
+/// program's questions has met the other and no window may word either for itself. What differs is
+/// the subject: the restriction prompt says what the *document* asserts, and this one says what the
+/// document asked this machine to **start** — so the URI is in the first string whole and
+/// unabbreviated, because the URI is the only thing a person can judge this by.
+#[must_use]
+pub fn asked_to_open(uri: &str) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "A link in this document asks to open {uri}. This reader would hand that URI to \
+             {URI_HANDLER}, which starts whichever program this machine opens that scheme with."
+        ),
+        choice: format!(
+            "You have set this reader to ask before opening a link ({LINKS}{}). \"{}\" opens this \
+             one and leaves the level where it is; \"{}\" leaves it unopened. {LINKS}{} stops the \
+             question being asked, and {LINKS}{} stops links being opened at all.",
+            Links::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT,
+            Links::Open.as_str(),
+            Links::Refuse.as_str()
+        ),
+    }
+}
+
+/// Hands §12.6.4.8's URI to [`URI_HANDLER`], which is the act the clause describes:
+///
+/// > A URI action causes a URI to be resolved.
+///
+/// **The scheme is checked again here, and that is not a duplicate of [`may_open_uri`]'s check.**
+/// This function is what actually starts a program on a string a *document* chose, so it is the
+/// last place the guarantee can be made, and a host that reached it without asking the policy
+/// would otherwise hand over anything. The check is a `contains` over three words; what getting it
+/// wrong costs is a document choosing which handler on this machine runs.
+///
+/// **The child is waited for on a thread of its own.** [`URI_HANDLER`] may run for as long as the
+/// program it starts, so a window that waited would stop drawing; and a child nobody waits for
+/// stays a zombie until this process exits. The thread is also where the handler's own failure is
+/// read — a scheme with no handler is the common one — and it is said rather than discarded, which
+/// is trap 5 on a path a person clicked.
+///
+/// # Errors
+///
+/// The sentence to say to the person, where nothing was started at all: a scheme this reader does
+/// not hand over, or a machine with no [`URI_HANDLER`] on its path.
+pub fn open_uri(uri: &str) -> Result<(), String> {
+    if !scheme_of(uri).is_some_and(|scheme| LINK_SCHEMES.contains(&scheme.as_str())) {
+        return Err(format!(
+            "{uri} names no scheme this reader hands to another program ({})",
+            LINK_SCHEMES.join(", ")
+        ));
+    }
+    let mut child = std::process::Command::new(URI_HANDLER)
+        .arg(uri)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| format!("{URI_HANDLER} could not be started: {error}"))?;
+    let handled = uri.to_owned();
+    std::thread::Builder::new()
+        .name("uri-handler".to_owned())
+        .spawn(move || match child.wait() {
+            Ok(status) if status.success() => {}
+            Ok(status) => eprintln!("note: {URI_HANDLER} {handled}: {status}"),
+            Err(error) => {
+                eprintln!("note: {URI_HANDLER} {handled} could not be waited for: {error}");
+            }
+        })
+        .map_err(|error| format!("no thread to wait for {URI_HANDLER} on: {error}"))?;
+    Ok(())
+}
+
+/// What a host does about one §12.6.4.8 URI: a sentence to say, or a question to put.
+///
+/// **One entry point for four faces, and [`crate::keys`]'s argument is the reason.** What a window
+/// is obeying is shared and what a dialogue looks like is a toolkit's, so the act, the level and
+/// every sentence around them are decided once here, and a `gtk4::Window`, a `QDialog` and a card
+/// this program draws are what a host supplies. A host that composed its own would be the third
+/// copy where two stop agreeing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Link {
+    /// Say this. Whatever act the level called for has already been carried out.
+    Say(String),
+    /// Put this question to the person, and hand the answer to [`answered`].
+    Ask(crate::restriction::Question),
+}
+
+/// The whole of what a host does about one resolved §12.6.4.8 URI, minus the dialogue.
+///
+/// [`may_open_uri`] is the decision and this is the decision carried out: three of the four levels
+/// end in a sentence and the fourth ends in a question. A host matches two arms rather than four,
+/// which is what keeps *ask* from being the level a window forgets to implement.
+#[must_use]
+pub fn link(uri: &str, level: Links) -> Link {
+    match may_open_uri(uri, level) {
+        Opening::Proceed => Link::Say(handed_over(uri, None)),
+        Opening::Warn(note) => Link::Say(handed_over(uri, Some(&note))),
+        Opening::Ask(question) => Link::Ask(question),
+        Opening::Refuse(why) => Link::Say(uri_note(uri, Some(&why))),
+    }
+}
+
+/// What a host does with the answer to [`Link::Ask`], and the sentence to say about it.
+///
+/// A decline is said out loud rather than passed over in silence: the person asked for a link and
+/// is owed the fact that it was not opened, which is [`crate::restriction::declined`]'s reason one
+/// clause over.
+#[must_use]
+pub fn answered(uri: &str, proceed: bool) -> String {
+    if proceed {
+        return handed_over(uri, None);
+    }
+    uri_note(
+        uri,
+        Some(&format!("you answered \"{}\"", crate::restriction::DO_NOT)),
     )
+}
+
+/// [`open_uri`], with the one line the person is owed about what happened.
+///
+/// `note` is what the level adds after the fact — [`Links::Warn`]'s sentence — and it is appended
+/// only where the URI actually went somewhere, because a warning about an act that did not happen
+/// would be a sentence about nothing.
+fn handed_over(uri: &str, note: Option<&str>) -> String {
+    match open_uri(uri) {
+        Ok(()) => match note {
+            Some(note) => format!("{} — {note}", uri_note(uri, None)),
+            None => uri_note(uri, None),
+        },
+        Err(why) => uri_note(uri, Some(&why)),
+    }
 }
 
 /// What a host says about a URI action, whether it opens it or declines.

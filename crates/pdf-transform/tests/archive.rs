@@ -5101,8 +5101,8 @@ fn a_packet_a_predefined_schema_rejects() -> Vec<u8> {
     a_packet_a_predefined_schema_rejects_with(String::new())
 }
 
-/// The same, with entries of the test's own added to the catalog.
-fn a_packet_a_predefined_schema_rejects_with(catalog: String) -> Vec<u8> {
+/// The packet itself: one property a predefined schema defines as a date, holding a sentence.
+fn a_packet_a_predefined_schema_rejects_packet() -> String {
     let mut packet = String::new();
     packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
     packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
@@ -5115,6 +5115,12 @@ fn a_packet_a_predefined_schema_rejects_with(catalog: String) -> Vec<u8> {
     packet.push_str("<xmp:CreateDate>the day we shipped it</xmp:CreateDate>\n");
     packet.push_str("<pdf:Producer>Somebody's exporter</pdf:Producer>\n");
     packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    packet
+}
+
+/// The same, with entries of the test's own added to the catalog.
+fn a_packet_a_predefined_schema_rejects_with(catalog: String) -> Vec<u8> {
+    let packet = a_packet_a_predefined_schema_rejects_packet();
     let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CMapName /Test def\n/CMapType 2 def\n\
          1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
@@ -5295,17 +5301,17 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
 }
 
 #[test]
-fn a_document_whose_structure_tree_would_not_describe_the_page_is_refused_by_name() {
-    // ISO 19005-2 section 6.7 requires a Level A file's logical structure to describe its
-    // content, and `doc/adr/1014` section 5 makes the entries an appended page owes part of the
-    // same permission. They are not built, so a document carrying a structure tree is refused
-    // with a sentence rather than given a page its own tree does not describe — the round's rule:
-    // a promise nothing will keep is worse than a refusal with a sentence.
-    let with_a_tree =
+fn a_document_that_claims_tagged_conventions_with_no_tree_is_refused_by_name() {
+    // §14.8.2.2.1 makes content no structure tree reaches an artifact, and the preserved packet is
+    // real content. A catalog claiming `/MarkInfo` with `/Marked true` and stating no
+    // `/StructTreeRoot` leaves the page nowhere to be described, and writing a structure tree this
+    // document never had would be this conversion asserting a logical structure its producer did
+    // not — which ISO 19005-2 section 6.7.1 advises a writer against. `doc/adr/1163`.
+    let claims_it =
         a_packet_a_predefined_schema_rejects_with("/MarkInfo << /Marked true >>".to_owned());
     let target = Target::Two(Level::B);
     let plan = plan_from(&a_preserve_configuration(), target);
-    let (report, output) = convert_with_plan(&with_a_tree, &plan);
+    let (report, output) = convert_with_plan(&claims_it, &plan);
     assert!(output.is_none(), "nothing is written");
     let decided = decision(&report, "metadata/properties-use-known-schemas");
     let Decision::Refused(because) = decided else {
@@ -5313,6 +5319,243 @@ fn a_document_whose_structure_tree_would_not_describe_the_page_is_refused_by_nam
     };
     assert!(
         because.sentence().contains("structure"),
+        "and the sentence says what it waits on: {}",
+        because.sentence()
+    );
+}
+
+/// The same fixture, describing its one page in a §14.7 structure tree.
+///
+/// Seven objects past the font's four: the tree root, the `Document` element the root's `/K`
+/// names, the `P` element describing the page's one marked-content sequence, and §14.7.5.4's
+/// parent tree keyed by the `/StructParents` the page states. The page's own content is bracketed
+/// between `BDC` and `EMC` with an `/MCID` of zero, which is what makes the tree describe it.
+fn a_packet_a_predefined_schema_rejects_in_a_tagged_document() -> Vec<u8> {
+    let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+         /CMapName /Test def\n/CMapType 2 def\n\
+         1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
+         1 beginbfrange\n<20> <7E> <0020>\nendbfrange\n\
+         endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+    let built = Conforming {
+        metadata: Packet::Stated(a_packet_a_predefined_schema_rejects_packet()),
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 10 0 R".to_owned(),
+        page: "/StructParents 0".to_owned(),
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"/P <</MCID 0>> BDC 0 g BT /F1 12 Tf 10 100 Td (A) Tj ET EMC".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 32 \
+                 /LastChar 126 /Widths [{LIBERATION_SANS_ADVANCES}] /FontDescriptor 7 0 R \
+                 /Encoding /WinAnsiEncoding /ToUnicode 8 0 R >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 /FontFile2 9 0 R >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(&format!("/Length {}", cmap.len()), cmap.as_bytes()),
+            stream(
+                &format!("/Length {}", LIBERATION_SANS.len()),
+                LIBERATION_SANS,
+            ),
+            // 10: Table 354's structure tree root.
+            b"<< /Type /StructTreeRoot /K [11 0 R] /ParentTree 13 0 R /ParentTreeNextKey 1 >>"
+                .to_vec(),
+            // 11 and 12: Table 355's elements, the second holding the page's own sequence.
+            b"<< /Type /StructElem /S /Document /P 10 0 R /K [12 0 R] >>".to_vec(),
+            b"<< /Type /StructElem /S /P /P 11 0 R /Pg 3 0 R /K 0 >>".to_vec(),
+            // 13: §14.7.5.4's parent tree, keyed by the page's /StructParents.
+            b"<< /Nums [0 [12 0 R]] >>".to_vec(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build();
+    let mut out = built;
+    let was = b"/MediaBox [0 0 200 200]";
+    let now = b"/MediaBox [0 0 612 792]";
+    let at = out
+        .windows(was.len())
+        .position(|window| window == was)
+        .expect("the builder states one media box");
+    out.splice(at..at.saturating_add(was.len()), now.iter().copied());
+    out
+}
+
+#[test]
+fn a_page_appended_to_a_tagged_document_is_described_in_its_structure_tree() {
+    // **The entries `doc/adr/1014` section 5 named and `doc/adr/1163` builds.** §14.8.2.2.1 makes
+    // content the structure tree does not reach an artifact, and the preserved packet is the
+    // producer's own metadata rather than pagination, an ornament or a production aid — so the
+    // page it lands on is described: a marked-content sequence per line (§14.7.5.2), a `/P`
+    // element per line under one `Part` (§14.7.2), `/StructParents` on the page and an entry in
+    // the parent tree (§14.7.5.4).
+    let source = a_packet_a_predefined_schema_rejects_in_a_tagged_document();
+    let target = Target::Two(Level::B);
+    assert_eq!(
+        holds(&source, target).verdict(),
+        Verdict::Fails,
+        "the fixture is the one the remedy exists for"
+    );
+    let plan = plan_from(&a_preserve_configuration(), target);
+    let (_, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the preservation converts");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and the document that leaves the verb still conforms to the target"
+    );
+    let pages = page_contents(&output);
+    assert_eq!(pages.len(), 2, "one page was appended");
+
+    // Read back through this tree's own structure reader, which is the accessibility tree's.
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output opens");
+    let tree = pdf_model::structure::Tree::of(&document).expect("the output carries the tree");
+    let model = pdf_model::Pages::new(&document);
+    let appended = model.get(1).expect("the appended page");
+    let at = appended.id.expect("the appended page is an object");
+
+    // The producer's own top-level element is still the first child, and this conversion's
+    // grouping element is beside it: Table 354 admits "either a dictionary representing a single
+    // structure element or an array of such dictionaries", and nothing of the producer's changed.
+    let tops = tree.children(&document, None);
+    assert_eq!(tops.len(), 2, "the root gained one child: {tops:?}");
+    let pdf_model::structure::Child::Element(group) = &tops[1] else {
+        panic!("the new child is a structure element: {:?}", tops[1]);
+    };
+    assert_eq!(
+        tree.role(&document, group).as_deref(),
+        Some("Part"),
+        "Table 365's grouping element, which encloses a grouping without a hierarchy"
+    );
+    for child in tree.children(&document, Some(group)) {
+        let pdf_model::structure::Child::Element(line) = &child else {
+            panic!("a group's children are elements: {child:?}");
+        };
+        assert_eq!(
+            tree.role(&document, line).as_deref(),
+            Some("P"),
+            "Table 366's low-level division of content, one per line the producer wrote"
+        );
+    }
+
+    // §14.7.5.4 read forwards: the page's own key finds the array, and the array's members are
+    // this conversion's elements indexed by the identifier each sequence carries.
+    let parents = pdf_model::structure::ParentTree::for_page(&document, &appended.dict);
+    assert!(
+        !parents.is_empty(),
+        "the appended page's /StructParents names an entry in the parent tree"
+    );
+    assert!(
+        parents.element(&document, 0).is_some(),
+        "and its first marked-content sequence resolves to a structure element"
+    );
+
+    // And the whole of it, in reading order: §14.8.2.5.1's logical content order is a depth-first
+    // traversal of the hierarchy, so a reader of the archive meets the producer's own packet in
+    // the order the producer wrote it.
+    let interpretation = pdf_model::content::interpret(&document, &appended);
+    let read = tree
+        .logical_text(&document, at, &interpretation)
+        .expect("the tree reaches every sequence on the page");
+    assert!(
+        read.contains("the day we shipped it"),
+        "the property the archive may not keep as metadata is on the page, in reading order: \
+         {read}"
+    );
+    assert!(
+        read.find("<pdfaid:part>2</pdfaid:part>")
+            < read.find("<pdf:Producer>Somebody's exporter</pdf:Producer>"),
+        "and in the packet's own order: {read}"
+    );
+
+    // **And the same conversion at Level A**, which is the level ISO 19005-2 section 6.7 binds at
+    // all: the validator that passed the output above then holds it to the logical-structure rules
+    // as well, so the page's own description is checked rather than merely written.
+    let level_a = Target::Two(Level::A);
+    let (_, written) = convert_with_plan(&source, &plan_from(&a_preserve_configuration(), level_a));
+    let written = written.expect("the preservation converts at Level A");
+    assert_eq!(
+        holds(&written, level_a).verdict(),
+        Verdict::Conforms,
+        "the appended page's structure entries satisfy the level that asks for them"
+    );
+
+    // §14.7.5.4: "The ParentTreeNextKey entry in the structure tree root shall hold an integer
+    // value greater than any that is currently in use as a key in the structural parent tree."
+    let catalog = document.catalog().expect("the output has a catalog");
+    let root = document.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("the root is a dictionary");
+    let next = document
+        .get_key(root, "ParentTreeNextKey")
+        .as_integer()
+        .expect("the root states the entry");
+    let key = document
+        .get_key(&appended.dict, "StructParents")
+        .as_integer()
+        .expect("the appended page states its key");
+    assert!(
+        next > key,
+        "the next key is past the one this conversion used: {next} against {key}"
+    );
+}
+
+/// A document that describes its content, carrying an annotation ISO 19005 does not admit.
+///
+/// The tree is the smallest one there is — Table 354's root and the one `Document` element its
+/// `/K` names — because what the refusal below turns on is that the document *has* a tree, not
+/// what is in it. It states no `/ParentTree`, which Table 354 makes "[r]equired if any structure
+/// element contains content items" and none of these does.
+fn a_forbidden_annotation_in_a_tagged_document() -> Vec<u8> {
+    let marks = b"0 0 40 40 re f\n";
+    Conforming {
+        catalog: "/MarkInfo << /Marked true >> /StructTreeRoot 8 0 R".to_owned(),
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![
+            "<< /Type /Annot /Subtype /Sound /Rect [20 30 60 70] /F 4 /AP << /N 7 0 R >> >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![
+            stream(
+                &format!(
+                    "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                    marks.len()
+                ),
+                marks,
+            ),
+            b"<< /Type /StructTreeRoot /K [9 0 R] >>".to_vec(),
+            b"<< /Type /StructElem /S /Document /P 8 0 R >>".to_vec(),
+        ],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn marks_preserved_on_a_page_of_a_tagged_document_are_refused_by_name() {
+    // **The one shape `doc/adr/1163` does not build.** An annotation's appearance is the
+    // producer's real content, so §14.8.2.2.1 puts it in the structure tree — and Table 355 makes
+    // a structure element's `/S` required. What the artwork *is* semantically is a fact only its
+    // producer held, and ISO 19005-2 section 6.7.1 advises a writer against inventing one.
+    let row = "annotations/subtype-defined-in-iso-32000-2";
+    let source = a_forbidden_annotation_in_a_tagged_document();
+    let target = Target::Four(Flavour::Plain);
+    let plan = plan_from(
+        &format!("[site.\"{row}\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"),
+        target,
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(&report, row);
+    let Decision::Refused(because) = decided else {
+        panic!("the preservation is refused rather than half-done: {decided:?}");
+    };
+    assert!(
+        because.sentence().contains("structure type"),
         "and the sentence says what it waits on: {}",
         because.sentence()
     );

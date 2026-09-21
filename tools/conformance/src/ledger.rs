@@ -406,10 +406,17 @@ pub enum LedgerError {
         source: std::io::Error,
     },
     /// The file is not in the subset [`toml_subset`] accepts.
-    #[error("{path}: {source}")]
+    ///
+    /// The row is named as well as the line. A note is one line and the ledger is 883 of them,
+    /// so "line 1454" sends a reader counting while "§8.5.3.3.1's row" sends them to the row
+    /// they were editing — and the commonest way in is a bare `"` inside a note, which the
+    /// reader refuses at the character after the string it accidentally ended. ADR 1166.
+    #[error("{path}: {source}{}", in_row(clause.as_deref()))]
     Malformed {
         /// The path that was read.
         path: String,
+        /// The clause of the row the failing line belongs to, where the file names one above it.
+        clause: Option<String>,
         /// Where the reader stopped.
         source: toml_subset::TomlError,
     },
@@ -438,8 +445,9 @@ impl Ledger {
             source,
         })?;
         Self::parse(&text).map_err(|error| match error {
-            ParseError::Toml(source) => LedgerError::Malformed {
+            ParseError::Toml { source, clause } => LedgerError::Malformed {
                 path: path.display().to_string(),
+                clause,
                 source,
             },
             ParseError::Row { line, problem } => LedgerError::BadRow {
@@ -456,7 +464,10 @@ impl Ledger {
     ///
     /// As [`Ledger::read`], without the file.
     pub fn parse(text: &str) -> Result<Self, ParseError> {
-        let tables = toml_subset::parse(text).map_err(ParseError::Toml)?;
+        let tables = toml_subset::parse(text).map_err(|source| ParseError::Toml {
+            clause: clause_above(text, source.line),
+            source,
+        })?;
         let mut rows = Vec::new();
         for table in tables {
             let line = table.line;
@@ -650,12 +661,45 @@ fn write_key(out: &mut String, key: &str, value: &Value) {
     out.push('\n');
 }
 
+/// The clause of the row `line` belongs to, read out of the text without parsing it.
+///
+/// The reader has stopped by the time this is asked, so it cannot use the parse: it walks the
+/// lines above, forgets the clause at each `[[` header and remembers the last `clause = "…"`.
+/// A file whose very first row is malformed above its own `clause` key yields `None`, and the
+/// line number is then all there is to say. ADR 1166.
+fn clause_above(text: &str, line: usize) -> Option<String> {
+    let mut current = None;
+    for source in text.lines().take(line) {
+        let source = source.trim();
+        if source.starts_with("[[") {
+            current = None;
+        } else if let Some(rest) = source.strip_prefix("clause = \"")
+            && let Some((clause, _)) = rest.split_once('"')
+        {
+            current = Some(clause.to_owned());
+        }
+    }
+    current
+}
+
+/// The row a malformed line belongs to, as a phrase to put after a reader's message.
+fn in_row(clause: Option<&str>) -> String {
+    clause.map_or_else(String::new, |clause| {
+        format!(" \u{2014} in \u{a7}{clause}'s row")
+    })
+}
+
 /// Why a ledger's text could not be read.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     /// The text is outside the accepted subset.
-    #[error(transparent)]
-    Toml(toml_subset::TomlError),
+    #[error("{source}{}", in_row(clause.as_deref()))]
+    Toml {
+        /// Where the reader stopped.
+        source: toml_subset::TomlError,
+        /// The clause of the row that line belongs to, where the file names one above it.
+        clause: Option<String>,
+    },
     /// A row's keys or values are not the ledger's.
     #[error("line {line}: {problem}")]
     Row {
@@ -768,6 +812,26 @@ pub enum Problem {
         /// How many subclause rows it has, every one of them settled.
         settled_below: usize,
     },
+    /// A `departed` row names an ADR that has no file in `doc/adr/`.
+    ///
+    /// "Decided against with its cost recorded" is a claim about a document somebody can open,
+    /// and [`check_evidence`] asks only that the row name one. A number naming no file is the
+    /// same failure one step later: the argument cannot be re-read, so the row settles on prose
+    /// alone. ADR 1166.
+    ArgumentMissing {
+        /// The clause.
+        clause: ClauseNumber,
+        /// The number the note names.
+        adr: u16,
+    },
+    /// `doc/adr/` could not be listed, so no `departed` row's argument could be checked.
+    ///
+    /// Reported rather than passed over: a sweep that could not open its population and said
+    /// nothing has printed a tick about itself (trap 13). ADR 1166.
+    ArgumentsUnreadable {
+        /// What went wrong.
+        why: String,
+    },
 }
 
 impl fmt::Display for Problem {
@@ -831,6 +895,16 @@ impl fmt::Display for Problem {
                  settled, so it is carrying a debt none of them carries. Either its note says \
                  what it owes of its own, or the status moves with its last child's."
             ),
+            Self::ArgumentMissing { clause, adr } => write!(
+                f,
+                "§{clause} is `departed` and its note names ADR {adr:04}, which has no file in \
+                 {directory}/. A departure's cost is recorded in a document somebody can open, \
+                 so the number has to name one.",
+                directory = crate::departures::ADR_DIRECTORY
+            ),
+            Self::ArgumentsUnreadable { why } => {
+                write!(f, "no `departed` row's argument could be checked: {why}")
+            }
         }
     }
 }
@@ -938,8 +1012,49 @@ pub fn check(
         }
     }
 
+    problems.extend(check_arguments(ledger, root));
     problems.extend(check_population(index));
 
+    problems
+}
+
+/// Every ADR a `departed` row names is a file in `doc/adr/`.
+///
+/// The half of ADR 1119's check that it could not take: that check asks a `departed` row to name
+/// an argument and cannot judge whether the argument fits, and this one asks that the argument
+/// *exists*. It reads the directory listing and no prose — the judgement stays a person's, and
+/// [`crate::departures`] prints the reading list that person needs. ADR 1166.
+///
+/// Nothing is read at all unless some row is `departed`, so a ledger without one pays no listing.
+fn check_arguments(ledger: &Ledger, root: &Path) -> Vec<Problem> {
+    let departed: Vec<&Row> = ledger
+        .rows
+        .iter()
+        .filter(|row| row.status == Status::Departed)
+        .collect();
+    if departed.is_empty() {
+        return Vec::new();
+    }
+    let on_disk = match crate::departures::numbers_on_disk(root) {
+        Ok(numbers) => numbers,
+        Err(why) => {
+            return vec![Problem::ArgumentsUnreadable {
+                why: why.to_string(),
+            }];
+        }
+    };
+    let mut problems = Vec::new();
+    for row in departed {
+        let note = row.note.as_deref().unwrap_or_default();
+        for adr in crate::departures::citations(note) {
+            if !on_disk.contains(&adr) {
+                problems.push(Problem::ArgumentMissing {
+                    clause: row.clause.clone(),
+                    adr,
+                });
+            }
+        }
+    }
     problems
 }
 
@@ -1196,6 +1311,29 @@ mod tests {
         assert_eq!(read.rows.first().unwrap().code.len(), 2);
     }
 
+    /// A malformed line is named by the row it is in as well as by its number.
+    ///
+    /// The bare `"` a person leaves in a note is refused by `toml_subset` wherever it sits — that
+    /// is established there — and what this adds is *which* of 883 rows it was. The second case
+    /// is the honest limit: a file whose first row breaks above its own `clause` key has no row
+    /// to name, and the line number is then all there is. ADR 1166.
+    #[test]
+    fn a_line_outside_the_subset_is_named_by_its_row() {
+        let error = Ledger::parse(
+            "[[clause]]\nclause = \"8.1\"\nnote = \"fine\"\n\n\
+             [[clause]]\nclause = \"8.5.3.3.1\"\nnote = \"a stray \" quote\"\n",
+        )
+        .unwrap_err();
+        let said = error.to_string();
+        assert!(said.contains("line 7"), "{said}");
+        assert!(said.contains("§8.5.3.3.1's row"), "{said}");
+
+        let headless = Ledger::parse("[[clause]]\ntitle = \"a stray \" quote\"\n").unwrap_err();
+        let said = headless.to_string();
+        assert!(said.contains("line 2"), "{said}");
+        assert!(!said.contains("row"), "{said}");
+    }
+
     #[test]
     fn a_clause_the_standard_does_not_have_is_a_finding() {
         let problems = check(
@@ -1311,7 +1449,7 @@ mod tests {
             ),
             &index(),
             &[],
-            Path::new("."),
+            &crate::workspace_root(),
         );
         assert!(
             problems.iter().any(|problem| matches!(
@@ -1335,12 +1473,59 @@ mod tests {
             ),
             &index(),
             &[],
-            Path::new("."),
+            &crate::workspace_root(),
         );
         assert!(
             !problems
                 .iter()
                 .any(|problem| matches!(problem, Problem::MissingEvidence { .. })),
+            "{problems:?}"
+        );
+    }
+
+    /// The third half of that plant, and the one ADR 1119's check could not take: a row naming an
+    /// ADR *number* that names no file settles on prose exactly as a row naming none does. The
+    /// fixture names one real argument and one invented, so the check has to tell them apart
+    /// rather than reporting whichever it meets first. ADR 1166.
+    #[test]
+    fn a_departed_row_naming_an_adr_with_no_file_is_a_finding() {
+        let problems = check(
+            &ledger(
+                "[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"departed\"\n\
+                 code = [\"a.rs\"]\ntest = [\"t.rs\"]\n\
+                 note = \"declined, priced in ADR 0036, and again in ADR 9999.\"\n",
+            ),
+            &index(),
+            &[],
+            &crate::workspace_root(),
+        );
+        let named: Vec<u16> = problems
+            .iter()
+            .filter_map(|problem| match problem {
+                Problem::ArgumentMissing { adr, .. } => Some(*adr),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(named, vec![9999], "{problems:?}");
+    }
+
+    /// Trap 13's other direction: an instrument that cannot open its population says so instead
+    /// of returning nothing, which would read as a clean tree. ADR 1166.
+    #[test]
+    fn arguments_that_cannot_be_listed_are_reported_rather_than_passed_over() {
+        let problems = check(
+            &ledger(
+                "[[clause]]\nclause = \"8.1\"\ntitle = \"General\"\nstatus = \"departed\"\n\
+                 code = [\"a.rs\"]\ntest = [\"t.rs\"]\nnote = \"declined, ADR 0036.\"\n",
+            ),
+            &index(),
+            &[],
+            Path::new("no/such/tree"),
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|problem| matches!(problem, Problem::ArgumentsUnreadable { .. })),
             "{problems:?}"
         );
     }

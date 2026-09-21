@@ -50,20 +50,27 @@
 //!
 //! # Encryption
 //!
-//! **The output is not encrypted.** Every object handed over here is plaintext — a
-//! [`Document`] decrypts on load — so a derivative of an encrypted source is a derivative
-//! without §7.6's protection, and that is a fact about the file the *caller* must report to
-//! whoever asked for it ([`Assembly::has_encrypted_source`] is what it asks). Encrypting on the
-//! way out is what §7.6's writer-side algorithms would be for, and this serializer emits no
-//! `/Encrypt`, which is why those ledger rows stay writer-side.
+//! [`serialize`] writes a plaintext file and [`serialize_encrypted`] writes §7.6.4's standard
+//! security handler at `/V` 5 and `/R` 6 — the one configuration §7.6.4.1 and Table 20 leave
+//! undeprecated — over a file encryption key and salts a caller-supplied [`Entropy`] provides.
+//!
+//! **Which of the two happens is asked, never inherited.** Every object handed over here is
+//! plaintext, because a [`Document`] decrypts on load, so a derivative of an encrypted source
+//! is protected only if somebody says how: revision 6 stores each password as a one-way hash,
+//! so nothing in an opened document yields the passwords a new file would need
+//! ([`Protection`] says this at length, ADR 1161). [`Assembly::has_encrypted_source`] is how a
+//! caller finds out that the question arises.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write;
 
+use crate::crypt::{self, Encryption};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::version::Version;
 use crate::{Document, write};
+
+pub use crate::crypt::{Entropy, SystemEntropy};
 
 /// The deepest an object's value tree is walked when its references are renumbered.
 ///
@@ -356,6 +363,23 @@ pub enum SerializeError {
     /// The sink refused the bytes.
     #[error("writing the output: {0}")]
     Write(#[from] std::io::Error),
+    /// §7.6.4's algorithms refused the passwords or the permissions they were handed.
+    #[error("§7.6.4: the output could not be protected: {0}")]
+    Protection(#[from] crate::error::SyntaxError),
+    /// The caller's randomness source produced nothing.
+    ///
+    /// §7.6.4.4.7 step (a) asks for "16 random bytes of data using a strong random number
+    /// generator" and §7.6.3.3 for a fresh initialisation vector per string and stream. There
+    /// is no second-best answer to either, so a source that refuses stops the write.
+    #[error("§7.6.4.4.7 needs a strong random number generator and the one supplied refused")]
+    Entropy,
+    /// The cipher refused a key or a body §7.6.3.3 admits.
+    ///
+    /// Not reachable from any document: the key is 32 bytes by construction and AES-CBC takes
+    /// data of any length. It is a refusal rather than an `unwrap` because a writer that
+    /// panicked on a dependency's edge would take the caller's process with it.
+    #[error("§7.6.3.3's cipher refused a string or stream this writer built")]
+    Cipher,
 }
 
 /// What §7.5.5's `/Root` finds at the end of its chain, in the file about to be written.
@@ -385,6 +409,138 @@ enum Slot {
     },
     /// Reserved by the caller, and filled or not.
     Synthesised(Option<Object>),
+}
+
+/// Table 22's access permissions, as a *writer* states them in `/P`.
+///
+/// The reading half is [`crate::Permissions`], which answers what a document granted whoever
+/// opened it; this is the other direction, and the two differ in what they have to know. A
+/// reader takes the flag word as it finds it. A writer has to produce one, and §7.6.4.2 fixes
+/// most of its bits before any permission is chosen: Table 22 reserves positions 1 and 2 —
+/// "Reserved. Must be zero (0)" — positions 7 and 8 — "Reserved. Must be 1" — and positions 13
+/// to 32 the same way, and of position 10 it says "PDF writers shall always set this bit to 1
+/// to ensure compatibility with PDF readers following earlier specifications".
+///
+/// So [`Access::flags`] states those eleven bits itself and this struct names only the seven a
+/// caller decides. [`Access::ALL`] grants every one of them, which is what a file gets when a
+/// caller wants a password on a document and no restrictions in it.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Table 22 is a flag word of independent permissions, and naming each one is the \
+              whole point — the same reason `crate::Permissions` carries them this way"
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Access {
+    /// Bit 3: print the document.
+    pub print: bool,
+    /// Bit 4: "[m]odify the contents of the document by operations other than those controlled
+    /// by bits 6, 9, and 11."
+    pub modify: bool,
+    /// Bit 5: copy or otherwise extract text and graphics.
+    pub copy: bool,
+    /// Bit 6: add or modify text annotations and fill in interactive form fields.
+    pub annotate: bool,
+    /// Bit 9: fill in existing interactive form fields "even if bit 6 is clear".
+    pub fill_forms: bool,
+    /// Bit 11: assemble the document — insert, rotate or delete pages.
+    pub assemble: bool,
+    /// Bit 12: print "to a representation from which a faithful digital copy of the PDF content
+    /// could be generated".
+    pub print_faithfully: bool,
+}
+
+impl Access {
+    /// The bits Table 22 fixes whatever a caller asks for: 7, 8, 10 and 13 to 32 set, 1 and 2
+    /// clear.
+    const RESERVED: u32 = 0xFFFF_F2C0;
+
+    /// Every permission granted.
+    ///
+    /// The default a caller should want, and `CLAUDE.md` principle 3 is why it is spelled out
+    /// rather than assumed: a restriction is the reader's to set, so a program that encrypts a
+    /// file has no business withholding anything the person who asked for it did not withhold.
+    pub const ALL: Self = Self {
+        print: true,
+        modify: true,
+        copy: true,
+        annotate: true,
+        fill_forms: true,
+        assemble: true,
+        print_faithfully: true,
+    };
+
+    /// Table 22's flag word, for Table 21's `/P`.
+    ///
+    /// The NOTE under Table 21 describes the result: "[s]ince all the reserved high-order flag
+    /// bits in the encryption dictionary's P value are required to be 1, the integer value P is
+    /// always specified as a negative integer."
+    #[must_use]
+    pub const fn flags(self) -> i32 {
+        let mut bits = Self::RESERVED;
+        if self.print {
+            bits |= 1 << 2;
+        }
+        if self.modify {
+            bits |= 1 << 3;
+        }
+        if self.copy {
+            bits |= 1 << 4;
+        }
+        if self.annotate {
+            bits |= 1 << 5;
+        }
+        if self.fill_forms {
+            bits |= 1 << 8;
+        }
+        if self.assemble {
+            bits |= 1 << 10;
+        }
+        if self.print_faithfully {
+            bits |= 1 << 11;
+        }
+        bits.cast_signed()
+    }
+}
+
+/// What a caller supplies to have the output encrypted — §7.6.4's standard security handler.
+///
+/// **It is asked for, never inherited.** A derivative of an encrypted source is not re-encrypted
+/// by carrying the source's dictionary forward, and revision 6 is the reason rather than a
+/// convenience: §7.6.4.4.7 and §7.6.4.4.8 store each password only as an Algorithm 2.B hash of
+/// it, so a program holding one password and the file encryption key can compute neither the
+/// other password nor a new `/U` for the one it does hold. §7.6.4.4.6's Algorithm 7 — where an
+/// owner password *does* unwrap the user password — belongs to the revisions §7.6.4.1 deprecates
+/// in PDF 2.0, and writing one of those to make the inheritance possible would be choosing a
+/// deprecated construct to avoid asking a question. So the protection of a derived file is the
+/// caller's statement about the derived file. ADR 1161.
+#[derive(Debug, Clone, Copy)]
+pub struct Protection<'a> {
+    /// §7.6.4.1's user password, which "should allow additional operations to be performed
+    /// according to the user access permissions". The empty string is the default user
+    /// password every reader tries first, so a document given one opens without a prompt and
+    /// asserts [`Protection::access`] alone.
+    pub user_password: &'a str,
+    /// §7.6.4.1's owner password, whose holder "should allow full (owner) access to the
+    /// document".
+    pub owner_password: &'a str,
+    /// Table 22's flags, as `/P`.
+    pub access: Access,
+    /// Table 21's `/EncryptMetadata`: whether §14.3.2's document-level metadata stream is
+    /// encrypted with everything else. Default `true`, per the table.
+    pub encrypt_metadata: bool,
+}
+
+impl Protection<'_> {
+    /// A password on the document and nothing withheld from whoever supplies it.
+    #[must_use]
+    pub const fn owner_only(owner_password: &str) -> Protection<'_> {
+        Protection {
+            user_password: "",
+            owner_password,
+            access: Access::ALL,
+            encrypt_metadata: true,
+        }
+    }
 }
 
 /// The output's object table, being built.
@@ -702,6 +858,70 @@ impl<'a> Assembly<'a> {
         }
     }
 
+    /// One of the output's own values, followed through its own numbering as a reader would.
+    ///
+    /// §7.3.10's chain, at the depth [`Document`] follows one: a dictionary entry this writer
+    /// has to *read* — a stream's `/Type`, its `/Filter`, a `/Crypt` filter's `/Name` — may be
+    /// stated indirectly, and the answer has to be the one a reader of this file will reach.
+    ///
+    /// Resolution is always [`Streams::Carry`], whatever the write's own policy: what is wanted
+    /// is a name, and recompressing a stream to read one would be doing the expensive half of
+    /// the write twice.
+    fn through(&self, value: Option<&Object>) -> Object {
+        let Some(value) = value else {
+            return Object::Null;
+        };
+        let mut current = value.clone();
+        for _ in 0..crate::document::MAX_REFERENCE_DEPTH {
+            let Object::Reference(id) = current else {
+                return current;
+            };
+            let Some(index) = usize::try_from(id.number)
+                .ok()
+                .and_then(|number| number.checked_sub(1))
+            else {
+                return Object::Null;
+            };
+            let mut ignored = Written::default();
+            let Some(next) = self.resolved(index, Streams::Carry, &mut ignored) else {
+                return Object::Null;
+            };
+            current = next;
+        }
+        Object::Null
+    }
+
+    /// A stream's filter chain, as names, out of the output's own dictionary.
+    ///
+    /// §7.4's `/Filter` is "a name or an array of names", and either may be indirect; this is
+    /// `Document::filter_chain` asked of a file that is not written yet.
+    fn filter_names(&self, dict: &Dictionary) -> Vec<Vec<u8>> {
+        match self.through(dict.get("Filter")) {
+            Object::Name(name) => vec![name.as_bytes().to_vec()],
+            Object::Array(items) => items
+                .iter()
+                .filter_map(|item| {
+                    self.through(Some(item))
+                        .as_name()
+                        .map(|name| name.as_bytes().to_vec())
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The `/DecodeParms` dictionary belonging to the filter at `index`.
+    ///
+    /// Table 5: one dictionary where one filter has parameters, "or an array of such
+    /// dictionaries" where several do.
+    fn parms_at(&self, dict: &Dictionary, index: usize) -> Option<Dictionary> {
+        match self.through(dict.get("DecodeParms")) {
+            Object::Dictionary(parms) if index == 0 => Some(parms),
+            Object::Array(items) => self.through(items.get(index)).as_dict().cloned(),
+            _ => None,
+        }
+    }
+
     /// [`Self::renumber`] over a dictionary's values, dropping the entries that became null.
     ///
     /// §7.3.7:
@@ -768,6 +988,316 @@ pub struct Written {
     /// [`Written::recompressed`] either: it was carried, so it saved nothing and changed
     /// nothing.
     pub saved: u64,
+    /// How many streams an encrypted output holds in the clear.
+    ///
+    /// Zero for an unencrypted file, where the question does not arise. In an encrypted one it
+    /// counts the streams §7.6.6 leaves to a crypt filter this output does not carry — a
+    /// `/Crypt` entry in a `/Filter` array naming `Identity`, or naming a filter that was a
+    /// source's and is not this file's — and §14.3.2's metadata stream where the caller asked
+    /// for [`Protection::encrypt_metadata`] false. Each is what a reader of the output will
+    /// expect; counting them is how a caller can say which parts of a protected file are not.
+    pub cleartext: u64,
+}
+
+/// The output's own security handler, while the file is being written.
+///
+/// It holds three things and they are three different kinds of thing: the handler that turns
+/// plaintext into ciphertext, the dictionary the file has to carry so that a reader can build
+/// the same handler back, and the source of the bytes neither of the other two can derive.
+struct Protected<'e> {
+    /// §7.6.3.3's Algorithm 1.A over the file encryption key, as `AESV3`.
+    encryption: Encryption,
+    /// The `/Encrypt` dictionary, written as its own indirect object and never encrypted.
+    dictionary: Dictionary,
+    /// §7.6.3.3's "16-byte random number" for every string and stream, from outside.
+    entropy: &'e mut dyn Entropy,
+}
+
+impl<'e> Protected<'e> {
+    /// Runs §7.6.4.4.7, §7.6.4.4.8 and §7.6.4.4.9 and builds the dictionary they fill.
+    fn new(
+        protection: &Protection<'_>,
+        entropy: &'e mut dyn Entropy,
+    ) -> Result<Self, SerializeError> {
+        let flags = protection.access.flags();
+        let mut random = crypt::Unpredictable {
+            key: [0; 32],
+            salts: [0; 32],
+            filler: [0; 4],
+        };
+        // §7.6.4.4.7 step (a): "Generate 16 random bytes of data using a strong random number
+        // generator", and Algorithm 9 step (a) sixteen more. The key is the writer's own choice
+        // of thirty-two, and Algorithm 10 step (e)'s four are the filler nothing reads.
+        if !entropy.fill(&mut random.key)
+            || !entropy.fill(&mut random.salts)
+            || !entropy.fill(&mut random.filler)
+        {
+            return Err(SerializeError::Entropy);
+        }
+        let computed = crypt::revision6(
+            protection.user_password,
+            protection.owner_password,
+            flags,
+            protection.encrypt_metadata,
+            &random,
+        )?;
+
+        // Table 20 and Table 21, in the order the two tables print them. `/V` 5 is the only
+        // value Table 20 does not deprecate — "Values less than 5 for the V entry are
+        // deprecated in PDF 2.0" — and it "permits the specification of crypt filters with a
+        // file encryption key length of 256 bits (32 bytes)"; `/R` 6 is the revision that goes
+        // with it, and the one §7.6.4.1's deprecation sentence leaves out.
+        let mut dictionary = Dictionary::new();
+        let string = |bytes: &[u8]| Object::String(bytes.to_vec().into());
+        dictionary.insert(
+            Name::new(&b"Filter"[..]),
+            Object::Name(Name::new(&b"Standard"[..])),
+        );
+        dictionary.insert(Name::new(&b"V"[..]), Object::Integer(5));
+        dictionary.insert(Name::new(&b"R"[..]), Object::Integer(6));
+
+        // Table 25's crypt filter dictionary for the one filter §7.6.4.1 permits a revision 6
+        // handler to be limited to: "For revision 6, the filter CFM value shall be AESV3
+        // (AES-256)", and the `/AuthEvent` the same sentence requires of it.
+        let mut filter = Dictionary::new();
+        filter.insert(
+            Name::new(&b"CFM"[..]),
+            Object::Name(Name::new(&b"AESV3"[..])),
+        );
+        filter.insert(
+            Name::new(&b"AuthEvent"[..]),
+            Object::Name(Name::new(&b"DocOpen"[..])),
+        );
+        // Table 25's `/Length`: the key length "in bits or bytes, depending on the
+        // application", which for `AESV3` is the 256-bit key Table 20's `/V` 5 fixes. Written
+        // in bytes, as every revision 6 producer this reader has met writes it, and read by
+        // nothing here — `key_length` is asked only for the revisions where `/V` leaves it open.
+        filter.insert(Name::new(&b"Length"[..]), Object::Integer(32));
+        let mut filters = Dictionary::new();
+        filters.insert(
+            Name::new(crypt::STANDARD_CRYPT_FILTER),
+            Object::Dictionary(filter),
+        );
+        dictionary.insert(Name::new(&b"CF"[..]), Object::Dictionary(filters));
+        for entry in [&b"StmF"[..], &b"StrF"[..], &b"EFF"[..]] {
+            dictionary.insert(
+                Name::new(entry),
+                Object::Name(Name::new(crypt::STANDARD_CRYPT_FILTER)),
+            );
+        }
+
+        dictionary.insert(Name::new(&b"O"[..]), string(&computed.owner));
+        dictionary.insert(Name::new(&b"U"[..]), string(&computed.user));
+        dictionary.insert(Name::new(&b"OE"[..]), string(&computed.owner_encryption));
+        dictionary.insert(Name::new(&b"UE"[..]), string(&computed.user_encryption));
+        dictionary.insert(Name::new(&b"P"[..]), Object::Integer(i64::from(flags)));
+        dictionary.insert(Name::new(&b"Perms"[..]), string(&computed.perms));
+        dictionary.insert(
+            Name::new(&b"EncryptMetadata"[..]),
+            Object::Boolean(protection.encrypt_metadata),
+        );
+
+        Ok(Self {
+            encryption: Encryption::for_output(computed.key, flags, protection.encrypt_metadata),
+            dictionary,
+            entropy,
+        })
+    }
+
+    /// §7.6.3.3's initialisation vector for one string or stream.
+    ///
+    /// > the initialization vector is a 16-byte random number that is stored as the first 16
+    /// > bytes of the encrypted stream or string.
+    ///
+    /// A source that refuses stops the write: there is no weaker vector to fall back to, and a
+    /// file half written under a predictable one is worse than no file.
+    fn vector(&mut self) -> Result<[u8; crypt::AES_BLOCK], SerializeError> {
+        let mut iv = [0u8; crypt::AES_BLOCK];
+        if self.entropy.fill(&mut iv) {
+            Ok(iv)
+        } else {
+            Err(SerializeError::Entropy)
+        }
+    }
+
+    /// Encrypts every string and stream inside one indirect object — §7.6.2's rule.
+    ///
+    /// `assembly` is here for one reason: [`Self::method`] has to select the crypt filter the
+    /// *reader* will select, and a stream's `/Type` or `/Filter` may be stated indirectly, so
+    /// deciding it needs the output's other objects.
+    fn value(
+        &mut self,
+        assembly: &Assembly<'_>,
+        id: ObjectId,
+        value: &Object,
+        depth: usize,
+        tally: &mut Written,
+    ) -> Result<Object, SerializeError> {
+        if depth >= MAX_REWRITE_DEPTH {
+            return Ok(Object::Null);
+        }
+        match value {
+            Object::String(bytes) => {
+                let iv = self.vector()?;
+                let method = self.encryption.string_method();
+                Ok(Object::String(
+                    self.encryption
+                        .encrypt_with_iv(method, id, iv, bytes)
+                        .ok_or(SerializeError::Cipher)?
+                        .into(),
+                ))
+            }
+            Object::Array(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for item in items {
+                    out.push(self.value(assembly, id, item, depth.saturating_add(1), tally)?);
+                }
+                Ok(Object::Array(out))
+            }
+            Object::Dictionary(dict) => Ok(Object::Dictionary(
+                self.dictionary_of(assembly, id, dict, depth, tally)?,
+            )),
+            Object::Stream(stream) => {
+                let mut dict = self.dictionary_of(assembly, id, &stream.dict, depth, tally)?;
+                let method = self.method(assembly, &stream.dict);
+                // A stream the output's crypt filters leave alone consumes no initialisation
+                // vector, because §7.6.3.3 asks for one per *encrypted* string and stream.
+                let data = if method == crypt::Method::Identity {
+                    tally.cleartext = tally.cleartext.saturating_add(1);
+                    stream.data.to_vec()
+                } else {
+                    let iv = self.vector()?;
+                    self.encryption
+                        .encrypt_with_iv(method, id, iv, &stream.data)
+                        .ok_or(SerializeError::Cipher)?
+                };
+                // §7.3.8.2's `/Length` is "[t]he number of bytes from the beginning of the line
+                // following the keyword stream to the last byte, just before the keyword
+                // endstream" — the encoded form as it sits in the file — and AES makes that
+                // longer than the plaintext by an initialisation vector and a pad. Stated here
+                // rather than left to `write_body`, so that a correct `/Length` is not counted
+                // as a source's lie.
+                dict.insert(
+                    Name::new(&b"Length"[..]),
+                    Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+                );
+                Ok(Object::Stream(std::sync::Arc::new(Stream {
+                    dict,
+                    data: data.into(),
+                    decryption_failed: false,
+                })))
+            }
+            other => Ok(other.clone()),
+        }
+    }
+
+    /// [`Self::value`] over a dictionary, honouring §7.6.2's signature exception.
+    ///
+    /// > Any hexadecimal strings representing the value of the Contents key in a Signature
+    /// > dictionary
+    ///
+    /// The same exception `crate::Document` applies on the way in and on §7.5.6's way out, and
+    /// applied here for the same reason: a value the reader will not decrypt must not be
+    /// encrypted, or the file says something its own reader cannot read back.
+    fn dictionary_of(
+        &mut self,
+        assembly: &Assembly<'_>,
+        id: ObjectId,
+        dict: &Dictionary,
+        depth: usize,
+        tally: &mut Written,
+    ) -> Result<Dictionary, SerializeError> {
+        let signature = crate::document::is_signature_dictionary(dict);
+        let mut out = Dictionary::new();
+        for (key, value) in dict.iter() {
+            let written = if signature && key.as_bytes() == b"Contents" {
+                value.clone()
+            } else {
+                self.value(assembly, id, value, depth.saturating_add(1), tally)?
+            };
+            out.insert(key.clone(), written);
+        }
+        Ok(out)
+    }
+
+    /// Encrypts one §7.5.7 object stream this writer built.
+    ///
+    /// Separate from [`Self::value`] because the questions that one asks are all about a
+    /// source's dictionary and none of them arises here: Table 16's entries are this writer's
+    /// own, none is a string, and the payload is a stream like any other under Table 20's
+    /// `/StmF`. §7.6.2's third exception is what makes that enough —
+    ///
+    /// > Any strings that are inside streams such as content streams and compressed object
+    /// > streams, which themselves are encrypted
+    ///
+    /// — so the members written into [`Group::payload`] are *not* encrypted one by one, and
+    /// encrypting the carrier is the whole of what the clause asks.
+    fn carrier(
+        &mut self,
+        id: ObjectId,
+        mut dict: Dictionary,
+        data: &[u8],
+    ) -> Result<Object, SerializeError> {
+        let iv = self.vector()?;
+        let method = self.encryption.stream_method();
+        let body = self
+            .encryption
+            .encrypt_with_iv(method, id, iv, data)
+            .ok_or(SerializeError::Cipher)?;
+        dict.insert(
+            Name::new(&b"Length"[..]),
+            Object::Integer(i64::try_from(body.len()).unwrap_or(i64::MAX)),
+        );
+        Ok(Object::Stream(std::sync::Arc::new(Stream {
+            dict,
+            data: body.into(),
+            decryption_failed: false,
+        })))
+    }
+
+    /// Which crypt filter one stream's data is encrypted with.
+    ///
+    /// **The writer has to choose what the reader will choose**, so this is
+    /// `Document::stream_method`'s three questions asked of the output's own dictionary, in the
+    /// same order and with the same defaults. §7.6.2's Table 20, under `/StmF`, states two of
+    /// them —
+    ///
+    /// > All streams in the document, except for cross-reference streams … or streams that
+    /// > have a Crypt entry in their Filter array …, shall be decrypted by the security
+    /// > handler, using this crypt filter.
+    ///
+    /// — and Table 21's `/EncryptMetadata` the third. A cross-reference stream never reaches
+    /// this function: [`cross_reference_stream`] writes its own, after every object.
+    ///
+    /// A `/Crypt` entry a source stated survives into the output, so the filter it names is
+    /// asked of *this* file's `/CF`, which holds one name. A `/Crypt` naming anything else —
+    /// including §7.6.6's default of `Identity` where its `/DecodeParms` states no `/Name` —
+    /// leaves the stream in the clear, which is what a reader of the output will expect of it,
+    /// and [`Written::cleartext`] counts it so that a caller can say so.
+    fn method(&self, assembly: &Assembly<'_>, dict: &Dictionary) -> crypt::Method {
+        let kind = assembly
+            .through(dict.get("Type"))
+            .as_name()
+            .map(|name| name.as_bytes().to_vec());
+        if kind.as_deref() == Some(b"Metadata") && !self.encryption.encrypt_metadata() {
+            return crypt::Method::Identity;
+        }
+
+        let filters = assembly.filter_names(dict);
+        if let Some(index) = filters.iter().position(|name| name == b"Crypt") {
+            let named = assembly
+                .parms_at(dict, index)
+                .and_then(|parms| assembly.through(parms.get("Name")).as_name().cloned());
+            return named.map_or(crypt::Method::Identity, |name| {
+                self.encryption.named_method(&name)
+            });
+        }
+
+        if kind.as_deref() == Some(b"EmbeddedFile") {
+            return self.encryption.embedded_file_method();
+        }
+        self.encryption.stream_method()
+    }
 }
 
 /// Where a cross-reference section says one object is.
@@ -848,14 +1378,55 @@ pub fn serialize<W: Write>(
     options: Options,
     out: &mut W,
 ) -> Result<Written, SerializeError> {
-    let root = assembly.root.ok_or(SerializeError::NoRoot)?;
-    // Before a byte is written, because a refusal that arrives after half a file has reached the
-    // caller's sink is a refusal it has to clean up after.
-    match assembly.root_reaches(root) {
-        // `Unplaced` is left to the writing loop, which names the number that was owed.
-        RootReach::Dictionary | RootReach::Unplaced => {}
-        RootReach::Elsewhere => return Err(SerializeError::RootNotADictionary { id: root }),
-    }
+    write_file(assembly, version, options, None, out)
+}
+
+/// [`serialize`], with §7.6.4's standard security handler over the output.
+///
+/// The handler is `/V` 5, `/R` 6 and Table 25's `AESV3` — §7.6.3.3's Algorithm 1.A over a
+/// 256-bit file encryption key — because that is the one configuration this standard leaves
+/// undeprecated: Table 20 says "Values less than 5 for the V entry are deprecated in PDF 2.0"
+/// and §7.6.4.1 says "Use of security handler revisions 1, 2, 3, 4 and 5 is deprecated in PDF
+/// 2.0". A reader meets whatever revision a file states, which is why `crate::crypt` reads five
+/// of them; a writer chooses, so it chooses this one.
+///
+/// `entropy` is where every byte neither the assembly nor the plan determines comes from — the
+/// file encryption key, §7.6.4.4.7's and §7.6.4.4.8's four salts, §7.6.4.4.9's filler, and
+/// §7.6.3.3's initialisation vector for every string and stream. It is an argument rather than
+/// a call into the platform so that the output stays a function of its inputs: a test supplies
+/// a fixed source and states the file it expects, and a host supplies [`SystemEntropy`].
+///
+/// The output's version is raised to 2.0 where it is lower, for the same reason
+/// [`Form::Stream`] raises it to 1.5: Table 20 introduces `/V` 5 and Table 21 `/R` 6 at that
+/// version, and a file whose header disowned its own encryption dictionary would be one no
+/// reader could be expected to open.
+///
+/// # Errors
+///
+/// [`serialize`]'s, plus [`SerializeError::Protection`] where §7.6.4.1's password preparation
+/// refuses a password, [`SerializeError::Entropy`] where the randomness source refuses, and
+/// [`SerializeError::Cipher`] where the cipher does.
+pub fn serialize_encrypted<W: Write>(
+    assembly: &Assembly<'_>,
+    version: Version,
+    options: Options,
+    protection: &Protection<'_>,
+    entropy: &mut dyn Entropy,
+    out: &mut W,
+) -> Result<Written, SerializeError> {
+    let mut protected = Protected::new(protection, entropy)?;
+    write_file(assembly, version, options, Some(&mut protected), out)
+}
+
+/// The body of [`serialize`] and [`serialize_encrypted`], which differ in one argument.
+fn write_file<W: Write>(
+    assembly: &Assembly<'_>,
+    version: Version,
+    options: Options,
+    mut protected: Option<&mut Protected<'_>>,
+    out: &mut W,
+) -> Result<Written, SerializeError> {
+    let root = catalog_of(assembly)?;
     let ceilings = options.object_streams.ceilings();
     // Table 18 decides this rather than the caller: a compressed object is named by a type 2
     // entry, entry types exist only in a cross-reference stream, and §7.5.4's twenty-byte line
@@ -865,26 +1436,14 @@ pub fn serialize<W: Write>(
     } else {
         options.form
     };
-    let version = match form {
-        Form::Stream => version.max(Version { major: 1, minor: 5 }),
-        Form::Table => version,
-    };
-
+    let version = header_version(version, form, protected.is_some());
     let mut sink = Counted {
         out,
         at: 0,
         digest: <md5::Md5 as md5::Digest>::new(),
     };
     let mut tally = Written::default();
-    // §7.5.2, and both of its lines. "The PDF file begins with the 5 characters '%PDF-'"; and
-    // "[i]f a PDF file contains binary data, as most do, the header line shall be immediately
-    // followed by a comment line containing at least four binary characters — that is,
-    // characters whose codes are 128 or greater." Every output of this serializer carries
-    // stream data, so the second line is written unconditionally rather than after a scan.
-    let mut header = String::new();
-    let _ = writeln!(header, "%PDF-{version}");
-    sink.put(header.as_bytes())?;
-    sink.put(b"%\xE2\xE3\xCF\xD3\n")?;
+    write_header(&mut sink, version)?;
 
     // Object *n* is slot *n - 1*, and it is written where the loop reaches it: the file's
     // order is the assembly's, which is what makes the output a function of the plan. An
@@ -905,9 +1464,17 @@ pub fn serialize<W: Write>(
             .resolved(index, options.streams, &mut tally)
             .ok_or(SerializeError::Unplaced { id })?;
 
+        // Errata Collection 3's Issue #439 appends "[t]he document catalog … in an encrypted
+        // document" to §7.5.7's list of what shall not be stored in an object stream, so an
+        // encrypted file's `/Root` is written at the outermost level; an unencrypted one's may
+        // be compressed, and is.
+        let outermost = protected.is_some() && number == root.number;
         if let Some((max_objects, max_bytes)) = ceilings
             && packable(&value)
+            && !outermost
         {
+            // §7.6.2's third exception: a compressed object's own strings are not encrypted,
+            // because the object stream carrying them is. `flush` encrypts the carrier.
             group.push(number, index, &value);
             if group.full(max_objects, max_bytes) {
                 flush(
@@ -918,12 +1485,17 @@ pub fn serialize<W: Write>(
                     &mut next_carrier,
                     &mut extends,
                     options.streams,
+                    protected.as_deref_mut(),
                     &mut tally,
                 )?;
             }
             continue;
         }
 
+        let value = match protected.as_deref_mut() {
+            Some(handler) => handler.value(assembly, id, &value, 0, &mut tally)?,
+            None => value,
+        };
         if let Some(entry) = entries.get_mut(index) {
             *entry = Entry::InFile(sink.at);
         }
@@ -939,6 +1511,16 @@ pub fn serialize<W: Write>(
         &mut next_carrier,
         &mut extends,
         options.streams,
+        protected.as_deref_mut(),
+        &mut tally,
+    )?;
+
+    let encrypt = write_encrypt_dictionary(
+        protected,
+        next_carrier,
+        &mut carriers,
+        &mut buffer,
+        &mut sink,
         &mut tally,
     )?;
     entries.append(&mut carriers);
@@ -946,31 +1528,97 @@ pub fn serialize<W: Write>(
 
     let start = sink.at;
     let size = u64::from(tally.objects).saturating_add(1);
-    match form {
-        Form::Table => {
-            // Every entry is an offset here, by construction: `form` is `Form::Stream`
-            // wherever an object stream was generated, so a classic table never has to state
-            // where a compressed object is. A type 2 entry reaching this arm would be a
-            // refusal rather than a silent zero, which is what `u64::MAX` produces.
-            let offsets: Vec<u64> = entries
-                .iter()
-                .map(|entry| match entry {
-                    Entry::InFile(at) => *at,
-                    Entry::InStream { .. } => u64::MAX,
-                })
-                .collect();
-            cross_reference_table(&mut sink, &offsets, size, root, assembly.info)?;
-        }
-        Form::Stream => {
-            cross_reference_stream(&mut sink, &entries, size, root, assembly.info)?;
-        }
-    }
+    cross_reference(
+        form,
+        &mut sink,
+        &entries,
+        size,
+        root,
+        assembly.info,
+        encrypt,
+    )?;
     let mut tail = String::new();
     let _ = write!(tail, "startxref\n{start}\n%%EOF\n");
     sink.put(tail.as_bytes())?;
 
     tally.bytes = sink.at;
     Ok(tally)
+}
+
+/// The output's catalog, refused before a byte is written.
+///
+/// Before rather than during, because a refusal that arrives after half a file has reached the
+/// caller's sink is a refusal it has to clean up after. `RootReach::Unplaced` is left to the
+/// writing loop, which names the number that was owed.
+fn catalog_of(assembly: &Assembly<'_>) -> Result<ObjectId, SerializeError> {
+    let root = assembly.root.ok_or(SerializeError::NoRoot)?;
+    match assembly.root_reaches(root) {
+        RootReach::Dictionary | RootReach::Unplaced => Ok(root),
+        RootReach::Elsewhere => Err(SerializeError::RootNotADictionary { id: root }),
+    }
+}
+
+/// The version §7.5.2's header states: the caller's, raised by the constructs this file uses.
+///
+/// §7.5.8.1 introduces the cross-reference stream at 1.5 and §7.5.7's NOTE 3 says the same of
+/// compressed objects — "[u]se of compressed objects requires a PDF 1.5 PDF reader" — while
+/// Table 20 marks `/V` 5 and Table 21 `/R` 6 as PDF 2.0. A file whose header disowned its own
+/// cross-reference section or its own encryption dictionary would be one no reader could be
+/// expected to recover.
+fn header_version(version: Version, form: Form, encrypted: bool) -> Version {
+    let version = match form {
+        Form::Stream => version.max(Version { major: 1, minor: 5 }),
+        Form::Table => version,
+    };
+    if encrypted {
+        version.max(Version { major: 2, minor: 0 })
+    } else {
+        version
+    }
+}
+
+/// §7.5.2's two lines.
+///
+/// "The PDF file begins with the 5 characters '%PDF-'"; and "[i]f a PDF file contains binary
+/// data, as most do, the header line shall be immediately followed by a comment line containing
+/// at least four binary characters — that is, characters whose codes are 128 or greater." Every
+/// output of this serializer carries stream data, so the second line is written unconditionally
+/// rather than after a scan.
+fn write_header<W: Write>(
+    sink: &mut Counted<'_, W>,
+    version: Version,
+) -> Result<(), SerializeError> {
+    let mut header = String::new();
+    let _ = writeln!(header, "%PDF-{version}");
+    sink.put(header.as_bytes())?;
+    sink.put(b"%\xE2\xE3\xCF\xD3\n")
+}
+
+/// Writes the `/Encrypt` dictionary as the file's last indirect object, and answers its number.
+///
+/// §7.6.2: "Any strings in an Encrypt dictionary" are exempt from encryption, and Table 20 says
+/// the same of every value in it — "[t]he values of the keys defined in [Table 20] shall not be
+/// encrypted". So this is the one object [`write_file`] writes without asking the handler, and
+/// it is written *after* every object that did ask, because until then the handler is borrowed.
+///
+/// `None`, and nothing written, for an unencrypted file.
+fn write_encrypt_dictionary<W: Write>(
+    protected: Option<&mut Protected<'_>>,
+    number: u32,
+    carriers: &mut Vec<Entry>,
+    buffer: &mut Vec<u8>,
+    sink: &mut Counted<'_, W>,
+    tally: &mut Written,
+) -> Result<Option<ObjectId>, SerializeError> {
+    let Some(handler) = protected else {
+        return Ok(None);
+    };
+    carriers.push(Entry::InFile(sink.at));
+    buffer.clear();
+    let _ = writeln!(HexSink(buffer), "{number} 0 obj");
+    let dictionary = Object::Dictionary(handler.dictionary.clone());
+    write_body(&dictionary, buffer, sink, tally)?;
+    Ok(Some(ObjectId::new(number, 0)))
 }
 
 /// Whether §7.5.7 permits this object to be stored in an object stream.
@@ -1044,8 +1692,8 @@ fn write_body<W: Write>(
     clippy::too_many_arguments,
     reason = "one write of one object stream needs the group, where its members' entries go, \
               where the carrier's own entry goes, the sink, the next number, the previous \
-              carrier for /Extends, the compression policy and the tally; bundling them would \
-              be a struct whose only method is this function"
+              carrier for /Extends, the compression policy, the output's security handler and \
+              the tally; bundling them would be a struct whose only method is this function"
 )]
 fn flush<W: Write>(
     group: &mut Group,
@@ -1055,6 +1703,7 @@ fn flush<W: Write>(
     next_number: &mut u32,
     extends: &mut Option<ObjectId>,
     streams: Streams,
+    protected: Option<&mut Protected<'_>>,
     tally: &mut Written,
 ) -> Result<(), SerializeError> {
     if group.members.is_empty() {
@@ -1128,11 +1777,14 @@ fn flush<W: Write>(
         dict.insert(Name::new(&b"Extends"[..]), Object::Reference(previous));
     }
 
-    let carrier = Object::Stream(std::sync::Arc::new(Stream {
-        dict,
-        data: encoded.into(),
-        decryption_failed: false,
-    }));
+    let carrier = match protected {
+        Some(handler) => handler.carrier(ObjectId::new(number, 0), dict, &encoded)?,
+        None => Object::Stream(std::sync::Arc::new(Stream {
+            dict,
+            data: encoded.into(),
+            decryption_failed: false,
+        })),
+    };
     carriers.push(Entry::InFile(sink.at));
     let mut buffer = Vec::new();
     let _ = writeln!(HexSink(&mut buffer), "{number} 0 obj");
@@ -1391,12 +2043,42 @@ fn deflate(data: &[u8], level: u32) -> Option<Vec<u8>> {
 }
 
 /// §7.5.4's classic table, then §7.5.5's `trailer` keyword and dictionary.
+/// §7.5.1's third section, in whichever of its two forms this file uses.
+fn cross_reference<W: Write>(
+    form: Form,
+    sink: &mut Counted<'_, W>,
+    entries: &[Entry],
+    size: u64,
+    root: ObjectId,
+    info: Option<ObjectId>,
+    encrypt: Option<ObjectId>,
+) -> Result<(), SerializeError> {
+    match form {
+        Form::Table => {
+            // Every entry is an offset here, by construction: `form` is `Form::Stream`
+            // wherever an object stream was generated, so a classic table never has to state
+            // where a compressed object is. A type 2 entry reaching this arm would be a
+            // refusal rather than a silent zero, which is what `u64::MAX` produces.
+            let offsets: Vec<u64> = entries
+                .iter()
+                .map(|entry| match entry {
+                    Entry::InFile(at) => *at,
+                    Entry::InStream { .. } => u64::MAX,
+                })
+                .collect();
+            cross_reference_table(sink, &offsets, size, root, info, encrypt)
+        }
+        Form::Stream => cross_reference_stream(sink, entries, size, root, info, encrypt),
+    }
+}
+
 fn cross_reference_table<W: Write>(
     sink: &mut Counted<'_, W>,
     offsets: &[u64],
     size: u64,
     root: ObjectId,
     info: Option<ObjectId>,
+    encrypt: Option<ObjectId>,
 ) -> Result<(), SerializeError> {
     let mut text = String::from("xref\n");
     // One subsection covering every number, because a whole file has no gaps: the objects are
@@ -1414,7 +2096,7 @@ fn cross_reference_table<W: Write>(
     }
     sink.put(text.as_bytes())?;
     sink.put(b"trailer\n")?;
-    let trailer = trailer_dictionary(size, root, info, sink.digest());
+    let trailer = trailer_dictionary(size, root, info, encrypt, sink.digest());
     let mut buffer = Vec::new();
     write::object(&Object::Dictionary(trailer), &mut buffer);
     buffer.push(b'\n');
@@ -1428,6 +2110,7 @@ fn cross_reference_stream<W: Write>(
     size: u64,
     root: ObjectId,
     info: Option<ObjectId>,
+    encrypt: Option<ObjectId>,
 ) -> Result<(), SerializeError> {
     // The stream is an object and its own entry has to be in it, so it takes the next number
     // and its offset is where it is about to be written.
@@ -1465,7 +2148,7 @@ fn cross_reference_stream<W: Write>(
     }
     row(1, u32::try_from(at).unwrap_or(u32::MAX), 0, &mut data);
 
-    let mut dict = trailer_dictionary(size.saturating_add(1), root, info, sink.digest());
+    let mut dict = trailer_dictionary(size.saturating_add(1), root, info, encrypt, sink.digest());
     dict.insert(
         Name::new(&b"Type"[..]),
         Object::Name(Name::new(&b"XRef"[..])),
@@ -1517,12 +2200,20 @@ fn row(kind: u8, second: u32, third: u16, out: &mut Vec<u8>) {
 /// §7.5.5's Table 15, for a file with exactly one cross-reference section.
 ///
 /// `/Size` and `/Root` are required; `/Prev` is not written because there is nothing before
-/// this section; `/Encrypt` is not written because [`serialize`] emits no encryption; `/Info`
-/// is written where the caller carried one.
+/// this section; `/Info` is written where the caller carried one; and `/Encrypt` is written
+/// exactly where [`serialize_encrypted`] wrote the dictionary it names, which §7.6.2 makes the
+/// entry that decides whether the file is encrypted at all — "[t]he absence of this entry from
+/// the trailer dictionary means that a PDF processor shall consider the document to be not
+/// encrypted."
+///
+/// The `/ID` the line below writes is a direct array of two direct strings, which is what Table
+/// 15 requires of an encrypted file — with an `/Encrypt` present, both "shall be direct objects
+/// and shall be unencrypted" — and is what [`identify`] has always written.
 fn trailer_dictionary(
     size: u64,
     root: ObjectId,
     info: Option<ObjectId>,
+    encrypt: Option<ObjectId>,
     digest: [u8; 16],
 ) -> Dictionary {
     let mut trailer = Dictionary::new();
@@ -1533,6 +2224,9 @@ fn trailer_dictionary(
     trailer.insert(Name::new(&b"Root"[..]), Object::Reference(root));
     if let Some(info) = info {
         trailer.insert(Name::new(&b"Info"[..]), Object::Reference(info));
+    }
+    if let Some(encrypt) = encrypt {
+        trailer.insert(Name::new(&b"Encrypt"[..]), Object::Reference(encrypt));
     }
     identify(&mut trailer, digest);
     trailer

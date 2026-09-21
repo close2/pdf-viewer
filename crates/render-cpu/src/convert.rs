@@ -129,12 +129,18 @@ pub(crate) fn color(c: Color) -> tiny_skia::Color {
 /// ISO 32000-2 §11.3.5.2's twelve separable modes are the library's, and they agree with
 /// Vello to the channel. §11.3.5.3's four are not: three of them are wrong there by 113 of
 /// 255 (ADR 0046), so `crate::blend` computes all four and every call reaching this
-/// function under one of them is drawing onto a *transparent* layer for it.
+/// function under one of them is drawing onto a *transparent* layer for it. §11.7.4.3's
+/// special overprinting blend mode takes the same route for a different reason: no library
+/// has it, because no document names it (`pdf_render::Overprint`, ADR 1157).
 ///
 /// Which is why they map to `SourceOver` rather than to the library's own versions, and
 /// why that is a derivation rather than a fallback: §11.3.6's compositing formula with
 /// α<sub>b</sub> = 0 collapses to the source colour whatever `B(Cb, Cs)` is, so on an
 /// empty layer every one of the sixteen modes *is* Normal.
+#[expect(
+    clippy::match_same_arms,
+    reason = "Normal and the five modes `crate::blend` computes both hand `tiny-skia`               source-over, and they do it for opposite reasons: one is the mode, the other is               an empty layer under it. Merging the arms would lose the comment that says so"
+)]
 pub(crate) fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
     match mode {
         // PDF's Normal is source-over, not source-replace.
@@ -150,10 +156,13 @@ pub(crate) fn blend_mode(mode: BlendMode) -> tiny_skia::BlendMode {
         BlendMode::SoftLight => tiny_skia::BlendMode::SoftLight,
         BlendMode::Difference => tiny_skia::BlendMode::Difference,
         BlendMode::Exclusion => tiny_skia::BlendMode::Exclusion,
-        // Table 135's four, drawn onto transparency and composited by `crate::blend`.
-        BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity => {
-            tiny_skia::BlendMode::SourceOver
-        }
+        // Table 135's four and §11.7.4.3's special overprinting blend mode, all drawn onto
+        // transparency and composited by `crate::blend`.
+        BlendMode::Hue
+        | BlendMode::Saturation
+        | BlendMode::Color
+        | BlendMode::Luminosity
+        | BlendMode::Overprint(_) => tiny_skia::BlendMode::SourceOver,
     }
 }
 

@@ -1860,6 +1860,10 @@ pub(crate) fn fill_rule(rule: FillRule) -> raster_scene::FillRule {
     }
 }
 
+#[expect(
+    clippy::match_same_arms,
+    reason = "the overprinting arm is unreachable — `Rasterizer::rasterize` refuses such a list               — and shares Normal's value only because this scene vocabulary has none of its               own. Merging it into Normal would state that they are the same mode"
+)]
 pub(crate) fn blend_mode(blend: BlendMode) -> raster_scene::BlendMode {
     match blend {
         BlendMode::Normal => raster_scene::BlendMode::Normal,
@@ -1878,6 +1882,10 @@ pub(crate) fn blend_mode(blend: BlendMode) -> raster_scene::BlendMode {
         BlendMode::Saturation => raster_scene::BlendMode::Saturation,
         BlendMode::Color => raster_scene::BlendMode::Color,
         BlendMode::Luminosity => raster_scene::BlendMode::Luminosity,
+        // §11.7.4.3's special overprinting blend mode, which `Rasterizer::rasterize` refuses
+        // by name before a command of such a list reaches here — this scene vocabulary has no
+        // arm for it, and Normal is the value the clause's own bullet does *not* give.
+        BlendMode::Overprint(_) => raster_scene::BlendMode::Normal,
     }
 }
 

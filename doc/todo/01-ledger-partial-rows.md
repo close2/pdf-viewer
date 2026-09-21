@@ -22,13 +22,14 @@ rather than about the standard (ADR 0455).
 vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
 an account of the requirement that is not the clause's — which is the half no sweep reads, because
 a claim that nothing is owed has no missing thing to grep for (ADR 0465).
-**Twenty-four sweeps** — twenty of them here, one over the corpus (ADR 0405), one
+**Twenty-five sweeps** — twenty-one of them here, one over the corpus (ADR 0405), one
 in `tools/spec-errata`, where the errata are (ADR 0426), **the twenty-second built in the
 seven-hundred-and-sixty-ninth, the only one whose right-hand side is the workspace's own
 membership** (ADR 0709), **the twenty-third in the eight-hundred-and-thirtieth, whose
 right-hand side is the corpora on disk** (ADR 0758), and **the twenty-fourth in the
 nine-hundred-and-thirtieth, the only one whose discriminator is on neither side of the
-comparison the other twenty-three make — it is the standard's own modal verb** (ADR 0900). **The eighteenth was built in
+comparison the other twenty-three make — it is the standard's own modal verb** (ADR 0900), **and
+the twenty-fifth, the only one whose subject is a row that owes nothing** (ADR 1166). **The eighteenth was built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
 against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
 declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
@@ -416,6 +417,33 @@ depends on nothing but `thiserror`.
   print — §12.8.5's row and `cms.rs`'s comments on the absence rungs, §12.8.3.4.2's "four corpus
   documents" and `doc/verify.md`'s "nine signed corpus documents" on the count rung — while the
   corrected wordings beside them do not.
+- **One asks whether a settled row's argument is still a document, and hands over what was written
+  after it**: `cargo run -q -p conformance --bin departures`, a fraction of a second, over
+  `ledger.toml` and `doc/adr/` — the twenty-fifth sweep (ADR 1166). `tools/state.sh departures` is
+  the same run with the per-row lines kept. Its subject is the half of the vocabulary no other sweep
+  here reaches: a `departed` row **owes nothing**, so every sweep that walks the debt walks past it,
+  and the argument it settles on is a dated ADR that nothing re-reads — which is the owner's note on
+  ADR 1119, and which `doc/habits/the-ledger-and-claims-about-this-tree.md` states as the shape where
+  nothing fires when a stated blocker expires.
+  **Two halves, and only one of them is a gate.** The check is in `cargo test -p conformance`: a
+  `departed` row naming an ADR number with no file in `doc/adr/` is `Problem::ArgumentMissing`,
+  which is ADR 1119's own check one step later — a number naming no file settles a row on prose
+  exactly as naming none does, and the difference is invisible to a reader who never types the path.
+  The print is this command: per row, the ADR the note's **first sentence** names — the deciding
+  argument — the ones the note names elsewhere, and every **later** ADR citing that argument or the
+  row's own clause number.
+  **Nothing is scored.** The four shapes of expiry — a capability the argument says this program
+  lacks that has since been built, a property of the output device, a decision taken under an
+  exclusion `CLAUDE.md` has since amended, an inconsistency on the argument's own terms — are
+  looked for by whoever runs it, because a program that judged a premise would be believed.
+  Calibrated per trap 13 on both halves: a fixture naming `ADR 9999` beside a real argument is named
+  for the invented one alone, and a fixture whose deciding ADR nothing has cited since gets an empty
+  list while one whose argument a later ADR cites gets that ADR. Its first run is ADR 1165's sweep,
+  where **eleven of the twelve rows read held and one had expired** — §12.11.6, whose ADR 0460
+  deferred the four restriction levels to a host that has since built them for every other
+  restriction a document asserts. The noise is length: a widely-cited argument such as ADR 0030's
+  puts sixty-odd documents on §12.5.5's list, which is why the deciding ADR is printed apart from
+  everything the note names beside it.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the

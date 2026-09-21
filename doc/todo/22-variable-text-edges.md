@@ -48,6 +48,11 @@ Still owed, and it is one file — **and it is the only thing this item still ow
   `tests/variable_text.rs::the_arabic_free_text_declines_whole_and_names_both_halves` pins the
   blank and the report. Until a round takes ADR 0348's list whole, this file is kept for the
   closed arguments below, which are the reason a later round will not reopen any of them.
+- **And a *save* that meets this refusal now names the field.** A widget whose value this layout
+  could not set in full is what Table 224's `/NeedAppearances` goes into the written file for, and
+  the entry is a boolean: `view::Written::unconstructed` carries §12.7.4.2's qualified name beside
+  it and `viewer_core`'s save reports each one, so the population is visible from the write path as
+  well as from the page (ADR 1159).
 
 ## ~~A `/DA` font name that is not text, and the escaping that goes with it~~ — **done in the six-hundred-and-seventeenth session**
 

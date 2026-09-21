@@ -295,6 +295,9 @@ fn reason(restriction: Restriction) -> String {
                 bit.position()
             )
         }
+        Restriction::LockPermission { level } => {
+            format!("a signature's /Lock permits {level:?} (§12.7.5.5's Table 236 /P)")
+        }
         Restriction::FieldLocked => "a signature locks the field (§12.7.5.5)".to_owned(),
         Restriction::FieldCovered => {
             "a signature's FieldMDP transform covers the field (§12.8.2.4)".to_owned()

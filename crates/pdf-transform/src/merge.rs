@@ -223,13 +223,13 @@ use std::sync::Arc;
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options, serialize};
+use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options};
 use pdf_syntax::{Document, Version};
 
 use crate::pattern::{Fill, Pattern};
 use crate::range::Selection;
 use crate::structure::{CarriedPage, Carry, Host};
-use crate::{Origin, Output, Refusal, Report, Sinks, Warning, structure};
+use crate::{Origin, Output, Protect, Refusal, Report, Sinks, Warning, structure};
 
 /// Several documents into one file.
 #[derive(Debug, Clone, PartialEq)]
@@ -806,6 +806,7 @@ pub(crate) fn run(
     sources: &[usize],
     documents: &[Document],
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
     report: &mut Report,
 ) -> Result<(), Refusal> {
     let mut resolved = Vec::new();
@@ -861,6 +862,7 @@ pub(crate) fn run(
         Duplicates::Refuse,
         &plan.names,
         sinks,
+        protect,
         report,
     )?;
     report.outputs.push(Output {
@@ -887,6 +889,13 @@ pub(crate) fn run(
 ///
 /// [`Refusal::Assembly`] where the document cannot be built, [`Refusal::FieldCollision`] where
 /// §12.7.4.2 forbids it, and [`Refusal::Sink`] where the output cannot be written.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one whole-file write needs the page order, the documents, which of them the plan \
+              named, what to do with a page taken twice, the output's name, the sink, the \
+              output's own §7.6 protection and the report; a struct of the eight would be a \
+              struct whose only method is this function"
+)]
 pub(crate) fn write(
     order: &[Placement],
     documents: &[Document],
@@ -894,6 +903,7 @@ pub(crate) fn write(
     duplicates: Duplicates,
     names: &Pattern,
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
     report: &mut Report,
 ) -> Result<Assembled, Refusal> {
     if order.is_empty() {
@@ -912,7 +922,14 @@ pub(crate) fn write(
         title: None,
     });
     let mut warnings = Vec::new();
-    let assembly = assemble(order, documents, sources, duplicates, &mut warnings)?;
+    let assembly = assemble(
+        order,
+        documents,
+        sources,
+        duplicates,
+        protect,
+        &mut warnings,
+    )?;
 
     // `Document::version` is already §7.5.2's header raised by Table 29's `/Version` where the
     // catalog states a later one, so the highest of these is the highest any source claims —
@@ -927,7 +944,7 @@ pub(crate) fn write(
         name: expanded.name.clone(),
         error,
     })?;
-    let written = serialize(&assembly, version, Options::new(form), &mut writer)
+    let written = Protect::write(protect, &assembly, version, Options::new(form), &mut writer)
         .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?;
     writer.flush().map_err(|error| Refusal::Sink {
         name: expanded.name.clone(),
@@ -1002,6 +1019,7 @@ fn assemble<'a>(
     documents: &'a [Document],
     sources: &[usize],
     duplicates: Duplicates,
+    protect: Option<&Protect>,
     warnings: &mut Vec<Warning>,
 ) -> Result<Assembly<'a>, Refusal> {
     /// The one sentence every numbering failure gets, since they all mean the same thing.
@@ -1119,7 +1137,7 @@ fn assemble<'a>(
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     merge.assembly.set_root(catalog);
 
-    report_losses(&merge, &scope, warnings);
+    report_losses(&merge, &scope, protect, warnings);
     Ok(merge.assembly)
 }
 
@@ -1282,15 +1300,18 @@ fn splice_outline(
 
 /// What the merged document lost that no reconciliation could keep: §7.6's protection, and
 /// §7.3.10's nulls where a reference named a page the merge does not hold.
-fn report_losses(merge: &Merge<'_>, scope: &Scope<'_>, warnings: &mut Vec<Warning>) {
+fn report_losses(
+    merge: &Merge<'_>,
+    scope: &Scope<'_>,
+    protect: Option<&Protect>,
+    warnings: &mut Vec<Warning>,
+) {
     for at in scope.contributing {
-        if merge.documents.get(*at).is_some_and(Document::is_encrypted) {
+        if merge.documents.get(*at).is_some_and(Document::is_encrypted) && protect.is_none() {
             warnings.push(Warning {
                 source: scope.source(*at),
                 page: None,
-                detail: "the source is encrypted (§7.6) and the merged document is not; the \
-                         serializer writes no /Encrypt"
-                    .to_owned(),
+                detail: Protect::lost("the merged document"),
             });
         }
     }

@@ -378,17 +378,30 @@ impl Interpreter<'_> {
         if let Some(tolerance) = self.document.get_key(dict, "SM").as_number() {
             state.smoothness = Some(narrow(tolerance));
         }
-        // Table 57's `/OP`, `/op` and `/OPM`: overprint and overprint mode, deliberately not
-        // read, which §8.6.7 is explicit about rather than silent on. Overprinting decides
-        // what happens to the device colourants a painting operation does *not* name, and
-        // this device has three additive process colourants and no separations: "Not all
-        // devices support overprinting. … If overprinting is not supported, the value of the
-        // overprint parameter shall be ignored" (§8.6.7 NOTE 1), and of the overprint mode,
-        // "It also shall not apply if the native colour space of the output device does not
-        // include CMYK device colourants; in that case, source colours shall be converted to
-        // the device's native colour space, and all components participate in the conversion,
-        // whatever their values." §11.7.4's transparent-model reading reaches the same place
-        // by a second route — see ADR 0028 and the ledger's §11.7.4 rows.
+        // Table 57's `/OP`, `/op` and `/OPM`: §8.6.7's two overprint parameters and the
+        // overprint mode. `/OP` sets both "unless there is also an op entry in the same
+        // graphics state parameter dictionary, in which case the OP entry shall set only the
+        // overprint parameter for stroking", and `/op`, where absent, takes `/OP`'s value —
+        // so the two entries of one dictionary are read together rather than one after the
+        // other. §8.6.7's own condition keeps them from changing a pixel on this device's
+        // three additive colourants; what they decide is §11.7.4.3's special blend mode
+        // inside a transparency group compositing in four components, which is a group space
+        // rather than a device one. See [`Interpreter::overprint_blend`] and ADR 1157.
+        let boolean = |entry: Object| match entry {
+            Object::Boolean(flag) => Some(flag),
+            _ => None,
+        };
+        let stroking = boolean(self.document.get_key(dict, "OP"));
+        let filling = boolean(self.document.get_key(dict, "op"));
+        if let Some(overprint) = stroking {
+            state.overprint_stroking = overprint;
+        }
+        if let Some(overprint) = filling.or(stroking) {
+            state.overprint_filling = overprint;
+        }
+        if let Some(mode) = self.document.get_key(dict, "OPM").as_integer() {
+            state.overprint_mode = mode;
+        }
         // ISO 32000-2 §8.6.5.9 and its table entry: `/UseBlackPtComp` takes ON, OFF or
         // Default, and a rendering intent of AbsColorimetric forces it off regardless.
         //

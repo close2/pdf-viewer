@@ -113,6 +113,13 @@ pub(crate) struct Arguments {
     /// other one it has — the sandbox, the backend, the page to open at. The four levels the
     /// project owner named, and the menu that will offer them, are later.
     pub(crate) restrictions: RestrictionPolicy,
+    /// §12.6.4.8: what this window does when a link asks for a URI, from `--links=`.
+    ///
+    /// The other direction from the entry above: what a *document* asserts over its reader there,
+    /// and what a document asks this machine to start here. `viewer_host::Links::Ask` unless a
+    /// person said otherwise, which is the level that hands nothing over without a press and still
+    /// performs the act the clause describes (ADR 1155).
+    pub(crate) links: viewer_host::Links,
     /// The directory `--trust-anchors` named, or nothing, which is the default and means nobody.
     ///
     /// **§12.8.1's third question, as a host's input.** RFC 5280 section 6.1.1 makes the trust
@@ -194,6 +201,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut backend_asked_for = false;
     let mut opens_at = None;
     let mut restrictions = RestrictionPolicy::default();
+    let mut links = viewer_host::Links::default();
     let mut trust_anchors = None;
     let mut reference_files = None;
     let mut reader_names: Vec<String> = Vec::new();
@@ -340,6 +348,19 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                     std::process::exit(2);
                 }
             }
+        } else if let Some(level) = argument
+            .to_string_lossy()
+            .strip_prefix(viewer_host::LINKS)
+            .map(str::to_owned)
+        {
+            // §12.6.4.8's act, at one of the same four levels (ADR 1155).
+            match viewer_host::links(&level) {
+                Ok(chosen) => links = chosen,
+                Err(complaint) => {
+                    eprintln!("{complaint}");
+                    std::process::exit(2);
+                }
+            }
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
             // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
             // prints has to name a word every host's parser takes — and for two hosts of three it
@@ -392,6 +413,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         opens_at,
         fragment,
         restrictions,
+        links,
         trust_anchors,
         accept_unknown_revocation,
         reference_files,
@@ -569,6 +591,35 @@ fn split_fragment(argument: &std::ffi::OsStr) -> (PathBuf, Option<String>) {
     }
 }
 
+/// The two policies a reader sets over a document, worded for a person.
+///
+/// Its own function because they are one subject and they run in two directions: what a document
+/// asserts over its reader, which `CLAUDE.md` says is always the reader's to turn off, and what a
+/// document may ask this machine to start, which is `viewer_host::Links`.
+fn policy_usage() {
+    eprintln!("  {}", viewer_host::IGNORE_RESTRICTIONS);
+    eprintln!("                perform every operation a document says its reader may not —");
+    eprintln!("                filling in a field or copying text under §7.6.4.2's permission");
+    eprintln!("                flags, or an author's §12.8.2.2 certification. This is the");
+    eprintln!("                default, because CLAUDE.md says a document's restrictions are the");
+    eprintln!("                reader's and that turning them off shall always be possible.");
+    eprintln!(
+        "  {}L or {}O:L,O:L",
+        viewer_host::RESTRICTIONS,
+        viewer_host::RESTRICTIONS
+    );
+    eprintln!("                obey them, per operation: O is copy, annotate, fill, print,");
+    eprintln!("                modify or assemble and L is off, on, ask or warn — ask holds the");
+    eprintln!("                operation until it is answered, warn does it and says what the");
+    eprintln!("                document said. --restrictions=copy:ask,annotate:on.");
+    eprintln!("  {}L", viewer_host::LINKS);
+    eprintln!("                what §12.6.4.8's link does: L is refuse, ask, warn or open.");
+    eprintln!("                Opening one hands a URI the *document* chose to xdg-open, which");
+    eprintln!("                starts whichever program this machine opens that scheme with, so");
+    eprintln!("                ask is the default — nothing is handed over without a keypress —");
+    eprintln!("                and only http, https and mailto are handed over at all.");
+}
+
 /// What the program does when it is given nothing to open.
 fn usage() {
     eprintln!("usage: quorra [--no-sandbox] <document.pdf>");
@@ -636,21 +687,7 @@ fn usage() {
     eprintln!("                is left out, and a list that starts with one means everything");
     eprintln!("                else: --trace=frames to chase a slow page, --trace=-pointer for");
     eprintln!("                everything but the flood a moving mouse makes.");
-    eprintln!("  {}", viewer_host::IGNORE_RESTRICTIONS);
-    eprintln!("                perform every operation a document says its reader may not —");
-    eprintln!("                filling in a field or copying text under §7.6.4.2's permission");
-    eprintln!("                flags, or an author's §12.8.2.2 certification. This is the");
-    eprintln!("                default, because CLAUDE.md says a document's restrictions are the");
-    eprintln!("                reader's and that turning them off shall always be possible.");
-    eprintln!(
-        "  {}L or {}O:L,O:L",
-        viewer_host::RESTRICTIONS,
-        viewer_host::RESTRICTIONS
-    );
-    eprintln!("                obey them, per operation: O is copy, annotate, fill, print,");
-    eprintln!("                modify or assemble and L is off, on, ask or warn — ask holds the");
-    eprintln!("                operation until it is answered, warn does it and says what the");
-    eprintln!("                document said. --restrictions=copy:ask,annotate:on.");
+    policy_usage();
     eprintln!("  {} D", viewer_host::TRUST_ANCHORS);
     eprintln!("                believe the certification authorities in directory D, as PEM or");
     eprintln!("                DER, when answering the third of the three questions a signature");

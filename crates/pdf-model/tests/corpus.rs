@@ -793,7 +793,17 @@ const PAGELESS: [&str; 5] = [
 /// the population, the constant does not, and nobody had put the two side by side. It is the
 /// counted figure now, so trap 5's rise-on-purpose costs the round that earns it one line here —
 /// which is what every entry above this one already is.
-const MAX_INCOMPLETE: usize = 61;
+///
+/// **61 to 62 in the thousand-one-hundred-and-sixtieth session, and it is trap 5's rise on
+/// purpose.** §11.7.4.3's special overprinting blend mode is built (ADR 1157), and with it the
+/// clause's last paragraph became a condition that can be met: an object painted under a blend
+/// mode other than Normal while overprinting is enabled shall be treated as if it were in an
+/// implicit non-isolated, non-knockout group painted under the special mode, whose result is
+/// then painted under the current mode. That group is not built, and `issue12798_page1_reduced.pdf`
+/// asks for it — a `DeviceCMYK` page group, `/OP true /op true /OPM 1`, and marks under
+/// `/BM /Multiply`. It was drawn the same way before this round and said nothing; it draws the
+/// same way still and says so. One document, found by `raster_golden` rather than by a search.
+const MAX_INCOMPLETE: usize = 62;
 
 /// How long one document may take before it counts as a failure.
 ///
@@ -999,7 +1009,8 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         | Unsupported::TransparencyGroup { .. }
         | Unsupported::SoftMask { .. }
         | Unsupported::TransferFunction { .. }
-        | Unsupported::BlackGeneration { .. } => (
+        | Unsupported::BlackGeneration { .. }
+        | Unsupported::Overprint { .. } => (
             Whose::NeitherOne,
             "a transparency model this tree departs from where the two can differ",
         ),

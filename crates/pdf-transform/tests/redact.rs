@@ -17,12 +17,13 @@ use std::fmt::Write as _;
 
 use pdf_model::colour::Conversion;
 use pdf_render::Color;
-use pdf_syntax::serialize::{ObjectStreams, Streams, flate_encode};
+use pdf_syntax::serialize::{Assembly, Form, ObjectStreams, Options, Streams, flate_encode};
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::redact::RedactPlan;
 use pdf_transform::{
-    Budget, Declined, Departure, MemorySinks, Origin, Plan, Policy, Source, apply,
+    Budget, Declined, Departure, MemorySinks, Origin, Plan, Policy, Protect, Refusal, Secret,
+    Source, apply, apply_protected,
 };
 
 mod support;
@@ -1238,3 +1239,133 @@ const JBIG2_IMAGE: &[u8] = &[
     0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x10, 0x00, 0x00, 0x00,
     0x02, 0x31, 0xDB, 0x51, 0xCE, 0x51, 0xFF, 0xAC,
 ];
+
+/// Encrypts a plaintext fixture with this tree's own writer, so that the tests below have an
+/// encrypted source that is not a corpus document.
+///
+/// §7.6.4's handler at `/V` 5 and `/R` 6, which `pdf_syntax::serialize_encrypted` writes and
+/// `crates/pdf-syntax/tests/serialize_encrypted.rs` holds to the clause. Here it is only the
+/// input: what these two tests are about is what `redact` does when handed one.
+fn encrypt(bytes: &[u8], owner: &str) -> Vec<u8> {
+    let source = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let mut assembly = Assembly::new(vec![&source]);
+    // The fixtures `build` makes are numbered from one with no gaps, and an object number past
+    // the last is `§7.3.10`'s null rather than an error, so the loop stops where `get` does.
+    for number in 1..=64 {
+        let id = pdf_syntax::ObjectId::new(number, 0);
+        if matches!(source.get(id), Object::Null) {
+            break;
+        }
+        assembly.copy(0, id).expect("the assembly takes it");
+    }
+    assembly.set_root(pdf_syntax::ObjectId::new(1, 0));
+    let mut out = Vec::new();
+    pdf_syntax::serialize_encrypted(
+        &assembly,
+        pdf_syntax::Version { major: 1, minor: 7 },
+        Options::new(Form::of(&source)),
+        &pdf_syntax::Protection::owner_only(owner),
+        &mut pdf_syntax::SystemEntropy,
+        &mut out,
+    )
+    .expect("the fixture is encrypted");
+    out
+}
+
+/// `redact`, with the output's own §7.6 protection supplied — or not.
+fn redact_protected(
+    bytes: &[u8],
+    password: &str,
+    protect: Option<&Protect>,
+) -> Result<(pdf_transform::Report, Vec<u8>), Refusal> {
+    let sinks = MemorySinks::new();
+    let source = Source::with_password(
+        pdf_syntax::FileBytes::from(bytes.to_vec()),
+        Secret::from(password.to_owned()),
+    );
+    let report = apply_protected(
+        &Plan::Redact(RedactPlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+        }),
+        &[&source],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+        protect,
+    )?;
+    let mut outputs = sinks.into_outputs();
+    assert_eq!(outputs.len(), 1, "one input, one output");
+    Ok((report, outputs.remove(0).1))
+}
+
+/// The fixture both encryption tests redact: "KEEP" outside the region, "SECRET" inside it.
+fn secret_page() -> Vec<u8> {
+    build(
+        "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET",
+        &["<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] \
+           /QuadPoints [10 66 130 66 10 40 130 40] >>"],
+    )
+}
+
+/// An encrypted source with no protection stated for the output is refused, and the refusal
+/// says why rather than naming a missing verb.
+///
+/// §12.5.6.23 asks a redaction to "remove all traces of the specified content"; a person who
+/// put a password on a document asked for the rest of it not to be read either. Writing the
+/// survivors in the clear would answer the first by breaking the second, so the operation stops
+/// and says what would let it proceed. ADR 1162.
+#[test]
+fn an_encrypted_source_is_refused_where_the_caller_states_no_protection_for_the_output() {
+    let encrypted = encrypt(&secret_page(), "keeper");
+    let refused = redact_protected(&encrypted, "keeper", None);
+    match refused {
+        Err(Refusal::Assembly(detail)) => {
+            assert!(
+                detail.contains("§7.6") && detail.contains("no passwords were supplied"),
+                "the refusal names the clause and what would lift it: {detail}"
+            );
+        }
+        other => panic!("an encrypted source is refused: {other:?}"),
+    }
+}
+
+/// With passwords supplied the redaction happens and its output is protected too.
+///
+/// The two halves that matter are both here: the removed text is gone from the file — and not
+/// merely unreadable, because a reader with the password would read it — and the file that
+/// holds the survivors is itself encrypted, so the redaction did not quietly trade one
+/// protection for another.
+#[test]
+fn an_encrypted_source_is_redacted_and_the_redaction_is_encrypted_in_turn() {
+    let encrypted = encrypt(&secret_page(), "keeper");
+    let (report, out) = redact_protected(
+        &encrypted,
+        "keeper",
+        Some(&Protect::owner_only(Secret::from("newkeeper".to_owned()))),
+    )
+    .expect("the redaction applies");
+    assert!(
+        report.refused.is_empty(),
+        "nothing was refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, b"SECRET"),
+        "the removed text is gone from the file"
+    );
+    assert!(
+        !contains(&out, b"(KEEP)"),
+        "and the surviving operators are ciphertext, because the output is encrypted"
+    );
+
+    let opened = Document::open_with_password(out, Limits::DEFAULT, "newkeeper").expect("it opens");
+    assert!(opened.is_encrypted(), "§7.6: the output states an /Encrypt");
+    let page = pdf_model::Pages::new(&opened).get(0).expect("page one");
+    let text = pdf_model::interpret(&opened, &page).text;
+    assert!(text.contains("KEEP"), "the outside text survives: {text:?}");
+    assert!(
+        !text.contains("SECRET"),
+        "and the removed text is unrecoverable even with the password: {text:?}"
+    );
+}

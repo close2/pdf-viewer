@@ -155,10 +155,11 @@ catalogue found. The cost is honest and small: a reader has to go looking, and t
 longer in the place a PDF reader interprets.
 
 **The appended page.** `doc/rfc/0007` section 4.6.1: all six admit as many pages as a document
-likes, so appending is available where attaching is not. What it costs is section 4.6.2's list —
-page labels, the outline, and at Level A the structure tree — and `Q58` is open on whether composing
-such a page is inside `CLAUDE.md`'s authoring exclusion at all. Every entry that proposes one says
-so.
+likes, so appending is available where attaching is not. Composing such a page is inside
+`CLAUDE.md`'s authoring exclusion by its third amendment, which `doc/questions/A58` ratified and
+ADR 1014 argues. What it costs is section 4.6.2's list — page labels, the outline, and the
+structure tree — and all three are carried out: the labels and the outline by ADR 1025, the
+structure entries by ADR 1163.
 
 **The operator's own knowledge.** section 0.2's `supply`. Where the refusal is *nothing in the file
 says which*, the operator often knows, once, for their whole archive.
@@ -1147,8 +1148,12 @@ ISO 19005-2 6.3.1, ISO 19005-4 6.3.1 · **two of the four built** (ADR 1099)
     under §12.5.5's own matrix on a page stating the source page's boxes, so no placement choice is
     this program's. Re-badging it as a `Stamp` remains fenced — that invents an annotation — and an
     annotation that drew nothing refuses by name rather than having an appearance constructed for
-    it to preserve. Whether the marks may go back onto the page they came off, rather than onto a
-    page of their own, is `doc/questions/Q65`;
+    it to preserve. The marks go back onto the page they came off where nothing forbids it
+    (`doc/questions/A65`, ADRs 1120 and 1123), and a **tagged** document refuses either placement by
+    name: ISO 32000-2 §14.8.2.2.1 puts the producer's real content in the structure tree, Table 355
+    makes a structure type required, and what an appearance *is* semantically is a fact only its
+    producer held (ADR 1163 section 6). An operator who knows is the `supply` this site does not
+    have yet;
   - `preserve` the **media stream** of a `Screen`, `Movie` or `Sound` annotation by attaching it,
     which 4f and 4e allow for any file type. The sound is then in the archive, as a file, instead of
     being deleted. **Not built**;
@@ -1485,10 +1490,14 @@ they differ in what the archive keeps rather than in what it conforms to:
   archive is one or more pages longer than the document that went in, those pages carry XML a reader
   did not ask to see, and where the document embeds no face that can set the text one this program
   ships is embedded for it and named in the report (`doc/questions/A47`).
-- **Not built** — the page for a document that carries a structure tree, which would need the
-  entries ISO 19005-2 6.7 asks of a Level A file's logical structure; and a packet stating a
-  character `/WinAnsiEncoding` has no code for, where the document's own fonts cannot set it either.
-  Both refuse by name rather than half-doing it.
+- **Not built** — a packet stating a character `/WinAnsiEncoding` has no code for, where the
+  document's own fonts cannot set it either; a `/MarkInfo` claim of tagged conventions over a
+  document with no structure tree, where the page would have nowhere to be described; and a
+  structure tree this cannot extend without rewriting the producer's own — a root the catalog
+  states inline, a `/ParentTree` with `/Kids`, a `/Nums` stated by reference. Each refuses by name
+  rather than half-doing it. **A document that carries an extendable structure tree is built**: the
+  appended page is described in it, a `Part` holding a `P` per line, with ISO 32000-2 §14.7.5.4's
+  `/StructParents`, parent-tree entry and `/ParentTreeNextKey` (ADR 1163).
 - **Departure** — **B**. A packet holding a property its own schema does not define still parses and
   still says what the producer meant; departing would leave a file no validator passes for the sake
   of metadata that a page now keeps anyway.

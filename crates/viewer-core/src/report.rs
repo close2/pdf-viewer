@@ -108,6 +108,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
                  not use: {detail}"
             )
         }
+        // Drawn too, and every mark is where the producer put it: what is short is §11.7.4's
+        // grouping around the special overprinting blend mode, which decides whether a part's
+        // kept components see the other part or the backdrop (ADR 1157).
+        Unsupported::Overprint { detail } => {
+            format!("this page overprints in a way that was painted without its group: {detail}")
+        }
         // The second report whose subject is the file, and the first about the page as a whole:
         // everything above says a mark is missing or wrong, and this says the *sheet* the marks
         // were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389). The

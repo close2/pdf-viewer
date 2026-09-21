@@ -33,6 +33,7 @@ use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
     SharedProfile, Sites, StandardEncodings,
 };
+use super::tagged;
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
 
@@ -1920,6 +1921,14 @@ fn the_preserved_pages(
         .into_iter()
         .find(|site| asked(site))
         .map(|site| {
+            // **Before the relocation is planned, not after.** `doc/adr/1163`: marks put back onto
+            // the producer's own page are drawn by operators no marked-content sequence brackets,
+            // which §14.8.2.2.1 makes an artifact in a tagged document — and the marks are the
+            // producer's real content. Naming a structure type for them is what this conversion
+            // will not do, so the refusal is the same one an appended page of marks gets.
+            if tagged::describes_its_content(document) {
+                return Err(Because::NotBuiltYet(tagged::MARKS_IN_A_TAGGED_DOCUMENT));
+            }
             // The removal is what makes the file conform and the marks are what a preserve keeps,
             // so a document whose annotations cannot be removed gets neither — the packet site's
             // own construction, for its reason.

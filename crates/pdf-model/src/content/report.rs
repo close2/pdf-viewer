@@ -100,6 +100,23 @@ pub enum Unsupported {
         /// What painted the object in parts.
         detail: &'static str,
     },
+    /// A construction §11.7.4 asks for while overprinting is enabled that this tree does not
+    /// build.
+    ///
+    /// The special overprinting blend mode itself **is** built, in the one case Table 146 gives
+    /// a value other than the source colour: a page or isolated group compositing in four
+    /// components, an overprint mode of 1, and a `DeviceCMYK` colour the content stream stated
+    /// directly with a component at zero (`Interpreter::overprint_blend`, ADR 1157). What
+    /// reaches this are the two constructions built around that mode rather than the mode
+    /// itself — §11.7.4.3's implicit non-isolated, non-knockout group for an object painted
+    /// under a blend mode other than Normal, and §11.7.4.4's first bullet for a combined fill
+    /// and stroke whose own alpha or mode is not the identity. In both the marks are painted,
+    /// in the right place and under the document's own mode; what is short is the *grouping*,
+    /// which decides whether one part's kept components see the other part or the backdrop.
+    Overprint {
+        /// Which construction, and what was painted instead.
+        detail: String,
+    },
     /// A graphics state's `/SMask` that could not be evaluated (§11.6.5.1).
     ///
     /// A soft mask *is* implemented — a transparency group evaluated for its alpha (§11.5.2)

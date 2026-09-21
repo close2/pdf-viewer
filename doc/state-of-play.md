@@ -115,7 +115,10 @@ the page under the point it was dropped on, which draws its icon before anything
 0814) — with §7.9.6's one namespace over both homes, an undo that forgets it and a list that
 answers the log rather than the file; and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
-writing `CLAUDE.md` permits. **No window has a gesture for the attach yet**, by the owner's word
+writing `CLAUDE.md` permits. Every annotation that update writes carries Table 166's `/M` where a
+host has said what time it is, and none where none has: the renderer has no clock, so the instant
+arrives as `Command::Clock` the way every other fact about the reader's machine does (ADR 1160).
+**No window has a gesture for the attach yet**, by the owner's word
 that the flows are being reviewed as mockups first; the C ABI has `quorra_attach` and `quorra_detach`,
 because an ABI has no gestures.
 
@@ -126,6 +129,15 @@ ends when that document closes. The *ask* level puts its question on a modal win
 worded once in `viewer_host::restriction`; §12.2's `/HideMenubar` is read, answered in words and
 deliberately not obeyed over that menu, because a file that could hide the reader's levels would be
 taking away the control over itself (ADR 1145).
+
+**And what a document may ask this machine to do is the reader's to set too, at the same four
+levels running the other way.** §12.6.4.8's link is opened by the host and by nothing inside the
+confinement, under `--links=refuse|ask|warn|open` in all three windows — `ask` by default, so
+nothing reaches another program without a keypress, and only `http`, `https` and `mailto` are
+handed over at all, whatever the level, because a document free to name a scheme would be choosing
+which of this machine's handlers runs. The words are not the restriction menu's four: there *off*
+is the permissive end and here it would be `open`, and one vocabulary for two directions is a trap
+with a tick beside it (ADR 1155).
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the
@@ -382,6 +394,12 @@ under that clause's matrix — a `q` prepended as its own stream and §8.4.2's b
 the producer's operators, with the appended page kept for the two cases it refuses, a content
 stream that pops further than it pushes and a remaining, unhidden annotation whose `/Rect` the
 moved appearance would be drawn over, since `/Annots` order is not a painting order (ADR 1123).
+**And content a target will not hold where it was is kept on a page the conversion composes** — the
+XMP packet the producer wrote, set verbatim in a face the document itself carries (ADRs 1014, 1025)
+— with that page described in the document's own structure tree where the document describes its
+content: §14.7.5.2's marked-content sequence per line, §14.7.2's `Part` holding a `P` per line, and
+§14.7.5.4's `/StructParents`, parent-tree entry and `/ParentTreeNextKey`, so the page is real
+content rather than §14.8.2.2.1's artifact by absence (ADR 1163).
 A refusal is a question answered in advance: a configuration names each refusal site and its
 remedy, `--remedy-sites` prints every site a target binds with what this version carries out, and
 six shipped profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012).
@@ -426,7 +444,18 @@ structure and never content: §7.5.2's header, a body of indirect objects, §7.5
 §7.5.8's stream in the form the sources themselves use, §7.5.5's trailer and §14.4's two
 identifiers, with every stream's bytes crossing encoded and untouched and only its `/Length`
 re-derived from what was written; a reference to an object the output does not hold becomes
-§7.3.10's null and is counted. `split` is the first verb on it — one file per page, per group of
+§7.3.10's null and is counted. **And it emits §7.6 where a caller asks for it**: the standard
+security handler at `/V` 5 and `/R` 6 with `AESV3`, which is the one configuration Table 20 and
+§7.6.4.1 leave undeprecated, with §7.6.4.4.7's, §7.6.4.4.8's and §7.6.4.4.9's algorithms
+computing `/U`, `/UE`, `/O`, `/OE` and `/Perms`, §7.6.2's exceptions applied where each object's
+identity is known, and every unpredictable byte — the file encryption key, the four salts, the
+filler, and §7.6.3.3's initialisation vector per string and stream — supplied from outside, so a
+plaintext write stays byte-deterministic and an encrypted one is only as unrepeatable as the
+clause requires. It is **asked for and never inherited**, because revision 6 stores each password
+as a one-way hash and an opened document yields none to carry: `split`, `merge`, `pages` and
+`optimize` warn and write in the clear where nobody supplied passwords, `redact` refuses, and
+`quorra-transform` takes both from descriptors rather than from argv (ADRs 1161, 1162).
+`split` is the first verb on it — one file per page, per group of
 *n*, per comma-separated group of the selection, or **at §12.3.3's outline**, where a piece begins
 on every page an item at the stated depth resolves to and the front matter ahead of the first is a
 piece of its own. Each piece is the source's own page objects under a new one-level page tree,
@@ -543,7 +572,9 @@ all three of this tree's workers — is one crate, `confined-transport`. **What 
 (one as consumed by nothing, saying why), the six operations — a field filled, an
 annotation added, a page rendered, a file extracted, a file written in, a document assembled out
 of another's pages — each read their bit at
-the document's revision and §12.8.2.2's certification besides, and the four levels are one type
+the document's revision and §12.8.2.2's certification besides — and §12.7.5.5's Table 236 `/P`,
+the permission a signed signature field's lock states over the document, whose several instances
+compose as the minimum its own words make them (ADR 1156) — and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on`, `warn` and `ask`,
 which puts the question on the terminal where there is one and is a refusal saying nobody could

@@ -53,6 +53,15 @@ use crate::{controls, page, pages, tree};
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
 
+/// What a window does with the word a person pressed on one of `Host::put_a_question`'s two
+/// buttons.
+///
+/// Boxed and reference-counted because the dialogue outlives the call that built it: GTK holds the
+/// closure in two places — each button, and the handler for a window closed without pressing
+/// either — and neither may capture the `Host`, so what each captures is this and the weak handle
+/// beside it.
+type Answered = Rc<dyn Fn(&mut Host, bool)>;
+
 /// Why the host could not start.
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -309,6 +318,13 @@ pub struct Host {
     /// [`viewer_host::IGNORE_RESTRICTIONS`] turns them all off, and this program refused it as an
     /// unknown option while telling every person who hit a refusal to use it (ADR 0604).
     restrictions: viewer_host::Restrictions,
+    /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
+    ///
+    /// The other direction from the entry above, and that is why it is a second value rather than
+    /// a seventh operation of the first: what a document *asserts over its reader* is one subject,
+    /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
+    /// `CLAUDE.md`'s four levels over the second (ADR 1155).
+    links: viewer_host::Links,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -429,6 +445,7 @@ impl Host {
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
         restrictions: viewer_core::RestrictionPolicy,
+        links: viewer_host::Links,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -487,6 +504,7 @@ impl Host {
                 pages_left: 0,
                 widget_appearances,
                 restrictions: viewer_host::Restrictions::new(restrictions),
+                links,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
                 panel_wanted: true,
@@ -567,14 +585,7 @@ impl Host {
         ]));
     }
 
-    /// `CLAUDE.md`'s *ask* level, as a window a person answers.
-    ///
-    /// **The modal shape §7.6.4.1's password already had**, and deliberately the same one: both
-    /// are this program holding something until a person says a word, and a reader who has met one
-    /// of them has met the other. What is different is the answer — two buttons rather than a
-    /// text field — and what a dismissed window means, which is [`viewer_host::DO_NOT`] for the
-    /// reason `viewer_host::restriction` records: going ahead on a question nobody answered would
-    /// be the *off* level under another name.
+    /// `CLAUDE.md`'s *ask* level over what a document asserts, as a window a person answers.
     fn ask_whether_to_proceed(
         &mut self,
         document: DocumentId,
@@ -582,8 +593,40 @@ impl Host {
         notes: &[String],
     ) {
         let words = viewer_host::asked(operation, notes);
+        self.put_a_question(
+            "Restricted",
+            &words,
+            Rc::new(move |host: &mut Self, proceed| host.answer(document, operation, proceed)),
+        );
+    }
+
+    /// `CLAUDE.md`'s *ask* level over §12.6.4.8's link, in the same window.
+    ///
+    /// The same dialogue as the one above because it is the same kind of question — this program
+    /// holding something until a person says a word — and what differs is only whose sentence is
+    /// being decided about: the document's assertion there, and here the URI the document asks
+    /// this machine to start a program on (ADR 1155).
+    fn ask_whether_to_open(&mut self, uri: String, words: &viewer_host::Question) {
+        self.put_a_question(
+            "Open this link?",
+            words,
+            Rc::new(move |host: &mut Self, proceed| {
+                host.say(&viewer_host::answered(&uri, proceed));
+            }),
+        );
+    }
+
+    /// One question, two buttons, and whatever the person pressed handed to `answer`.
+    ///
+    /// **The modal shape §7.6.4.1's password already had**, and deliberately the same one: both
+    /// are this program holding something until a person says a word, and a reader who has met one
+    /// of them has met the other. What is different is the answer — two buttons rather than a
+    /// text field — and what a dismissed window means, which is [`viewer_host::DO_NOT`] for the
+    /// reason `viewer_host::restriction` records: going ahead on a question nobody answered would
+    /// be the *off* level under another name.
+    fn put_a_question(&mut self, title: &str, words: &viewer_host::Question, answer: Answered) {
         let dialog = gtk4::Window::new();
-        dialog.set_title(Some("Restricted"));
+        dialog.set_title(Some(title));
         dialog.set_modal(true);
         dialog.set_transient_for(Some(&self.ui.window));
         dialog.set_default_size(420, -1);
@@ -618,10 +661,11 @@ impl Host {
             let me = self.me.clone();
             let dialogue = dialog.clone();
             let done = Rc::clone(&answered);
+            let said = Rc::clone(&answer);
             button.connect_clicked(move |_| {
                 done.set(true);
                 dialogue.close();
-                with(&me, |host| host.answer(document, operation, proceed));
+                with(&me, |host| said(host, proceed));
             });
             buttons.append(&button);
         }
@@ -632,7 +676,7 @@ impl Host {
         let me = self.me.clone();
         dialog.connect_close_request(move |_| {
             if !answered.get() {
-                with(&me, |host| host.answer(document, operation, false));
+                with(&me, |host| answer(host, false));
             }
             glib::Propagation::Proceed
         });
@@ -975,16 +1019,16 @@ impl Host {
             // repaint, no key, and no thread from which `pdf_render::Interrupt` could be raised.
             // What comes back arrives in `take_the_drawn`.
             Event::NeedsRender(request) => self.drawing.ask(request),
-            // §12.6.4.8: handed over rather than opened. The string is one the *document*
-            // controls, and giving it to a browser is a decision about this machine that this
-            // host has not been given — the same answer `viewer-ui` gives.
-            // §12.6.4.8: resolved against this document's own location where the action left
-            // it partial, then declined or opened by the one policy three windows share
-            // (ADR 1079). What this arm owns is saying it out loud.
+            // §12.6.4.8: resolved against this document's own location where the action left it
+            // partial, then opened, declined or put to the person by the one policy three windows
+            // share — `CLAUDE.md`'s four levels over the act of starting another program on a
+            // string the *document* chose (ADRs 1079, 1155). What this arm owns is the dialogue.
             Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
-                let refused = viewer_host::policy::may_open_uri(&uri).err();
-                self.say(&viewer_host::policy::uri_note(&uri, refused.as_deref()));
+                let uri = viewer_host::resolve_uri(Some(&self.path), &uri);
+                match viewer_host::link(&uri, self.links) {
+                    viewer_host::Link::Say(note) => self.say(&note),
+                    viewer_host::Link::Ask(words) => self.ask_whether_to_open(uri, &words),
+                }
             }
             // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
             // `viewer_host::policy::may_submit`'s one answer rather than this window's (ADR 1062).

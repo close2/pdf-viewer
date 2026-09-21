@@ -732,6 +732,9 @@ pub struct DisplayList {
     /// §11.7.5.2's transfer function per elementary mark, where any mark on the page carried
     /// one. See [`DisplayList::set_transfers`].
     transfers: Option<Box<crate::transfer_channel::TransferChannel>>,
+    /// Whether any command in this list composites under §11.7.4.3's special overprinting
+    /// blend mode. See [`DisplayList::note_overprinting`].
+    overprinting: bool,
 }
 
 impl DisplayList {
@@ -750,7 +753,27 @@ impl DisplayList {
             colour_cube: None,
             content_clip: None,
             transfers: None,
+            overprinting: false,
         }
+    }
+
+    /// Records that a command in this list carries [`crate::BlendMode::Overprint`].
+    ///
+    /// A page is interpreted into one list — a soft mask's group, a tiling pattern's cell and
+    /// a form's content are all built on it and split back out — so one flag set where the
+    /// mode is chosen answers for the whole list, and no backend pays a walk to find out.
+    /// `render-gpu` and `render-raster` read it to refuse the list by name: neither
+    /// rasteriser's scene vocabulary has a mode outside Table 135's sixteen, and a page drawn
+    /// as though the document had not asked for overprinting is the silent divergence the
+    /// cross-backend comparison exists to prevent. ADR 1157.
+    pub fn note_overprinting(&mut self) {
+        self.overprinting = true;
+    }
+
+    /// Whether any command here composites under §11.7.4.3's special overprinting blend mode.
+    #[must_use]
+    pub fn overprints(&self) -> bool {
+        self.overprinting
     }
 
     /// States which transfer function §11.7.5.2 chooses at each point of this page.
@@ -798,6 +821,7 @@ impl DisplayList {
             colour_cube: None,
             content_clip: self.content_clip,
             transfers: None,
+            overprinting: self.overprinting,
         }
     }
 
@@ -852,6 +876,7 @@ impl DisplayList {
     /// light: drawing the chromatic list alone would paint the page in the complements of
     /// cyan, magenta and yellow with no black at all.
     pub fn set_blending(&mut self, space: crate::blending::BlendingSpace, black: DisplayList) {
+        self.overprinting |= black.overprinting;
         self.blending = Some(space);
         self.black = Some(Box::new(black));
     }

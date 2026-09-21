@@ -71,6 +71,17 @@ section_ledger() {
     run "ledger" '.' cargo run -q -p conformance --bin ledger
 }
 
+# The reading list behind every `departed` row. The status says a requirement was decided against
+# with its cost recorded in an ADR, and the gate can check that the ADR exists but not that its
+# premise still holds — so this prints, per row, the argument its first sentence names and how many
+# later ADRs cite that argument or the clause. Whether a premise has expired is a person's to read
+# (ADR 1166); the whole reading list is one command away, `--bin departures`.
+section_departures() {
+    run "the argument behind every departed row" \
+        '^[0-9]+ departed row|^§|^  (nothing later cites|since, to re-read)' \
+        cargo run -q -p conformance --bin departures
+}
+
 section_conformance() {
     run "conformance (citations, quotations, tables, ledger rows)" \
         '^[0-9]+ (citations|quotations)|naming a section of one of this|instruction documents, every one|owe a review|^conformance ledger|^  (implemented|partial|departed|reported|silent|inapplicable|writer-side|out-of-scope) |unsettled rows owe a debt|name .* distinct tables|name a test file' \
@@ -673,8 +684,8 @@ section_ratchets() {
     done
 }
 
-all="ledger conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
-quick="ledger conformance annex-o governing questions records counts hosts windows binaries disk"
+all="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
+quick="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk"
 
 # Sections that compose other sections' gates rather than running a gate of their own. Not in
 # `all`, because a full run already pays for every line they run; named by `--list`, because a
@@ -694,6 +705,7 @@ esac
 for section in $sections; do
     case $section in
     ledger) section_ledger ;;
+    departures) section_departures ;;
     conformance) section_conformance ;;
     tests) section_tests ;;
     corpus) section_corpus ;;

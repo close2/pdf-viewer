@@ -203,4 +203,8 @@ is about *this file's* claims rather than about the ledger's.
 - **A silence is not a gap**, and the first move on one is neither a report nor a feature: work
   out what the clause asks *of this device*. §10.7.5's `/SA` was implemented in the half a display
   can state and recorded as a departure in the half it cannot; §11.7.4's overprinting was six rows
-  a reading of Table 146 removed altogether.
+  a reading of Table 146 reduced to one cell — **and that reading is the standing example of the
+  other half of the rule**, because it closed the rows on a premise it stated (a group compositing
+  in the device's three components) which a later round retired without anyone re-reading the rows
+  (ADRs 0028, 0262, 1157). *What the clause asks of this device* is a question whose answer moves
+  when the device does.

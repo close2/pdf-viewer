@@ -523,7 +523,7 @@ fn a_read_only_field_refuses_a_person_and_not_an_import() {
 /// nothing else. It signs nothing and verifies as nothing, which is exactly right here — this is
 /// a test of what a field lock *asserts*, and §12.8.1's three questions about the signature
 /// itself are a different clause with its own fixtures.
-fn form_locking(action: &str, fields: &[&str], signed: bool) -> Vec<u8> {
+fn form_locking(action: &str, fields: &[&str], signed: bool, permission: Option<i64>) -> Vec<u8> {
     let form = String::from_utf8(form()).expect("the fixture is ASCII");
     let with_field = form.replace("/Fields [5 0 R 6 0 R]", "/Fields [5 0 R 6 0 R 8 0 R]");
     assert_ne!(with_field, form, "the fixture states a field list");
@@ -532,11 +532,16 @@ fn form_locking(action: &str, fields: &[&str], signed: bool) -> Vec<u8> {
         let _ = write!(names, "({name}) ");
     }
     let value = if signed { "/V 9 0 R " } else { "" };
+    // Table 236's `/P`, where the caller states one: the entry is optional and "[t]here is no
+    // default value", so a fixture without it is a lock that states no permission rather than one
+    // that states a permissive level.
+    let permission = permission.map_or_else(String::new, |level| format!("/P {level} "));
     let objects = format!(
         "8 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [0 0 0 0] /F 4 /FT /Sig \
          /T (sig) {value}/Lock 10 0 R >>\nendobj\n\
          9 0 obj\n<< /Type /Sig /ByteRange [0 100 200 300] >>\nendobj\n\
-         10 0 obj\n<< /Type /SigFieldLock /Action /{action} /Fields [{names}] >>\nendobj\n"
+         10 0 obj\n<< /Type /SigFieldLock /Action /{action} {permission}/Fields [{names}] >>\n\
+         endobj\n"
     );
     let body = with_field
         .split_once("xref\n")
@@ -569,7 +574,8 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     let locked = vec![Restriction::FieldLocked];
 
     // Include: "All fields specified in Fields".
-    let include = Document::open(form_locking("Include", &["name"], true)).expect("a valid PDF");
+    let include =
+        Document::open(form_locking("Include", &["name"], true, None)).expect("a valid PDF");
     assert_eq!(
         asserted(&include, Operation::FillInForm, Some("name"), None),
         locked
@@ -585,7 +591,7 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     );
 
     // All: "All fields in the document".
-    let all = Document::open(form_locking("All", &[], true)).expect("a valid PDF");
+    let all = Document::open(form_locking("All", &[], true, None)).expect("a valid PDF");
     for field in ["name", "agree", "sig"] {
         assert_eq!(
             asserted(&all, Operation::FillInForm, Some(field), None),
@@ -595,7 +601,8 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     }
 
     // Exclude: "All fields except those specified in Fields".
-    let exclude = Document::open(form_locking("Exclude", &["name"], true)).expect("a valid PDF");
+    let exclude =
+        Document::open(form_locking("Exclude", &["name"], true, None)).expect("a valid PDF");
     assert_eq!(
         asserted(&exclude, Operation::FillInForm, Some("name"), None),
         Vec::new()
@@ -608,19 +615,141 @@ fn a_signed_signature_field_locks_the_fields_its_lock_names() {
     // A name Table 236 does not define states nothing this clause defines, and a lock is not
     // guessed at: falling back to `All` would close a document on a word the standard does not
     // use.
-    let unknown = Document::open(form_locking("Everything", &[], true)).expect("a valid PDF");
+    let unknown = Document::open(form_locking("Everything", &[], true, None)).expect("a valid PDF");
     assert_eq!(
         asserted(&unknown, Operation::FillInForm, Some("name"), None),
         Vec::new()
     );
 
     // And the condition the clause states: the same lock, on a field nobody has signed.
-    let unsigned = Document::open(form_locking("All", &[], false)).expect("a valid PDF");
+    let unsigned = Document::open(form_locking("All", &[], false, None)).expect("a valid PDF");
     assert_eq!(
         asserted(&unsigned, Operation::FillInForm, Some("name"), None),
         Vec::new(),
         "a /Lock binds after this signature has been signed, and this one has not"
     );
+}
+
+/// §12.7.5.5's Table 236 `/P`, which is the same dictionary's statement about the *document*.
+///
+/// The entry opens "[t]he access permissions granted for this document" and says what they reach:
+///
+/// > The new permission applies to any incremental changes to the document following the signature
+/// > of which this key is part.
+///
+/// §7.5.6's incremental update is what this program appends when a person fills a field in, adds an
+/// annotation or attaches a file, so the entry binds this reader and not only a validator. Its
+/// three values are Table 257's, so `certification_permits` asks one question of either and the
+/// levels part company where that table parts them: 2 permits form filling and not annotating.
+///
+/// **Calibrated against the reading it replaces** (trap 13): every assertion below that names a
+/// restriction fails if `field_lock_permissions` answers `None`, and every one that names none
+/// fails if it answers the level unconditionally — so the test cannot pass by the entry being
+/// ignored, which is what it was until ADR 1156.
+///
+/// Nothing in the corpus curated here states a `/P`; `examples/absence_audit --crawl` found 28 of
+/// 65 944 crawled documents that do, every one of them `/P` 1 (ADR 0502). So this is a hand-built
+/// witness beside that population, which is trap 8's shape.
+#[test]
+fn a_signed_locks_permission_entry_states_what_may_still_be_changed() {
+    use pdf_model::restriction::{Operation, Restriction, asserted};
+    use pdf_signature::signature::Modification;
+
+    // `/P` 1: "No changes to the document are permitted".
+    let final_document =
+        Document::open(form_locking("Include", &["name"], true, Some(1))).expect("a valid PDF");
+    for operation in [
+        Operation::FillInForm,
+        Operation::Annotate,
+        Operation::Modify,
+    ] {
+        assert!(
+            asserted(&final_document, operation, Some("agree"), None).contains(
+                &Restriction::LockPermission {
+                    level: Modification::None
+                }
+            ),
+            "{operation:?} is a change to the document and /P 1 permits none"
+        );
+    }
+    // And the two the entry's own levels say are not changes to the document at all — the same
+    // reading `certification_permits` takes of Table 257, because the two tables state the three
+    // levels in the same words.
+    for operation in [Operation::Print, Operation::Extract] {
+        assert_eq!(
+            asserted(&final_document, operation, None, None),
+            Vec::new(),
+            "{operation:?} changes nothing, so no level of /P withholds it"
+        );
+    }
+
+    // `/P` 2: "Permitted changes shall be filling in forms, instantiating page templates, and
+    // signing". Annotating is the operation that parts company from form filling here, which is
+    // the whole of why the level is carried rather than answered yes or no.
+    let forms_only =
+        Document::open(form_locking("Include", &["name"], true, Some(2))).expect("a valid PDF");
+    assert_eq!(
+        asserted(&forms_only, Operation::Annotate, None, None),
+        vec![Restriction::LockPermission {
+            level: Modification::FormFilling
+        }]
+    );
+    assert_eq!(
+        asserted(&forms_only, Operation::FillInForm, Some("agree"), None),
+        Vec::new(),
+        "filling a field the /Fields list does not name is what /P 2 permits"
+    );
+    // The two statements of one dictionary, both arriving: the lock names `name` and the `/P`
+    // permits form filling, so filling *that* field is refused by the selection alone.
+    assert_eq!(
+        asserted(&forms_only, Operation::FillInForm, Some("name"), None),
+        vec![Restriction::FieldLocked]
+    );
+
+    // `/P` 3 adds "annotation creation, deletion, and modification", so nothing this window does
+    // to a page is withheld by it — and the entry says a document with no author signature is at
+    // 3 already, which is why this has to be the arm that withholds nothing.
+    let annotatable =
+        Document::open(form_locking("Include", &["name"], true, Some(3))).expect("a valid PDF");
+    assert_eq!(
+        asserted(&annotatable, Operation::Annotate, None, None),
+        Vec::new()
+    );
+
+    // A value outside 1..=3 states no level: refusing on a number Table 236 does not define would
+    // let a malformed integer lock a document a person is entitled to change, which is the reading
+    // `Modification::Unknown` already gets of Table 257.
+    let malformed =
+        Document::open(form_locking("Include", &["name"], true, Some(7))).expect("a valid PDF");
+    assert_eq!(
+        asserted(&malformed, Operation::Annotate, None, None),
+        Vec::new()
+    );
+
+    // The condition is the lock's own, and it is the clause's: "after this signature has been
+    // signed". An unsigned signature field's `/Lock` states a permission nobody has granted yet.
+    let unsigned =
+        Document::open(form_locking("Include", &["name"], false, Some(1))).expect("a valid PDF");
+    assert_eq!(
+        asserted(&unsigned, Operation::Annotate, None, None),
+        Vec::new()
+    );
+
+    // And the calibration in the other direction: the same fixture with no `/P` at all, which is
+    // what every assertion above is compared against.
+    let silent =
+        Document::open(form_locking("Include", &["name"], true, None)).expect("a valid PDF");
+    for operation in [
+        Operation::FillInForm,
+        Operation::Annotate,
+        Operation::Modify,
+    ] {
+        assert_eq!(
+            asserted(&silent, operation, Some("agree"), None),
+            Vec::new(),
+            "a lock with no /P grants nothing and withholds nothing about {operation:?}"
+        );
+    }
 }
 
 /// The same form with a signature stating §12.8.2.4's `FieldMDP` transform, signed or not.

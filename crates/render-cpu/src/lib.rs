@@ -848,11 +848,12 @@ impl CpuRasterizer {
             let to_device = surface.to_device(band);
 
             // ISO 32000-2 §11.3.5.3's four modes are computed by this backend rather than
-            // by `tiny-skia`, whose three of them are wrong (ADR 0047), so such a command
-            // is drawn onto transparency first and composited by `blend::composite`.
-            // Drawing onto transparency loses nothing: with αb = 0 the compositing formula
-            // collapses to the source, whatever the blend mode.
-            if let Some(mode) = compose.non_separable(command.blend()) {
+            // by `tiny-skia`, whose three of them are wrong (ADR 0047), and §11.7.4.3's
+            // special overprinting blend mode is computed here because no rasteriser has
+            // it — so such a command is drawn onto transparency first and composited by
+            // `blend::composite`. Drawing onto transparency loses nothing: with αb = 0 the
+            // compositing formula collapses to the source, whatever the blend mode.
+            if let Some(mode) = compose.computed(command.blend()) {
                 let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
                     CpuRasterError::Allocation {
                         width: surface.width(),
@@ -1138,11 +1139,11 @@ impl CpuRasterizer {
             return Ok(());
         }
 
-        // §11.3.5.3's four modes are this backend's own (ADR 0047), and a group reaches
-        // them by the same two steps a command does: the group's clip, alpha and offset
-        // are applied onto transparency, and the result is composited by `blend`. The
-        // extra buffer is the price of the mode, not of every group.
-        if let Some(mode) = group.into.non_separable(group.blend) {
+        // §11.3.5.3's four modes are this backend's own (ADR 0047) and §11.7.4.3's is in no
+        // rasteriser at all, and a group reaches both by the same two steps a command does:
+        // the group's clip, alpha and offset are applied onto transparency, and the result is
+        // composited by `blend`. The extra buffer is the price of the mode, not of every group.
+        if let Some(mode) = group.into.computed(group.blend) {
             let mut layer = tiny_skia::Pixmap::new(surface.width(), band.height).ok_or(
                 CpuRasterError::Allocation {
                     width: surface.width(),
@@ -2007,12 +2008,13 @@ impl Compose {
         }
     }
 
-    /// Whether §11.3.5.3's four modes still need this backend's own compositing.
+    /// Whether the mode is one this backend composites itself — §11.3.5.3's four, or
+    /// §11.7.4.3's special overprinting blend mode.
     ///
     /// Never under knockout: the element has no backdrop to blend with.
-    fn non_separable(self, blend: pdf_render::BlendMode) -> Option<blend::NonSeparable> {
+    fn computed(self, blend: pdf_render::BlendMode) -> Option<blend::Computed> {
         match self {
-            Self::Over => blend::NonSeparable::of(blend),
+            Self::Over => blend::Computed::of(blend),
             Self::Knockout | Self::Erase | Self::Add => None,
         }
     }

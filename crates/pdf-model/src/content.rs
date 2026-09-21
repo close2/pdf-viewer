@@ -47,6 +47,7 @@ mod font;
 mod image;
 pub mod ledger;
 mod marked;
+mod overprint;
 mod path;
 mod pattern;
 pub mod reader;
@@ -251,6 +252,40 @@ struct GraphicsState {
     /// `None` is the initial value in the sense that matters: no document has asked for
     /// anything, so this device's own resolution stands. See `Ramp::resolution_for`.
     smoothness: Option<f32>,
+    /// Table 57's `/OP`, the overprint parameter for **stroking** operations (§8.6.7, §8.4.5).
+    ///
+    /// Table 57 gives the two entries a precedence rather than one meaning each: an `/OP`
+    /// entry sets both parameters unless the same dictionary also carries `/op`, in which case
+    /// `/OP` sets only the stroking one. See [`Interpreter::apply_ext_gstate`], which reads the
+    /// pair together for that reason.
+    ///
+    /// Initially `false`, which §8.6.7 calls "the default value". What it decides is
+    /// [`Interpreter::overprint_blend`], and only inside a transparency group compositing in
+    /// four components; outside one this device's three additive colourants make §8.6.7's
+    /// NOTE 1 the answer and the flag changes no pixel. ADR 1157.
+    overprint_stroking: bool,
+    /// Table 57's `/op`, the overprint parameter for every other painting operation.
+    ///
+    /// Absent, it takes `/OP`'s value where the same dictionary states one (Table 57, §8.4.5).
+    overprint_filling: bool,
+    /// Table 57's `/OPM`, §8.6.7's overprint mode.
+    ///
+    /// Only the value 1 changes anything — "[w]hen the overprint mode is 1 (also called
+    /// non-zero overprint mode), a tint value of 0.0 for a source colour component shall leave
+    /// the corresponding component of the previously painted colour unchanged" — and it
+    /// "shall have an effect only when the overprint parameter is true". Initially 0.
+    overprint_mode: i64,
+    /// The four tints the file stated for the current **fill** colour, where it stated them
+    /// in `DeviceCMYK` directly.
+    ///
+    /// §8.6.7 puts the zero test on "the tint value defined within the PDF file, before
+    /// quantisation into a device tint value for the output device", so the numbers the
+    /// operator carried are kept beside the colour they resolved to. `None` wherever Table
+    /// 146's first row does not apply — any other source space, a pattern, or an image's or a
+    /// shading's colours, which §8.6.7 excludes outright. See [`Interpreter::overprint_blend`].
+    fill_tints: Option<[f32; 4]>,
+    /// As above, for stroking.
+    stroke_tints: Option<[f32; 4]>,
     /// §11.6.4.3's `/AIS`, Table 57's alpha source flag: whether the soft mask and the two
     /// alpha constants state *shape* rather than opacity.
     ///
@@ -327,6 +362,11 @@ impl GraphicsState {
             transfer: TransferState::default(),
             smoothness: None,
             alpha_is_shape: false,
+            overprint_stroking: false,
+            overprint_filling: false,
+            overprint_mode: 0,
+            fill_tints: None,
+            stroke_tints: None,
             fill: Color::BLACK,
             fill_pattern: None,
             stroke_pattern: None,

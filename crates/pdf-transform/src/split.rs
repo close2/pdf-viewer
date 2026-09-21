@@ -82,14 +82,14 @@ use pdf_model::outline::{Item, Outline};
 use pdf_model::page_label::PageLabels;
 use pdf_model::retrieval::sections;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options, serialize};
+use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options};
 use pdf_syntax::{Document, Version};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::pattern::{Fill, Pattern};
 use crate::range::Selection;
 use crate::structure::{CarriedPage, Carry, Host};
-use crate::{Declined, Origin, Output, Refusal, Report, Sinks, Warning, structure};
+use crate::{Declined, Origin, Output, Protect, Refusal, Report, Sinks, Warning, structure};
 
 /// One document into many files.
 #[derive(Debug, Clone, PartialEq)]
@@ -476,6 +476,7 @@ pub(crate) fn run(
     plan: &SplitPlan,
     document: &Document,
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
     report: &mut Report,
 ) -> Result<(), Refusal> {
     let pages = Pages::new(document);
@@ -536,6 +537,7 @@ pub(crate) fn run(
                 version,
                 form,
                 sinks,
+                protect,
                 count,
                 ordinal,
                 piece: &piece.pages,
@@ -578,6 +580,8 @@ struct Job<'a> {
     form: Form,
     /// Where the output goes.
     sinks: &'a dyn Sinks,
+    /// §7.6 over the piece, where the caller supplied the means.
+    protect: Option<&'a Protect>,
     /// How many pieces there are.
     count: usize,
     /// Which piece this is, from 0.
@@ -701,7 +705,13 @@ fn write_piece(job: &Job<'_>) -> Done {
             };
         }
     };
-    let written = match serialize(&assembly, job.version, Options::new(job.form), &mut writer) {
+    let written = match Protect::write(
+        job.protect,
+        &assembly,
+        job.version,
+        Options::new(job.form),
+        &mut writer,
+    ) {
         Ok(written) => written,
         Err(error) => {
             return Done {
@@ -862,14 +872,11 @@ fn carry_info(piece: &mut Piece<'_>, job: &Job<'_>) {
 
 /// What the piece lost that no carrying could keep: §7.6's protection, and §7.3.10's nulls.
 fn report_losses(piece: &Piece<'_>, job: &Job<'_>, name: &str, warnings: &mut Vec<Warning>) {
-    if piece.assembly.has_encrypted_source() {
+    if piece.assembly.has_encrypted_source() && job.protect.is_none() {
         warnings.push(Warning {
             source: job.plan.source,
             page: None,
-            detail: format!(
-                "{name}: the source is encrypted (§7.6) and this piece is not; the serializer \
-                 writes no /Encrypt"
-            ),
+            detail: format!("{name}: {}", Protect::lost("this piece")),
         });
     }
     if piece.dropped > 0 {

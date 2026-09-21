@@ -285,6 +285,59 @@ mod tests {
         }
     }
 
+    /// **A bare `"` inside a note does not truncate it silently — it is refused, wherever it
+    /// sits.** That was worth establishing rather than assuming, because the failure it would be
+    /// is the worst one this file could have: a note is a single line here and an unescaped quote
+    /// would end the string early, leaving the rest of a person's sentence to be read as
+    /// something else. It cannot, and the reason is one line of [`read_value`] — a basic string
+    /// must be the *whole* value, so whatever follows the closing quote is `nothing after the
+    /// value`, and inside an array it is `a comma between array items`.
+    ///
+    /// The four placements are the four a person produces: in the middle of a note, immediately
+    /// before the real closing quote, at the very start (which closes an empty string), and
+    /// inside a `code` list. Each is refused on the line it is on, which is what lets
+    /// [`crate::ledger::Ledger::parse`] name the row. ADR 1166.
+    #[test]
+    fn a_bare_quote_inside_a_string_is_refused_rather_than_truncating_it() {
+        for (text, line, expected) in [
+            (
+                "[[clause]]\nnote = \"a stray \" quote mid-sentence\"\n",
+                2,
+                "nothing after the value",
+            ),
+            (
+                "[[clause]]\nnote = \"a stray quote at the end\"\"\n",
+                2,
+                "nothing after the value",
+            ),
+            (
+                "[[clause]]\nnote = \"\"a stray quote at the start\"\n",
+                2,
+                "nothing after the value",
+            ),
+            (
+                "[[clause]]\ncode = [\"a\"b.rs\"]\n",
+                2,
+                "a comma between array items",
+            ),
+        ] {
+            let error = parse(text).unwrap_err();
+            assert_eq!(error.line, line, "for {text:?}");
+            assert_eq!(error.expected, expected, "for {text:?}");
+        }
+    }
+
+    /// The other half of the plant above: the escaped form of the same note reads back whole,
+    /// so the refusals are about the bare quote and not about the sentence around it (trap 13).
+    #[test]
+    fn the_escaped_form_of_the_same_note_reads_back_whole() {
+        let tables = parse("[[clause]]\nnote = \"a stray \\\" quote mid-sentence\"\n").unwrap();
+        assert_eq!(
+            tables.first().unwrap().get("note").unwrap().as_text(),
+            Some("a stray \" quote mid-sentence")
+        );
+    }
+
     #[test]
     fn a_string_survives_the_round_trip_it_needs() {
         let awkward = "a \"quoted\" \\ backslash\nand a newline";

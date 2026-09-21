@@ -53,6 +53,12 @@ impl Interpreter<'_> {
             // list keeps the list flat — no backend needs to know what a pattern is.
             let fill_clip = self.paint_clip(state, true);
             let stroke_clip = self.paint_clip(state, false);
+            // ISO 32000-2 §11.7.4.3's special overprinting blend mode, asked once per part
+            // because §8.6.7 gives stroking and non-stroking operations a parameter each.
+            // `state.blend` on every page that does not overprint inside a four-component
+            // blending colour space, which is all but a handful.
+            let fill_blend = self.overprint_blend(state, false);
+            let stroke_blend = self.overprint_blend(state, true);
             if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
                 (fill, state.fill_pattern.clone())
             {
@@ -69,7 +75,7 @@ impl Interpreter<'_> {
                         paint,
                         clip: fill_clip,
                         mask: state.soft_mask,
-                        blend: state.blend,
+                        blend: fill_blend,
                     },
                     transfer,
                 );
@@ -100,71 +106,12 @@ impl Interpreter<'_> {
                         paint,
                         clip: stroke_clip,
                         mask: state.soft_mask,
-                        blend: state.blend,
+                        blend: stroke_blend,
                     },
                     transfer,
                 );
             }
-            // §11.6.2: the fill and the stroke are two parts of one object, and "[p]ortions
-            // of an object shall not be composited with one another". They are two commands
-            // here, so the band the stroke shares with the fill — half its width, for any
-            // path with an interior — composites twice.
-            //
-            // Two conditions narrow that to the pages where it can be seen, and the second
-            // one is not obvious: the paint has to composite at all, since opaque Normal
-            // painting puts the stroke over the fill either way, and *both* parts have to
-            // mark the page. A `B` whose fill or stroke alpha is zero is one object painted
-            // once, and three of the six corpus documents that reach this line are exactly
-            // that — `issue11045.pdf` fills at alpha 0 and strokes opaque, `issue3458.pdf`
-            // strokes at alpha 0 and fills. Reporting them would name pages whose pixels are
-            // the same under either model, which costs them their place in the oracle's
-            // comparison and buys nothing.
-            let fill_marks = fill.is_some() && state.fill_marks();
-            if fill_marks && stroke.is_some() && state.stroke_marks() && state.paint_composites() {
-                // The clause's own answer to "not composited with one another" is §11.4.6's:
-                // at any point the topmost portion contributes and the ones under it do not,
-                // which is what a knockout group of the two portions computes. `B` strokes
-                // after it fills, so the stroke is the topmost portion — the order the two
-                // commands are already in. The group is the object, so it takes the alpha
-                // and the blend mode that would have been applied to each portion: they are
-                // on the elements, and the group composites once at 1.0 under Normal.
-                //
-                // The `/AIS` reading asked for is the one accumulated over the content so
-                // far rather than `state`'s own, and the difference matters where a part is
-                // a tiling pattern's group: §11.3.7.2 gives a group object the opacity of
-                // "all of the objects it contains", so the reading its *contents* ran under
-                // is what decides whether its alpha is its shape.
-                let parts = self.list.split_off_commands(mark);
-                if let Some(group) = implicit_knockout_group(
-                    &parts,
-                    self.alpha_sources,
-                    self.inside_knockout,
-                    self.image_masks.shape_masks(),
-                ) {
-                    self.draw(Command::Group {
-                        commands: group.elements,
-                        alpha: 1.0,
-                        clip: None,
-                        mask: None,
-                        blend: group.blend,
-                        isolated: group.isolated,
-                        knockout: true,
-                        // Stated rather than asked: this group carries no clip of its own,
-                        // and §8.5.4's intersection at the blit is the only thing the flag
-                        // decides. A round that gives it one owes the question — which
-                        // §11.4.6's knockout no longer answers by itself (ADR 0554).
-                        alpha_is_shape: false,
-                        blending: None,
-                    });
-                } else {
-                    for part in parts {
-                        self.draw(part);
-                    }
-                    self.note(Unsupported::CompositedInParts {
-                        detail: "a path filled and stroked by one operator",
-                    });
-                }
-            }
+            self.combine_parts(state, mark, [fill_blend, stroke_blend], fill, stroke);
         }
 
         // A pending `W` takes effect now: the specification says the clip changes *after*
@@ -200,6 +147,97 @@ impl Interpreter<'_> {
         }
 
         *path = Path::new();
+    }
+
+    /// §11.6.2's one object and §11.7.4.4's two constructions for a path that is filled *and*
+    /// stroked.
+    ///
+    /// Split out of [`Interpreter::end_path`] because it is a decision about the two commands
+    /// already pushed rather than a step in painting them: `mark` is where they begin, and
+    /// `parts` the blend modes they were painted under.
+    fn combine_parts(
+        &mut self,
+        state: &GraphicsState,
+        mark: usize,
+        parts: [pdf_render::BlendMode; 2],
+        fill: Option<FillRule>,
+        stroke: Option<bool>,
+    ) {
+        // §11.6.2: the fill and the stroke are two parts of one object, and "[p]ortions
+        // of an object shall not be composited with one another". They are two commands
+        // here, so the band the stroke shares with the fill — half its width, for any
+        // path with an interior — composites twice.
+        //
+        // Two conditions narrow that to the pages where it can be seen, and the second
+        // one is not obvious: the paint has to composite at all, since opaque Normal
+        // painting puts the stroke over the fill either way, and *both* parts have to
+        // mark the page. A `B` whose fill or stroke alpha is zero is one object painted
+        // once, and three of the six corpus documents that reach this line are exactly
+        // that — `issue11045.pdf` fills at alpha 0 and strokes opaque, `issue3458.pdf`
+        // strokes at alpha 0 and fills. Reporting them would name pages whose pixels are
+        // the same under either model, which costs them their place in the oracle's
+        // comparison and buys nothing.
+        let fill_marks = fill.is_some() && state.fill_marks();
+        // §11.7.4.4 gives the pair two constructions and puts overprinting between them, so
+        // the bullet is chosen before §11.6.2's group is built. Its first applies to the
+        // commands as they already stand wherever the pair's own alpha and mode are the
+        // identity, and is named where they are not (`Interpreter::combined_overprint`).
+        let first_bullet = fill_marks
+            && stroke.is_some()
+            && state.stroke_marks()
+            && self.combined_overprint(state, parts, "a path filled and stroked by one operator");
+        // A part that keeps a component of the backdrop composites with what is under it
+        // however opaque it is, so the special mode is one more way for the portions of an
+        // object to be composited with one another (§11.6.2).
+        let composites = state.paint_composites()
+            || parts
+                .iter()
+                .any(|blend| matches!(blend, pdf_render::BlendMode::Overprint(_)));
+        if !first_bullet && fill_marks && stroke.is_some() && state.stroke_marks() && composites {
+            // The clause's own answer to "not composited with one another" is §11.4.6's:
+            // at any point the topmost portion contributes and the ones under it do not,
+            // which is what a knockout group of the two portions computes. `B` strokes
+            // after it fills, so the stroke is the topmost portion — the order the two
+            // commands are already in. The group is the object, so it takes the alpha
+            // and the blend mode that would have been applied to each portion: they are
+            // on the elements, and the group composites once at 1.0 under Normal.
+            //
+            // The `/AIS` reading asked for is the one accumulated over the content so
+            // far rather than `state`'s own, and the difference matters where a part is
+            // a tiling pattern's group: §11.3.7.2 gives a group object the opacity of
+            // "all of the objects it contains", so the reading its *contents* ran under
+            // is what decides whether its alpha is its shape.
+            let parts = self.list.split_off_commands(mark);
+            if let Some(group) = implicit_knockout_group(
+                &parts,
+                self.alpha_sources,
+                self.inside_knockout,
+                self.image_masks.shape_masks(),
+            ) {
+                self.draw(Command::Group {
+                    commands: group.elements,
+                    alpha: 1.0,
+                    clip: None,
+                    mask: None,
+                    blend: group.blend,
+                    isolated: group.isolated,
+                    knockout: true,
+                    // Stated rather than asked: this group carries no clip of its own,
+                    // and §8.5.4's intersection at the blit is the only thing the flag
+                    // decides. A round that gives it one owes the question — which
+                    // §11.4.6's knockout no longer answers by itself (ADR 0554).
+                    alpha_is_shape: false,
+                    blending: None,
+                });
+            } else {
+                for part in parts {
+                    self.draw(part);
+                }
+                self.note(Unsupported::CompositedInParts {
+                    detail: "a path filled and stroked by one operator",
+                });
+            }
+        }
     }
 
     /// Appends one of Table 58's segments, ISO 32000-2 §8.5.2.1, and says whether it was taken.

@@ -117,6 +117,7 @@ pub mod fit;
 pub mod form;
 pub mod geometry;
 pub mod keys;
+pub mod modification;
 pub mod panel;
 pub mod password;
 pub mod policy;
@@ -142,11 +143,12 @@ pub use panel::{
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
     ACCEPT_UNKNOWN_REVOCATION, AnchorRefusal, IGNORE_RESTRICTIONS, INTERFACE_LANGUAGE,
-    ImportRefusal, MACHINE_FONTS, MACHINE_FONTS_VARIABLE, READER_NAME, READER_ORGANISATION,
-    READER_TITLE, REFERENCE_FILES, RESTRICTIONS, ReferenceRefusal, TRUST_ANCHORS, asked_for,
-    audience, may_open_extracted, may_write_extracted, offers_machine_fonts, read_import,
-    reference_files, refused, resolve_import, restrictions, supply_note, trust_anchors,
-    unanswerable, warned,
+    ImportRefusal, LINK_SCHEMES, LINKS, Link, Links, MACHINE_FONTS, MACHINE_FONTS_VARIABLE,
+    Opening, READER_NAME, READER_ORGANISATION, READER_TITLE, REFERENCE_FILES, RESTRICTIONS,
+    ReferenceRefusal, TRUST_ANCHORS, URI_HANDLER, answered, asked_for, asked_to_open, audience,
+    link, links, may_open_extracted, may_open_uri, may_write_extracted, offers_machine_fonts,
+    open_uri, read_import, reference_files, refused, resolve_import, resolve_uri, restrictions,
+    supply_note, trust_anchors, unanswerable, uri_note, warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};

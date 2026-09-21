@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use viewer_core::{Answer, Command, DocumentId, Extraction, Query, Viewer};
-use viewer_host::policy::{may_open_uri, resolve_uri, uri_note};
+use viewer_host::policy::{Links, Opening, links, may_open_uri, open_uri, resolve_uri, uri_note};
 use viewer_host::{
     Clicked, ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, collection_rows,
     control_kind, layer_rows, may_write_extracted, outline_rows, resolve_import,
@@ -464,14 +464,27 @@ fn a_partial_uri_resolves_against_the_documents_own_location() {
 
     // And the verb, which is the one question left once the string is decided.
     let resolved = resolve_uri(Some(document), "https://example.invalid/a");
-    let refused = may_open_uri(&resolved).expect_err("no window here opens a link");
+    let Opening::Ask(question) = may_open_uri(&resolved, Links::default()) else {
+        panic!("the default level puts the URI to a person rather than deciding for them");
+    };
     assert!(
-        refused.contains("decision about this machine"),
-        "the refusal is about this program rather than about the file: {refused}"
+        question.reasons.contains(&resolved),
+        "the URI is the only thing a person can judge this by, so the question carries it whole: \
+         {}",
+        question.reasons
+    );
+    let Opening::Refuse(unresolvable) = may_open_uri("next.pdf", Links::Open) else {
+        panic!("a partial reference names no resource at any level");
+    };
+    assert!(
+        unresolvable.contains("relative reference"),
+        "the refusal names that failure rather than the level: {unresolvable}"
     );
     assert_eq!(
-        uri_note(&resolved, Some(&refused)),
-        format!("link: declined — {refused}. The document asked for https://example.invalid/a"),
+        uri_note(&resolved, Some(&unresolvable)),
+        format!(
+            "link: declined — {unresolvable}. The document asked for https://example.invalid/a"
+        ),
         "a link this reader will not follow still says where it went"
     );
     assert_eq!(
@@ -479,11 +492,99 @@ fn a_partial_uri_resolves_against_the_documents_own_location() {
         "link: https://example.invalid/a",
         "and a host that opened it says the same URI without the refusal"
     );
-    let unresolvable = may_open_uri("next.pdf").expect_err("a partial reference names no resource");
+}
+
+/// ISO 32000-2 §12.6.4.8's own verb, under `CLAUDE.md` principle 3's four levels:
+///
+/// > A URI action causes a URI to be resolved.
+///
+/// The clause introduces the string as one that "identifies (resolves to) a resource on the
+/// Internet", so resolving it is reaching that resource — a program this machine would have to
+/// start on a string the *document* chose. `CLAUDE.md` says what shape that decision takes: the
+/// policy is asked once in a place a host can supply, at one of four levels, and "[a] refusal that
+/// cannot become an 'ask' is the thing to avoid" (ADR 1155).
+#[test]
+fn four_levels_decide_whether_a_link_reaches_this_machine() {
+    let uri = "https://example.invalid/a";
+    assert_eq!(may_open_uri(uri, Links::Open), Opening::Proceed);
     assert!(
-        unresolvable.contains("relative reference"),
-        "the other refusal names the other failure: {unresolvable}"
+        matches!(may_open_uri(uri, Links::Ask), Opening::Ask(_)),
+        "the ask level is a question rather than a verdict"
     );
+    let Opening::Warn(warned) = may_open_uri(uri, Links::Warn) else {
+        panic!("the warn level opens it and says so");
+    };
+    assert!(
+        warned.contains(viewer_host::URI_HANDLER),
+        "the warning names what the URI was handed to; `uri_note` names the URI itself, which is \
+         why `link` composes the two: {warned}"
+    );
+    let Opening::Refuse(refused) = may_open_uri(uri, Links::Refuse) else {
+        panic!("the refuse level hands nothing over");
+    };
+    assert!(
+        refused.contains(viewer_host::LINKS),
+        "a refusal this reader chose names the word that unchooses it: {refused}"
+    );
+
+    // Every level round-trips through the word a person types — the command line and the prompt
+    // both spell one, and a word that spelled a different level would send a reader to the wrong
+    // end of the scale.
+    for level in Links::ALL {
+        assert_eq!(links(level.as_str()), Ok(level));
+    }
+    let complaint = links("off").expect_err("`off` is RESTRICTIONS's word and means the other end");
+    for level in Links::ALL {
+        assert!(
+            complaint.contains(level.as_str()),
+            "the complaint names every level this option takes: {complaint}"
+        );
+    }
+}
+
+/// ISO 32000-2 §12.6.4.8's string "identifies (resolves to) a resource on the Internet", so which
+/// schemes this machine starts a handler for is a decision of its own.
+///
+/// **It is taken before the level rather than inside it**, which is what this test holds: a
+/// document free to name any scheme would be choosing which of this machine's handlers runs, and a
+/// reader who asked for links to open asked for links rather than for that. `file` is the sharp
+/// one, because `resolve_uri` produces a `file` URL for every partial reference beside the
+/// document — opening one is §12.7.6.4's hazard one clause over, where `read_import` answers it
+/// with a directory a person supplied (ADR 1155).
+#[test]
+fn a_scheme_this_machine_will_not_start_a_handler_for_is_refused_at_every_level() {
+    for uri in [
+        "file:///documents/next.pdf",
+        "ms-msdt:/id",
+        "javascript:alert(1)",
+    ] {
+        for level in Links::ALL {
+            let Opening::Refuse(refused) = may_open_uri(uri, level) else {
+                panic!("{uri} is not a scheme this reader hands over, {level:?} or not");
+            };
+            assert!(
+                !refused.contains("relative reference"),
+                "{uri} states a scheme, so the refusal is about the scheme: {refused}"
+            );
+        }
+        assert!(
+            open_uri(uri).is_err(),
+            "{uri} is refused by the act as well as by the decision, because that is the last \
+             place the guarantee can be made"
+        );
+    }
+    // And the three that are handed over are handed over whatever case they are written in: RFC
+    // 3986 section 3.1 makes a scheme case-insensitive, so a `HTTPS:` link is the same link.
+    for scheme in viewer_host::LINK_SCHEMES {
+        assert_eq!(
+            may_open_uri(
+                &format!("{}:example.invalid", scheme.to_uppercase()),
+                Links::Open
+            ),
+            Opening::Proceed,
+            "{scheme} is one of the three, in any case"
+        );
+    }
 }
 
 /// ISO 32000-2 §O.2.1, Table Annex O.3's `ef`:

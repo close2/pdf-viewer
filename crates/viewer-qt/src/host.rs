@@ -120,6 +120,28 @@ impl Placement {
     }
 }
 
+/// What the one outstanding question is about, at `CLAUDE.md`'s *ask* level.
+///
+/// **Two subjects and one dialogue**, because a person meets one prompt and this host builds one:
+/// an operation `viewer-core` is holding until an answer comes back, or §12.6.4.8's URI, which no
+/// core is holding at all because starting a program on this machine is the host's own act.
+/// Closed, so that a third subject cannot be answered by the wrong branch (ADR 1155).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Pending {
+    /// An edit the viewer is holding, answered by `viewer_core::Command::Answer`.
+    Restricted {
+        /// Which document it is holding it for.
+        document: DocumentId,
+        /// Which operation the document restricts.
+        operation: pdf_model::restriction::Operation,
+    },
+    /// §12.6.4.8's resolved URI, answered by `viewer_host::answered`.
+    Link {
+        /// The URI as `viewer_host::resolve_uri` left it.
+        uri: String,
+    },
+}
+
 /// One document, one viewer, and the loop between them.
 #[expect(
     clippy::struct_excessive_bools,
@@ -176,6 +198,13 @@ pub struct Host {
     /// levels, and what the open document departs from them in. A level set to catch one
     /// suspicious file would otherwise catch every file this window opens afterwards (ADR 1145).
     restrictions: viewer_host::Restrictions,
+    /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
+    ///
+    /// The other direction from the entry above, and that is why it is a second value rather than
+    /// a seventh operation of the first: what a document *asserts over its reader* is one subject,
+    /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
+    /// `CLAUDE.md`'s four levels over the second (ADR 1155).
+    links: viewer_host::Links,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -192,13 +221,12 @@ pub struct Host {
     /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
     /// off a launch. [`viewer_host::report::Due`] holds the rule for every host. ADR 1044.
     report_due: viewer_host::report::Due,
-    /// `CLAUDE.md`'s *ask* level: which document and which operation the standing question is
-    /// about, and what it says.
+    /// `CLAUDE.md`'s *ask* level: what the standing question is about, and what it says.
     ///
     /// One at a time, which is `viewer_core::Command::Answer`'s own rule — a second question
     /// replaces the first — and `None` while nothing is outstanding, so that a dialogue closed
     /// twice answers once.
-    question: Option<(DocumentId, pdf_model::restriction::Operation, String)>,
+    question: Option<(Pending, String)>,
     /// What to put above the entry, worded when the prompt is asked for and read once by C++.
     prompt: String,
     /// Whether the document has been opened yet, which waits for the first resize.
@@ -326,6 +354,7 @@ impl Host {
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
         restrictions: viewer_core::RestrictionPolicy,
+        links: viewer_host::Links,
         trace: Trace,
     ) -> Result<Self, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -353,6 +382,7 @@ impl Host {
             trace,
             widget_appearances,
             restrictions: viewer_host::Restrictions::new(restrictions),
+            links,
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
@@ -1018,31 +1048,31 @@ impl Host {
         self.prompt.clone()
     }
 
+    /// §12.6.4.8's URI, resolved against this document's location and then opened, declined or put
+    /// to the person at the level `--links=` set.
+    fn follow_the_link(&mut self, uri: &str) {
+        let uri = viewer_host::resolve_uri(Some(&self.path), uri);
+        match viewer_host::link(&uri, self.links) {
+            viewer_host::Link::Say(note) => self.say(&note),
+            viewer_host::Link::Ask(words) => self.put_the_question(Pending::Link { uri }, &words),
+        }
+    }
+
     /// `CLAUDE.md`'s *ask* level: holds the question and asks C++ for a window to put it in.
     ///
     /// The two paragraphs are joined here because this bridge carries one string per dialogue and
     /// the C++ side wraps it in one `QLabel`; `viewer-gtk` draws them as two labels, which is the
     /// difference `viewer_host::Question` keeps them apart for.
-    fn put_the_question(
-        &mut self,
-        document: DocumentId,
-        operation: pdf_model::restriction::Operation,
-        notes: &[String],
-    ) {
-        let words = viewer_host::asked(operation, notes);
-        self.question = Some((
-            document,
-            operation,
-            format!("{}\n\n{}", words.reasons, words.choice),
-        ));
+    fn put_the_question(&mut self, about: Pending, words: &viewer_host::Question) {
+        self.question = Some((about, format!("{}\n\n{}", words.reasons, words.choice)));
         self.update.question = true;
     }
 
-    /// `CLAUDE.md`'s *ask* level: what the question says, worded by [`viewer_host::restriction`].
+    /// `CLAUDE.md`'s *ask* level: what the question says, worded by [`viewer_host`].
     pub(crate) fn question_prompt(&self) -> String {
         self.question
             .as_ref()
-            .map(|(_, _, words)| words.clone())
+            .map(|(_, words)| words.clone())
             .unwrap_or_default()
     }
 
@@ -1053,13 +1083,23 @@ impl Host {
     /// not happen. Taking the question rather than reading it is what makes a dialogue closed
     /// twice answer once.
     pub(crate) fn answer_question(&mut self, proceed: bool) {
-        let Some((document, operation, _)) = self.question.take() else {
+        let Some((about, _)) = self.question.take() else {
             return;
         };
-        if !proceed {
-            self.say(&viewer_host::declined(operation));
+        match about {
+            Pending::Restricted {
+                document,
+                operation,
+            } => {
+                if !proceed {
+                    self.say(&viewer_host::declined(operation));
+                }
+                self.dispatch(Command::Answer { document, proceed });
+            }
+            // §12.6.4.8: the act is this host's own rather than an edit the core is holding, so
+            // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
+            Pending::Link { uri } => self.say(&viewer_host::answered(&uri, proceed)),
         }
-        self.dispatch(Command::Answer { document, proceed });
     }
 
     /// What the button that lets the operation go ahead says.
@@ -2039,17 +2079,11 @@ impl Host {
             // no repaint, no key, and no thread from which `pdf_render::Interrupt` could be raised.
             // What comes back arrives in `take_the_drawn`.
             Event::NeedsRender(request) => self.drawing.ask(request),
-            // §12.6.4.8: handed over rather than opened. The string is one the *document*
-            // controls, and giving it to a browser is a decision about this machine that this
-            // host has not been given — the same answer `viewer-ui` and `viewer-gtk` give.
-            // §12.6.4.8: resolved against this document's own location where the action left
-            // it partial, then declined or opened by the one policy three windows share
-            // (ADR 1079). What this arm owns is saying it out loud.
-            Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
-                let refused = viewer_host::policy::may_open_uri(&uri).err();
-                self.say(&viewer_host::policy::uri_note(&uri, refused.as_deref()));
-            }
+            // §12.6.4.8: resolved against this document's own location where the action left it
+            // partial, then opened, declined or put to the person by the one policy three windows
+            // share — `CLAUDE.md`'s four levels over the act of starting another program on a
+            // string the *document* chose (ADRs 1079, 1155). What this arm owns is the dialogue.
+            Event::OpenUri { uri, .. } => self.follow_the_link(&uri),
             // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
             // `viewer_host::policy::may_submit`'s one answer rather than this window's (ADR 1062).
             Event::Submit { submission, .. } => self.say(&viewer_host::policy::submission_note(
@@ -2120,7 +2154,13 @@ impl Host {
                 document,
                 operation,
                 notes,
-            } => self.put_the_question(document, operation, &notes),
+            } => self.put_the_question(
+                Pending::Restricted {
+                    document,
+                    operation,
+                },
+                &viewer_host::asked(operation, &notes),
+            ),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.
@@ -2675,6 +2715,7 @@ mod tests {
             None,
             WidgetAppearances::Delegated,
             restrictions,
+            viewer_host::Links::Refuse,
             Trace::off(std::time::Instant::now()),
         )
         .expect("the document is readable");

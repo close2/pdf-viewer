@@ -600,13 +600,23 @@ impl Host {
             // §12.6.4.8: the same policy the other three windows ask, rather than this one's own
             // sentence about links — the URI is resolved against the document's location first,
             // which is the half of the clause a window can answer and the core cannot (ADR 1079).
+            //
+            // **At `Links::Refuse` and not at the level the other three default to**, which is a
+            // choice with a reason: this window has no dialogue, so it could not put the question
+            // the *ask* level asks, and a window that opened links without being able to ask would
+            // be the one face where a document reaches another program with nobody consulted. It
+            // is `viewer_host::unanswerable`'s decision one clause over, taken before the question
+            // rather than after it (ADR 1155).
             Event::OpenUri { uri, .. } => {
-                let uri = viewer_host::policy::resolve_uri(Some(&self.path), &uri);
-                let refused = viewer_host::policy::may_open_uri(&uri).err();
-                eprintln!(
-                    "{}",
-                    viewer_host::policy::uri_note(&uri, refused.as_deref())
-                );
+                let uri = viewer_host::resolve_uri(Some(&self.path), &uri);
+                match viewer_host::link(&uri, viewer_host::Links::Refuse) {
+                    viewer_host::Link::Say(note) => eprintln!("{note}"),
+                    // Unreachable at this level and said rather than ignored, because a level that
+                    // grew a question this window cannot put would otherwise go quiet (trap 5).
+                    viewer_host::Link::Ask(words) => {
+                        eprintln!("note: {}", viewer_host::unanswerable(&[words.reasons]));
+                    }
+                }
             }
             // §12.7.6.2, the same way: composed by the confined process and declined here,
             // because whether this machine makes a network request is a host's answer and this

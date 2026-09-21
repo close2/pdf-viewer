@@ -3130,11 +3130,9 @@ pub struct FieldMdp {
 /// is an instruction to whatever will do the signing (§12.7.5.5's NOTE 1 — "information needed
 /// later when the actual signing takes place"), and locks nothing in the meantime.
 ///
-/// Table 236's `/P` is deliberately *not* read. It reads like Table 257's `/P` and it is
-/// addressed elsewhere: "absence of this key shall result in no effect on signature **validation
-/// rules**", so it says what invalidates the signature rather than what a reader may do. The
-/// entry that makes §12.8.2.2's equivalent binding on a processor is §12.8.6's permissions
-/// dictionary, and Table 236 names no such route.
+/// Table 236's `/P` is the same dictionary's other statement and is read by
+/// [`field_lock_permissions`], because it is about the *document* rather than about the fields
+/// this selection names — "[t]he access permissions granted for this document".
 ///
 /// Empty for a document with no form, no signature, or none whose signature field states a
 /// `/Lock` — which is every one of the documents in the pdf.js corpus and the four under
@@ -3151,6 +3149,80 @@ pub fn field_locks(document: &Document) -> Vec<FieldSelection> {
         }
     });
     out
+}
+
+/// §12.7.5.5's Table 236 `/P`: the permissions the signed signature fields of this document leave
+/// in effect.
+///
+/// **The entry is a permission a reader owes, and it took reading the whole of it to see that.**
+/// §12.7.5.5's own first sentence of the entry is what it is about —
+///
+/// > The access permissions granted for this document.
+///
+/// — and three of its later ones address a processor that *changes the file* rather than one
+/// validating a signature: "The new permission applies to any incremental changes to the document
+/// following the signature of which this key is part", "That is, permissions can be denied but not
+/// added", and "If the document does not have an author signature, the initial permissions in
+/// effect are those based on the number 3". This program makes exactly those incremental changes
+/// (§7.5.6), so the entry binds it. The sentence that used to dispose of it — "absence of this key
+/// shall result in no effect on signature validation rules" — says what an *absent* `/P` does not
+/// do, and a sentence about absence does not describe what a present one states. ADR 1156, on
+/// ADR 0502's measurement.
+///
+/// **What it is not is a refusal.** It reaches a reader as one `pdf_model::restriction::Restriction`
+/// among six, so `CLAUDE.md`'s four levels decide what happens about it and the level every face
+/// opens at is *off*. That is what makes reading an entry the standard states twice-facing safe to
+/// do: nothing is withheld from anybody who did not ask for it to be.
+///
+/// **The values are Table 257's**, word for word bar two verbs, so [`Modification`] is the type
+/// for both and `pdf_model::restriction` asks one question of either.
+///
+/// # How several are composed
+///
+/// §12.7.5.5, in the same entry:
+///
+/// > If MDP permission is already in effect from an earlier incremental save section or the
+/// > original part of the document, the number shall specify permissions less than or equal to the
+/// > permissions already in effect based on signatures earlier in the document.
+///
+/// — with "[i]f the number specifies greater permissions than an MDP value already in effect, the
+/// new number is ignored" saying what happens when it does not. A sequence in which each term is
+/// taken only where it is no greater than what stands is a running minimum, and a running minimum
+/// over a set is that set's minimum whatever order it was read in — so the document's own order,
+/// which this walk does not promise, cannot change the answer. §12.8.2.2's `/DocMDP` is the other
+/// MDP permission the sentence speaks of and it is asked separately, in
+/// `pdf_model::restriction::asserted`, where the two compose the way §12.8.6 composes permissions:
+/// each restriction refuses on its own.
+///
+/// A value outside 1..=3 states no level and is passed over rather than treated as the strictest,
+/// which is the reading [`Modification::Unknown`] already gets one clause over: refusing on a
+/// number the table does not define would let a malformed integer lock a document a person is
+/// entitled to change.
+///
+/// `None` where no signed signature field states a `/Lock` with a `/P` in it — the condition is
+/// [`field_locks`]'s, for its reason: the dictionary belongs to "the signature of which this key
+/// is part", so an unsigned field's `/Lock` states a permission nobody has yet granted.
+#[must_use]
+pub fn field_lock_permissions(document: &Document) -> Option<Modification> {
+    let mut least: Option<i64> = None;
+    for_each_signed_field(document, |field, _signature| {
+        let lock = document.get_key(field, "Lock");
+        let Some(level) = lock
+            .as_dict()
+            .and_then(|lock| document.get_key(lock, "P").as_integer())
+        else {
+            return;
+        };
+        if (1..=3).contains(&level) {
+            least = Some(least.map_or(level, |standing: i64| standing.min(level)));
+        }
+    });
+    match least? {
+        1 => Some(Modification::None),
+        2 => Some(Modification::FormFilling),
+        // The range above is what leaves three values, and 3 is the third of them.
+        _ => Some(Modification::FormFillingAndAnnotation),
+    }
 }
 
 /// The Table 256 `/TransformMethod` names this document states, each once, ascending.

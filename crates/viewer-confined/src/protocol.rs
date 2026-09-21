@@ -1033,6 +1033,11 @@ mod command_kind {
     // therefore the policy, exactly as `RESTRICT` does — and because a query could not be asked,
     // held or refused (ADR 1144).
     pub(super) const COPY: u8 = 31;
+    // Table 166's `/M`: what the host's clock says, for the annotations a save writes. It crosses
+    // for the reason every other host-supplied policy value does — the confined worker holds the
+    // document and therefore writes §7.5.6's update, and only the host has a clock at all
+    // (ADR 1160).
+    pub(super) const CLOCK: u8 = 32;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1274,6 +1279,31 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer
                 .u8(u8::from(audience.language.is_some()))
                 .str(audience.language.as_deref().unwrap_or_default());
+        }
+        // Table 166's `/M`, field by field rather than as §7.9.4's string: the string's grammar
+        // is four digits of year and this type's is an `i32`, so spelling it here would be a
+        // second encoding with a narrower range than the value it carries. An unstated zone is
+        // not `Z`, which `pdf_syntax::Date` keeps apart for §7.9.4's own reason.
+        Command::Clock(at) => {
+            writer.u8(k::CLOCK).bool(at.is_some());
+            let at = at.unwrap_or(pdf_syntax::Date {
+                year: 0,
+                month: 1,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0,
+                offset: None,
+            });
+            writer
+                .i64(i64::from(at.year))
+                .u8(at.month)
+                .u8(at.day)
+                .u8(at.hour)
+                .u8(at.minute)
+                .u8(at.second)
+                .bool(at.offset.is_some())
+                .i64(i64::from(at.offset.unwrap_or_default()));
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -1522,6 +1552,34 @@ pub(crate) fn decode_command_holding(
                 },
                 language: stated.then_some(language),
             })
+        }
+        k::CLOCK => {
+            let stated = reader.bool("whether a modification date was stated")?;
+            let year = reader.i64("a modification date's year")?;
+            let year = i32::try_from(year).map_err(|_| ProtocolError::Unrecognised {
+                what: "a modification date's year",
+                value: u32::try_from(year.unsigned_abs()).unwrap_or(u32::MAX),
+            })?;
+            let month = reader.u8("a modification date's month")?;
+            let day = reader.u8("a modification date's day")?;
+            let hour = reader.u8("a modification date's hour")?;
+            let minute = reader.u8("a modification date's minute")?;
+            let second = reader.u8("a modification date's second")?;
+            let zoned = reader.bool("whether a modification date states a zone")?;
+            let offset = reader.i64("a modification date's zone offset")?;
+            let offset = i16::try_from(offset).map_err(|_| ProtocolError::Unrecognised {
+                what: "a modification date's zone offset",
+                value: u32::try_from(offset.unsigned_abs()).unwrap_or(u32::MAX),
+            })?;
+            Command::Clock(stated.then_some(pdf_syntax::Date {
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                offset: zoned.then_some(offset),
+            }))
         }
         k::RESTRICT => {
             let scope = reader.u8("a restriction scope")?;
@@ -3857,6 +3915,28 @@ mod tests {
                 language: Some("es-MX".to_owned()),
             }),
             Command::Audience(pdf_model::optional_content::Audience::NONE),
+            // Table 166's `/M`, in the three shapes that differ on the wire: a date with a zone,
+            // one whose zone is *unstated* rather than UT (§7.9.4 keeps those apart), and the
+            // host that has said nothing at all.
+            Command::Clock(Some(pdf_syntax::Date {
+                year: 2026,
+                month: 9,
+                day: 21,
+                hour: 14,
+                minute: 5,
+                second: 30,
+                offset: Some(-330),
+            })),
+            Command::Clock(Some(pdf_syntax::Date {
+                year: 1970,
+                month: 1,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0,
+                offset: None,
+            })),
+            Command::Clock(None),
         ];
         for command in &commands {
             let encoded = encode_command(command).unwrap();

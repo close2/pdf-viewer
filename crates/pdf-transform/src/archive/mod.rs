@@ -144,6 +144,7 @@ mod report;
 mod rewrite;
 mod signatures;
 mod sites;
+mod tagged;
 mod to_unicode;
 mod toml;
 

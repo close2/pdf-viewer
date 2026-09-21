@@ -788,3 +788,169 @@ fn forgetting_an_edit_restores_the_documents_own_value_without_logging_one() {
     // what lets a host send an undo for a field it has since navigated away from.
     assert_eq!(view.clear_field(&document, "no such field"), 0);
 }
+
+/// ISO 32000-2 §7.9.4's date, on a widget whose value a person changed (Table 166's `/M`).
+///
+/// The entry is "[t]he date and time when the annotation was most recently modified", and this
+/// crate has no clock — so what is asserted is the whole of the contract: a host states an
+/// instant, that instant reaches the file as §7.9.4's string, and it lands on the *annotation*
+/// rather than on whichever ancestor §12.7.4.1 keeps the value on.
+///
+/// The expected string is the clause's own grammar, `D:YYYYMMDDHHmmSSOHH'mm'`, with `Z00'00'` for
+/// the UT zone the fields below state — §7.9.4: "the value of either the hour or the minute after
+/// Z shall be 0".
+#[test]
+fn a_host_that_says_what_time_it_is_gets_the_modification_date_written() {
+    let Some(bytes) = corpus("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes.clone()).expect("the fixture opens");
+    let widgets = pdf_model::view::widgets_by_field_name(&document);
+    let widgets = widgets.get("Text1").expect("the fixture has Text1").clone();
+    assert!(
+        !widgets.is_empty(),
+        "a field is reached through its widgets"
+    );
+
+    let mut view = ViewState::of(&document);
+    view.set_modification_time(Some(pdf_syntax::Date {
+        year: 1998,
+        month: 12,
+        day: 23,
+        hour: 19,
+        minute: 52,
+        second: 7,
+        offset: Some(0),
+    }));
+    assert!(view.set_field(&document, "Text1", &Entered::Text("Ada".to_owned())) > 0);
+    let written = view
+        .save(&document)
+        .expect("the fixture can be written")
+        .bytes;
+    assert!(
+        written.starts_with(&bytes),
+        "§7.5.6 appends: the producer's bytes are untouched underneath"
+    );
+
+    let saved = Document::open(written).expect("what was written can be read");
+    for widget in &widgets {
+        assert_eq!(
+            entry(&saved, *widget, "M")
+                .as_string()
+                .map(pdf_syntax::text_string),
+            Some("D:19981223195207Z00'00'".to_owned()),
+            "Table 166's /M is the annotation's, on object {}",
+            widget.number
+        );
+    }
+}
+
+/// A host that says nothing writes no date at all, which is the bytes this program wrote before
+/// it could be asked.
+///
+/// Table 166 makes the entry Optional and `CLAUDE.md`'s rule 3 gives this crate no clock, so the
+/// absence is the answer rather than a gap: an instant invented here would be a claim about a
+/// machine nothing in this crate can see. Planted back by the test above, which is the same save
+/// with one statement made (trap 13).
+#[test]
+fn a_host_that_says_nothing_writes_no_modification_date() {
+    let Some(document) = saved("form_two_pages.pdf", "Text1", "Ada") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let widgets = pdf_model::view::widgets_by_field_name(&document);
+    for widget in widgets.get("Text1").expect("the fixture has Text1") {
+        assert!(
+            matches!(entry(&document, *widget, "M"), Object::Null),
+            "no clock, so no date, on object {}",
+            widget.number
+        );
+    }
+}
+
+/// A value §12.7.4.3's layout cannot spell sets Table 224's flag **and** names the field.
+///
+/// The entry binds a writer "if it has not provided appearance streams for all visible widget
+/// annotations present in the document", so a file written with it set has something outstanding
+/// in it — and the flag names no widget. [`pdf_model::view::Written::unconstructed`] does, which
+/// is trap 5 on the one path where a save falls short of the clause.
+///
+/// The value is Arabic, which is `doc/todo/22`'s standing refusal: no face this binary carries
+/// has the glyphs and §9.6.5.2's encodings have no codes for them, so the layout declines whole
+/// rather than drawing the spaces and full stops of a line it cannot set.
+#[test]
+fn a_value_that_cannot_be_laid_out_sets_the_flag_and_names_its_field() {
+    let Some(bytes) = corpus("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("the fixture opens");
+    let mut view = ViewState::of(&document);
+    assert!(view.set_field(&document, "Text1", &Entered::Text("مرحبا".to_owned())) > 0);
+    let written = view.save(&document).expect("the fixture can be written");
+    assert_eq!(
+        written.unconstructed,
+        vec!["Text1".to_owned()],
+        "the field whose stream this program could not produce in full"
+    );
+
+    let saved = Document::open(written.bytes).expect("what was written can be read");
+    let catalog = saved.catalog().expect("a /Root");
+    let form = saved.get_key(&catalog, "AcroForm");
+    let flag = form
+        .as_dict()
+        .map(|form| saved.get_key(form, "NeedAppearances"));
+    assert!(
+        matches!(flag, Some(Object::Boolean(true))),
+        "{flag:?} — a widget without its whole stream is what Table 224's entry is for"
+    );
+}
+
+/// The same entry on an annotation a person *added* (Table 166's `/M`, §12.5.2).
+///
+/// The other site the date is written at, and it is the one ADR 0196 left for a host: an
+/// annotation this program creates is one this program knows the modification time of, once a host
+/// has said what time it is. The string is §7.9.4's grammar, `D:YYYYMMDDHHmmSSOHH'mm'`.
+#[test]
+fn an_annotation_a_person_added_carries_the_date_a_host_stated() {
+    let Some(bytes) = corpus("160F-2019.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("the fixture opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("page one")
+        .id
+        .expect("a page reached through the tree is an object");
+
+    let mut view = ViewState::of(&document);
+    view.set_modification_time(Some(pdf_syntax::Date {
+        year: 2026,
+        month: 9,
+        day: 21,
+        hour: 8,
+        minute: 15,
+        second: 0,
+        offset: Some(-90),
+    }));
+    let added = view
+        .add_markup(
+            &document,
+            page,
+            pdf_model::view::Markup::Highlight,
+            [1.0, 1.0, 0.0],
+            &[[100.0, 700.0, 300.0, 700.0, 100.0, 690.0, 300.0, 690.0]],
+        )
+        .expect("one quadrilateral is something to mark up");
+    let written = view.save(&document).expect("it can be written").bytes;
+    let saved = Document::open(written).expect("what was written can be read");
+    assert_eq!(
+        entry(&saved, added, "M")
+            .as_string()
+            .map(pdf_syntax::text_string),
+        Some("D:20260921081500-01'30'".to_owned()),
+        "§7.9.4 writes the zone the host stated, in hours and minutes"
+    );
+}

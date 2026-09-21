@@ -471,3 +471,11 @@ ADR 0916.
   too crude. The real defects this class of work did find — §12.3.5.2's unnamed conditional `shall`,
   §8.11.4.3 filing `/Configs` under Table 99 when Table 98 states it, §7.5.7's `/Extends` — were each
   found by reading a clause, never by a count going down.
+
+## 37. A refusal can stand in front of another refusal, so the site is measured again after one is lifted
+
+Lifting the structure-tree refusal on the converter's appended page exposed a second refusal on the
+very document the round existed for — a carriage return the face search demanded a glyph for — and
+only re-running the same census showed it: the "after" was eight of nine until the second cause was
+read (ADR 1163). A round that removes a refusal measures the site again with the command it measured
+before, rather than inferring the gain from the refusal it removed.

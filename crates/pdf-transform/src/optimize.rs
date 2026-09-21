@@ -83,11 +83,11 @@ use std::collections::VecDeque;
 use pdf_model::Pages;
 use pdf_syntax::Document;
 use pdf_syntax::object::{Object, ObjectId};
-use pdf_syntax::serialize::{Assembly, Form, ObjectStreams, Options, Streams, serialize};
+use pdf_syntax::serialize::{Assembly, Form, ObjectStreams, Options, Streams};
 use std::io::Write as _;
 
 use crate::pattern::{Fill, Pattern};
-use crate::{Origin, Output, Refusal, Report, Sinks, Warning};
+use crate::{Origin, Output, Protect, Refusal, Report, Sinks, Warning};
 
 /// The deepest an object's value tree is walked for references.
 ///
@@ -186,6 +186,7 @@ pub(crate) fn run(
     at: usize,
     documents: &[Document],
     sinks: &dyn Sinks,
+    protect: Option<&Protect>,
     report: &mut Report,
 ) -> Result<(), Refusal> {
     let document = documents.get(at).ok_or(Refusal::NoSuchSource {
@@ -212,13 +213,11 @@ pub(crate) fn run(
         assembly.set_info(Some(carried));
     }
 
-    if assembly.has_encrypted_source() {
+    if assembly.has_encrypted_source() && protect.is_none() {
         report.warnings.push(Warning {
             source: plan.source,
             page: None,
-            detail: "§7.6: this document is encrypted and the rewritten one is not, because this \
-                     writer emits no /Encrypt"
-                .to_owned(),
+            detail: Protect::lost("the rewritten document"),
         });
     }
 
@@ -241,7 +240,7 @@ pub(crate) fn run(
         name: expanded.name.clone(),
         error,
     })?;
-    let written = serialize(&assembly, version, options, &mut writer)
+    let written = Protect::write(protect, &assembly, version, options, &mut writer)
         .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?;
     writer.flush().map_err(|error| Refusal::Sink {
         name: expanded.name.clone(),

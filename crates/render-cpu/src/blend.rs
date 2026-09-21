@@ -165,6 +165,52 @@ fn set_sat(c: Rgb, s: f32) -> Rgb {
     c.map(place)
 }
 
+/// A blend mode this backend computes itself rather than handing to `tiny-skia`.
+///
+/// Two reasons put a mode here and they are different reasons. Table 135's four are wrong in
+/// the library (ADR 0046); §11.7.4.3's special overprinting blend mode is in no library,
+/// because no document names it and its value comes from the graphics state rather than from
+/// the two colours. Both are computed by [`composite`], which is §11.3.6's formula with the
+/// blend function left open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Computed {
+    /// One of §11.3.5.3's four.
+    NonSeparable(NonSeparable),
+    /// §11.7.4.3's, carrying the channels it leaves to the backdrop.
+    Overprint(pdf_render::Overprint),
+}
+
+impl Computed {
+    /// Recognises the modes this backend computes, and `None` for the twelve it hands over.
+    pub(crate) fn of(mode: BlendMode) -> Option<Self> {
+        match mode {
+            BlendMode::Overprint(overprint) => Some(Self::Overprint(overprint)),
+            other => NonSeparable::of(other).map(Self::NonSeparable),
+        }
+    }
+
+    /// The blend function `B(Cb, Cs)`, whichever of the two this is.
+    fn blend(self, backdrop: Rgb, source: Rgb) -> Rgb {
+        match self {
+            Self::NonSeparable(mode) => mode.blend(backdrop, source),
+            // ISO 32000-2 §11.7.4.3's first bullet, per channel: "the value of the blend
+            // function 𝐵(𝐶𝑏,𝐶𝑠) shall be the source component C s for any process
+            // ( DeviceCMYK ) colour component whose (subtractive) colour value is nonzero;
+            // otherwise it shall be the backdrop component 𝐶𝑏". Which channels are which was
+            // decided from the tints the file stated, where §8.6.7 requires the test to be
+            // made; see `pdf_render::Overprint`.
+            Self::Overprint(overprint) => {
+                let kept = overprint.kept();
+                Rgb {
+                    r: if kept[0] { backdrop.r } else { source.r },
+                    g: if kept[1] { backdrop.g } else { source.g },
+                    b: if kept[2] { backdrop.b } else { source.b },
+                }
+            }
+        }
+    }
+}
+
 /// One of Table 135's four modes, which is what this module answers.
 ///
 /// A separate enumeration rather than a checked [`BlendMode`] so that [`NonSeparable::blend`]
@@ -526,7 +572,7 @@ pub(crate) fn knockout_average(
 pub(crate) fn composite(
     surface: &mut tiny_skia::PixmapMut<'_>,
     layer: &tiny_skia::Pixmap,
-    mode: NonSeparable,
+    mode: Computed,
 ) {
     for (destination, source) in surface
         .pixels_mut()
@@ -597,8 +643,51 @@ pub(crate) fn composite(
 
 #[cfg(test)]
 mod tests {
-    use super::{NonSeparable, Rgb, clip_colour, lum, sat, set_lum, set_sat};
+    use super::{Computed, NonSeparable, Rgb, clip_colour, lum, sat, set_lum, set_sat};
     use pdf_render::BlendMode;
+
+    /// ISO 32000-2 §11.7.4.3's first bullet, per channel and in both directions.
+    ///
+    /// > the value of the blend function 𝐵(𝐶𝑏,𝐶𝑠) shall be the source component C s for any
+    /// > process ( DeviceCMYK ) colour component whose (subtractive) colour value is nonzero;
+    /// > otherwise it shall be the backdrop component 𝐶𝑏
+    ///
+    /// Which channels are which was decided by the interpreter from the tints the file stated
+    /// — §8.6.7 requires the zero test to be made there — so what this backend owes is the
+    /// selection and nothing else. The two operands differ in every channel, so a function
+    /// that returned either one whole would fail on one of the three.
+    #[test]
+    fn the_special_overprinting_mode_takes_each_channel_from_the_side_its_tint_names() {
+        let backdrop = rgb(0.1, 0.2, 0.3);
+        let source = rgb(0.7, 0.8, 0.9);
+        let kept = pdf_render::Overprint::new([false, true, false]).expect("one channel is kept");
+        assert_close(
+            Computed::Overprint(kept).blend(backdrop, source),
+            rgb(0.7, 0.2, 0.9),
+            "the kept channel is the backdrop's and the other two are the source's",
+        );
+        let all = pdf_render::Overprint::new([true; 3]).expect("three channels are kept");
+        assert_close(
+            Computed::Overprint(all).blend(backdrop, source),
+            backdrop,
+            "a colour whose four tints are all zero leaves the backdrop alone",
+        );
+    }
+
+    /// The modes this backend computes are recognised and the twelve it hands over are not.
+    #[test]
+    fn the_computed_modes_are_the_five_this_backend_owns() {
+        let kept = pdf_render::Overprint::new([true, false, false]).expect("one channel");
+        assert!(matches!(
+            Computed::of(BlendMode::Overprint(kept)),
+            Some(Computed::Overprint(_))
+        ));
+        assert!(matches!(
+            Computed::of(BlendMode::Hue),
+            Some(Computed::NonSeparable(NonSeparable::Hue))
+        ));
+        assert!(Computed::of(BlendMode::Multiply).is_none());
+    }
 
     /// Builds a colour, so that the tests below read like the clause's own triples.
     fn rgb(r: f32, g: f32, b: f32) -> Rgb {

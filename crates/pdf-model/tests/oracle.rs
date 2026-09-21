@@ -8526,7 +8526,14 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// white type on a saturated ground is where a half-covered pixel's colour is decided by the
 /// order the conversion and the coverage are applied in, and this tree now applies them in the
 /// order §11.4.7 states.
-const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf page 1"];
+///
+/// **The group is empty, and the page is a *reported* one rather than an agreeing one.** Its
+/// `/ExtGState` states `/OP true /op true /OPM 1` and its marks blend `Multiply`, which is
+/// §11.7.4.3's last paragraph — an implicit non-isolated, non-knockout group painted under the
+/// special overprinting blend mode, whose result is painted under the current mode. That group is
+/// not built (ADRs 1157, 1158), so the page names it and leaves this comparison. Its pixels did
+/// not move: the ladder above is what it drew before the mode was read and what it draws now.
+const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 0] = [];
 
 /// Ambiguous, and the five renderers span **3.65 of 255** on a 209 x 90 illustration.
 ///

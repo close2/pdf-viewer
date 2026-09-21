@@ -1299,20 +1299,20 @@ fn a_special_colourant_does_not_need_a_readable_tint_transform() {
     assert_eq!(colour, (191, 191, 191));
 }
 
-/// Overprinting changes no pixel on a device with three process colourants and no spot ones.
+/// Overprinting changes no pixel of a page composited on the device's three components.
 ///
-/// This is a *derivation*, not an omission, and the test is here to keep it honest — see ADR
-/// 0028 and the ledger's §8.6.7 and §11.7.4 rows. Table 146's blend function is the source
-/// colour `Cs` for every row this device can reach: its group colour space has three process
-/// components and no spot colourants, so every "spot colourant" row has no component to
-/// affect, and the one row whose `OPM 1` cell differs requires the *group* space to be
-/// `DeviceCMYK` (§11.7.4.3), which §11.6.6 reports as a departure when a document asks for it.
-/// `Cs` is the Normal blend function, which is what these pixels composite through.
+/// This is a *derivation*, not an omission — see ADR 1157 and the ledger's §8.6.7 and §11.7.4
+/// rows. Table 146's blend function is the source colour `Cs` for every row a group of three
+/// process components and no spot colourants can reach: every "spot colourant" row has no
+/// component to affect, and the one row whose `OPM 1` cell differs requires the *group* space
+/// to be `DeviceCMYK` (§11.7.4.3). `Cs` is the Normal blend function, which is what these
+/// pixels composite through, and §8.6.7 states the same answer for the opaque model on a
+/// device whose "native colour space ... does not include CMYK device colourants".
 ///
 /// The fixture is the case overprinting is written for — `DeviceCMYK` with a zero component,
-/// under `/OP true /OPM 1`, painted over a backdrop that component would otherwise erase. If
-/// a later session implements the special blend mode without reading those rows, this is what
-/// fails.
+/// under `/OP true /OPM 1`, painted over a backdrop that component would otherwise erase — on
+/// a page with no `/Group`. `tests/overprint.rs` is the other half: the same fixture *with* a
+/// four-component page group, where the clause's own condition holds and the cell is owed.
 #[test]
 fn overprinting_changes_nothing_on_a_three_component_device() {
     let content = |gs: &str| format!("0 0 1 1 k 0 0 20 20 re f {gs} 0 0.9 0.9 0 k 0 0 20 20 re f");

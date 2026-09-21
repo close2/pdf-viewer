@@ -51,6 +51,7 @@ pub mod capabilities;
 pub mod citation;
 pub mod clause;
 pub mod counts;
+pub mod departures;
 pub mod documents;
 pub mod entries;
 pub mod inapplicable;

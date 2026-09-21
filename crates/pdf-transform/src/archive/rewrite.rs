@@ -2330,12 +2330,18 @@ impl Rewriter<'_> {
         true
     }
 
-    /// The two dictionaries an appended page changes: the page tree's root and the label tree.
+    /// The dictionaries an appended page changes: the page tree's root, the label tree, the
+    /// structure tree.
     ///
     /// `doc/adr/0954` is why the second is here at all — a page count that changes leaves
     /// §12.4.2's labels describing a document that no longer exists, and neither the label nor the
     /// page is a conformance requirement, so both are owed for the reader rather than for the
-    /// validator.
+    /// validator. The third is a requirement: §14.8.2.2.1 makes content the structure tree does not
+    /// reach an artifact, and the preserved content is not one (`doc/adr/1163`).
+    ///
+    /// **None of the three is counted.** `Rewrite::PreservedAsPage`'s count is the pages appended,
+    /// which is what the report's "N place(s)" means here; the entries those pages owe the document
+    /// they land in are part of appending them rather than places of their own.
     fn preserve(
         &self,
         id: ObjectId,
@@ -2357,6 +2363,11 @@ impl Rewriter<'_> {
         {
             *out = labels.clone();
             changed = true;
+        }
+        if let Some(structure) = composed.structure.as_ref()
+            && !composed.pages.is_empty()
+        {
+            changed |= structure.apply(self.document, id, out);
         }
         changed
     }

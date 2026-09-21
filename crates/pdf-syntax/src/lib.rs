@@ -55,8 +55,8 @@ pub use lexer::{HexadecimalStrings, Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{DamagedDictionary, Limits, Parser};
 pub use serialize::{
-    Assembly, AssemblyError, Form, ObjectStreams, Options, SerializeError, Streams, Written,
-    serialize,
+    Access, Assembly, AssemblyError, Entropy, Form, ObjectStreams, Options, Protection,
+    SerializeError, Streams, SystemEntropy, Written, serialize, serialize_encrypted,
 };
 pub use text_string::{is_text_string, text_string};
 pub use version::Version;

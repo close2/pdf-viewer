@@ -19,6 +19,28 @@ use crate::timing::{FrameLog, Launch};
 use crate::trace::Trace;
 use crate::typing::{Choosing, Drawing, Typing};
 
+/// What the one outstanding question is about, at `CLAUDE.md`'s *ask* level.
+///
+/// **Two subjects and one card**, because a person meets one prompt and this window draws one: an
+/// operation `viewer-core` is holding until an answer comes back, or §12.6.4.8's URI, which no
+/// core is holding at all because starting a program on this machine is the host's own act.
+/// Closed, so that a third subject cannot be answered by the wrong branch (ADR 1155).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Pending {
+    /// An edit the viewer is holding, answered by `viewer_core::Command::Answer`.
+    Restricted {
+        /// Which document it is holding it for.
+        document: viewer_core::DocumentId,
+        /// Which operation the document restricts.
+        operation: pdf_model::restriction::Operation,
+    },
+    /// §12.6.4.8's resolved URI, answered by `viewer_host::answered`.
+    Link {
+        /// The URI as `viewer_host::resolve_uri` left it.
+        uri: String,
+    },
+}
+
 #[expect(
     clippy::struct_excessive_bools,
     reason = "independent facts about a window, each read in one place: whether a button is \
@@ -237,12 +259,18 @@ pub(crate) struct App {
     /// The two policies that menu edits: this window's levels, and what the open document departs
     /// from them in.
     pub(crate) restrictions: viewer_host::Restrictions,
-    /// Which document and operation the standing question is about.
+    /// §12.6.4.8: what this window does when a link asks for a URI, per `--links=`.
+    ///
+    /// The other direction from the field above, and that is why it is a second value rather than
+    /// a seventh operation of the first: what a document *asserts over its reader* is one subject,
+    /// and what a document asks **this machine to start** is the other (ADR 1155).
+    pub(crate) links: viewer_host::Links,
+    /// What the standing question is about.
     ///
     /// Kept for [`App::locked`]'s reason one field down — the card is answered on a later turn of
     /// the event loop than the one that put it up — and `None` while nothing is outstanding, so
     /// that a card dismissed twice answers once.
-    pub(crate) asked: Option<(viewer_core::DocumentId, pdf_model::restriction::Operation)>,
+    pub(crate) asked: Option<Pending>,
     /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no
     /// leaves. **Two `std::process::exit(1)` calls until the seven-hundred-and-fourth session**,
     /// which is `viewer_host::keys`' Escape-quits finding again: this host left the process where

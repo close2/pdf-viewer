@@ -289,3 +289,19 @@ rows justified themselves with a phrase — "conforming file" — that occurs no
 and is ISO 32000-1's vocabulary (ADR 0984). **A note that argues from the standard owes the
 standard's own sentence**, and the check that it is one is a command a round has to run rather
 than a gate that runs itself.
+
+**A status that rests on a stated premise is re-read when the premise moves, and nothing fires when
+it does — so the trigger is touching the row, and the reading list is a command.** ADR 0028 wrote
+its own expiry condition into its record ("the day this renderer composites in a document's
+colourants"); ADR 0262 met it, and §8.6.7 and its five neighbours sat unmoved until the owner read
+them (ADRs 1157, 1165). `tools/state.sh departures` prints, for every `departed` row, the deciding
+ADR and every later ADR that cites it or the row's clause (ADR 1166); a round that touches such a
+row, or builds the capability a row's note says is missing, runs it and re-derives the premise
+against the tree.
+
+**A note that argues for revisiting an ADR was read from the ADR, and an ADR is a record nobody
+edits — so its picture of the tree is the ADR's date, not today's.** Before building on one, `git
+log -L` the function it names: the note on ADR 0121 described a save that had written §12.7.4.3's
+stream for sixteen hundred commits, and two commands showed it. Where such a premise is stale, look
+for the comment that made it look true — `ViewState::save`'s doc comment still gave the retired
+reason as the current one, which is the defect `CLAUDE.md`'s comment rule names (ADR 1159).

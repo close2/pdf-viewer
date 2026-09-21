@@ -329,6 +329,27 @@ pub enum Restriction {
     /// The only one of the four that is about **one field** rather than about the document, and
     /// therefore the only reason [`asserted`] needs to be told which field is being filled in.
     FieldLocked,
+    /// §12.7.5.5's signature field lock dictionary, as a permission over the whole document.
+    ///
+    /// Table 236's `/P`, whose entry opens:
+    ///
+    /// > The access permissions granted for this document.
+    ///
+    /// **Not [`Restriction::FieldLocked`] under another name, and not
+    /// [`Restriction::Certified`] either.** The lock's `/Action` and `/Fields` name *fields*
+    /// whose values "shall no longer be changed"; this entry names none and states instead what
+    /// may be done to the file — "[t]he new permission applies to any incremental changes to the
+    /// document following the signature of which this key is part", which is what §7.5.6's update
+    /// makes. And it is a different clause from §12.8.2.2's `/DocMDP`, reached without §12.8.6's
+    /// permissions dictionary, so a person told the one would not have been told the other.
+    ///
+    /// The level is what Table 236's `/P` states, composed over every signed lock that states one
+    /// by `pdf_signature::signature::field_lock_permissions`, so that a host can say which of the
+    /// three stands. ADR 1156.
+    LockPermission {
+        /// Table 236's `/P`, read into Table 257's own three levels.
+        level: Modification,
+    },
     /// §12.8.2.4's `FieldMDP` transform, asserted by a signature that names this field.
     ///
     /// > The FieldMDP transform method shall be used to detect changes to the values of a list of
@@ -395,6 +416,17 @@ pub fn asserted(
         && !certification_permits(level, operation)
     {
         out.push(Restriction::Certified { level });
+    }
+    // §12.7.5.5's Table 236 `/P` next, and beside the entry above rather than beside the field
+    // lock it shares a dictionary with: both state a permission over the whole document in the
+    // same three levels, and the `/P`'s own words put them in one regime — "[i]f MDP permission is
+    // already in effect … the number shall specify permissions less than or equal to the
+    // permissions already in effect". Each refuses on its own, which is §12.8.6's composition
+    // rule: a permission needs every handler that speaks to it (ADR 1156).
+    if let Some(level) = pdf_signature::signature::field_lock_permissions(document)
+        && !certification_permits(level, operation)
+    {
+        out.push(Restriction::LockPermission { level });
     }
     if let Some(permissions) = document.permissions()
         && let Some(restriction) = withheld(permissions, operation)
