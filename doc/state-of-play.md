@@ -77,7 +77,9 @@ byte of the selection and in page content order otherwise, said out loud either 
 with **§14.8.2.2.2 taken at its word, that content the structure tree does not include is an
 artifact even where nothing tagged it one**, so what a reader takes as text can have the page
 furniture subtracted from it and the file's own declaration stays distinguishable from this
-reader's inference (ADR 1100);
+reader's inference (ADR 1100) — and §14.7.5.4's parent tree is read as the standard writes it,
+its array an indirect object of its own where the producer made it one, and a widget the tree does
+not key is still spoken by asking §14.7.5.3's `/OBJR` (ADR 1151);
 `/`
 **searches the whole document**, one page read per turn of the host's event loop because a
 thousand pages of interpretation is not something the launch path may block for, with the readback
@@ -124,6 +126,17 @@ ends when that document closes. The *ask* level puts its question on a modal win
 worded once in `viewer_host::restriction`; §12.2's `/HideMenubar` is read, answered in words and
 deliberately not obeyed over that menu, because a file that could hide the reader's levels would be
 taking away the control over itself (ADR 1145).
+
+**§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
+clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the
+mapping is applied once after compositing rather than per mark: the interpreter records every
+elementary mark's shape and function as runs on the display list, in painting order, and both
+backends resolve the runs top down over their own read-back, so the rule is stated once and the two
+agree by construction; a page stating no function records nothing. A shading's colours and a
+tiling's cells still take the function where they are made, reported by name (ADR 1125; ADRs 0479,
+0430 for the two). **Colour is its own crate**: `pdf-colour` holds the colour spaces, the ICC
+reader, the functions, shadings, meshes and transfer, below the interpreter with no cycle and
+re-exported by `pdf-model` under the paths its callers knew (ADR 1131).
 
 **A document is opened on disk and read where its own offsets point** — `startxref` from the
 last two kilobytes, each cross-reference section from where the chain names it, each object from
@@ -363,9 +376,27 @@ authorised loss or a default, then rewrite through the same structure-preserving
 and `merge` use — and **the output is validated again before a byte is written**, so what the report
 claims about it is a measurement rather than a promise (ADR 0947). A source that already conforms is
 copied rather than rewritten (ADR 1006), each loss the run is willing to take is asked for by name
-on that run, and an annotation that cannot stay does not take its marks with it (ADRs 1099, 1105).
-**It is a library verb and no window or command line reaches it yet**, which is the thing to know
-before building on it.
+on that run, and an annotation that cannot stay does not take its marks with it (ADRs 1099, 1105):
+**where §12.5.5 fixes where its appearance goes, the marks go back onto the producer's own page**
+under that clause's matrix — a `q` prepended as its own stream and §8.4.2's balance closed after
+the producer's operators, with the appended page kept for the two cases it refuses, a content
+stream that pops further than it pushes and a remaining, unhidden annotation whose `/Rect` the
+moved appearance would be drawn over, since `/Annots` order is not a painting order (ADR 1123).
+A refusal is a question answered in advance: a configuration names each refusal site and its
+remedy, `--remedy-sites` prints every site a target binds with what this version carries out, and
+six shipped profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012).
+**It is `quorra-transform archive` and a library verb; no window reaches it.**
+
+**And it applies a redaction.** §12.5.6.23's `/Redact` annotation names a region — `/QuadPoints`
+else `/Rect`, and *within* is bounding-box intersection, a documented choice — and `redact`
+writes a **new** file, never §7.5.6's update, in which the bytes are gone: a text-showing operator
+cut by the placed quad's own advance with no font metrics, held to the interpreter's code count;
+an image XObject's samples zeroed in the region, an inline image spliced in the content stream, a
+DCT or CCITT image decoded in the confined codec, cleared and re-encoded Flate, a JBIG2 image at
+its own one bit. It refuses rather than cuts wrong — a Type 3 font, a composite font not
+`Identity-H`, `sh`, a soft mask over the region, a shared image, a painted path or form, a JPX
+image — each with its sentence, and the overlay text and fill it does not compose (A65's fence),
+said as a departure in the report (ADRs 1124, 1126, 1132, 1133, 1143).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
@@ -522,9 +553,10 @@ proceed, and both it and *on* leave as `EACCES` — and **the viewer supplies al
 *refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
 caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.
-No window can put the question yet, so each answers it `false` out loud rather than letting *ask*
-behave like *on* (ADR 0814) — a C host of `viewer-ffi` can, through `QUORRA_EVENT_KIND_ASKING` and
-`quorra_answer`. The suite has its own gate, with
+All three windows put the question on a modal window (ADR 1145), a C host of `viewer-ffi` through
+`QUORRA_EVENT_KIND_ASKING` and `quorra_answer`, and `quorra-confined`, which performs no restricted
+operation, says out loud that nobody could answer rather than letting *ask* behave like *on*
+(ADR 0814). The suite has its own gate, with
 RFC 0002 §12's perf floor and its inventories held to the document's own structure, and three
 corpus walks beside it: the writer's, `split`'s — every corpus document's first page taken
 out, re-read, and drawn against the source page bit for bit — `merge`'s, which puts every
