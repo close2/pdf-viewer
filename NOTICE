@@ -166,12 +166,13 @@ the files, and doc/third-party-data.md is the full reading.
                                 DFRWS 2009, Montreal, Canada.
 
 -------------------------------------------------------------------------------
-4. The sRGB ICC profile
+4. The ICC profiles
 -------------------------------------------------------------------------------
 
 `data/icc/sRGB2014.icc`, 3 024 bytes, is the International Color Consortium's own sRGB profile,
 shipped unchanged. It is what a PDF/A conversion embeds as the destination profile of an output
-intent where the user supplies none (`doc/questions/A18`), and `data/icc/PROVENANCE.md` records
+intent where the user supplies none (`doc/questions/A18`) and the document's device-dependent
+colour is not CMYK alone, and `data/icc/PROVENANCE.md` records
 where it came from, its hash, and why this profile rather than one of the other three the ICC
 offers — ISO 19005-2 section 6.2.4.2 names the ICC texts a profile may conform to, and the
 obvious v4 download is not one of them.
@@ -185,6 +186,18 @@ The ICC's profile library states, for profiles it holds the copyright in:
 
 It is shipped unaltered, with its `cprt` tag — "Copyright International Color Consortium, 2015" —
 intact, which also satisfies the narrower grant the ICC attaches to its v4 profiles.
+
+`data/icc/GRACoL2006_Coated1v2.icc`, 2 747 956 bytes, is the CMYK profile beside it, taken from the
+same registry and shipped unchanged. A conversion embeds it where the document's device-dependent
+colour is CMYK and the user supplied no profile, on the same clause and the same reading
+(`doc/adr/1153`). Its own `cprt` tag is its licence:
+
+      Copyright X-Rite, Inc.. This profile is made available by IDEAlliance, with permission of
+      X-Rite, Inc., and may be used, embedded, exchanged, and shared without restriction.  It may
+      not be altered, or sold without written permission of IDEAlliance.
+
+It is shipped unaltered, which is the one thing that grant forbids, and
+`data/icc/PROVENANCE.md` records its hash, its tags, and the profiles declined beside it.
 
 
 -------------------------------------------------------------------------------

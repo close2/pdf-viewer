@@ -1599,12 +1599,15 @@ archive:
                            quietly
   --output-intent-profile <file>
                            the ICC profile a PDF/A output intent added by this conversion names
-                           as its destination profile. The default is the sRGB profile this
-                           program ships. Supply your own for a document produced for a press —
-                           DeviceCMYK is licensed only by a CMYK profile, and which press a
-                           document was made for is the one thing nobody but its owner knows.
-                           A supplied profile's own copyright tag is printed, because embedding
-                           somebody's profile means shipping their terms with it
+                           as its destination profile. The default is one of the two profiles
+                           this program ships, picked by the colour the document actually draws
+                           in: the GRACoL 2006 CMYK profile where its unlicensed device colour
+                           is CMYK and none of it is RGB, the sRGB profile otherwise. Supply
+                           your own for a document produced for a particular press — which
+                           press a document was made for is the one thing nobody but its owner
+                           knows. The profile's own copyright tag is printed either way,
+                           because embedding somebody's profile means shipping their terms
+                           with it
   --no-substitute          a font the file renders and does not embed is refused by name instead
                            of being given one of the faces this program ships. The default is to
                            substitute, because a PDF whose font is not embedded has no appearance

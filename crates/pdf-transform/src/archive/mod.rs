@@ -211,12 +211,14 @@ pub struct ArchivePlan {
     pub authorised: Authorisations,
     /// The ICC profile an output intent this conversion adds states as its destination profile.
     ///
-    /// `None` is the shipped sRGB profile, which is `doc/questions/A18`'s answer and
-    /// `prepare::SRGB`'s reason for existing. A caller supplies one — `--output-intent-profile` —
-    /// for a document produced for a press, which is the case
-    /// `doc/pdf-a-conversion-limits.md` section 10.1 says nobody but the document's owner can
-    /// decide. A supplied profile's own `cprt` tag is named in the report, because a user
-    /// embedding somebody else's profile is entitled to be told whose it is.
+    /// `None` is one of the two profiles this program ships, which is `doc/questions/A18`'s
+    /// answer and `prepare::SRGB`'s and `prepare::CMYK`'s reason for existing; which of them a
+    /// document gets is `prepare::shipped_for`'s decision, argued in `doc/adr/1153`. A caller
+    /// supplies one — `--output-intent-profile` — for a document produced for a particular press,
+    /// which is the case `doc/pdf-a-conversion-limits.md` section 10.1 says nobody but the
+    /// document's owner can decide. Whichever profile is embedded, its own `cprt` tag is named in
+    /// the report, because a user embedding somebody else's profile is entitled to be told whose
+    /// it is.
     pub profile: Option<std::sync::Arc<[u8]>>,
     /// Whether a font the file renders and does not embed may be given a face this program ships.
     ///

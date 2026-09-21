@@ -4277,6 +4277,39 @@ mod tests {
         );
     }
 
+    /// The CMYK profile this project ships is a version 2.0.0 output profile, and ICC.1:1998-09
+    /// clause 6.3.3.2's Table 29 requires of a colour output profile ten tags, of which this
+    /// reading asks four: `desc`, `cprt`, `wtpt` and one of the two transforms clause 6.3.3 gives
+    /// the class. `data/icc/PROVENANCE.md` makes the edition argument for the class in full —
+    /// including that all ten of Table 29's are present, and ICC.1:2001-12 Table 28's eleventh
+    /// with them.
+    #[test]
+    fn the_shipped_cmyk_profile_carries_what_a_permitted_edition_requires() {
+        let profile: &[u8] = include_bytes!("../../../../data/icc/GRACoL2006_Coated1v2.icc");
+        assert!(
+            missing_required_tags(IccEdition::Nineteen98, profile, b"prtr").is_empty(),
+            "ICC.1:1998-09 clause 6.3.3's tags for a colour output profile"
+        );
+        assert!(
+            missing_required_tags(IccEdition::TwoThousand1, profile, b"prtr").is_empty(),
+            "and ICC.1:2001-12 clause 6.3.3's, which for this class are the same"
+        );
+        // The plant that calibrates the two above (trap 13): the same file with its `A2B0`
+        // signature struck is an output profile with neither of clause 6.3.3's two transforms,
+        // and both editions have to name what is missing.
+        let mut struck = profile.to_vec();
+        let at = struck
+            .windows(4)
+            .position(|window| window == b"A2B0")
+            .expect("the tag table names it");
+        struck[at..at + 4].copy_from_slice(b"zzzz");
+        assert_eq!(
+            missing_required_tags(IccEdition::Nineteen98, &struck, b"prtr").len(),
+            1,
+            "a prtr profile with no grayTRCTag and no AToB0Tag conforms to neither form"
+        );
+    }
+
     /// ICC.2 section 8.4 asks a display profile for a transform in each direction, and the v2
     /// matrix-and-curve tags are not one — which is the corpus's `6-2-3-t01-fail-d`.
     #[test]

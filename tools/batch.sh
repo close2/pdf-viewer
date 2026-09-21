@@ -112,10 +112,14 @@ check_batch() {
     # A file this tree has no place for. The extensions are what a round legitimately adds; a
     # binary, an archive, an editor's leavings and a regenerated header are none of them, and the
     # last is the one that looks innocent — a tracked `include/quorra.h` is fine and an untracked
-    # `.h` is somebody's copy.
+    # `.h` is somebody's copy. An ICC profile is the one binary a round does legitimately add, and
+    # it is admitted **by path rather than by extension**: `data/icc/` is the only place one
+    # belongs, `NOTICE` and `data/icc/PROVENANCE.md` are what it owes, and a `.icc` anywhere else
+    # is still somebody's copy.
     found=$(git status --porcelain --untracked-files=all |
         awk '$1 == "??" { print $2 }' |
-        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt)$' || true)
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt)$' |
+        grep -vE '^data/icc/[^/]+\.icc$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
 

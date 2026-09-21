@@ -485,6 +485,27 @@ surrounding page markers rather than assume the file runs forwards.
 2.1.0 above all, which is most of the profiles that exist — since neither text is the edition such
 a profile names, and everything of either document beyond clause 6.3's tag lists.
 
+## The two ICC profiles this tree ships
+
+Not texts but data, and the only vendored bytes here that a *converted document* carries away with
+it: a PDF/A output intent this converter adds embeds one of them.
+
+| file | source | terms, from its own `cprt` tag |
+|---|---|---|
+| `data/icc/sRGB2014.icc`, 3 024 bytes | the ICC's RGB registry, 2026-09-10 | the ICC's own grant: copied, distributed, embedded, made, used and sold without restriction; an altered copy must drop the identification and copyright |
+| `data/icc/GRACoL2006_Coated1v2.icc`, 2 747 956 bytes | the ICC's profile registry, 2026-09-21 | IDEAlliance's, with X-Rite's permission: used, embedded, exchanged and shared without restriction; **not altered**, and not sold without IDEAlliance's written permission |
+
+Both are shipped byte for byte, which is what each grant turns on, and
+`data/icc/PROVENANCE.md` carries the hashes, the header fields read out of each file, the edition
+argument per class, and — for the CMYK one — the four alternatives declined and why. The licence
+sentence travels to the person who embeds it: the conversion's report prints the `cprt` tag of
+whichever profile the output intent names (`doc/pdf-a-conversion-limits.md` section 10.1).
+
+**`cargo deny` cannot see either of them**, for the same reason `viewer-ui/tests/notices.rs` exists
+for the fonts: it reads Cargo metadata and these are vendored bytes. What watches them is
+`data/icc/PROVENANCE.md`'s hashes and the tests in `crates/pdf-colour/src/icc.rs` and
+`crates/pdf-archive/src/table/graphics.rs` that read each file's own tags.
+
 ## The XMP Specification, read for a table of facts
 
 ISO 19005-2 section 6.6.2.3.1 requires every XMP property to come from a predefined schema, and deciding

@@ -1435,12 +1435,25 @@ fn every_loss_has_a_word_a_caller_can_authorise_it_by() {
     assert_eq!(Loss::parse("everything"), None);
 }
 
-/// The `desc` and `cprt` tags `data/icc/PROVENANCE.md` read out of the shipped profile by hand.
+/// The `desc` and `cprt` tags `data/icc/PROVENANCE.md` read out of the shipped RGB profile by
+/// hand.
 ///
 /// Repeated here rather than imported so that a change to the shipped file fails a test in the
 /// crate that embeds it as well as in the one that reads it.
 const SHIPPED_PROFILE: (&str, &str) =
     ("sRGB2014", "Copyright International Color Consortium, 2015");
+
+/// The same two tags of the shipped CMYK profile, read out of it by hand the same way.
+///
+/// The `cprt` text is the whole of the profile's licence, and `doc/questions/A18`'s second
+/// sentence is why a test asserts it reaches a person: whoever embeds this profile is shipping
+/// the terms `IDEAlliance` set with it.
+const SHIPPED_CMYK_PROFILE: (&str, &str) = (
+    "GRACoL2006_Coated1v2.icc",
+    "Copyright X-Rite, Inc.. This profile is made available by IDEAlliance, with permission of \
+     X-Rite, Inc., and may be used, embedded, exchanged, and shared without restriction.  It may \
+     not be altered, or sold without written permission of IDEAlliance.",
+);
 
 /// A page that paints in `DeviceRGB`, which is the commonest reason a document needs an output
 /// intent at all.
@@ -1451,9 +1464,22 @@ fn paints_in_device_rgb() -> (String, Vec<u8>) {
     (String::new(), b"1 0 0 rg 0 0 10 10 re f".to_vec())
 }
 
-/// A page that paints in `DeviceCMYK`: §8.6.8's `k`, the operator the sRGB default cannot license.
+/// A page that paints in `DeviceCMYK`: §8.6.8's `k`, the operator only a CMYK profile licenses.
 fn paints_in_device_cmyk() -> (String, Vec<u8>) {
     (String::new(), b"0 0 0 1 k 0 0 10 10 re f".to_vec())
+}
+
+/// A page that paints in **both** device spaces, which one destination profile cannot license.
+///
+/// ISO 19005-2 section 6.2.3 and ISO 19005-4 section 6.2.3 make every entry of one
+/// `OutputIntents` array name the same destination profile object, and section 6.2.4.3 of each
+/// licenses a device space only through a profile of that space's own family. So this page is the
+/// fixture for the one decision `prepare::shipped_for` has to take and `doc/adr/1153` argues.
+fn paints_in_both_device_spaces() -> (String, Vec<u8>) {
+    (
+        String::new(),
+        b"1 0 0 rg 0 0 10 10 re f 0 0 0 1 k 10 10 10 10 re f".to_vec(),
+    )
 }
 
 /// The output intent dictionary a converted file states, where it states one.
@@ -1542,13 +1568,13 @@ fn a_device_rgb_page_gains_the_shipped_output_intent_and_the_report_says_what_th
 }
 
 #[test]
-fn a_device_cmyk_page_is_refused_by_name_because_srgb_does_not_license_it() {
-    // ISO 19005-4 section 6.2.4.3 licenses DeviceCMYK through a **CMYK** destination profile, and
-    // the profile this program ships is RGB. **And part 4 has no second licence**: it states the
-    // sentence requiring a *device independent* DefaultCMYK where ISO 19005-2 states it admitting
-    // a DeviceN-based one, so the construction the test below writes for part 2 is not open here
-    // and the answer is the press's own profile. That is the standard's difference between the
-    // two parts rather than a gap in this converter.
+fn a_device_cmyk_page_gains_the_shipped_cmyk_intent_and_the_report_carries_its_licence() {
+    // ISO 19005-4 section 6.2.4.3 licenses DeviceCMYK through a PDF/A output intent whose
+    // destination profile is CMYK, and section 6.2.3 requires that profile to be an output or a
+    // monitor profile over grey, RGB or CMYK. `doc/questions/A18` says to ship the standard
+    // profile with a flag to override it, and `doc/adr/1153` decides which one: a document whose
+    // unlicensed device colour is CMYK and none of it RGB gets the CMYK profile rather than the
+    // RGB one, because one document takes one destination profile.
     let source = Conforming {
         contents: Some(paints_in_device_cmyk()),
         ..Conforming::default()
@@ -1559,12 +1585,115 @@ fn a_device_cmyk_page_is_refused_by_name_because_srgb_does_not_license_it() {
         &report,
         "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
     );
-    let Decision::Refused(because) = decided else {
-        panic!("an sRGB intent does not license DeviceCMYK: {decided:?}");
+    let Decision::Stated {
+        rewrite,
+        reinterprets,
+    } = decided
+    else {
+        panic!("a CMYK destination profile answers the clause outright: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::OutputIntent);
+    assert!(
+        reinterprets.contains("colour-manages"),
+        "`doc/questions/A18`'s second sentence, said of the marks already in the file: \
+         {reinterprets}"
+    );
+
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms,
+        "the output is held to the target again:\n{}",
+        holds(&output, Target::Four(Flavour::Plain)).render()
+    );
+    let intent = output_intent(&output);
+    assert_eq!(
+        intent
+            .get("S")
+            .and_then(|value| value.as_name())
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"GTS_PDFA1".to_vec()),
+        "the value both parts' section 6.2.3 makes a PDF/A output intent"
+    );
+
+    let profile = conversion(&report)
+        .profile
+        .as_ref()
+        .expect("the report names the profile the intent embeds");
+    assert_eq!(profile.source.word(), "shipped");
+    assert_eq!(profile.describes.as_deref(), Some(SHIPPED_CMYK_PROFILE.0));
+    assert_eq!(profile.space, "CMYK");
+    assert_eq!(
+        profile.copyright.as_deref(),
+        Some(SHIPPED_CMYK_PROFILE.1),
+        "doc/pdf-a-conversion-limits.md section 10.1: whose profile this is, read out of the \
+         profile"
+    );
+    let rendered = conversion(&report).render();
+    assert!(
+        rendered.contains(SHIPPED_CMYK_PROFILE.1),
+        "the licence is in the report a person reads:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(SHIPPED_PROFILE.0),
+        "and the RGB profile is not what was embedded:\n{rendered}"
+    );
+    // The machine-readable half carries the same four facts, because a pipeline archiving in bulk
+    // reads this and not the prose.
+    let json = report.to_json().render();
+    for expected in [
+        "\"icc_profile\"",
+        "\"shipped\"",
+        SHIPPED_CMYK_PROFILE.0,
+        "IDEAlliance",
+        "\"CMYK\"",
+    ] {
+        assert!(
+            json.contains(expected),
+            "the JSON is missing {expected}:\n{json}"
+        );
+    }
+}
+
+#[test]
+fn a_page_in_both_device_spaces_takes_the_rgb_profile_and_part_four_refuses_the_cmyk_row() {
+    // The decision `doc/adr/1153` takes, at the one fixture that forces it. ISO 19005-4 section
+    // 6.2.3 makes every entry of one OutputIntents array name the same destination profile
+    // object, so this page's two device spaces cannot both be licensed by output intents; section
+    // 6.2.4.3 states no second licence for either family under part 4 — its DefaultCMYK sentence
+    // asks for a *device independent* space where ISO 19005-2's admits a DeviceN-based one. So one
+    // row is answered and one is refused, and what the refusal has to be is a true sentence
+    // naming the flag that would answer it.
+    let source = Conforming {
+        contents: Some(paints_in_both_device_spaces()),
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    let rgb = decision(
+        &report,
+        "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
+    );
+    assert_eq!(
+        rgb.rewrite(),
+        Some(Rewrite::OutputIntent),
+        "the RGB row is the one answered: {rgb:?}"
+    );
+    let cmyk = decision(
+        &report,
+        "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
+    );
+    let Decision::Refused(because) = cmyk else {
+        panic!("one profile cannot license both families: {cmyk:?}");
     };
     assert!(
         because.sentence().contains("--output-intent-profile"),
         "the refusal says what would answer it: {}",
+        because.sentence()
+    );
+    assert!(
+        because.sentence().contains("colour family"),
+        "and why this profile does not: {}",
         because.sentence()
     );
     assert!(output.is_none(), "no file is written");
@@ -1808,6 +1937,59 @@ fn default_cmyk(document: &Document) -> Vec<pdf_syntax::Object> {
 }
 
 #[test]
+fn a_cmyk_only_page_under_part_two_takes_the_shipped_profile_over_the_devicen_default() {
+    // ISO 19005-2 section 6.2.4.3 offers the CMYK sentence two licences, and they are not equal:
+    // the DeviceN default reads every CMYK value through §10.4.2.5's transform, which §10.4.2.1
+    // itself calls a crude approximation, while a CMYK destination profile leaves the numbers
+    // meaning what a CMYK device makes of them. So where nothing on the page is DeviceRGB the one
+    // destination profile goes to CMYK and the approximation is not written at all
+    // (`doc/adr/1153`); the mixed page above is where the DeviceN default is still the answer.
+    let source = Conforming {
+        contents: Some(paints_in_device_cmyk()),
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    let decided = decision(
+        &report,
+        "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+    );
+    assert_eq!(
+        decided.rewrite(),
+        Some(Rewrite::OutputIntent),
+        "the better of the clause's two licences: {decided:?}"
+    );
+    let output = output.unwrap_or_else(|| panic!("{}", conversion(&report).render()));
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "the output is held to the target again:\n{}",
+        holds(&output, Target::Two(Level::B)).render()
+    );
+    let profile = conversion(&report)
+        .profile
+        .as_ref()
+        .expect("the report names the profile");
+    assert_eq!(profile.space, "CMYK");
+    assert_eq!(profile.describes.as_deref(), Some(SHIPPED_CMYK_PROFILE.0));
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("one page");
+    let resources = document
+        .get_key(&page.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .expect("the page's resources");
+    assert!(
+        document.get_key(&resources, "ColorSpace").is_null(),
+        "nothing is changed that no failed requirement asked for"
+    );
+    assert!(
+        conversion(&report).recorded.is_none(),
+        "and nothing is recorded in the history, because nothing was interpreted"
+    );
+}
+
+#[test]
 fn a_device_cmyk_page_under_part_two_gets_the_devicen_default() {
     // ISO 19005-2 section 6.2.4.3 admits a **DeviceN-based** DefaultCMYK beside a device
     // independent one, and its NOTE 2 says why: such a space is subject to section 6.2.4.4 and is
@@ -1904,10 +2086,16 @@ fn a_device_cmyk_page_under_part_two_gets_the_devicen_default() {
     }
 }
 
-/// A part-2 document whose one page paints in `DeviceCMYK`, converted.
+/// A part-2 document whose one page paints in **both** device spaces, converted.
+///
+/// The `DeviceN` `/DefaultCMYK` is the second licence ISO 19005-2 section 6.2.4.3 offers, and
+/// this is the document that needs it: the one destination profile section 6.2.3 allows goes to
+/// the RGB row, so the CMYK row is answered by the construction or not at all
+/// (`doc/adr/1153`). A page painting in CMYK *alone* gets the shipped CMYK profile instead,
+/// which is the ranking `prepare::Prepared::of` states and the test below it asserts.
 fn converted_cmyk_page() -> (Report, Vec<u8>) {
     let source = Conforming {
-        contents: Some(paints_in_device_cmyk()),
+        contents: Some(paints_in_both_device_spaces()),
         ..Conforming::part_two()
     }
     .build();

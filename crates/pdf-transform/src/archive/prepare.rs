@@ -36,8 +36,7 @@ use super::sites::{
 use super::to_unicode::{self, DerivedMaps};
 use super::{ArchivePlan, COMPRESSION_LEVEL};
 
-/// The ICC profile this program ships, and the default destination profile of an output intent
-/// it adds.
+/// The RGB profile this program ships.
 ///
 /// `doc/questions/A18`: ship the standard sRGB profile, with a flag to override it.
 /// `data/icc/PROVENANCE.md` records which of the ICC's four sRGB profiles this is and why — the
@@ -45,6 +44,15 @@ use super::{ArchivePlan, COMPRESSION_LEVEL};
 /// conform to and the ICC's headline v4 download conforms to none of them. It is `static` data,
 /// so it costs no parse time until something asks for it.
 const SRGB: &[u8] = include_bytes!("../../../../data/icc/sRGB2014.icc");
+
+/// The CMYK profile this program ships.
+///
+/// `doc/adr/1153`: the same decision as [`SRGB`]'s, taken for the other family a destination
+/// profile can be — ISO 19005-2 section 6.2.4.3 licenses `DeviceCMYK` through an output intent
+/// whose profile is CMYK, and the RGB one cannot answer that row whatever else it does.
+/// `data/icc/PROVENANCE.md` carries the edition argument for a `prtr` class, the licence read
+/// out of the file's own `cprt` tag, and the alternatives declined. Also `static`.
+const CMYK: &[u8] = include_bytes!("../../../../data/icc/GRACoL2006_Coated1v2.icc");
 
 /// The action this conversion records in `xmpMM:History` when it writes the `/DefaultCMYK`.
 ///
@@ -389,7 +397,10 @@ const fn identification_uri(target: Target) -> &'static str {
 /// Where an output intent's destination profile came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileSource {
-    /// The sRGB profile this program ships — `doc/questions/A18`'s default.
+    /// One of the two profiles this program ships — `doc/questions/A18`'s default.
+    ///
+    /// Which of them is [`shipped_for`]'s decision, and the report says which by printing the
+    /// profile's own `desc` tag and colour space beside this word rather than by having two.
     Shipped,
     /// One the caller supplied.
     Supplied,
@@ -416,7 +427,7 @@ impl ProfileSource {
     #[must_use]
     pub const fn describe(self) -> &'static str {
         match self {
-            Self::Shipped => "the sRGB profile this program ships",
+            Self::Shipped => "a profile this program ships",
             Self::Supplied => "the profile you supplied",
             Self::AlreadyInTheFile => "the destination profile this file already held",
         }
@@ -715,7 +726,7 @@ impl Prepared {
         let mut spare = Spare::of(document);
         let catalog = document.catalog().ok();
         let intent = match (wanted(Rewrite::OutputIntent), catalog.as_ref()) {
-            (true, Some(catalog)) => prepare_intent(plan, document, catalog, &mut spare),
+            (true, Some(catalog)) => prepare_intent(plan, document, catalog, &failed, &mut spare),
             (true, None) => Err(Because::NotBuiltYet(NO_CATALOG)),
             // Nothing failed that an output intent answers, so nothing is prepared and the
             // reason is never read: `decide` consults this only for a requirement `wanted`
@@ -1214,6 +1225,52 @@ impl Spare {
 /// How many object numbers [`Spare`] tries before giving up.
 const MAX_SPARE_NUMBERS: usize = 64;
 
+/// The two rows that say a page drew in `DeviceRGB` where nothing licensed it.
+///
+/// ISO 19005-2 section 6.2.4.3 and ISO 19005-4 section 6.2.4.3, one row per part.
+const DEVICE_RGB_ROWS: [&str; 2] = [
+    "graphics/device-rgb-needs-a-default-or-an-rgb-output-intent",
+    "graphics/device-rgb-needs-a-default-a-blending-space-or-an-rgb-output-intent",
+];
+
+/// The two rows that say a page drew in `DeviceCMYK` where nothing licensed it.
+///
+/// The same two subclauses. `DeviceGray` has rows of its own and they are deliberately absent
+/// from both lists: each part licenses grey through a PDF/A output intent of *any* family, so a
+/// grey page asks nothing of the choice below.
+const DEVICE_CMYK_ROWS: [&str; 2] = [
+    "graphics/device-cmyk-needs-a-default-or-a-cmyk-output-intent",
+    "graphics/device-cmyk-needs-a-default-a-blending-space-or-a-cmyk-output-intent",
+];
+
+/// Which of the two shipped profiles this document's own device colour asks for.
+///
+/// **One document, one destination profile.** ISO 19005-2 section 6.2.3 and ISO 19005-4
+/// section 6.2.3 require every entry of one `OutputIntents` array that states a
+/// `DestOutputProfile` to name the *same* object, and section 6.2.4.3 of each licenses a device
+/// colour space only through a destination profile of that space's own family. A page drawing in
+/// both `DeviceRGB` and `DeviceCMYK` therefore cannot be licensed by output intents at all —
+/// whichever profile is embedded, one of the two rows stays failed. So this is not a preference
+/// between two good profiles; it is which row gets answered.
+///
+/// The rule is one sentence: **the CMYK profile where the document's unlicensed device colour is
+/// CMYK and none of it is RGB, and the RGB profile otherwise.** What settles the tie is that only
+/// the CMYK row has a second licence — ISO 19005-2 section 6.2.4.3 admits a `DeviceN`-based
+/// `/DefaultCMYK`, which [`prepare_default_cmyk`] builds out of §10.4.2.5's own transform and
+/// which `Answer::CmykUnderPartTwo` takes exactly when the profile in hand is not CMYK. Under
+/// part 2, then, this order licenses a mixed document *completely* and the other order does not.
+/// Part 4 states no such second licence, so a mixed document there keeps one refusal whichever
+/// way the choice goes; taking the same order in both parts is what makes this one rule rather
+/// than two, and `WRONG_FAMILY` is the sentence part 4's CMYK row is then refused with.
+///
+/// `doc/adr/1153` is the argument, including why part 4's page-level output intents are not the
+/// answer to a document whose RGB and CMYK live on different pages.
+fn shipped_for(failed: &BTreeSet<&'static str>) -> &'static [u8] {
+    let cmyk = DEVICE_CMYK_ROWS.iter().any(|id| failed.contains(id));
+    let rgb = DEVICE_RGB_ROWS.iter().any(|id| failed.contains(id));
+    if cmyk && !rgb { CMYK } else { SRGB }
+}
+
 /// The `/OutputIntents` array the catalog states, resolved to its entries.
 pub(super) fn output_intent_entries(document: &Document, catalog: &Dictionary) -> Vec<Object> {
     document
@@ -1245,6 +1302,7 @@ fn prepare_intent(
     plan: &ArchivePlan,
     document: &Document,
     catalog: &Dictionary,
+    failed: &BTreeSet<&'static str>,
     spare: &mut Spare,
 ) -> Result<Intent, Because> {
     let wrong = Because::NotBuiltYet(NO_USABLE_PROFILE);
@@ -1274,7 +1332,7 @@ fn prepare_intent(
 
     let (source, bytes) = match &plan.profile {
         Some(supplied) => (ProfileSource::Supplied, supplied.to_vec()),
-        None => (ProfileSource::Shipped, SRGB.to_vec()),
+        None => (ProfileSource::Shipped, shipped_for(failed).to_vec()),
     };
     let stated = Identification::read(&bytes).ok_or(wrong)?;
     let family = family_of(&stated).ok_or(wrong)?;

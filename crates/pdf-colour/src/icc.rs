@@ -3006,13 +3006,15 @@ mod tests {
         assert!(Profile::parse(&damaged).is_none());
     }
 
-    /// No bound in this module cuts the profile this program ships.
+    /// No bound in this module cuts the RGB profile this program ships.
     ///
-    /// **The first of ADR 0971's four measured-but-unasserted census rows.** `data/icc/` holds
-    /// one file and this module is the only reader of it, so the question ADR 0963 asks — does a
-    /// datum this binary already carries exceed a compiled-in constant? — is arithmetic with no
-    /// document in it. The measurement was written into that ADR and nothing failed when it went
-    /// stale; this is the walk.
+    /// **The first of ADR 0971's four measured-but-unasserted census rows.** This module is the
+    /// only reader of `data/icc/`, so the question ADR 0963 asks — does a datum this binary
+    /// already carries exceed a compiled-in constant? — is arithmetic with no document in it. The
+    /// measurement was written into that ADR and nothing failed when it went stale; this is the
+    /// walk. The CMYK profile beside it is walked by
+    /// [`no_bound_in_this_module_cuts_the_shipped_cmyk_profile`], which is where the lookup-table
+    /// bounds this one cannot reach are measured.
     ///
     /// What the bounds are against, measured off `data/icc/sRGB2014.icc` itself: 3 024 bytes
     /// against [`MAX_PROFILE`]'s 16 MiB, a tag table of 16 entries against [`MAX_TAGS`]'s 1 024,
@@ -3025,7 +3027,8 @@ mod tests {
     /// **[`MAX_CLUT`], [`MAX_INPUTS`] and [`MAX_OUTPUTS`] are not asserted here and that is
     /// honest rather than an omission**: they bound a lookup table, and this profile is the
     /// matrix-and-curve form — `a_tag_table_is_searched_by_signature` asserts it carries no
-    /// `A2B0` at all. A carried datum that never reaches a bound cannot say anything about it.
+    /// `A2B0` at all. A carried datum that never reaches a bound cannot say anything about it,
+    /// which is what the CMYK profile's own walk is for.
     #[test]
     fn no_bound_in_this_module_cuts_the_shipped_profile() {
         let bytes: &[u8] = include_bytes!("../../../data/icc/sRGB2014.icc");
@@ -3092,6 +3095,113 @@ mod tests {
         assert!(
             Profile::parse(bytes).is_some(),
             "and the whole profile builds a transform"
+        );
+    }
+
+    /// No bound in this module cuts the CMYK profile this program ships either.
+    ///
+    /// The sibling above walks the matrix-and-curve form; this walks the **lookup-table** form,
+    /// which is where [`MAX_CLUT`], [`MAX_INPUTS`] and [`MAX_OUTPUTS`] are reached at all. What
+    /// the bounds are against, measured off `data/icc/GRACoL2006_Coated1v2.icc` itself: 2 747 956
+    /// bytes against [`MAX_PROFILE`]'s 16 MiB, a tag table of 12 entries against [`MAX_TAGS`]'s
+    /// 1 024, `A2B0`'s four input channels and `B2A0`'s four output channels against
+    /// [`MAX_INPUTS`]' 15 and [`MAX_OUTPUTS`]' 4, and `A2B0`'s 17-per-side grid over four inputs
+    /// — 250 563 table entries — against [`MAX_CLUT`]'s 4 Mi. `MAX_OUTPUTS` is the one with no
+    /// headroom, which is the fact worth having asserted rather than assumed: a four-colourant
+    /// device is exactly what it is sized for.
+    #[test]
+    fn no_bound_in_this_module_cuts_the_shipped_cmyk_profile() {
+        let bytes: &[u8] = include_bytes!("../../../data/icc/GRACoL2006_Coated1v2.icc");
+
+        let stated = usize::try_from(super::u32_at(bytes, 0).expect("a header")).expect("fits");
+        assert_eq!(stated, bytes.len(), "the header describes the whole file");
+        assert!(
+            bytes.len() <= super::MAX_PROFILE,
+            "the shipped CMYK profile is {} bytes against MAX_PROFILE's {}",
+            bytes.len(),
+            super::MAX_PROFILE
+        );
+
+        let tags = usize::try_from(super::u32_at(bytes, 128).expect("a tag table")).expect("fits");
+        assert!(
+            tags <= super::MAX_TAGS,
+            "the shipped CMYK profile states {tags} tags against MAX_TAGS' {}",
+            super::MAX_TAGS
+        );
+
+        // The file's own strings, which is what makes this a gate on the *read* rather than a
+        // count: a bound raised only far enough to stop a `None` while the read lost the tail
+        // fails here. Both are what `data/icc/PROVENANCE.md` records by hand.
+        let read = Identification::read(bytes).expect("the shipped CMYK profile is a profile");
+        assert_eq!(
+            read.description.as_deref(),
+            Some("GRACoL2006_Coated1v2.icc")
+        );
+        assert!(
+            read.copyright
+                .as_deref()
+                .is_some_and(|text| text.contains("IDEAlliance")),
+            "the licence tag survives the read: {:?}",
+            read.copyright
+        );
+
+        // The lookup tables the two bounds above cannot see, read out of the `mft2` tag headers:
+        // byte 8 is the input channel count, byte 9 the output count, byte 10 the grid points
+        // per side (ICC.1:1998-09 clause 6.5.6's lut16Type).
+        let profile = Profile::parse(bytes).expect("the whole profile builds a transform");
+        let mut widest_clut = 0usize;
+        for signature in [*b"A2B0", *b"B2A0"] {
+            let mut at = None;
+            for index in 0..tags {
+                let entry = 132usize
+                    .checked_add(index.checked_mul(12).expect("12 entries"))
+                    .expect("a small offset");
+                if super::signature_at(bytes, entry) == Some(signature) {
+                    at = usize::try_from(
+                        super::u32_at(bytes, entry.checked_add(4).expect("fits"))
+                            .expect("an offset"),
+                    )
+                    .ok();
+                }
+            }
+            let at = at.expect("the tag table names it");
+            let inputs = usize::from(bytes[at.checked_add(8).expect("fits")]);
+            let outputs = usize::from(bytes[at.checked_add(9).expect("fits")]);
+            let grid = usize::from(bytes[at.checked_add(10).expect("fits")]);
+            assert!(
+                inputs <= super::MAX_INPUTS,
+                "{inputs} inputs against MAX_INPUTS' {}",
+                super::MAX_INPUTS
+            );
+            assert!(
+                outputs <= super::MAX_OUTPUTS,
+                "{outputs} outputs against MAX_OUTPUTS' {}",
+                super::MAX_OUTPUTS
+            );
+            let entries = grid
+                .pow(u32::try_from(inputs).expect("four"))
+                .checked_mul(outputs)
+                .expect("a table this profile holds");
+            widest_clut = widest_clut.max(entries);
+        }
+        assert_eq!(
+            widest_clut, 250_563,
+            "A2B0's table, 17 per side over four inputs to three outputs"
+        );
+        assert!(
+            widest_clut <= super::MAX_CLUT,
+            "{widest_clut} entries against MAX_CLUT's {}",
+            super::MAX_CLUT
+        );
+
+        // And the transform it builds answers, which is what a bound cutting the tail would take
+        // away in silence: zero in every colourant is the paper this profile describes, and its
+        // connection-space Y is above the black the same transform gives full coverage.
+        let paper = profile.to_xyz_with(&[0.0, 0.0, 0.0, 0.0], Rendering::compensating());
+        let solid = profile.to_xyz_with(&[1.0, 1.0, 1.0, 1.0], Rendering::compensating());
+        assert!(
+            paper[1] > solid[1],
+            "unprinted paper is lighter than full coverage: {paper:?} against {solid:?}"
         );
     }
     /// The paper a press profile states as its medium, in connection-space XYZ: a warm white

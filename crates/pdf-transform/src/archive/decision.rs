@@ -818,11 +818,11 @@ pub(super) const REMEDIES: &[Remedy] = &[
         answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),
     },
     // ISO 19005-4 section 6.2.3's page-level rule binds only where the *document* states no
-    // PDF/A output intent, so a document-level one answers it outright and PDF/A-4's page-level
-    // intents are a facility this converter has no occasion to use. That is the clause read
-    // rather than the feature declined: a page-level intent is for a document mixing an RGB body
-    // with CMYK inserts, and choosing which pages get which profile is not a decision that can be
-    // taken from the file.
+    // PDF/A output intent, so a document-level one answers it outright. Page-level intents are
+    // therefore a facility this converter declines rather than one it has no occasion for, and
+    // `doc/adr/1153` section 4 is the argument: taking them means writing no document-level
+    // intent at all, an `OutputIntents` array on *every* device-dependent page, and a refusal
+    // still left for any single page that draws in both RGB and CMYK.
     Remedy {
         requirement: "graphics/a-device-dependent-page-carries-an-output-intent",
         answer: Answer::Stated(None, Rewrite::OutputIntent, OUTPUT_INTENT_REINTERPRETS),

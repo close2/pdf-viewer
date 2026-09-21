@@ -589,6 +589,9 @@ must add an output intent, and that means shipping a profile.
 - **Default: the ICC's own v2 sRGB profile**, embedded as `/DestOutputProfile` with `/S`
   `GTS_PDFA1` (both parts require that value: -2 §6.2.3, -4 §6.2.3). v2 satisfies both parts'
   profile-version constraints with one file.
+- **Except where the document's device colour is CMYK and none of it is RGB**, when the default is
+  the v2 CMYK profile beside it — §6.2.3 allows one destination profile object per array, so which
+  of the two a document gets is decided from the document (§10.1, `doc/adr/1153`).
 - **That default is a convention, and is documented here as one.** ISO 32000-2 §8.6.4.1 gives the
   device colour spaces no colorimetric meaning at all: their values "map directly (or by simple
   conversions) to the application of device colourants", and "the results might not be consistent
@@ -1261,12 +1264,13 @@ the plain profile. What it costs:
 | **a font with no embedded program** | §6.2.10.4.1 requires embedding | §4.9 — substitute and embed | appearance frozen to ours; reported |
 | **codes no method can name** | §6.2.10.7's `ToUnicode` is a `should` here | convert anyway, record the recommendation as unmet | **no loss of conformance** — this is where -4 is *easier* than -2u |
 | **a page over 14 400 units, deep `q`/`Q` nesting, a 40-ink DeviceN** | part 4 states no implementation limits | keep | **no loss** — -4 is where these documents can go |
-| **`DeviceCMYK` content** | §6.2.4.3 needs a CMYK output intent or a device-independent `DefaultCMYK` | supply a CMYK profile, **or** take §10.1's spec-defined fallback | not blocked, but the colour is approximate unless you supply the profile |
+| **`DeviceCMYK` content** | §6.2.4.3 needs a CMYK output intent or a device-independent `DefaultCMYK` | the shipped GRACoL 2006 profile becomes the output intent, unless the page is also `DeviceRGB` (§10.1) | not blocked; the colour is a press condition this program chose, so supply your own press's profile where you have one |
 
 **The shape of that table is the finding.** For a PDF/A-4-only archive the losses are narrow and
 nearly all of them are *attachments and multimedia*: a document with no attachment, no 3D and no
 sound converts with nothing lost but its `/Info` dictionary and its deprecated keys. The two
-things that can stop it are a non-PDF attachment and CMYK content without a profile.
+things that can stop it are a non-PDF attachment and a page drawing in `DeviceRGB` and
+`DeviceCMYK` at once, which one destination profile cannot license.
 
 ### 9.2 Target: PDF/A-2b
 
@@ -1330,8 +1334,9 @@ policy engine with a dry-run mode, not a question-asker.
 
 The short answer to "is getting these for our licence difficult?": **mostly no, and less than you
 would expect — the fonts for the common case are already in this tree under licences that permit
-embedding. sRGB is one small open decision. A CMYK profile is the only thing you may have to buy,
-and even there the standard defines a fallback.**
+embedding, and both ICC profiles are shipped. What is left to buy is the profile of *your* press
+— the standard defines a fallback, and this program ships a general one, but neither is your
+press.**
 
 | resource | needed for | state |
 |---|---|---|
@@ -1340,16 +1345,19 @@ and even there the standard defines a fallback.**
 | **Adobe predefined `CMap`s** | non-embedded CJK fonts, §6.2.11.3.3 | **already shipped** — all 239, **BSD-3-Clause**, in `data/cmaps/` |
 | **the Adobe Glyph List, standard-14 metrics** | naming codes (§2.1), widths (§4.9) | **already in the tree** |
 | **an sRGB ICC profile** | §4.1's output intent, which almost every conversion needs | **decided by `A18`: ship it, with a flag to override.** The reading it rests on: `doc/rfc/0006` §5.3 read the ICC's terms as a permissive grant with two conditions — ship it unchanged with its copyright tag, do not use ICC's name to advertise — with no copyleft and no field-of-use clause. A second route exists if that reading does not survive scrutiny: an ICC v2 matrix/TRC profile is a small, fully specified structure, and this tree already *reads* ICC profiles, so generating one from published colorimetry rather than redistributing anybody's file is a bounded piece of work |
-| **a CMYK output profile** | any document with `DeviceCMYK` content | **the one you supply** — and §10.1 has a spec-defined fallback for when you cannot, at a cost the standard itself states |
+| **a CMYK output profile** | any document with `DeviceCMYK` content | **already shipped.** `data/icc/GRACoL2006_Coated1v2.icc`, IDEAlliance's GRACoL 2006 sheetfed condition, under a grant naming embedding and sharing outright (`doc/adr/1153`, `data/icc/PROVENANCE.md`). Supply your own with `--output-intent-profile` where the document was separated for a particular press, and §10.1 keeps the spec-defined fallback for the page this one cannot license |
 
-### 10.1 CMYK: the profile you supply, and the fallback if you have none
+### 10.1 CMYK: the profile shipped, the profile you supply, and the fallback
 
 §6.2.4.3 permits `DeviceCMYK` only where a device-independent `DefaultCMYK` colour space has been
 set or the current PDF/A output intent carries a **CMYK** destination profile. An sRGB output
 intent does not satisfy it.
 
 **The correct answer is your own profile.** A CMYK output intent is a statement about *which press
-the document was made for*, and nobody but the document's owner knows that.
+the document was made for*, and nobody but the document's owner knows that. What is shipped is the
+general answer — GRACoL 2006, a sheetfed commercial printing condition — for the document whose
+owner has no particular press in mind, so that a CMYK document converts rather than refusing; it
+is still this program's choice of press and not the document's.
 
 **The licence question was an assumption when this was written and has since been checked.** The
 ICC's own registry lists the registered CMYK output profiles — the ECI's `PSOcoated_v3` and
@@ -1404,10 +1412,17 @@ So the converter's behaviour is:
 
 - **Default: use the supplied profile.** If `--output-intent-profile` names a CMYK profile, that is
   the output intent and nothing else is needed.
-- **Fallback with no profile: write the DeviceN `/DefaultCMYK`**, report it per document, and
-  record it in `xmpMM:History` — naming §10.4.2.5 as the transform, so a later reader knows
-  precisely which approximation was applied and can undo the interpretation.
-- **Report it before converting, not after**: *this document uses DeviceCMYK on n pages; without a
-  CMYK profile its colour will be approximated by ISO 32000-2 §10.4.2.5.* That is a first-page
-  answer, and for an archive handling print-origin material it is the sentence that prompts them
-  to buy one profile once.
+- **With no supplied profile, and no `DeviceRGB` on the pages: the shipped CMYK profile** is the
+  output intent, and the fallback below is not written at all. A destination profile leaves the
+  four numbers meaning what a CMYK device makes of them, which the transform below does not;
+  `doc/adr/1153` is the argument and it turns on one document taking one destination profile.
+- **Fallback where the one destination profile has gone to RGB: write the DeviceN
+  `/DefaultCMYK`**, report it per document, and record it in `xmpMM:History` — naming §10.4.2.5 as
+  the transform, so a later reader knows precisely which approximation was applied and can undo the
+  interpretation. This is the page that draws in both device spaces, and under part 4, which states
+  no DeviceN licence, it is a refusal instead.
+- **Report which profile was embedded, and what that asserts**: the report names the profile, its
+  `desc` tag, its colour space and its licence sentence, and says that a PDF/A output intent is
+  what a conforming reader colour-manages device colours through — so every `DeviceCMYK` value in
+  the file now means what that profile says it means. For an archive handling print-origin
+  material that is the sentence that prompts them to supply their own press's profile.
