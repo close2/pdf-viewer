@@ -230,20 +230,6 @@ mod tests {
         })
     }
 
-    /// A text `doc/specifications.zip` does **not** carry, which is why this one may be absent.
-    ///
-    /// ISO 32000-1:2008 is the fifteenth text on this disk and the archive holds fourteen: the
-    /// owner downloaded it separately, `/doc/*.pdf` and `/doc/md/` ignore both the PDF and its
-    /// conversion, and nothing puts it into the encrypted archive — so no unpacking produces it
-    /// and a machine that has done everything right can still be without it. The loud failure
-    /// above is for a text the archive supplies; here it accused CI of an omission CI could not
-    /// repair, and three pushes in a row went red for it (ADR 1152). Same shape as
-    /// `coverage.rs`'s `doc/pdfa/` skip and the KIO worker's build test: absent, say so, and let
-    /// the checks that need no text still run.
-    fn optional_markdown(file: &str) -> Option<String> {
-        std::fs::read_to_string(in_doc_md(file)).ok()
-    }
-
     /// A clause number as either edition writes one: digits and full stops, or an annex letter
     /// followed by them.
     fn is_clause_number(text: &str) -> bool {
@@ -315,8 +301,8 @@ mod tests {
     /// is taken from the table of contents alone**: a body line opening with a bare number is
     /// far more often a table row ("14 PNG prediction …" is Table 8's) than clause 14, and the
     /// contents page lists every top-level clause.
-    fn headings_of_iso_32000_1() -> Option<BTreeMap<String, String>> {
-        let text = optional_markdown("ISO_32000-1_2008.md")?;
+    fn headings_of_iso_32000_1() -> BTreeMap<String, String> {
+        let text = markdown("ISO_32000-1_2008.md");
         let mut headings = BTreeMap::new();
         for line in text.lines() {
             let line = line.trim_end();
@@ -354,7 +340,7 @@ mod tests {
                 .entry(number.to_owned())
                 .or_insert_with(|| title.trim().to_owned());
         }
-        Some(headings)
+        headings
     }
 
     /// Every Rust source of this crate.
@@ -434,10 +420,9 @@ mod tests {
     /// needed, so a corrected conversion of either text, or a citation that stopped being made,
     /// fails here rather than leaving a stale entry to mislead the next reader.
     ///
-    /// **Both directions need ISO 32000-1:2008, which `doc/specifications.zip` does not carry**,
-    /// so where that text is absent they are skipped with the path printed and the spelling
-    /// check above still runs — ADR 1152, and [`optional_markdown`] for why this one text is not
-    /// the loud failure the others are.
+    /// Both directions need ISO 32000-1:2008, which `doc/specifications.zip` carries since the
+    /// archive was rebuilt with it (ADR 1152 section 1); a machine without it is one
+    /// that skipped the unpacking, and [`markdown`] fails loudly for it as for the other texts.
     #[test]
     fn every_citation_resolves_in_the_edition_a_part_two_file_adheres_to() {
         // The half that reads no specification runs first, so that a machine without the 2008
@@ -449,14 +434,7 @@ mod tests {
              section 2); write the 2008 number without a sign:\n{}",
             after_the_earlier_edition.join("\n")
         );
-        let Some(earlier) = headings_of_iso_32000_1() else {
-            println!(
-                "skipping the two-edition check: {} is not on this machine, and \
-                 doc/specifications.zip does not carry it (ADR 1152)",
-                in_doc_md("ISO_32000-1_2008.md").display()
-            );
-            return;
-        };
+        let earlier = headings_of_iso_32000_1();
         let later = headings_of_iso_32000_2();
         assert!(
             later.len() > 900 && earlier.len() > 700,

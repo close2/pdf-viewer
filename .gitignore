@@ -62,3 +62,4 @@ __pycache__/
 # A worktree round names its build directory here rather than exporting CARGO_TARGET_DIR
 # (ADR 0344: an exported CARGO_* empties the sccache cache). The file is the round's own.
 .cargo/config.toml
+/doc/specifications.password

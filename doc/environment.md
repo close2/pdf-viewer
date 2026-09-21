@@ -444,8 +444,10 @@ and PDF Association documents in `doc/` and their Markdown conversions under `do
 **tracked in the clear, and the project owner is not licensed to redistribute them** — free to
 obtain is not the same permission, and a repository carrying them passes them on to everyone who
 clones it. In the three-hundred-and-eleventh session they left the tree, the index and **all 436
-commits of the history**, and came back **encrypted** (ADR 0187): `doc/specifications.zip`, 37 MB,
-ZipCrypto, all twenty-eight files, with `.gitignore` covering what `unzip` puts back. `git log
+commits of the history**, and came back **encrypted** (ADR 0187): `doc/specifications.zip`,
+ZipCrypto, every specification PDF the gates open and its conversion — thirty files since
+ISO 32000-1:2008 joined them on 2026-09-21 (ADR 1152) — with `.gitignore` covering what `unzip`
+puts back. `git log
 --all --name-only` finds no path under `doc/md/` and no `doc/*.pdf` in any commit, which is the
 only check worth trusting on this. **This tree may be published**; nothing else here had to be
 true first.
@@ -453,8 +455,16 @@ true first.
 **Run this once in a fresh clone, and every gate and example in this tree works:**
 
 ```sh
-unzip -P <password> doc/specifications.zip    # from the workspace root; ask the owner
+unzip -P "$(cat doc/specifications.password)" doc/specifications.zip    # from the workspace root
 ```
+
+**The password is `doc/specifications.password`**, one line, gitignored (`/doc/specifications.password`),
+mode 600, on the owner's machine and nowhere in the tree or its history; a fresh clone gets it from
+the owner. It is the same value the `SPEC_ZIP_PASSWORD` repository secret holds, and when the
+archive is rebuilt the file and the secret change together: `7z a -tzip -mem=ZipCrypto -p"$(cat
+doc/specifications.password)" doc/specifications.zip <the entries>` (Info-ZIP's `zip` is not on this
+machine; `unzip` reads only ZipCrypto, so AES is not an option), then a round trip into a scratch
+directory compared by hash before the archive is committed.
 
 **Every reference to the documents stays as it was**, decided by the owner in that session: four
 tests and eleven measurement examples open `doc/ISO_32000-2_sponsored_EC3.pdf` or
