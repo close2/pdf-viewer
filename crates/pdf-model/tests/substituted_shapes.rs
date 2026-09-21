@@ -13,8 +13,25 @@
 //!
 //! **What is asserted is the property and not this machine's number.** Every face that list
 //! names is a normal-width design, and so is the compiled-in fallback, so the ratio is a
-//! property of the *file* and the assertions below are written as the file's own inequality:
-//! a glyph's ink fits in the room the file gives it.
+//! property of the *file*: the letters fit in the room the file gives them.
+//!
+//! # Why the claim is the line's and not each letter's
+//!
+//! §9.2.4 makes a width a **displacement** — where the next glyph starts — so it says nothing
+//! about where *this* glyph's ink ends. A letter whose outline reaches past its own advance has
+//! a negative side bearing, which is ordinary typography and not a defect: `DejaVuSans`' `f` and
+//! `t` do it here, the compiled-in face's `y` does, and this machine's Arial-metric faces do not.
+//! A per-letter `<=` is therefore an assertion about which faces are installed, which is the
+//! thing this file's own first paragraph says it is not making (ADR 1154).
+//!
+//! So the claim is a **share**, in the shape `pdf-font`'s width tests already use for the same
+//! reason, and the control beside it is arithmetic rather than a second measurement: the ink
+//! drawn without the scale is the ink drawn with it divided by [`LoadedFont::stretch`], so the
+//! test computes what the defect would have looked like and shows that it is the *majority*. On
+//! four faces measured — this machine's, the compiled-in fallback's, `DejaVuSans` and
+//! `DroidSansFallback` — at most 2 of the 19 letters overflow with the scale and 14 or 15 of them
+//! would without it. A quarter is the line between, and the defect ADR 0358 fixed is on the far
+//! side of it by a factor of seven.
 
 #![expect(
     clippy::expect_used,
@@ -46,11 +63,13 @@ fn witness_font() -> Option<(Document, Dictionary)> {
     Some((document, dict))
 }
 
-/// Every letter the witness shows is drawn inside the advance its `/Widths` states for it.
+/// The letters the witness shows are drawn inside the advances its `/Widths` states for them.
 ///
 /// The inequality is the whole claim, and it fails in the direction the defect had: before ADR
-/// 0358 the substitute's `A` was 0.636 em of ink inside the 0.547 em this file gives it, which
-/// is the assertion this test fails with when the scale is removed.
+/// 0358 the substitute's `A` was 0.636 em of ink inside the 0.547 em this file gives it. The
+/// module comment says why it is counted over the line rather than asserted of each letter, and
+/// the second assertion is the control that makes the first one mean something: remove the scale
+/// — which is a division, not another measurement — and most of the line goes over.
 #[test]
 fn a_substituted_glyph_fits_the_width_the_file_states_for_it() {
     let Some((document, dict)) = witness_font() else {
@@ -63,6 +82,8 @@ fn a_substituted_glyph_fits_the_width_the_file_states_for_it() {
     );
 
     let mut checked = 0usize;
+    let mut over: Vec<String> = Vec::new();
+    let mut over_unscaled = 0usize;
     for byte in b"Accessory facilities" {
         let code = Code::single_byte(*byte);
         let Some(outline) = font.outline(code) else {
@@ -72,17 +93,33 @@ fn a_substituted_glyph_fits_the_width_the_file_states_for_it() {
             .bounds(pdf_render::Transform::scale(1.0, 1.0))
             .expect("a drawn glyph has bounds");
         let stated = font.advance(code);
-        assert!(
-            bounds.width() <= stated,
-            "{:?} is {} em of ink in the {stated} em the file gives it",
-            char::from(*byte),
-            bounds.width()
-        );
         checked += 1;
+        if bounds.width() > stated {
+            over.push(format!(
+                "{:?} is {} em of ink in the {stated} em the file gives it",
+                char::from(*byte),
+                bounds.width()
+            ));
+        }
+        // The same letter with the scale taken off, which is what the face's own designer drew.
+        if bounds.width() / font.stretch() > stated {
+            over_unscaled += 1;
+        }
     }
     assert!(
         checked > 10,
         "only {checked} of the line's letters were drawn"
+    );
+    assert!(
+        over.len() * 4 < checked,
+        "{} of {checked} letters overflow the room the file gives them:\n{}",
+        over.len(),
+        over.join("\n")
+    );
+    assert!(
+        over_unscaled * 2 > checked,
+        "only {over_unscaled} of {checked} letters would overflow unscaled, so the assertion \
+         above is not discriminating on this machine's face"
     );
 }
 

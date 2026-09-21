@@ -2583,6 +2583,29 @@ fn to_unicode_program(codespace: &str, bf_range: &str) -> String {
     )
 }
 
+/// Whether this machine can stand in for a composite fixture's `/Comp` font.
+///
+/// §9.7.4.2 leaves a composite font with no embedded program reachable only by character, so
+/// `pdf-font` takes its stand-in from an `sfnt` face the machine offers and never from the
+/// compiled-in fourteen. A machine with none refuses `/Comp` before any `/DA` is laid out, and
+/// what the tests below would then be measuring is the font catalogue. Object 6 is the `/Type0`
+/// font [`composite_form`] writes. ADR 1154.
+fn machine_offers_a_face_for(fixture: &[u8]) -> bool {
+    let document = Document::open(fixture.to_vec()).expect("the fixture is a valid PDF");
+    let font = document.get(pdf_syntax::ObjectId {
+        number: 6,
+        generation: 0,
+    });
+    let Some(font) = font.as_dict() else {
+        return true;
+    };
+    pdf_font::LoadedFont::machine_offers_a_substitute(&document, font)
+}
+
+/// The sentence a composite fixture prints where this machine cannot stand in for its font.
+const NO_FACE: &str = "skipped: no sfnt face on this machine can stand in for the fixture's \
+                       composite font";
+
 /// The widget every composite fixture below hangs the same value on.
 const COMPOSITE_WIDGET: &str = "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 \
                                 /FT /Tx /T (field) /V (AB) /DA (/Comp 12 Tf 0 g) >>";
@@ -2605,13 +2628,18 @@ const COMPOSITE_WIDGET: &str = "<< /Type /Annot /Subtype /Widget /Rect [20 40 18
 /// codespace asks for two produces a string that decodes to entirely different codes.
 #[test]
 fn a_composite_da_fonts_codes_are_as_long_as_its_codespace_says() {
-    let (narrow_reports, narrow) = draw(composite_form(
+    let narrow_fixture = composite_form(
         COMPOSITE_WIDGET,
         "7 0 R",
         &cmap_program("<00> <FF>", "<41> <5A> 1"),
         &to_unicode_program("<00> <FF>", "<41> <5A> <0041>"),
         "/DW 1000 /W [1 [500 500]]",
-    ));
+    );
+    if !machine_offers_a_face_for(&narrow_fixture) {
+        println!("{NO_FACE}");
+        return;
+    }
+    let (narrow_reports, narrow) = draw(narrow_fixture);
     let (wide_reports, wide) = draw(composite_form(
         COMPOSITE_WIDGET,
         "7 0 R",
@@ -2682,6 +2710,16 @@ fn a_composite_da_font_that_names_no_characters_is_reported() {
 #[test]
 fn a_vertical_composite_da_font_is_refused_and_says_which() {
     let identity_unicode = to_unicode_program("<0000> <FFFF>", "<0041> <005A> <0041>");
+    if !machine_offers_a_face_for(&composite_form(
+        COMPOSITE_WIDGET,
+        "/Identity-H",
+        "",
+        &identity_unicode,
+        "/DW 1000 /W [65 [500 500]]",
+    )) {
+        println!("{NO_FACE}");
+        return;
+    }
     let (horizontal_reports, horizontal) = draw(composite_form(
         COMPOSITE_WIDGET,
         "/Identity-H",

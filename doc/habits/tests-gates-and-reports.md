@@ -133,6 +133,18 @@ which gates a change actually needs.
   the identifier from the document, not from the fixture that happened to be first.
 - **A test that skips silently is worse than no test.** A missing corpus is a skip; a present
   corpus that lacks what the test needs is a **panic**.
+- **And what the *machine* lacks is a skip too, said out loud, asked of the code rather than of a
+  message.** §9.7.4.2 leaves a composite font with no embedded program reachable only by
+  character, so `pdf-font` draws it from an `sfnt` face this machine offers and never from the
+  compiled-in fourteen — and a fixture of that shape measures the machine's font collection on
+  every assertion it makes. Twelve tests in eight binaries failed for that reason and no other when
+  the font directories were replaced by an empty `tmpfs`, and two of them were CI's red pushes. So a
+  test that needs a face asks `LoadedFont::machine_offers_a_substitute`, which runs the search the
+  load runs, and prints a sentence when the answer is no; a predicate reading the refusal's
+  *words* instead would swallow the day the code under test started refusing for a different
+  reason. Two of the twelve were not machine dependencies at all but defects the machine had been
+  hiding — a corpus population that admitted a substitute as though the producer had embedded it,
+  and an inequality stronger than §9.2.4 states. ADR 1154.
 - **A gap measured on both sides is a fact; measured on one side it is an accusation.**
 - **Agreement can be a shared *substitute*, and only removing the sharing shows it.** Six oracle
   pages became contradicted the session §9.6.2.2's fourteen font programs were compiled in, and

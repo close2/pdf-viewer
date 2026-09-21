@@ -91,6 +91,13 @@ fn only_the_collections_vertical_forms_are_drawn_differently_downwards() {
         println!("skipped: doc/corpora/pdf-differences is not checked out");
         return;
     };
+    // Before the face's *features* are asked about, whether there is a face at all: §9.7.4.2
+    // leaves a substituted composite font reachable only by character, so a machine offering no
+    // `sfnt` face covering Japanese refuses the witness outright. ADR 1154.
+    if !LoadedFont::machine_offers_a_substitute(&document, &dict) {
+        println!("skipped: no sfnt face on this machine covers the witness's Japanese collection");
+        return;
+    }
     let downward = LoadedFont::load(&document, &dict, "Japanese")
         .expect("a non-embedded Adobe-Japan1 CIDFontType0 is substituted rather than refused");
     assert!(
@@ -170,6 +177,11 @@ fn a_vertical_form_is_drawn_or_counted_and_never_both() {
         println!("skipped: doc/corpora/pdf-differences is not checked out");
         return;
     };
+    // The same machine question its sibling asks, and for the same reason (ADR 1154).
+    if !LoadedFont::machine_offers_a_substitute(&document, &dict) {
+        println!("skipped: no sfnt face on this machine covers the witness's Japanese collection");
+        return;
+    }
     let downward = LoadedFont::load(&document, &dict, "Japanese")
         .expect("a non-embedded Adobe-Japan1 CIDFontType0 is substituted rather than refused");
     let mut horizontal_dict = dict.clone();

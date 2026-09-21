@@ -312,6 +312,14 @@ fn a_predefined_cmap_is_resolved_by_name() {
         .iter()
         .find(|(key, _)| key == "F1")
         .expect("page one has /F1");
+    // The witness embeds no program, so its glyphs come from an `sfnt` face this machine offers
+    // covering Japanese (§9.7.4.2, `substituted::script_sample`); a machine with none refuses the
+    // font before any `CMap` is consulted, which is a fact about the machine and not about the
+    // mapping this test is here for. ADR 1154.
+    if !pdf_font::LoadedFont::machine_offers_a_substitute(&document, dict) {
+        println!("skipped: no sfnt face on this machine covers the witness's Japanese collection");
+        return;
+    }
     let font = pdf_font::LoadedFont::load(&document, dict, "F1")
         .expect("90ms-RKSJ-H is one of the predefined CMaps this binary carries");
     let codes = font.decode(b"\x82\xa0\x41");

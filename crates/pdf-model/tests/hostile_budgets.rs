@@ -132,13 +132,30 @@ fn reported(document: &Document) -> String {
 ///
 /// A substituted composite font is reachable only by character (§9.7.4.2), so `pdf-font` takes
 /// its substitute from an `sfnt` face the machine offers and never from the compiled-in faces.
-/// A machine with none — a CI runner is one — refuses the font by name before any `CMap` is
-/// read, and a bound's sentence cannot be tested on a page that draws no text. That is a fact
-/// about the machine, not about the bound, so the tests that need a face say so and skip, the
-/// way the corpus tests skip a submodule that is not checked out.
+/// A machine with none — a CI runner without a font package is one — refuses the font by name
+/// before any `CMap` is read, and a bound's sentence cannot be tested on a page that draws no
+/// text. That is a fact about the machine, not about the bound, so the tests that need a face
+/// say so and skip, the way the corpus tests skip a submodule that is not checked out.
+///
+/// The question goes to `pdf-font`, which runs the search the load itself runs, rather than to
+/// the report's prose: a predicate matching a refusal's *words* would also swallow a refusal the
+/// code under test had started giving for some other reason, and a suite that cannot tell those
+/// apart is measuring the instrument (`doc/habits/tests-gates-and-reports.md`, ADR 1154).
 fn machine_offers_a_face_for(document: &Document) -> bool {
-    !reported(document).contains("cannot be substituted")
+    // Object 5 is the `/Type0` font every fixture below states; a fixture that stopped putting it
+    // there would answer `true` here and fail loudly, which is the right way round.
+    let font = document.get(pdf_syntax::ObjectId {
+        number: 5,
+        generation: 0,
+    });
+    let Some(font) = font.as_dict() else {
+        return true;
+    };
+    pdf_font::LoadedFont::machine_offers_a_substitute(document, font)
 }
+
+/// The sentence a test prints where this machine cannot stand in for the fixture's font.
+const NO_FACE: &str = "skipped: no sfnt face on this machine can stand in for the fixture's font";
 
 /// How many commands page one produced, for a control that has to actually draw.
 fn commands(document: &Document) -> usize {
@@ -792,6 +809,16 @@ fn an_image_stating_a_predictor_row_wider_than_its_data_still_draws() {
 /// fixture is about is the `CMap`, and `CodeMapping::Substituted` carries one exactly as
 /// `CodeMapping::Composite` does. The ranges are one code each and consecutive, so `ranges` of
 /// them fit inside a two-byte codespace for any count this fixture uses.
+///
+/// **The code it shows is the one the chosen face is guaranteed to draw.** A substitute for an
+/// `Adobe-Japan1` font is picked by whether it covers あ (`substituted::script_sample`), and
+/// `Adobe-Japan1-UCS2` opens its hiragana range at `<034a> <039c> <3041>` — so CID 843 is that
+/// character, and `<034a>`, which these ranges send to CID 843, draws on every face that could
+/// have been chosen at all. A code reaching some *other* character made the control's "it has to
+/// draw" a second question about the machine: `DroidSansFallback` covers あ and has no Latin at
+/// all, so the fixture's old `<0001>` — CID 2, which the collection makes `!` — drew nothing on a
+/// machine carrying that face, and CI failed on a runner whose toolkit packages had pulled that
+/// font in (ADR 1154).
 fn composite_font_stating_ranges(ranges: usize) -> Document {
     let mut cmap = String::from(
         "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
@@ -823,7 +850,7 @@ fn composite_font_stating_ranges(ranges: usize) -> Document {
         cmap.len()
     );
     page(
-        "BT /F1 24 Tf 50 700 Td <0001> Tj ET",
+        "BT /F1 24 Tf 50 700 Td <034a> Tj ET",
         "<< /Font << /F1 5 0 R >> >>",
         &extra,
     )
@@ -836,6 +863,11 @@ fn composite_font_stating_ranges(ranges: usize) -> Document {
 /// reached through the character this map gives the code. The embedded `CMap` states two
 /// `cidrange` entries and nothing else, so the only bound this fixture can reach is
 /// `tounicode.rs`'s.
+///
+/// Its `/CIDSystemInfo` names no registered collection, so the face is chosen by *family* rather
+/// than by coverage and comes from `substitute::PREFERENCES` — Latin text families throughout,
+/// which is why showing `<0001>`, `B` under this `/ToUnicode`, is safe here and is not in the
+/// sibling above (ADR 1154).
 fn composite_font_with_to_unicode(spans: usize) -> Document {
     let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
          /CMapName /Test def /CMapType 1 def /WMode 0 def\n\
@@ -894,6 +926,10 @@ fn composite_font_with_to_unicode(spans: usize) -> Document {
 #[test]
 fn a_to_unicode_past_the_range_bound_is_reported_by_name() {
     let document = composite_font_with_to_unicode(16_385);
+    if !machine_offers_a_face_for(&document) {
+        println!("{NO_FACE}");
+        return;
+    }
     let reported = reported(&document);
     assert!(
         reported.contains("max_tounicode_ranges"),
@@ -912,6 +948,10 @@ fn a_to_unicode_past_the_range_bound_is_reported_by_name() {
 #[test]
 fn a_to_unicode_exactly_on_the_range_bound_reports_nothing_about_it() {
     let document = composite_font_with_to_unicode(16_384);
+    if !machine_offers_a_face_for(&document) {
+        println!("{NO_FACE}");
+        return;
+    }
     let reported = reported(&document);
     assert!(
         !reported.contains("max_tounicode_"),
@@ -939,7 +979,7 @@ fn a_to_unicode_exactly_on_the_range_bound_reports_nothing_about_it() {
 fn a_cmap_past_the_range_bound_is_reported_by_name() {
     let document = composite_font_stating_ranges(32_769);
     if !machine_offers_a_face_for(&document) {
-        println!("skipped: no sfnt face on this machine can stand in for the fixture's font");
+        println!("{NO_FACE}");
         return;
     }
     let reported = reported(&document);
@@ -962,7 +1002,7 @@ fn a_cmap_past_the_range_bound_is_reported_by_name() {
 fn a_cmap_exactly_on_the_range_bound_reports_nothing_about_it() {
     let document = composite_font_stating_ranges(32_768);
     if !machine_offers_a_face_for(&document) {
-        println!("skipped: no sfnt face on this machine can stand in for the fixture's font");
+        println!("{NO_FACE}");
         return;
     }
     let reported = reported(&document);

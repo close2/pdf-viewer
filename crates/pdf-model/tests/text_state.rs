@@ -18,9 +18,13 @@
 //! These assert against the display list, because every parameter here is a number that
 //! decides where a glyph goes.
 //!
-//! Like `tests/text_render_modes.rs`, the outlines come from a font installed on this
-//! machine, so a machine with none would pass every assertion vacuously; see that file's
-//! module comment for why the helper panics rather than skipping.
+//! Like `tests/text_render_modes.rs`, the outlines have to come from somewhere, so a fixture
+//! that draws nothing would pass every assertion vacuously; see that file's module comment for
+//! why [`placements`] panics rather than skipping. The simple fonts here are answered from the
+//! compiled-in fourteen and depend on no machine at all — but §9.7.4.2 leaves `/F0` and `/F4`,
+//! which embed no program, reachable only through an `sfnt` face the machine offers, so the two
+//! tests that use them ask [`machine_offers_a_face_for`] first and skip with a sentence where
+//! the answer is no (ADR 1154).
 
 #![expect(
     clippy::expect_used,
@@ -126,6 +130,33 @@ fn interpret(content: &str) -> pdf_model::Interpretation {
     pdf_model::interpret(&document, &page)
 }
 
+/// Whether this machine can stand in for one of the fixture's composite fonts.
+///
+/// `/F0` and `/F4` embed no program, and §9.7.4.2 leaves such a font reachable only by character
+/// — so `pdf-font` draws it from an `sfnt` face the machine offers and never from the compiled-in
+/// faces, which are name-keyed CFF. A machine with none refuses both fonts and every assertion
+/// about them would be a sentence about this machine's font collection. The simple fonts below
+/// are unaffected: §9.6.2.2's fourteen are compiled in.
+///
+/// `object` is the fixture's own object number for the font — 6 for `/F0`, 12 for `/F4` — and the
+/// question goes to `pdf-font`'s own search rather than to the shape of a refusal, so a load that
+/// started failing for some other reason fails here rather than skipping (ADR 1154).
+fn machine_offers_a_face_for(object: u32) -> bool {
+    let document = Document::open(fixture("")).expect("the fixture is a valid PDF");
+    let font = document.get(pdf_syntax::ObjectId {
+        number: object,
+        generation: 0,
+    });
+    let Some(font) = font.as_dict() else {
+        return true;
+    };
+    pdf_font::LoadedFont::machine_offers_a_substitute(&document, font)
+}
+
+/// The sentence a test prints where this machine cannot stand in for a composite font.
+const NO_FACE: &str = "skipped: no sfnt face on this machine can stand in for the fixture's \
+                       composite font";
+
 /// Where each glyph a content stream draws was placed, in page units.
 ///
 /// Panics if nothing was drawn, because an empty list would satisfy every assertion below
@@ -174,6 +205,10 @@ fn word_spacing_moves_the_glyph_after_a_simple_fonts_space() {
 /// this, because a composite font's space is usually some other CID entirely.
 #[test]
 fn word_spacing_does_not_reach_a_two_byte_code_32() {
+    if !machine_offers_a_face_for(6) {
+        println!("{NO_FACE}");
+        return;
+    }
     let without = placements("BT /F0 10 Tf 0 Tw 0 0 Td <00200041> Tj ET");
     let with = placements("BT /F0 10 Tf 50 Tw 0 0 Td <00200041> Tj ET");
 
@@ -224,6 +259,10 @@ fn a_code_32_the_encoding_names_is_read_as_what_it_names() {
 /// `A` and `B` and leaves `<0020>` for the readback to decline.
 #[test]
 fn a_two_byte_code_32_is_not_read_back_as_a_space() {
+    if !machine_offers_a_face_for(12) {
+        println!("{NO_FACE}");
+        return;
+    }
     assert_eq!(
         interpret("BT /F4 10 Tf 0 0 Td <004100200042> Tj ET").text,
         "AB"

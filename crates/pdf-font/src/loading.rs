@@ -543,6 +543,30 @@ struct ClassFace {
     downward: Option<Box<Downward>>,
 }
 
+/// The machine face a composite font with no embedded program is drawn from, with the request it
+/// was found by.
+///
+/// **`installed_covering` rather than `find`, and the difference is §9.7.4.2's.** A substituted
+/// composite font is reachable only by character, so its face has to answer a `cmap` lookup —
+/// which an `sfnt`'s does and the compiled-in name-keyed CFF faces cannot. Handing those to this
+/// path would refuse five corpus documents a machine font draws.
+///
+/// The request comes back as well as the answer because the refusal names the family it looked
+/// for, and because [`LoadedFont::machine_offers_a_substitute`] has to run *this* search rather
+/// than a second one written to look like it (ADR 1154).
+fn composite_substitute(
+    document: &Document,
+    descendant: &Dictionary,
+    descriptor: Option<&Dictionary>,
+) -> (substitute::Request, Option<Arc<[u8]>>) {
+    let request = substitute::Request::derive(document, descendant, descriptor);
+    // Characters the collection's own script requires, so that a face is chosen by what it can
+    // *draw* and not only by the family a descriptor implies.
+    let wanted = script_sample(document, descendant);
+    let found = substitute::installed_covering(request, wanted);
+    (request, found)
+}
+
 /// ISO 32000-2 §9.8.3.3's `/FD`, resolved to a decision and a face per class.
 ///
 /// Answers for a `CIDFont` whose program the document did not embed and for no other font, which
@@ -1054,6 +1078,49 @@ impl LoadedFont {
         })
     }
 
+    /// Whether this machine offers a face the composite font `dict` names could be drawn from.
+    ///
+    /// §9.7.4.2 leaves a composite font whose program the document did not embed reachable only
+    /// by *character* — "CIDs shall not participate in glyph selection" — so its stand-in has to
+    /// answer a `cmap` lookup, which an `sfnt` face on this machine does and the compiled-in
+    /// name-keyed CFF faces cannot. A machine offering none therefore draws no such font at all,
+    /// and that is a fact about the machine rather than about the document.
+    ///
+    /// **Which is why this is public: it is the question a test has to ask before it measures
+    /// anything through such a font.** A fixture that is a composite font with no `/FontFile`
+    /// measures this machine's font collection on every assertion it makes, and a suite that
+    /// cannot tell "no face is installed" from "the code under test broke" is measuring the
+    /// instrument (`doc/habits/tests-gates-and-reports.md`). The answer is the *machine's*, so a
+    /// test that gets `false` says so and skips, and one that gets `true` fails loudly like any
+    /// other. It asks the same search [`LoadedFont::load`] runs — [`composite_substitute`] — so
+    /// there is no second matcher to disagree with the first (ADR 1154).
+    ///
+    /// `true` for anything that is not a composite font with a descendant, and for one whose
+    /// program the document embedded: neither has a substitute to look for, so neither is a
+    /// reason to skip.
+    #[must_use]
+    pub fn machine_offers_a_substitute(document: &Document, dict: &Dictionary) -> bool {
+        let descendants = document.get_key(dict, "DescendantFonts");
+        let Some(descendant) = descendants
+            .as_array()
+            .and_then(<[Object]>::first)
+            .map(|item| document.resolve(item))
+            .and_then(|item| item.as_dict().cloned())
+        else {
+            return true;
+        };
+        let descriptor_object = document.get_key(&descendant, "FontDescriptor");
+        let descriptor = descriptor_object.as_dict();
+        // The resource name only ever reaches an error this discards, so the empty one is the
+        // honest argument rather than a borrowed name that would read as a claim about a font.
+        if descriptor.is_some_and(|descriptor| embedded_program(document, descriptor, "").is_ok()) {
+            return true;
+        }
+        composite_substitute(document, &descendant, descriptor)
+            .1
+            .is_some()
+    }
+
     /// Loads a composite (Type0) font.
     fn load_composite(
         document: &Document,
@@ -1094,27 +1161,77 @@ impl LoadedFont {
             }),
         };
 
+        // §9.10.2's first and third methods, read once each: the producer's `/ToUnicode`, keyed
+        // by code, and the collection's `registry-ordering-UCS2` table, keyed by CID. Both serve
+        // the readback of every composite font and, for a substituted one, glyph selection too.
+        let to_unicode = to_unicode(document, dict);
+        let collection = collection_table(document, &descendant);
+
         let (data, program, substituted) = match embedded {
             Err(FontError::NotEmbedded { .. }) => {
-                let request = substitute::Request::derive(document, &descendant, descriptor);
-                // Characters the collection's own script requires, so that a face is chosen
-                // by what it can *draw* and not only by the family a descriptor implies.
-                let wanted = script_sample(document, &descendant);
-                // **`installed` rather than `find`, and the difference is §9.7.4.2's.** A
-                // substituted composite font is reachable only through `/ToUnicode`, so its face
-                // has to answer *by character* — which an `sfnt`'s `cmap` does and the
-                // compiled-in name-keyed CFF faces cannot. Handing them to this path would refuse
-                // five corpus documents a machine font draws.
-                let data = substitute::installed_covering(request, wanted).ok_or_else(|| {
-                    FontError::NoSubstitute {
+                // A CID is meaningless outside the font that defined it — it is an index into
+                // that font's glyphs, not a character — so a substitute can only be reached
+                // through what the codes *mean*. `/ToUnicode` is the only thing that says so,
+                // and a composite font without one cannot be substituted at all. §9.7.4.2 says
+                // the same thing from the other side: with the program absent, "CIDs shall not
+                // participate in glyph selection", and a `/CIDToGIDMap` "shall be ignored, since
+                // it is not meaningful to refer to glyph indices in an external font program".
+                // §9.10.2's first method, then its third. The third became reachable in the
+                // hundred-and-fifty-sixth session, when this binary started carrying the
+                // collections' own tables; before it, a CJK font without a `/ToUnicode` was
+                // refused whatever its `/CIDSystemInfo` said.
+                //
+                // **And where the CMap is one of the two identity ones, §9.7.5.2 has already
+                // forbidden the file rather than left the reader a choice**: "The Identity-H and
+                // Identity-V CMaps shall not be used with a non-embedded font. Only standardized
+                // character sets may be used." A document that states `/Identity-H` over a
+                // descendant with no font program has broken that sentence, so the refusal below
+                // is not a gap in this reader — it is the one honest answer to a combination the
+                // standard says shall not exist. ADR 0433 measures what the other renderers do
+                // with it instead, and they do four different things.
+                //
+                // **Both tables are kept, and the choice between them is made per code.** The
+                // clause ranks its methods and a method that "fail[s] to produce a Unicode value"
+                // for one code has failed for that code only, so a `/ToUnicode` that omits a code
+                // the collection names has not settled the font's route — `substituted_character`
+                // asks the second table where the first says nothing (ADR 1002). What is refused
+                // here is the font with *neither*, which is the one with no question left to ask.
+                //
+                // **This question is asked before the machine's is, and the order is the whole
+                // point of it (ADR 1154).** Both refusals are [`FontError::NoSubstitute`], and
+                // only one of them is about the file: whether a code has a character to be
+                // reached by is decided by the bytes, and whether a face covering that script is
+                // installed is decided by the machine. Asking the machine first made the sentence
+                // a reader is shown about a file that broke §9.7.5.2 depend on which fonts that
+                // reader happened to have, and named the machine for a fault the producer
+                // committed.
+                if to_unicode.is_empty() && collection.is_none() {
+                    // **[`FontError::NoSubstitute`] rather than
+                    // [`FontError::UnsupportedEncoding`], and the encoding is why**: `Identity-H`
+                    // is read perfectly well here — [`composite_cmap`] built `cmap` out of it
+                    // above — so nothing about the *encoding* is unsupported. What failed is
+                    // reaching a substitute through it, which is the case that variant's own doc
+                    // comment describes and which the sibling refusal below already uses.
+                    // [`collection_gap`] says which of its four facts this file is.
+                    return Err(FontError::NoSubstitute {
                         name: name.to_owned(),
-                        reason: format!(
-                            "no {:?} face this machine offers can be addressed by character, which \
+                        reason: collection_gap(
+                            document,
+                            dict,
+                            &descendant,
+                            encoding_name(document, dict).as_deref(),
+                        ),
+                    });
+                }
+                let (request, found) = composite_substitute(document, &descendant, descriptor);
+                let data = found.ok_or_else(|| FontError::NoSubstitute {
+                    name: name.to_owned(),
+                    reason: format!(
+                        "no {:?} face this machine offers can be addressed by character, which \
                          is the only way §9.7.4.2 leaves to reach a substitute for a composite \
                          font",
-                            request.family
-                        ),
-                    }
+                        request.family
+                    ),
                 })?;
                 (data, Program::Sfnt, true)
             }
@@ -1129,58 +1246,11 @@ impl LoadedFont {
 
         let (class_of, classes) = class_faces(document, &descendant, substituted, vertical, name);
 
-        // §9.10.2's first and third methods, read once each: the producer's `/ToUnicode`, keyed
-        // by code, and the collection's `registry-ordering-UCS2` table, keyed by CID. Both serve
-        // the readback of every composite font and, for a substituted one, glyph selection too.
-        let to_unicode = to_unicode(document, dict);
-        let collection = collection_table(document, &descendant);
-
         let mapping = if substituted {
-            // A CID is meaningless outside the font that defined it — it is an index into
-            // that font's glyphs, not a character — so a substitute can only be reached
-            // through what the codes *mean*. `/ToUnicode` is the only thing that says so,
-            // and a composite font without one cannot be substituted at all. §9.7.4.2 says
-            // the same thing from the other side: with the program absent, "CIDs shall not
-            // participate in glyph selection", and a `/CIDToGIDMap` "shall be ignored, since
-            // it is not meaningful to refer to glyph indices in an external font program".
-            // §9.10.2's first method, then its third. The third became reachable in the
-            // hundred-and-fifty-sixth session, when this binary started carrying the
-            // collections' own tables; before it, a CJK font without a `/ToUnicode` was
-            // refused whatever its `/CIDSystemInfo` said.
-            //
-            // **And where the CMap is one of the two identity ones, §9.7.5.2 has already
-            // forbidden the file rather than left the reader a choice**: "The Identity-H and
-            // Identity-V CMaps shall not be used with a non-embedded font. Only standardized
-            // character sets may be used." A document that states `/Identity-H` over a
-            // descendant with no font program has broken that sentence, so the refusal below
-            // is not a gap in this reader — it is the one honest answer to a combination the
-            // standard says shall not exist. ADR 0433 measures what the other renderers do
-            // with it instead, and they do four different things.
-            //
-            // **Both tables are kept, and the choice between them is made per code.** The
-            // clause ranks its methods and a method that "fail[s] to produce a Unicode value"
-            // for one code has failed for that code only, so a `/ToUnicode` that omits a code
-            // the collection names has not settled the font's route — `substituted_character`
-            // asks the second table where the first says nothing (ADR 1002). What is refused
-            // here is the font with *neither*, which is the one with no question left to ask.
-            if to_unicode.is_empty() && collection.is_none() {
-                // **[`FontError::NoSubstitute`] rather than
-                // [`FontError::UnsupportedEncoding`], and the encoding is why**: `Identity-H`
-                // is read perfectly well here — [`composite_cmap`] built `cmap` out of it
-                // above — so nothing about the *encoding* is unsupported. What failed is
-                // reaching a substitute through it, which is the case that variant's own doc
-                // comment describes and which the sibling refusal thirty lines up already
-                // uses. [`collection_gap`] says which of its four facts this file is.
-                return Err(FontError::NoSubstitute {
-                    name: name.to_owned(),
-                    reason: collection_gap(
-                        document,
-                        dict,
-                        &descendant,
-                        encoding_name(document, dict).as_deref(),
-                    ),
-                });
-            }
+            // What reaches a substituted composite font's glyphs is §9.10.2's first and third
+            // methods, and the font with neither is refused above — beside the machine's own
+            // search rather than after it, so that the file's fault is named by the file's
+            // sentence (ADR 1154).
             CodeMapping::Substituted {
                 cmap: Box::new(cmap),
                 // §9.7.5.1's NOTE: a vertical `CMap` names *different CIDs*, so a substituted
@@ -3131,7 +3201,23 @@ mod tests {
             .collect()
     }
 
-    /// Loads every first-page font in the corpus, keeping the ones backed by a bare CFF.
+    /// Loads every first-page font in the corpus whose producer *embedded* a bare CFF program.
+    ///
+    /// **The `substituted` half of the filter is the population and not a detail**, because all
+    /// three tests below reason about the program the producer shipped: that its charstrings'
+    /// advances agree with the document's `/Widths`, that the corpus exercises both kinds of bare
+    /// CFF, and that a code the encoding does not cover reaches no glyph in it. A *substitute* is
+    /// a different designer's face reached through the characters the codes mean, and
+    /// `metrics::substitute_stretch` says so from the other side — "[o]nly a substituted font is
+    /// scaled … a disagreement between [an embedded program's outlines] and `/Widths` is the
+    /// producer's own".
+    ///
+    /// Without it the population is a function of this machine's font collection. §9.6.2.2's
+    /// fourteen are compiled in as bare CFF, so every simple font this machine cannot find a face
+    /// for arrives here looking like an embedded one: on a machine with no fonts installed nine
+    /// corpus fonts did, and `ICC-1_1998-09.pdf` `/F19` failed the widths test with a Foxit face's
+    /// advances against a producer's array. Five join the population on *this* machine and passed
+    /// only by luck of which face was picked. ADR 1154.
     fn corpus_bare_cff_fonts() -> Vec<(String, String, LoadedFont)> {
         let mut found = Vec::new();
         for path in corpus() {
@@ -3147,6 +3233,7 @@ mod tests {
             for (name, dict) in first_page_fonts(&document) {
                 if let Ok(font) = LoadedFont::load(&document, &dict, &name)
                     && font.program == Program::BareCff
+                    && !font.substituted
                 {
                     found.push((file.clone(), name, font));
                 }

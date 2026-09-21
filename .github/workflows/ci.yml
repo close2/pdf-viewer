@@ -122,14 +122,33 @@ jobs:
       - name: The two native hosts' toolkits
         run: sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
 
-      # One `sfnt` face, because a substituted composite font is reachable only by character
-      # (§9.7.4.2) and `pdf-font` takes such a substitute from a machine face, never from the
-      # compiled-in ones. The runner image offers no font at all, so the `hostile_budgets` tests
-      # over a `CMap`'s range bound skipped here with a sentence rather than testing the bound;
-      # with a face installed they test it. Any `sfnt` face does, and DejaVu is the smallest
-      # package that carries one.
-      - name: A machine face a composite font can be substituted from
-        run: sudo apt-get install -y fonts-dejavu-core
+      # Two `sfnt` faces, named because eleven `pdf-model` tests need them and a test's
+      # requirement belongs to this file rather than to some other package's dependency graph.
+      # A substituted composite font is reachable only by character (§9.7.4.2), so `pdf-font`
+      # takes such a substitute from a machine face and never from the compiled-in ones, which
+      # are name-keyed CFF and answer a glyph *name*; with no face the eleven skip with a
+      # sentence instead of testing what they are about, and with these two none of them does.
+      # Each answers a different half of the search:
+      #
+      # * `fonts-dejavu-core` carries `DejaVuSans` and `DejaVuSerif`, which are named in
+      #   `substitute::PREFERENCES`' SansSerif and Serif lists. A font whose collection implies
+      #   no script is looked for by *family*, so only a name on one of those lists answers it.
+      # * `fonts-droid-fallback` carries hiragana. A font whose `/CIDSystemInfo` names
+      #   `Adobe-Japan1` is looked for by *coverage* instead (`substituted::script_sample` asks
+      #   for U+3042) and that search walks the whole catalogue, so any face carrying the
+      #   character does.
+      #
+      # **Both are on the runner already and this step is a no-op there today** — `ghostscript`
+      # pulls in `libgs10-common`, which *recommends* `fonts-droid-fallback`, and
+      # `fontconfig-config` depends on an alternatives list whose first name is
+      # `fonts-dejavu-core`. Neither is a guarantee: a recommend is dropped by
+      # `--no-install-recommends` and an alternative is whichever apt picks, and both of those
+      # can change without this repository being touched. If the droid package ever goes,
+      # `fonts-misaki` (306 kB) and `fonts-sawarabi-mincho` (841 kB) are the smallest packages
+      # in noble carrying hiragana in an `sfnt`; all three were checked by running these tests
+      # against a mount namespace holding that package's files and nothing else.
+      - name: Machine faces a composite font can be substituted from
+        run: sudo apt-get install -y fonts-dejavu-core fonts-droid-fallback
 
       # `cargo test --workspace`, and not the `cargo nextest` a local round runs since the
       # three-hundred-and-eighty-fifth session. They are the same 1309 tests; nextest's advantage
