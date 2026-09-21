@@ -128,6 +128,18 @@ fn reported(document: &Document) -> String {
     format!("{:?}", pdf_model::interpret(document, &page).unsupported)
 }
 
+/// Whether this machine can stand in for the fixture's composite font at all.
+///
+/// A substituted composite font is reachable only by character (§9.7.4.2), so `pdf-font` takes
+/// its substitute from an `sfnt` face the machine offers and never from the compiled-in faces.
+/// A machine with none — a CI runner is one — refuses the font by name before any `CMap` is
+/// read, and a bound's sentence cannot be tested on a page that draws no text. That is a fact
+/// about the machine, not about the bound, so the tests that need a face say so and skip, the
+/// way the corpus tests skip a submodule that is not checked out.
+fn machine_offers_a_face_for(document: &Document) -> bool {
+    !reported(document).contains("cannot be substituted")
+}
+
 /// How many commands page one produced, for a control that has to actually draw.
 fn commands(document: &Document) -> usize {
     let page = pdf_model::Pages::new(document)
@@ -926,6 +938,10 @@ fn a_to_unicode_exactly_on_the_range_bound_reports_nothing_about_it() {
 #[test]
 fn a_cmap_past_the_range_bound_is_reported_by_name() {
     let document = composite_font_stating_ranges(32_769);
+    if !machine_offers_a_face_for(&document) {
+        println!("skipped: no sfnt face on this machine can stand in for the fixture's font");
+        return;
+    }
     let reported = reported(&document);
     assert!(
         reported.contains("max_cmap_ranges"),
@@ -945,6 +961,10 @@ fn a_cmap_past_the_range_bound_is_reported_by_name() {
 #[test]
 fn a_cmap_exactly_on_the_range_bound_reports_nothing_about_it() {
     let document = composite_font_stating_ranges(32_768);
+    if !machine_offers_a_face_for(&document) {
+        println!("skipped: no sfnt face on this machine can stand in for the fixture's font");
+        return;
+    }
     let reported = reported(&document);
     assert!(
         !reported.contains("max_cmap_"),

@@ -122,6 +122,15 @@ jobs:
       - name: The two native hosts' toolkits
         run: sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
 
+      # One `sfnt` face, because a substituted composite font is reachable only by character
+      # (§9.7.4.2) and `pdf-font` takes such a substitute from a machine face, never from the
+      # compiled-in ones. The runner image offers no font at all, so the `hostile_budgets` tests
+      # over a `CMap`'s range bound skipped here with a sentence rather than testing the bound;
+      # with a face installed they test it. Any `sfnt` face does, and DejaVu is the smallest
+      # package that carries one.
+      - name: A machine face a composite font can be substituted from
+        run: sudo apt-get install -y fonts-dejavu-core
+
       # `cargo test --workspace`, and not the `cargo nextest` a local round runs since the
       # three-hundred-and-eighty-fifth session. They are the same 1309 tests; nextest's advantage
       # is running 118 test binaries in one pool instead of one at a time, which is worth 214
