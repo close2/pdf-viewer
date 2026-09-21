@@ -240,12 +240,16 @@ pub fn warned(notes: &[String]) -> String {
 /// What a window with no way to put a question says when [`viewer_core::Event::Asking`] arrives,
 /// beside the [`viewer_core::Command::Answer`] it sends with `proceed: false`.
 ///
-/// **A window that cannot ask answers no, out loud.** Going ahead on an unanswered question would
-/// be the *off* level under another name, and not going ahead is what a closed dialogue means
-/// everywhere else — `pdf-transform` makes the same choice for a pipe with `Refusal::Unanswered`.
-/// The three windows have no dialogue for this yet, by the owner's word that the gestures follow
-/// the mockups (`doc/todo/38`); until one does, this sentence is what keeps the *ask* level from
-/// silently behaving like *on*.
+/// **A face that cannot ask answers no, out loud.** Going ahead on an unanswered question would be
+/// the *off* level under another name, and not going ahead is what a closed dialogue means
+/// everywhere else — `pdf-transform` makes the same choice for a pipe with `Refusal::Unanswered`
+/// and `pdf-fuse` for a mount.
+///
+/// **The three windows put the question since the one-thousand-one-hundred-and-fifty-fifth
+/// session** ([`crate::restriction::asked`], ADR 1145). What still says this is `quorra-confined`,
+/// which performs none of the operations a document restricts — no edit, no copy gesture, no level
+/// of its own — so the event cannot reach it; the arm and this sentence are what keep that from
+/// being a silence if one ever does.
 #[must_use]
 pub fn unanswerable(notes: &[String]) -> String {
     format!(

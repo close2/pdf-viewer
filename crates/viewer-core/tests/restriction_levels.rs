@@ -24,8 +24,8 @@ use pdf_model::view::Markup;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, Query, Rendered, RestrictionLevel, RestrictionPolicy,
-    Selection, Viewer,
+    Answer, Command, DocumentId, Edit, Event, Query, Rendered, RestrictionLevel,
+    RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection, Viewer,
 };
 
 /// The document every test here opens.
@@ -52,7 +52,9 @@ fn unrestricted_bytes() -> Vec<u8> {
 /// assertion below.
 fn reading(bytes: Vec<u8>, policy: RestrictionPolicy) -> Viewer {
     let mut viewer = Viewer::new(800, 1000, 1.0);
-    viewer.handle(Command::Restrict(policy)).for_each(drop);
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Window(policy)))
+        .for_each(drop);
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -335,4 +337,125 @@ fn a_copy_of_nothing_asks_nobody_anything() {
             "{level:?}: nothing is selected, so there is nothing to ask about"
         );
     }
+}
+
+/// A document may depart from the window's levels, and the departure ends with the document.
+///
+/// **The calibration ADR 1145 rests on.** The window is at `On` — §7.6.4.1's `shall` kept — and the
+/// document in front of the reader is moved to `Ask`, which is the sentence a viewer-wide policy
+/// could not say: *for this document, ask before copying*. Then the same window opens the document
+/// again and the copy is refused, because a departure is about one document rather than about the
+/// reader.
+#[test]
+fn a_document_may_depart_from_the_windows_levels_until_it_closes() {
+    let Some(mut viewer) = restricted(RestrictionPolicy::uniform(RestrictionLevel::On)) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    // The window's level, unchanged, is what the document inherited.
+    assert!(
+        holds(&sent(&mut viewer, Command::Copy), |event| matches!(
+            event,
+            Event::Refused { .. }
+        )),
+        "the window is at `On`, so the document is"
+    );
+
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Document(
+            RestrictionOverride::NONE.with(Operation::Extract, Some(RestrictionLevel::Ask)),
+        )))
+        .for_each(drop);
+    let events = sent(&mut viewer, Command::Copy);
+    assert!(copied(&events).is_none(), "nothing has been answered yet");
+    assert!(
+        holds(&events, |event| matches!(event, Event::Asking { .. })),
+        "the departure is `Ask`: {events:?}"
+    );
+    let answered = sent(
+        &mut viewer,
+        Command::Answer {
+            document: DOCUMENT,
+            proceed: true,
+        },
+    );
+    assert!(
+        copied(&answered).is_some(),
+        "a `yes` performs what was held: {answered:?}"
+    );
+
+    // One operation's departure says nothing about another's: annotating is bit 6, which this
+    // document also withholds, and the window's `On` is what still decides it.
+    let events = sent(
+        &mut viewer,
+        Command::Edit(Edit::Markup {
+            kind: Markup::Highlight,
+            colour: [1.0, 1.0, 0.0],
+        }),
+    );
+    assert!(
+        holds(&events, |event| matches!(event, Event::Refused { .. })),
+        "annotating was not departed from: {events:?}"
+    );
+
+    // And the next document opened in this window is back at the window's levels, because the
+    // departure lived beside the document rather than beside the reader.
+    let bytes = corpus_bytes("bug1815476.pdf").expect("the submodule is checked out");
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let events = sent(&mut viewer, Command::Copy);
+    assert!(
+        holds(&events, |event| matches!(event, Event::Refused { .. })),
+        "a second document inherits the window's `On`: {events:?}"
+    );
+}
+
+/// A departure the document does not make is the window's level exactly.
+///
+/// The other half of the layering, and the one a menu's *use the window's level* entry sends: an
+/// override of nothing changes nothing, and an override taken away puts the window's level back.
+#[test]
+fn an_override_of_nothing_is_the_windows_own_policy() {
+    let Some(mut viewer) = restricted(RestrictionPolicy::default()) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Document(
+            RestrictionOverride::NONE,
+        )))
+        .for_each(drop);
+    assert!(
+        copied(&sent(&mut viewer, Command::Copy)).is_some(),
+        "the window is at `Off`, and the document departs from it in nothing"
+    );
+
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Document(
+            RestrictionOverride::NONE.with(Operation::Extract, Some(RestrictionLevel::On)),
+        )))
+        .for_each(drop);
+    assert!(
+        copied(&sent(&mut viewer, Command::Copy)).is_none(),
+        "the departure is `On`"
+    );
+
+    viewer
+        .handle(Command::Restrict(RestrictionScope::Document(
+            RestrictionOverride::NONE.with(Operation::Extract, None),
+        )))
+        .for_each(drop);
+    assert!(
+        copied(&sent(&mut viewer, Command::Copy)).is_some(),
+        "the departure was taken away, so the window's `Off` decides again"
+    );
 }

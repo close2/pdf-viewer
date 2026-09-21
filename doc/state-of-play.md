@@ -117,6 +117,14 @@ writing `CLAUDE.md` permits. **No window has a gesture for the attach yet**, by 
 that the flows are being reviewed as mockups first; the C ABI has `quorra_attach` and `quorra_detach`,
 because an ABI has no gestures.
 
+**What a document asserts over its reader is the reader's to set, in a menu every window has.**
+`CLAUDE.md`'s four levels — off, on, ask, warn — stand one per operation and in two scopes: the
+window's, which every document it opens inherits, and one document's departure from them, which
+ends when that document closes. The *ask* level puts its question on a modal window in all three,
+worded once in `viewer_host::restriction`; §12.2's `/HideMenubar` is read, answered in words and
+deliberately not obeyed over that menu, because a file that could hide the reader's levels would be
+taking away the control over itself (ADR 1145).
+
 **A document is opened on disk and read where its own offsets point** — `startxref` from the
 last two kilobytes, each cross-reference section from where the chain names it, each object from
 its entry, through a window the parser grows until nothing at its end was examined — so what a

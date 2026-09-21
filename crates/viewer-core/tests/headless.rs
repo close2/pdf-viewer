@@ -7070,8 +7070,8 @@ fn opened_with(bytes: Vec<u8>, level: RestrictionLevel) -> Viewer {
     // became one level per operation; `tests/restriction_levels.rs` is where the six are told
     // apart (ADR 1144).
     viewer
-        .handle(Command::Restrict(viewer_core::RestrictionPolicy::uniform(
-            level,
+        .handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            viewer_core::RestrictionPolicy::uniform(level),
         )))
         .for_each(drop);
     viewer
@@ -9018,8 +9018,8 @@ fn an_attached_file_is_listed_at_once_undone_redone_detached_and_saved() {
 
     // A certification at /P 2 withholds bit 4's residual; the reader turns that off.
     viewer
-        .handle(Command::Restrict(viewer_core::RestrictionPolicy::uniform(
-            RestrictionLevel::Off,
+        .handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            viewer_core::RestrictionPolicy::uniform(RestrictionLevel::Off),
         )))
         .for_each(drop);
     let events: Vec<_> = viewer

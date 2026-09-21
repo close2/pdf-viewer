@@ -125,6 +125,9 @@ extern "C" {
  * QUORRA_EVENT_WARNED. CLAUDE.md's four levels, all four (ADR 0814). */
 #define QUORRA_RESTRICT_ASK  2u
 #define QUORRA_RESTRICT_WARN 3u
+/* INHERIT is not a level: it is the absence of one, taken by quorra_restrict_document_operation
+ * alone, and it gives that operation back to the window's own policy (ADR 1145). */
+#define QUORRA_RESTRICT_INHERIT 4u
 
 /* Which operation a level is being set for: CLAUDE.md's four levels, per restriction (ADR 1144).
  * Table 22 states eight positions with eight different subjects, and a reader who wants to be
@@ -690,6 +693,11 @@ int32_t quorra_restrict(quorra_viewer *viewer, uint32_t level, quorra_events **e
  * left where this caller last put them. */
 int32_t quorra_restrict_operation(quorra_viewer *viewer, uint32_t operation, uint32_t level,
                        quorra_events **events);
+/* The same for the open document alone, which the window's policy cannot express: a level set to
+ * catch one file catches every file opened afterwards. QUORRA_RESTRICT_INHERIT gives the operation
+ * back to the window. Every departure is forgotten when a document is opened. */
+int32_t quorra_restrict_document_operation(quorra_viewer *viewer, uint32_t operation,
+                       uint32_t level, quorra_events **events);
 /* A person pressed copy: §7.6.4.2 bit 5, asked as an operation and not as a readback. The text
  * arrives as a QUORRA_EVENT_COPIED; nothing selected sends nothing. */
 int32_t quorra_copy(quorra_viewer *viewer, quorra_events **events);

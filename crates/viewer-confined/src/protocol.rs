@@ -30,7 +30,8 @@ use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
     Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
     FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query,
-    RestrictionLevel, RestrictionPolicy, Selection, TrustPolicy, Zoom,
+    RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection,
+    TrustPolicy, Zoom,
 };
 
 use pdf_signature::verdict::Acceptance;
@@ -97,6 +98,15 @@ pub(crate) const FRAME_REFUSAL: u8 = 5;
 const PAYLOAD_RASTER: u8 = 0;
 /// Frame payload: the marks, for a host that draws them itself (ADR 0607).
 const PAYLOAD_LIST: u8 = 1;
+
+/// A restriction level byte that is not a level: this document departs from the window in nothing
+/// here.
+///
+/// The fifth value of a four-value field, and only under the document's scope. `None` is not a
+/// level — it is the absence of one — so it is spelled as a value the level arms do not claim
+/// rather than by leaving the byte out, which keeps a policy six bytes wide whichever scope sent
+/// it (ADR 1145).
+const NO_DEPARTURE: u8 = 4;
 
 /// One page's encoded marks, kept until the viewer is asked for a frame.
 ///
@@ -1179,17 +1189,32 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::VIEW);
             encode_viewing(&mut writer, *view);
         }
-        // One byte per operation, in `RestrictionPolicy::OPERATIONS`'s order, which is the one
-        // order the wire, the C ABI and a command line all enumerate a policy in (ADR 1144).
-        Command::Restrict(policy) => {
+        // A scope, then one byte per operation in `RestrictionPolicy::OPERATIONS`'s order, which
+        // is the one order the wire, the C ABI and a command line all enumerate a policy in (ADR
+        // 1144). The document's scope spells *no departure* as a fifth value rather than as a
+        // shorter frame, so that the six bytes are read the same way whichever scope sent them
+        // (ADR 1145).
+        Command::Restrict(scope) => {
             writer.u8(k::RESTRICT);
-            for operation in RestrictionPolicy::OPERATIONS {
-                writer.u8(match policy.level(operation) {
-                    RestrictionLevel::On => 0,
-                    RestrictionLevel::Off => 1,
-                    RestrictionLevel::Ask => 2,
-                    RestrictionLevel::Warn => 3,
-                });
+            let level = |level| match level {
+                RestrictionLevel::On => 0,
+                RestrictionLevel::Off => 1,
+                RestrictionLevel::Ask => 2,
+                RestrictionLevel::Warn => 3,
+            };
+            match scope {
+                RestrictionScope::Window(policy) => {
+                    writer.u8(0);
+                    for operation in RestrictionPolicy::OPERATIONS {
+                        writer.u8(level(policy.level(operation)));
+                    }
+                }
+                RestrictionScope::Document(departures) => {
+                    writer.u8(1);
+                    for operation in RestrictionPolicy::OPERATIONS {
+                        writer.u8(departures.level(operation).map_or(NO_DEPARTURE, level));
+                    }
+                }
             }
         }
         Command::Copy => {
@@ -1499,25 +1524,51 @@ pub(crate) fn decode_command_holding(
             })
         }
         k::RESTRICT => {
-            let mut policy = RestrictionPolicy::default();
-            for operation in RestrictionPolicy::OPERATIONS {
-                policy = policy.with(
-                    operation,
-                    match reader.u8("a restriction level")? {
-                        0 => RestrictionLevel::On,
-                        1 => RestrictionLevel::Off,
-                        2 => RestrictionLevel::Ask,
-                        3 => RestrictionLevel::Warn,
-                        value => {
-                            return Err(ProtocolError::Unrecognised {
-                                what: "a restriction level",
-                                value: u32::from(value),
-                            });
-                        }
-                    },
-                );
+            let scope = reader.u8("a restriction scope")?;
+            let mut levels = [None; RestrictionPolicy::OPERATIONS.len()];
+            for level in &mut levels {
+                *level = match reader.u8("a restriction level")? {
+                    0 => Some(RestrictionLevel::On),
+                    1 => Some(RestrictionLevel::Off),
+                    2 => Some(RestrictionLevel::Ask),
+                    3 => Some(RestrictionLevel::Warn),
+                    NO_DEPARTURE if scope == 1 => None,
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "a restriction level",
+                            value: u32::from(value),
+                        });
+                    }
+                };
             }
-            Command::Restrict(policy)
+            match scope {
+                0 => {
+                    let mut policy = RestrictionPolicy::default();
+                    for (operation, level) in RestrictionPolicy::OPERATIONS.into_iter().zip(levels)
+                    {
+                        // Unreachable by construction: the arm above answers `None` only where
+                        // the scope byte said 1, and this is the branch where it said 0.
+                        if let Some(level) = level {
+                            policy = policy.with(operation, level);
+                        }
+                    }
+                    Command::Restrict(RestrictionScope::Window(policy))
+                }
+                1 => {
+                    let mut departures = RestrictionOverride::NONE;
+                    for (operation, level) in RestrictionPolicy::OPERATIONS.into_iter().zip(levels)
+                    {
+                        departures = departures.with(operation, level);
+                    }
+                    Command::Restrict(RestrictionScope::Document(departures))
+                }
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a restriction scope",
+                        value: u32::from(value),
+                    });
+                }
+            }
         }
         k::COPY => Command::Copy,
         k::PRESENT => Command::Present(match reader.u8("a presentation mode")? {
@@ -3629,20 +3680,34 @@ mod tests {
                 zoom: Zoom::FitWidth,
                 scroll: (0.0, 0.0),
             }),
-            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::Off)),
-            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::On)),
+            Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
+                RestrictionLevel::Off,
+            ))),
+            Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
+                RestrictionLevel::On,
+            ))),
             // The other two of `CLAUDE.md`'s four levels, and the answer that makes the third
             // one a level, since the eight-hundred-and-eighty-fifth session (ADR 0814).
-            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::Ask)),
+            Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
+                RestrictionLevel::Ask,
+            ))),
             // And a level per operation, since the one-thousand-one-hundred-and-forty-seventh:
             // six bytes rather than one, and a policy that is *not* uniform is what catches a
             // wire that lost the order they go in (ADR 1144).
-            Command::Restrict(
+            Command::Restrict(RestrictionScope::Window(
                 RestrictionPolicy::default()
                     .with(Operation::Extract, RestrictionLevel::Ask)
                     .with(Operation::Annotate, RestrictionLevel::On)
                     .with(Operation::Assemble, RestrictionLevel::Warn),
-            ),
+            )),
+            // And a *scope* per policy, since the one-thousand-one-hundred-and-fifty-fifth: a
+            // document that departs from the window in one operation and in none, because the
+            // absence of a departure is a fifth byte value and a wire that lost it would turn
+            // *this document follows the window* into a level nobody chose (ADR 1145).
+            Command::Restrict(RestrictionScope::Document(
+                RestrictionOverride::NONE.with(Operation::Extract, Some(RestrictionLevel::Ask)),
+            )),
+            Command::Restrict(RestrictionScope::Document(RestrictionOverride::NONE)),
             Command::Copy,
             // §12.8.1's third question: the empty policy every host starts with, and a populated
             // one. Both, because the empty set is not a degenerate case — it is this program's
@@ -3660,7 +3725,9 @@ mod tests {
                 ),
                 acceptance: Acceptance::UnknownRevocationAccepted,
             }),
-            Command::Restrict(RestrictionPolicy::uniform(RestrictionLevel::Warn)),
+            Command::Restrict(RestrictionScope::Window(RestrictionPolicy::uniform(
+                RestrictionLevel::Warn,
+            ))),
             Command::Answer {
                 document: DocumentId(3),
                 proceed: true,

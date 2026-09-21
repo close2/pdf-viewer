@@ -211,7 +211,11 @@ fn open_document(
     // before anything opens: a policy applied halfway through is not a policy. Nothing an open
     // does is restricted, so this is about where the value *belongs* rather than about an
     // operation it would otherwise miss.
-    drop(viewer.handle(Command::Restrict(restrictions)));
+    drop(
+        viewer.handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            restrictions,
+        ))),
+    );
     // **§12.8.1's third question, answered by whoever started this program and by nobody else.**
     // Rule 2 again, and the same reason: the core has no filesystem and no clock, so the party
     // that turns `--trust-anchors` into RFC 5280 section 6.1.1's inputs (d) and (b) is this one.
@@ -286,6 +290,10 @@ fn main() {
         supersample,
         coverage,
     } = arguments(launch.began);
+    // Copied rather than moved: the policy goes to the thread that opens the document *and* stays
+    // with the window, which is what the menu edits and what the next document opened inherits
+    // (ADR 1145).
+    let standing = viewer_host::Restrictions::new(restrictions);
     let policies = Policies {
         restrictions,
         trust_anchors,
@@ -379,6 +387,10 @@ fn main() {
         asking: viewer_host::Asking::new(),
         report_due: viewer_host::report::Due::default(),
         password: viewer_ui::chrome::PasswordCard::default(),
+        question: viewer_ui::chrome::QuestionCard::default(),
+        menu: viewer_ui::chrome::RestrictionsCard::default(),
+        restrictions: standing,
+        asked: None,
         refused: viewer_ui::chrome::Refusal::default(),
         locked: None,
         drawn_without_a_page: false,

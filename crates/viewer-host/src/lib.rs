@@ -72,6 +72,10 @@
 //!   clause says an *interactive* processor **should** prompt and states no number; three hosts
 //!   held three copies of the number, and the third copy is where `viewer-ui` came to exit the
 //!   process for want of a terminal.
+//! - [`restriction`] — `CLAUDE.md`'s four levels as a person *sets* them: the menu each window
+//!   draws, the two scopes it edits, and the question the *ask* level puts. The levels are one
+//!   clause's and the widget is a toolkit's; 48 menu entries written three times would be three
+//!   answers to every question about wording, order and what a tick means (ADR 1145).
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
@@ -119,6 +123,7 @@ pub mod policy;
 pub mod popup;
 pub mod presentation;
 pub mod report;
+pub mod restriction;
 pub mod status;
 pub mod trace;
 
@@ -145,6 +150,7 @@ pub use policy::{
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};
+pub use restriction::{Chose, Entry, Question, Restrictions, Row, Scope, asked, chosen, declined};
 pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,
 };

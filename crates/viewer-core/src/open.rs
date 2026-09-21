@@ -224,6 +224,19 @@ pub(crate) struct Open {
     /// a second question while the first stands is a person who moved on. `Command::Answer` takes
     /// it, and a `no` drops it without a word.
     pub(crate) asking: Option<Held>,
+    /// What this document departs from the window's restriction levels in.
+    ///
+    /// **The scope a viewer-wide policy could not express** (ADR 1145): a reader who wants to be
+    /// asked before text leaves *this* file has said nothing about the next file they open, and a
+    /// window-wide level set for one document is a level every other document then answers to.
+    /// `crate::RestrictionOverride::NONE` until [`crate::Command::Restrict`] says otherwise, so a
+    /// document that was never overridden is the window's policy exactly.
+    ///
+    /// **It lives here, which is what makes it end when the document does.** A second document
+    /// opened in the same window has its own `Open` and therefore its own nothing, which is ADR
+    /// 0604's rule for the window read the other way round: the window keeps its policy for its
+    /// whole life, and a departure from it keeps the document's.
+    pub(crate) restrictions: crate::RestrictionOverride,
     /// Everything a person has changed, in the order they changed it.
     ///
     /// The log `CLAUDE.md`'s rule 1 asks for: the document is immutable, so an edit is an entry
@@ -792,6 +805,7 @@ impl Open {
             importing: None,
             resuming: None,
             asking: None,
+            restrictions: crate::RestrictionOverride::NONE,
             log: Vec::new(),
             cursor: 0,
             saved_at: 0,

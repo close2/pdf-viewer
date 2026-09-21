@@ -32,8 +32,8 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
-use gtk4::glib;
 use gtk4::prelude::*;
+use gtk4::{gio, glib};
 use pdf_model::view::WidgetAppearances;
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
@@ -148,6 +148,14 @@ struct Ui {
     /// controls and a document asking for no tool bar has not asked for no close button. Full
     /// screen takes the whole titlebar, which is Table 29's separate sentence.
     tool_buttons: Vec<gtk4::Button>,
+    /// The restrictions menu, which is §12.2's `/HideMenubar` finally naming something here.
+    ///
+    /// Separate from [`Ui::tool_buttons`] because a `GtkMenuButton` is not a `GtkButton` and
+    /// because the two flags are different sentences: a document asking for no tool bar has not
+    /// asked for the reader's own policy to be unreachable. Its contents are built when it is
+    /// opened and never before — `CLAUDE.md` section 2's rule, and the levels it ticks are a
+    /// function of a policy that can change between one opening and the next.
+    menu: gtk4::MenuButton,
     /// The separator and the status label, which are §12.2's `/HideWindowUI`.
     status_bar: gtk4::Box,
     /// Trap 5's channel reaching a person: what the page could not draw, and what was refused.
@@ -295,10 +303,12 @@ pub struct Host {
     ///
     /// The other policy value beside the one above, and the same kind of thing: a fact about what
     /// *this reader* has been asked to do rather than about the file.
-    /// [`viewer_core::RestrictionLevel::On`] unless [`viewer_host::IGNORE_RESTRICTIONS`] was on the
-    /// command line — which this program refused as an unknown option while telling every person
-    /// who hit a refusal to use it (ADR 0604).
-    restrictions: viewer_core::RestrictionPolicy,
+    /// What `--restrictions=` asked for until the menu says otherwise, and what the open document
+    /// departs from that in — two scopes, because a level set to catch one file would otherwise
+    /// catch every file this window opens afterwards (ADR 1145). The word
+    /// [`viewer_host::IGNORE_RESTRICTIONS`] turns them all off, and this program refused it as an
+    /// unknown option while telling every person who hit a refusal to use it (ADR 0604).
+    restrictions: viewer_host::Restrictions,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -476,7 +486,7 @@ impl Host {
                 needle: String::new(),
                 pages_left: 0,
                 widget_appearances,
-                restrictions,
+                restrictions: viewer_host::Restrictions::new(restrictions),
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
                 panel_wanted: true,
@@ -544,7 +554,9 @@ impl Host {
         // sends it again and the page is rebuilt — and `Restrict` is the reader's answer to what
         // the *file* asserts, which `CLAUDE.md` says is always the reader's to give.
         self.pump(VecDeque::from([
-            Command::Restrict(self.restrictions),
+            Command::Restrict(viewer_core::RestrictionScope::Window(
+                self.restrictions.window(),
+            )),
             Command::Delegate(self.widget_appearances),
             Command::Open {
                 id: DOCUMENT,
@@ -553,6 +565,129 @@ impl Host {
                 fragment,
             },
         ]));
+    }
+
+    /// `CLAUDE.md`'s *ask* level, as a window a person answers.
+    ///
+    /// **The modal shape §7.6.4.1's password already had**, and deliberately the same one: both
+    /// are this program holding something until a person says a word, and a reader who has met one
+    /// of them has met the other. What is different is the answer — two buttons rather than a
+    /// text field — and what a dismissed window means, which is [`viewer_host::DO_NOT`] for the
+    /// reason `viewer_host::restriction` records: going ahead on a question nobody answered would
+    /// be the *off* level under another name.
+    fn ask_whether_to_proceed(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        notes: &[String],
+    ) {
+        let words = viewer_host::asked(operation, notes);
+        let dialog = gtk4::Window::new();
+        dialog.set_title(Some("Restricted"));
+        dialog.set_modal(true);
+        dialog.set_transient_for(Some(&self.ui.window));
+        dialog.set_default_size(420, -1);
+        let column = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+        column.set_margin_top(12);
+        column.set_margin_bottom(12);
+        column.set_margin_start(12);
+        column.set_margin_end(12);
+        for (text, dim) in [(&words.reasons, false), (&words.choice, true)] {
+            let label = gtk4::Label::new(Some(text));
+            label.set_xalign(0.0);
+            label.set_wrap(true);
+            if dim {
+                label.add_css_class("dim-label");
+            }
+            column.append(&label);
+        }
+        let buttons = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        buttons.set_halign(gtk4::Align::End);
+        // Whether it was answered lives beside the dialogue rather than on the host, for
+        // `ask_for_a_password`'s reason: `GtkWindow::close` fires `close-request` synchronously,
+        // so a flag the host set afterwards would still be false when the close handler read it.
+        let answered = Rc::new(Cell::new(false));
+        for (label, proceed) in [
+            (viewer_host::restriction::DO_NOT, false),
+            (viewer_host::restriction::GO_AHEAD, true),
+        ] {
+            let button = gtk4::Button::with_label(label);
+            if proceed {
+                button.add_css_class("suggested-action");
+            }
+            let me = self.me.clone();
+            let dialogue = dialog.clone();
+            let done = Rc::clone(&answered);
+            button.connect_clicked(move |_| {
+                done.set(true);
+                dialogue.close();
+                with(&me, |host| host.answer(document, operation, proceed));
+            });
+            buttons.append(&button);
+        }
+        column.append(&buttons);
+        dialog.set_child(Some(&column));
+        // Closing without pressing anything is a decline rather than silence — trap 5, in a window
+        // a person walked away from — and it has to reach the core, which is holding the edit.
+        let me = self.me.clone();
+        dialog.connect_close_request(move |_| {
+            if !answered.get() {
+                with(&me, |host| host.answer(document, operation, false));
+            }
+            glib::Propagation::Proceed
+        });
+        // A plain `GtkWindow` binds nothing, so Escape is bound by hand, exactly as the password
+        // prompt binds it.
+        let keys = gtk4::EventControllerKey::new();
+        let dialogue = dialog.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Escape {
+                dialogue.close();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        dialog.add_controller(keys);
+        dialog.present();
+    }
+
+    /// What a person answered, on its way to the viewer that is holding the operation.
+    ///
+    /// The decline is said out loud because `viewer-core` says nothing at all on a `no` —
+    /// deliberately, since a question declined is neither the document doing something nor this
+    /// program refusing (ADR 0814) — and the person is still owed the fact that what they asked
+    /// for did not happen.
+    fn answer(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        proceed: bool,
+    ) {
+        if !proceed {
+            self.say(&viewer_host::declined(operation));
+        }
+        self.dispatch(Command::Answer { document, proceed });
+    }
+
+    /// Fills the restrictions menu in, immediately before it is shown.
+    ///
+    /// **Built here rather than in `build_window`**, which is `CLAUDE.md` section 2's rule and
+    /// also the only way the ticks can be right: the levels change while the window is up, and a
+    /// model built once would show the policy the program launched with. What it costs is one
+    /// walk over 62 entries when a person opens a menu, which is on no path a page takes.
+    fn fill_the_restrictions_menu(&mut self) {
+        let (model, actions) = restrictions_menu(&self.me, self.restrictions);
+        self.ui
+            .window
+            .insert_action_group(MENU_ACTIONS, Some(&actions));
+        self.ui.menu.set_menu_model(Some(&model));
+    }
+
+    /// A level a person picked out of the menu, sent to the viewer and kept for the next opening.
+    fn chose_restriction(&mut self, chose: viewer_host::Chose) {
+        let command = self.restrictions.chose(chose);
+        self.dispatch(command);
+        self.say(&viewer_host::restriction::chosen(chose));
     }
 
     /// One command, and everything it produces.
@@ -800,6 +935,10 @@ impl Host {
                     self.say(&viewer_host::no_pages(&named(&self.path)));
                 }
                 self.asking.opened();
+                // A document opens at the window's levels, so the menu's ticks go back to them
+                // too — the core's `Open` forgets the departures and a menu that did not would
+                // tick the last document's (ADR 1145).
+                self.restrictions.opened();
                 self.report_due.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
@@ -892,10 +1031,9 @@ impl Host {
             // wrote its own copy of it for sessions while taking no such word (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
             // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
-            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
-            // question this window has no dialogue for yet — the gestures follow the owner's
-            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
-            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is
+            // the question this window puts, in the modal shape §7.6.4.1's password already had
+            // (ADR 1145).
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
             Event::Copied {
                 logical,
@@ -912,14 +1050,10 @@ impl Host {
                 }
             }
             Event::Asking {
-                document, notes, ..
-            } => {
-                self.say(&viewer_host::unanswerable(&notes));
-                queue.push_back(Command::Answer {
-                    document,
-                    proceed: false,
-                });
-            }
+                document,
+                operation,
+                notes,
+            } => self.ask_whether_to_proceed(document, operation, &notes),
             // §7.11.4's list moved under the files tab: a file attached this sitting is in it
             // before anything is saved, and one detached is out of it. The tab is rebuilt from
             // the same answer it was built from, which is the only thing a window may do here
@@ -1747,13 +1881,11 @@ impl Host {
         if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
             self.presenting = viewer_host::Presenting::opening(opening, &preferences);
             // Trap 5: a document asking for something and getting silence. Two of Table 147's
-            // three flags name widgets this window has and the third does not — none of the
-            // three hosts draws a menu bar.
+            // three flags name widgets this window hides on request, and the third names one it
+            // keeps on purpose — the menu holding this reader's own restriction levels
+            // (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
             if preferences.hide_menubar {
-                self.say(
-                    "this document asks to hide the menu bar (§12.2's /HideMenubar), which this \
-                     window does not have; /HideToolbar and /HideWindowUI are obeyed",
-                );
+                self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
             }
         }
         // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start a
@@ -1797,7 +1929,10 @@ impl Host {
     /// the find bar; `/HideWindowUI` — "scroll bars and navigation controls" — is the status line;
     /// Table 29's "any other window visible" is the notebook of three trees; and full screen is
     /// the window itself, with the titlebar gone because that sentence names the window controls
-    /// too. `/HideMenubar` has nothing to name here and is reported when a document asks for it.
+    /// too. **`/HideMenubar` names the restrictions menu and is deliberately not obeyed** — a
+    /// document that could hide the reader's own levels would be taking away the control over
+    /// itself — and it is reported rather than ignored when a document asks for it
+    /// (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
     fn apply_chrome(&mut self) {
         let chrome = self.presenting.chrome();
         for button in &self.ui.tool_buttons {
@@ -2166,6 +2301,7 @@ impl Host {
                 self.apply_chrome();
             }
             viewer_host::WindowAct::Notices => self.show_notices(),
+            viewer_host::WindowAct::Restrictions => self.ui.menu.popup(),
             viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
                 self.present_or_stop();
             }
@@ -2736,6 +2872,8 @@ fn build_window(
     split.set_vexpand(true);
     window.set_child(Some(&column));
     let (bar, tool_buttons) = header(me);
+    let menu = menu_button(me);
+    bar.pack_end(&menu);
     window.set_titlebar(Some(&bar));
 
     // Three signals, and each is a different question a find bar answers. Typing changes what is
@@ -2788,6 +2926,7 @@ fn build_window(
         tabs,
         split,
         tool_buttons,
+        menu,
         status_bar,
         status,
         find,
@@ -2974,6 +3113,109 @@ fn header(me: &Weak<RefCell<Host>>) -> (gtk4::HeaderBar, Vec<gtk4::Button>) {
     (bar, buttons)
 }
 
+/// The action group the restrictions menu's entries live in.
+///
+/// One prefix, inserted on the window when the menu is filled in, so that the model's detailed
+/// action names resolve: a `GtkMenuButton`'s popover looks its actions up through the widget
+/// hierarchy, and the window is what every popover of it is inside.
+const MENU_ACTIONS: &str = "restrict";
+
+/// `CLAUDE.md`'s four levels as a GTK menu: a submenu per scope, a submenu per operation, and one
+/// stateful action per operation so that the levels are radio entries rather than a list of words.
+///
+/// **Two loops rather than a walk over a flat list**, because `viewer_host::Restrictions`
+/// enumerates both — `Scope::ALL` and `RestrictionPolicy::OPERATIONS` — and asking it for one
+/// group's entries at a time is what keeps the nesting out of the shared crate and out of the
+/// other two windows (ADR 1145). `viewer-ui`, which draws one flat card, takes
+/// `Restrictions::rows` instead.
+fn restrictions_menu(
+    me: &Weak<RefCell<Host>>,
+    restrictions: viewer_host::Restrictions,
+) -> (gio::Menu, gio::SimpleActionGroup) {
+    let actions = gio::SimpleActionGroup::new();
+    let model = gio::Menu::new();
+    for (index, scope) in viewer_host::Scope::ALL.into_iter().enumerate() {
+        let per_scope = gio::Menu::new();
+        for operation in viewer_core::RestrictionPolicy::OPERATIONS {
+            let word = viewer_core::RestrictionPolicy::word(operation);
+            let entries = restrictions.entries(scope, operation);
+            // The action's name is positional rather than made of the words, because a name may
+            // hold only letters, digits, `-` and `.` — and the operations' words are a person's
+            // vocabulary rather than this toolkit's.
+            let name = format!("s{index}-{word}");
+            let chosen = entries
+                .iter()
+                .find(|entry| entry.chosen)
+                .map_or("", |entry| entry.label);
+            let action = gio::SimpleAction::new_stateful(
+                &name,
+                Some(glib::VariantTy::STRING),
+                &chosen.to_variant(),
+            );
+            let picked: Vec<(&'static str, viewer_host::Chose)> = entries
+                .iter()
+                .map(|entry| (entry.label, entry.chose))
+                .collect();
+            let listener = me.clone();
+            action.connect_activate(move |action, parameter| {
+                let Some(target) = parameter.and_then(glib::Variant::str) else {
+                    return;
+                };
+                let Some((_, chose)) = picked.iter().find(|(label, _)| *label == target) else {
+                    return;
+                };
+                action.set_state(&target.to_variant());
+                let chose = *chose;
+                with(&listener, |host| host.chose_restriction(chose));
+            });
+            actions.add_action(&action);
+            let per_operation = gio::Menu::new();
+            for entry in &entries {
+                let item = gio::MenuItem::new(Some(entry.label), None);
+                item.set_action_and_target_value(
+                    Some(&format!("{MENU_ACTIONS}.{name}")),
+                    Some(&entry.label.to_variant()),
+                );
+                per_operation.append_item(&item);
+            }
+            let note = viewer_host::restriction::inert(operation);
+            let label = if note.is_empty() {
+                word.to_owned()
+            } else {
+                format!("{word} ({note})")
+            };
+            per_scope.append_submenu(Some(&label), &per_operation);
+        }
+        let note = scope.note();
+        let label = if note.is_empty() {
+            scope.label().to_owned()
+        } else {
+            format!("{} — {note}", scope.label())
+        };
+        model.append_submenu(Some(&label), &per_scope);
+    }
+    (model, actions)
+}
+
+/// The menu button, empty until somebody opens it.
+///
+/// **No model and no actions here**, which is the launch path's rule and also the only way the
+/// ticks can be right: what the menu holds is a function of a policy that changes while the window
+/// is up. `set_create_popup_func` is GTK4's own hook for exactly this — it runs immediately before
+/// the popover is shown — so what this costs at startup is one widget.
+fn menu_button(me: &Weak<RefCell<Host>>) -> gtk4::MenuButton {
+    let button = gtk4::MenuButton::new();
+    button.set_label("Restrictions");
+    button.set_tooltip_text(Some(
+        "what this reader does with what a document asserts over it (CLAUDE.md's four levels)",
+    ));
+    let listener = me.clone();
+    button.set_create_popup_func(move |_| {
+        with(&listener, Host::fill_the_restrictions_menu);
+    });
+    button
+}
+
 /// The interactive chrome, in the platform's own colour.
 ///
 /// `doc/ui-boundary.md`: "[e]mitting them as quads and points lets a native host draw selection in
@@ -3083,6 +3325,7 @@ fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
         Gdk::l | Gdk::L => Stated::L,
         Gdk::o | Gdk::O => Stated::O,
         Gdk::p | Gdk::P => Stated::P,
+        Gdk::r | Gdk::R => Stated::R,
         Gdk::s | Gdk::S => Stated::S,
         Gdk::t | Gdk::T => Stated::T,
         Gdk::w | Gdk::W => Stated::W,
@@ -3156,6 +3399,7 @@ mod tests {
                 Stated::L => Gdk::l,
                 Stated::O => Gdk::o,
                 Stated::P => Gdk::p,
+                Stated::R => Gdk::r,
                 Stated::S => Gdk::s,
                 Stated::T => Gdk::t,
                 Stated::W => Gdk::w,

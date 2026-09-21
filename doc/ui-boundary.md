@@ -185,11 +185,27 @@ a message: a host sent the edit but not the *verdict* — an attach under `On` m
 undo names no edit at all. **Every consumer that matches these enumerations exhaustively failed to compile**, `QUORRA_EVENT_KIND_COUNT` moved
 16 → **19** for the second time in its life, and the C ABI gained three entry points (`quorra_attach`,
 `quorra_detach`, `quorra_answer`) and four constants. `QUORRA_ABI_VERSION` did not move, because every
-addition is a shape an old caller never passes. **No host gained a gesture**: the owner is reviewing
-the flows as mockups first, so each window gained only the display half — the files tab rebuilt from
-`Query::Attachments` when the list moves — and each answers `Event::Asking` with
-`viewer_host::unanswerable` and `proceed: false`, out loud, because a window that cannot ask must
-not let *ask* behave like *on* in silence. ADR 0814.
+addition is a shape an old caller never passes. **No host gained an attach gesture**: the owner
+asked for mockups of that flow first, so each window gained only the display half — the files tab
+rebuilt from `Query::Attachments` when the list moves. ADR 0814.
+
+**And the one-thousand-one-hundred-and-fifty-fifth changed one variant's shape and added no
+message**, which is the sixth use of the mechanism this file prefers and the second on the same
+variant: `Command::Restrict` carries a `RestrictionScope` — the window's whole
+`RestrictionPolicy`, or a `RestrictionOverride` the focused document departs from it in. What made
+it a change here rather than a host's bookkeeping is that the scope is a statement *this boundary*
+has to carry: a host-supplied value applies to every document a window opens (ADR 0604), and the
+sentence a reader needs — *for this document, ask before copying* — is one no host can compose out
+of messages that all mean *for every document*. The override lives beside the document in
+`open::Open`, so it ends when the document does, and `RestrictionPolicy::under` is the one place
+the two meet. Three consumers failed to compile — the wire, `viewer-ui`'s trace line and
+`viewer-ffi`'s session — `QUORRA_EVENT_KIND_COUNT` stayed where it is because none of this is an
+event, and the C ABI gained one entry point and one constant that is deliberately not a level,
+`QUORRA_RESTRICT_INHERIT`. **And the three windows put the question** `Event::Asking` asks: a menu
+of `CLAUDE.md`'s four levels in each window's own chrome and a modal answer apiece, worded once in
+`viewer_host::restriction` for the reason `Presenting` and `Clock` are shared — what a window is
+obeying is one decision and a `gio::Menu` against a `QMenuBar` against a card this program draws is
+what a toolkit is. ADR 1145.
 
 **And the one-thousand-and-sixty-second added one `Command` and one entry point, for the input ADR
 1039 named forty rounds earlier and did not build.** §12.8.1's third question — *is the signer
@@ -540,8 +556,8 @@ of it at once — which is why `Event::AttachmentsChanged` had to exist. The nam
 across both homes**, under §7.9.6's "[t]he keys shall not overlap", so that a detach by name is
 never ambiguous. Which of Table 22's bits governs the edit depends on the home, so `operation_of`
 answers `Operation::Annotate` for a page and `Operation::Modify` for the tree — the argument is in
-ADR 0814 and on the §7.6.4.2 ledger row. And **no host gained a gesture**: a window may display the
-list and nothing more until the owner's mockups are reviewed.
+ADR 0814 and on the §7.6.4.2 ledger row. And **no host gained an attach gesture**: a window may
+display the list and nothing more until the owner's mockups of that flow are reviewed.
 
 **And a *form* since the three-hundred-and-ninety-eighth** (ADR 0235). `Query::Fields` answers with
 every field that has a widget on the page being shown — §12.7.5's type, the flags of Tables 227, 229,

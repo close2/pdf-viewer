@@ -60,6 +60,23 @@ impl App {
         self.password.draw(chrome, width, height, scale)
     }
 
+    /// `CLAUDE.md`'s question, where the *ask* level has one outstanding.
+    ///
+    /// Beside the password card for the reason that one is beside the notices card: all three are
+    /// modal chrome this host draws over the page, and each is one call into `viewer_ui::chrome`.
+    pub(crate) fn question_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.question.draw(chrome, width, height, scale)
+    }
+
+    /// `CLAUDE.md`'s four levels, where a person has opened the menu.
+    pub(crate) fn menu_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.menu.draw(chrome, width, height, scale)
+    }
+
     /// Why there is no document at all, where there is none.
     ///
     /// Beside the password card for the same reason it is: both are chrome this host draws over a

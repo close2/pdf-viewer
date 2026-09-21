@@ -83,6 +83,15 @@ use crate::status::Status;
 /// of the two symbols that take one.
 pub const QUORRA_ABI_VERSION: u32 = 2;
 
+/// The level `quorra_restrict_document_operation` takes to mean *no level at all*: this document
+/// follows the window's policy for that operation.
+///
+/// **Not a fifth `QUORRA_RESTRICT_*`**, and the distinction is the decision rather than a
+/// spelling. `CLAUDE.md` names four levels; this is the absence of one, valid in that entry point
+/// and nowhere else, so every other entry point that takes a level goes on refusing it as a
+/// number it does not define (ADR 1145).
+pub const QUORRA_RESTRICT_INHERIT: u32 = 4;
+
 /// Where a page sits on the screen and how large it is drawn.
 ///
 /// Passed by value, which is why [`QUORRA_ABI_VERSION`] exists.
@@ -2909,6 +2918,52 @@ pub unsafe extern "C" fn quorra_restrict_operation(
     };
     *events = Box::into_raw(Box::new(
         viewer.restrict_operation(restricted.operation(), kind.level()),
+    ));
+    Status::Ok.code()
+}
+
+/// The same, for the document this caller has open alone — the scope a window's policy cannot
+/// express.
+///
+/// **A viewer-wide policy is a statement about the reader** (ADR 0604), which is what makes it
+/// unable to say *for this document, ask before copying*: a level set to catch one file catches
+/// every file this viewer opens afterwards. `operation` is a `QUORRA_RESTRICTED_*`; `level` is a
+/// `QUORRA_RESTRICT_*`, or `QUORRA_RESTRICT_INHERIT` to give the operation back to the window's
+/// policy. Every other operation's departure is left where this caller last put it, and **all of
+/// them are forgotten when a document is opened**, because a departure lasts exactly as long as
+/// the document it was about.
+///
+/// **This takes no struct by value**, so [`QUORRA_ABI_VERSION`] does not move, for
+/// `quorra_restrict_operation`'s reason: an entry point added is one an old caller never calls.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_restrict_document_operation(
+    viewer: *mut Session,
+    operation: u32,
+    level: u32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(restricted) = RestrictedKind::from_code(operation) else {
+        return Status::WrongKind.code();
+    };
+    // `INHERIT` is deliberately not a `RestrictKind`: it is the absence of a level, and a kind
+    // for it would be a fifth level every other entry point would then have to refuse (ADR 1145).
+    let level = if level == QUORRA_RESTRICT_INHERIT {
+        None
+    } else {
+        let Some(kind) = RestrictKind::from_code(level) else {
+            return Status::WrongKind.code();
+        };
+        Some(kind.level())
+    };
+    *events = Box::into_raw(Box::new(
+        viewer.restrict_document(restricted.operation(), level),
     ));
     Status::Ok.code()
 }

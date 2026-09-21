@@ -139,6 +139,10 @@ pub struct Viewer {
     /// [`Command::Restrict`] and asked **once per operation** in [`Self::standing`] — one level
     /// per operation since the one-thousand-one-hundred-and-forty-seventh session, every one of
     /// them `Off` until a host says otherwise. ADR 0212, ADR 1144.
+    ///
+    /// **The window's levels, which one document may depart from.** `Open::restrictions` is that
+    /// departure and [`crate::RestrictionPolicy::under`] is where the two meet; this value is what
+    /// a document inherits when it opens and what the next one opened goes back to (ADR 1145).
     restrictions: crate::RestrictionPolicy,
     /// Whom this reader believes — §12.8.1's third question, which no state machine over a file
     /// can answer for itself.
@@ -505,7 +509,19 @@ impl Viewer {
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::View(view) => self.restore(view, events),
-            Command::Restrict(policy) => self.restrictions = policy,
+            // Two scopes in one message (ADR 1145). The window's levels are what every document
+            // inherits and what one opened afterwards gets; an override is what the focused
+            // document departs from them in, for as long as it is open. A document-scoped policy
+            // with nothing focused has nothing to attach to and does nothing, which is the answer
+            // every other document-scoped command gives.
+            Command::Restrict(scope) => match scope {
+                crate::RestrictionScope::Window(policy) => self.restrictions = policy,
+                crate::RestrictionScope::Document(departures) => {
+                    if let Some(open) = self.focused_mut() {
+                        open.restrictions = departures;
+                    }
+                }
+            },
             Command::Copy => self.copy(events),
             // A document's report is a function of the file *and* of whom this reader believes, so
             // the wording already produced is no longer the wording this policy would produce.
@@ -1533,7 +1549,12 @@ impl Viewer {
             return Standing::Proceed;
         };
         match pdf_model::restriction::decide(
-            self.restrictions.level(operation).level(),
+            // The window's levels as this document sees them: `under` is the whole of the
+            // layering and is asked here rather than composed by a caller (ADR 1145).
+            self.restrictions
+                .under(open.restrictions)
+                .level(operation)
+                .level(),
             &open.document,
             operation,
             field,

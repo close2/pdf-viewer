@@ -1,18 +1,19 @@
 # A document's restrictions are the reader's to set, and they have levels
 
-Status: **the reading, the four levels, the verdict, the events, the command, the question and —
-since session 1147 — a level *per restriction*, a way for a person to choose one, and the copy
-operation are built** (ADR 0212, session 373; ADR 0803, session 872; ADR 0814, session 885;
-ADRs 0874 and 0875, session 916; ADR 1144, session 1147). **The owner lifted the no-interface
-deferral on 2026-09-16**, and the first piece of it is a command line every face takes:
-`--restrictions=copy:ask,annotate:on`. What is left is a *menu* and a dialogue in the three
-windows, and the operations `Print` and `Assemble` await verbs this program does not have.
+Status: **the reading, the four levels, the verdict, the events, the command, the question, a level
+*per restriction*, a per-document scope, the copy operation, a command line, a menu in all three
+windows and the prompt the *ask* level needs are built** (ADR 0212, session 373; ADR 0803, session
+872; ADR 0814, session 885; ADRs 0874 and 0875, session 916; ADR 1144, session 1147; ADR 1145,
+session 1155). **The owner lifted the no-interface deferral on 2026-09-16.** What is left is the
+*attach and detach gestures*, which wait on the owner's HTML mockups, and the operations `Print`
+and `Assemble`, which await verbs this program does not have.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
 rather than to the document, ADR 0284), §12.7.6.2
 Code: `crates/pdf-model/src/restriction.rs`, `crates/viewer-core/src/viewer.rs`,
-`crates/viewer-core/src/notes.rs`, `crates/pdf-syntax/src/crypt.rs`,
+`crates/viewer-core/src/command.rs`, `crates/viewer-core/src/notes.rs`,
+`crates/viewer-host/src/restriction.rs`, `crates/pdf-syntax/src/crypt.rs`,
 `crates/pdf-transform/src/lib.rs`
 
 ## The policy, in the owner's words
@@ -91,12 +92,12 @@ a reason ending "was not done" is a lie under *warn* and premature under *ask*.
 C ABI as `QUORRA_RESTRICT_ASK`, `QUORRA_RESTRICT_WARN`, `quorra_answer` and three event kinds that moved
 `QUORRA_EVENT_KIND_COUNT` 16 → 19.
 
-**No window has a dialogue yet**, by the owner's word that the gestures follow the HTML mockups, so
-each of the four answers *ask* with `viewer_host::unanswerable` and `proceed: false` — out loud, the
-same closed-dialogue choice `pdf-transform` made with `Refusal::Unanswered`. That is what keeps the
-level from silently behaving like *on*, and it is the one thing a window still owes. **A C host of
-`viewer-ffi` is not in that sentence and never was**: `QUORRA_EVENT_KIND_ASKING` and `quorra_answer` are
-a channel *and* an answer, so a host on that boundary has been able to ask since this round.
+**A window with no dialogue answers *ask* with `viewer_host::unanswerable` and `proceed: false`** —
+out loud, the same closed-dialogue choice `pdf-transform` makes with `Refusal::Unanswered` — which is
+what keeps the level from behaving like *on* in silence. One face is still in that sentence and it
+is the one that cannot be asked at all: `quorra-confined` performs no restricted operation. **A C
+host of `viewer-ffi` was never in it**: `QUORRA_EVENT_KIND_ASKING` and `quorra_answer` are a channel
+*and* an answer.
 
 **§7.11.4's attach and detach are the levels' second consumer**, and the third if `pdf-transform`
 counts. `Edit::Attach { bytes, name, description, mime, home }` and `Edit::Detach { name }` are
@@ -135,7 +136,8 @@ document moves underneath the mount.
 | `pdf-transform` | **yes, on a terminal** | the question on stderr, a line read back; `--restrictions=ask` is a level rather than a usage error | `--restrictions=off\|on\|ask\|warn` |
 | a C host of `viewer-ffi` | **yes, since session 885** | `QUORRA_EVENT_KIND_ASKING`, `quorra_answer` | `quorra_restrict` |
 | `pdf-fuse` | **no** — a mount has no dialogue | `EACCES` and the sentence, in full, in the log | `Config::policy`, default `off` |
-| the three windows | **not yet** | `viewer_host::unanswerable`, `proceed: false` | `viewer_host::IGNORE_RESTRICTIONS` |
+| the three windows | **yes, since session 1155** | a modal window apiece, worded by `viewer_host::asked` | `viewer_host::RESTRICTIONS`, and the menu |
+| `quorra-confined` | **no** — and no question can reach it | `viewer_host::unanswerable`, `proceed: false` | `viewer_host::IGNORE_RESTRICTIONS` |
 
 **The default did not move anywhere**, which is the owner's rule: every face still opens at `off`.
 And `Refusal::Declined` is a third sentence beside `Restricted` and `Unanswered`, because "this
@@ -166,19 +168,45 @@ by nothing a person could press.
 policy with a hole in it would have to grow a message to fill it, and the day a window gains a print
 path the level is already the reader's to set.
 
+## What the one-thousand-one-hundred-and-fifty-fifth session built
+
+**The menu, the prompt and the scope a viewer-wide policy could not express.** ADR 1145 has the
+argument; the shape is:
+
+| | where |
+|---|---|
+| `Command::Restrict(RestrictionScope)` — the window's levels, or the focused document's departures | `viewer_core::command` |
+| `RestrictionOverride` — one *optional* level per operation, `NONE` being a document at the window's | `viewer_core::command` |
+| `RestrictionPolicy::under` — the whole of the layering, asked in `Viewer::standing` | `viewer_core::viewer` |
+| the departure held beside the document, so it ends when the document does | `viewer_core::open::Open` |
+| the menu's rows, the two scopes, the state it edits, the question and the decline | `viewer_host::restriction` |
+| `Key::R` and `WindowAct::Restrictions` — the menu's key in all three windows | `viewer_host::keys` |
+| a `gio::Menu` behind `set_create_popup_func`; a modal `gtk4::Window` for the question | `viewer-gtk` |
+| a `QMenuBar` refilled on `aboutToShow`; a `QDialog` for the question | `viewer-qt` |
+| the same rows drawn flat on a card, answered by the arrows and two keys | `viewer-ui`'s `quorra` |
+| a scope byte beside the six level bytes, `NO_DEPARTURE` being the one that is not a level | `viewer-confined` |
+| `quorra_restrict_document_operation` and `QUORRA_RESTRICT_INHERIT`; `QUORRA_ABI_VERSION` unmoved | `viewer-ffi` |
+
+**Every window builds its menu when it is opened and never before.** `CLAUDE.md` section 2's rule,
+and the only way the ticks can be right: the levels change while the window is up.
+
+**§12.2's `/HideMenubar` is read, answered and deliberately not obeyed.** The only menu bar these
+windows have is the one holding the reader's levels, and a document that could hide it would be
+taking away the control over itself; `viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE` names the
+clause, the entry and the reason. `/HideToolbar` and `/HideWindowUI` are obeyed, and Table 29's full
+screen still takes the bar — that sentence is the reader asking rather than the document.
+
 ## What is left
 
-- **A menu, and a dialogue in the three windows.** The *choosing* half arrived in session 1147 as
-  `--restrictions=`, one parser in `viewer_host::restrictions` for all three windows, and
-  `quorra_restrict_operation` for a C caller. **A command line is still not a menu**, which is
-  worth restating because a sentence claiming otherwise is what kept two hosts without any way out
-  for the whole of their lives (ADR 0604). What is owed is four entries per operation in a window's
-  own chrome, the per-document override the viewer-wide policy does not express, and a prompt for
-  `Event::Asking` in each of the three — which each still answers with
-  `viewer_host::unanswerable` and `proceed: false`, out loud.
-- **The gestures that send `Edit::Attach` and `Edit::Detach`.** No drag-and-drop, no command
-  palette, no file dialog was built in the eight-hundred-and-eighty-fifth session, by the owner's
-  word that the mockups are being reviewed first. What each window gained is the *display* half:
+- **A pointer on the menu `viewer-ui` draws.** Its rows are answered by the arrows and Enter, which
+  is what every other card in that window is answered with — there is no window manager behind them.
+  A click model exists in that crate (`ChoiceList`) and is deliberately not used here: it is there
+  because §12.7.5.4's list is a control the *document* placed at a point on a page, and a menu is
+  not (trap 17 — this is a choice about what the window is, not a claim about winit).
+- **The gestures that send `Edit::Attach` and `Edit::Detach`, and they wait on the mockups the
+  owner asked for on 2026-09-03** — HTML, per platform, demonstrating the functionality rather than
+  the look. None has been supplied, so no drag-and-drop, no command palette and no file dialog has
+  been built, which is the eight-hundred-and-eighty-fifth session's ruling standing unchanged. What each window gained is the *display* half:
   the files tab is rebuilt from `Query::Attachments` when `Event::AttachmentsChanged` says the list
   moved. The C ABI has `quorra_attach` and `quorra_detach` already, because an ABI has no gestures.
 - **The payload's descriptor route across the confinement, and the route now exists.**
@@ -212,9 +240,12 @@ path the level is already the reader's to set.
 
 ## What not to do
 
-- **No menu invented ahead of the mockups.** The interface deferral was lifted on 2026-09-16 and
-  the command line is its first piece; a window's own chrome follows the owner's HTML mockups, as
-  the attach and detach gestures do.
+- **No attach or detach gesture ahead of the mockups.** The owner's word on 2026-09-03 asked for
+  HTML mockups of *adding embedded files* in the GUIs, per platform, before those flows are built,
+  and none has been supplied — so no drag-and-drop, no command palette and **no file dialog**, which
+  is session 885's ruling unchanged. It binds that feature and not this one: the restriction menu
+  and the *ask* prompt are chrome for a policy the reader sets, they name no file and open no file
+  dialog, and the interface deferral over them was lifted on 2026-09-16 (ADR 1145).
 - **No level enum shipped with one caller**, which is why two of four were absent rather than
   stubbed for five hundred sessions and arrived in the eight-hundred-and-eighty-fifth *with* the
   event and the command. ADR 0178's lesson, and it is discharged rather than retired: the next

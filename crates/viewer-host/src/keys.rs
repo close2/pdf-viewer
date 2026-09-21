@@ -140,6 +140,9 @@ pub enum Key {
     O,
     /// The letter `p` — §12.4.4's presentation.
     P,
+    /// The letter `r` — the menu of `CLAUDE.md`'s four restriction levels
+    /// ([`crate::restriction`]).
+    R,
     /// The letter `s` — §7.5.6's incremental save.
     S,
     /// The letter `t` — §12.5.6.6's free text.
@@ -201,6 +204,7 @@ impl Key {
         Self::L,
         Self::O,
         Self::P,
+        Self::R,
         Self::S,
         Self::T,
         Self::W,
@@ -264,6 +268,15 @@ pub enum WindowAct {
     Find,
     /// Show or hide the panel of trees — §12.3.3's outline, §8.11.4.3's layers, §7.11.4's files.
     Panel,
+    /// Show the levels this reader has set for what a document asserts over them
+    /// ([`crate::restriction`]).
+    ///
+    /// **A window act rather than a [`Command`]**, for this half of the table's standing reason:
+    /// what a menu *is* differs in every host — a `gtk4::MenuButton`, a `QMenuBar`, a card this
+    /// program draws — and what it offers does not. The key exists because one of the three
+    /// windows has no chrome to hang a menu off at all, and `CLAUDE.md`'s "it shall always be
+    /// possible to turn them off" is not kept by a menu two windows of three can reach (ADR 1145).
+    Restrictions,
     /// Show the third-party notices this binary is obliged to carry with it.
     ///
     /// A licence obligation with a surface: the two licences covering the compiled-in standard 14
@@ -417,10 +430,13 @@ pub fn meaning(key: Key, shift: bool, mode: Mode, waiting: Waiting) -> Option<Me
         Key::T => Meaning::Window(WindowAct::FreeText),
         // Table 29's `FullScreen` shows "no menu bar, window controls, or any other window
         // visible", so the three keys that ask for chrome ask for nothing while one is running.
-        Key::F | Key::Slash | Key::O | Key::Question if presenting => return None,
+        Key::F | Key::Slash | Key::O | Key::Question | Key::R if presenting => return None,
         Key::F | Key::Slash => Meaning::Window(WindowAct::Find),
         Key::O => Meaning::Window(WindowAct::Panel),
         Key::Question => Meaning::Window(WindowAct::Notices),
+        // The menu is chrome too, and for `Question`'s reason it asks for nothing while a
+        // presentation is running — the row above puts `R` in that list.
+        Key::R => Meaning::Window(WindowAct::Restrictions),
     })
 }
 
@@ -447,6 +463,7 @@ mod tests {
                 | Key::L
                 | Key::O
                 | Key::P
+                | Key::R
                 | Key::S
                 | Key::T
                 | Key::W
@@ -478,7 +495,7 @@ mod tests {
         }
         assert_eq!(
             seen.len(),
-            30,
+            31,
             "the list is the enumeration, and no shorter"
         );
     }

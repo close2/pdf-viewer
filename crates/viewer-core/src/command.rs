@@ -186,7 +186,15 @@ pub enum Command {
     /// be asked before a copy leaves the program is not thereby a person who wants to be asked
     /// before every keystroke into a form field, and one level for all five operations could not
     /// say so. [`RestrictionPolicy::uniform`] is the one value this used to carry.
-    Restrict(RestrictionPolicy),
+    ///
+    /// **And one *scope* per policy since the one-thousand-one-hundred-and-fifty-fifth**, which is
+    /// the same mechanism a second time and for the same kind of reason. The paragraph above is
+    /// about the window and stays true of [`RestrictionScope::Window`]; what it could not say is
+    /// *for this document, ask before copying*, because a level set to catch one suspicious file
+    /// caught every other file the window would ever open.
+    /// [`RestrictionScope::Document`] is that sentence, as departures from the window's levels
+    /// that last as long as the document does. ADR 1145.
+    Restrict(RestrictionScope),
     /// A person pressed copy: §7.6.4.2's bit 5, asked as an operation rather than read as a
     /// readback.
     ///
@@ -932,6 +940,133 @@ impl RestrictionPolicy {
         Self::OPERATIONS
             .into_iter()
             .find(|operation| Self::word(*operation) == word)
+    }
+
+    /// This policy as one document sees it: the window's levels, with that document's departures
+    /// over them.
+    ///
+    /// The whole of the layering, in one place, so that no consumer composes the two for itself:
+    /// an operation the document said nothing about is the window's level, and an operation it did
+    /// is the document's. `RestrictionOverride::NONE` gives the policy back unchanged, which is
+    /// what makes a document that was never overridden cost nothing to ask about. ADR 1145.
+    #[must_use]
+    pub fn under(self, departures: RestrictionOverride) -> Self {
+        let mut policy = self;
+        for operation in Self::OPERATIONS {
+            if let Some(level) = departures.level(operation) {
+                policy = policy.with(operation, level);
+            }
+        }
+        policy
+    }
+}
+
+/// What a reader's levels apply to: the window, or the one document in front of them.
+///
+/// **The scope [`RestrictionPolicy`] could not express, and a menu is what found it.** A
+/// viewer-wide policy is a statement about the *reader* — which is why every host-supplied value
+/// in this crate applies to every document a window opens (ADR 0604) — and that is exactly what
+/// makes it unable to say *for this document, ask before copying*. The document a reader is
+/// unsure of is one file; setting the window to *ask* for it asks about every other file too, and
+/// a reader who then turned the window back has silently changed the policy for documents they
+/// were not thinking about.
+///
+/// Neither scope weakens the other: the window's levels are what a document inherits when it
+/// opens, and an override is what one document departs from them in for as long as it is open.
+/// ADR 1145.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestrictionScope {
+    /// The window's own levels — every document it holds, and every one it opens afterwards.
+    ///
+    /// The whole policy, six levels, which is what [`Command::Restrict`] has carried since ADR
+    /// 1144 and what a command line still sets.
+    Window(RestrictionPolicy),
+    /// What the focused document departs from the window's levels in, until it closes.
+    ///
+    /// [`RestrictionOverride::NONE`] is a document back at the window's levels, which is what
+    /// every document opens at and what a menu's *use the window's level* entry sends.
+    Document(RestrictionOverride),
+}
+
+/// What one document departs from [`RestrictionPolicy`] in — one **optional** level per operation.
+///
+/// **Optional per operation rather than a second whole policy, and that is the decision rather
+/// than a convenience** (ADR 1145). A menu sets one operation at a time, so an override carrying
+/// all six levels would freeze the other five at whatever the window held when the first was
+/// chosen: a reader who asked to be questioned before copying *this* document would have detached
+/// its annotating from the window's as well, and nothing on the screen would say so. Six
+/// [`Option`]s say exactly what was departed from and nothing more.
+///
+/// `None` is not a fifth level. It is the absence of one — the operation follows the window — and
+/// it is why [`Self::NONE`] is both what a document opens at and what puts one back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RestrictionOverride {
+    copy: Option<RestrictionLevel>,
+    annotate: Option<RestrictionLevel>,
+    fill_in_form: Option<RestrictionLevel>,
+    print: Option<RestrictionLevel>,
+    modify: Option<RestrictionLevel>,
+    assemble: Option<RestrictionLevel>,
+}
+
+impl RestrictionOverride {
+    /// A document that departs from the window's levels in nothing.
+    ///
+    /// What every document opens at, and what a reader sends to give one operation — or all six —
+    /// back to the window's policy.
+    pub const NONE: Self = Self {
+        copy: None,
+        annotate: None,
+        fill_in_form: None,
+        print: None,
+        modify: None,
+        assemble: None,
+    };
+
+    /// The level this document departs to for one operation, if it departs at all.
+    #[must_use]
+    pub const fn level(
+        self,
+        operation: pdf_model::restriction::Operation,
+    ) -> Option<RestrictionLevel> {
+        use pdf_model::restriction::Operation as O;
+        match operation {
+            O::Extract => self.copy,
+            O::Annotate => self.annotate,
+            O::FillInForm => self.fill_in_form,
+            O::Print => self.print,
+            O::Modify => self.modify,
+            O::Assemble => self.assemble,
+        }
+    }
+
+    /// The same override with one operation's departure replaced — `None` giving it back to the
+    /// window.
+    #[must_use]
+    pub const fn with(
+        mut self,
+        operation: pdf_model::restriction::Operation,
+        level: Option<RestrictionLevel>,
+    ) -> Self {
+        use pdf_model::restriction::Operation as O;
+        match operation {
+            O::Extract => self.copy = level,
+            O::Annotate => self.annotate = level,
+            O::FillInForm => self.fill_in_form = level,
+            O::Print => self.print = level,
+            O::Modify => self.modify = level,
+            O::Assemble => self.assemble = level,
+        }
+        self
+    }
+
+    /// Whether this document departs from the window's levels in anything at all.
+    ///
+    /// What a window asks in order to say so — a reader whose document is being treated
+    /// differently from the rest is owed the sentence, which is trap 5 applied to a policy.
+    #[must_use]
+    pub fn departs(self) -> bool {
+        self != Self::NONE
     }
 }
 

@@ -409,6 +409,20 @@ impl App {
             self.password_key(key);
             return;
         }
+        // **`CLAUDE.md`'s question takes every key while it is up**, for the card above's reason
+        // and one more: the core is *holding* an operation until this is answered, so a key that
+        // turned a page while the question stood would leave a person reading somewhere else with
+        // an unanswered question behind them (ADR 1145).
+        if self.question.shown {
+            self.question_key(key);
+            return;
+        }
+        // **And so does the menu**, which is modal for the reason a menu is modal in every
+        // toolkit: the keys that move between its entries are the keys that move between pages.
+        if self.menu.shown {
+            self.menu_key(key);
+            return;
+        }
         // **The find bar takes every key while it is open**, for the same reason and in the same
         // place: a `/` typed into a search string is a slash. Whether a bar is on the screen is
         // chrome, and `viewer-core` has no opinion about chrome by construction (rule 5).
@@ -493,6 +507,13 @@ impl App {
             }
             viewer_host::WindowAct::Notices => {
                 self.about.toggle();
+                self.redraw();
+            }
+            // The rows are taken as the menu goes up, because what it says is a function of two
+            // policies that change while the window is up (ADR 1145).
+            viewer_host::WindowAct::Restrictions => {
+                let rows = self.restrictions.rows();
+                self.menu.toggle(rows);
                 self.redraw();
             }
             viewer_host::WindowAct::Present => self.present_or_stop(),
@@ -588,6 +609,7 @@ fn character(text: &str) -> Option<viewer_host::Key> {
         'l' => Stated::L,
         'o' => Stated::O,
         'p' => Stated::P,
+        'r' => Stated::R,
         's' => Stated::S,
         't' => Stated::T,
         'w' => Stated::W,
@@ -629,6 +651,7 @@ mod tests {
                 Stated::L => Key::Character("l"),
                 Stated::O => Key::Character("o"),
                 Stated::P => Key::Character("p"),
+                Stated::R => Key::Character("r"),
                 Stated::S => Key::Character("s"),
                 Stated::T => Key::Character("t"),
                 Stated::W => Key::Character("w"),

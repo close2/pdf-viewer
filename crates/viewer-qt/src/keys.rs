@@ -74,6 +74,8 @@ const L: u32 = 0x4c;
 const O: u32 = 0x4f;
 /// `Qt::Key_P`.
 const P: u32 = 0x50;
+/// `Qt::Key_R`.
+const R: u32 = 0x52;
 /// `Qt::Key_S`.
 const S: u32 = 0x53;
 /// `Qt::Key_T`.
@@ -100,6 +102,7 @@ pub(crate) fn stated(code: u32) -> Option<Stated> {
         L => Stated::L,
         O => Stated::O,
         P => Stated::P,
+        R => Stated::R,
         S => Stated::S,
         T => Stated::T,
         W => Stated::W,
@@ -163,6 +166,7 @@ mod tests {
                 Stated::L => 0x4c,
                 Stated::O => 0x4f,
                 Stated::P => 0x50,
+                Stated::R => 0x52,
                 Stated::S => 0x53,
                 Stated::T => 0x54,
                 Stated::W => 0x57,

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -35,6 +36,7 @@
 #include <QRadioButton>
 #include <QResizeEvent>
 #include <QSizePolicy>
+#include <QMenu>
 #include <QMenuBar>
 #include <QSplitter>
 #include <QStatusBar>
@@ -788,6 +790,17 @@ MainWindow::MainWindow(rust::Box<Host> host)
     status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     statusBar()->addWidget(status_, 1);
 
+    // CLAUDE.md's four restriction levels, in a bar of their own. Only the two headings are asked
+    // for here: what is under them is a function of a policy that changes while the window is up,
+    // so `buildRestrictionsMenu` fills them in when one is opened (CLAUDE.md section 2's rule, and
+    // ADR 1145's).
+    menus_ = menuBar();
+    for (const rust::String& heading : host_->restriction_scopes()) {
+        QMenu* menu = menus_->addMenu(text(heading));
+        connect(menu, &QMenu::aboutToShow, this, [this] { buildRestrictionsMenu(); });
+        scopes_.push_back(menu);
+    }
+
     auto* bar = addToolBar(QStringLiteral("Navigate"));
     bar->setMovable(false);
     navigate_ = bar;
@@ -1253,6 +1266,22 @@ void MainWindow::applyUpdates()
     if (update.notices) {
         showNotices();
     }
+    if (update.question) {
+        // Queued for `update.password`'s reason one line down: a modal dialogue runs a nested
+        // event loop and starting one while the host is held is exactly the nesting `busy_`
+        // refuses.
+        QTimer::singleShot(0, this, [this] { askAQuestion(); });
+    }
+    if (update.menu && !scopes_.empty()) {
+        // The `r` key, in a window whose menu bar a person may not have gone looking for. Posted
+        // rather than popped here, because `QMenu::popup` takes the keyboard from the press that
+        // is still being handled.
+        QTimer::singleShot(0, this, [this] {
+            if (!scopes_.empty() && menus_ != nullptr && menus_->isVisible()) {
+                scopes_.front()->popup(menus_->mapToGlobal(QPoint(0, menus_->height())));
+            }
+        });
+    }
     if (update.password) {
         // Queued rather than called: `QDialog::exec` runs a nested event loop, and starting one
         // from inside a handler that is holding the host would be exactly the nesting `busy_`
@@ -1284,12 +1313,17 @@ void MainWindow::applyChrome()
     statusBar()->setVisible(chrome.window_ui);
     // Table 29: "or any other window visible".
     tabs_->setVisible(chrome.other_windows);
-    // §12.2's `/HideMenubar` names a widget none of the three hosts draws. `findChild` rather than
-    // `menuBar()` deliberately: the latter *creates* an empty bar, so obeying the flag that way
-    // would put a strip on the screen that hiding it then took away again. A window that grows a
-    // menu is obeyed here without a line changing.
-    if (QMenuBar* menus = findChild<QMenuBar*>(); menus != nullptr) {
-        menus->setVisible(chrome.menu_bar);
+    // §12.2's `/HideMenubar` names the only menu this window has, and it is **deliberately not
+    // obeyed**: that menu holds the reader's own restriction levels, so a document that could hide
+    // it would be taking away the control over what that document is allowed to do. CLAUDE.md: "a
+    // restriction a reader cannot switch off is a restriction imposed on the reader by somebody
+    // else's file, and this program is the reader's". The flag is answered in words rather than in
+    // silence, by `viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE` on the Rust side (trap 5,
+    // ADR 1145). Full screen is a different sentence and does take the bar: Table 29's FullScreen
+    // is "no menu bar, window controls, or any other window visible", which is the *reader*
+    // asking for a slide show rather than the document asking for a smaller window.
+    if (menus_ != nullptr) {
+        menus_->setVisible(!chrome.full_screen);
     }
     if (chrome.full_screen) {
         showFullScreen();
@@ -1724,6 +1758,93 @@ void MainWindow::placeControls()
     // number. An empty page is still sent, because "nothing is placed" is what clears the previous
     // page's magnification.
     host_->measured(rust::Slice<const QtMeasure>(measured.data(), measured.size()));
+}
+
+void MainWindow::askAQuestion()
+{
+    if (busy_) {
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Restricted"));
+    dialog.setModal(true);
+    auto* column = new QVBoxLayout(&dialog);
+    const rust::String prompt = host_->question_prompt();
+    auto* said = new QLabel(text(prompt), &dialog);
+    said->setWordWrap(true);
+    column->addWidget(said);
+    // The words on the buttons are `viewer_host::restriction`'s, not Qt's standard Ok and Cancel:
+    // three windows put one question and a person reading a status bar afterwards is told which
+    // word they pressed.
+    auto* buttons = new QDialogButtonBox(&dialog);
+    QPushButton* proceed =
+        buttons->addButton(text(host_->go_ahead()), QDialogButtonBox::AcceptRole);
+    buttons->addButton(text(host_->do_not()), QDialogButtonBox::RejectRole);
+    proceed->setDefault(true);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    column->addWidget(buttons);
+    // Closing the window without pressing anything rejects, so Escape and the close button are a
+    // decline rather than silence — which is what the core, holding the operation, is waiting for.
+    const bool answered = dialog.exec() == QDialog::Accepted;
+    Busy guard(busy_);
+    host_->answer_question(answered);
+    applyUpdates();
+}
+
+void MainWindow::buildRestrictionsMenu()
+{
+    if (busy_ || scopes_.empty()) {
+        return;
+    }
+    for (QMenu* menu : scopes_) {
+        menu->clear();
+    }
+    // The list is flat and its depth says where each entry belongs: 0 opens a scope's menu, 1
+    // opens an operation's submenu inside it, 2 is a level. The nesting is this toolkit's question
+    // and the entries are the policy's, which is why the Rust side hands over one list and each
+    // window nests it its own way (ADR 1145).
+    QMenu* scope = nullptr;
+    QMenu* operation = nullptr;
+    QActionGroup* group = nullptr;
+    std::size_t opened = 0;
+    const rust::Vec<QtMenuEntry> entries = host_->restriction_menu();
+    for (std::size_t index = 0; index < entries.size(); ++index) {
+        const QtMenuEntry& entry = entries[index];
+        const QString label = entry.note.empty()
+            ? text(entry.label)
+            : QStringLiteral("%1 (%2)").arg(text(entry.label), text(entry.note));
+        switch (entry.depth) {
+        case 0:
+            scope = opened < scopes_.size() ? scopes_[opened] : nullptr;
+            ++opened;
+            operation = nullptr;
+            break;
+        case 1:
+            operation = scope == nullptr ? nullptr : scope->addMenu(label);
+            group = operation == nullptr ? nullptr : new QActionGroup(operation);
+            break;
+        default:
+            if (operation == nullptr) {
+                break;
+            }
+            QAction* action = operation->addAction(label);
+            action->setCheckable(true);
+            action->setChecked(entry.chosen);
+            if (group != nullptr) {
+                group->addAction(action);
+            }
+            connect(action, &QAction::triggered, this, [this, index] {
+                if (busy_) {
+                    return;
+                }
+                Busy guard(busy_);
+                host_->chose_restriction(index);
+                applyUpdates();
+            });
+            break;
+        }
+    }
 }
 
 void MainWindow::askForAPassword()

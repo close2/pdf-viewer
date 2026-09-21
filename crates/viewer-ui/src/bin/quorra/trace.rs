@@ -272,15 +272,35 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Close(id) => format!("close {id:?}"),
         // Every operation's level, because a policy where five are `Off` and one is `Ask` is not
         // legible from one of the six (ADR 1144).
-        Command::Restrict(policy) => format!(
+        // And which scope it is about, because *for this document* and *for this window* are two
+        // policies and a line naming neither would be about whichever the reader guessed (ADR
+        // 1145). A departure the document does not make prints as a dash rather than as a level.
+        Command::Restrict(scope) => format!(
             "restrictions {}",
-            viewer_core::RestrictionPolicy::OPERATIONS
-                .map(|operation| format!(
-                    "{}:{:?}",
-                    viewer_core::RestrictionPolicy::word(operation),
-                    policy.level(operation)
-                ))
-                .join(" ")
+            match scope {
+                viewer_core::RestrictionScope::Window(policy) => format!(
+                    "in this window {}",
+                    viewer_core::RestrictionPolicy::OPERATIONS
+                        .map(|operation| format!(
+                            "{}:{:?}",
+                            viewer_core::RestrictionPolicy::word(operation),
+                            policy.level(operation)
+                        ))
+                        .join(" ")
+                ),
+                viewer_core::RestrictionScope::Document(departures) => format!(
+                    "for this document {}",
+                    viewer_core::RestrictionPolicy::OPERATIONS
+                        .map(|operation| format!(
+                            "{}:{}",
+                            viewer_core::RestrictionPolicy::word(operation),
+                            departures
+                                .level(operation)
+                                .map_or_else(|| "-".to_owned(), |level| format!("{level:?}"))
+                        ))
+                        .join(" ")
+                ),
+            }
         ),
         Command::Copy => "copy the selection".to_owned(),
         // The anchors' *count* and where they came from, never the certificates: a trace line is

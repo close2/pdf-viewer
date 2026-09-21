@@ -329,6 +329,16 @@ pub mod ffi {
         status: bool,
         /// §7.6.4.1: the document asked for a password.
         password: bool,
+        /// `CLAUDE.md`'s *ask* level: the document restricts something a person asked for, and
+        /// this reader has said to ask before it goes ahead.
+        ///
+        /// The same shape as `password` one line up, and the same reason: a dialogue is a Qt
+        /// object and Rust does not call one. What it holds is `question_prompt`'s two sentences,
+        /// and what comes back is `answer_question` (ADR 1145).
+        question: bool,
+        /// The restrictions menu should be put on the screen — the `r` key, in a window whose
+        /// menu bar a person may not have gone looking for.
+        menu: bool,
         /// Table 29's and §12.2's chrome changed: full screen was entered or left, or a document
         /// stated what its window should hide.
         ///
@@ -356,6 +366,24 @@ pub mod ffi {
         /// other two hosts, because a notice that differs between two binaries of one program is
         /// two claims about one obligation.
         notices: bool,
+    }
+
+    /// One entry of the restrictions menu — `CLAUDE.md`'s four levels, as a `QMenuBar` holds them.
+    ///
+    /// Flat, with a depth, because a nested shape does not cross this bridge and because the
+    /// nesting is a toolkit's question rather than a policy's: `viewer_host::Row` is the same
+    /// list, and `viewer-ui` draws it as a card without nesting at all (ADR 1145).
+    #[derive(Debug, Clone)]
+    struct QtMenuEntry {
+        /// 0 a scope's heading, 1 an operation's heading, 2 a level a click chooses.
+        depth: u8,
+        /// What the entry says.
+        label: String,
+        /// What it says underneath — why a scope ends, or that this window has no such verb.
+        /// Empty where there is nothing to add.
+        note: String,
+        /// Whether this is the level that stands now, for a `depth` of 2 and never otherwise.
+        chosen: bool,
     }
 
     /// Which pieces of this window's chrome may be shown — `viewer_host::Chrome`, and the window
@@ -432,6 +460,45 @@ pub mod ffi {
         /// `viewer_host::password`'s so that three hosts ask the same question, and only Rust has
         /// them. Asked once, when `QtUpdate::password` says so.
         fn password_prompt(self: &Host) -> String;
+        /// `CLAUDE.md`'s *ask* level: what to put in front of the person, in one string of two
+        /// paragraphs.
+        ///
+        /// A function rather than a string built in C++ for `password_prompt`'s reason: the words
+        /// are `viewer_host::restriction`'s so that three windows put one question, and only Rust
+        /// has them. Asked once, when `QtUpdate::question` says so.
+        fn question_prompt(self: &Host) -> String;
+        /// What the two buttons of that dialogue say.
+        ///
+        /// From Rust rather than from `QDialogButtonBox`'s standard Ok and Cancel, for
+        /// `password_prompt`'s reason: the words are `viewer_host::restriction`'s so that three
+        /// windows offer one pair, and the sentence a person is shown afterwards quotes them.
+        fn go_ahead(self: &Host) -> String;
+        /// The other of the two, which is also what a dialogue closed without an answer sends.
+        fn do_not(self: &Host) -> String;
+        /// What the person answered — `true` to let the operation go ahead this once.
+        ///
+        /// **A dialogue closed without an answer sends `false`**, which is what a closed dialogue
+        /// means everywhere else in this program: going ahead on a question nobody answered would
+        /// be the *off* level under another name (`viewer_host::restriction`).
+        fn answer_question(self: &mut Host, proceed: bool);
+        /// The two headings the restrictions menu bar carries, in `viewer_host::Scope::ALL`'s
+        /// order.
+        ///
+        /// Separate from `restriction_menu` because a `QMenu` needs its title before it can be
+        /// put in a bar, and the entries under it are built when it is opened: what a menu holds
+        /// is a function of a policy that changes while the window is up, and building it at
+        /// startup would show the levels the program launched with — `CLAUDE.md` section 2's rule
+        /// and ADR 1145's both.
+        fn restriction_scopes(self: &Host) -> Vec<String>;
+        /// Every entry of the restrictions menu, flat, in the order a menu nests them.
+        ///
+        /// `QtMenuEntry::depth` is what a C++ walk pushes and pops on. The *set* of entries and
+        /// their order are fixed — two scopes, six operations, four levels and one way back —
+        /// so an index into this list names the same choice whatever the policy is, which is what
+        /// makes `chose_restriction` safe to call with one.
+        fn restriction_menu(self: &Host) -> Vec<QtMenuEntry>;
+        /// A person picked one of `restriction_menu`'s entries, by its index in that list.
+        fn chose_restriction(self: &mut Host, entry: usize);
         /// A toolbar button: 0 previous page, 1 next page, 2 zoom out, 3 zoom in, 4 fit page.
         fn command(self: &mut Host, what: u8);
         /// Every control the window has just placed, with the minimum its style gives it.

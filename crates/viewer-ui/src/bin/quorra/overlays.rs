@@ -422,6 +422,13 @@ pub(crate) struct Overlays {
     find: Option<pdf_render::DisplayList>,
     /// `/NOTICE`, where it is shown. A modal card, so the sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
+    /// `CLAUDE.md`'s four levels, over the notices card and under the two below it: it is the
+    /// reader's own policy rather than anything about the document, and what is under it is still
+    /// the document.
+    menu: Option<pdf_render::DisplayList>,
+    /// `CLAUDE.md`'s question, over the menu: the core is holding an operation until it is
+    /// answered, and a person who opened the menu while one stood would be answering nothing.
+    question: Option<pdf_render::DisplayList>,
     /// §7.6.4.1's prompt. **Last but one, so it is on top of everything including the notices
     /// card**: the document behind it is not open, so nothing drawn over it could be about this
     /// document.
@@ -447,6 +454,8 @@ impl Overlays {
             panel: app.panel_list(height),
             find: app.find_list(width),
             about: app.about_list(width, height),
+            menu: app.menu_list(width, height),
+            question: app.question_list(width, height),
             password: app.password_list(width, height),
             refusal: app.refusal_list(width, height),
         }
@@ -467,6 +476,8 @@ impl Overlays {
             self.panel.as_ref(),
             self.find.as_ref(),
             self.about.as_ref(),
+            self.menu.as_ref(),
+            self.question.as_ref(),
             self.password.as_ref(),
             self.refusal.as_ref(),
         ]

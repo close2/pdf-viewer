@@ -44,6 +44,14 @@ pub struct Session {
     /// all six would be keeping this crate's state for it. The viewer's own copy is the same
     /// value; this is the one a partial change is applied to (ADR 1144).
     restrictions: viewer_core::RestrictionPolicy,
+    /// What the document this caller has open departs from that policy in.
+    ///
+    /// Held beside it for the same reason and for one more: `quorra_restrict_document_operation`
+    /// sets one operation's departure, and a departure is *forgotten when the document closes*, so
+    /// the mirror is put back at [`viewer_core::RestrictionOverride::NONE`] whenever a document is
+    /// opened. A caller that could not see that would be composing its next override on top of the
+    /// last document's (ADR 1145).
+    departures: viewer_core::RestrictionOverride,
 }
 
 impl Session {
@@ -57,6 +65,7 @@ impl Session {
         Self {
             viewer: Viewer::new(width, height, scale),
             restrictions: viewer_core::RestrictionPolicy::default(),
+            departures: viewer_core::RestrictionOverride::NONE,
         }
     }
 
@@ -82,6 +91,10 @@ impl Session {
         password: Option<viewer_core::Secret>,
         fragment: Option<String>,
     ) -> Events {
+        // A document opens at the window's levels, so the mirror of its departures starts empty —
+        // the core's `Open` does exactly this, and a mirror that did not would build the next
+        // override on the last document's (ADR 1145).
+        self.departures = viewer_core::RestrictionOverride::NONE;
         self.handle(Command::Open {
             id: DocumentId(id),
             bytes: bytes.into(),
@@ -739,7 +752,9 @@ impl Session {
     pub fn restrict(&mut self, level: viewer_core::RestrictionLevel) -> Events {
         self.restrictions = viewer_core::RestrictionPolicy::uniform(level);
         let policy = self.restrictions;
-        self.handle(Command::Restrict(policy))
+        self.handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            policy,
+        )))
     }
 
     /// The same, for one operation alone — `CLAUDE.md`'s four levels, per restriction.
@@ -751,7 +766,27 @@ impl Session {
     ) -> Events {
         self.restrictions = self.restrictions.with(operation, level);
         let policy = self.restrictions;
-        self.handle(Command::Restrict(policy))
+        self.handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            policy,
+        )))
+    }
+
+    /// The same, for the document in front of this caller alone — the scope a window's policy
+    /// cannot express.
+    ///
+    /// `None` is not a fifth level: it gives the operation back to the window's policy, which is
+    /// where every document starts and where the next one opened will be. ADR 1145.
+    #[must_use]
+    pub fn restrict_document(
+        &mut self,
+        operation: pdf_model::restriction::Operation,
+        level: Option<viewer_core::RestrictionLevel>,
+    ) -> Events {
+        self.departures = self.departures.with(operation, level);
+        let departures = self.departures;
+        self.handle(Command::Restrict(viewer_core::RestrictionScope::Document(
+            departures,
+        )))
     }
 
     /// §7.6.4.2's bit 5 asked as an operation: a person pressed copy.

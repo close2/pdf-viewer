@@ -131,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        187,
+        188,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -304,6 +304,14 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }
+    // And the one value in that space that is *not* a level, since the one-thousand-one-hundred-
+    // and-fifty-fifth session: the absence of one, taken by the document-scoped entry point alone
+    // (ADR 1145). Written here in the same commit as the `#define`, for the reason the
+    // `QUORRA_EVENT_SEARCHED` row above records.
+    expected.insert(
+        "QUORRA_RESTRICT_INHERIT".to_owned(),
+        i64::from(viewer_ffi::abi::QUORRA_RESTRICT_INHERIT),
+    );
     // Which operation a level is being set for, since the one-thousand-one-hundred-and-forty-
     // seventh session: `CLAUDE.md`'s four levels, one restriction at a time (ADR 1144).
     for (name, kind) in [

@@ -400,8 +400,8 @@ fn open_document(path: &Path) -> (Viewer, usize) {
     };
     let mut viewer = Viewer::new(0, 0, 1.0);
     drop(
-        viewer.handle(Command::Restrict(viewer_core::RestrictionPolicy::uniform(
-            RestrictionLevel::On,
+        viewer.handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            viewer_core::RestrictionPolicy::uniform(RestrictionLevel::On),
         ))),
     );
     let opened: Vec<Event> = viewer

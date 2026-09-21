@@ -656,6 +656,11 @@ impl Host {
                     );
                 }
             }
+            // And the third, for the reason the two arms above give: this window makes no edit
+            // and has no copy gesture, so no operation of its can be restricted and no question
+            // can arrive. The other three windows put the question on a dialogue of their own
+            // (ADR 1145); what this one owes is that a level never behaves like another in
+            // silence, which `viewer_host::unanswerable` is the sentence for.
             Event::Asking {
                 document, notes, ..
             } => {

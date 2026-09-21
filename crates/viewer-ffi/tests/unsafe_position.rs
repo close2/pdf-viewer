@@ -190,8 +190,15 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // granted (ADR 1144). One event kind came with them, so `QUORRA_EVENT_KIND_COUNT` moved
     // 20 → 21; `QUORRA_ABI_VERSION` did not, for the standing reason — no struct crosses by value
     // and an entry point *added* is one an old caller never calls.
-    assert_eq!(no_mangle, 187, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 173, "171 `unsafe` entry points and two helpers");
+    // **And one in the thousand-one-hundred-and-fifty-fifth**:
+    // `quorra_restrict_document_operation` sets one operation's level for the open document alone,
+    // which a window-wide policy cannot say — a level set to catch one file catches every file
+    // opened afterwards (ADR 1145). No event kind came with it, so `QUORRA_EVENT_KIND_COUNT`
+    // stayed 21, and `QUORRA_ABI_VERSION` did not move for the standing reason. It takes one
+    // number that is not a level — `QUORRA_RESTRICT_INHERIT`, the absence of one — and that is a
+    // constant rather than an entry point.
+    assert_eq!(no_mangle, 188, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 174, "172 `unsafe` entry points and two helpers");
 }
 
 #[test]

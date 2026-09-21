@@ -2491,11 +2491,15 @@ const PASSWORD_WIDTH: f32 = 420.0;
 /// How tall it is, in logical pixels: two lines of prose, a box, and a line of instruction.
 const PASSWORD_HEIGHT: f32 = 150.0;
 
-/// How far its contents are inset from its own edge, in logical pixels.
-const PASSWORD_PADDING: f32 = 18.0;
+/// How far a modal card's contents are inset from its own edge, in logical pixels.
+///
+/// Shared by all three of them — §7.6.4.1's password, `CLAUDE.md`'s question and its menu — for
+/// this crate's standing reason: the second copy of a measurement is where two cards of one
+/// program come to look like two programs.
+const CARD_PADDING: f32 = 18.0;
 
-/// The card's paper.
-const PASSWORD_PAPER: Color = Color {
+/// A modal card's paper.
+const CARD_PAPER: Color = Color {
     r: 0.99,
     g: 0.99,
     b: 1.0,
@@ -2510,8 +2514,8 @@ const PASSWORD_FIELD: Color = Color {
     a: 1.0,
 };
 
-/// The card's own text, and the bullets.
-const PASSWORD_INK: Color = Color {
+/// A modal card's own text, and the password card's bullets.
+const CARD_INK: Color = Color {
     r: 0.10,
     g: 0.10,
     b: 0.12,
@@ -2658,10 +2662,10 @@ impl PasswordCard {
             (wide - card_wide).max(0.0) / 2.0,
             (tall - card_tall).max(0.0) / 2.0,
         );
-        rectangle(&mut list, (left, top, card_wide, card_tall), PASSWORD_PAPER);
+        rectangle(&mut list, (left, top, card_wide, card_tall), CARD_PAPER);
 
         let size = TEXT_SIZE * scale;
-        let pad = PASSWORD_PADDING * scale;
+        let pad = CARD_PADDING * scale;
         let inner = (card_wide - pad * 2.0).max(0.0);
         let mut baseline = top + pad + size;
         for line in wrap(chrome, &self.prompt, size, inner) {
@@ -2671,7 +2675,7 @@ impl PasswordCard {
                 (left + pad, baseline),
                 size,
                 Style::default(),
-                PASSWORD_INK,
+                CARD_INK,
             );
             baseline += size * 1.4;
         }
@@ -2710,7 +2714,7 @@ impl PasswordCard {
             ),
             size,
             Style::default(),
-            PASSWORD_INK,
+            CARD_INK,
         );
         rectangle(
             &mut list,
@@ -2720,7 +2724,7 @@ impl PasswordCard {
                 scale.max(1.0),
                 box_tall - 8.0 * scale,
             ),
-            PASSWORD_INK,
+            CARD_INK,
         );
 
         // What the two keys do, because a card with no window manager behind it has no Cancel
@@ -2737,6 +2741,342 @@ impl PasswordCard {
         );
         Some(list)
     }
+}
+
+/// How wide the question and the menu are, in logical pixels.
+///
+/// Wider than [`PASSWORD_WIDTH`] because both carry a document's own reasons, which are sentences
+/// this program did not choose the length of.
+const RESTRICTION_WIDTH: f32 = 560.0;
+
+/// How the levels' rows are indented, in logical pixels per depth.
+const RESTRICTION_INDENT: f32 = 18.0;
+
+/// The row the keyboard is on.
+const RESTRICTION_CURSOR: Color = Color {
+    r: 0.84,
+    g: 0.88,
+    b: 0.98,
+    a: 1.0,
+};
+
+/// The mark on the level that stands, and the one on the levels that do not.
+///
+/// Two characters rather than a colour, because a tick that was only a shade would say nothing to
+/// a person who cannot see the shade — and this window draws its own chrome, so nothing else
+/// would.
+const RESTRICTION_MARKS: [char; 2] = ['\u{25cf}', '\u{25cb}'];
+
+/// `CLAUDE.md`'s *ask* level, as a card this window draws for itself.
+///
+/// **The password card's shape, with the entry taken out.** Both hold something until a person
+/// says a word, and this host answers both with keys rather than buttons for the reason
+/// [`PasswordCard`] records: there is no window manager behind these cards and no Cancel button to
+/// point at, so the two keys are named on the card itself. ADR 1145.
+#[derive(Debug, Clone, Default)]
+pub struct QuestionCard {
+    /// Whether the card is over the page.
+    ///
+    /// Public for [`PasswordCard::shown`]'s reason: whether a modal card is up decides which keys
+    /// reach the page, and that ordering is the host's.
+    pub shown: bool,
+    /// What the document asserts, as `viewer-core` worded it.
+    reasons: String,
+    /// What this reader set, and what the two answers do.
+    choice: String,
+}
+
+impl QuestionCard {
+    /// Puts the question up.
+    ///
+    /// The words are [`viewer_host::asked`]'s, which is what keeps the question this host puts the
+    /// same as the two native ones'.
+    ///
+    /// [`viewer_host::asked`]: https://docs.rs/viewer-host
+    pub fn ask(&mut self, words: &viewer_host::Question) {
+        self.shown = true;
+        self.reasons.clone_from(&words.reasons);
+        self.choice.clone_from(&words.choice);
+    }
+
+    /// Takes the card down, whatever the person answered.
+    pub fn answered(&mut self) {
+        self.shown = false;
+        self.reasons = String::new();
+        self.choice = String::new();
+    }
+
+    /// The card, in device pixels of the window.
+    #[must_use]
+    pub fn draw(
+        &self,
+        chrome: &Chrome,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> Option<DisplayList> {
+        if !self.shown {
+            return None;
+        }
+        let size = TEXT_SIZE * scale;
+        let pad = CARD_PADDING * scale;
+        let card_wide = RESTRICTION_WIDTH * scale;
+        let inner = (card_wide - pad * 2.0).max(0.0);
+        let mut lines: Vec<(String, bool)> = wrap(chrome, &self.reasons, size, inner)
+            .into_iter()
+            .map(|line| (line, false))
+            .collect();
+        lines.push((String::new(), true));
+        lines.extend(
+            wrap(chrome, &self.choice, size, inner)
+                .into_iter()
+                .map(|line| (line, true)),
+        );
+        lines.push((String::new(), true));
+        lines.push((
+            format!(
+                "Enter — {}   ·   Escape — {}",
+                viewer_host::restriction::GO_AHEAD,
+                viewer_host::restriction::DO_NOT
+            ),
+            true,
+        ));
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a line count and a window's extent, both thousands at most"
+        )]
+        let (wide, tall, rows) = (width as f32, height as f32, lines.len() as f32);
+        let card_tall = pad * 2.0 + rows * size * 1.4;
+        let mut list = dimmed(wide, tall);
+        let (left, top) = (
+            (wide - card_wide).max(0.0) / 2.0,
+            (tall - card_tall).max(0.0) / 2.0,
+        );
+        rectangle(&mut list, (left, top, card_wide, card_tall), CARD_PAPER);
+        let mut baseline = top + pad + size;
+        for (line, dim) in &lines {
+            chrome.text(
+                &mut list,
+                line,
+                (left + pad, baseline),
+                size,
+                Style::default(),
+                if *dim { DIMMED } else { CARD_INK },
+            );
+            baseline += size * 1.4;
+        }
+        Some(list)
+    }
+}
+
+/// `CLAUDE.md`'s four levels, as the menu this window draws for itself.
+///
+/// **A menu without a menu bar, and driven by the keyboard**, which is what this window's chrome
+/// is: the About card and the password card are answered by keys too, because there is no window
+/// manager behind any of them. What it offers is `viewer_host::Restrictions::rows` unchanged —
+/// the same list the `gtk4::MenuButton` and the `QMenuBar` nest, drawn flat because a card is a
+/// list already (ADR 1145).
+#[derive(Debug, Clone, Default)]
+pub struct RestrictionsCard {
+    /// Whether the card is over the page.
+    pub shown: bool,
+    /// The menu as `viewer-host` states it, taken when the card goes up.
+    rows: Vec<viewer_host::Row>,
+    /// Which row the keyboard is on — always a level, never a heading.
+    at: usize,
+}
+
+impl RestrictionsCard {
+    /// Puts the menu up, or takes it down, with the levels as they stand now.
+    ///
+    /// The rows are taken here rather than held, because what the menu says is a function of two
+    /// policies that change while the window is up.
+    pub fn toggle(&mut self, rows: Vec<viewer_host::Row>) {
+        self.shown = !self.shown;
+        self.rows = rows;
+        if self.shown {
+            self.at = self.next_level(0, 1).unwrap_or(0);
+        }
+    }
+
+    /// Takes the rows again without moving the keyboard — what a choice leaves behind.
+    ///
+    /// Separate from [`Self::toggle`] because the menu stays up when a level is set: a person
+    /// setting three of them should not have to open it three times, and the tick has to follow
+    /// the choice.
+    pub fn refill(&mut self, rows: Vec<viewer_host::Row>) {
+        self.rows = rows;
+    }
+
+    /// Takes it down.
+    pub fn hide(&mut self) {
+        self.shown = false;
+        self.rows = Vec::new();
+    }
+
+    /// Moves the keyboard to the next level in a direction, stepping over the headings.
+    ///
+    /// Answers whether it moved: a card at its last row redraws nothing rather than wrapping,
+    /// which is what every other list in this window does.
+    pub fn move_by(&mut self, by: isize) -> bool {
+        let Some(at) = self.next_level(self.at.saturating_add_signed(by), by) else {
+            return false;
+        };
+        let moved = at != self.at;
+        self.at = at;
+        moved
+    }
+
+    /// What choosing the row the keyboard is on would mean.
+    #[must_use]
+    pub fn chosen(&self) -> Option<viewer_host::Chose> {
+        match self.rows.get(self.at) {
+            Some(viewer_host::Row::Level(entry)) => Some(entry.chose),
+            _ => None,
+        }
+    }
+
+    /// The first row at or after `from` in a direction that a person can choose.
+    fn next_level(&self, from: usize, by: isize) -> Option<usize> {
+        let mut at = from;
+        loop {
+            match self.rows.get(at) {
+                None => return None,
+                Some(viewer_host::Row::Level(_)) => return Some(at),
+                Some(_) => at = at.checked_add_signed(if by < 0 { -1 } else { 1 })?,
+            }
+        }
+    }
+
+    /// The card, in device pixels of the window.
+    #[must_use]
+    pub fn draw(
+        &self,
+        chrome: &Chrome,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> Option<DisplayList> {
+        if !self.shown {
+            return None;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's extent in pixels, which is thousands"
+        )]
+        let (wide, tall) = (width as f32, height as f32);
+        let size = TEXT_SIZE * scale;
+        let pad = CARD_PADDING * scale;
+        let line = size * 1.5;
+        let card_wide = RESTRICTION_WIDTH * scale;
+        // As many rows as the window has room for, and the keyboard's row kept inside them: a
+        // menu of 62 entries is taller than most windows and the alternative to scrolling it is
+        // a menu whose last operations cannot be reached.
+        let room = ((tall - pad * 4.0 - line * 2.0) / line).floor().max(1.0);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a row count derived from a window's height, bounded by the line above"
+        )]
+        let room = (room as usize).min(self.rows.len());
+        let first = self.at.saturating_sub(room.saturating_sub(1));
+        let beyond = first.saturating_add(room).min(self.rows.len());
+        let shown = &self.rows[first..beyond];
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a row count bounded by the window's own height"
+        )]
+        let card_tall = pad * 2.0 + line * (shown.len() as f32 + 1.0);
+        let mut list = dimmed(wide, tall);
+        let (left, top) = (
+            (wide - card_wide).max(0.0) / 2.0,
+            (tall - card_tall).max(0.0) / 2.0,
+        );
+        rectangle(&mut list, (left, top, card_wide, card_tall), CARD_PAPER);
+        let mut baseline = top + pad + size;
+        for (index, row) in shown.iter().enumerate() {
+            let on = first.saturating_add(index) == self.at;
+            if on {
+                rectangle(
+                    &mut list,
+                    (left, baseline - size, card_wide, line),
+                    RESTRICTION_CURSOR,
+                );
+            }
+            let (depth, text, note, ink) = match row {
+                viewer_host::Row::Scope { label, note, .. } => {
+                    (0.0, (*label).to_owned(), *note, CARD_INK)
+                }
+                viewer_host::Row::Operation { label, note, .. } => {
+                    (1.0, (*label).to_owned(), *note, CARD_INK)
+                }
+                viewer_host::Row::Level(entry) => (
+                    2.0,
+                    format!(
+                        "{} {}",
+                        RESTRICTION_MARKS[usize::from(!entry.chosen)],
+                        entry.label
+                    ),
+                    "",
+                    CARD_INK,
+                ),
+            };
+            let bold = depth < 1.5;
+            let after = chrome.text(
+                &mut list,
+                &text,
+                (left + pad + depth * RESTRICTION_INDENT * scale, baseline),
+                size,
+                Style {
+                    bold,
+                    italic: false,
+                },
+                ink,
+            );
+            if !note.is_empty() {
+                chrome.text(
+                    &mut list,
+                    &format!("  {note}"),
+                    (after, baseline),
+                    size,
+                    Style::default(),
+                    DIMMED,
+                );
+            }
+            baseline += line;
+        }
+        chrome.text(
+            &mut list,
+            "↑ ↓ to move   ·   Enter to set   ·   Escape to close",
+            (left + pad, baseline),
+            size,
+            Style::default(),
+            DIMMED,
+        );
+        Some(list)
+    }
+}
+
+/// A list the size of the window, with the page dimmed under it.
+///
+/// The page is still there and is still the document, so it is dimmed rather than covered — the
+/// sentence all three modal cards are drawn under, in one place rather than three.
+fn dimmed(wide: f32, tall: f32) -> DisplayList {
+    let mut list = DisplayList::new(pdf_render::Size {
+        width: wide,
+        height: tall,
+    });
+    rectangle(
+        &mut list,
+        (0.0, 0.0, wide, tall),
+        Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.45,
+        },
+    );
+    list
 }
 
 /// The sentence a window says when there is no document to draw, and it stays on the screen.
@@ -2790,7 +3130,7 @@ impl Refusal {
             height: tall,
         });
         let size = TEXT_SIZE * scale;
-        let pad = PASSWORD_PADDING * scale;
+        let pad = CARD_PADDING * scale;
         let card_wide = PASSWORD_WIDTH * scale;
         let inner = (card_wide - pad * 2.0).max(0.0);
         let lines = wrap(chrome, said, size, inner);
@@ -2803,7 +3143,7 @@ impl Refusal {
             (wide - card_wide).max(0.0) / 2.0,
             (tall - card_tall).max(0.0) / 2.0,
         );
-        rectangle(&mut list, (left, top, card_wide, card_tall), PASSWORD_PAPER);
+        rectangle(&mut list, (left, top, card_wide, card_tall), CARD_PAPER);
         // **A border, which §7.6.4.1's card does not need and this one does.** That card is drawn
         // over a page dimmed to 45% black and stands out against it; this one is drawn on a window
         // with no page at all, where the ground is whatever `software::surround` put there — and a
@@ -2824,7 +3164,7 @@ impl Refusal {
                 (left + pad, baseline),
                 size,
                 Style::default(),
-                PASSWORD_INK,
+                CARD_INK,
             );
             baseline += size * 1.4;
         }
@@ -2834,7 +3174,7 @@ impl Refusal {
 
 #[cfg(test)]
 mod tests {
-    use super::{PASSWORD_ECHO, PasswordCard};
+    use super::{PASSWORD_ECHO, PasswordCard, RestrictionsCard};
 
     /// The words a prompt shows, so the card can be driven without a `viewer-host` in the test.
     fn words() -> viewer_host::Wording {
@@ -2893,6 +3233,40 @@ mod tests {
         card.clear();
         assert!(card.shown, "clearing is not the same as answering");
         assert!(card.take().is_empty());
+    }
+
+    /// The menu's keyboard steps over the headings, both ways, and stops at the ends.
+    ///
+    /// **A list with unreachable entries is the defect this asserts against.** Every operation's
+    /// levels sit under two headings, so a cursor that did not skip them would land on a row that
+    /// chooses nothing — and one that skipped them by counting rather than by kind would walk
+    /// past the first level of every operation the day a heading gains a line.
+    #[test]
+    fn the_menus_keyboard_lands_only_on_levels() {
+        let standing = viewer_host::Restrictions::new(viewer_core::RestrictionPolicy::default());
+        let mut card = RestrictionsCard::default();
+        card.toggle(standing.rows());
+        assert!(card.shown);
+        let mut chosen = Vec::new();
+        loop {
+            chosen.push(card.chosen().expect("the cursor is on a level"));
+            if !card.move_by(1) {
+                break;
+            }
+        }
+        // Six operations of four levels under the window's heading, and of five under the
+        // document's, which is `viewer_host::Restrictions::entries`' own count.
+        assert_eq!(chosen.len(), 6 * 4 + 6 * 5);
+        assert!(
+            chosen.iter().any(|chose| chose.level.is_none()),
+            "the document's way back to the window's level is reachable"
+        );
+        // Backwards to the top, and no further.
+        while card.move_by(-1) {}
+        assert_eq!(card.chosen(), chosen.first().copied());
+        card.hide();
+        assert!(!card.shown);
+        assert_eq!(card.chosen(), None);
     }
 
     /// A card that is not shown draws nothing at all, which is what keeps it off every frame.

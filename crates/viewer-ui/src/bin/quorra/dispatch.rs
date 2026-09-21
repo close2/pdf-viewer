@@ -128,6 +128,9 @@ answers in two places"
                     return;
                 }
                 self.asking.opened();
+                // A document opens at the window's levels, so the menu's ticks go back to them
+                // too — the core's `Open` forgets the departures (ADR 1145).
+                self.restrictions.opened();
                 self.report_due.opened();
                 self.gather();
             }
@@ -230,10 +233,8 @@ answers in two places"
             }
             Event::Refused { notes, .. } => Self::say_refused(&notes),
             // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
-            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
-            // question this window has no dialogue for yet — the gestures follow the owner's
-            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
-            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is the
+            // question this window puts, on a card of its own (ADR 1145).
             Event::Warned { notes, .. } => println!("note: {}", viewer_host::warned(&notes)),
             Event::Copied {
                 logical,
@@ -241,13 +242,13 @@ answers in two places"
                 ..
             } => self.copied(logical, &page_order),
             Event::Asking {
-                document, notes, ..
+                document,
+                operation,
+                notes,
             } => {
-                println!("note: {}", viewer_host::unanswerable(&notes));
-                queue.push_back(Command::Answer {
-                    document,
-                    proceed: false,
-                });
+                self.asked = Some((document, operation));
+                self.question.ask(&viewer_host::asked(operation, &notes));
+                self.redraw();
             }
             // §7.11.4's list moved: the copy `gather` took when the document opened is stale,
             // which is the one way "a property of an immutable document" stopped being true of
@@ -359,6 +360,87 @@ impl App {
             // A key with no character and no meaning here. Taken anyway, for the reason above.
             _ => {}
         }
+    }
+
+    /// `CLAUDE.md`'s *ask* level: the two keys that answer the question, and nothing else.
+    ///
+    /// Every key is taken, which is what *modal* means here and is [`App::password_key`]'s rule
+    /// one clause over: the core is holding an operation until this is answered, so a key that
+    /// turned a page would leave a person reading somewhere else with an unanswered question
+    /// behind them. Escape is the decline, which is what a dismissed dialogue means in the other
+    /// two windows and in `pdf-transform`'s pipe.
+    pub(crate) fn question_key(&mut self, key: &winit::keyboard::Key<&str>) {
+        use winit::keyboard::{Key, NamedKey};
+        match key {
+            Key::Named(NamedKey::Enter) => self.question_answered(true),
+            Key::Named(NamedKey::Escape) => self.question_answered(false),
+            // A key with no meaning here. Taken anyway, for the reason above.
+            _ => {}
+        }
+    }
+
+    /// What the person answered, on its way to the viewer that is holding the operation.
+    ///
+    /// The decline is said out loud because `viewer-core` says nothing at all on a `no` —
+    /// deliberately (ADR 0814) — and a person is still owed the fact that what they asked for did
+    /// not happen. Taking the question rather than reading it is what makes a card answered twice
+    /// answer once.
+    pub(crate) fn question_answered(&mut self, proceed: bool) {
+        self.question.answered();
+        self.redraw();
+        let Some((document, operation)) = self.asked.take() else {
+            return;
+        };
+        if !proceed {
+            println!("note: {}", viewer_host::declined(operation));
+        }
+        self.dispatch(Command::Answer { document, proceed });
+    }
+
+    /// `CLAUDE.md`'s four levels: moving through the menu, choosing one, and closing it.
+    ///
+    /// The arrows and Enter rather than a click, which is what every other card in this window is
+    /// answered with — there is no window manager behind them and no pointer affordance drawn on
+    /// them. It is a documented choice rather than a limit of the toolkit (trap 17): a click model
+    /// exists here, `viewer_ui::chrome::ChoiceList` has it, and it is there because §12.7.5.4's
+    /// list is a control the *document* placed at a point on a page. A menu is not.
+    pub(crate) fn menu_key(&mut self, key: &winit::keyboard::Key<&str>) {
+        use winit::keyboard::{Key, NamedKey};
+        match key {
+            Key::Named(NamedKey::Escape) => {
+                self.menu.hide();
+                self.redraw();
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                if self.menu.move_by(-1) {
+                    self.redraw();
+                }
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                if self.menu.move_by(1) {
+                    self.redraw();
+                }
+            }
+            Key::Named(NamedKey::Enter) => self.chose_restriction(),
+            // A key with no meaning here. Taken anyway, because the menu is modal.
+            _ => {}
+        }
+    }
+
+    /// A level a person picked out of the menu, sent to the viewer and kept for the next opening.
+    ///
+    /// The menu stays up, which is what a person setting three levels at once needs, and its rows
+    /// are taken again so that the tick follows the choice.
+    pub(crate) fn chose_restriction(&mut self) {
+        let Some(chose) = self.menu.chosen() else {
+            return;
+        };
+        let command = self.restrictions.chose(chose);
+        self.dispatch(command);
+        println!("note: {}", viewer_host::chosen(chose));
+        let rows = self.restrictions.rows();
+        self.menu.refill(rows);
+        self.redraw();
     }
 
     /// The card was answered: open again with what was typed, or say why nothing opened.

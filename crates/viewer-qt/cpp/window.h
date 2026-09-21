@@ -274,6 +274,20 @@ private:
     void rebuildPopups();
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
+    /// CLAUDE.md's *ask* level: the question, and the two answers, in a window of the platform's
+    /// own.
+    ///
+    /// The same shape as `askForAPassword` one line up, minus the entry: both hold something until
+    /// a person says a word, and a reader who has met one has met the other. A dialogue closed
+    /// without an answer sends `false`, which is what a closed dialogue means everywhere else in
+    /// this program (ADR 1145).
+    void askAQuestion();
+    /// Fills the restrictions menus in, immediately before one of them is shown.
+    ///
+    /// Built here rather than in the constructor, which is CLAUDE.md section 2's rule and also the
+    /// only way the ticks can be right: the levels change while the window is up, and a menu built
+    /// once would show the levels the program launched with.
+    void buildRestrictionsMenu();
     /// The third-party notices this binary is obliged to carry, in a window of their own.
     ///
     /// A licence obligation with a surface: `pdf-font` compiles the standard 14 font programs
@@ -360,6 +374,14 @@ private:
     QToolBar* find_;
     /// The navigate bar, which with the find bar is what §12.2's `/HideToolbar` names.
     QToolBar* navigate_ = nullptr;
+    /// CLAUDE.md's four restriction levels, one menu per scope.
+    ///
+    /// The bar is kept rather than found again, because §12.2's `/HideMenubar` is deliberately not
+    /// obeyed over it (`applyChrome`) and Table 29's full screen is: two different sentences about
+    /// one widget, and a `findChild` would have answered for both at once.
+    QMenuBar* menus_ = nullptr;
+    /// The two menus in it, in `viewer_host::Scope::ALL`'s order, refilled when one is opened.
+    std::vector<QMenu*> scopes_;
     /// The string in it.
     QLineEdit* needle_;
     std::vector<QWidget*> controls_;

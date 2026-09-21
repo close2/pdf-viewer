@@ -226,6 +226,23 @@ pub(crate) struct App {
     pub(crate) report_due: viewer_host::report::Due,
     /// §7.6.4.1's prompt, over the page — this host's own, because it has no toolkit to ask.
     pub(crate) password: viewer_ui::chrome::PasswordCard,
+    /// `CLAUDE.md`'s *ask* level, over the page, for the same reason one line up.
+    pub(crate) question: viewer_ui::chrome::QuestionCard,
+    /// `CLAUDE.md`'s four levels, as the menu this window draws for itself.
+    ///
+    /// The `r` key puts it up. A window with no menu bar is still a window a reader must be able
+    /// to turn a document's restrictions off in, which `CLAUDE.md` says shall always be possible
+    /// (ADR 1145).
+    pub(crate) menu: viewer_ui::chrome::RestrictionsCard,
+    /// The two policies that menu edits: this window's levels, and what the open document departs
+    /// from them in.
+    pub(crate) restrictions: viewer_host::Restrictions,
+    /// Which document and operation the standing question is about.
+    ///
+    /// Kept for [`App::locked`]'s reason one field down — the card is answered on a later turn of
+    /// the event loop than the one that put it up — and `None` while nothing is outstanding, so
+    /// that a card dismissed twice answers once.
+    pub(crate) asked: Option<(viewer_core::DocumentId, pdf_model::restriction::Operation)>,
     /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no
     /// leaves. **Two `std::process::exit(1)` calls until the seven-hundred-and-fourth session**,
     /// which is `viewer_host::keys`' Escape-quits finding again: this host left the process where

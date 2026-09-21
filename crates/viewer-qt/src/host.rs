@@ -171,7 +171,11 @@ pub struct Host {
     /// line — the first of which this program did not have, and the second of which it refused as
     /// an unknown option while telling every person who hit a refusal to use it (ADR 0604, ADR
     /// 1144).
-    restrictions: viewer_core::RestrictionPolicy,
+    ///
+    /// **Two scopes since the one-thousand-one-hundred-and-fifty-fifth session**: the window's
+    /// levels, and what the open document departs from them in. A level set to catch one
+    /// suspicious file would otherwise catch every file this window opens afterwards (ADR 1145).
+    restrictions: viewer_host::Restrictions,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -188,6 +192,13 @@ pub struct Host {
     /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
     /// off a launch. [`viewer_host::report::Due`] holds the rule for every host. ADR 1044.
     report_due: viewer_host::report::Due,
+    /// `CLAUDE.md`'s *ask* level: which document and which operation the standing question is
+    /// about, and what it says.
+    ///
+    /// One at a time, which is `viewer_core::Command::Answer`'s own rule — a second question
+    /// replaces the first — and `None` while nothing is outstanding, so that a dialogue closed
+    /// twice answers once.
+    question: Option<(DocumentId, pdf_model::restriction::Operation, String)>,
     /// What to put above the entry, worded when the prompt is asked for and read once by C++.
     prompt: String,
     /// Whether the document has been opened yet, which waits for the first resize.
@@ -341,12 +352,13 @@ impl Host {
             warned: None,
             trace,
             widget_appearances,
-            restrictions,
+            restrictions: viewer_host::Restrictions::new(restrictions),
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
             asking: viewer_host::Asking::new(),
             report_due: viewer_host::report::Due::default(),
+            question: None,
             prompt: String::new(),
             opened: false,
             dirty: false,
@@ -478,6 +490,7 @@ impl Host {
                 self.update.window = true;
             }
             viewer_host::WindowAct::Notices => self.update.notices = true,
+            viewer_host::WindowAct::Restrictions => self.update.menu = true,
             viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
                 self.present_or_stop();
             }
@@ -535,13 +548,11 @@ impl Host {
         if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
             self.presenting = viewer_host::Presenting::opening(opening, &preferences);
             // Trap 5: a document asking for something and getting silence. Two of Table 147's
-            // three flags name widgets this window has and the third does not — none of the
-            // three hosts draws a menu bar.
+            // three flags name widgets this window hides on request, and the third names one it
+            // keeps on purpose — the menu holding this reader's own restriction levels
+            // (`viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE`).
             if preferences.hide_menubar {
-                self.say(
-                    "this document asks to hide the menu bar (§12.2's /HideMenubar), which this \
-                     window does not have; /HideToolbar and /HideWindowUI are obeyed",
-                );
+                self.say(viewer_host::restriction::NOT_THE_DOCUMENTS_TO_HIDE);
             }
         }
         if self.presenting.full_screen() {
@@ -1005,6 +1016,130 @@ impl Host {
     /// §7.6.4.1: what the prompt says, worded by [`viewer_host::password`] for all three hosts.
     pub(crate) fn password_prompt(&self) -> String {
         self.prompt.clone()
+    }
+
+    /// `CLAUDE.md`'s *ask* level: holds the question and asks C++ for a window to put it in.
+    ///
+    /// The two paragraphs are joined here because this bridge carries one string per dialogue and
+    /// the C++ side wraps it in one `QLabel`; `viewer-gtk` draws them as two labels, which is the
+    /// difference `viewer_host::Question` keeps them apart for.
+    fn put_the_question(
+        &mut self,
+        document: DocumentId,
+        operation: pdf_model::restriction::Operation,
+        notes: &[String],
+    ) {
+        let words = viewer_host::asked(operation, notes);
+        self.question = Some((
+            document,
+            operation,
+            format!("{}\n\n{}", words.reasons, words.choice),
+        ));
+        self.update.question = true;
+    }
+
+    /// `CLAUDE.md`'s *ask* level: what the question says, worded by [`viewer_host::restriction`].
+    pub(crate) fn question_prompt(&self) -> String {
+        self.question
+            .as_ref()
+            .map(|(_, _, words)| words.clone())
+            .unwrap_or_default()
+    }
+
+    /// What the person answered, on its way to the viewer that is holding the operation.
+    ///
+    /// The decline is said out loud because `viewer-core` says nothing at all on a `no` —
+    /// deliberately (ADR 0814) — and a person is still owed the fact that what they asked for did
+    /// not happen. Taking the question rather than reading it is what makes a dialogue closed
+    /// twice answer once.
+    pub(crate) fn answer_question(&mut self, proceed: bool) {
+        let Some((document, operation, _)) = self.question.take() else {
+            return;
+        };
+        if !proceed {
+            self.say(&viewer_host::declined(operation));
+        }
+        self.dispatch(Command::Answer { document, proceed });
+    }
+
+    /// What the button that lets the operation go ahead says.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge declares it as a method on `Host` and cxx calls it as one; a free \
+                  function could not cross"
+    )]
+    pub(crate) fn go_ahead(&self) -> String {
+        viewer_host::restriction::GO_AHEAD.to_owned()
+    }
+
+    /// What the button that leaves it undone says.
+    #[expect(clippy::unused_self, reason = "`go_ahead`'s reason, one method up")]
+    pub(crate) fn do_not(&self) -> String {
+        viewer_host::restriction::DO_NOT.to_owned()
+    }
+
+    /// The two headings of the restrictions menu bar, in `viewer_host::Scope::ALL`'s order.
+    #[expect(clippy::unused_self, reason = "`go_ahead`'s reason, two methods up")]
+    pub(crate) fn restriction_scopes(&self) -> Vec<String> {
+        viewer_host::Scope::ALL
+            .into_iter()
+            .map(|scope| {
+                let note = scope.note();
+                if note.is_empty() {
+                    scope.label().to_owned()
+                } else {
+                    format!("{} — {note}", scope.label())
+                }
+            })
+            .collect()
+    }
+
+    /// Every entry of the restrictions menu, flat, as the C++ side nests it.
+    ///
+    /// Built when the menu is opened and never held, which is `CLAUDE.md` section 2's rule: what
+    /// it holds is a function of two policies that change while the window is up.
+    pub(crate) fn restriction_menu(&self) -> Vec<crate::bridge::ffi::QtMenuEntry> {
+        self.restrictions
+            .rows()
+            .into_iter()
+            .map(|row| match row {
+                viewer_host::Row::Scope { label, note, .. } => crate::bridge::ffi::QtMenuEntry {
+                    depth: 0,
+                    label: label.to_owned(),
+                    note: note.to_owned(),
+                    chosen: false,
+                },
+                viewer_host::Row::Operation { label, note, .. } => {
+                    crate::bridge::ffi::QtMenuEntry {
+                        depth: 1,
+                        label: label.to_owned(),
+                        note: note.to_owned(),
+                        chosen: false,
+                    }
+                }
+                viewer_host::Row::Level(entry) => crate::bridge::ffi::QtMenuEntry {
+                    depth: 2,
+                    label: entry.label.to_owned(),
+                    note: String::new(),
+                    chosen: entry.chosen,
+                },
+            })
+            .collect()
+    }
+
+    /// A person picked one of [`Host::restriction_menu`]'s entries.
+    ///
+    /// By index, which is sound because the *set* of entries and their order do not depend on the
+    /// policy — two scopes, six operations, four levels and one way back — and only what is
+    /// ticked does. A heading's index chooses nothing, which is what a `QMenu` title is.
+    pub(crate) fn chose_restriction(&mut self, entry: usize) {
+        let Some(viewer_host::Row::Level(picked)) = self.restrictions.rows().get(entry).copied()
+        else {
+            return;
+        };
+        let command = self.restrictions.chose(picked.chose);
+        self.dispatch(command);
+        self.say(&viewer_host::chosen(picked.chose));
     }
 
     /// A toolbar button.
@@ -1626,7 +1761,9 @@ impl Host {
         // of the document (ADR 0245), and `Restrict` is the reader's answer to what the *file*
         // asserts, which `CLAUDE.md` says is always the reader's to give.
         self.pump(vec![
-            Command::Restrict(self.restrictions),
+            Command::Restrict(viewer_core::RestrictionScope::Window(
+                self.restrictions.window(),
+            )),
             Command::Delegate(self.widget_appearances),
             Command::Open {
                 id: DOCUMENT,
@@ -1857,6 +1994,9 @@ impl Host {
                     self.say(&viewer_host::no_pages(&named(&self.path)));
                 }
                 self.asking.opened();
+                // A document opens at the window's levels, so the menu's ticks go back to them
+                // too — the core's `Open` forgets the departures (ADR 1145).
+                self.restrictions.opened();
                 self.report_due.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
@@ -1956,10 +2096,10 @@ impl Host {
             // wrote its own copy of it for sessions while taking no such word (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
             // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
-            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
-            // question this window has no dialogue for yet — the gestures follow the owner's
-            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
-            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is
+            // the question this window puts, in the modal shape §7.6.4.1's password already had:
+            // the words are `viewer_host::restriction`'s and the dialogue is C++'s, because Rust
+            // does not call a Qt object (ADR 1145).
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
             Event::Copied {
                 logical,
@@ -1977,14 +2117,10 @@ impl Host {
                 }
             }
             Event::Asking {
-                document, notes, ..
-            } => {
-                self.say(&viewer_host::unanswerable(&notes));
-                queue.push_back(Command::Answer {
-                    document,
-                    proceed: false,
-                });
-            }
+                document,
+                operation,
+                notes,
+            } => self.put_the_question(document, operation, &notes),
             // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
             // built from, which is the only thing a window may do here this round — display
             // the list it already shows.
@@ -2430,6 +2566,8 @@ fn nothing_changed() -> QtUpdate {
         title: false,
         status: false,
         password: false,
+        question: false,
+        menu: false,
         window: false,
         clipboard: false,
         find_bar: false,
