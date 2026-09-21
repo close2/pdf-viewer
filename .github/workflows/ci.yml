@@ -297,18 +297,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `bins` is the whole per-platform decision, in the matrix rather than in a `case` in
+          # the packaging script, so that what a target ships is read off one line. The list is
+          # `doc/todo/02-every-round.md` §5's — what a person runs — minus what the target cannot
+          # build, and each omission below was found by `cargo check --target <t> -p <crate>
+          # --bins` rather than assumed (ADR 1152).
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             exe: ''
             archive: tar.gz
+            bins: quorra quorra-confined quorra-gtk quorra-qt quorra-transform quorra-retrieve quorrafs pdf-sandbox-worker pdf-view-worker pdf-vfs-worker
+          # No `quorrafs`: `fuser`'s build script asks `pkg_config` for macFUSE, which is not on
+          # the runner and is not a Rust dependency this workflow may install. No `quorra-gtk` or
+          # `quorra-qt`: each binds a toolkit's development files, and Homebrew's GTK 4 and Qt 6
+          # are minutes of installation for a host nobody asked this platform for.
           - os: macos-latest
             target: aarch64-apple-darwin
             exe: ''
             archive: tar.gz
+            bins: quorra quorra-confined quorra-transform quorra-retrieve pdf-sandbox-worker pdf-view-worker pdf-vfs-worker
+          # No `pdf-vfs-worker` either, and that one is the code's rather than a package's:
+          # `pdf-vfs` hands an open document to its worker as a *descriptor* over a Unix socket,
+          # so `FileBytes::descriptor` and `File: From<ReceivedDescriptor>` do not exist on
+          # Windows and the crate does not compile there. RFC 0003's file-system faces are both
+          # absent on this platform in consequence.
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             exe: '.exe'
             archive: zip
+            bins: quorra quorra-confined quorra-transform quorra-retrieve pdf-sandbox-worker pdf-view-worker
     runs-on: ${{ matrix.os }}
     name: snapshot (${{ matrix.target }})
     steps:
@@ -321,13 +338,70 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # Both executables, and both is not a detail: `pdf_sandbox::WORKER_PROGRAM` is a
-      # separate program the viewer spawns for JBIG2 and JPEG 2000, looked for beside the
-      # running binary. A viewer without it refuses those images rather than decoding them
-      # in process -- there is deliberately no in-process fallback -- so an archive
-      # carrying only the viewer would ship a quietly reduced program.
-      - name: Build both executables
-        run: cargo build --release --bin quorra --bin pdf-sandbox-worker
+      # The two native hosts bind two platforms' development files, exactly as the `check` and
+      # `test` jobs above say. Only the Linux target builds them, so only it installs them.
+      - name: The two native hosts' toolkits
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev qt6-base-dev qt6-base-dev-tools
+
+      # Every program a person runs, and the workers are not a detail: each of them is a
+      # separate executable that its program *spawns*, looked for beside the running binary and
+      # then one directory above it (`confined_transport::program_beside_executable`). A viewer
+      # without `pdf-sandbox-worker` refuses JBIG2 and JPEG 2000 rather than decoding them in
+      # process -- there is deliberately no in-process fallback; `quorra-confined` without
+      # `pdf-view-worker` has nothing to confine; `quorrafs` without `pdf-vfs-worker` will not
+      # open a document. So the archive is flat, and everything in it stays in one directory.
+      #
+      # One invocation rather than one per binary: each is a whole-graph fat link and Cargo runs
+      # them beside each other where separate commands run them one after another (ADR 0222).
+      - name: Build every program this target ships
+        shell: bash
+        run: |
+          set -eu
+          flags=""
+          for binary in ${{ matrix.bins }}; do flags="$flags --bin $binary"; done
+          # Unquoted on purpose: the flags are a list, not one word.
+          # shellcheck disable=SC2086
+          cargo build --release $flags
+
+      # RFC 0003's KIO face, which is deliberately outside the cargo workspace and needs KDE
+      # Frameworks 6 to build at all -- "CI treats the shim as an optional artefact built where
+      # KF6 exists" (RFC 0003 section 7). So this step is allowed to find nothing and say so:
+      # every command that could be absent is guarded, and the job carries on without the
+      # plugin. What the archive then holds is the half that does not need KF6 -- the C ABI
+      # library and its header, which is what somebody rebuilding the plugin against their own
+      # KDE links against, and the only honest thing to ship given that a KF6 plugin is bound to
+      # the ABI of the KDE it was compiled against. ADR 1152.
+      - name: The KIO worker, where the runner's KDE allows it
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          # Strict, because only the KF6 half of this step is allowed to be missing and both of
+          # the ways it can be are guarded below by name.
+          set -eu
+          mkdir -p kio-stage
+          cargo build --release -p pdf-vfs-ffi
+          cp target/release/libpdf_vfs_ffi.so kio-stage/
+          cp crates/pdf-vfs-ffi/include/quorra_vfs.h kio-stage/
+          # Debian and Ubuntu have moved the KF6 development packages between names and series,
+          # so the name is tried rather than asserted, and a miss is not a failure.
+          sudo apt-get install -y extra-cmake-modules libkf6kio-dev \
+            || sudo apt-get install -y extra-cmake-modules kf6-kio-dev \
+            || echo "no KF6 development packages on this runner"
+          if cmake -S kio -B kio-build \
+               -DQUORRA_VFS_INCLUDE_DIR="$PWD/crates/pdf-vfs-ffi/include" \
+               -DQUORRA_VFS_LIBRARY="$PWD/target/release/libpdf_vfs_ffi.so" \
+             && cmake --build kio-build
+          then
+            cp kio-build/pdf.so kio-stage/
+            echo "the KIO plugin was built"
+          else
+            echo "the KIO plugin was NOT built: KF6 is not on this runner." >&2
+            echo "The C ABI library and header are packaged; kio/CMakeLists.txt builds the" >&2
+            echo "plugin against a local KDE." >&2
+          fi
 
       # LICENSE and NOTICE travel with the binaries because they have to: this program is
       # Apache-2.0 and contains BSD-3-Clause font programs and SIL OFL 1.1 Liberation Sans,
@@ -338,8 +412,14 @@ jobs:
       #
       # One script for three platforms, in bash, which every runner has. What differs is
       # named in the matrix rather than branched on here: the executable suffix, the archive
-      # format, and -- because macOS has `shasum` where Linux has `sha256sum` -- the digest
-      # command.
+      # format, the binary list, and -- because macOS has `shasum` where Linux has
+      # `sha256sum` -- the digest command.
+      #
+      # The MANIFEST is written from what is actually in the staging directory rather than
+      # from a list kept here, because a list kept here drifts from what was built: three of
+      # `doc/todo/02-every-round.md` §5's names were pre-rename for months and nothing failed,
+      # since the stale artefacts were still lying in the build directory. A manifest derived
+      # from `ls` cannot name a file the archive does not hold (ADR 1152).
       - name: Package
         shell: bash
         run: |
@@ -348,11 +428,17 @@ jobs:
           exe=${{ matrix.exe }}
           stage="quorra-snapshot-$target"
           mkdir "$stage"
-          cp "target/release/quorra$exe" "target/release/pdf-sandbox-worker$exe" "$stage"/
+          for binary in ${{ matrix.bins }}; do
+            cp "target/release/$binary$exe" "$stage"/
+          done
           # Stripping is Linux's here. macOS signs what it strips and Windows keeps its
           # symbols in a separate file, so a portable `strip` step would be three steps.
           if [ "$target" = x86_64-unknown-linux-gnu ]; then
-            strip "$stage/quorra" "$stage/pdf-sandbox-worker"
+            strip "$stage"/*
+          fi
+          if [ -d kio-stage ]; then
+            mkdir "$stage/kio"
+            cp kio-stage/* "$stage/kio"/
           fi
           cp LICENSE NOTICE "$stage"/
           confinement="seccomp-BPF and Landlock confine the decoder on this platform."
@@ -362,20 +448,70 @@ jobs:
           decoder failure costs one image rather than the viewer, and there is no
           address-space ceiling on that process. The viewer says so in its first line."
           fi
+          # What each file is, in one line. A name with no answer here gets an empty one
+          # rather than being left out, so an added binary shows up as an undescribed row
+          # instead of vanishing from the manifest.
+          describe() {
+            case "$1" in
+            quorra)             echo "the viewer" ;;
+            quorra-confined)    echo "the viewer with document, interpreter and rasteriser in a confined process" ;;
+            quorra-gtk)         echo "the GTK 4 host" ;;
+            quorra-qt)          echo "the Qt 6 Widgets host" ;;
+            quorra-transform)   echo "render, split, merge, optimise, redact, attachments, and 'archive' -- the PDF/A conversion" ;;
+            quorra-retrieve)    echo "a document's text, outline, structure and annotations as JSON; 'archive-check' is the PDF/A validation" ;;
+            quorrafs)           echo "mounts a PDF as a directory over FUSE (needs pdf-vfs-worker beside it)" ;;
+            pdf-sandbox-worker) echo "worker: decodes JBIG2 and JPEG 2000 out of process" ;;
+            pdf-view-worker)    echo "worker: the confined viewer that quorra-confined spawns" ;;
+            pdf-vfs-worker)     echo "worker: the confined generator the file-system faces spawn" ;;
+            libpdf_vfs_ffi.so)  echo "the C ABI over the file-system core, for the KIO plugin" ;;
+            quorra_vfs.h)       echo "that ABI's header" ;;
+            pdf.so)             echo "the KIO worker, built against this runner's KF6 -- a plugin is bound to the ABI of the KDE it was compiled against" ;;
+            LICENSE|NOTICE|README|MANIFEST) echo "" ;;
+            *)                  echo "" ;;
+            esac
+          }
+          {
+            echo "quorra snapshot -- $target"
+            echo
+            for file in "$stage"/*; do
+              name=$(basename "$file")
+              case "$name" in LICENSE|NOTICE|README|MANIFEST|kio) continue ;; esac
+              printf '%-24s %s\n' "$name" "$(describe "${name%"$exe"}")"
+            done
+            if [ -d "$stage/kio" ]; then
+              echo
+              for file in "$stage"/kio/*; do
+                name=$(basename "$file")
+                printf 'kio/%-20s %s\n' "$name" "$(describe "$name")"
+              done
+            fi
+          } > "$stage"/MANIFEST
           cat > "$stage"/README <<TXT
           quorra -- a snapshot build. Not a release; built from whatever was on main.
 
-          Two executables, and they must stay in the same directory. pdf-sandbox-worker is
-          the process that decodes JBIG2 and JPEG 2000 images; the viewer looks for it beside
-          itself and, not finding it, refuses those images rather than decoding them in
-          process.
+          MANIFEST names every file here. What the programs are:
+
+          $(sed -n '3,$p' "$stage"/MANIFEST)
+
+          KEEP THEM IN ONE DIRECTORY. The programs whose names end in -worker are not run
+          directly: each is spawned by one of the others, looked for beside the running
+          binary and then one directory above it. A viewer without pdf-sandbox-worker
+          refuses JBIG2 and JPEG 2000 images rather than decoding them in process -- there
+          is deliberately no in-process fallback.
 
           $confinement
 
               ./quorra$exe [file.pdf]
 
           Needs a Vulkan, Metal or DirectX device. Page one goes to the graphics device by
-          design, so a machine with no working driver will not draw one.
+          design, so a machine with no working driver will not draw one. The programs that
+          are not viewers need no device at all.
+
+          NOT EVERY PROGRAM IS ON EVERY PLATFORM, and MANIFEST is the answer for this one.
+          quorrafs is Linux's, because its FUSE dependency asks for a kernel interface the
+          other two do not have; pdf-vfs-worker hands an open document across as a file
+          descriptor over a Unix socket, so it is absent on Windows; and the two native hosts
+          are built only where their toolkits' development files are installed.
           TXT
           if [ "${{ matrix.archive }}" = zip ]; then
             7z a -tzip "$stage.zip" "$stage" > /dev/null
@@ -441,7 +577,9 @@ jobs:
 
           **This is not a release.** It is whatever was on \`main\`, retagged at every push.
 
-          \`quorra\` and \`pdf-sandbox-worker\` for x86_64 Linux, aarch64 macOS and x86_64 Windows. Unpack both into one directory and keep them there: the viewer spawns the worker for JBIG2 and JPEG 2000 and refuses those images without it.
+          Every program this tree builds for a person to run, for x86_64 Linux, aarch64 macOS and x86_64 Windows — the viewer \`quorra\` and its confined form \`quorra-confined\`, the transform suite \`quorra-transform\` (whose \`archive\` verb is the PDF/A conversion), \`quorra-retrieve\` (whose \`archive-check\` is the PDF/A validation), and on Linux the GTK 4 and Qt 6 hosts and the FUSE mount \`quorrafs\`. **Unpack an archive into one directory and keep it that way**: the three workers — \`pdf-sandbox-worker\`, \`pdf-view-worker\`, \`pdf-vfs-worker\` — are separate executables their programs spawn, looked for beside the running binary, and a program that cannot find its worker refuses the work rather than doing it unconfined.
+
+          **Not every program is on every platform**, and each archive's \`MANIFEST\` is the answer for that archive: \`quorrafs\` is Linux's alone, \`pdf-vfs-worker\` passes a descriptor over a Unix socket and so is absent on Windows, and the two native hosts are built where their toolkits are. The Linux archive also carries \`kio/\` — RFC 0003's C ABI library and header, with the KIO plugin itself only where the runner's KDE could build it, because a KF6 plugin is bound to the ABI of the KDE it was compiled against.
 
           **The confinement is Linux's.** seccomp-BPF and Landlock restrict the image decoder's system calls and filesystem there; macOS and Windows have neither, so on those two the decoder runs in a separate process with no kernel confinement and no address-space ceiling — which the viewer prints in its first line rather than leaving to a release note. What a real confinement for each would take is in \`doc/todo/35\`." \
             quorra-snapshot-*.tar.gz quorra-snapshot-*.zip quorra-snapshot-*.sha256

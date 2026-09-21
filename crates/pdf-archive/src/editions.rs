@@ -207,22 +207,41 @@ mod tests {
     /// which reads this file too — does not meet a bare one in a character literal.
     const SIGN: char = '\u{a7}';
 
-    /// The two editions, as `doc/md/` carries them.
-    ///
-    /// **Fails rather than skips where either is absent**, which is what the owner decided for
-    /// `doc/md/` (`doc/habits/reading-the-specification.md`): the files are gitignored and
-    /// unpacked from `doc/specifications.zip`, and a machine without them is a machine on which
-    /// this test cannot say anything.
-    fn markdown(file: &str) -> String {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    /// Where `doc/md/` holds a converted specification.
+    fn in_doc_md(file: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../doc/md")
-            .join(file);
+            .join(file)
+    }
+
+    /// A text `doc/specifications.zip` carries, as `doc/md/` holds it after the unpacking.
+    ///
+    /// **Fails rather than skips where it is absent**, which is what the owner decided for
+    /// `doc/md/` (`doc/habits/reading-the-specification.md`): the file is gitignored and unpacked
+    /// from the encrypted archive every developer and CI can open, and a machine without it is a
+    /// machine that skipped the unpacking rather than one that lacks the text.
+    fn markdown(file: &str) -> String {
+        let path = in_doc_md(file);
         std::fs::read_to_string(&path).unwrap_or_else(|error| {
             panic!(
                 "{} is not readable ({error}); unpack doc/specifications.zip",
                 path.display()
             )
         })
+    }
+
+    /// A text `doc/specifications.zip` does **not** carry, which is why this one may be absent.
+    ///
+    /// ISO 32000-1:2008 is the fifteenth text on this disk and the archive holds fourteen: the
+    /// owner downloaded it separately, `/doc/*.pdf` and `/doc/md/` ignore both the PDF and its
+    /// conversion, and nothing puts it into the encrypted archive — so no unpacking produces it
+    /// and a machine that has done everything right can still be without it. The loud failure
+    /// above is for a text the archive supplies; here it accused CI of an omission CI could not
+    /// repair, and three pushes in a row went red for it (ADR 1152). Same shape as
+    /// `coverage.rs`'s `doc/pdfa/` skip and the KIO worker's build test: absent, say so, and let
+    /// the checks that need no text still run.
+    fn optional_markdown(file: &str) -> Option<String> {
+        std::fs::read_to_string(in_doc_md(file)).ok()
     }
 
     /// A clause number as either edition writes one: digits and full stops, or an annex letter
@@ -296,9 +315,10 @@ mod tests {
     /// is taken from the table of contents alone**: a body line opening with a bare number is
     /// far more often a table row ("14 PNG prediction …" is Table 8's) than clause 14, and the
     /// contents page lists every top-level clause.
-    fn headings_of_iso_32000_1() -> BTreeMap<String, String> {
+    fn headings_of_iso_32000_1() -> Option<BTreeMap<String, String>> {
+        let text = optional_markdown("ISO_32000-1_2008.md")?;
         let mut headings = BTreeMap::new();
-        for line in markdown("ISO_32000-1_2008.md").lines() {
+        for line in text.lines() {
             let line = line.trim_end();
             if line.contains(" . ") {
                 let Some((number, rest)) = line.split_once(char::is_whitespace) else {
@@ -334,7 +354,7 @@ mod tests {
                 .entry(number.to_owned())
                 .or_insert_with(|| title.trim().to_owned());
         }
-        headings
+        Some(headings)
     }
 
     /// Every Rust source of this crate.
@@ -413,22 +433,36 @@ mod tests {
     /// number is missing there or titled otherwise. **Backward**: a row of the table is still
     /// needed, so a corrected conversion of either text, or a citation that stopped being made,
     /// fails here rather than leaving a stale entry to mislead the next reader.
+    ///
+    /// **Both directions need ISO 32000-1:2008, which `doc/specifications.zip` does not carry**,
+    /// so where that text is absent they are skipped with the path printed and the spelling
+    /// check above still runs — ADR 1152, and [`optional_markdown`] for why this one text is not
+    /// the loud failure the others are.
     #[test]
     fn every_citation_resolves_in_the_edition_a_part_two_file_adheres_to() {
-        let later = headings_of_iso_32000_2();
-        let earlier = headings_of_iso_32000_1();
-        assert!(
-            later.len() > 900 && earlier.len() > 700,
-            "{} and {} headings read, so the parser is wrong rather than the table",
-            later.len(),
-            earlier.len()
-        );
+        // The half that reads no specification runs first, so that a machine without the 2008
+        // text still holds this crate to the spelling convention.
         let (cited, after_the_earlier_edition) = citations();
         assert!(
             after_the_earlier_edition.is_empty(),
             "a `§` after the spelled-out ISO 32000-1 is checked against ISO 32000-2 (ADR 0997 \
              section 2); write the 2008 number without a sign:\n{}",
             after_the_earlier_edition.join("\n")
+        );
+        let Some(earlier) = headings_of_iso_32000_1() else {
+            println!(
+                "skipping the two-edition check: {} is not on this machine, and \
+                 doc/specifications.zip does not carry it (ADR 1152)",
+                in_doc_md("ISO_32000-1_2008.md").display()
+            );
+            return;
+        };
+        let later = headings_of_iso_32000_2();
+        assert!(
+            later.len() > 900 && earlier.len() > 700,
+            "{} and {} headings read, so the parser is wrong rather than the table",
+            later.len(),
+            earlier.len()
         );
         let same = |a: &str, b: &str| folded(a) == folded(b);
         let mut problems = Vec::new();

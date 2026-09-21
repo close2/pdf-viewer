@@ -362,10 +362,14 @@ which was not true. Nothing moved: 856 agree, 68 contradicted, 749 ambiguous, to
 
 **And since the three-hundred-and-eleventh session a person can get it without a toolchain.** Every
 push to `main` that passes `check` and `test` retags a rolling `snapshot` pre-release carrying
-`quorra` and `pdf-sandbox-worker` with `LICENSE` and `NOTICE` beside them
-because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
-0188). **Both executables, because one of them alone is a quietly reduced program**: a viewer that
-cannot find the worker beside it refuses JBIG2 and JPEG 2000 rather than decoding them in process.
+**every program §5 above installs that the target can build**, with `LICENSE` and `NOTICE` beside
+them because both vendored-font licences oblige a *binary* distribution to carry their notices (ADR
+0188), and a generated `MANIFEST` saying what each file is. **The archive is flat and stays that
+way**: each worker is looked for beside the running binary, and a program that cannot find its
+worker refuses the work — `quorra` refuses JBIG2 and JPEG 2000 rather than decoding them in
+process. What a given target omits, and why, is ADR 1152's table; the short of it is that
+`quorrafs` is Linux's, `pdf-vfs-worker` is absent on Windows because it takes a descriptor over a
+Unix socket, and the two native hosts are built where their toolkits are.
 **Three platforms since the three-hundred-and-fifteenth session** — x86_64 Linux, aarch64 macOS,
 x86_64 Windows — **and the confinement is Linux's alone.** `pdf-sandbox` used to refuse to compile
 where seccomp-BPF and Landlock do not exist, on the argument that "a sandbox that silently does
