@@ -38,8 +38,10 @@ print path.
 
 - §6.3.2.1, §7.6.4.1 — Table 22's printing, assembling and copying gated by an operation this
   program does not have; copying needs a host that says *this is a copy* (`doc/todo/38`).
-- §8.11.4.5 — optional content Print and Export events, which persist only for an operation this
-  program does not perform.
+- §8.11.4.5 — the `Print` event, built and waiting on a caller: `Purpose::Print` is what RFC 0004's
+  section 4 calls print intent, and nothing but a print path is owed. The `Export` event has its
+  caller already (`quorra-transform render`, the one operation meeting both of the clause's
+  conditions), so only half of this row's entry is still frontier (ADR 1173, ADR 1174).
 - §12.2, §12.5.6.22 — the print half of the viewer preferences and the watermark's tiling / n-up,
   each conditioned on a print dialogue; RFC 0004.
 - §12.3.5, §12.3.5.1 — a collection's `/View` tile mode, `/Sort`, `/Colors`, `/Split`: surfaces one
@@ -55,9 +57,6 @@ print path.
   person would drag between (projection also needs an external registry — see bucket 2).
 - §10.8.3 (`reported`) — separation simulation, whose condition is a user's request this viewer has
   no control for.
-- §12.11.6 — the requirement penalty's threshold, computed in `pdf-model` and attached to no level:
-  it is owed a `restriction::Operation` of its own so that `off`, `on`, ask and warn reach it like
-  every other restriction a document asserts, `off` the default (ADR 1165).
 
 ### 2. External-dependency-blocked — a crate release or an unheld specification
 
@@ -105,10 +104,6 @@ pixels.
   (`doc/todo/23`).
 - §11.6.5.2 — a soft mask behind an image codec, which would decode per raster request.
 - §11.6.7 — a shading pattern's implicit knockout group (follows §11.4.6).
-- §11.7.4.3 — §11.7.4.3's own last paragraph: the implicit non-isolated, non-knockout group for an
-  object painted under the special overprinting blend mode while the current blend mode is not
-  Normal. The mode itself is built (ADR 1157); this is the grouping around it, and it is reported
-  (ADR 1158).
 - §8.7.4.5.7, §8.7.4.5.8 — a patch mesh's tessellation fineness, fixed rather than derived from
   §10.7.3's smoothness because the silhouette tolerance is in device pixels `pdf-model` does not
   carry (ADR 0919).
@@ -163,33 +158,21 @@ specifications (`A51`) — are answered, their residues now in the buckets above
 ### 6. Genuinely buildable now — the campaign's next targets
 
 A normal round can advance or close each of these today; there is no missing surface, no unheld
-package, no cross-round architecture. **Five of the seven rows this bucket named have since gone
-`implemented`** — §7.7.2, §7.7.4, §7.11.3, §8.9.5.1 and §8.10.2 — which is the bucket doing what it
-is for, and the reason its membership is re-derived from the ledger rather than carried. Two are
-left, and each is a reading and a disposition rather than a build.
+package, no cross-round architecture. **All seven rows this bucket named have gone `implemented`** —
+§7.5.6, §7.7.2, §7.7.3.3, §7.7.4, §7.11.3, §8.9.5.1 and §8.10.2 — which is the bucket doing what it
+is for, and the reason its membership is re-derived from the ledger rather than carried. The two
+that closed last were a reading and a disposition rather than a build: §7.5.6's version across
+updates (ADR 1171) and §7.7.3.3's Table 31 entries, each of which hands its meaning to a clause
+whose own row had already disposed of it (ADR 1172). A round looking for the next of these
+re-derives the bucket: `tools/state.sh ledger` prints the `partial` rows, and one is in this bucket
+when its note names no missing surface, no unheld package and no cross-round architecture.
 
-- §7.5.6 — the version carried across incremental updates. Errata Collection 3's Issue #399 makes an
-  update's catalog `/Version` upgrade the document's version and forbids reducing it, while
-  `version::Document::version` answers the larger of the header and the **newest** catalog's entry —
-  so a file stating 2.0 in one update and 1.7 in the next is reported as 1.7. Closing it means
-  resolving a catalog per `/Prev` section, which is work on the open path for a number Annex I uses
-  to warn rather than to decide anything drawn; the omission is deliberate and its cost is in the
-  row, so a round either takes it or ratifies it.
-- §7.7.3.3 — Table 31's page-only entries whose **values** no consumer reads: `/LastModified`,
-  `/BoxColorInfo`, `/PieceInfo`, `/ID`, `/SeparationInfo`, `/TemplateInstantiated`, and `/PZ`, which
-  is declined rather than unread — §14.10.6 makes it a `may`, and this program declines it because a
-  magnification is decided twice already, by `Zoom::FitPage` and by §12.3.2.1's `/OpenAction`, with
-  no precedence stated among the three. All 27 of the table's page-only keys are *named* in
-  `page.rs`, load-bearingly, since a key's presence is what tells a damaged object from a page
-  object — so what is closeable is a disposition of each entry against the clause, not a search for
-  the keys.
-
-**And one thing a normal round can take that is not a `partial` row at all.** §7.4.8 is `departed` on
-a price counted over the 974 — exactly one witness for Table 13's `/ColorTransform` sentence, and that
-witness contradicting it — and ADR 0036 states its own revisit condition, that the next file writing
-the entry and meaning it is a different question with the same clause. The crawled population arrived
-after the decision and has never been asked this entry. A census of Table 13's entry over it is a
-measurement rather than a reading, and it either re-prices the departure or ends it (ADR 1165).
+**And one small thing a normal round can take.** §7.4.8 is `partial` for one entry: Table 13's
+`/ColorTransform` is not read, so the clause's second case — no Adobe APP14 marker, the entry written
+in `/DecodeParms` — gets the clause's own default in its place. `colour_transform_census` prices it
+at nothing: 158 images over 17 crawled documents are in that case and every one states the value the
+codestream already gives, and the 974 have none at all (ADR 1177). What is owed is `decode_jpeg`
+reading the entry, and the census is the test that it changed no page.
 
 ### Aggregate rows — no debt of their own; they move when a child does
 
@@ -197,7 +180,7 @@ These are `partial` only because a child is; each note says so and names the chi
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding child flips.
 
-§7.6, §7.6.4, §7.7, §8.6.6, §8.9.6, §8.11, §8.11.1, §8.11.4, §8.11.4.1, §10.4, §10.4.2,
+§7.6, §7.6.4, §8.6.6, §8.9.6, §8.11, §8.11.1, §8.11.4, §8.11.4.1, §10.4, §10.4.2,
 §11.3.7, §11.4, §11.4.3, §11.4.8, §11.6, §11.6.4, §11.7, §11.7.4, §11.7.5, §12.1, §12.3, §12.5,
 §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4, §12.7.5, §12.7.6, §12.8, §12.8.3, §12.8.3.4.
 
@@ -230,14 +213,12 @@ into their notes rather than here. The membership below is what survived.
   for `MarkupGeo`, not by a scope claim: geospatial is §12.10's and is in scope.)
 - §12.7.5.4 — a choice field's selection: the clause states no appearance for it, so the page shows
   the list and reports which item `/V` names.
-- §12.11, §12.11.3 — acting on document requirements: the program draws and reports rather than
-  refusing, and has no second document to choose between. (§12.11.3's *other* weighting is over one
-  document's own requirements array and is performed.) **§12.11.6 is no longer beside them.** Its row
-  was `departed` on ADR 0460's own promise that the four restriction levels would arrive in a host;
-  they arrived, for every other restriction a document asserts over its reader, and §12.11.6's
-  threshold was attached to none of it — so the refusal it declines cannot be turned on, asked about
-  or warned about, and the row is `partial` for that policy question (ADR 1165). Its blocker is
-  bucket 1's surface, where its line is.
+- §12.11, §12.11.3 — the weighting of one document's requirements "against other documents in the
+  choosing process", which needs a second document rather than a reading. (§12.11.3's *other*
+  weighting is over one document's own requirements array and is performed.) **§12.11.6 is no longer
+  beside them and is `implemented`**: its threshold is `restriction::Operation::Process`, so a reader
+  who asks for the clause's "shall not continue" gets it and one who asks for nothing gets the
+  document drawn with each requirement named (ADR 1167).
 
 ### What left this bucket, and where it went
 

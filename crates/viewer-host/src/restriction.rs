@@ -4,8 +4,9 @@
 //!
 //! [`crate::keys`]'s argument for the third time, and this round is the one where it was cheapest
 //! to ignore: **what a window is obeying is shared, and what a widget looks like is a toolkit's.**
-//! A menu of four levels for each of six operations is 48 decisions about wording, order, which
-//! entry is ticked and what each one sends, and three windows writing them separately is three
+//! A menu of four levels for each operation a policy holds one for is a few dozen decisions about
+//! wording, order, which entry is ticked and what each one sends, and three windows writing them
+//! separately is three
 //! answers to every one of those — with the third copy, as ever, being where two hosts stop
 //! agreeing. Here it is one list of [`Row`]s; a `gtk4::MenuButton`, a `QMenuBar` and a card this
 //! program draws for itself are what a host supplies.
@@ -306,7 +307,7 @@ impl Restrictions {
         self.document = RestrictionOverride::NONE;
     }
 
-    /// The menu, whole: two scopes, six operations each, four levels each and one way back.
+    /// The menu, whole: two scopes, every operation in each, four levels each and one way back.
     ///
     /// Built on demand rather than held, because it is a function of two values a host already
     /// has and because a window that built it at startup would have built it before anything
@@ -406,10 +407,17 @@ impl Restrictions {
 /// Four of §7.6.4.2's eight positions reach a gesture in this program's windows: copying is
 /// `Command::Copy`, annotating and filling in are edits, and modifying is what §7.11.4's attach
 /// and detach are. Printing and assembling are `pdf-transform`'s verbs and no window has one.
+///
+/// §12.11.6's processing is not one of the table's positions at all and every window performs it,
+/// because opening a document is the first thing any of them does (ADR 1167).
 #[must_use]
 pub const fn inert(operation: Operation) -> &'static str {
     match operation {
-        Operation::Extract | Operation::Annotate | Operation::FillInForm | Operation::Modify => "",
+        Operation::Extract
+        | Operation::Annotate
+        | Operation::FillInForm
+        | Operation::Modify
+        | Operation::Process => "",
         Operation::Print | Operation::Assemble => INERT,
     }
 }

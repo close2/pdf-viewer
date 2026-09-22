@@ -231,6 +231,22 @@ impl XrefTable {
         self.entries = entries.into_iter().collect();
     }
 
+    /// Lays one section's entries and trailer over this table, the section winning.
+    ///
+    /// The mirror of [`Self::fill`], for the one caller that walks the `/Prev` chain *forwards*:
+    /// applied oldest section first, "the most recent copy of each object shall be the one
+    /// accessed from the PDF file" is an overwrite rather than a first-writer-wins sort, and
+    /// after each section the table is the one that revision left behind. The trailer is
+    /// overwritten the same way, so a key an update restated is the update's.
+    fn lay_over(&mut self, section: &Section) {
+        for &(number, location) in &section.entries {
+            self.entries.insert(number, location);
+        }
+        for (key, value) in section.trailer.iter() {
+            self.trailer.insert(key.clone(), value.clone());
+        }
+    }
+
     /// Merges trailer keys that are not already present.
     fn merge_trailer(&mut self, dict: &Dictionary) {
         for (key, value) in dict.iter() {
@@ -367,6 +383,71 @@ pub fn sections(file: &FileBytes, limits: Limits) -> Vec<SectionRecord> {
     let base = header_position(file).unwrap_or(0);
     let _ = read_from_startxref(file, base, limits, Some(&mut record));
     record
+}
+
+/// Hands `each` the cross-reference table as every revision of the file left it, oldest first.
+///
+/// §7.5.6 builds a document out of a chain of revisions, and a reader that wants what one of
+/// them *said* — rather than what the file says now — cannot get it from [`read`], whose whole
+/// job is to collapse the chain into the newest answer. This walks the same chain once and
+/// applies it forwards instead, so the table handed over after the *n*th call is the one a
+/// reader opening the file at the *n*th `%%EOF` would have built.
+///
+/// **One walk, not one per revision.** Each section is read exactly once and laid over an
+/// accumulating table ([`XrefTable::lay_over`]), which is the same total work [`read`] does; a
+/// caller that asked for each revision's table separately would re-read the whole chain for
+/// every link in it, and a file may state 1024 of them ([`MAX_XREF_SECTIONS`]).
+///
+/// The table's trailer is the *effective* one for that revision — the section's own entries laid
+/// over the ones it inherited — which is what §7.5.6's requirement that an added trailer restate
+/// the previous one makes it. A hybrid-reference file's `/XRefStm` (§7.5.8.4) is applied before
+/// its own section's entries and never announced as a revision of its own: it is a second place
+/// the same section states entries, not a second `%%EOF`.
+///
+/// Nothing is handed over for a file whose chain cannot be read at all — the one [`rebuild`]
+/// recovers by scanning states no revisions, and inventing one for it would report this reader's
+/// synthesis as something the file said.
+pub(crate) fn walk_revisions(file: &FileBytes, limits: Limits, mut each: impl FnMut(&XrefTable)) {
+    let base = header_position(file).unwrap_or(0);
+    let Some(start) = find_startxref(file) else {
+        return;
+    };
+    let mut next = start.saturating_add(base);
+    let mut chain: Vec<(Section, Option<Section>)> = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    for _ in 0..MAX_XREF_SECTIONS {
+        if !visited.insert(next) || next >= file.len() {
+            break;
+        }
+        let Some(section) = read_section(file, next, base, limits) else {
+            break;
+        };
+        let hybrid = section
+            .trailer
+            .get("XRefStm")
+            .and_then(Object::as_integer)
+            .and_then(|value| usize::try_from(value).ok())
+            .and_then(|at| read_section(file, at.saturating_add(base), base, limits));
+        let previous = section
+            .trailer
+            .get("Prev")
+            .and_then(Object::as_integer)
+            .and_then(|value| usize::try_from(value).ok());
+        chain.push((section, hybrid));
+        match previous {
+            Some(previous) => next = previous.saturating_add(base),
+            None => break,
+        }
+    }
+
+    let mut table = XrefTable::default();
+    for (section, hybrid) in chain.into_iter().rev() {
+        if let Some(hybrid) = hybrid {
+            table.lay_over(&hybrid);
+        }
+        table.lay_over(&section);
+        each(&table);
+    }
 }
 
 /// Reconstructs a cross-reference table by scanning the file for objects.

@@ -360,6 +360,22 @@ cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/
   # colour, which is what turned a report's condition into the departure itself (ADR 0217).
   # Since ADR 0797 a three-component CIE-based /CS is printed with its route: a CalRGB or a
   # matrix profile takes the clause's Y as three curves, a table profile keeps the sRGB grey
+cargo run --profile gates -p pdf-model --example colour_transform_census -- @<paths>
+  # which of Table 13's three cases each `DCTDecode` image is in — an Adobe APP14 marker, the
+  # `/DecodeParms` entry, or the clause's default — read off ISO/IEC 10918-1's marker segments
+  # rather than searched for in the bytes, and counting apart the images that write
+  # `/ColorTransform` as a direct key of the stream dictionary, where §7.4.1 puts no filter's
+  # parameters. That distinction is the whole of ADR 1177: the entry decides 158 images over
+  # 17 crawled documents and none of the 974, and the witness a departure was taken on is in
+  # the other list. §8.9.7's inline images are walked too
+cargo run --profile gates -p pdf-model --example overprint_ink_group_census -- @<paths>
+  # how far §11.7.4.3's special overprinting blend mode actually reaches, which is what
+  # `render-raster`'s and `render-gpu`'s by-name refusal costs (ADR 1158 section 4). Every
+  # column is the interpreter's own verdict — `DisplayList::overprints()`, the commands whose
+  # `blend()` is `BlendMode::Overprint`, the non-Normal group §11.7.4.3 builds around one, and
+  # `Unsupported::Overprint` — so a change to the rule moves the number and not the predicate.
+  # A document no object of which carries Table 58's `/OP` or `/op` is not interpreted at all,
+  # which is what makes it affordable over the crawl
 cargo run --release -p pdf-model --example press_census -- <dir>/*.pdf    # one process per archive
   # which press §11.4.7 gives a page and whether `crate::icc` can evaluate the profile behind it —
   # its `A2B` out, and since ADR 0796 the `B2A` §8.6.5.5 requires of a blending-space profile,

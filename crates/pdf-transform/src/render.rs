@@ -75,6 +75,13 @@
 //! value whose fields are the interpreter's inputs, and `render` states the page it wants drawn
 //! — the same move `Pages::detached` makes for §12.7.7's templates. ADR 0802.
 //!
+//! **And the layers are the ones §8.11.4.5 asks for on the way out.** A raster image format
+//! cannot carry optional content, which is the condition that clause attaches its `Export` event
+//! to and Table 100's own example of such a format — so this verb states `Purpose::Export` and
+//! the page is drawn with whatever the document recommends for a picture of itself, which may
+//! not be what a reader sees. [`exporting`] is where that is said and why; no corpus page moves
+//! for it. ADR 1173, ADR 1174.
+//!
 //! # What is a warning and what is a refusal
 
 //!
@@ -550,7 +557,7 @@ pub(crate) fn run(
         document,
         pages: &pages,
         labels: &labels,
-        view: ViewState::of(document),
+        view: exporting(document),
         fonts: FontCache::new(),
         budget,
         sinks,
@@ -584,6 +591,38 @@ pub(crate) fn run(
     Ok(())
 }
 
+/// The state a page is rendered against here: the document's own defaults, exporting.
+///
+/// ISO 32000-2 §8.11.4.5 gives the `Export` usage application dictionaries a condition and a
+/// duration:
+///
+/// > Similarly, when a document is exported to a format that does not support optional content,
+/// > usage application dictionaries with an event type Export shall be applied over the current
+/// > states of optional content groups. Changes shall persist only for the duration of the export
+/// > operation; then all groups shall revert to their prior states.
+///
+/// This verb meets both halves of the condition and is the only place in this workspace that
+/// does. It saves a *page's content* — `interpret` and then the oracle's rasteriser — to PNG,
+/// PPM or PGM, and Table 100's `/Export` names that target itself: the entry "indicates the
+/// recommended state for content in this group when the document (or part of it) is saved by a
+/// PDF processor to a format that does not support optional content (for example, a raster image
+/// format)". So the document gets to say what a picture of its page should contain, which is the
+/// question the event exists to answer.
+///
+/// The duration is this state's lifetime, which is the whole of the job and nothing after it:
+/// the states here are never a reader's, so there is nothing to revert to. ADR 1173.
+///
+/// **Neither of the verbs beside it is such an export, and the clause is why.** `images` copies
+/// image objects out by identity rather than drawing a page, so no group's *state* bears on what
+/// it writes; the writers that derive a new PDF — `split`, `merge`, `pages`, `optimize`,
+/// `redact`, the archival converter — write a format that supports optional content, and carry
+/// the `/OCProperties` the producer wrote.
+fn exporting(document: &Document) -> ViewState {
+    let mut view = ViewState::of(document);
+    view.set_purpose(pdf_model::optional_content::Purpose::Export);
+    view
+}
+
 /// Everything one page's job needs that is shared between the pages.
 struct Job<'a> {
     /// The plan.
@@ -594,7 +633,8 @@ struct Job<'a> {
     pages: &'a Pages<'a>,
     /// Its §12.4.2 labels.
     labels: &'a PageLabels,
-    /// The state the pages are interpreted against: the document's own defaults.
+    /// The state the pages are interpreted against: the document's own defaults, under
+    /// §8.11.4.4's `Export` event; see [`exporting`].
     view: ViewState,
     /// The one font cache every page shares: a font parsed once is a font parsed once, whichever
     /// thread meets it first. The module comment has the measurement.

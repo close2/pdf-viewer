@@ -645,6 +645,20 @@ pub struct Collection {
     columns: Vec<Column>,
     /// §12.3.5.2's folder tree, depth first.
     folders: Vec<FolderRow>,
+    /// Table 153's `/Sort` applied: the `/EmbeddedFiles` keys in the order the collection states
+    /// its items "shall be sorted in the user interface", empty where it states no `/Sort`.
+    ///
+    /// The *order* rather than the values it was computed from, for the reason `initial` is
+    /// resolved before it crosses: the values sit in two places a caller does not hold at once,
+    /// and a C caller pairing them up would be a fourth answer to one `shall` (ADR 1168).
+    order: Vec<String>,
+    /// Table 160's `/Layout`, in the document's own order of preference, empty where the
+    /// collection states no `/Navigator`.
+    ///
+    /// The whole list rather than one selection, because §12.3.6's rule is about what the
+    /// *processor* can draw — "the first one it is capable of displaying" — and what a caller of
+    /// this library can draw is the caller's own fact (ADR 1168).
+    layouts: Vec<(crate::kinds::NavigatorKind, String)>,
 }
 
 /// What [`Collection::column`] answers: the subtype, where its value lives, `/O`, `/V` and `/E`.
@@ -692,6 +706,7 @@ impl Collection {
     pub fn new(
         collection: &pdf_model::collection::Collection,
         initial: &pdf_model::collection::Initial,
+        order: Vec<String>,
     ) -> Self {
         // Table 155's `/O` order, with a field stating none after every field that states one and
         // then by key — which is the only order left when the file states none, and is the order
@@ -727,7 +742,52 @@ impl Collection {
             initial: (kind, name.to_owned()),
             columns,
             folders,
+            order,
+            layouts: collection
+                .navigator
+                .as_ref()
+                .map_or_else(Vec::new, |navigator| {
+                    navigator
+                        .layouts
+                        .iter()
+                        .map(|layout| {
+                            let (kind, name) = crate::kinds::NavigatorKind::of(layout);
+                            (kind, name.to_owned())
+                        })
+                        .collect()
+                }),
         }
+    }
+
+    /// How many named layouts §12.3.6's navigator states, or zero where the collection states no
+    /// `/Navigator` at all.
+    #[must_use]
+    pub fn layouts(&self) -> usize {
+        self.layouts.len()
+    }
+
+    /// One named layout and, for [`crate::kinds::NavigatorKind::Custom`], the name the file wrote.
+    #[must_use]
+    pub fn layout(&self, index: usize) -> Option<(crate::kinds::NavigatorKind, &str)> {
+        self.layouts
+            .get(index)
+            .map(|(kind, name)| (*kind, name.as_str()))
+    }
+
+    /// How many `/EmbeddedFiles` keys Table 153's `/Sort` put in an order.
+    ///
+    /// Zero where the document states no `/Sort`, which is the collection saying nothing about
+    /// the order — and a caller then shows the files in whatever order `quorra_attachments_read`
+    /// listed them, which is the `/EmbeddedFiles` tree's own.
+    #[must_use]
+    pub fn ordered(&self) -> usize {
+        self.order.len()
+    }
+
+    /// The `/EmbeddedFiles` key at one place in that order.
+    #[must_use]
+    pub fn order_key(&self, index: usize) -> Option<&str> {
+        self.order.get(index).map(String::as_str)
     }
 
     /// Table 153's `/View`.
@@ -909,7 +969,11 @@ mod tests {
             schema,
             ..pdf_model::collection::Collection::default()
         };
-        let flat = Collection::new(&collection, &pdf_model::collection::Initial::FirstFile);
+        let flat = Collection::new(
+            &collection,
+            &pdf_model::collection::Initial::FirstFile,
+            Vec::new(),
+        );
         assert_eq!(flat.columns(), 3);
         assert_eq!(flat.column_text(0, ColumnTextKind::Name), Ok("First"));
         assert_eq!(flat.column_text(1, ColumnTextKind::Name), Ok("Second"));
@@ -951,7 +1015,11 @@ mod tests {
             folders: Some(root),
             ..pdf_model::collection::Collection::default()
         };
-        let flat = Collection::new(&collection, &pdf_model::collection::Initial::Container);
+        let flat = Collection::new(
+            &collection,
+            &pdf_model::collection::Initial::Container,
+            Vec::new(),
+        );
         assert_eq!(flat.folders(), 2);
         assert_eq!(flat.folder(0), Ok((1, 0, true)));
         assert_eq!(flat.folder(1), Ok((2, 1, false)));

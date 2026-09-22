@@ -333,10 +333,12 @@ pub(crate) struct App {
     ///
     /// `None` for every document anyone has opened. Where it is `Some`, the files tab draws
     /// §12.3.5.2's folder tree and the schema's columns instead of a flat list, and §12.3.5.1's
-    /// resolved `/D` decides which of its rows is the document the file says to open on.
+    /// resolved `/D` decides which of its rows is the document the file says to open on, and
+    /// Table 153's `/Sort` the order they stand in.
     pub(crate) collection: Option<(
         pdf_model::collection::Collection,
         pdf_model::collection::Initial,
+        Vec<String>,
     )>,
     /// §14.3.3's Table 349, likewise.
     pub(crate) information: pdf_model::metadata::Information,
@@ -701,7 +703,8 @@ impl App {
             Answer::Collection {
                 collection,
                 initial,
-            } => Some((collection, initial)),
+                order,
+            } => Some((collection, initial, order)),
             _ => None,
         };
         if let Answer::Properties {

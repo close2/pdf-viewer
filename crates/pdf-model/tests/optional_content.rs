@@ -1192,3 +1192,358 @@ fn a_language_category_prefers_a_partial_match_that_says_it_is_preferred() {
     );
     assert!(!unsaid_complete, "and the page reports it");
 }
+
+/// Renders a fixture with §8.11.4.4's event — what the output is *for* — stated by the caller.
+///
+/// It goes in through `ViewState::set_purpose`, which is the one channel, so these tests
+/// exercise the path a print job or an export verb takes rather than a back door built for them.
+fn render_as(bytes: Vec<u8>, purpose: pdf_model::optional_content::Purpose) -> pdf_render::Raster {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    state.set_purpose(purpose);
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported")
+}
+
+/// One group, with a `/View` and a `/Print` application that disagree about it.
+///
+/// The shape `bug1650302_reduced.pdf` states and the only shape in the pdf.js corpus where the
+/// two events give different answers: the configuration leaves the group on, the `View` event
+/// turns it off, and the `Print` event has to turn it back on.
+fn view_off_print_on() -> Vec<u8> {
+    pdf(
+        "/OCProperties << /OCGs [5 0 R] /D << /AS [\
+         << /Event /View /Category [/View] /OCGs [5 0 R] >> \
+         << /Event /Print /Category [/Print] /OCGs [5 0 R] >>] >> >>",
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /View << /ViewState /OFF >> \
+         /Print << /PrintState /ON >> >> >>\nendobj\n",
+    )
+}
+
+/// §8.11.4.5's `Print` event, applied because a caller said what the output is for.
+///
+/// > When a document is printed by an interactive PDF processor, usage application dictionaries
+/// > with an event type Print shall be applied over the current states of optional content
+/// > groups.
+///
+/// And it has to be able to turn a group **on**, which §8.11.4.4 states as an assignment rather
+/// than as an AND with what stood before: "[i]f all the entries yield a recommended state of ON
+/// , the group's state shall be set to ON ; otherwise, its state shall be set to OFF ." A rule
+/// that could only ever turn a group off would make this fixture — and the corpus document it is
+/// drawn from — print a blank page where the producer put the printed layer.
+#[test]
+fn a_print_event_turns_on_the_layer_the_view_event_turned_off() {
+    assert!(
+        !drew(&render_as(
+            view_off_print_on(),
+            pdf_model::optional_content::Purpose::View
+        )),
+        "the View event turns the group off on screen"
+    );
+    assert!(
+        drew(&render_as(
+            view_off_print_on(),
+            pdf_model::optional_content::Purpose::Print
+        )),
+        "and the Print event turns it back on for the paper"
+    );
+}
+
+/// The `Export` event, on the condition §8.11.4.5 and Table 100 write for it.
+///
+/// > Similarly, when a document is exported to a format that does not support optional content,
+/// > usage application dictionaries with an event type Export shall be applied over the current
+/// > states of optional content groups.
+///
+/// The three events are separate: a group the `Export` dictionary turns off is untouched by a
+/// print and by a screen, because §8.11.4.5 names the operation each applies to.
+#[test]
+fn an_export_event_applies_only_to_an_export() {
+    use pdf_model::optional_content::Purpose;
+
+    let bytes = || {
+        pdf(
+            "/OCProperties << /OCGs [5 0 R] /D << /AS [<< /Event /Export /Category [/Export] \
+             /OCGs [5 0 R] >>] >> >>",
+            "/Properties << /oc 5 0 R >>",
+            MARKED_SQUARE,
+            "",
+            "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /Export << /ExportState /OFF >> >> \
+             >>\nendobj\n",
+        )
+    };
+
+    assert!(drew(&render_as(bytes(), Purpose::View)), "not on a screen");
+    assert!(drew(&render_as(bytes(), Purpose::Print)), "not on paper");
+    assert!(
+        !drew(&render_as(bytes(), Purpose::Export)),
+        "and off in a format that cannot carry the layer"
+    );
+}
+
+/// The duration §8.11.4.5 gives the two events: stating `View` again gives the groups back.
+///
+/// > These changes shall persist only for the duration of the print operation; then all groups
+/// > shall revert to their prior states.
+#[test]
+fn an_events_changes_last_only_while_the_purpose_stands() {
+    use pdf_model::optional_content::Purpose;
+
+    let document = Document::open(view_off_print_on()).expect("valid");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    let group = pdf_syntax::ObjectId::new(5, 0);
+    let state_of = |state: &pdf_model::view::ViewState| {
+        state.optional_content().and_then(|oc| oc.state(group))
+    };
+
+    assert_eq!(
+        state_of(&state),
+        Some(false),
+        "the View event turned it off"
+    );
+    assert!(state.set_purpose(Purpose::Print), "the state moves");
+    assert_eq!(state_of(&state), Some(true), "on for the duration");
+    assert!(state.set_purpose(Purpose::View), "and moves back");
+    assert_eq!(state_of(&state), Some(false), "reverted to its prior state");
+}
+
+/// A category the group's usage dictionary does not state recommends nothing at all.
+///
+/// §8.11.4.4's own `Zoom` example writes the rule — "Object 4 has none; therefore, it is not
+/// affected by zoom level changes" — and it is what makes the assignment above safe: a `/Print`
+/// application over a group with no `/Print` entry must leave it where it stands, not switch it
+/// on because nothing said otherwise. `issue18823.pdf` is the corpus document of this shape:
+/// three events over seven groups, not one of which states a `/Usage` dictionary.
+#[test]
+fn an_event_whose_categories_read_nothing_leaves_the_group_alone() {
+    use pdf_model::optional_content::Purpose;
+
+    let bytes = || {
+        pdf(
+            "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] /AS [\
+             << /Event /Print /Category [/Print] /OCGs [5 0 R] >>] >> >>",
+            "/Properties << /oc 5 0 R >>",
+            MARKED_SQUARE,
+            "",
+            GROUP,
+        )
+    };
+
+    assert!(!drew(&render_as(bytes(), Purpose::View)), "the /OFF array");
+    assert!(
+        !drew(&render_as(bytes(), Purpose::Print)),
+        "and a /Print category over a group with no /Print entry leaves it off"
+    );
+}
+
+/// A manual change pins the group against `View` and against nothing else.
+///
+/// §8.11.4.5 names the event it pins against: manual changes "shall not be readjusted based on
+/// usage application dictionaries with event type **View** as long as the document is open". A
+/// person who switched a layer on to look at it has not said what should happen to it on paper,
+/// and the `Print` dictionaries apply "over the current states" with no exception written.
+#[test]
+fn a_manual_change_does_not_survive_a_print_event() {
+    use pdf_model::optional_content::Purpose;
+
+    let document = Document::open(view_off_print_on()).expect("valid");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    let group = pdf_syntax::ObjectId::new(5, 0);
+    let state_of = |state: &pdf_model::view::ViewState| {
+        state.optional_content().and_then(|oc| oc.state(group))
+    };
+
+    assert!(state.set_group(group, true), "a person switches it on");
+    assert_eq!(state_of(&state), Some(true));
+    state.set_purpose(Purpose::Print);
+    assert_eq!(
+        state_of(&state),
+        Some(true),
+        "the Print category agrees with them here"
+    );
+
+    // And the other way, with the print dictionary saying off.
+    let off_on_paper = pdf(
+        "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] /AS [\
+         << /Event /Print /Category [/Print] /OCGs [5 0 R] >>] >> >>",
+        "/Properties << /oc 5 0 R >>",
+        MARKED_SQUARE,
+        "",
+        "5 0 obj\n<< /Type /OCG /Name (Layer) /Usage << /Print << /PrintState /OFF >> >> >>\n\
+         endobj\n",
+    );
+    let document = Document::open(off_on_paper).expect("valid");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    assert!(state.set_group(group, true), "switched on by hand");
+    state.set_purpose(Purpose::Print);
+    assert_eq!(
+        state_of(&state),
+        Some(false),
+        "the Print event applies over the current states, manual ones included"
+    );
+    state.set_purpose(Purpose::View);
+    assert_eq!(state_of(&state), Some(true), "and gives it back afterwards");
+}
+
+/// §8.9.5.4 step c), as Errata Collection 3 amends it (Issue #79, the caret on page 279 of the
+/// sponsored copy, which `tools/spec-errata` reads back and `doc/md/` shows none of): "Otherwise
+/// if the PDF is being printed and any of the Alternates entries has `DefaultForPrinting` set to
+/// true, then that alternate image shall be printed."
+///
+/// The condition is about the operation and not about the file, so it is answered by the same
+/// input §8.11.4.4's event is: a screen and an export both fail it and fall through to step d),
+/// which here identifies nothing and leaves e) to draw the base image.
+#[test]
+fn a_default_for_printing_alternate_is_chosen_only_when_the_pdf_is_being_printed() {
+    use pdf_model::optional_content::Purpose;
+
+    let bytes = || {
+        let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
+        let alternates = "8 0 obj\n[ << /Image 9 0 R /DefaultForPrinting true >> ]\nendobj\n";
+        let alternate = one_pixel_image(9, 0xFF, "");
+        pdf(
+            TWO_GROUPS,
+            "/XObject << /Im 7 0 R >>",
+            DRAW_IMAGE,
+            "",
+            &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+        )
+    };
+
+    let black = [0, 0, 0, 255];
+    let white = [255, 255, 255, 255];
+    assert_eq!(
+        pixel(&render_as(bytes(), Purpose::View), 50, 50),
+        black,
+        "step e) draws the base image on a screen"
+    );
+    assert_eq!(
+        pixel(&render_as(bytes(), Purpose::Export), 50, 50),
+        black,
+        "and on an export, because c) asks whether the PDF is being printed"
+    );
+    assert_eq!(
+        pixel(&render_as(bytes(), Purpose::Print), 50, 50),
+        white,
+        "and step c) draws the designated alternate on paper"
+    );
+}
+
+/// c) belongs to a base image that states no `/OC`, because it opens at "Otherwise".
+///
+/// Steps a) and b) dispose of every base image that states one — a) terminally, b) by drawing it
+/// — so a hidden base image shows nothing even on paper, and a visible one is itself. Printing
+/// does not reopen the `/Alternates` that a) closed.
+#[test]
+fn a_base_image_stating_a_group_never_reaches_default_for_printing() {
+    use pdf_model::optional_content::Purpose;
+
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /DefaultForPrinting true >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+
+    let hidden = one_pixel_image(7, 0x00, "/OC 5 0 R /Alternates 8 0 R");
+    let raster = render_as(
+        pdf(
+            TWO_GROUPS,
+            "/XObject << /Im 7 0 R >>",
+            DRAW_IMAGE,
+            "",
+            &format!("{GROUP}{SECOND_GROUP}{hidden}{alternates}{alternate}"),
+        ),
+        Purpose::Print,
+    );
+    assert!(!drew(&raster), "step a) is terminal on paper too");
+
+    // The same base image, naming the group `TWO_GROUPS` leaves on.
+    let shown = one_pixel_image(7, 0x00, "/OC 6 0 R /Alternates 8 0 R");
+    let raster = render_as(
+        pdf(
+            TWO_GROUPS,
+            "/XObject << /Im 7 0 R >>",
+            DRAW_IMAGE,
+            "",
+            &format!("{GROUP}{SECOND_GROUP}{shown}{alternates}{alternate}"),
+        ),
+        Purpose::Print,
+    );
+    assert_eq!(
+        pixel(&raster, 50, 50),
+        [0, 0, 0, 255],
+        "and step b) draws the base image itself"
+    );
+}
+
+/// The designated alternate's own `/OC` is not examined, because c) states no such sentence.
+///
+/// The retired step d) did — "if this selected alternate image has an OC entry, then that OC
+/// entry shall also be processed to determine if the alternate image shall be printed or not" —
+/// and Errata Collection 3 strikes it out whole. Step d)'s own closing sentence, which survives,
+/// says the same thing of the alternate's *image* dictionary; nothing in c) sends a designated
+/// alternate back to be checked.
+#[test]
+fn a_designated_alternate_is_printed_whatever_its_own_group_says() {
+    let base = one_pixel_image(7, 0x00, "/Alternates 8 0 R");
+    let alternates = "8 0 obj\n[ << /Image 9 0 R /OC 5 0 R /DefaultForPrinting true >> ]\nendobj\n";
+    let alternate = one_pixel_image(9, 0xFF, "");
+    let raster = render_as(
+        pdf(
+            TWO_GROUPS,
+            "/XObject << /Im 7 0 R >>",
+            DRAW_IMAGE,
+            "",
+            &format!("{GROUP}{SECOND_GROUP}{base}{alternates}{alternate}"),
+        ),
+        pdf_model::optional_content::Purpose::Print,
+    );
+    assert_eq!(
+        pixel(&raster, 50, 50),
+        [255, 255, 255, 255],
+        "the alternate c) designates is printed"
+    );
+}
+
+/// §8.11.4.4's own example, in the one sentence that decides between an assignment and an AND.
+///
+/// Its fixture states `/BaseState /OFF` with `/ON [1 0 R]`, so object 4 begins off; it states
+/// `<</Event /Print /Category [/Print] /OCGs [4 0 R]>>`; it gives object 4 a `/PrintState` of
+/// `ON`; and it then says outright:
+///
+/// > When printing or exporting, object 4 receives an ON recommendation.
+///
+/// A recommendation that could not reach a group whose initial state is OFF would make that
+/// sentence say nothing, which is why §8.11.4.4's "the group's state shall be set to ON" is read
+/// as the assignment it is written as.
+#[test]
+fn a_group_the_base_state_turned_off_is_on_when_the_print_event_says_so() {
+    use pdf_model::optional_content::Purpose;
+
+    let bytes = || {
+        pdf(
+            "/OCProperties << /OCGs [5 0 R] /D << /BaseState /OFF /AS [\
+             << /Event /Print /Category [/Print] /OCGs [5 0 R] >>] >> >>",
+            "/Properties << /oc 5 0 R >>",
+            MARKED_SQUARE,
+            "",
+            "5 0 obj\n<< /Type /OCG /Name (Copyright notice) /Usage << /Print << /PrintState \
+             /ON >> >> >>\nendobj\n",
+        )
+    };
+
+    assert!(
+        !drew(&render_as(bytes(), Purpose::View)),
+        "the base state of OFF holds on a screen"
+    );
+    assert!(
+        drew(&render_as(bytes(), Purpose::Print)),
+        "and the Print event sets it to ON for the paper"
+    );
+}

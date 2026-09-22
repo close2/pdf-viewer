@@ -1688,6 +1688,14 @@ fn describe_restriction(operation: Operation, restriction: Restriction) -> Strin
         Restriction::AnnotationLocked => {
             "the annotation's LockedContents flag is set (Table 167 bit 10)".to_owned()
         }
+        // §12.11.6, over §12.11.3's threshold. It cannot arrive at any verb this crate has —
+        // `Operation::Process` is asked where a *viewer* opens a document — and it is worded here
+        // for the reason the two above are: a variant a match cannot word is a sentence waiting
+        // to be missing.
+        Restriction::RequirementsUnmet { penalty } => format!(
+            "the requirements it states and this program cannot meet total {penalty} penalty \
+             points, over §12.11.3's 100"
+        ),
     }
 }
 

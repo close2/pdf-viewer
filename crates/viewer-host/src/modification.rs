@@ -14,6 +14,22 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use viewer_core::Command;
+
+/// The command a host runs *before* one a person gave, where Table 166's `/M` depends on it.
+///
+/// One statement for all three windows, which is why it is here rather than in each of their
+/// pump loops: a host that reads its clock somewhere else reads it at a different moment, and a
+/// window whose saves carry no `/M` at all looks exactly like one whose clock could not be read.
+///
+/// `Some` for `viewer_core::Command::Save` and nothing else. §7.5.6's update is the only thing
+/// that writes the entry, and [`now`] is read immediately before it because that is the instant
+/// the entry is about — a clock kept from launch would state when the window opened. ADR 1160.
+#[must_use]
+pub fn before(command: &Command) -> Option<Command> {
+    matches!(command, Command::Save).then(|| Command::Clock(now()))
+}
+
 /// What this machine's clock says, as ISO 32000-2 §7.9.4's date in UT.
 ///
 /// `None` where the clock reads before 1970 or so far after it that the arithmetic below would
@@ -83,7 +99,42 @@ fn civil_from_days(days: i64) -> Option<(i32, u8, u8)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{at_unix_seconds, now};
+    use super::{at_unix_seconds, before, now};
+    use viewer_core::Command;
+
+    /// A save is the one command this host reads its clock for, and it reads it beforehand.
+    ///
+    /// The claim is both halves: Table 166's `/M` is written by §7.5.6's update and by nothing
+    /// else, so a clock read before any other command would be a host stating a time no entry is
+    /// about. Exhaustive it cannot be — `Command` is a large enumeration — so what is asserted is
+    /// the one that answers and a sample of the ones that must not, including the clock command
+    /// itself, whose answering here would be a loop (ADR 1160).
+    #[test]
+    fn a_save_is_preceded_by_this_machines_clock_and_nothing_else_is() {
+        let Some(Command::Clock(Some(stated))) = before(&Command::Save) else {
+            panic!("a save states the time it happened");
+        };
+        let read_again = now().expect("this machine's clock reads as a date");
+        assert!(
+            read_again.instant().saturating_sub(stated.instant()) <= 1,
+            "the clock is read at the save rather than kept from somewhere earlier: \
+             {stated:?} against {read_again:?}"
+        );
+        assert_eq!(
+            stated.offset,
+            Some(0),
+            "§7.9.4's UT, which this host states"
+        );
+        for other in [
+            Command::Undo,
+            Command::Redo,
+            Command::Copy,
+            Command::Clock(None),
+            Command::Close(viewer_core::DocumentId(0)),
+        ] {
+            assert!(before(&other).is_none(), "{other:?} writes no /M");
+        }
+    }
 
     /// The inverse is the function `pdf_syntax` already has, so the pair is what is asserted.
     ///

@@ -75,6 +75,10 @@
 //! Three marks meeting the region stay refused with their own narrower reason, each an owed
 //! capability rather than a silence:
 //!
+//! - an **image carrying §8.9.5.4 `/Alternates`**, because an alternate is a variant
+//!   representation of the same picture and destroying the base's samples would leave the
+//!   region readable in the variant — and §8.9.5.4 step c) draws one of them when the output is
+//!   a printing;
 //! - an **image encoded by `JPXDecode`** (§8.9.5) — because a codestream over the decoder's budget
 //!   comes back at a reduced resolution level (§7.4.9 NOTE 3), so the raster is not the image's
 //!   grid and a redaction that silently changed the image's resolution cannot be proven to have
@@ -1190,6 +1194,20 @@ impl<'a> Walk<'a> {
                 "the image /{shown} is not a stream; the page is refused"
             ));
         };
+        // §8.9.5.4's `/Alternates` are "variant representations of the base image", and
+        // §12.5.6.23 requires the data in the region to be destroyed rather than hidden: an
+        // alternate holds the same picture at another resolution or in another colour space, so
+        // clearing the base alone would leave the redacted content in the file and — since step
+        // c) draws the `/DefaultForPrinting` alternate when the output is a printing — on paper.
+        // Destroying an alternate's samples too is a capability this writer does not have (each
+        // is its own grid, its own filter, and may be shared), so the page is refused by name.
+        if self.document.get_key(&stream.dict, "Alternates") != Object::Null {
+            return Err(format!(
+                "§12.5.6.23: the image /{shown} states §8.9.5.4 /Alternates, whose variant \
+                 representations of the same picture this removal does not destroy; the page is \
+                 refused rather than leave the region readable in an alternate"
+            ));
+        }
         let image = self.document.image_stream(stream).ok_or_else(|| {
             format!("the image /{shown} did not decode to samples; the page is refused")
         })?;

@@ -481,6 +481,23 @@ impl GraphicsState {
         self.fill_alpha < 1.0 || self.stroke_alpha < 1.0 || self.blend != BlendMode::Normal
     }
 
+    /// This state with §11.6.4.4's two alpha constants at 1.0.
+    ///
+    /// ISO 32000-2 §11.7.4.4's first bullet paints the parts of its implicit group "with an
+    /// alpha value of 1.0" and composites the group "using the originally specified alpha",
+    /// so the constants are lifted off the parts and on to the group — and that has to happen
+    /// before the parts are painted, because a paint carries the constant inside its colour
+    /// (`GraphicsState::solid_fill`, and `Shading::with_alpha` for a shading pattern). The
+    /// soft mask stays: the bullet's nouns are the alpha *constants*, and §11.7.4.4's second
+    /// bullet spends them the same way (ADR 1170).
+    fn with_opaque_constants(&self) -> Self {
+        Self {
+            fill_alpha: 1.0,
+            stroke_alpha: 1.0,
+            ..self.clone()
+        }
+    }
+
     /// Returns the stroke colour with the constant alpha applied, as [`GraphicsState::solid_fill`].
     fn solid_stroke(&self, transfer: Option<&Transfer>) -> Paint {
         Paint::Solid(transferred(

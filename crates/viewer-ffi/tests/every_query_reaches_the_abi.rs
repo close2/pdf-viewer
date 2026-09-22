@@ -70,6 +70,8 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_collection_columns",
             "quorra_collection_folders",
             "quorra_collection_folder_of",
+            "quorra_collection_ordered",
+            "quorra_collection_layouts",
         ],
         Query::Articles => &["quorra_articles_read"],
         Query::PageLabel(_) => &["quorra_page_label"],

@@ -152,8 +152,7 @@ is **deleted** and its argument lives on in an ADR, which is where a decision be
 would cost live with the item rather than here.
 
 **Closed by decision rather than by work** — recorded in `doc/conformance/ledger.toml` and not
-here: `/ColorTransform` (Table 13, whose one corpus witness contradicts the clause), a stream
-whose data is in an external file (§7.3.8.1 — the renderer has no filesystem, principle 3),
+here: a stream whose data is in an external file (§7.3.8.1 — the renderer has no filesystem, principle 3),
 §12.7.6.2's submit and §12.6.4's remote, launch, sound and movie actions (a network, a second
 file, a media engine), a filled degenerate subpath's device pixel (§8.5.3.3.1, which the clause
 itself calls "device-dependent and not generally useful"), grid-fitting a stroke's

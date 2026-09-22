@@ -459,3 +459,203 @@ fn an_override_of_nothing_is_the_windows_own_policy() {
         "the departure was taken away, so the window's `Off` decides again"
     );
 }
+
+/// §12.11.6's processing, at each of the four levels a reader can set for it.
+///
+/// > If requirements cannot be met, as determined by the computation of the penalty value as
+/// > described in 12.11.3, "Requirement penalty values", then the processing of the document
+/// > shall not continue.
+///
+/// The one restriction here that is not a verb a person presses: what it withholds is the
+/// document. **0 of the corpus documents state a `/Requirements` array**, so the witness is built
+/// — two requirements this program cannot meet, priced at 60 and 55, whose total of 115 is over
+/// the 100 §12.11.3's last paragraph states.
+///
+/// The claim is one per level: `Off` opens the document as though the clause said nothing, which
+/// is the default `CLAUDE.md` requires; `On` raises no `Event::Opened` at all, which is what "the
+/// processing of the document shall not continue" is; `Ask` opens nothing until the answer comes
+/// and then opens everything; `Warn` opens it and says so afterwards. ADR 1167.
+#[test]
+fn a_document_over_the_penalty_threshold_is_processed_at_the_level_the_reader_set() {
+    // Two requirements `Kind::unmet` answers — ECMAScript is excluded by `CLAUDE.md` principle 5
+    // and `Markup`'s modification and deletion are not built — and one it meets, priced at 100 to
+    // show that a *met* requirement costs nothing: Table 273 prices "the penalty value to be
+    // applied when this requirement cannot be met by a PDF processor".
+    let bytes: Vec<u8> = b"%PDF-2.0\n\
+         1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Requirements [\
+         << /S /EnableJavaScripts /Penalty 60 >> << /S /Markup /Penalty 55 >> \
+         << /S /Navigation /Penalty 100 >>] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+         trailer\n<< /Root 1 0 R /Size 4 >>\n"
+        .to_vec();
+    let opening = |level: RestrictionLevel| -> Vec<Event> {
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Restrict(RestrictionScope::Window(
+                RestrictionPolicy::default().with(Operation::Process, level),
+            )))
+            .for_each(drop);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: bytes.clone().into(),
+                password: None,
+                fragment: None,
+            })
+            .collect()
+    };
+    let opened = |events: &[Event]| holds(events, |event| matches!(event, Event::Opened { .. }));
+    let about = |events: &[Event], operation: Operation| -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Refused {
+                    operation: asked,
+                    notes,
+                    ..
+                }
+                | Event::Asking {
+                    operation: asked,
+                    notes,
+                    ..
+                }
+                | Event::Warned {
+                    operation: asked,
+                    notes,
+                    ..
+                } if *asked == operation => Some(notes.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+
+    // `Off`: the default, and the document opens with nothing said about the threshold here —
+    // what it could not promise is `Command::Report`'s answer either way.
+    let off = opening(RestrictionLevel::Off);
+    assert!(opened(&off), "the default level opens the document");
+    assert!(about(&off, Operation::Process).is_empty(), "{off:?}");
+
+    // `On`: "the processing of the document shall not continue". No `Event::Opened`, and the
+    // reason names the clause's own number.
+    let on = opening(RestrictionLevel::On);
+    assert!(!opened(&on), "nothing was processed: {on:?}");
+    let refused = about(&on, Operation::Process);
+    assert!(
+        refused
+            .iter()
+            .any(|note| note.contains("115 penalty points") && note.contains("§12.11.3")),
+        "the total the clause's computation came to is what a person is told: {refused:?}"
+    );
+
+    // `Ask`: nothing is processed while the question stands, and the `yes` releases all of it.
+    let asking = opening(RestrictionLevel::Ask);
+    assert!(!opened(&asking), "a question is not an open: {asking:?}");
+    assert!(
+        holds(&asking, |event| matches!(event, Event::Asking { .. })),
+        "{asking:?}"
+    );
+    assert!(!about(&asking, Operation::Process).is_empty());
+
+    // `Warn`: the document opens, and the reason is said after it.
+    let warned = opening(RestrictionLevel::Warn);
+    assert!(opened(&warned), "warning is not refusing: {warned:?}");
+    assert!(
+        holds(&warned, |event| matches!(event, Event::Warned { .. })),
+        "{warned:?}"
+    );
+
+    // A document that states no requirements at all is nobody's question, at every level —
+    // §12.11.3's threshold is on a total, and an empty one is zero.
+    for level in [
+        RestrictionLevel::Off,
+        RestrictionLevel::On,
+        RestrictionLevel::Ask,
+        RestrictionLevel::Warn,
+    ] {
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Restrict(RestrictionScope::Window(
+                RestrictionPolicy::uniform(level),
+            )))
+            .for_each(drop);
+        let events: Vec<Event> = viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: unrestricted_bytes().into(),
+                password: None,
+                fragment: None,
+            })
+            .collect();
+        assert!(
+            opened(&events),
+            "a document stating no /Requirements opens at {level:?}: {events:?}"
+        );
+    }
+}
+
+/// The `yes` and the `no` to §12.11.6's question, which are not an edit's.
+///
+/// An edit held at `Ask` leaves a document that is open either way; this one holds the *open*, so
+/// a `yes` has to release everything opening a document does and a `no` has to leave the viewer
+/// holding nothing — a document nobody can see, close or query would be this crate keeping a
+/// half-processed file (ADR 1167).
+#[test]
+fn answering_the_processing_question_opens_the_document_or_forgets_it() {
+    // Two unmet requirements rather than one over-priced one: Table 273 bounds a single
+    // `/Penalty` at "between 0 and 100 (inclusive)", which is why §12.11.3's threshold is on the
+    // *total* — a limit on one entry could never fire.
+    let bytes: Vec<u8> = b"%PDF-2.0\n\
+         1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Requirements [\
+         << /S /EnableJavaScripts /Penalty 60 >> << /S /Markup /Penalty 55 >>] >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+         trailer\n<< /Root 1 0 R /Size 4 >>\n"
+        .to_vec();
+    let asked = |proceed: bool| -> (Vec<Event>, Option<usize>) {
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Restrict(RestrictionScope::Window(
+                RestrictionPolicy::default().with(Operation::Process, RestrictionLevel::Ask),
+            )))
+            .for_each(drop);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: bytes.clone().into(),
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+        let events: Vec<Event> = viewer
+            .handle(Command::Answer {
+                document: DOCUMENT,
+                proceed,
+            })
+            .collect();
+        let count = match viewer.query(Query::PageCount) {
+            Answer::Count(pages) => Some(pages),
+            _ => None,
+        };
+        (events, count)
+    };
+
+    let (yes, pages) = asked(true);
+    assert!(
+        yes.iter()
+            .any(|event| matches!(event, Event::Opened { pages: 1, .. })),
+        "the `yes` releases the open the question held: {yes:?}"
+    );
+    assert_eq!(pages, Some(1), "and the document is the focused one");
+
+    let (no, pages) = asked(false);
+    assert!(
+        !no.iter().any(|event| matches!(event, Event::Opened { .. })),
+        "a declined question opens nothing: {no:?}"
+    );
+    assert_eq!(
+        pages, None,
+        "and the viewer holds no document the person cannot see"
+    );
+}

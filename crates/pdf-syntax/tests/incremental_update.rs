@@ -31,7 +31,7 @@ use std::fmt::Write as _;
 
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
 use pdf_syntax::write::{UpdateError, incremental_update, incremental_update_freeing};
-use pdf_syntax::{Document, Limits};
+use pdf_syntax::{Document, Limits, Version};
 
 /// A small document with a classic §7.5.4 cross-reference table.
 fn classic() -> Vec<u8> {
@@ -173,6 +173,72 @@ fn an_update_chains_onto_an_update() {
     let catalog = document.catalog().unwrap();
     let pages = document.get_key(&catalog, "Pages");
     assert!(matches!(pages, Object::Dictionary(_)), "{pages:?}");
+}
+
+/// §7.5.6's version rule, over a chain of cross-reference *streams* this writer appended.
+///
+/// The clause's sentence is one this collection of errata amended (Issue #399): the catalog of
+/// an incremental update shall not reduce the version of the document, by its `/Version`'s value
+/// or by its absence. It has a writer's consequence and a reader's, and this holds both at once
+/// over three revisions of one file.
+///
+/// The writer's: an update is the only way an append can state a version at all, because
+/// §7.5.2's header is in the bytes this writer may not touch — "leaving its original contents
+/// intact" — and a later update must not undo it. The reader's: the document's version is the
+/// latest any revision reached, so the third revision below, whose catalog carries no
+/// `/Version`, leaves the file at the 2.0 the second one gave it.
+#[test]
+fn an_update_states_a_version_and_a_later_one_does_not_take_it_away() {
+    // The fixtures state 1.7 in their headers, and the point of the entry is a version the
+    // header does not state. One digit, and every offset in the file is where it was.
+    let mut original = with_cross_reference_stream();
+    let header = original
+        .windows(8)
+        .position(|window| window == b"%PDF-1.7")
+        .expect("the fixture states a header");
+    original[header.saturating_add(7)] = b'4';
+
+    let document = Document::open(original.clone()).unwrap();
+    assert_eq!(document.version(), Some(Version { major: 1, minor: 4 }));
+
+    let mut catalog = document.catalog().unwrap();
+    catalog.insert(
+        Name::new(&b"Version"[..]),
+        Object::Name(Name::new(&b"2.0"[..])),
+    );
+    let mut upgrade = BTreeMap::new();
+    upgrade.insert(root_id(&document), Object::Dictionary(catalog));
+    let upgraded = incremental_update(&document, &upgrade).unwrap();
+    assert!(upgraded.starts_with(&original));
+
+    let document = Document::open(upgraded.clone()).unwrap();
+    assert_eq!(
+        document.version(),
+        Some(Version { major: 2, minor: 0 }),
+        "an update upgrades the version the header states"
+    );
+
+    // A third revision rewrites the catalog and drops the entry — which is not what this tree's
+    // own catalog rewrites do, since each builds its replacement out of the document's own
+    // catalog, but it is what the clause's "or absence" is about.
+    let mut stripped = document.catalog().unwrap();
+    stripped.remove("Version");
+    stripped.insert(
+        Name::new(&b"Marked"[..]),
+        Object::String(b"yes".to_vec().into()),
+    );
+    let mut third = BTreeMap::new();
+    third.insert(root_id(&document), Object::Dictionary(stripped));
+    let again = incremental_update(&document, &third).unwrap();
+    assert!(again.starts_with(&upgraded));
+    assert_eq!(read_back(&again), "yes");
+
+    let document = Document::open(again).unwrap();
+    assert_eq!(
+        document.version(),
+        Some(Version { major: 2, minor: 0 }),
+        "the catalog of an incremental update reduces the version by neither value nor absence"
+    );
 }
 
 #[test]

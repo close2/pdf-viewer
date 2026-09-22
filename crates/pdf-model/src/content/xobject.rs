@@ -93,9 +93,10 @@ impl Interpreter<'_> {
             .unwrap_or_default();
 
         if subtype == b"Image" {
-            // §8.9.5.4 steps d) and e): a base image stating no `/OC` may be replaced by the
-            // first of its `/Alternates` whose own `/OC` says it is visible, and where none is
-            // identified "the base image shall be rendered".
+            // §8.9.5.4 steps c), d) and e): a base image stating no `/OC` may be replaced by the
+            // `/DefaultForPrinting` alternate when the output is a printing, or by the first of
+            // its `/Alternates` whose own `/OC` says it is visible; where neither identifies one,
+            // "the base image shall be rendered".
             let alternate = match group {
                 Some(_) => None,
                 None => self.alternate_image(&stream.dict, &label),
@@ -525,12 +526,14 @@ impl<'a> Interpreter<'a> {
         page: &crate::page::Page,
         clip: Option<pdf_render::ClipId>,
     ) -> ImportedFrame<'a> {
-        // §12.5.3's placement is the *reader's* magnification rather than either file's, so it is
-        // the one thing carried across; everything else this state holds — §12.6.4.11's overrides,
-        // the annotations a person added — is filed under an `ObjectId` of the containing
-        // document and means nothing here.
+        // §12.5.3's placement is the *reader's* magnification rather than either file's, and
+        // §8.11.4.4's event and §8.9.5.4's step c) are the *operation's* rather than either
+        // file's — so those two are what is carried across; everything else this state holds,
+        // §12.6.4.11's overrides and the annotations a person added, is filed under an
+        // `ObjectId` of the containing document and means nothing here.
         let mut view = crate::view::ViewState::of(document);
         view.set_magnification(self.view.magnification());
+        view.set_purpose(self.view.purpose());
         ImportedFrame {
             document: std::mem::replace(&mut self.document, document),
             across: self.across.take(),

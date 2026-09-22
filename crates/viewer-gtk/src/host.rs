@@ -747,28 +747,15 @@ impl Host {
     fn pump(&mut self, mut queue: VecDeque<Command>) {
         loop {
             while let Some(command) = queue.pop_front() {
-                let described = self
-                    .trace
-                    .on(Topic::Events)
-                    .then(|| format!("{command:?}"))
-                    .map(|text| text.chars().take(120).collect::<String>());
-                // **A command that changes the document changes what §14.7's tree says**, and
-                // `Showing` cannot see it: an edit and a click move neither the page nor the
-                // viewport. Which commands those are is one statement for all three windows
-                // (`viewer_accessibility::republishes`, ADR 0623).
-                if viewer_accessibility::republishes(&command) {
-                    self.spoken = None;
+                // Table 166's `/M` is what §7.5.6's update writes it into, so this window reads
+                // its clock on the way to a save rather than keeping one. Which command that is
+                // is `viewer_host::modification::before`'s, once for all three windows, because
+                // a host reading its clock somewhere else reads it at a different moment (ADR
+                // 1160).
+                if let Some(clock) = viewer_host::modification::before(&command) {
+                    self.run(clock, &mut queue);
                 }
-                let events: Vec<Event> = self.viewer.handle(command).collect();
-                if let Some(described) = described {
-                    self.trace.say(
-                        Topic::Events,
-                        format_args!("{described} -> {} event(s)", events.len()),
-                    );
-                }
-                for event in events {
-                    self.react(event, &mut queue);
-                }
+                self.run(command, &mut queue);
             }
             self.take_the_thread_back();
             self.take_the_drawn(&mut queue);
@@ -780,6 +767,36 @@ impl Host {
         self.pump_search();
         self.pump_presentation();
         self.pump_drawing();
+    }
+
+    /// One command through the viewer, with what it produced put back on the queue.
+    ///
+    /// The body of [`Self::pump`]'s inner loop, named so that a command run *ahead* of another —
+    /// Table 166's clock before a save — goes through the same trace and the same reactions as
+    /// one a person sent.
+    fn run(&mut self, command: Command, queue: &mut VecDeque<Command>) {
+        let described = self
+            .trace
+            .on(Topic::Events)
+            .then(|| format!("{command:?}"))
+            .map(|text| text.chars().take(120).collect::<String>());
+        // **A command that changes the document changes what §14.7's tree says**, and
+        // `Showing` cannot see it: an edit and a click move neither the page nor the
+        // viewport. Which commands those are is one statement for all three windows
+        // (`viewer_accessibility::republishes`, ADR 0623).
+        if viewer_accessibility::republishes(&command) {
+            self.spoken = None;
+        }
+        let events: Vec<Event> = self.viewer.handle(command).collect();
+        if let Some(described) = described {
+            self.trace.say(
+                Topic::Events,
+                format_args!("{described} -> {} event(s)", events.len()),
+            );
+        }
+        for event in events {
+            self.react(event, queue);
+        }
     }
 
     /// ADR 0668's second half: takes the drawing thread back from a page the arrangement has
@@ -1520,9 +1537,10 @@ impl Host {
         if let Answer::Collection {
             collection,
             initial,
+            order,
         } = self.viewer.query(Query::Collection)
         {
-            return panel::collection_rows(&collection, &initial, &files);
+            return panel::collection_rows(&collection, &initial, &order, &files);
         }
         if files.is_empty() {
             return vec![panel::PanelRow::saying("This document embeds no files.")];

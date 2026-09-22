@@ -1197,7 +1197,7 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         // A scope, then one byte per operation in `RestrictionPolicy::OPERATIONS`'s order, which
         // is the one order the wire, the C ABI and a command line all enumerate a policy in (ADR
         // 1144). The document's scope spells *no departure* as a fifth value rather than as a
-        // shorter frame, so that the six bytes are read the same way whichever scope sent them
+        // shorter frame, so that the bytes are read the same way whichever scope sent them
         // (ADR 1145).
         Command::Restrict(scope) => {
             writer.u8(k::RESTRICT);
@@ -2027,6 +2027,7 @@ fn operation_code(operation: Operation) -> u8 {
         Operation::Extract => 3,
         Operation::Modify => 4,
         Operation::Assemble => 5,
+        Operation::Process => 6,
     }
 }
 
@@ -2039,6 +2040,7 @@ fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, ProtocolError> {
         3 => Operation::Extract,
         4 => Operation::Modify,
         5 => Operation::Assemble,
+        6 => Operation::Process,
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "an operation",
@@ -3265,10 +3267,15 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
         Answer::Collection {
             collection,
             initial,
+            order,
         } => {
             writer.u8(k::COLLECTION);
             panels::encode_collection(&mut writer, collection)?;
             panels::encode_initial(&mut writer, initial);
+            // Table 153's `/Sort` applied, as `/EmbeddedFiles` keys: the *answer* crosses rather
+            // than the values it was computed from, which is the same division §12.3.5.1's `/D`
+            // takes one field up (ADR 1168).
+            writer.strings(order);
         }
         Answer::Thumbnail(thumbnail) => {
             writer.u8(k::THUMBNAIL);
@@ -3598,6 +3605,7 @@ pub(crate) fn decode_answer_reusing(
         k::COLLECTION => Reply::Collection {
             collection: Box::new(panels::decode_collection(&mut reader)?),
             initial: panels::decode_initial(&mut reader)?,
+            order: reader.strings("a collection's /Sort order")?,
         },
         k::ARTICLES => Reply::Articles(panels::decode_articles(&mut reader)?),
         k::THUMBNAIL => Reply::Thumbnail(panels::decode_thumbnail(&mut reader)?),
@@ -4659,12 +4667,17 @@ mod tests {
         // §12.3.5.1's resolved `/D` crosses beside the dictionary: `Initial::Embedded` is the
         // variant that carries a name, so a codec that dropped the name would show here.
         let initial = pdf_model::collection::Initial::Embedded("<1>letter.pdf".to_owned());
+        // Table 153's `/Sort` crosses as its *answer*, the keys in order, so a codec that
+        // dropped it would leave a panel sorting by nothing and saying so nowhere.
+        let order = vec!["<1>letter.pdf".to_owned(), "notes.txt".to_owned()];
         let Reply::Collection {
             collection: read,
             initial: read_initial,
+            order: read_order,
         } = round_trip(&Answer::Collection {
             collection: collection.clone(),
             initial: initial.clone(),
+            order: order.clone(),
         })
         else {
             panic!("a collection comes back as one");
@@ -4673,6 +4686,10 @@ mod tests {
         assert_eq!(
             read_initial, initial,
             "the initial document changed on the way through"
+        );
+        assert_eq!(
+            read_order, order,
+            "the /Sort order changed on the way through"
         );
 
         // §12.4.3.
@@ -5669,6 +5686,7 @@ mod tests {
             &Answer::Collection {
                 collection,
                 initial: pdf_model::collection::Initial::Container,
+                order: Vec::new(),
             },
             &Marks::default(),
         )

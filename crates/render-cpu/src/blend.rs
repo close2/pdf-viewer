@@ -660,13 +660,13 @@ mod tests {
     fn the_special_overprinting_mode_takes_each_channel_from_the_side_its_tint_names() {
         let backdrop = rgb(0.1, 0.2, 0.3);
         let source = rgb(0.7, 0.8, 0.9);
-        let kept = pdf_render::Overprint::new([false, true, false]).expect("one channel is kept");
+        let kept = pdf_render::Overprint::new([false, true, false]);
         assert_close(
             Computed::Overprint(kept).blend(backdrop, source),
             rgb(0.7, 0.2, 0.9),
             "the kept channel is the backdrop's and the other two are the source's",
         );
-        let all = pdf_render::Overprint::new([true; 3]).expect("three channels are kept");
+        let all = pdf_render::Overprint::new([true; 3]);
         assert_close(
             Computed::Overprint(all).blend(backdrop, source),
             backdrop,
@@ -677,7 +677,7 @@ mod tests {
     /// The modes this backend computes are recognised and the twelve it hands over are not.
     #[test]
     fn the_computed_modes_are_the_five_this_backend_owns() {
-        let kept = pdf_render::Overprint::new([true, false, false]).expect("one channel");
+        let kept = pdf_render::Overprint::new([true, false, false]);
         assert!(matches!(
             Computed::of(BlendMode::Overprint(kept)),
             Some(Computed::Overprint(_))

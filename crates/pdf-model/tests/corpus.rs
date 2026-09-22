@@ -803,7 +803,13 @@ const PAGELESS: [&str; 5] = [
 /// asks for it — a `DeviceCMYK` page group, `/OP true /op true /OPM 1`, and marks under
 /// `/BM /Multiply`. It was drawn the same way before this round and said nothing; it draws the
 /// same way still and says so. One document, found by `raster_golden` rather than by a search.
-const MAX_INCOMPLETE: usize = 62;
+///
+/// **62 back to 61, and the same document is why.** That group is built (ADR 1170), so
+/// `issue12798_page1_reduced.pdf` completes again — and it does not draw the same way: the
+/// group's result is the backdrop in the chromatic raster and is then painted under Multiply,
+/// which the clause's last paragraph asks for and which painting the object directly did not
+/// do.
+const MAX_INCOMPLETE: usize = 61;
 
 /// How long one document may take before it counts as a failure.
 ///

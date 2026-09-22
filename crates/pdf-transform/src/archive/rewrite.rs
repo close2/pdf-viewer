@@ -571,6 +571,46 @@ pub enum Rewrite {
     /// form `XObject`. Neither is a mark: what draws is §12.5.5's own placement of the producer's
     /// own stream. Where the construction is refused, [`Self::PreservedAsPage`] is the fallback.
     RelocatedOnPage,
+    /// An action of a type the target's part does not admit is taken out of the tree it sits in.
+    ///
+    /// ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1, whose prohibitions name action
+    /// *types*, so what goes is the action and not the entry that reached it. §12.6.2's Table 196
+    /// gives the removed action a `/Next`, and [`super::actions`] promotes it into the place the
+    /// action held: the actions behind a forbidden one are failing nothing, and ADR 0947's second
+    /// rule is that nothing changes which no failed requirement asked to change.
+    ///
+    /// **No mark moves.** Every content stream crosses this rewrite byte for byte; what changes is
+    /// what a reader does when a user clicks, which is not something the page shows (ADR 1175).
+    ForbiddenActionRemoved,
+    /// An `/AA` entry the target's part does not admit, or the keys of one it does not admit.
+    ///
+    /// ISO 19005-2 section 6.5.2 forbids the entry on the catalog, on a page and on a widget
+    /// annotation or field dictionary; ISO 19005-4 section 6.6.3 permits it on a widget and admits
+    /// only §12.6.3's Table 197 annotation triggers elsewhere. So the two parts ask for two sizes
+    /// of the same act — the whole dictionary, or the keys outside the permitted set — and an
+    /// `/AA` left with nothing in it goes with its last entry.
+    AdditionalActionsRemoved,
+    /// The `/A` of a widget annotation or field dictionary.
+    ///
+    /// ISO 19005-2 section 6.4.1 and ISO 19005-4 section 6.4.1 both forbid the entry itself rather
+    /// than an action type, so the whole chain behind it goes: there is no part of it the clause
+    /// leaves a place for. A widget's `/AA` is a separate question, and part 4 answers it
+    /// differently — [`Self::AdditionalActionsRemoved`] is where that lives.
+    WidgetActionEntryRemoved,
+    /// A content stream states the final hexadecimal digit §7.3.4.3 already assumed.
+    ///
+    /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5 require an even number of digits
+    /// and each attaches a NOTE saying what the rule is for: it removes the base standard's
+    /// provision for a missing final one. That provision states the string's value outright —
+    ///
+    /// > If the final digit of a hexadecimal string is missing -that is, if there is an odd
+    /// > number of digits -the final digit shall be assumed to be 0.
+    ///
+    /// — so the byte written here is the one every conforming reader already supplies, and the
+    /// operand's value is the same before and after. `doc/adr/1176` is the argument and
+    /// [`super::hexadecimal`] the reading; the sibling row about a byte that is not a digit stays
+    /// refused, because §7.3.4.3 gives that byte no value to transcribe.
+    HexadecimalDigitCompleted,
 }
 
 impl Rewrite {
@@ -767,6 +807,23 @@ impl Rewrite {
                  operators and a closing stream after them, and the appearance named in the \
                  page's resources — so no page is appended and no mark is composed"
             }
+            Self::ForbiddenActionRemoved => {
+                "an action of a type this part does not admit is taken out of the tree it sits \
+                 in, and the actions ISO 32000-2 \u{a7}12.6.2's Next entry performed after it \
+                 take its place"
+            }
+            Self::AdditionalActionsRemoved => {
+                "an additional-actions dictionary this part does not admit is removed, or the \
+                 trigger keys of one it does not admit are"
+            }
+            Self::WidgetActionEntryRemoved => {
+                "a widget annotation's or field dictionary's /A entry is removed, with the \
+                 action chain behind it"
+            }
+            Self::HexadecimalDigitCompleted => {
+                "a content stream's hexadecimal string states the final digit ISO 32000-2 \
+                 \u{a7}7.3.4.3 already assumed, so the string reads the same and the file says so"
+            }
         }
     }
 
@@ -821,6 +878,10 @@ impl Rewrite {
             Self::SuppliedMediaType => "supplied-media-type",
             Self::PreservedAsPage => "preserved-as-page",
             Self::RelocatedOnPage => "relocated-on-page",
+            Self::ForbiddenActionRemoved => "forbidden-action-removed",
+            Self::AdditionalActionsRemoved => "additional-actions-removed",
+            Self::WidgetActionEntryRemoved => "widget-action-entry-removed",
+            Self::HexadecimalDigitCompleted => "hexadecimal-digit-completed",
         }
     }
 }
@@ -885,6 +946,8 @@ pub(super) fn convert(
         signatures: Some(&prepared.signatures),
         foreign_handlers: prepared.owed.foreign_handlers.as_ref().ok(),
         preserved: prepared.preserved.as_ref().ok(),
+        actions: prepared.actions.as_ref().ok(),
+        hexadecimal: prepared.hexadecimal.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -926,9 +989,21 @@ pub(super) fn convert(
     let mut bytes = Vec::new();
     serialize(&assembly, version, options, &mut bytes)
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
-    // The rewrites there is no place to count: the file's own shape, and the two constructions
-    // that are one per document by definition — a document gains one output intent and states one
-    // identification schema.
+    count_what_has_no_place(wanted, prepared, &mut applied);
+    Ok(Converted { bytes, applied })
+}
+
+/// The rewrites there is no place to count, counted from what was prepared instead.
+///
+/// Four of them are the file's own shape or a construction that is one per document by
+/// definition; the rest are the ones whose *places* are not objects — a packet may lose six
+/// properties, a stream may state six odd hexadecimal strings, and a report saying "1 done" would
+/// be counting the object rather than the work.
+fn count_what_has_no_place(
+    wanted: &BTreeSet<Rewrite>,
+    prepared: &Prepared,
+    applied: &mut BTreeMap<Rewrite, usize>,
+) {
     for whole in [
         Rewrite::FileHeader,
         Rewrite::WholeFileRewritten,
@@ -953,7 +1028,27 @@ pub(super) fn convert(
     {
         applied.insert(Rewrite::ExtensionSchemaPrefixes, respelled.fields);
     }
-    Ok(Converted { bytes, applied })
+    // The three action rewrites, for the same reason once more: one edited object may be one
+    // action removed or six, and a count of objects would tell an operator who authorised
+    // *buttons stop doing things* how many dictionaries had changed rather than how many buttons.
+    // The digits rather than the streams: one stream may state six odd strings, and a report
+    // saying "1 done" would be counting the object instead of the repair.
+    if wanted.contains(&Rewrite::HexadecimalDigitCompleted)
+        && let Ok(completed) = &prepared.hexadecimal
+    {
+        applied.insert(Rewrite::HexadecimalDigitCompleted, completed.digits);
+    }
+    if let Ok(removals) = &prepared.actions {
+        for rewrite in [
+            Rewrite::ForbiddenActionRemoved,
+            Rewrite::AdditionalActionsRemoved,
+            Rewrite::WidgetActionEntryRemoved,
+        ] {
+            if wanted.contains(&rewrite) {
+                applied.insert(rewrite, removals.places(rewrite));
+            }
+        }
+    }
 }
 
 /// Copies `start` and everything the *converted* document reaches into the assembly.
@@ -1609,6 +1704,10 @@ struct Rewriter<'a> {
     remedies: &'a super::remedies::Remedies,
     /// The pages a `preserve` remedy composed, where any were composed.
     preserved: Option<&'a Composed>,
+    /// The entries the action clauses ask each object to restate, where any are asked.
+    actions: Option<&'a super::actions::Removals>,
+    /// The content streams whose hexadecimal strings state their final digit, where any do.
+    hexadecimal: Option<&'a super::hexadecimal::Completed>,
 }
 
 impl Rewriter<'_> {
@@ -1672,6 +1771,7 @@ impl Rewriter<'_> {
             changed |= self.rewrite_catalog(&mut out, applied);
         }
         changed |= self.preserve(id, &mut out, applied);
+        changed |= self.remove_the_actions(id, &mut out);
         if Some(id) == self.sites.names
             && self.wants(Rewrite::AlternatePresentations)
             && out.remove("AlternatePresentations").is_some()
@@ -2398,6 +2498,42 @@ impl Rewriter<'_> {
         true
     }
 
+    /// Restates the entries ISO 19005's action clauses ask of this object.
+    ///
+    /// [`super::actions`] worked out what each holder, each `/AA` and each surviving action is to
+    /// state; this puts it in the object. **Each edit names the rewrite that asked for it**, so a
+    /// conversion whose caller departed from one of the three rows carries out the other two and
+    /// leaves that one's entries as the producer wrote them.
+    fn remove_the_actions(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        let Some(edits) = self.actions.and_then(|removals| removals.edits.get(&id)) else {
+            return false;
+        };
+        let mut changed = false;
+        for edit in edits {
+            if !self.wants(edit.by()) {
+                continue;
+            }
+            match edit {
+                super::actions::Edit::Entry { key, value, .. } => match value {
+                    None => changed |= out.remove(key).is_some(),
+                    Some(value) => {
+                        if out.get(key) != Some(value) {
+                            out.insert(Name::new(key.as_bytes()), value.clone());
+                            changed = true;
+                        }
+                    }
+                },
+                super::actions::Edit::Whole { dict, .. } => {
+                    if out != dict {
+                        out.clone_from(dict);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        changed
+    }
+
     /// Takes every annotation the target's part does not admit out of one page's `/Annots`.
     ///
     /// ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1 forbid the subtype and offer
@@ -2746,6 +2882,12 @@ impl Rewriter<'_> {
             count(applied, Rewrite::DerivedEmbeddedFile);
             return Rewritten::Changed(derived.clone());
         }
+        // The same shape, for the same reason: the repaired bytes, their `/Filter` and their
+        // `/Length` change together, so what crosses is a stream rather than a dictionary edit.
+        if let Some(repaired) = self.hexadecimal_repair(id) {
+            count(applied, Rewrite::HexadecimalDigitCompleted);
+            return Rewritten::Changed(repaired);
+        }
         // **Four writers over one packet, and the last of them is what counts the others'
         // work.** `super::prepare` folds the header cut into the bytes the property removal
         // starts from, those into the bytes the container respelling starts from, and those into
@@ -2975,6 +3117,16 @@ impl Rewriter<'_> {
             data: encoded.into(),
             decryption_failed: false,
         })))
+    }
+
+    /// The content stream `super::hexadecimal` repaired for this object, where it repaired one.
+    fn hexadecimal_repair(&self, id: ObjectId) -> Option<Object> {
+        if !self.wants(Rewrite::HexadecimalDigitCompleted) {
+            return None;
+        }
+        self.hexadecimal
+            .and_then(|completed| completed.at.get(&id))
+            .cloned()
     }
 
     /// Whether this dictionary's `/Subtype` is the given name.

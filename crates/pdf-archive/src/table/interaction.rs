@@ -1965,6 +1965,227 @@ fn additional_actions_hold_only_annotation_triggers(
     });
 }
 
+// ---------------------------------------------------------------------------------------
+// What a target admits of an action, for the converter that takes the rest out
+// ---------------------------------------------------------------------------------------
+
+/// Where an action or an additional-actions dictionary sits.
+///
+/// The distinction the two parts' action clauses turn on: ISO 19005-2 section 6.5.2 forbids
+/// `/AA` on four kinds of holder and ISO 19005-4 section 6.6.3 exempts one of them, so a rule
+/// about an `/AA` cannot be answered without knowing which dictionary it is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ActionHolder {
+    /// ISO 32000-2 §7.7.2's document catalog.
+    Catalog,
+    /// §7.7.3.3's page object.
+    Page,
+    /// §12.5.6.19's widget annotation, whether or not §12.7.4.1 merged a field into it.
+    Widget,
+    /// §12.7.4.1's field dictionary that is not also a widget annotation.
+    Field,
+    /// Any other annotation of a page.
+    Annotation,
+    /// §12.3.3's outline item.
+    OutlineItem,
+}
+
+/// What a target's part admits in an additional-actions dictionary at one holder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdditionalActions {
+    /// Every key the base standard defines there.
+    Permitted,
+    /// Only ISO 32000-2 Table 197's `E`, `X`, `D`, `U`, `Fo` and `Bl`.
+    OnlyAnnotationTriggers,
+    /// No `/AA` entry at all.
+    Forbidden,
+}
+
+/// One place in a document from which an action can be performed.
+///
+/// The population [`action_sites`] walks, which is the population every predicate above is
+/// judged over: the roots of ISO 32000-2 §12.6's action trees, each with the page it is on
+/// where it is on one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionSite {
+    /// The holder's own object, or `None` where the file wrote it directly into its parent.
+    pub at: Option<ObjectId>,
+    /// Which kind of dictionary it is, which is what the `/AA` rules turn on.
+    pub holder: ActionHolder,
+    /// The zero-based page the holder is on, where it is on one.
+    pub page: Option<usize>,
+    /// The holder itself, so that a caller reads the entries off what was walked.
+    pub dict: Dictionary,
+}
+
+/// Whether the target's part admits an action of this type at all.
+///
+/// One predicate over the same four lists the rows above report from, so a converter removing
+/// what a part forbids cannot disagree with the validator that reported it. `kind` is the
+/// action's `/S` and `named` a `Named` action's `/N`.
+///
+/// **An action stating no `/S` is admitted**, and that is the rows' reading rather than a
+/// tolerance invented here: every prohibition names a type, and a dictionary naming none has
+/// broken none of them. ISO 32000-2 Table 196 makes `/S` required, which is a base-standard
+/// failure and not one of these rows.
+#[must_use]
+pub fn action_admitted(kind: Option<&str>, named: Option<&str>, target: Target) -> bool {
+    let Some(kind) = kind else {
+        return true;
+    };
+    if PROHIBITED_ACTIONS.contains(&kind) || DEPRECATED_ACTIONS.contains(&kind) {
+        return false;
+    }
+    if kind == "JavaScript" {
+        // ISO 19005-2 section 6.5.1 forbids it; ISO 19005-4 section 6.6.2 permits it and moves
+        // the restriction onto when a processor may run one.
+        return target.part() == Part::Four;
+    }
+    if ENGINEERING_ACTIONS.contains(&kind) {
+        // ISO 19005-4 section 6.6.1's second paragraph confines both to a PDF/A-4e file.
+        return target.flavour() == Some(Flavour::E);
+    }
+    if kind == "Named" {
+        return named.is_some_and(|name| PERMITTED_NAMED_ACTIONS.contains(&name));
+    }
+    true
+}
+
+/// What the target's part admits in an `/AA` written in this kind of dictionary.
+///
+/// ISO 19005-2 section 6.5.2 forbids the entry on the catalog, on a page and on a widget
+/// annotation or field dictionary, and reaches no other annotation; ISO 19005-4 section 6.6.3
+/// permits it on a widget and admits only the annotation triggers elsewhere. An outline item
+/// states no `/AA` in either edition's tables, so neither clause reaches one.
+#[must_use]
+pub const fn additional_actions_admitted(
+    holder: ActionHolder,
+    target: Target,
+) -> AdditionalActions {
+    match holder {
+        // §12.3.3's Table 194 gives an outline item no `/AA` at all, so neither clause reaches one.
+        ActionHolder::OutlineItem => AdditionalActions::Permitted,
+        ActionHolder::Catalog | ActionHolder::Page => match target.part() {
+            Part::Two => AdditionalActions::Forbidden,
+            Part::Four => AdditionalActions::OnlyAnnotationTriggers,
+        },
+        // ISO 19005-4 section 6.6.3's paragraph before the key list exempts a widget outright.
+        ActionHolder::Widget | ActionHolder::Field => match target.part() {
+            Part::Two => AdditionalActions::Forbidden,
+            Part::Four => AdditionalActions::Permitted,
+        },
+        // ISO 19005-2 section 6.5.2 enumerates four places, and an annotation that is not a
+        // widget is none of them.
+        ActionHolder::Annotation => match target.part() {
+            Part::Two => AdditionalActions::Permitted,
+            Part::Four => AdditionalActions::OnlyAnnotationTriggers,
+        },
+    }
+}
+
+/// Whether this `/AA` key is one of ISO 32000-2 Table 197's annotation triggers.
+#[must_use]
+pub fn annotation_trigger(key: &str) -> bool {
+    ANNOTATION_TRIGGERS.contains(&key)
+}
+
+/// Whether either part admits an `/A` entry written in this kind of dictionary.
+///
+/// ISO 19005-2 section 6.4.1 and ISO 19005-4 section 6.4.1 both forbid it on a widget annotation
+/// or field dictionary; nothing in either part forbids an `/A` anywhere else, so what a link
+/// annotation or an outline item states is judged by its action's type alone.
+#[must_use]
+pub const fn action_entry_admitted(holder: ActionHolder) -> bool {
+    !matches!(holder, ActionHolder::Widget | ActionHolder::Field)
+}
+
+/// Every place in the document an action can be performed from.
+///
+/// The walks the rows above are judged over, handed out as a population so that a converter
+/// removing what a part forbids visits exactly what the validator read. A holder the file wrote
+/// directly into its parent has no object of its own and is reported with `at: None` — a caller
+/// that has to *edit* one has nothing to reach.
+#[must_use]
+pub fn action_sites(document: &Document, target: Target) -> Vec<ActionSite> {
+    let exam = Examination::new(document, target);
+    let mut out = Vec::new();
+    let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
+    if document.catalog().is_ok() {
+        // §7.5.5 makes the trailer's `/Root` the catalog's own reference, which is what an
+        // edit to the catalog has to name.
+        out.push(ActionSite {
+            at: document
+                .trailer()
+                .get("Root")
+                .and_then(Object::as_reference),
+            holder: ActionHolder::Catalog,
+            page: None,
+            dict: document.catalog().unwrap_or_default(),
+        });
+    }
+    let pages = Pages::new(document);
+    for index in 0..pages.len() {
+        let Some(page) = pages.get(index) else {
+            continue;
+        };
+        out.push(ActionSite {
+            at: page.id,
+            holder: ActionHolder::Page,
+            page: Some(index),
+            dict: page.dict.clone(),
+        });
+    }
+    for annotation in exam.annotations() {
+        let widget = name_at(document, &annotation.dict, "Subtype").as_deref() == Some("Widget");
+        if let Some(id) = annotation.id
+            && !seen.insert(id)
+        {
+            continue;
+        }
+        out.push(ActionSite {
+            at: annotation.id,
+            holder: if widget {
+                ActionHolder::Widget
+            } else {
+                ActionHolder::Annotation
+            },
+            page: Some(annotation.page),
+            dict: annotation.dict.clone(),
+        });
+    }
+    for_each_field(document, |place, dictionary| {
+        if let Some(id) = place.object
+            && !seen.insert(id)
+        {
+            return;
+        }
+        out.push(ActionSite {
+            at: place.object,
+            holder: ActionHolder::Field,
+            page: None,
+            dict: dictionary.clone(),
+        });
+    });
+    let outline = Outline::read(document, &pages);
+    push_outline_sites(document, &outline.items, &mut out);
+    out
+}
+
+/// Every outline item of the tree, as a site of its own.
+fn push_outline_sites(document: &Document, items: &[Item], out: &mut Vec<ActionSite>) {
+    for item in items {
+        if let Some(dict) = document.get(item.id).as_dict() {
+            out.push(ActionSite {
+                at: Some(item.id),
+                holder: ActionHolder::OutlineItem,
+                page: None,
+                dict: dict.clone(),
+            });
+        }
+        push_outline_sites(document, &item.children, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::Examination;

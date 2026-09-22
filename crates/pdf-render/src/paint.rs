@@ -474,21 +474,28 @@ impl BlendMode {
 /// a fill, a stroke or a glyph paints one colour, so which channels are left alone is fixed
 /// for the whole command and travels on it. ADR 1157.
 ///
-/// The three channels are the raster's, which under a four-component blending colour space
-/// carry cyan, magenta and yellow in one pass and the black component in all three of the
-/// other (see [`crate::blending`]). A mode that keeps no channel is Normal by the clause's own
-/// bullet, which is why [`Overprint::new`] declines to build one.
+/// # Why a mode that keeps nothing is still this mode
+///
+/// The clause decides each of the group space's **four** components, and this renderer carries
+/// them as two rasters of three channels: cyan, magenta and yellow in one pass and the black
+/// component in all three of the other (see [`crate::blending`]). So a colour whose only zero
+/// tint is black keeps every channel of one raster and none of the other, and the two passes
+/// are one page — an interpretation whose command carried this mode in one and Table 134's
+/// Normal in the other would not be the same *structure* in the two, which is what
+/// [`crate::DisplayList::geometry_digest`] refuses. Keeping no channel is `C_s` in every
+/// channel and therefore Normal's arithmetic; it is not Normal's command, and the decision that
+/// the mode is in force at all belongs to the interpreter, which can see all four tints.
+/// ADR 1169.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Overprint {
     kept: [bool; 3],
 }
 
 impl Overprint {
-    /// The mode leaving exactly the channels marked `true` to the backdrop, or `None` where
-    /// that is none of them and the mode is therefore Normal.
+    /// The mode leaving exactly the channels marked `true` to the backdrop.
     #[must_use]
-    pub fn new(kept: [bool; 3]) -> Option<Self> {
-        kept.iter().any(|keep| *keep).then_some(Self { kept })
+    pub const fn new(kept: [bool; 3]) -> Self {
+        Self { kept }
     }
 
     /// Which channels take the backdrop component `C_b` rather than the source's `C_s`.

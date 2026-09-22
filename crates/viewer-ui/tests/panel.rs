@@ -577,6 +577,7 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
         collection: Some(viewer_ui::chrome::Presentation {
             collection: &collection,
             initial: &pdf_model::collection::Initial::Container,
+            order: &[],
         }),
         information: &NOTHING,
         metadata: None,
@@ -652,6 +653,7 @@ fn no_embedded_file_is_lost_because_its_key_names_a_folder_that_is_not_there() {
             collection: Some(viewer_ui::chrome::Presentation {
                 collection,
                 initial: &Initial::Container,
+                order: &[],
             }),
             information: &NOTHING,
             metadata: None,
@@ -722,6 +724,7 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
             collection: Some(viewer_ui::chrome::Presentation {
                 collection: &collection,
                 initial,
+                order: &[],
             }),
             information: &NOTHING,
             metadata: None,
@@ -780,6 +783,7 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
         collection: Some(viewer_ui::chrome::Presentation {
             collection: &collection,
             initial: &Initial::Empty,
+            order: &[],
         }),
         information: &NOTHING,
         metadata: None,

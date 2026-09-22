@@ -15,6 +15,7 @@ use pdf_archive::{Judgement, MisusedProperty, Outcome, Target};
 
 use crate::json::Value;
 
+use super::actions::RemovedAction;
 use super::decision::Decision;
 use super::fonts::{RestatedFont, SubstitutedFont};
 use super::prepare::{DestinationProfile, RemovedAnnotation, WrittenAppearance};
@@ -446,6 +447,13 @@ pub struct Conversion {
     /// page, the subtype and whether it drew anything — and where `remedy = "preserve"` answered
     /// the site, [`Self::preserved`] says which appended page the marks went to instead.
     pub removed_annotations: Vec<RemovedAnnotation>,
+    /// Every action, and every action-holding entry, this conversion removed.
+    ///
+    /// `doc/pdf-a-conversion-limits.md` section 3.3's condition on the loss it classes *Ask*: an
+    /// action that is gone leaves nothing in the output to notice, so each row names the
+    /// dictionary it was written in, the entry it was reached through and what it was. Empty for
+    /// every conversion whose target admitted what the document held (`doc/adr/1175`).
+    pub removed_actions: Vec<RemovedAction>,
     /// Every font this conversion embedded a face for, with what was asked for and what was used.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 4.9's condition, in its own words: report per
@@ -551,6 +559,15 @@ impl Conversion {
                     self.removed_annotations
                         .iter()
                         .map(RemovedAnnotation::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "removed_actions".to_owned(),
+                Value::Array(
+                    self.removed_actions
+                        .iter()
+                        .map(RemovedAction::to_json)
                         .collect(),
                 ),
             ),

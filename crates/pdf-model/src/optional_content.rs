@@ -45,7 +45,7 @@
 //! offering the user a layer panel … When a layer panel exists, this is the module it attaches
 //! to." The panel exists, this is the module it attached to, and the sentence stayed — which is
 //! the "capability that arrived and announced nothing" shape `doc/todo/02` §1 names. `/AS` is
-//! [`apply_view`], `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
+//! [`apply_event`], `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
 //! [`OptionalContent::is_locked`] and `/Order` is [`presentation`].
 //!
 //! What is genuinely not here is Table 98's `/Configs` and the `/Name` and `/Creator` of a
@@ -67,6 +67,62 @@ use crate::action::Change;
 /// a file built to make a reader recurse. Reaching the bound is *reported* rather than
 /// treated as a visibility answer — see [`Visibility::TooDeep`].
 const MAX_EXPRESSION_DEPTH: usize = 32;
+
+/// What the output being produced is for: §8.11.4.4's three events, as a host states them.
+///
+/// Table 101's `/Event` "[s]hall be one of View, Print , or Export", and §8.11.4.5 says when each
+/// one runs. The `View` dictionaries run when the document is opened and again whenever a factor
+/// they depend on moves; the other two run over an operation that is under way:
+///
+/// > When a document is printed by an interactive PDF processor, usage application dictionaries
+/// > with an event type Print shall be applied over the current states of optional content
+/// > groups. These changes shall persist only for the duration of the print operation; then all
+/// > groups shall revert to their prior states.
+///
+/// > Similarly, when a document is exported to a format that does not support optional content,
+/// > usage application dictionaries with an event type Export shall be applied over the current
+/// > states of optional content groups. Changes shall persist only for the duration of the export
+/// > operation; then all groups shall revert to their prior states.
+///
+/// The same answer decides §8.9.5.4 step c)'s "the PDF is being printed", which is the only other
+/// place in this crate where what the output is *for* decides a mark. One input, asked once.
+///
+/// **It is a host's or an operation's to state and never this crate's to infer**, which is
+/// `CLAUDE.md` principle 3's rule and the one [`Audience`] arrives under:
+/// [`crate::view::ViewState::set_purpose`] is the only channel, and [`Purpose::View`] is what
+/// every caller that says nothing gets. ADR 1173.
+///
+/// **This is not Table 101's `/Category`**, and §8.11.4.5 NOTE 3 is why the two are separate
+/// types: "[a]lthough the event types Print and Export have identically named counterparts that
+/// are usage categories, the corresponding usage application dictionaries are permitted to
+/// specify that other categories can be applied."
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Purpose {
+    /// A reader is looking at the page. Table 101's `View`.
+    #[default]
+    View,
+    /// The page is being printed. Table 101's `Print`, and §8.9.5.4 step c)'s condition.
+    Print,
+    /// The document, or part of it, is being saved to a format that cannot carry optional
+    /// content — Table 100's `Export`, whose own example of such a format is "a raster image
+    /// format".
+    Export,
+}
+
+impl Purpose {
+    /// Reads Table 101's `/Event`, which the table makes required and admits three values of.
+    ///
+    /// `None` for anything else: an application dictionary naming a fourth event names no
+    /// situation this or any other processor is ever in, so it applies to nothing.
+    fn read(name: &[u8]) -> Option<Self> {
+        match name {
+            b"View" => Some(Self::View),
+            b"Print" => Some(Self::Print),
+            b"Export" => Some(Self::Export),
+            _ => None,
+        }
+    }
+}
 
 /// The magnification §8.11.4.4's `Zoom` category is answered at when no caller has stated one.
 ///
@@ -142,8 +198,17 @@ pub struct OptionalContent {
     /// not the answer to the last zoom: "[t]his state shall be the initial state used by all PDF
     /// processors", and the automatic adjustment is stated as running over it.
     initial: BTreeMap<ObjectId, bool>,
-    /// The `/View` usage application dictionaries, resolved once; see [`ViewApplication`].
-    applications: Vec<ViewApplication>,
+    /// Every usage application dictionary the configuration states, resolved once; see
+    /// [`UsageApplication`].
+    applications: Vec<UsageApplication>,
+    /// The states as a `Print` or `Export` event leaves them, or `None` under [`Purpose::View`].
+    ///
+    /// §8.11.4.5 gives each of those two events a *duration* — "[t]hese changes shall persist
+    /// only for the duration of the print operation; then all groups shall revert to their prior
+    /// states" — so the event is an overlay over [`Self::states`] rather than a write into it,
+    /// and the reverting is deleting the overlay. Nothing can drift, and no caller has to
+    /// remember to undo anything. ADR 1173.
+    under_event: Option<BTreeMap<ObjectId, bool>>,
     /// Groups a manual change has pinned, which the reapplication may not touch.
     ///
     /// §8.11.4.5: "[m]anual changes shall override the states that were set automatically. The
@@ -155,7 +220,7 @@ pub struct OptionalContent {
     disregarded: BTreeSet<ObjectId>,
     /// Usage categories §8.11.4.4 asks a *viewer* for and this one cannot answer.
     ///
-    /// Reported rather than guessed; see [`apply_view`] and [`Audience`].
+    /// Reported rather than guessed; see [`apply_event`] and [`Audience`].
     unresolved: Vec<&'static str>,
     /// Set when the configuration's `/Intent` is an empty array.
     ///
@@ -238,12 +303,13 @@ impl OptionalContent {
         }
 
         let initial = states.clone();
-        let applications = view_applications(document, &configuration, &states);
-        // The magnification a page is drawn at when nothing states one, and no audience: a
-        // document being opened has had neither a zoom nor a host's answer yet, and both arrive
-        // through `ViewState` afterwards.
-        let unresolved = apply_view(
+        let applications = usage_applications(document, &configuration, &states);
+        // The magnification a page is drawn at when nothing states one, no audience, and the
+        // `View` event: a document being opened has had neither a zoom nor a host's answer yet,
+        // and what it is being opened *for* arrives through `ViewState` afterwards too.
+        let unresolved = apply_event(
             &applications,
+            Purpose::View,
             &initial,
             &BTreeSet::new(),
             &mut states,
@@ -314,6 +380,7 @@ impl OptionalContent {
             states,
             initial,
             applications,
+            under_event: None,
             overridden: BTreeSet::new(),
             disregarded,
             unresolved,
@@ -375,6 +442,12 @@ impl OptionalContent {
     /// A group the document never declared is not adjusted, for the same reason
     /// [`Self::read`] adjusts rather than adds: Table 98 requires `/OCGs` to list every group
     /// in the document, so a `/State` array naming something else names nothing.
+    ///
+    /// **The change is made to the view-side states and never to a `Print` or `Export` event's
+    /// overlay**, which is the right half of the pair: §8.11.4.5 gives that overlay a duration
+    /// and says the groups "revert to their prior states" afterwards, so a change made while one
+    /// stands is a change to what the person will see when it is gone. `ViewState` recomputes
+    /// the overlay over the result, so the two stay in step. ADR 1173.
     pub fn apply(&mut self, changes: &[(ObjectId, Change)], preserve_radio_buttons: bool) {
         for (group, change) in changes {
             let Some(current) = self.states.get_mut(group) else {
@@ -394,16 +467,23 @@ impl OptionalContent {
         }
     }
 
-    /// §8.11.4.5's reapplication: runs the `/View` usage application dictionaries again.
+    /// §8.11.4.5's reapplication, and the event whatever the output is *for* applies over it.
     ///
     /// > Whenever there is a change to a factor that the usage application dictionaries with
     /// > event type View depend on (such as zoom level), the corresponding dictionaries shall be
     /// > reapplied.
     ///
-    /// The factors are the two a host holds and a document cannot: the magnification the page is
-    /// being drawn at, and [`Audience`]'s answers to the `User` and `Language` categories.
-    /// `None` for the magnification is `ViewState::magnification`'s own *nobody has said*, and
-    /// is answered at [`UNSTATED_MAGNIFICATION`].
+    /// The factors are the three a host holds and a document cannot: the magnification the page
+    /// is being drawn at, [`Audience`]'s answers to the `User` and `Language` categories, and
+    /// [`Purpose`] — what the output is for. `None` for the magnification is
+    /// `ViewState::magnification`'s own *nobody has said*, and is answered at
+    /// [`UNSTATED_MAGNIFICATION`].
+    ///
+    /// **Two applications, in the clause's own order and over different bases.** The `View`
+    /// dictionaries run first, over §8.11.4.5 b)'s initial state, and write [`Self::states`].
+    /// Then, where the purpose is not [`Purpose::View`], that event's dictionaries run "over the
+    /// current states" and their result becomes [`Self::under_event`] — an overlay, because the
+    /// clause gives them a duration rather than a destination. ADR 1173.
     ///
     /// Returns whether any group's state moved, so a caller can decide whether the page has to
     /// be interpreted again — and, because §8.11 decides what is *drawn*, whether the ink it
@@ -413,22 +493,61 @@ impl OptionalContent {
     /// `examples/oc_usage_census` measures as all but 475 of the 65 720 crawl documents that
     /// open and all but six of the pdf.js corpus: the dictionaries are resolved once by
     /// [`Self::read`], so nothing here reads the document.
-    pub fn reapply(&mut self, magnification: Option<f32>, audience: &Audience) -> bool {
+    pub fn reapply(
+        &mut self,
+        magnification: Option<f32>,
+        audience: &Audience,
+        purpose: Purpose,
+    ) -> bool {
         if self.applications.is_empty() {
             return false;
         }
-        let before = self.states.clone();
-        self.unresolved = apply_view(
+        let before = self.effective().clone();
+        let magnification = magnification.unwrap_or(UNSTATED_MAGNIFICATION);
+        self.unresolved = apply_event(
             &self.applications,
+            Purpose::View,
             &self.initial,
             &self.overridden,
             &mut self.states,
-            magnification.unwrap_or(UNSTATED_MAGNIFICATION),
+            magnification,
             audience,
         );
+        self.under_event = match purpose {
+            Purpose::View => None,
+            event => {
+                // "applied over the current states of optional content groups", so the base is
+                // what stands now rather than §8.11.4.5 b)'s initial state — and nothing is
+                // skipped, because the sentence that pins a manual change names only the `View`
+                // event: "shall not be readjusted based on usage application dictionaries with
+                // event type View as long as the document is open".
+                let base = self.states.clone();
+                let mut under = base.clone();
+                let also = apply_event(
+                    &self.applications,
+                    event,
+                    &base,
+                    &BTreeSet::new(),
+                    &mut under,
+                    magnification,
+                    audience,
+                );
+                for name in also {
+                    if !self.unresolved.contains(&name) {
+                        self.unresolved.push(name);
+                    }
+                }
+                Some(under)
+            }
+        };
         // Table 99's `/Order` carries identities and not states, so the panel tree stands
         // whatever moves here; what a caller reads a state through is [`Self::state`].
-        self.states != before
+        *self.effective() != before
+    }
+
+    /// The states a caller reads: the event's overlay where one stands, else [`Self::states`].
+    fn effective(&self) -> &BTreeMap<ObjectId, bool> {
+        self.under_event.as_ref().unwrap_or(&self.states)
     }
 
     /// Turns off every other member of each radio-button collection `group` belongs to.
@@ -467,7 +586,7 @@ impl OptionalContent {
     ///
     /// Empty for every document that names none, which is all 974 in the corpus, and empty
     /// again wherever a host has answered: see [`Audience`] for the two questions and
-    /// [`apply_view`] for why the clause's "otherwise OFF" is the answer to a comparison rather
+    /// [`apply_event`] for why the clause's "otherwise OFF" is the answer to a comparison rather
     /// than to there being nobody to compare with.
     #[must_use]
     pub fn unresolved_usage(&self) -> &[&'static str] {
@@ -516,7 +635,7 @@ impl OptionalContent {
         if self.disregarded.contains(&group) {
             return None;
         }
-        self.states.get(&group).copied()
+        self.effective().get(&group).copied()
     }
 
     /// Evaluates an optional content membership dictionary. §8.11.2.2, Table 97.
@@ -938,24 +1057,31 @@ fn covers(configuration: &BTreeSet<Vec<u8>>, intent: &[u8]) -> bool {
         .any(|held| held.as_slice() == intent || held.as_slice() == b"All")
 }
 
-/// §8.11.4.4's `View` usage application dictionaries, read once per document.
+/// One of Table 101's usage application dictionaries, read once per document.
 ///
-/// §8.11.4.5 states when they run: the base state and the `/ON`/`/OFF` arrays give "the initial
+/// §8.11.4.5 states when each runs: the base state and the `/ON`/`/OFF` arrays give "the initial
 /// state used by all PDF processors", and then an interactive processor "shall examine the AS
 /// array for usage application dictionaries that have an Event of type View. For each one
-/// found, the groups listed in its OCGs array shall be adjusted". Only `View`: `Print` and
-/// `Export` apply "for the duration of the print operation" and of the export, and this is
-/// neither.
+/// found, the groups listed in its OCGs array shall be adjusted". The other two events run over
+/// an operation — a print, or an export to a format that cannot carry optional content — and
+/// [`Purpose`] is the input that says which operation is under way.
 ///
 /// **Read once, applied many times, and that is what the next sentence of §8.11.4.5 costs**:
 /// "[w]henever there is a change to a factor that the usage application dictionaries with event
 /// type View depend on (such as zoom level), the corresponding dictionaries shall be reapplied".
 /// A reapplication that re-read the document would put dictionary lookups on every step of a
-/// zoom gesture; resolving Table 100's entries here instead makes [`apply_view`] a function of
+/// zoom gesture; resolving Table 100's entries here instead makes [`apply_event`] a function of
 /// two numbers and a list, and makes the 99.9% of documents that state no `/AS` at all cost one
 /// empty-vector test per zoom. The census behind that share is `examples/oc_usage_census`.
+///
+/// All three events are resolved here rather than the `View` ones alone, because a print or an
+/// export must not put dictionary lookups in front of the operation it belongs to either — and
+/// the whole `/AS` array is already being walked. Of the pdf.js corpus's 963 documents that open,
+/// six state an `/AS` at all, naming `View` six times, `Print` six and `Export` five.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ViewApplication {
+struct UsageApplication {
+    /// Table 101's `/Event`: the situation this dictionary is for.
+    event: Purpose,
     /// Table 101's `/Category`, in the order the array states them.
     categories: Vec<Category>,
     /// Table 101's `/OCGs`, restricted to groups the document declares, each with its
@@ -1043,11 +1169,16 @@ enum UserType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Usage {
     /// `/View` `/ViewState`, `false` only where the name is `OFF`; see [`recommendation`].
-    view: bool,
+    ///
+    /// `None` where the entry is absent, which is the clause's own "Object 4 has none;
+    /// therefore, it is not affected" — a category with nothing to read recommends nothing. Under
+    /// an event that *assigns*, the difference between recommending nothing and recommending ON
+    /// is the difference between leaving a layer alone and turning it on.
+    view: Option<bool>,
     /// `/Export` `/ExportState`, on the same rule.
-    export: bool,
-    /// `/Print` `/PrintState`, `None` where the entry is absent: "the state of the optional
-    /// content group shall be left unchanged".
+    export: Option<bool>,
+    /// `/Print` `/PrintState`, `None` where the entry is absent, which §8.11.4.4 states outright
+    /// for this one category: "the state of the optional content group shall be left unchanged".
     print: Option<bool>,
     /// `/Zoom`, where the group states one.
     zoom: Option<ZoomRange>,
@@ -1147,14 +1278,14 @@ impl Reader {
     }
 }
 
-/// Reads the `/View` usage application dictionaries of one configuration, resolving Table 100.
+/// Reads the usage application dictionaries of one configuration, resolving Table 100.
 ///
 /// `states` is the initial state map, which decides which groups the document declares.
-fn view_applications(
+fn usage_applications(
     document: &Document,
     configuration: &Dictionary,
     states: &BTreeMap<ObjectId, bool>,
-) -> Vec<ViewApplication> {
+) -> Vec<UsageApplication> {
     let auto = document.get_key(configuration, "AS");
     let Some(applications) = auto.as_array() else {
         // "If no AS entry is present, states shall not be automatically adjusted based on
@@ -1168,14 +1299,15 @@ fn view_applications(
         let Some(application) = application.as_dict() else {
             continue;
         };
-        if document
+        // Table 101 makes `/Event` required and admits three names; a dictionary stating any
+        // other names no situation, so it is read for none of them.
+        let Some(event) = document
             .get_key(application, "Event")
             .as_name()
-            .map(Name::as_bytes)
-            != Some(b"View")
-        {
+            .and_then(|name| Purpose::read(name.as_bytes()))
+        else {
             continue;
-        }
+        };
         let categories: Vec<Category> = document
             .get_key(application, "Category")
             .as_array()
@@ -1204,7 +1336,11 @@ fn view_applications(
                 Some((group, usage_of(document, dictionary)))
             })
             .collect();
-        read.push(ViewApplication { categories, groups });
+        read.push(UsageApplication {
+            event,
+            categories,
+            groups,
+        });
     }
     read
 }
@@ -1286,8 +1422,8 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
     });
 
     Usage {
-        view: state("View", "ViewState") != Some(false),
-        export: state("Export", "ExportState") != Some(false),
+        view: state("View", "ViewState"),
+        export: state("Export", "ExportState"),
         print: state("Print", "PrintState"),
         zoom,
         user,
@@ -1295,7 +1431,7 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
     }
 }
 
-/// §8.11.4.4's automatic state adjustment, for the `View` event.
+/// §8.11.4.4's automatic state adjustment, for one of Table 101's three events.
 ///
 /// The rule per group is the clause's own, and it is an AND across two levels. §8.11.4.4:
 ///
@@ -1308,20 +1444,38 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
 /// array, its state shall be ON only if all categories in all the usage application
 /// dictionaries it appears in have a state of ON ".
 ///
-/// # Reapplication, and what it may not disturb
+/// # It sets, and a category that read nothing does not make it set ON
 ///
-/// This runs once when the document is opened and again on every change to a factor the `View`
-/// dictionaries depend on, which §8.11.4.5 requires: "[w]henever there is a change to a factor
-/// that the usage application dictionaries with event type View depend on (such as zoom level),
-/// the corresponding dictionaries shall be reapplied". Every group an application names
-/// therefore starts again from `initial` — §8.11.4.5 b)'s state, after `/BaseState` and the
-/// array opposite it — so that the answer is a function of the factors rather than of the order
-/// the zoom steps arrived in.
+/// "[S]hall be set to ON" is an assignment over `base` rather than an AND with it, and the
+/// clause's own example is what proves it: under `/BaseState /OFF` with `/ON [1 0 R]`, objects
+/// 2 and 3 start off, and the example says the `View` dictionary "specifies that all optional
+/// content groups have their states managed based on zoom level when viewing" — which a rule
+/// that could only ever turn a group off would not do for either of them.
 ///
-/// `overridden` is the exception the same clause writes: "[m]anual changes shall override the
-/// states that were set automatically. The states of these groups remain overridden and shall
-/// not be readjusted based on usage application dictionaries with event type View as long as the
-/// document is open". [`OptionalContent::apply`] is where a group joins that set.
+/// What makes the assignment safe is [`Recommendation::Unchanged`]: a group is assigned only
+/// where some category actually read a value, so a `/Category` naming an entry the group does
+/// not state leaves it exactly where `base` put it. The two halves are one decision — an
+/// assignment without the three-valued category would switch on every group whose usage
+/// dictionary is silent. ADR 1173.
+///
+/// # The base, the skip, and the two events that do not touch `initial`
+///
+/// `base` is where a named group starts from before its categories are read, and the clause
+/// gives the events different ones. For `View` it is §8.11.4.5 b)'s initial state — after
+/// `/BaseState` and the array opposite it — so that the answer is a function of the factors
+/// rather than of the order the zoom steps arrived in, which is what the reapplication requires:
+/// "[w]henever there is a change to a factor that the usage application dictionaries with event
+/// type View depend on (such as zoom level), the corresponding dictionaries shall be reapplied".
+/// For `Print` and `Export` it is the states as they stand, because those two are "applied over
+/// the current states of optional content groups".
+///
+/// `skip` is the exception the same clause writes, and it is written for `View` alone: "[m]anual
+/// changes shall override the states that were set automatically. The states of these groups
+/// remain overridden and shall not be readjusted based on usage application dictionaries with
+/// event type View as long as the document is open". [`OptionalContent::apply`] is where a group
+/// joins that set, and a `Print` or `Export` event passes an empty one — the sentence names the
+/// event it pins against, and a person who switched a layer on to look at it has not said what
+/// should happen to it on paper.
 ///
 /// # The two categories a host answers, and the one it need not
 ///
@@ -1331,27 +1485,32 @@ fn usage_of(document: &Document, group: &Dictionary) -> Usage {
 ///
 /// `User` and `Language` are questions about this processor, and [`Audience`] is where a host
 /// answers them. With an answer, §8.11.4.4's own sentences decide; with none, the category is
-/// [`Recommendation::Unanswerable`], the configuration's state stands and the page reports it.
-/// **That is the clause's own division rather than a departure from it.** Of `User` it writes
-/// "[i]f there is an exact match, the ON state shall be used; otherwise OFF shall be used" —
-/// and "otherwise" is the second branch of a *comparison with the user's identification*, not a
-/// verdict on there being nobody to compare with. So a host that says who is reading gets the
-/// OFF, and a machine that has not been told anything is outside both branches: switching a
-/// group off there would hide content on the strength of a question nobody asked.
-fn apply_view(
-    applications: &[ViewApplication],
-    initial: &BTreeMap<ObjectId, bool>,
-    overridden: &BTreeSet<ObjectId>,
+/// [`Recommendation::Unanswerable`], the state stands and the page reports it. **That is the
+/// clause's own division rather than a departure from it.** Of `User` it writes "[i]f there is
+/// an exact match, the ON state shall be used; otherwise OFF shall be used" — and "otherwise" is
+/// the second branch of a *comparison with the user's identification*, not a verdict on there
+/// being nobody to compare with. So a host that says who is reading gets the OFF, and a machine
+/// that has not been told anything is outside both branches: switching a group off there would
+/// hide content on the strength of a question nobody asked.
+fn apply_event(
+    applications: &[UsageApplication],
+    event: Purpose,
+    base: &BTreeMap<ObjectId, bool>,
+    skip: &BTreeSet<ObjectId>,
     states: &mut BTreeMap<ObjectId, bool>,
     magnification: f32,
     audience: &Audience,
 ) -> Vec<&'static str> {
     let mut unresolved: Vec<&'static str> = Vec::new();
+    let applications: Vec<&UsageApplication> = applications
+        .iter()
+        .filter(|application| application.event == event)
+        .collect();
 
-    for application in applications {
+    for application in &applications {
         for (group, _) in &application.groups {
-            if !overridden.contains(group)
-                && let Some(was) = initial.get(group)
+            if !skip.contains(group)
+                && let Some(was) = base.get(group)
                 && let Some(entry) = states.get_mut(group)
             {
                 *entry = *was;
@@ -1359,19 +1518,23 @@ fn apply_view(
         }
     }
 
-    for application in applications {
+    // The AND across dictionaries is accumulated per group before anything is written, because
+    // the clause states it over "all the usage application dictionaries it appears in" at once:
+    // a group named twice gets one verdict, not two assignments.
+    let mut verdicts: BTreeMap<ObjectId, Verdict> = BTreeMap::new();
+    for application in &applications {
         let language = language_recommendations(application, audience.language.as_deref());
         for (group, usage) in &application.groups {
-            if overridden.contains(group) {
+            if skip.contains(group) {
                 continue;
             }
-            let mut recommended = Some(true);
+            let verdict = verdicts.entry(*group).or_default();
             for category in &application.categories {
                 let answer = match (category, &language) {
                     (Category::Language, None) => Recommendation::Unanswerable("Language"),
-                    (Category::Language, Some(verdicts)) => {
+                    (Category::Language, Some(on)) => {
                         // "All other groups shall receive an OFF recommendation."
-                        if verdicts.contains(group) {
+                        if on.contains(group) {
                             Recommendation::On
                         } else {
                             Recommendation::Off
@@ -1380,30 +1543,61 @@ fn apply_view(
                     _ => recommendation(*category, usage, magnification, &audience.reader),
                 };
                 match answer {
-                    // `On`, and `Unchanged` for a `Print` category with no `/PrintState`,
-                    // both leave the running AND alone: the clause's test is "if all the
-                    // entries yield a recommended state of ON", and neither yields OFF.
-                    Recommendation::On | Recommendation::Unchanged => {}
-                    Recommendation::Off => recommended = Some(false),
+                    Recommendation::On => verdict.stated = true,
+                    Recommendation::Off => {
+                        verdict.stated = true;
+                        verdict.on = false;
+                    }
+                    // The category read nothing, so it yields no recommended state and takes no
+                    // part in the AND: "if all the entries yield a recommended state of ON".
+                    Recommendation::Unchanged => {}
                     Recommendation::Unanswerable(name) => {
                         if !unresolved.contains(&name) {
                             unresolved.push(name);
                         }
-                        recommended = None;
+                        verdict.answerable = false;
                     }
                 }
-            }
-            if let Some(state) = recommended
-                && let Some(entry) = states.get_mut(group)
-            {
-                // The AND across dictionaries: a group already switched off by an earlier
-                // usage application dictionary stays off.
-                *entry = *entry && state;
             }
         }
     }
 
+    for (group, verdict) in verdicts {
+        if verdict.answerable
+            && verdict.stated
+            && let Some(entry) = states.get_mut(&group)
+        {
+            *entry = verdict.on;
+        }
+    }
+
     unresolved
+}
+
+/// What every category of every usage application dictionary of one event said about one group.
+///
+/// `stated` is whether any of them yielded a recommended state at all; where none did, the group
+/// is left where `apply_event`'s base put it. `answerable` is whether every category this
+/// processor was asked could be answered — see [`Audience`].
+#[derive(Debug, Clone, Copy)]
+struct Verdict {
+    /// Whether any category yielded a recommended state.
+    stated: bool,
+    /// The AND of the states that were yielded: "If all the entries yield a recommended state of
+    /// ON , the group's state shall be set to ON ; otherwise, its state shall be set to OFF".
+    on: bool,
+    /// Whether every category could be answered at all.
+    answerable: bool,
+}
+
+impl Default for Verdict {
+    fn default() -> Self {
+        Self {
+            stated: false,
+            on: true,
+            answerable: true,
+        }
+    }
 }
 
 /// §8.11.4.4's `Language` rule, which is stated over a whole `/OCGs` list at once.
@@ -1424,7 +1618,7 @@ fn apply_view(
 /// treated as case-insensitive" — and a partial match is the primary language subtag alone,
 /// which is what "the language matches but not the locale" names.
 fn language_recommendations(
-    application: &ViewApplication,
+    application: &UsageApplication,
     language: Option<&str>,
 ) -> Option<BTreeSet<ObjectId>> {
     let wanted = language?;
@@ -1467,9 +1661,15 @@ fn language_recommendations(
 enum Recommendation {
     On,
     Off,
-    /// `Print` with no `/PrintState`: "the state … shall be left unchanged".
+    /// The category read nothing, so it recommends nothing and the group is left where it is.
+    ///
+    /// §8.11.4.4 writes it outright for one category — `Print` with no `/PrintState`: "the
+    /// state … shall be left unchanged" — and its own `Zoom` example writes the general rule:
+    /// "Object 4 has none; therefore, it is not affected by zoom level changes". A `/Category`
+    /// name that is no Table 100 entry, and one whose entry the group does not state, both land
+    /// here.
     Unchanged,
-    /// A category this processor cannot answer; see [`apply_view`].
+    /// A category this processor cannot answer; see [`apply_event`].
     Unanswerable(&'static str),
 }
 
@@ -1495,15 +1695,15 @@ fn recommendation(
     };
 
     match category {
-        Category::View => on_or_off(usage.view),
-        Category::Export => on_or_off(usage.export),
+        Category::View => usage.view.map_or(Recommendation::Unchanged, on_or_off),
+        Category::Export => usage.export.map_or(Recommendation::Unchanged, on_or_off),
         Category::Print => usage.print.map_or(Recommendation::Unchanged, on_or_off),
-        Category::Zoom => usage.zoom.map_or(Recommendation::On, |range| {
+        Category::Zoom => usage.zoom.map_or(Recommendation::Unchanged, |range| {
             // "greater than or equal to min and less than max".
             on_or_off(magnification >= range.low && magnification < range.high)
         }),
         Category::User => match &usage.user {
-            None => Recommendation::On,
+            None => Recommendation::Unchanged,
             Some((kind, names)) => match reader.known_as(*kind) {
                 // Nobody has said who is reading, under the type this group asks about.
                 [] => Recommendation::Unanswerable("User"),
@@ -1512,6 +1712,6 @@ fn recommendation(
         },
         // Answered by the caller, and reached only if one forgot to.
         Category::Language => Recommendation::Unanswerable("Language"),
-        Category::Unstated => Recommendation::On,
+        Category::Unstated => Recommendation::Unchanged,
     }
 }

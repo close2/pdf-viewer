@@ -82,7 +82,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | §7.5.4 Cross-reference table | 70 | #149 | cites | "The cross-reference table is" → "Cross-reference sections are". Editorial. |
 | §7.5.5 File trailer | 73 | #101 | quotes `[416]` | `write.rs:506`. `startxref` may name a cross-reference stream; `xref::read_at` already read both. |
 | §7.5.5 File trailer | 74 | #106 | cites | "; shall be an indirect reference" struck from a trailer row. Nothing here requires indirection. |
-| §7.5.6 Incremental updates | 75 | #399 | cites | `/Version` upgrades rather than overrides, and "shall not reduce". `version::document` is already `max(header, catalog)`. The *multi-update* reduction case is new and unhandled — owed below. |
+| §7.5.6 Incremental updates | 75 | #399 | **applies** | `/Version` upgrades rather than overrides, and the catalog of an update shall not reduce the version by its value *or by its absence*. `Document::version` walks the `/Prev` chain forwards and answers the latest version any revision reached; the reduction case and the absence case are both implemented and tested. ADR 1171. |
 | §7.5.7 Object streams | 79 | #638 | untouched | Repairs a mangled EXAMPLE gloss; the normative source is Table 18, which `xref.rs` reads. |
 | §7.6.3.1 General | 89 | #542 | quotes | PKCS#7's whole-extra-block pad moves from an EXAMPLE into the normative sentence. `crypt.rs` has always added and stripped it; `AES_BLOCK`'s comment quoted the retired half — corrected. |
 | §7.6.4.4.1, §7.6.5.1 | 97, 101 | #24 | quotes | ×3. "with an initialization vector of zero" struck from all three **ECB** occurrences, where it was nonsense. `perms_block`'s comment said so on its own line before the erratum could be read; the quotation marks are gone. The **CBC** occurrences keep the phrase and `crypt.rs:1075` still quotes them correctly. |
@@ -317,9 +317,10 @@ is `doc/todo/01`'s known false-positive shape and the same one its first four sw
    verbatim, because `doc/md/` is what the gate verifies against; what the test rests on is the
    surviving normative half.
 
-Four of session 417's five owed items are also settled — §7.3.10's grammar, §7.5.6's multi-update
-version reduction, §14.8.4.7.2's enclosure reframing and §14.6.1's Figure 9 — each as a documented
-choice in the row or the comment that owns it, rather than as code.
+Four of session 417's five owed items are also settled. Three are documented choices in the row or
+the comment that owns them — §7.3.10's grammar, §14.8.4.7.2's enclosure reframing and §14.6.1's
+Figure 9. The fourth, §7.5.6's multi-update version reduction, is code: the chain is walked
+forwards and no update reduces what an earlier one reached (ADR 1171).
 
 ## The fourth and fifth populations, swept in the four-hundred-and-nineteenth session
 

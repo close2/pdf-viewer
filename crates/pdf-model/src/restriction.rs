@@ -23,6 +23,14 @@
 //! being asked whether to go ahead is owed the distinction rather than one sentence covering
 //! both. ADR 0403.
 //!
+//! **A seventh is not about an operation a reader performs on a document at all**: §12.11.6's
+//! requirements processing, where a document's unmet requirements total more penalty than
+//! §12.11.3 admits and "the processing of the document shall not continue". What it withholds is
+//! the document being *processed*, which is why [`Operation::Process`] is an arm here rather than
+//! a refusal taken where a document opens — a refusal that cannot become an *ask* is the thing
+//! `CLAUDE.md` says to avoid, and this one could not become one until it reached this vocabulary.
+//! ADR 1167.
+//!
 //! # Why a reason and not a boolean
 //!
 //! The verdict is not this crate's to give. `CLAUDE.md`'s "A document's restrictions are the
@@ -179,9 +187,10 @@ impl Bit {
 /// the absence of an arm is legible as a decision about this program rather than a reading of
 /// the table that stopped early.
 ///
-/// Two of the five are the viewer's, three are `pdf_transform`'s — they were two enums in two
-/// crates until the eight-hundred-and-seventy-second session, and one module now reads every
-/// restriction source for every operation this tree performs (ADR 0803).
+/// Some of them are the viewer's verbs and some are `pdf_transform`'s; [`Operation::Process`] is
+/// every face's, because every face processes a document before it does anything else with one.
+/// They were two enums in two crates until the eight-hundred-and-seventy-second session, and one
+/// module now reads every restriction source for every operation this tree performs (ADR 0803).
 ///
 /// **What is missing and why**, because the absences are decisions rather than gaps:
 ///
@@ -248,6 +257,24 @@ pub enum Operation {
     /// does not exist at revision 2. The same construction [`Operation::FillInForm`] uses for
     /// bit 9, for the same reason.
     Assemble,
+    /// Going on with a document at all — §12.11.6's requirements processing.
+    ///
+    /// > If requirements cannot be met, as determined by the computation of the penalty value as
+    /// > described in 12.11.3, "Requirement penalty values", then the processing of the document
+    /// > shall not continue.
+    ///
+    /// **The one operation here that Table 22 states no position for**, and that is a fact about
+    /// the table rather than a gap: its eight positions are all about what a reader does *to* a
+    /// document that is open, and this clause is about whether it is opened at all.
+    /// [`Operation::bit`] answers `None` for it.
+    ///
+    /// The computation §12.11.6 sends a reader to §12.11.3 for is
+    /// [`crate::requirements::penalty_total`], and the threshold is §12.11.3's own last
+    /// paragraph, quoted there. What this arm adds is the *level*: the clause's word for the
+    /// consequence is "should not attempt to display or process the document", so obeying it is a
+    /// reader's decision like every other restriction a document asserts, and `off` is the
+    /// default `CLAUDE.md` requires. ADR 1167.
+    Process,
 }
 
 impl Operation {
@@ -261,10 +288,14 @@ impl Operation {
             Self::Extract => "extracting from the document",
             Self::Modify => "modifying the document",
             Self::Assemble => "assembling a document out of these pages",
+            // §12.11.6's own verb, so that the sentences a host words around it — "… was not
+            // done", "… is waiting on your answer" — say what the clause says.
+            Self::Process => "continuing to process this document",
         }
     }
 
-    /// The bit that decides this operation at this security handler revision.
+    /// The bit that decides this operation at this security handler revision, where Table 22
+    /// states one.
     ///
     /// One position rather than a set, and the revision is what chooses it: Table 22 marks bit
     /// 9 "( Security handlers of revision 3 or greater )", and at revision 2 that position is
@@ -273,16 +304,22 @@ impl Operation {
     /// clause's own example, whose `/P` of -44 "disallows modifying the contents and
     /// annotations". Bit 9 is also the only one of the five whose row grants "even if bit 6 is
     /// clear", which is why filling in is the one operation two bits can grant.
+    ///
+    /// `None` for [`Operation::Process`], and that is a reading of Table 22 rather than a hole in
+    /// this match: every position the table states is about what a reader does to a document it
+    /// has open, and §12.11.6 is about whether the document is processed at all. A security
+    /// handler withholds nothing from it.
     #[must_use]
-    pub const fn bit(self, revision: u8) -> Bit {
-        match self {
+    pub const fn bit(self, revision: u8) -> Option<Bit> {
+        Some(match self {
             Self::FillInForm if revision >= 3 => Bit::FillInForm,
             Self::FillInForm | Self::Annotate => Bit::Annotate,
             Self::Print => Bit::Print,
             Self::Extract => Bit::Extract,
             Self::Assemble if revision >= 3 => Bit::Assemble,
             Self::Modify | Self::Assemble => Bit::Modify,
-        }
+            Self::Process => return None,
+        })
     }
 }
 
@@ -381,6 +418,24 @@ pub enum Restriction {
     /// value of a form field". So an annotation carrying bit 8 and not bit 10 may be typed into,
     /// and nothing here consults bit 8.
     AnnotationLocked,
+    /// Requirements §12.11.3's threshold does not admit a penalty for, as §12.11.6 states it:
+    ///
+    /// > If requirements cannot be met, as determined by the computation of the penalty value as
+    /// > described in 12.11.3, "Requirement penalty values", then the processing of the document
+    /// > shall not continue.
+    ///
+    /// **The only reason here that names no party**: the other six are a security handler's, an
+    /// author's or a signer's statement about what this reader may do, and this one is the
+    /// document saying it needs something this program has not got. It is a restriction all the
+    /// same, because what the clause does about it is withhold the document.
+    ///
+    /// The number is carried so that a person being asked can see how far over the line the
+    /// document is rather than only that it is.
+    RequirementsUnmet {
+        /// What [`crate::requirements::penalty_total`] came to — a total that passed
+        /// [`crate::requirements::PENALTY_LIMIT`].
+        penalty: u32,
+    },
 }
 
 /// Every restriction this document asserts against this operation.
@@ -412,21 +467,28 @@ pub fn asserted(
     annotation: Option<pdf_syntax::ObjectId>,
 ) -> Vec<Restriction> {
     let mut out = Vec::new();
-    if let Some(level) = pdf_signature::signature::permissions(document).doc_mdp
-        && !certification_permits(level, operation)
-    {
-        out.push(Restriction::Certified { level });
-    }
-    // §12.7.5.5's Table 236 `/P` next, and beside the entry above rather than beside the field
-    // lock it shares a dictionary with: both state a permission over the whole document in the
-    // same three levels, and the `/P`'s own words put them in one regime — "[i]f MDP permission is
-    // already in effect … the number shall specify permissions less than or equal to the
-    // permissions already in effect". Each refuses on its own, which is §12.8.6's composition
-    // rule: a permission needs every handler that speaks to it (ADR 1156).
-    if let Some(level) = pdf_signature::signature::field_lock_permissions(document)
-        && !certification_permits(level, operation)
-    {
-        out.push(Restriction::LockPermission { level });
+    // **The two certification sources are asked only where one of them can bind**, which is
+    // `CLAUDE.md` principle 2 applied where it bites: `field_lock_permissions` walks §12.7.4's
+    // field tree, and [`Operation::Process`] is asked once per document *open*, so a walk that
+    // could not change the answer would be on the launch path. [`certification_binds`] is the
+    // operation half of [`certification_permits`]'s first arm, and a test holds the two together.
+    if certification_binds(operation) {
+        if let Some(level) = pdf_signature::signature::permissions(document).doc_mdp
+            && !certification_permits(level, operation)
+        {
+            out.push(Restriction::Certified { level });
+        }
+        // §12.7.5.5's Table 236 `/P` next, and beside the entry above rather than beside the field
+        // lock it shares a dictionary with: both state a permission over the whole document in the
+        // same three levels, and the `/P`'s own words put them in one regime — "[i]f MDP permission is
+        // already in effect … the number shall specify permissions less than or equal to the
+        // permissions already in effect". Each refuses on its own, which is §12.8.6's composition
+        // rule: a permission needs every handler that speaks to it (ADR 1156).
+        if let Some(level) = pdf_signature::signature::field_lock_permissions(document)
+            && !certification_permits(level, operation)
+        {
+            out.push(Restriction::LockPermission { level });
+        }
     }
     if let Some(permissions) = document.permissions()
         && let Some(restriction) = withheld(permissions, operation)
@@ -459,11 +521,37 @@ pub fn asserted(
     {
         out.push(Restriction::AnnotationLocked);
     }
+    // §12.11.6, and it is asked only of the operation it is about: the clause withholds the
+    // *processing* of the document and says nothing whatever about filling in a field or copying
+    // out of one that is already open. NOTE 1 is what makes that reading safe rather than narrow
+    // — "there is no formal connection between the requirement type and the operation of the
+    // associated feature(s)" — so a requirement is never a reason to refuse a particular verb.
+    if operation == Operation::Process {
+        let penalty = crate::requirements::penalty_total(document);
+        if penalty > crate::requirements::PENALTY_LIMIT {
+            out.push(Restriction::RequirementsUnmet { penalty });
+        }
+    }
     out
 }
 
 /// Table 167 bit 10, counted from 1 as the table numbers its positions.
 const LOCKED_CONTENTS: i64 = 1 << 9;
+
+/// Whether any of Table 257's three levels can withhold this operation at all.
+///
+/// A question about the *operation* alone, answered before the document is read, because reading
+/// the answer costs a walk: `pdf_signature::signature::field_lock_permissions` visits every signed
+/// field §12.7.4's tree holds. The operations Table 257 says nothing about are the ones
+/// [`certification_permits`] permits at every level, and the test named
+/// `no_operation_is_asked_of_a_level_that_permits_it` is what keeps this from drifting away from
+/// that function.
+const fn certification_binds(operation: Operation) -> bool {
+    match operation {
+        Operation::Print | Operation::Extract | Operation::Assemble | Operation::Process => false,
+        Operation::Modify | Operation::FillInForm | Operation::Annotate => true,
+    }
+}
 
 /// Whether Table 257's `/P` leaves room for this operation.
 ///
@@ -497,7 +585,9 @@ const LOCKED_CONTENTS: i64 = 1 << 9;
 /// want its pages taken apart, and that bit is read.
 fn certification_permits(level: Modification, operation: Operation) -> bool {
     match operation {
-        Operation::Print | Operation::Extract | Operation::Assemble => true,
+        // And neither is *processing* one: §12.11.6 decides whether the document is opened at
+        // all, which is not a change to it, so no level of Table 257 speaks to it.
+        Operation::Print | Operation::Extract | Operation::Assemble | Operation::Process => true,
         Operation::Modify => matches!(level, Modification::Unknown(_)),
         Operation::FillInForm | Operation::Annotate => match level {
             Modification::None => false,
@@ -533,7 +623,9 @@ pub fn withheld(permissions: Permissions, operation: Operation) -> Option<Restri
     if permissions.owner {
         return None;
     }
-    let bit = operation.bit(permissions.revision);
+    // Table 22 states no position for §12.11.6's processing, so a security handler withholds
+    // nothing from it — see [`Operation::bit`], where the reading is.
+    let bit = operation.bit(permissions.revision)?;
     let granted = match operation {
         // Bit 9's row says "even if bit 6 is clear", so either grants it.
         Operation::FillInForm if bit == Bit::FillInForm => {
@@ -781,11 +873,46 @@ mod tests {
             match bit.consumed_by() {
                 Some(operation) => assert_eq!(
                     operation.bit(4),
-                    bit,
+                    Some(bit),
                     "{bit:?} says {operation:?} consumes it, and the operation agrees"
                 ),
                 None => assert!(matches!(bit, Bit::Assemble | Bit::PrintFaithfully)),
             }
+        }
+    }
+
+    /// An operation the certification cannot bind is one every level of Table 257 permits.
+    ///
+    /// The two are separate functions because one is asked before the document is read and the
+    /// other after — see `asserted`, where the first saves a walk of §12.7.4's field tree on the
+    /// launch path — and a reader would rightly want to know they cannot disagree. Over every
+    /// operation and every level Table 257 defines, plus a value it does not.
+    #[test]
+    fn no_operation_is_asked_of_a_level_that_permits_it() {
+        use super::certification_binds;
+        use pdf_signature::signature::Modification;
+        for operation in [
+            Operation::FillInForm,
+            Operation::Annotate,
+            Operation::Print,
+            Operation::Extract,
+            Operation::Modify,
+            Operation::Assemble,
+            Operation::Process,
+        ] {
+            let permitted = [
+                Modification::None,
+                Modification::FormFilling,
+                Modification::FormFillingAndAnnotation,
+                Modification::Unknown(9),
+            ]
+            .into_iter()
+            .all(|level| super::certification_permits(level, operation));
+            assert_eq!(
+                certification_binds(operation),
+                !permitted,
+                "{operation:?}: the guard and the rule disagree about Table 257"
+            );
         }
     }
 

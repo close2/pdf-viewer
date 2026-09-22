@@ -1164,7 +1164,8 @@ impl Session {
             Answer::Collection {
                 collection,
                 initial,
-            } => Ok(Collection::new(&collection, &initial)),
+                order,
+            } => Ok(Collection::new(&collection, &initial, order)),
             _ => Err(Status::NoAnswer),
         }
     }

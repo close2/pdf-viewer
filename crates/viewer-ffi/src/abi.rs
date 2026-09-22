@@ -5185,6 +5185,120 @@ pub unsafe extern "C" fn quorra_collection_folder_text(
     }
 }
 
+/// How many `/EmbeddedFiles` keys Table 153's `/Sort` put in an order.
+///
+/// §12.3.5.1's Table 153, on the entry:
+///
+/// > A collection sort dictionary, which specifies the order in which items in the collection
+/// > shall be sorted in the user interface
+///
+/// Zero where the document states no `/Sort`, which is the collection saying nothing about the
+/// order: a caller then shows the files as `quorra_attachments_read` listed them, which is the
+/// `/EmbeddedFiles` tree's own order.
+///
+/// **The order and not the values it was computed from**, which is the same division
+/// `quorra_collection_initial` takes: §12.3.5.1's comparisons need §7.11.6's collection item on
+/// each file specification's `/CI`, which no caller of this library holds, so the answer crosses
+/// and the arithmetic does not (ADR 1168).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_collection_ordered(
+    collection: *const Collection,
+    count: *mut usize,
+) -> c_int {
+    let (Some(collection), Some(count)) = (collection.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *count = collection.ordered();
+    Status::Ok.code()
+}
+
+/// The `/EmbeddedFiles` key at one place in Table 153's `/Sort` order.
+///
+/// The tree's key, folder number and all, because that is what `quorra_extract` names a file by
+/// and what `quorra_attachment_text`'s `QUORRA_ATTACHMENT_NAME` answers — so a caller matches the
+/// two by string and needs nothing else.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_collection_order_key(
+    collection: *const Collection,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match collection.order_key(index) {
+        Some(key) => copy_out(key, out, cap, needed),
+        None => Status::OutOfRange.code(),
+    }
+}
+
+/// How many named layouts §12.3.6's navigator states.
+///
+/// Zero where the collection states no `/Navigator`, which is every collection written before
+/// PDF 2.0 and most written since. A caller that gets zero presents the collection according to
+/// `quorra_collection_view` alone, which is §12.3.5.1's own instruction.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_collection_layouts(
+    collection: *const Collection,
+    count: *mut usize,
+) -> c_int {
+    let (Some(collection), Some(count)) = (collection.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *count = collection.layouts();
+    Status::Ok.code()
+}
+
+/// One of them: `QUORRA_NAVIGATOR_*`, and the name the file wrote for a custom one.
+///
+/// **The list rather than a selection, and that is §12.3.6 rather than a preference**: "[w]hen
+/// multiple names are provided, an interactive PDF processor should present the first one it is
+/// capable of displaying in the order present in the array." Which layouts a caller of this
+/// library can draw is a fact about that caller, so the choice is the caller's and this is what it
+/// needs to make it — a library that chose here would be choosing with the wrong window in mind.
+///
+/// `out` receives the layout's own name only for `QUORRA_NAVIGATOR_CUSTOM`, whose name §12.3.6
+/// leaves to whoever registered it; the seven the table defines write an empty string, because
+/// their number *is* the name.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_collection_layout(
+    collection: *const Collection,
+    index: usize,
+    kind: *mut u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some((named, name)) = collection.layout(index) else {
+        return Status::OutOfRange.code();
+    };
+    if let Some(kind) = kind.as_mut() {
+        *kind = named as u32;
+    }
+    copy_out(name, out, cap, needed)
+}
+
 /// Which folder an `/EmbeddedFiles` key names, and the file name inside it.
 ///
 /// **The one piece of §12.3.5 a caller could not compute**, and the reason this is a function

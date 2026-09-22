@@ -685,6 +685,12 @@ pub struct Presentation<'a> {
     pub collection: &'a pdf_model::collection::Collection,
     /// Which document §12.3.5.1 says shall be presented first.
     pub initial: &'a pdf_model::collection::Initial,
+    /// Table 153's `/Sort` applied: the `/EmbeddedFiles` keys in the order the collection states
+    /// its items "shall be sorted in the user interface", empty where it states no `/Sort`.
+    ///
+    /// Resolved for the same reason `initial` is, and applied by
+    /// `viewer_host::panel::in_sort_order`, which is one answer for all three windows.
+    pub order: &'a [String],
 }
 
 /// What a click on the sidebar asked for.
@@ -1306,8 +1312,14 @@ fn collection_rows(
     let Presentation {
         collection,
         initial,
+        order,
     } = presentation;
     let start = out.len();
+    // Table 153's `/Sort`, applied once for every window by `viewer_host::panel::in_sort_order`
+    // — the levels below both close over this list, so sorting it here puts every folder's rows
+    // in the stated order without either of them knowing there is an order (ADR 1168).
+    let files = viewer_host::panel::in_sort_order(order, files);
+    let files = files.as_slice();
 
     // The schema's visible columns in Table 155's `/O` order, which is "[t]he relative order of
     // the field name in the user interface". A field with no `/O` sorts after the ones that state
@@ -3254,9 +3266,12 @@ mod tests {
                 break;
             }
         }
-        // Six operations of four levels under the window's heading, and of five under the
-        // document's, which is `viewer_host::Restrictions::entries`' own count.
-        assert_eq!(chosen.len(), 6 * 4 + 6 * 5);
+        // Every operation's four levels under the window's heading and five under the document's,
+        // which is `viewer_host::Restrictions::entries`' own count. The number of operations is
+        // `RestrictionPolicy::OPERATIONS`'s rather than a figure written here, because a policy
+        // that grew an entry would otherwise leave this passing over a menu missing nine rows.
+        let operations = viewer_core::RestrictionPolicy::OPERATIONS.len();
+        assert_eq!(chosen.len(), operations * 4 + operations * 5);
         assert!(
             chosen.iter().any(|chose| chose.level.is_none()),
             "the document's way back to the window's level is reachable"

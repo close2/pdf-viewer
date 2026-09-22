@@ -869,6 +869,10 @@ impl RestrictionLevel {
 /// the day a window gains a print path the level is already the reader's to set. That is the
 /// contract's "carried for the day those operations exist" and it is deliberate rather than
 /// speculative: a policy with a hole in it would have to grow a message to fill it.
+///
+/// **One entry is not about a verb a person presses**: `Process` is §12.11.6's, and what its level
+/// decides is whether a document whose unmet requirements pass §12.11.3's threshold is processed
+/// at all. It is asked once, where the document opens, and never again (ADR 1167).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RestrictionPolicy {
     copy: RestrictionLevel,
@@ -877,6 +881,7 @@ pub struct RestrictionPolicy {
     print: RestrictionLevel,
     modify: RestrictionLevel,
     assemble: RestrictionLevel,
+    process: RestrictionLevel,
 }
 
 impl RestrictionPolicy {
@@ -885,7 +890,7 @@ impl RestrictionPolicy {
     /// The order is this type's own and is what the wire, the C ABI and a command line all
     /// enumerate in, so that the three cannot drift: a policy is six levels and this says which
     /// six and in what sequence.
-    pub const OPERATIONS: [pdf_model::restriction::Operation; 6] = {
+    pub const OPERATIONS: [pdf_model::restriction::Operation; 7] = {
         use pdf_model::restriction::Operation as O;
         [
             O::Extract,
@@ -894,6 +899,7 @@ impl RestrictionPolicy {
             O::Print,
             O::Modify,
             O::Assemble,
+            O::Process,
         ]
     };
 
@@ -907,6 +913,7 @@ impl RestrictionPolicy {
             print: level,
             modify: level,
             assemble: level,
+            process: level,
         }
     }
 
@@ -921,6 +928,7 @@ impl RestrictionPolicy {
             O::Print => self.print,
             O::Modify => self.modify,
             O::Assemble => self.assemble,
+            O::Process => self.process,
         }
     }
 
@@ -939,6 +947,7 @@ impl RestrictionPolicy {
             O::Print => self.print = level,
             O::Modify => self.modify = level,
             O::Assemble => self.assemble = level,
+            O::Process => self.process = level,
         }
         self
     }
@@ -959,6 +968,10 @@ impl RestrictionPolicy {
             O::Print => "print",
             O::Modify => "modify",
             O::Assemble => "assemble",
+            // §12.11.6's own noun. Not "open": the clause evaluates the requirements *before*
+            // the document is processed and stops it going on, which is a wider thing than
+            // opening a file and is what this level decides.
+            O::Process => "process",
         }
     }
 
@@ -1035,6 +1048,7 @@ pub struct RestrictionOverride {
     print: Option<RestrictionLevel>,
     modify: Option<RestrictionLevel>,
     assemble: Option<RestrictionLevel>,
+    process: Option<RestrictionLevel>,
 }
 
 impl RestrictionOverride {
@@ -1049,6 +1063,7 @@ impl RestrictionOverride {
         print: None,
         modify: None,
         assemble: None,
+        process: None,
     };
 
     /// The level this document departs to for one operation, if it departs at all.
@@ -1065,6 +1080,7 @@ impl RestrictionOverride {
             O::Print => self.print,
             O::Modify => self.modify,
             O::Assemble => self.assemble,
+            O::Process => self.process,
         }
     }
 
@@ -1084,6 +1100,7 @@ impl RestrictionOverride {
             O::Print => self.print = level,
             O::Modify => self.modify = level,
             O::Assemble => self.assemble = level,
+            O::Process => self.process = level,
         }
         self
     }

@@ -228,3 +228,19 @@ ask the same questions in the same order — `Protected::method` mirrors `Docume
 restriction a document asserts; a link's policy has its permissive end at `open`. Reusing
 `off|on|ask|warn` would have made one word permissive in one policy and restrictive in the other.
 Ask what the most permissive value is called in each before reusing a vocabulary (ADR 1155).
+
+## A check that moves onto the launch path pays for every source it asks
+
+`restriction::asserted` was correct and cheap for five hundred sessions because every caller was a
+gesture; the moment `Viewer::open` became a caller it was a §12.7.4 field-tree walk per document,
+and nothing failed because the answer was identical either way. When a function's *caller set*
+changes rather than its body, re-read what it reads — and run `launch_path`, which is the only gate
+that can see it (ADR 1167).
+
+## A batch of edits tags each edit with the rewrite that asked for it
+
+The converter's preparation is computed from the validator's failures and never sees the
+requirements the caller departed from; only the rewriter's own gate keeps a departed requirement's
+edits from being applied. Anything that produces a batch of edits therefore tags each with the
+rewrite that asked for it (`actions.rs`'s `Edit::by()`) rather than gating the batch as a whole —
+a batch without it silently carries out a departed row (ADR 1175).

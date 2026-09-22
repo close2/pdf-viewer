@@ -457,6 +457,26 @@ impl Document {
         }
     }
 
+    /// The same bytes read through an earlier revision's cross-reference table.
+    ///
+    /// §7.5.6 appends rather than rewrites, so every revision of a document is still in the file
+    /// and the only thing that decides which copy of an object a reader sees is the table. This
+    /// is that substitution and nothing else: the same [`FileBytes`], the same limits, the same
+    /// file encryption key, and empty caches because what is cached here is keyed by object
+    /// number and the point of the exercise is that the number now names other bytes.
+    ///
+    /// The key is carried rather than derived again because §7.6 makes it the *file's*: it comes
+    /// from the trailer's `/Encrypt` dictionary and the first half of its `/ID`, and §7.5.6's
+    /// added trailer restates both. A file that re-encrypted itself in an update would defeat
+    /// this, and would defeat every other reader too, since the objects under the update are
+    /// ciphertext under a key no trailer still names.
+    pub(crate) fn as_of(&self, xref: XrefTable) -> Self {
+        let mut earlier = Self::around(self.bytes.clone(), xref, self.limits);
+        earlier.encryption.clone_from(&self.encryption);
+        earlier.encrypt_object = self.encrypt_object;
+        earlier
+    }
+
     /// Reads the trailer's `/Encrypt` entry and derives the file encryption key.
     ///
     /// Runs while `self.encryption` is still `None`, which is what keeps §7.6.2's second

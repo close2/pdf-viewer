@@ -1141,8 +1141,9 @@ fn read_sample_alpha(reader: &mut Reader<'_>) -> Result<SampleAlpha, ProtocolErr
 /// this file instead of a mode that crossed as a different one.
 ///
 /// The special overprinting blend mode carries a value — which of the raster's three channels
-/// it leaves to the backdrop — and [`pdf_render::Overprint`] guarantees at least one of them,
-/// so its seven possibilities are tags 16 to 22 with the channels as the low three bits.
+/// it leaves to the backdrop — and the empty set is one of them, because the clause decides
+/// four components and this raster carries three ([`pdf_render::Overprint`]). Its eight
+/// possibilities are therefore tags 16 to 23 with the channels as the low three bits.
 fn blend_tag(blend: BlendMode) -> u8 {
     match blend {
         BlendMode::Normal => 0,
@@ -1164,7 +1165,7 @@ fn blend_tag(blend: BlendMode) -> u8 {
         BlendMode::Overprint(overprint) => {
             let kept = overprint.kept();
             let bits = u8::from(kept[0]) | (u8::from(kept[1]) << 1) | (u8::from(kept[2]) << 2);
-            15_u8.saturating_add(bits)
+            16_u8.saturating_add(bits)
         }
     }
 }
@@ -1788,17 +1789,14 @@ fn read_mark_state(
         13 => BlendMode::Saturation,
         14 => BlendMode::Color,
         15 => BlendMode::Luminosity,
-        value @ 16..=22 => {
-            let bits = value.saturating_sub(15);
+        value @ 16..=23 => {
+            // The tags 16 to 23 are the eight subsets of the raster's three channels, the
+            // empty one included: §11.7.4.3's mode decides four components and this raster
+            // carries three of them, so a colour whose only zero tint is black keeps none of
+            // this half's (`pdf_render::Overprint`).
+            let bits = value.saturating_sub(16);
             let kept = [bits & 1 != 0, bits & 2 != 0, bits & 4 != 0];
-            // The tags 16 to 22 are exactly the seven non-empty subsets, so this cannot be
-            // `None`; the `ok_or` is what says so rather than assuming it.
-            BlendMode::Overprint(pdf_render::Overprint::new(kept).ok_or(
-                ProtocolError::Unrecognised {
-                    what: "a command's overprinting blend mode",
-                    value: u32::from(value),
-                },
-            )?)
+            BlendMode::Overprint(pdf_render::Overprint::new(kept))
         }
         value => {
             return Err(ProtocolError::Unrecognised {
@@ -2970,6 +2968,40 @@ mod tests {
             decode(&writer.finish()),
             Err(ProtocolError::Overlong { .. })
         ));
+    }
+
+    /// Every one of §11.7.4.3's special overprinting blend mode's eight values crosses as itself.
+    ///
+    /// Sixteen of Table 134 and Table 135 have a tag each and this mode has eight, one per subset
+    /// of the raster's three channels — the empty one included, because the clause decides four
+    /// components and one half of §11.4.7's pair carries three of them
+    /// (`pdf_render::Overprint`). The empty subset is the tag that used to collide with
+    /// `Luminosity`'s, which is a value crossing as a different value and the one failure this
+    /// file's `blend_tag` exists to make impossible.
+    #[test]
+    fn every_subset_the_overprinting_mode_can_keep_crosses_as_itself() {
+        for bits in 0_u8..8 {
+            let kept = [bits & 1 != 0, bits & 2 != 0, bits & 4 != 0];
+            let mode = BlendMode::Overprint(pdf_render::Overprint::new(kept));
+            let mut list = DisplayList::new(Size::new(10.0, 20.0));
+            list.push(Command::Fill {
+                path: a_path(),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(Color::rgba(0.1, 0.2, 0.3, 0.4)),
+                clip: None,
+                mask: None,
+                blend: mode,
+            });
+            let message = encode(&list).expect("a codable list");
+            let read = decode(&message).expect("the message decodes");
+            assert_eq!(
+                read.commands().first().map(Command::blend),
+                Some(mode),
+                "the mode keeping {kept:?} came back as something else"
+            );
+            assert_ne!(blend_tag(mode), blend_tag(BlendMode::Luminosity));
+        }
     }
 
     /// Every truncation and every single-byte change of a real message is a refusal or a value,

@@ -493,9 +493,9 @@ pub mod ffi {
         /// Every entry of the restrictions menu, flat, in the order a menu nests them.
         ///
         /// `QtMenuEntry::depth` is what a C++ walk pushes and pops on. The *set* of entries and
-        /// their order are fixed — two scopes, six operations, four levels and one way back —
-        /// so an index into this list names the same choice whatever the policy is, which is what
-        /// makes `chose_restriction` safe to call with one.
+        /// their order are fixed — two scopes, every operation a policy holds a level for, four
+        /// levels and one way back — so an index into this list names the same choice whatever
+        /// the policy is, which is what makes `chose_restriction` safe to call with one.
         fn restriction_menu(self: &Host) -> Vec<QtMenuEntry>;
         /// A person picked one of `restriction_menu`'s entries, by its index in that list.
         fn chose_restriction(self: &mut Host, entry: usize);

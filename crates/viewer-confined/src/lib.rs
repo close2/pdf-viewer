@@ -598,6 +598,10 @@ pub enum Reply {
         /// §12.3.5.1's `/D`, resolved against the `/EmbeddedFiles` name tree the confined process
         /// holds and this one does not. See [`viewer_core::Answer::Collection`].
         initial: pdf_model::collection::Initial,
+        /// Table 153's `/Sort` applied, for the same reason and across the same boundary: the
+        /// `/EmbeddedFiles` keys in the order the collection states, or empty where it states
+        /// no `/Sort`.
+        order: Vec<String>,
     },
     /// §12.4.3's article threads, in the `/Threads` array's own order.
     Articles(Vec<pdf_model::article::Thread>),

@@ -1007,11 +1007,238 @@ pub fn embedded_file_keys(document: &Document) -> Vec<String> {
         .collect()
 }
 
+/// The `/EmbeddedFiles` keys in the order Table 153's `/Sort` states, or `None` where the
+/// collection states none.
+///
+/// §12.3.5.1's Table 153 states what the entry is for:
+///
+/// > A collection sort dictionary, which specifies the order in which items in the collection
+/// > shall be sorted in the user interface
+///
+/// A `shall` about the *order rows stand in*, which is why this is computed here and not in a
+/// panel: the values it orders by are in two places a host does not hold at once — §7.11.6's
+/// collection item on each file specification's `/CI`, which only a `Document` can reach, and
+/// the file-related entries [`crate::attachment::Attachment`] already carries — and three
+/// windows each pairing them up would be three answers to one clause (ADR 1168).
+///
+/// # What Table 156 states, and what it leaves to a reader
+///
+/// `/S` names the fields, in precedence order: "if multiple collection item dictionaries have
+/// the same value for the first field named in the array, the values for successive fields named
+/// in the array shall be used for sorting, until a unique order is determined or until the named
+/// fields are exhausted." `/A` says which of them ascend, and [`Sort::ascending`] applies the
+/// clause's rule for a single boolean and for a short array. §12.3.5.1 fixes the three
+/// comparisons by the field's *type* rather than by the object's: text "ordered lexically from
+/// smaller to larger", numbers "numerically from smaller to larger", dates "from oldest to
+/// newest".
+///
+/// Three things the clause does not state, decided here and written down as decisions:
+///
+/// - **Lexical order is this reader's**, and the clause says so: "NOTE 3 Lexical ordering is an
+///   implementation dependency for interactive PDF processors." What this uses is the ordering
+///   of the decoded text string's Unicode scalar values, which is stable, is the same on every
+///   machine this program runs on, and is what `str`'s own comparison is.
+/// - **A member with no value for a field sorts after every member that has one**, in both
+///   directions, so that the `/A` flag reorders the values a document stated rather than
+///   shuffling the ones it did not. A field the schema does not describe at all leaves every
+///   member valueless, which makes it a tie and hands the ordering to the next field — the
+///   clause's own tie-breaking rule doing the work.
+/// - **The name-tree order breaks a tie the named fields could not.** Table 156 stops at "until
+///   the named fields are exhausted" and says nothing about what is left; the tree's own order is
+///   the one order the document also stated, so nothing is invented.
+///
+/// Table 47's prefix is not consulted, because its own entry says not to: "[t]his entry is
+/// ignored when an interactive PDF processor sorts the items in the collection."
+#[must_use]
+pub fn sorted_keys(
+    document: &Document,
+    collection: &Collection,
+    attachments: &[crate::attachment::Attachment],
+) -> Option<Vec<String>> {
+    let sort = collection.sort.as_ref()?;
+    // A `/Sort` naming no field states no order — Table 156 makes `/S` required, so this is a
+    // malformed dictionary rather than an empty instruction, and the tree's order stands.
+    let fields: Vec<(&String, &Field, bool)> = sort
+        .fields
+        .iter()
+        .enumerate()
+        .filter_map(|(at, name)| Some((name, collection.schema.get(name)?, sort.ascending(at))))
+        .collect();
+    if fields.is_empty() {
+        return None;
+    }
+    let items = items_by_key(document);
+    let mut members: Vec<(usize, &crate::attachment::Attachment, &Item)> = attachments
+        .iter()
+        .enumerate()
+        .map(|(at, attachment)| {
+            (
+                at,
+                attachment,
+                items.get(&attachment.name).unwrap_or(&EMPTY),
+            )
+        })
+        .collect();
+    members.sort_by(|left, right| {
+        for (key, field, ascending) in &fields {
+            let ordering = compare(
+                sortable(key, field, left.1, left.2).as_ref(),
+                sortable(key, field, right.1, right.2).as_ref(),
+                *ascending,
+            );
+            if ordering != std::cmp::Ordering::Equal {
+                return ordering;
+            }
+        }
+        // The tree's own order, which is the tie Table 156 leaves standing.
+        left.0.cmp(&right.0)
+    });
+    Some(
+        members
+            .into_iter()
+            .map(|(_, attachment, _)| attachment.name.clone())
+            .collect(),
+    )
+}
+
+/// A member that states no collection item at all, which most files in most collections do.
+static EMPTY: std::sync::LazyLock<Item> = std::sync::LazyLock::new(Item::default);
+
+/// Every `/EmbeddedFiles` key with the §7.11.6 collection item its file specification states.
+///
+/// The tree is walked once rather than per field, and the key is the tree's rather than the
+/// file's, which is what [`crate::attachment::Attachment::name`] carries for a document-level
+/// embedded file.
+fn items_by_key(document: &Document) -> BTreeMap<String, Item> {
+    let Ok(catalog) = document.catalog() else {
+        return BTreeMap::new();
+    };
+    let names = document.get_key(&catalog, "Names");
+    let Some(names) = names.as_dict() else {
+        return BTreeMap::new();
+    };
+    let files = document.get_key(names, "EmbeddedFiles");
+    let Some(files) = files.as_dict() else {
+        return BTreeMap::new();
+    };
+    tree::name_pairs(files, &|object| document.resolve(object))
+        .into_iter()
+        .filter_map(|(key, spec)| {
+            let spec = document.resolve(&spec);
+            let dict = spec.as_dict()?;
+            Some((pdf_syntax::text_string(&key), item(document, dict)))
+        })
+        .collect()
+}
+
+/// One member's value for one field, in the form §12.3.5.1 compares it in.
+///
+/// Three forms rather than one, because the clause states three comparisons and fixes which by
+/// the *field's* type: "[t]he type of sorting depends on the type of data".
+#[derive(Debug, PartialEq)]
+enum Sortable {
+    /// A text field's string, compared by its Unicode scalar values.
+    Text(String),
+    /// A number field's value.
+    Number(f64),
+    /// A date field's instant, in whole minutes — `pdf_syntax::Date::instant`, which is what
+    /// orders "from oldest to newest" across two time zones.
+    Instant(i64),
+}
+
+/// What this member states for this field, or `None` where it states nothing.
+///
+/// Table 155's own division decides where to look: the first three subtypes are "types of fields
+/// in the collection item or collection subitem dictionary" and the rest are "file-related
+/// fields", whose data "is already in the file specification".
+fn sortable(
+    key: &str,
+    field: &Field,
+    attachment: &crate::attachment::Attachment,
+    item: &Item,
+) -> Option<Sortable> {
+    let of_date = |written: &Option<String>| {
+        written
+            .as_deref()
+            .and_then(pdf_syntax::Date::parse)
+            .map(|date| Sortable::Instant(date.instant()))
+    };
+    match &field.kind {
+        FieldKind::Text => match &item.values.get(key)?.data {
+            Object::String(bytes) => Some(Sortable::Text(pdf_syntax::text_string(bytes))),
+            _ => None,
+        },
+        FieldKind::Number => item.values.get(key)?.data.as_number().map(Sortable::Number),
+        FieldKind::Date => match &item.values.get(key)?.data {
+            Object::String(bytes) => pdf_syntax::Date::parse(&pdf_syntax::text_string(bytes))
+                .map(|date| Sortable::Instant(date.instant())),
+            _ => None,
+        },
+        FieldKind::FileName => attachment.file_name.clone().map(Sortable::Text),
+        FieldKind::Description => attachment.description.clone().map(Sortable::Text),
+        FieldKind::ModificationDate => of_date(&attachment.modified),
+        FieldKind::CreationDate => of_date(&attachment.created),
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "Table 45's /Size is a byte count; the comparison only has to order two of \
+                      them, and no embedded file this reader can hold approaches 2^53 bytes"
+        )]
+        FieldKind::Size => attachment.size.map(|size| Sortable::Number(size as f64)),
+        // Table 155: "the length of the embedded file stream, as identified by the Length entry
+        // in the embedded file" — the stream's own bytes rather than the inflated ones, which is
+        // what this reader is holding.
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a stream length, for the same reason /Size's is"
+        )]
+        FieldKind::CompressedSize => Some(Sortable::Number(attachment.stream.data.len() as f64)),
+        // A subtype this standard does not define names data whose *type* is unknown, so there is
+        // no comparison to make: every member ties and the next field decides.
+        FieldKind::Other(_) => None,
+    }
+}
+
+/// Two members' values for one field, with `/A`'s direction applied to the ones that exist.
+///
+/// A missing value sorts last whichever way the field runs — see [`sorted_keys`], where that is
+/// written down as a decision.
+fn compare(
+    left: Option<&Sortable>,
+    right: Option<&Sortable>,
+    ascending: bool,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (Some(left), Some(right)) = (left, right) else {
+        return match (left.is_some(), right.is_some()) {
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            _ => Ordering::Equal,
+        };
+    };
+    let ordering = match (left, right) {
+        (Sortable::Text(left), Sortable::Text(right)) => left.cmp(right),
+        (Sortable::Number(left), Sortable::Number(right)) => {
+            left.partial_cmp(right).unwrap_or(Ordering::Equal)
+        }
+        (Sortable::Instant(left), Sortable::Instant(right)) => left.cmp(right),
+        // The schema says what type the field is and both values were read under it, so two
+        // members can only differ in form where one of them is not what the schema describes.
+        // A comparison between two different things is not one, and a tie hands the ordering to
+        // the next field.
+        _ => Ordering::Equal,
+    };
+    if ascending {
+        ordering
+    } else {
+        ordering.reverse()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         Collection, FieldKind, Initial, Layout, NameDefect, NameRestriction, Named, SplitDirection,
-        View, file_name_defects, folder_of, is_file_name,
+        View, file_name_defects, folder_of, is_file_name, sorted_keys,
     };
     use pdf_syntax::{Document, Object};
 
@@ -1039,6 +1266,96 @@ mod tests {
             objects.len().saturating_add(1)
         );
         Document::open(out.into_bytes()).expect("a valid file")
+    }
+
+    /// A collection with three files, sorted by Table 156's `/S` and `/A`.
+    ///
+    /// §12.3.5.1's Table 153, on the entry this is about:
+    ///
+    /// > A collection sort dictionary, which specifies the order in which items in the collection
+    /// > shall be sorted in the user interface
+    ///
+    /// The field is a `/Subtype /N` number, so its values are in §7.11.6's `/CI` and nowhere else
+    /// — which is what makes this a reading of the clause rather than a `sort_by` over names.
+    /// Three claims: `/A true` is "ordered numerically from smaller to larger", `/A false` is that
+    /// reversed, and the file whose item states no value for the field sorts after both either
+    /// way, because a direction a reader chose must not shuffle what the document did not state.
+    #[test]
+    fn a_collection_sorts_its_files_by_the_field_table_156_names() {
+        let doc = |ascending: &str| {
+            document(&[
+                "<< /Type /Catalog /Collection 2 0 R /Names << /EmbeddedFiles << /Names \
+                 [(a.txt) 3 0 R (b.txt) 4 0 R (c.txt) 5 0 R] >> >> >>",
+                &format!(
+                    "<< /Type /Collection /Schema << /Type /CollectionSchema \
+                     /order << /Subtype /N /N (Order) >> >> /Sort << /S /order{ascending} >> >>"
+                ),
+                "<< /Type /Filespec /UF (a.txt) /EF << /F 6 0 R >> /CI << /order 20 >> >>",
+                "<< /Type /Filespec /UF (b.txt) /EF << /F 6 0 R >> /CI << /order 10 >> >>",
+                "<< /Type /Filespec /UF (c.txt) /EF << /F 6 0 R >> >>",
+                "<< /Type /EmbeddedFile /Length 2 >>\nstream\nhi\nendstream",
+            ])
+        };
+
+        let up = doc("");
+        let files = crate::attachment::attachments(&up);
+        assert_eq!(files.len(), 3, "the tree's three entries: {files:?}");
+        let collection = Collection::read(&up).expect("a collection");
+        assert_eq!(
+            sorted_keys(&up, &collection, &files).expect("a /Sort"),
+            ["b.txt", "a.txt", "c.txt"],
+            "10 before 20, and the file stating no value after both"
+        );
+
+        let down = doc(" /A false");
+        let files = crate::attachment::attachments(&down);
+        let collection = Collection::read(&down).expect("a collection");
+        assert_eq!(
+            sorted_keys(&down, &collection, &files).expect("a /Sort"),
+            ["a.txt", "b.txt", "c.txt"],
+            "/A false reverses the values and leaves the absent one last"
+        );
+    }
+
+    /// Table 156's tie-breaking, and a collection that states no `/Sort` at all.
+    ///
+    /// §12.3.5.1's Table 156, on the `/S` array:
+    ///
+    /// > if multiple collection item dictionaries have the same value for the first field named
+    /// > in the array, the values for successive fields named in the array shall be used for
+    /// > sorting, until a unique order is determined or until the named fields are exhausted.
+    ///
+    /// The second field is a `/Subtype /F` file-related one, whose value is the file
+    /// specification's `/UF` rather than the item's — so this is also the assertion that both of
+    /// Table 155's groups reach the comparison.
+    #[test]
+    fn a_second_field_breaks_a_tie_and_no_sort_states_no_order() {
+        let doc = document(&[
+            "<< /Type /Catalog /Collection 2 0 R /Names << /EmbeddedFiles << /Names \
+             [(a.txt) 3 0 R (b.txt) 4 0 R] >> >> >>",
+            "<< /Type /Collection /Schema << /Type /CollectionSchema \
+             /order << /Subtype /N /N (Order) >> /file << /Subtype /F /N (Name) >> >> \
+             /Sort << /S [/order /file] /A [true false] >> >>",
+            "<< /Type /Filespec /UF (a.txt) /EF << /F 5 0 R >> /CI << /order 1 >> >>",
+            "<< /Type /Filespec /UF (b.txt) /EF << /F 5 0 R >> /CI << /order 1 >> >>",
+            "<< /Type /EmbeddedFile /Length 2 >>\nstream\nhi\nendstream",
+        ]);
+        let files = crate::attachment::attachments(&doc);
+        let collection = Collection::read(&doc).expect("a collection");
+        assert_eq!(
+            sorted_keys(&doc, &collection, &files).expect("a /Sort"),
+            ["b.txt", "a.txt"],
+            "the first field ties, and the second runs descending by /A's second entry"
+        );
+
+        // A collection stating no `/Sort` states no order, and the `/EmbeddedFiles` tree's own
+        // order — which is what a panel already shows — stands.
+        let quiet = document(&[
+            "<< /Type /Catalog /Collection 2 0 R >>",
+            "<< /Type /Collection >>",
+        ]);
+        let collection = Collection::read(&quiet).expect("a collection");
+        assert_eq!(sorted_keys(&quiet, &collection, &[]), None);
     }
 
     /// §12.3.5.2's EXAMPLE 1, an email in-box, read as five columns and a sort.

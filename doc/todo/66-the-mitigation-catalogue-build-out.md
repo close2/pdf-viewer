@@ -31,16 +31,25 @@ than reading a number here: the first command's `not built yet` lines per target
 `does not carry out yet` notes over the veraPDF corpus, are what `tools/state.sh archive` should
 grow to print (an instrument gap of its own).
 
+`tools/state.sh remedies` prints the first command's `not built yet` count per target and runs in
+`quick`; `section_archive` calls it, so one section prints both halves. The second command's
+`does not carry out yet` notes are still uncounted — they come from the `--config` reader rather
+than from the corpus walk — and the cheapest way to close that half is for `--remedy-sites` to
+print its own `N of M sites not built yet` trailer, which `state.sh` can then filter instead of
+count.
+
 ## What each family needs, so that a round can take one
 
 Grouped by the code one build unlocks, not by clause; every site's own entry in
 `doc/pdf-a-mitigations.md` carries the argument and the per-target answer.
 
-- **Actions** (`actions/*`, six sites; the largest default refusal after fonts): one removal
-  routine at rewrite — the `/A`, `/AA` and `/OpenAction` entries the site names, dropped with the
-  count in the report; the named-action and page-navigation sites keep what the part permits.
-- **Forms** (`forms/*`, four): `/NeedAppearances` cleared, widget actions removed (the routine
-  above), the XFA packet removed or, at 4f, attached (catalogue section 7's `preserve`).
+- **Actions** (`actions/*`, eight sites): **built** — `crates/pdf-transform/src/archive/actions.rs`,
+  under one `Loss::InteractiveBehaviour`, with `forms/no-action-on-widget-or-field` beside them
+  because one routine answers all nine. A removed action's §12.6.2 `/Next` subtree is promoted into
+  its place, so the permitted actions behind a forbidden one still run (ADR 1175).
+- **Forms** (`forms/*`, four): widget actions **built** with the Actions routine above;
+  `/NeedAppearances` cleared and the XFA packet removed or, at 4f, attached (catalogue section 7's
+  `preserve`) are what is left.
 - **Metadata** (`metadata/*`, eight): a fresh packet written by the existing XMP writer with the
   old one attached at 4f/4e or appended as a page (catalogue section 9; the owner's *append or
   prefix the packet as a page*). The appended page is built, including the structure entries it

@@ -4,9 +4,11 @@ Status: **the reading, the four levels, the verdict, the events, the command, th
 *per restriction*, a per-document scope, the copy operation, a command line, a menu in all three
 windows and the prompt the *ask* level needs are built** (ADR 0212, session 373; ADR 0803, session
 872; ADR 0814, session 885; ADRs 0874 and 0875, session 916; ADR 1144, session 1147; ADR 1145,
-session 1155). **The owner lifted the no-interface deferral on 2026-09-16.** What is left is the
-*attach and detach gestures*, which wait on the owner's HTML mockups, and the operations `Print`
-and `Assemble`, which await verbs this program does not have.
+session 1155). **The owner lifted the no-interface deferral on 2026-09-16.** §12.11.6's requirements processing
+joined the six as a seventh operation in session 1165 (ADR 1167), which is the first one that is
+not a verb a person presses: what its level decides is whether a document is opened at all. What is
+left is the *attach and detach gestures*, which wait on the owner's HTML mockups, and the operations
+`Print` and `Assemble`, which await verbs this program does not have.
 
 **A second policy with the same four levels sits beside this one and is not part of it**, because
 the direction is the other one: `viewer_host::Links` is what this machine does when §12.6.4.8's
@@ -240,6 +242,13 @@ screen still takes the bar — that sentence is the reader asking rather than th
   level every face opens at *off* withholds nothing from a reader who did not ask for it. It is the
   standing answer to a two-voiced entry — read it, route it through the levels, and let the reader
   decide.
+- **§12.11.6's requirements processing is the seventh operation**, since session 1165: the penalty
+  a document's unmet requirements total, past §12.11.3's threshold, reaches the same four levels as
+  the six Table 22 positions do. It is the one asked where a document *opens* rather than at a
+  gesture, so `on` raises no `Event::Opened` at all, `ask` holds the whole open until
+  `Command::Answer` — the one question whose `no` has something to undo, because a document held
+  before it was processed was never opened — and `warn` opens it and says so afterwards. `off` is
+  still the default. ADR 1167.
 - **Annex O's `ef`, which is the same four levels arriving from `doc/todo/39`.** "[S]ecurity should
   be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an

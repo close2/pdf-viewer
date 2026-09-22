@@ -303,6 +303,9 @@ fn reason(restriction: Restriction) -> String {
             "a signature's FieldMDP transform covers the field (§12.8.2.4)".to_owned()
         }
         Restriction::AnnotationLocked => "LockedContents (Table 167 bit 10)".to_owned(),
+        Restriction::RequirementsUnmet { penalty } => {
+            format!("requirements this program cannot meet, {penalty} penalty points (§12.11.6)")
+        }
     }
 }
 

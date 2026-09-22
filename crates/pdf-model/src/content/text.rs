@@ -13,6 +13,7 @@ use pdf_render::display_list::Clip;
 use pdf_render::{BlendMode, ClipId, Command, FillRule, Path, Point, Rect, Transform};
 
 use super::font::Font;
+use super::overprint::{FirstBullet, implicit_group_owed};
 use super::pattern::{PatternPaint, Tiled};
 use super::report::{Placed, Unsupported};
 use super::transparency::{Painted, implicit_knockout_group, outline_bounds};
@@ -95,10 +96,28 @@ struct GlyphPainting {
     knockout_can_show: bool,
     /// Whether §11.7.4.4's implicit group could change a pixel of this glyph.
     combining: bool,
+    /// Which of §11.7.4's implicit groups this glyph's parts are wrapped in once painted.
+    implicit: Implicit,
     /// The blend mode the fill is painted under, §11.7.4.3's special one included.
     fill_blend: BlendMode,
     /// The blend mode the stroke is painted under.
     stroke_blend: BlendMode,
+}
+
+/// Which of ISO 32000-2 §11.7.4's two implicit non-isolated, non-knockout groups a glyph's
+/// parts are wrapped in once they are painted.
+///
+/// The two differ in where §11.6.4.4's alpha constants sit, which is why they are two:
+/// §11.7.4.3's last paragraph moves the blend mode alone, and §11.7.4.4's first bullet paints
+/// the parts "with an alpha value of 1.0" and composites the group at the stated one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Implicit {
+    /// Neither clause asks for one.
+    None,
+    /// §11.7.4.3's last paragraph, around an object §11.7.4.4 does not address.
+    Special,
+    /// §11.7.4.4's first bullet, around a glyph filled and stroked by mode 2 or 6.
+    FirstBullet,
 }
 
 impl GlyphPainting {
@@ -113,6 +132,23 @@ impl GlyphPainting {
     fn read(mode: i64, hidden: bool, state: &GraphicsState, parts: Parts) -> Self {
         let fills = matches!(mode, 0 | 2 | 4 | 6) && !hidden;
         let strokes = matches!(mode, 1 | 2 | 5 | 6) && !hidden;
+        // §11.7.4.4 applies to "the painting of glyphs with text rendering mode 2 or 6",
+        // which is `fills && strokes`, and its NOTE 1 says the rule "is independent of the
+        // text knockout parameter in the graphics state" — so this is a different condition
+        // from `knockout_can_show` below, not a special case of it. The other two halves are
+        // §11.6.2's, for the same reason they are there: the paint has to composite at all,
+        // and both parts have to mark the page.
+        // A part that keeps a component of the backdrop composites with what is under it
+        // however opaque it is, which is one more way for the portions of an object to be
+        // composited with one another; and §11.7.4.4's *first* bullet, where it applies, is a
+        // group of its own rather than §11.4.6's, so a pair under it is not recorded here.
+        // `Interpreter::combined_overprint` decides that.
+        let combining = fills
+            && strokes
+            && parts.first_bullet == FirstBullet::No
+            && (state.paint_composites() || parts.overprints())
+            && state.fill_marks()
+            && state.stroke_marks();
         Self {
             fill_blend: parts.fill,
             stroke_blend: parts.stroke,
@@ -130,24 +166,40 @@ impl GlyphPainting {
             knockout_can_show: (fills || strokes)
                 && state.text.knockout
                 && state.paint_composites(),
-            // §11.7.4.4 applies to "the painting of glyphs with text rendering mode 2 or 6",
-            // which is `fills && strokes`, and its NOTE 1 says the rule "is independent of the
-            // text knockout parameter in the graphics state" — so this is a different
-            // condition from the one above, not a special case of it. The other two halves are
-            // §11.6.2's, for the same reason they are there: the paint has to composite at
-            // all, and both parts have to mark the page.
-            // A part that keeps a component of the backdrop composites with what is under it
-            // however opaque it is, which is one more way for the portions of an object to be
-            // composited with one another; and §11.7.4.4's *first* bullet, where it applies,
-            // is the two commands as they stand rather than a group, so a pair under it is
-            // not recorded here. `Interpreter::combined_overprint` decides that and names the
-            // general case it does not build.
-            combining: fills
-                && strokes
-                && !parts.first_bullet
-                && (state.paint_composites() || parts.overprints())
-                && state.fill_marks()
-                && state.stroke_marks(),
+            combining,
+            // §11.7.4.3's last paragraph asks for a group around "the object being painted"
+            // wherever the special mode is invoked under a mode other than Normal, and
+            // §11.7.4.4's first bullet asks for one around a pair. A pair the second bullet
+            // takes is neither: that bullet states the construction for such an object
+            // itself, down to where the prevailing blend mode goes, so there is no third
+            // group around it (ADR 1170).
+            //
+            // A glyph wrapped this way cannot then be an element of §9.3.8's own group for
+            // the text object, because a non-isolated group may not be one (§11.4.6 NOTE 6,
+            // `implicit_knockout_group`). Where both are owed the glyph's group is built and
+            // the text object's is named instead — §11.7.4.4's NOTE 1 makes this rule
+            // independent of the text knockout parameter, and §9.3.8's needs two glyphs to
+            // overlap before it can change a pixel at all.
+            implicit: match parts.first_bullet {
+                FirstBullet::Group => Implicit::FirstBullet,
+                FirstBullet::No | FirstBullet::AsPainted
+                    if !combining
+                        && implicit_group_owed(
+                            state,
+                            [
+                                if fills { parts.fill } else { BlendMode::Normal },
+                                if strokes {
+                                    parts.stroke
+                                } else {
+                                    BlendMode::Normal
+                                },
+                            ],
+                        ) =>
+                {
+                    Implicit::Special
+                }
+                FirstBullet::No | FirstBullet::AsPainted => Implicit::None,
+            },
         }
     }
 }
@@ -162,8 +214,8 @@ struct Parts {
     fill: BlendMode,
     /// The blend mode the stroke paints under.
     stroke: BlendMode,
-    /// Whether §11.7.4.4's first bullet applies to the pair.
-    first_bullet: bool,
+    /// Which of §11.7.4.4's first bullet's three shapes the pair takes.
+    first_bullet: FirstBullet,
 }
 
 impl Parts {
@@ -371,7 +423,7 @@ impl Interpreter<'_> {
         let mut parts = Parts {
             fill: self.overprint_blend(state, false),
             stroke: self.overprint_blend(state, true),
-            first_bullet: false,
+            first_bullet: FirstBullet::No,
         };
         if matches!(state.text.render_mode, 2 | 6) && !self.is_hidden() {
             parts.first_bullet = self.combined_overprint(
@@ -381,6 +433,15 @@ impl Interpreter<'_> {
             );
         }
         let painting = GlyphPainting::read(state.text.render_mode, self.is_hidden(), state, parts);
+        // Inside §11.7.4.4's first-bullet group "the fill and stroke shall be performed with an
+        // alpha value of 1.0", so the two constants are lifted off the parts and on to the group
+        // `show_program_glyph` wraps them in. Once per show-text operator rather than once per
+        // glyph, because it is a function of the graphics state and no glyph of one operator
+        // changes that; only the *paint* is built from it, since §11.7.5.2's opacity conditions
+        // are about the object as it composites and `state` is what says that.
+        let lifted =
+            (parts.first_bullet == FirstBullet::Group).then(|| state.with_opaque_constants());
+        let paints = lifted.as_ref().unwrap_or(state);
         let GlyphPainting {
             fills,
             strokes,
@@ -504,7 +565,7 @@ impl Interpreter<'_> {
                             self.show_program_glyph(
                                 &outline,
                                 [transform, glyph_to_user],
-                                (state, glyph_fill_clip),
+                                (state, paints, glyph_fill_clip),
                                 text,
                                 painting,
                             );
@@ -926,26 +987,33 @@ impl Interpreter<'_> {
         &mut self,
         outline: &Arc<Path>,
         transform: Transform,
-        state: &GraphicsState,
+        painted: (&GraphicsState, &GraphicsState),
         clip: Option<ClipId>,
         blend: BlendMode,
     ) {
+        // The state the glyph is painted under, and the one its *colour* is built from: the
+        // two differ only inside §11.7.4.4's first-bullet group, where the parts paint at an
+        // alpha constant of 1.0 (`Interpreter::show_program_glyph`).
+        let (state, paints) = painted;
         // Borrowed rather than cloned: this runs once per glyph, and cloning the whole
         // `Option<PatternPaint>` would bump a shading's refcount on every glyph of a page whose
         // text is painted with one.
         if let Some(PatternPaint::Tiling(tiling)) = &state.fill_pattern {
             let tiling = Rc::clone(tiling);
+            // `paints` rather than `state`, for the same reason the colour is built from it:
+            // the cell's own marks are the part §11.7.4.4's first bullet paints at an alpha
+            // constant of 1.0, and its group applies the stated one once.
             self.tile(
                 outline,
                 transform,
                 Tiled::Fill(FillRule::NonZero),
                 &tiling,
-                state,
+                paints,
             );
             return;
         }
         let (inside, transfer) = self.mark_transfer(state, Painted::of(state, false), false);
-        let paint = self.fill_paint(state, inside.as_ref());
+        let paint = self.fill_paint(paints, inside.as_ref());
         self.draw_mark(
             Command::Fill {
                 // The font hands out shared outlines and the display list keeps them shared: a
@@ -995,26 +1063,30 @@ impl Interpreter<'_> {
         &mut self,
         outline: &Arc<Path>,
         glyph_to_user: Transform,
-        state: &GraphicsState,
+        painted: (&GraphicsState, &GraphicsState),
         blend: BlendMode,
     ) {
+        // As [`Interpreter::fill_glyph`]: the state painted under, and the one the colour is
+        // built from.
+        let (state, paints) = painted;
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
         let in_user_space = Arc::new(in_user_space);
         if let Some(PatternPaint::Tiling(tiling)) = &state.stroke_pattern {
             let tiling = Rc::clone(tiling);
+            // `paints`, as [`Interpreter::fill_glyph`].
             self.tile(
                 &in_user_space,
                 state.transform,
                 Tiled::Stroke(&state.stroke),
                 &tiling,
-                state,
+                paints,
             );
             return;
         }
         let glyph_stroke_clip = self.paint_clip(state, false);
         let (inside, transfer) = self.mark_transfer(state, Painted::of(state, true), true);
-        let paint = self.stroke_paint(state, inside.as_ref());
+        let paint = self.stroke_paint(paints, inside.as_ref());
         self.draw_mark(
             Command::Stroke {
                 path: in_user_space,
@@ -1153,12 +1225,14 @@ impl Interpreter<'_> {
         &mut self,
         outline: &Arc<Path>,
         places: [Transform; 2],
-        painted: (&GraphicsState, Option<ClipId>),
+        painted: (&GraphicsState, &GraphicsState, Option<ClipId>),
         text: &mut TextObject,
         painting: GlyphPainting,
     ) {
         let [transform, glyph_to_user] = places;
-        let (state, fill_clip) = painted;
+        // The state the glyph is painted under, the one its *colour* is built from — the two
+        // differ only inside §11.7.4.4's first-bullet group — and the clip its fill takes.
+        let (state, paints, fill_clip) = painted;
         if painting.fills || painting.strokes {
             // Marked the page; see `Interpretation::glyphs`. An empty outline — a space in a
             // font that has one — is a glyph the font drew and is counted, because the
@@ -1167,10 +1241,24 @@ impl Interpreter<'_> {
         }
         let parts_at = self.list.command_count();
         if painting.fills {
-            self.fill_glyph(outline, transform, state, fill_clip, painting.fill_blend);
+            self.fill_glyph(
+                outline,
+                transform,
+                (state, paints),
+                fill_clip,
+                painting.fill_blend,
+            );
         }
         if painting.strokes {
-            self.stroke_glyph(outline, glyph_to_user, state, painting.stroke_blend);
+            self.stroke_glyph(
+                outline,
+                glyph_to_user,
+                (state, paints),
+                painting.stroke_blend,
+            );
+        }
+        if painting.implicit != Implicit::None {
+            self.wrap_in_the_implicit_group(state, parts_at, painting.implicit);
         }
         // §11.7.4.4 makes this glyph's fill and stroke one object; the range is recorded and
         // `ET` decides what to build from it. Fewer than two commands is a glyph that marked
@@ -1191,6 +1279,39 @@ impl Interpreter<'_> {
         }
     }
 
+    /// §11.7.4's implicit group around the commands the glyph starting at `mark` left behind.
+    ///
+    /// Out of line because the test above it is what every glyph of every page pays and the
+    /// answer is [`Implicit::None`] on all but a handful. Measured under callgrind on page 101
+    /// of ISO 32000-2 — the tree's densest text page — interpreted fifty times, against the same
+    /// build with §11.7.4's decisions and constructions planted away:
+    ///
+    /// | what stands in `show_text`'s glyph loop | instructions | of one interpretation |
+    /// |---|---|---|
+    /// | nothing: the rest of §11.7.4 only | +513 947 | 0.041% |
+    /// | this call, guarded and out of line | **+2 788 934** | **0.223%** |
+    /// | the three-armed match inlined instead | +3 163 973 | 0.253% |
+    ///
+    /// So the split is worth 375 039 instructions and the wrap *point* is worth the rest: a
+    /// call in a loop this large costs the registers spilled around it, and the only way to
+    /// stop paying that is not to build the clause's group. It is a page's glyphs times two
+    /// instructions or so, and it buys §11.7.4.3's last paragraph and §11.7.4.4's first bullet
+    /// on every glyph that owes one. `CLAUDE.md` asks for the number beside the technique;
+    /// [`Interpreter::overprint_blend`] carries the same split one clause over.
+    #[inline(never)]
+    fn wrap_in_the_implicit_group(
+        &mut self,
+        state: &GraphicsState,
+        mark: usize,
+        implicit: Implicit,
+    ) {
+        match implicit {
+            Implicit::Special => self.implicit_overprint_group(state, mark),
+            Implicit::FirstBullet => self.first_bullet_group(state, mark),
+            Implicit::None => {}
+        }
+    }
+
     /// Pushes a text object's commands back, wrapping §11.7.4.4's fill-and-stroke pairs.
     ///
     /// ISO 32000-2 §11.7.4.4, of a combined fill and stroke — which "include the B , B\* , b ,
@@ -1201,11 +1322,13 @@ impl Interpreter<'_> {
     /// > constants and the prevailing blend mode. The group results shall then be composited
     /// > with the backdrop, using an alpha value of 1.0 and the Normal blend mode.
     ///
-    /// "All other cases" is every case here: the first bullet needs overprinting enabled, and
-    /// §8.6.7 is why this device never enables it (ADR 0028). The construction is therefore
-    /// identical to the one the `B` operator gets in [`Interpreter::paint_path`], and NOTE 2
-    /// says what it is for — "to avoid having a non-opaque stroke composite with the result of
-    /// the fill in the region of overlap, which would produce a double border effect".
+    /// The pairs that reach here are the ones §11.7.4.4 sends to its second bullet: the first
+    /// needs overprinting enabled for both operations and the two alpha constants equal, and
+    /// [`Interpreter::combined_overprint`] has already built its group or found it to be the
+    /// two commands as they stand. The construction is identical to the one the `B` operator
+    /// gets in [`Interpreter::paint_path`], and NOTE 2 says what it is for — "to avoid having
+    /// a non-opaque stroke composite with the result of the fill in the region of overlap,
+    /// which would produce a double border effect".
     ///
     /// A pair the backends cannot draw as a knockout — one carrying a soft mask, or a fill a
     /// tiling pattern turned into a group — is pushed flat and named once for the whole text

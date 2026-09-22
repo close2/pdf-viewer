@@ -883,12 +883,14 @@ fn collection_and_files(
 ) -> (
     pdf_model::collection::Collection,
     pdf_model::collection::Initial,
+    Vec<String>,
     Vec<pdf_model::attachment::Attachment>,
 ) {
     let viewer = opened(bytes);
     let Answer::Collection {
         collection,
         initial,
+        order,
     } = viewer.query(Query::Collection)
     else {
         panic!("the fixture's catalog states a /Collection");
@@ -896,7 +898,7 @@ fn collection_and_files(
     let Answer::Attachments(files) = viewer.query(Query::Attachments) else {
         panic!("the fixture embeds two files");
     };
-    (collection, initial, files)
+    (collection, initial, order, files)
 }
 
 /// §12.3.5: a collection is the same files *arranged*, and a native host now shows the arrangement.
@@ -910,7 +912,7 @@ fn collection_and_files(
 /// new shape, because the difference between the two *is* the defect that was closed.
 #[test]
 fn a_collection_becomes_a_folder_tree_with_the_schemas_columns() {
-    let (collection, initial, files) =
+    let (collection, initial, order, files) =
         collection_and_files(a_collection("/D (<3>report.pdf)", "/Folders 10 0 R", 3));
 
     // What both native hosts showed before: two files, side by side, and no folder anywhere.
@@ -921,7 +923,7 @@ fn a_collection_becomes_a_folder_tree_with_the_schemas_columns() {
         "a flat list has no arrangement in it: {flat:?}"
     );
 
-    let rows = collection_rows(&collection, &initial, &files);
+    let rows = collection_rows(&collection, &initial, &order, &files);
 
     // §12.3.5.2: a key that does not name a folder "shall be treated as associated with the root
     // folder", so `readme.txt` is a top-level row — above the folders, where the root's own files
@@ -990,8 +992,9 @@ fn a_collection_becomes_a_folder_tree_with_the_schemas_columns() {
 #[test]
 fn the_document_a_collection_opens_on_is_the_row_set_apart() {
     let marked = |initial: &str, folders: &str| {
-        let (collection, initial, files) = collection_and_files(a_collection(initial, folders, 3));
-        let rows = collection_rows(&collection, &initial, &files);
+        let (collection, initial, order, files) =
+            collection_and_files(a_collection(initial, folders, 3));
+        let rows = collection_rows(&collection, &initial, &order, &files);
         flattened(&rows)
             .iter()
             .filter(|row| row.emphasis)
@@ -1030,7 +1033,12 @@ fn the_document_a_collection_opens_on_is_the_row_set_apart() {
 #[test]
 fn a_collection_holding_no_files_says_so() {
     let collection = pdf_model::collection::Collection::default();
-    let rows = collection_rows(&collection, &pdf_model::collection::Initial::Empty, &[]);
+    let rows = collection_rows(
+        &collection,
+        &pdf_model::collection::Initial::Empty,
+        &[],
+        &[],
+    );
     assert_eq!(rows.len(), 1);
     assert!(
         rows[0].note,
@@ -1060,7 +1068,12 @@ fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_l
             navigator: layouts.map(|layouts| Navigator { layouts }),
             ..pdf_model::collection::Collection::default()
         };
-        collection_rows(&collection, &pdf_model::collection::Initial::Container, &[])
+        collection_rows(
+            &collection,
+            &pdf_model::collection::Initial::Container,
+            &[],
+            &[],
+        )
     };
     let sentence = |rows: &[PanelRow]| {
         rows.iter()
@@ -1146,7 +1159,12 @@ fn a_name_the_clause_restricts_is_said_out_loud_and_a_valid_one_is_not() {
                 restriction,
             })
             .collect();
-        collection_rows(&collection, &pdf_model::collection::Initial::Container, &[])
+        collection_rows(
+            &collection,
+            &pdf_model::collection::Initial::Container,
+            &[],
+            &[],
+        )
     };
 
     let restricted = panel("a:b.");
@@ -1184,10 +1202,10 @@ fn a_name_the_clause_restricts_is_said_out_loud_and_a_valid_one_is_not() {
 #[test]
 fn every_embedded_file_is_shown_whatever_its_key_names() {
     let listed = |folders: &str, folder_id: u32| {
-        let (collection, initial, files) =
+        let (collection, initial, order, files) =
             collection_and_files(a_collection("", folders, folder_id));
         assert_eq!(files.len(), 2, "the fixture embeds two files either way");
-        let rows = collection_rows(&collection, &initial, &files);
+        let rows = collection_rows(&collection, &initial, &order, &files);
         let mut names: Vec<String> = flattened(&rows)
             .iter()
             .filter_map(|row| match &row.action {
@@ -1297,4 +1315,62 @@ fn a_host_supplies_the_anchors_or_nobody_does() {
     };
     assert!(one.to_string().contains("3-notes.txt"), "trap 5: {one}");
     let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// Table 153's `/Sort`, as the order the panel's rows stand in.
+///
+/// §12.3.5.1's Table 153, on the entry:
+///
+/// > A collection sort dictionary, which specifies the order in which items in the collection
+/// > shall be sorted in the user interface
+///
+/// A `shall` about the rows, and the one entry of Table 153 that no host could obey for itself:
+/// the values it orders by are §7.11.6's collection item on each file specification's `/CI`, which
+/// `Answer::Attachments` does not carry. So `pdf_model::collection::sorted_keys` resolves the
+/// order, `viewer_core::Answer::Collection` carries it and this mapping applies it — one answer
+/// for the two native windows, and `viewer_host::panel::in_sort_order` the same answer for the
+/// third (ADR 1168).
+///
+/// The fixture's two files are `<3>report.pdf` and `readme.txt`, in that order in the
+/// `/EmbeddedFiles` tree. Sorting by a `/Subtype /F` file name puts *readme.txt* second when the
+/// order runs up and first when it runs down, which is what makes the assertion about `/Sort`
+/// rather than about the tree.
+#[test]
+fn a_collection_lists_its_files_in_the_order_table_153_states() {
+    let extracted = |rows: &[PanelRow]| -> Vec<String> {
+        flattened(rows)
+            .iter()
+            .filter_map(|row| match &row.action {
+                RowAction::Extract { name } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    // No `/Folders`, so every file is a top-level row and the order is the whole of what the rows
+    // say — a folder tree would answer this question with its own nesting as well.
+    let sorted = |ascending: &str| {
+        let bytes = a_collection(&format!("/Sort << /S /FN{ascending} >>"), "", 3);
+        let (collection, initial, order, files) = collection_and_files(bytes);
+        extracted(&collection_rows(&collection, &initial, &order, &files))
+    };
+
+    assert_eq!(
+        sorted(""),
+        ["readme.txt", "<3>report.pdf"],
+        "§12.3.5.1: text fields are \"ordered lexically from smaller to larger\" when ascending"
+    );
+    assert_eq!(
+        sorted(" /A false"),
+        ["<3>report.pdf", "readme.txt"],
+        "Table 156's /A false is that reversed"
+    );
+
+    // And a collection stating no `/Sort` leaves the `/EmbeddedFiles` tree's own order, which is
+    // the order the document also stated — nothing is invented where the clause says nothing.
+    let (collection, initial, order, files) = collection_and_files(a_collection("", "", 3));
+    assert!(order.is_empty(), "no /Sort states no order");
+    assert_eq!(
+        extracted(&collection_rows(&collection, &initial, &order, &files)),
+        ["<3>report.pdf", "readme.txt"]
+    );
 }

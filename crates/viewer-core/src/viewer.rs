@@ -658,97 +658,54 @@ impl Viewer {
                 if self.presenting == crate::PresentationMode::On {
                     crate::presentation::enter(&mut open);
                 }
-                let pages = open.page_count;
-                // What opening the document has already discovered about §7.5.7's storage —
-                // the catalogue and the page tree are read by now, and either may live in an
-                // object stream. The rest arrives per page, below.
-                //
-                // **What the document says about *itself* is not here, and that is principle 2.**
-                // `notes::about` answers eight clauses about the file, and §12.8's answer reads
-                // and digests the signed byte ranges — on a signed document that is the whole
-                // file, and none of it draws a page. `Command::Report` is what asks for it, and
-                // `Open::about` is what makes asking twice cost once. ADR 1044.
-                let mut notes = crate::notes::losses(&mut open);
-                // Annex O's open parameters, and this is where the annex puts them: §O.2.2 says
-                // they "should be processed immediately after any other document-specified open
-                // parameters have been processed", and `Open::around` has just processed Table
-                // 29's `/OpenAction`. So the document states where it opens and the URI overrules
-                // it, in that order, which is what a fragment identifier is for.
-                if let Some(fragment) = fragment {
-                    notes.extend(
-                        open.apply_fragment(&pdf_model::fragment::Fragment::parse(fragment)),
-                    );
-                }
+                // §12.11.6, and this is the moment the clause names: "Document requirements shall
+                // be evaluated before execution of any document ECMAScripts. If requirements
+                // cannot be met … then the processing of the document shall not continue."
+                // Nothing below has run, so *not continuing* is a document that was read and put
+                // down again rather than one half processed. The window's levels rather than the
+                // document's, because a departure belongs to a document that is open and this one
+                // is not (ADR 1145, ADR 1167).
+                let level = self
+                    .restrictions
+                    .level(pdf_model::restriction::Operation::Process)
+                    .level();
+                let warned = match Self::verdict_of(
+                    id,
+                    level,
+                    &open.document,
+                    pdf_model::restriction::Operation::Process,
+                    None,
+                    None,
+                ) {
+                    Standing::Refuse(refused) => {
+                        events.push(refused);
+                        return;
+                    }
+                    Standing::Ask(notes) => {
+                        open.asking = Some(crate::open::Held::Process {
+                            fragment: fragment.map(str::to_owned),
+                        });
+                        // Held in the map so that `Command::Answer` can name it, and deliberately
+                        // not focused: nothing has been processed, no `Event::Opened` has been
+                        // raised, and a question about a document is not that document arriving.
+                        self.documents.insert(id, open);
+                        events.push(Event::Asking {
+                            document: id,
+                            operation: pdf_model::restriction::Operation::Process,
+                            notes,
+                        });
+                        return;
+                    }
+                    Standing::Warn(notes) => Some(notes),
+                    Standing::Proceed => None,
+                };
                 self.documents.insert(id, open);
-                self.focused = Some(id);
-                events.push(Event::Opened {
-                    document: id,
-                    pages,
-                });
-                if !notes.is_empty() {
-                    events.push(Event::Reported {
+                self.process(id, fragment, events);
+                if let Some(notes) = warned {
+                    events.push(Event::Warned {
                         document: id,
-                        page: None,
+                        operation: pdf_model::restriction::Operation::Process,
                         notes,
-                    });
-                }
-                // Annex O's `ef`, if the fragment named one. Before the first page's events
-                // because it is the *document* that was asked for a file rather than the view:
-                // Table Annex O.3 files this parameter under object identifiers, and the file is
-                // out of the bytes already read rather than out of a page nobody has drawn. The
-                // same channel `Command::Extract` uses, so a host needed no new message and every
-                // one of the six already handles it (ADR 0310). What travels with the bytes since
-                // ADR 0431 is the rest of the fragment: "[a]ny remaining parameters after this
-                // parameter apply to the selected embedded file", so they go where the file goes.
-                if let Some(file) = self
-                    .documents
-                    .get_mut(&id)
-                    .and_then(|open| open.opening_file.take())
-                {
-                    self.extract(&file.name, Extraction::Fragment, file.fragment, events);
-                }
-                self.announce_page(events);
-                // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
-                // and `Open::around` has already applied that entry's destination — the page it
-                // names is `open.page_index` and its view is waiting in `pending_views` — so the
-                // first page's events are raised here, in the clause's order. An `/OpenAction`
-                // that is an action rather than a destination is still not *performed*; that is
-                // §12.6.4's row and not this one's, and it changes nothing about this ordering.
-                self.page_events(id, None, events);
-                // Annex O's `search`, if the fragment asked for one. The plan is made and no page
-                // has been read: this event is what tells a host there is something to pump, and
-                // it is the same division `Event::NeedsRender` makes — a unit of work handed over
-                // rather than done on the launch path.
-                if let Some(remaining) = self
-                    .documents
-                    .get(&id)
-                    .and_then(|open| open.searching.as_ref())
-                    .map(|searching| searching.remaining)
-                {
-                    events.push(Event::Searched {
-                        document: id,
-                        found: None,
-                        remaining,
-                        wrapped: false,
-                    });
-                }
-                // Annex O's `fdf`, if the fragment named one — "[o]pen the document and then
-                // import the data from the specified FDF or XFDF file". **Last of the four
-                // things a fragment can start**, which is the annex's own order: the `fdf`
-                // parameter "is recommended to be the last parameter so that the document can
-                // open directly to the appropriate view", and the view is what everything above
-                // has just settled. The name crosses as the document's own words, exactly as
-                // §12.7.6.4's does, and a host is what resolves or refuses it (rule 2).
-                if let Some(name) = self
-                    .documents
-                    .get(&id)
-                    .and_then(|open| open.importing.as_ref())
-                    .map(|import| import.file.clone())
-                {
-                    events.push(Event::NeedsFile {
-                        document: id,
-                        purpose: Purpose::ImportData,
-                        name,
                     });
                 }
             }
@@ -761,6 +718,109 @@ impl Viewer {
                 document: id,
                 reason: error.to_string(),
             }),
+        }
+    }
+
+    /// Everything opening a document does once §12.11.6 has let it go on.
+    ///
+    /// Split out of [`Self::open`] because the *ask* level puts a person between the two: a
+    /// document held at [`crate::Event::Asking`] has been read and nothing more, and what a `yes`
+    /// releases is this. ADR 1167.
+    fn process(&mut self, id: DocumentId, fragment: Option<&str>, events: &mut Vec<Event>) {
+        let Some((pages, mut notes)) = self.documents.get_mut(&id).map(|open| {
+            // What opening the document has already discovered about §7.5.7's storage — the
+            // catalogue and the page tree are read by now, and either may live in an object
+            // stream. The rest arrives per page, below.
+            //
+            // **What the document says about *itself* is not here, and that is principle 2.**
+            // `notes::about` answers eight clauses about the file, and §12.8's answer reads and
+            // digests the signed byte ranges — on a signed document that is the whole file, and
+            // none of it draws a page. `Command::Report` is what asks for it, and `Open::about`
+            // is what makes asking twice cost once. ADR 1044.
+            (open.page_count, crate::notes::losses(open))
+        }) else {
+            return;
+        };
+        // Annex O's open parameters, and this is where the annex puts them: §O.2.2 says they
+        // "should be processed immediately after any other document-specified open parameters
+        // have been processed", and `Open::around` has just processed Table 29's `/OpenAction`.
+        // So the document states where it opens and the URI overrules it, in that order, which is
+        // what a fragment identifier is for.
+        if let Some(fragment) = fragment
+            && let Some(open) = self.documents.get_mut(&id)
+        {
+            notes.extend(open.apply_fragment(&pdf_model::fragment::Fragment::parse(fragment)));
+        }
+        self.focused = Some(id);
+        events.push(Event::Opened {
+            document: id,
+            pages,
+        });
+        if !notes.is_empty() {
+            events.push(Event::Reported {
+                document: id,
+                page: None,
+                notes,
+            });
+        }
+        // Annex O's `ef`, if the fragment named one. Before the first page's events
+        // because it is the *document* that was asked for a file rather than the view:
+        // Table Annex O.3 files this parameter under object identifiers, and the file is
+        // out of the bytes already read rather than out of a page nobody has drawn. The
+        // same channel `Command::Extract` uses, so a host needed no new message and every
+        // one of the six already handles it (ADR 0310). What travels with the bytes since
+        // ADR 0431 is the rest of the fragment: "[a]ny remaining parameters after this
+        // parameter apply to the selected embedded file", so they go where the file goes.
+        if let Some(file) = self
+            .documents
+            .get_mut(&id)
+            .and_then(|open| open.opening_file.take())
+        {
+            self.extract(&file.name, Extraction::Fragment, file.fragment, events);
+        }
+        self.announce_page(events);
+        // §12.6.3 puts `/PO` "after … the OpenAction entry in the document Catalog",
+        // and `Open::around` has already applied that entry's destination — the page it
+        // names is `open.page_index` and its view is waiting in `pending_views` — so the
+        // first page's events are raised here, in the clause's order. An `/OpenAction`
+        // that is an action rather than a destination is still not *performed*; that is
+        // §12.6.4's row and not this one's, and it changes nothing about this ordering.
+        self.page_events(id, None, events);
+        // Annex O's `search`, if the fragment asked for one. The plan is made and no page
+        // has been read: this event is what tells a host there is something to pump, and
+        // it is the same division `Event::NeedsRender` makes — a unit of work handed over
+        // rather than done on the launch path.
+        if let Some(remaining) = self
+            .documents
+            .get(&id)
+            .and_then(|open| open.searching.as_ref())
+            .map(|searching| searching.remaining)
+        {
+            events.push(Event::Searched {
+                document: id,
+                found: None,
+                remaining,
+                wrapped: false,
+            });
+        }
+        // Annex O's `fdf`, if the fragment named one — "[o]pen the document and then
+        // import the data from the specified FDF or XFDF file". **Last of the four
+        // things a fragment can start**, which is the annex's own order: the `fdf`
+        // parameter "is recommended to be the last parameter so that the document can
+        // open directly to the appropriate view", and the view is what everything above
+        // has just settled. The name crosses as the document's own words, exactly as
+        // §12.7.6.4's does, and a host is what resolves or refuses it (rule 2).
+        if let Some(name) = self
+            .documents
+            .get(&id)
+            .and_then(|open| open.importing.as_ref())
+            .map(|import| import.file.clone())
+        {
+            events.push(Event::NeedsFile {
+                document: id,
+                purpose: Purpose::ImportData,
+                name,
+            });
         }
     }
 
@@ -1469,9 +1529,18 @@ impl Viewer {
             return;
         };
         if !proceed {
+            // §12.11.6's question is the one whose `no` has something to undo: a document held
+            // before it was processed was never opened, no `Event::Opened` named it, and leaving
+            // it in the map would be this crate holding a document nobody can see or close.
+            if matches!(held, crate::open::Held::Process { .. }) {
+                self.documents.remove(&document);
+            }
             return;
         }
         match held {
+            crate::open::Held::Process { fragment } => {
+                self.process(document, fragment.as_deref(), events);
+            }
             crate::open::Held::Edit(done) => commit(document, open, done, events),
             // Nothing to commit: a copy changes no document. What the `yes` releases is the text
             // itself, taken at the moment the question was asked.
@@ -1582,12 +1651,11 @@ impl Viewer {
         field: Option<&str>,
         annotation: Option<ObjectId>,
     ) -> Standing {
-        use crate::notes::{Standing as Worded, restricted};
-        use pdf_model::restriction::Verdict;
         let Some(open) = self.focused() else {
             return Standing::Proceed;
         };
-        match pdf_model::restriction::decide(
+        Self::verdict_of(
+            id,
             // The window's levels as this document sees them: `under` is the whole of the
             // layering and is asked here rather than composed by a caller (ADR 1145).
             self.restrictions
@@ -1598,7 +1666,25 @@ impl Viewer {
             operation,
             field,
             annotation,
-        ) {
+        )
+    }
+
+    /// `pdf_model::restriction::decide` at a stated level, worded.
+    ///
+    /// Separate from [`Self::standing`] because §12.11.6 is asked of a document that is not in
+    /// this viewer yet: the level is the window's, there is nothing focused to read it from, and
+    /// the wording of all four verdicts must still be the one wording (ADR 1167).
+    fn verdict_of(
+        id: DocumentId,
+        level: pdf_model::restriction::Level,
+        document: &pdf_syntax::Document,
+        operation: pdf_model::restriction::Operation,
+        field: Option<&str>,
+        annotation: Option<ObjectId>,
+    ) -> Standing {
+        use crate::notes::{Standing as Worded, restricted};
+        use pdf_model::restriction::Verdict;
+        match pdf_model::restriction::decide(level, document, operation, field, annotation) {
             Verdict::Proceed => Standing::Proceed,
             Verdict::Refuse(restrictions) => Standing::Refuse(Event::Refused {
                 document: id,
@@ -3600,9 +3686,19 @@ pub(crate) fn px(value: u32) -> f32 {
 fn collection(open: &Open) -> Answer<'static> {
     pdf_model::collection::Collection::read(&open.document).map_or(Answer::None, |collection| {
         let initial = collection.initial_document(&open.document);
+        // Table 153's `/Sort` is a `shall` about the order rows stand in, and the values it
+        // orders by need both the document and the attachments — so it is resolved once here
+        // rather than by each panel that draws the list (ADR 1168).
+        let order = pdf_model::collection::sorted_keys(
+            &open.document,
+            &collection,
+            &open.view.attachments(&open.document),
+        )
+        .unwrap_or_default();
         Answer::Collection {
             collection,
             initial,
+            order,
         }
     })
 }

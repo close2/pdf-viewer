@@ -107,12 +107,16 @@ impl App {
             layers,
             attachments: &self.attachments,
             articles: &self.articles,
-            collection: self.collection.as_ref().map(|(collection, initial)| {
-                viewer_ui::chrome::Presentation {
-                    collection,
-                    initial,
-                }
-            }),
+            collection: self
+                .collection
+                .as_ref()
+                .map(
+                    |(collection, initial, order)| viewer_ui::chrome::Presentation {
+                        collection,
+                        initial,
+                        order,
+                    },
+                ),
             information: &self.information,
             metadata: self.metadata.as_ref(),
             page_count: self.page_count,
@@ -195,12 +199,16 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 articles: &self.articles,
-                collection: self.collection.as_ref().map(|(collection, initial)| {
-                    viewer_ui::chrome::Presentation {
-                        collection,
-                        initial,
-                    }
-                }),
+                collection: self
+                    .collection
+                    .as_ref()
+                    .map(
+                        |(collection, initial, order)| viewer_ui::chrome::Presentation {
+                            collection,
+                            initial,
+                            order,
+                        },
+                    ),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 page_count: self.page_count,
@@ -277,12 +285,16 @@ impl App {
                 layers: &layers,
                 attachments: &self.attachments,
                 articles: &self.articles,
-                collection: self.collection.as_ref().map(|(collection, initial)| {
-                    viewer_ui::chrome::Presentation {
-                        collection,
-                        initial,
-                    }
-                }),
+                collection: self
+                    .collection
+                    .as_ref()
+                    .map(
+                        |(collection, initial, order)| viewer_ui::chrome::Presentation {
+                            collection,
+                            initial,
+                            order,
+                        },
+                    ),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
                 page_count: self.page_count,
@@ -352,12 +364,16 @@ impl App {
                     layers: &layers,
                     attachments: &self.attachments,
                     articles: &self.articles,
-                    collection: self.collection.as_ref().map(|(collection, initial)| {
-                        viewer_ui::chrome::Presentation {
-                            collection,
-                            initial,
-                        }
-                    }),
+                    collection: self
+                        .collection
+                        .as_ref()
+                        .map(
+                            |(collection, initial, order)| viewer_ui::chrome::Presentation {
+                                collection,
+                                initial,
+                                order,
+                            },
+                        ),
                     information: &self.information,
                     metadata: self.metadata.as_ref(),
                     page_count: self.page_count,

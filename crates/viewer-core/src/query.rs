@@ -466,6 +466,17 @@ pub enum Answer<'a> {
         collection: pdf_model::collection::Collection,
         /// Which document §12.3.5.1 says shall be presented first.
         initial: pdf_model::collection::Initial,
+        /// Table 153's `/Sort` applied: the `/EmbeddedFiles` keys in the order the collection
+        /// states its items "shall be sorted in the user interface", or empty where it states
+        /// no `/Sort` and the tree's own order therefore stands.
+        ///
+        /// **Resolved here rather than by a panel**, for the reason `initial` is: the values the
+        /// order is computed from are in two places no host holds at once — §7.11.6's collection
+        /// item on each file specification's `/CI` and the file-related entries
+        /// [`Answer::Attachments`] carries — so three windows pairing them up would be three
+        /// answers to one `shall`. `pdf_model::collection::sorted_keys` is the computation and
+        /// the decisions it takes where Table 156 stops (ADR 1168).
+        order: Vec<String>,
     },
     /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
     Label(String),

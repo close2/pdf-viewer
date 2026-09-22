@@ -35,15 +35,12 @@
 //! comparison the clause *does* complete, and this program performs it: the total is a fact
 //! about the document, said out loud beside the requirements it is a total of.
 //!
-//! What this program then declines to do is obey it, and that is now a departure from a stated
-//! `should` rather than an appeal to a silence. Refusing to open a file a person asked for is a
-//! worse failure for a viewer than showing it with its limits named — and the clause's own
-//! wording is what makes the choice cheap: "should not attempt to display", not `shall`.
-//!
-//! **The decision is not taken here**, which is `CLAUDE.md` principle 3's shape for a
-//! restriction a document asserts over its reader: this crate computes and reports, the host
-//! decides, and the four levels — off, on, ask, warn — can be added where the host already is
-//! without revisiting anything below it.
+//! What is done about it is the *reader's*, which is `CLAUDE.md` principle 3's shape for a
+//! restriction a document asserts over its reader: this crate computes and reports, and
+//! `crate::restriction::Operation::Process` is where the four levels — off, on, ask, warn — reach
+//! the total. `off` is the default, so what a reader who has said nothing gets is the document
+//! drawn with its limits named; `on` is the clause obeyed. The clause's own wording is what makes
+//! that default cheap: "should not attempt to display", not `shall`. ADR 1167.
 //!
 //! **0 of the 974 corpus documents state a `/Requirements` array**; 9 state an `/Extensions`
 //! dictionary, all of them Adobe's `/ADBE` prefix at extension level 3 or 8 over a base version
@@ -519,9 +516,9 @@ pub fn unmet(document: &Document) -> Vec<(Requirement, &'static str)> {
 ///
 /// # What is done with it
 ///
-/// Nothing, here. It is reported beside the requirements it totals and the document is drawn —
-/// see this module's own header for why that is a choice rather than a reading, and why the
-/// choice belongs to a host rather than to `pdf-model`.
+/// Nothing, here. It is reported beside the requirements it totals, and what §12.11.6 asks a
+/// processor to do about it is a level a reader sets — `crate::restriction::Operation::Process`,
+/// which `crate::restriction::asserted` answers from this function. See this module's own header.
 ///
 /// Zero for the 974 corpus documents, every one of which states no `/Requirements` array at all.
 #[must_use]

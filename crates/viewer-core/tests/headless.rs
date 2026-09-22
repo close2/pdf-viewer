@@ -1763,10 +1763,12 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
             .any(|note| note.contains("this document requires EnableJavaScripts (penalty 60)")),
         "and each requirement is still named beside the total: {over:?}"
     );
-    // Nothing was refused: the clause says "should not attempt to display" and this program
-    // displays, which is the departure the note is honest about.
+    // Nothing was refused, because the level for `restriction::Operation::Process` is `off` by
+    // default and this viewer was told nothing else. What §12.11.6 asks a processor to do about
+    // the total is the reader's to set, and the note says which way it went (ADR 1167).
     assert!(
-        over.iter().any(|note| note.contains("displayed anyway")),
+        over.iter()
+            .any(|note| note.contains("this reader's level for processing a document says so")),
         "{over:?}"
     );
 

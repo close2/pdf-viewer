@@ -387,8 +387,21 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// (`pdf_render::Luminance`), where `raster_scene::MaskKind::Luminosity` weighs the channels in
 /// its own shader — a different formula, refused rather than drawn to the wrong mask.
 /// `doc/QUORRA_FEEDBACK.md` section 43 is the ask for both.
-const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
+///
+/// **A fourth in the one-thousand-one-hundred-and-sixty-sixth, and it is a page this backend
+/// used to draw.** `issue12798_page1_reduced.pdf` composites in `DeviceCMYK`, states
+/// `/OP true /op true /OPM 1` and paints a mark whose black tint is the only nonzero one under
+/// `/BM /Multiply`. ISO 32000-2 §11.7.4.3's special overprinting blend mode is not one of Table
+/// 134's sixteen and `raster_scene::BlendMode` has sixteen arms, so the list is refused by name
+/// before the scene (ADR 1158); until ADR 1170 built the clause's last paragraph the mark
+/// carried the document's own mode instead and nothing here had to refuse. The page left this
+/// list in the four-hundred-and-thirty-ninth and is back on it, which is the second time a name
+/// has arrived because the oracle learned to state something this vocabulary cannot.
+/// `doc/QUORRA_FEEDBACK.md` section 17's population is where the ask for a seventeenth mode
+/// belongs.
+const REFUSED_BEFORE_THE_SCENE: [&str; 5] = [
     "bug1721218_reduced.pdf",
+    "issue12798_page1_reduced.pdf",
     "issue16742.pdf",
     "issue21346.pdf",
     "issue5044.pdf",

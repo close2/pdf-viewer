@@ -197,8 +197,17 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // stayed 21, and `QUORRA_ABI_VERSION` did not move for the standing reason. It takes one
     // number that is not a level — `QUORRA_RESTRICT_INHERIT`, the absence of one — and that is a
     // constant rather than an entry point.
-    assert_eq!(no_mangle, 188, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 174, "172 `unsafe` entry points and two helpers");
+    // **And four in the thousand-one-hundred-and-sixty-fifth**: `quorra_collection_ordered` and
+    // `quorra_collection_order_key` hand over Table 153's `/Sort` applied, which is a `shall`
+    // about the order a collection's items stand in and the one entry of that table a caller
+    // could not compute for itself; `quorra_collection_layouts` and `quorra_collection_layout`
+    // hand over Table 160's `/Layout` list, because §12.3.6 asks a processor for the first layout
+    // *it* can draw and this library is not that processor (ADR 1168). A third number joins `QUORRA_RESTRICTED_*`,
+    // `QUORRA_RESTRICTED_PROCESS`, for §12.11.6's processing (ADR 1167) — a constant rather than
+    // an entry point, and one an old caller never passes, so `QUORRA_ABI_VERSION` stays where it
+    // is for the standing reason.
+    assert_eq!(no_mangle, 192, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 178, "176 `unsafe` entry points and two helpers");
 }
 
 #[test]

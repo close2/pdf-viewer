@@ -251,6 +251,56 @@ section_confined() {
         tools/bounded.sh -- cargo test --profile gates -p viewer-confined --test awkward_classes -- --ignored --nocapture
 }
 
+# The mitigation catalogue's own gap, which `doc/todo/66` names as an instrument gap rather than
+# leaving as a number in prose. `--remedy-sites` prints one line per refusal site a target binds
+# and one line per remedy that site admits, and the item's done condition — that a shipped profile
+# produces no `does not carry out yet` note — is reached exactly when no site is left saying its
+# catalogued remedy is not built.
+#
+# **`grep -c` here is a total this file computes, which is the one thing the header above forbids
+# — and the forbidden shape is a sum carried *beside* a gate's figure, going stale while the
+# figure stays current.** This one is computed from the same run it summarises and cannot be
+# stale, and it counts the program's own lines rather than adding up numbers the program printed.
+# It is still the weaker form: the trap's own answer is *if you need a total, print it*, and the
+# place to print it is `--remedy-sites` itself, which today prints one line per site and no total.
+# `doc/todo/66` carries that as the next move; until then the count lives here rather than
+# nowhere. The other half of the item's instrument is already in `section_archive` below, which
+# keeps the corpus walk's per-target conversion counts.
+#
+# Cheap — a table lookup per target, no corpus and no document — so it is in `quick`, and
+# `section_archive` calls it so that a run of that section alone prints the whole item.
+section_remedies() {
+    heading "the mitigation catalogue's gap, per PDF/A target" \
+        "quorra-transform archive --remedy-sites --to <target>"
+    # The targets come from the program rather than from a list here, so that a target added to
+    # `pdf_archive::Target::ALL` is counted without this script being edited: `--to ""` is refused
+    # with a sentence naming every one of them.
+    local target listing code sites unbuilt targets
+    targets=$(cargo run -q -p pdf-transform --bin quorra-transform -- \
+        archive --remedy-sites --to '' 2>&1 |
+        sed -n 's/^error: --to .*: the targets are //p' | tr -d ',')
+    if [ -z "$targets" ]; then
+        printf '  \xe2\x9c\x97 --remedy-sites names no targets; the sentence it is read from has moved\n'
+        status=1
+        return 0
+    fi
+    for target in $targets; do
+        listing=$(cargo run -q -p pdf-transform --bin quorra-transform -- \
+            archive --remedy-sites --to "$target" 2>&1)
+        code=$?
+        if [ $code -ne 0 ]; then
+            printf '  \xe2\x9c\x97 --remedy-sites --to %s exited %s\n' "$target" "$code"
+            printf '%s\n' "$listing" | tail -5
+            status=$code
+            continue
+        fi
+        sites=$(printf '%s\n' "$listing" | grep -cE '^  [a-z]')
+        unbuilt=$(printf '%s\n' "$listing" | grep -c 'not built yet')
+        printf '  %-3s %4s site(s), %4s with the catalogued remedy not built yet\n' \
+            "$target" "$sites" "$unbuilt"
+    done
+}
+
 # ISO 19005's two readings, clause by clause: the validator against every witness the veraPDF
 # corpus holds, per target (`crates/pdf-archive/tests/corpus.rs`), and the converter over the same
 # corpus held to that validator run twice (`crates/pdf-transform/tests/archive_corpus.rs`). The
@@ -261,6 +311,7 @@ section_confined() {
 # `doc/veraPDF-corpus`, and the filters keep that line too. `doc/state-of-play.md` said this
 # script printed the comparison for some sessions before it did (ADR 1015).
 section_archive() {
+    section_remedies
     run "the validator against the veraPDF corpus (ISO 19005, clause by clause per target)" \
         '^== PDF_A|^  clause |^  all |not here|^bounded:' \
         tools/bounded.sh -- cargo test --profile gates -p pdf-archive --test corpus -- --ignored --nocapture
@@ -685,12 +736,13 @@ section_ratchets() {
 }
 
 all="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
-quick="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk"
+quick="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk remedies"
 
-# Sections that compose other sections' gates rather than running a gate of their own. Not in
-# `all`, because a full run already pays for every line they run; named by `--list`, because a
-# section a reader cannot discover is a section nobody runs.
-composed="ratchets"
+# Sections another section already runs. Not in `all`, because a full run pays for every line
+# they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
+# `--list`, because a section a reader cannot discover is a section nobody runs. `remedies` is in
+# `quick` as well, since it is the one line of `archive` that needs no corpus.
+composed="ratchets remedies"
 
 case ${1-} in
 --list) printf '%s\n' $all $composed; exit 0 ;;
@@ -738,6 +790,7 @@ for section in $sections; do
     binaries) section_binaries ;;
     disk) section_disk ;;
     ratchets) section_ratchets ;;
+    remedies) section_remedies ;;
     *)
         printf 'no such section: %s (tools/state.sh --list)\n' "$section" >&2
         status=1

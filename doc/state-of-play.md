@@ -125,7 +125,12 @@ because an ABI has no gestures.
 **What a document asserts over its reader is the reader's to set, in a menu every window has.**
 `CLAUDE.md`'s four levels — off, on, ask, warn — stand one per operation and in two scopes: the
 window's, which every document it opens inherits, and one document's departure from them, which
-ends when that document closes. The *ask* level puts its question on a modal window in all three,
+ends when that document closes. One of those operations is not a verb a person presses: §12.11.6's
+requirements processing, where a document whose unmet requirements pass §12.11.3's penalty
+threshold is refused, asked about or warned of *before it is opened at all* — `on` raising no
+`Event::Opened`, which is what the clause's "the processing of the document shall not continue"
+is, and `off` being the default (ADR 1167). The *ask* level puts its question on a modal window in
+all three,
 worded once in `viewer_host::restriction`; §12.2's `/HideMenubar` is read, answered in words and
 deliberately not obeyed over that menu, because a file that could hide the reader's levels would be
 taking away the control over itself (ADR 1145).
@@ -179,7 +184,9 @@ clause's default (ADR 1106); §7.11.4's embedded
 files, where a click writes the file beside the document — as does a click on §12.5.6.15's
 paperclip, because §7.11.4.1 gives an embedded file two homes and a file hung on a *page's* own
 annotation is in the one the name tree does not list — and where a document stating §12.3.5's
-`/Collection` gets its folder tree and the schema's columns instead of a flat list, because a
+`/Collection` gets its folder tree and the schema's columns instead of a flat list — in Table 153's
+`/Sort` order, which is a `shall` about the rows and is resolved once below the three windows
+because the values it orders by are §7.11.6's collection items no host holds (ADR 1168) — because a
 collection is how a document *arranges* its files rather than a new population of them (ADR 0202);
 §14.3.3's `/Info` with §14.3.2's XMP under it; §12.3.4's thumbnails, one row per page with the
 miniature fitted above §12.4.2's label and **fetched only for the rows about to be drawn**, which is
@@ -400,6 +407,15 @@ XMP packet the producer wrote, set verbatim in a face the document itself carrie
 content: §14.7.5.2's marked-content sequence per line, §14.7.2's `Part` holding a `P` per line, and
 §14.7.5.4's `/StructParents`, parent-tree entry and `/ParentTreeNextKey`, so the page is real
 content rather than §14.8.2.2.1's artifact by absence (ADR 1163).
+**Behaviour a target forbids is taken out and the behaviour behind it is not.** ISO 19005 forbids
+whole action types, an `/AA` on four kinds of holder, and a widget's or field's `/A`; the converter
+removes each where a configuration answers the site, names every action that went in the report, and
+promotes a removed action's §12.6.2 `/Next` subtree into its place, so the permitted actions behind a
+forbidden one still run in the order NOTE 1 states (ADR 1175). **And one syntax repair reaches inside
+a content stream**: §7.3.4.3 states the value of a hexadecimal string with an odd digit count, so the
+converter writes the final digit the clause already assumed and the string reads the same — the one
+repair whose result the standard itself states, with the sibling rule about a byte that is not a
+digit still refused because the clause gives it no value to transcribe (ADR 1176).
 A refusal is a question answered in advance: a configuration names each refusal site and its
 remedy, `--remedy-sites` prints every site a target binds with what this version carries out, and
 six shipped profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012).

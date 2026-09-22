@@ -30,7 +30,7 @@ use crate::action::{
 };
 use crate::destination::Destination;
 use crate::forms_data::Import;
-use crate::optional_content::{Audience, OptionalContent};
+use crate::optional_content::{Audience, OptionalContent, Purpose};
 
 /// Deepest nesting of `/Kids` walked when a field name is resolved.
 ///
@@ -141,6 +141,17 @@ pub struct ViewState {
     /// [`Audience::NONE`] until a host says otherwise, under which both categories are reported
     /// unanswered and the configuration's own state stands. ADR 1106.
     audience: Audience,
+    /// What the output being produced is for: §8.11.4.4's event, and §8.9.5.4 step c)'s question.
+    ///
+    /// The fourth thing in this struct that is a property of the *host* rather than of the
+    /// document or of anything a person did to it, and it is here for `magnification`'s reason:
+    /// Table 101's `Print` and `Export` events decide whether a layer is drawn and §8.9.5.4's
+    /// step c) decides which of an image's variants is, and rule 1 makes this state the only
+    /// channel by which anything outside the file may.
+    ///
+    /// [`Purpose::View`] until an operation says otherwise, which is what every caller that says
+    /// nothing gets. ADR 1173.
+    purpose: Purpose,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -708,6 +719,7 @@ impl ViewState {
             magnification: None,
             widget_appearances: WidgetAppearances::default(),
             audience: Audience::NONE,
+            purpose: Purpose::View,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),
@@ -769,7 +781,7 @@ impl ViewState {
             return Magnified::Unchanged;
         }
         self.magnification = magnification;
-        if self.reapply_view_usage() {
+        if self.reapply_usage() {
             Magnified::Visibility
         } else {
             Magnified::Placement
@@ -793,7 +805,41 @@ impl ViewState {
             return false;
         }
         self.audience = audience;
-        self.reapply_view_usage()
+        self.reapply_usage()
+    }
+
+    /// What the output being produced is for; see [`Self::set_purpose`].
+    #[must_use]
+    pub fn purpose(&self) -> Purpose {
+        self.purpose
+    }
+
+    /// Says what the output being produced is for, for the duration of producing it.
+    ///
+    /// Two clauses read it, and they are the two the answer exists for. §8.11.4.4's `Print` and
+    /// `Export` usage application dictionaries are "applied over the current states of optional
+    /// content groups" and their changes "persist only for the duration" of the operation; and
+    /// §8.9.5.4 step c) selects an image's `/DefaultForPrinting` alternate when "the PDF is being
+    /// printed".
+    ///
+    /// **An operation states it, holds it while it runs, and states [`Purpose::View`] again** —
+    /// or, as `quorra-transform`'s writers do, works through a state of its own that never was a
+    /// reader's. The revert the clause requires costs nothing either way, because the event is
+    /// an overlay rather than a write: see [`OptionalContent::reapply`]. Nothing in this crate
+    /// infers the answer, which is `CLAUDE.md` principle 3's rule and [`Audience`]'s (ADR 1106):
+    /// a renderer that decided for itself what a person was doing would be answering a question
+    /// nobody asked it.
+    ///
+    /// Returns whether any §8.11 group's state moved, which is what a caller that shows a layer
+    /// panel needs. **It is not the test for whether the page has to be drawn again**, and the
+    /// second clause is why: §8.9.5.4's step c) selects a different image without any group's
+    /// state moving, so a change of purpose supersedes the ink whatever this answers. ADR 1173.
+    pub fn set_purpose(&mut self, purpose: Purpose) -> bool {
+        if self.purpose == purpose {
+            return false;
+        }
+        self.purpose = purpose;
+        self.reapply_usage()
     }
 
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
@@ -818,12 +864,12 @@ impl ViewState {
         self.modified
     }
 
-    /// §8.11.4.5's reapplication against whatever the two factors now are.
-    fn reapply_view_usage(&mut self) -> bool {
-        let magnification = self.magnification;
+    /// §8.11.4.5's reapplication against whatever the three factors now are.
+    fn reapply_usage(&mut self) -> bool {
+        let (magnification, purpose) = (self.magnification, self.purpose);
         self.optional_content
             .as_mut()
-            .is_some_and(|content| content.reapply(magnification, &self.audience))
+            .is_some_and(|content| content.reapply(magnification, &self.audience, purpose))
     }
 
     /// The optional content configuration, as the state currently stands.
@@ -855,10 +901,14 @@ impl ViewState {
     /// Returns whether anything changed, so a caller can decide whether the page has to be
     /// interpreted again rather than comparing two configurations itself — the same shape
     /// [`Self::set_widget_appearances`] has, and for the same reason: §8.11 decides what is drawn.
+    ///
+    /// A configuration carries §8.11.4.4's event overlay with it, so the restored one is put back
+    /// against whatever [`Self::purpose`] is *now* rather than whatever it was when the snapshot
+    /// was taken — which is what keeps the two in step wherever a state is written.
     pub fn restore_optional_content(&mut self, snapshot: Option<OptionalContent>) -> bool {
         let changed = self.optional_content != snapshot;
         self.optional_content = snapshot;
-        changed
+        self.reapply_usage() || changed
     }
 
     /// Puts the pointer on an annotation, or takes it off every annotation.
@@ -2426,6 +2476,9 @@ impl ViewState {
             return false;
         }
         content.apply(&[(group, if on { Change::On } else { Change::Off })], true);
+        // A manual change writes the view-side states, and an event's overlay stands over those
+        // — so it is recomputed here rather than left holding the value the change replaced.
+        self.reapply_usage();
         true
     }
 
@@ -2457,6 +2510,9 @@ impl ViewState {
                 if let Some(content) = self.optional_content.as_mut() {
                     content.apply(&state.changes, state.preserve_radio_buttons);
                 }
+                // `Self::set_group`'s reason: an event's overlay stands over the states this
+                // action just wrote.
+                self.reapply_usage();
             }
             Action::Hide(hide) => self.hide(document, hide),
             Action::ResetForm(reset) => self.reset_form(document, reset),

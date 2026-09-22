@@ -8527,13 +8527,36 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// order the conversion and the coverage are applied in, and this tree now applies them in the
 /// order §11.4.7 states.
 ///
-/// **The group is empty, and the page is a *reported* one rather than an agreeing one.** Its
-/// `/ExtGState` states `/OP true /op true /OPM 1` and its marks blend `Multiply`, which is
-/// §11.7.4.3's last paragraph — an implicit non-isolated, non-knockout group painted under the
-/// special overprinting blend mode, whose result is painted under the current mode. That group is
-/// not built (ADRs 1157, 1158), so the page names it and leaves this comparison. Its pixels did
-/// not move: the ladder above is what it drew before the mode was read and what it draws now.
-const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 0] = [];
+/// **The page is judged again, and §11.7.4.3's last paragraph is why it draws what it draws.**
+/// Its `/ExtGState` states `/OP true /op true /OPM 1` and the mark it governs is `0 0 0 1 k`
+/// under `/BM /Multiply` and a `/Luminosity` mask. With cyan, magenta and yellow all zero the
+/// special overprinting blend mode leaves every channel of §11.4.7's chromatic raster to the
+/// backdrop, so the implicit non-isolated, non-knockout group's result *is* the backdrop — and
+/// the clause then paints that result under the document's own Multiply. Where painting the
+/// object directly gave `C_b`, the construction gives `0.7 × C_b + 0.3 × C_b²`, which darkens
+/// the masked part of the band by at most `0.3 × C_b × (1 − C_b)`: 0.044 of full scale on the
+/// band's own `1 − y = 0.82`. NOTE 3 exempts a Normal current blend mode from the group and
+/// nothing else, so this is the clause's arithmetic rather than a choice (ADR 1170).
+///
+/// **What keeps it `ambiguous` is the same tile as ever, and the references part company there
+/// by the same amount as we do.** Its verdict is inside the ordinary tolerance on three of the
+/// four measures — mean 0.26 against 1.00, 0.50% of pixels differing against 1.00%, similarity
+/// 0.9964 against 0.9900 — and outside on the worst tile, 8.80 against 5.00, at (544, 544). That
+/// tile is the two lines of 6-point white type where they cross the band, and `raster_compare`
+/// over the artefacts says the references do the same thing to each other there: ours against
+/// `ghostscript` is mean 0.2624 with a worst tile of 8.80, `ghostscript` against `hayro` is
+/// 0.1793 and 8.71, and `poppler` against `mupdf` is 0.1712 and 5.88. Our nearest reference is
+/// `hayro`, at mean 0.1107 and a worst tile of 2.34 — closer than `ghostscript` stands to
+/// `hayro`. The oracle's own distance puts us 0.73 from the nearest reference and 1.76 from the
+/// furthest.
+///
+/// **And the band's flat colour is untouched by the group**, which is what says the darkening is
+/// under the mask rather than over the page: ours `#E60575`, `poppler` `#E60576`, `mupdf`
+/// `#E60376`, `hayro` `#E50375`, `ghostscript` `#E50275` — the same five values the round trip
+/// above put on the band, with no renderer moving. This is
+/// `AMBIGUOUS_GLYPH_SCAN_CONVERSION`'s subject once more: a worst-tile bound measured over glyph
+/// edges is tighter than five renderers' scan conversion of small type on a saturated ground.
+const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf page 1"];
 
 /// Ambiguous, and the five renderers span **3.65 of 255** on a 209 x 90 illustration.
 ///

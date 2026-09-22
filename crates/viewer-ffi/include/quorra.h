@@ -139,6 +139,13 @@ extern "C" {
 #define QUORRA_RESTRICTED_PRINT    3u
 #define QUORRA_RESTRICTED_MODIFY   4u
 #define QUORRA_RESTRICTED_ASSEMBLE 5u
+/* §12.11.6: going on with a document at all, where the requirements it states and this library
+ * cannot meet total more penalty than §12.11.3 admits. Not one of Table 22's positions — a
+ * security handler says nothing about it — and it is answered where quorra_open is, so a caller
+ * at QUORRA_RESTRICT_ON gets QUORRA_EVENT_KIND_REFUSED and no QUORRA_EVENT_KIND_OPENED, and one
+ * at QUORRA_RESTRICT_ASK gets QUORRA_EVENT_KIND_ASKING and answers it with quorra_answer (ADR
+ * 1167). */
+#define QUORRA_RESTRICTED_PROCESS  6u
 
 /* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
  * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC
@@ -395,6 +402,19 @@ extern "C" {
 #define QUORRA_COLUMN_SUBTYPE   2u  /* Table 155's /Subtype as the file spells it */
 #define QUORRA_COLUMN_VISIBLE   1u  /* Table 155's /V, "[t]he initial visibility of the field" */
 #define QUORRA_COLUMN_EDITABLE  2u  /* Table 155's /E */
+
+/* Table 160's named layouts, which §12.3.6's navigator presents a collection with. The whole list
+ * crosses rather than one selection, because the clause's rule is "the first one it is capable of
+ * displaying" and what this caller can display is the caller's own fact. CUSTOM carries the name
+ * the file wrote; the seven the table defines carry none, their number being the name (ADR 1168). */
+#define QUORRA_NAVIGATOR_DETAILS    0u
+#define QUORRA_NAVIGATOR_TILE       1u
+#define QUORRA_NAVIGATOR_HIDDEN     2u
+#define QUORRA_NAVIGATOR_FILM_STRIP 3u
+#define QUORRA_NAVIGATOR_FREE_FORM  4u
+#define QUORRA_NAVIGATOR_LINEAR     5u
+#define QUORRA_NAVIGATOR_TREE       6u
+#define QUORRA_NAVIGATOR_CUSTOM     7u
 
 /* Which of a §12.3.5.2 folder's two strings `quorra_collection_folder_text` answers. */
 #define QUORRA_FOLDER_NAME         0u
@@ -687,9 +707,10 @@ int32_t quorra_tick(quorra_viewer *viewer, uint32_t millis, quorra_events **even
 int32_t quorra_present(quorra_viewer *viewer, uint32_t mode, quorra_events **events);
 /* Table 29's arrangement, as the reader has chosen it. QUORRA_LAYOUT_*. */
 int32_t quorra_layout(quorra_viewer *viewer, uint32_t layout, quorra_events **events);
-/* The reader's policy about the document's restrictions. QUORRA_RESTRICT_*. Sets all six. */
+/* The reader's policy about the document's restrictions. QUORRA_RESTRICT_*. Sets every
+ * QUORRA_RESTRICTED_* operation at once. */
 int32_t quorra_restrict(quorra_viewer *viewer, uint32_t level, quorra_events **events);
-/* The same for one operation alone. QUORRA_RESTRICTED_* and QUORRA_RESTRICT_*; the other five are
+/* The same for one operation alone. QUORRA_RESTRICTED_* and QUORRA_RESTRICT_*; the others are
  * left where this caller last put them. */
 int32_t quorra_restrict_operation(quorra_viewer *viewer, uint32_t operation, uint32_t level,
                        quorra_events **events);
@@ -1192,6 +1213,18 @@ int32_t quorra_collection_folder_text(const quorra_collection *collection, size_
  * file list is no use without it. A key naming no folder is a file at the root: QUORRA_NO_ANSWER,
  * with the key copied out unchanged so that one loop does for both. Takes no viewer, because it is
  * a fact about a string. */
+/* Table 153's /Sort applied: how many /EmbeddedFiles keys it put in an order, and the key at one
+ * place in it. Zero keys is a document stating no /Sort, and the /EmbeddedFiles tree's own order
+ * — which is quorra_attachments_read's — then stands. The key is the tree's, folder number and
+ * all, so it matches QUORRA_ATTACHMENT_NAME and quorra_extract by string (ADR 1168). */
+int32_t quorra_collection_ordered(const quorra_collection *collection, size_t *count);
+int32_t quorra_collection_order_key(const quorra_collection *collection, size_t index, char *out,
+                       size_t cap, size_t *needed);
+/* §12.3.6's navigator: how many named layouts it states, and each in the document's own order of
+ * preference. Zero layouts is a collection stating no /Navigator. */
+int32_t quorra_collection_layouts(const quorra_collection *collection, size_t *count);
+int32_t quorra_collection_layout(const quorra_collection *collection, size_t index, uint32_t *kind,
+                       char *out, size_t cap, size_t *needed);
 int32_t quorra_collection_folder_of(const char *key, uint32_t *id, char *out, size_t cap,
                                   size_t *needed);
 

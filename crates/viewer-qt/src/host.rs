@@ -1170,7 +1170,7 @@ impl Host {
     /// A person picked one of [`Host::restriction_menu`]'s entries.
     ///
     /// By index, which is sound because the *set* of entries and their order do not depend on the
-    /// policy — two scopes, six operations, four levels and one way back — and only what is
+    /// policy — two scopes, every operation, four levels and one way back — and only what is
     /// ticked does. A heading's index chooses nothing, which is what a `QMenu` title is.
     pub(crate) fn chose_restriction(&mut self, entry: usize) {
         let Some(viewer_host::Row::Level(picked)) = self.restrictions.rows().get(entry).copied()
@@ -1829,28 +1829,15 @@ impl Host {
         let mut queue: std::collections::VecDeque<Command> = queue.into();
         loop {
             while let Some(command) = queue.pop_front() {
-                let described = self
-                    .trace
-                    .on(Topic::Events)
-                    .then(|| format!("{command:?}"))
-                    .map(|text| text.chars().take(120).collect::<String>());
-                // **A command that changes the document changes what §14.7's tree says**, and
-                // `Showing` cannot see it: an edit and a click move neither the page nor the
-                // viewport. Which commands those are is one statement for all three windows
-                // (`viewer_accessibility::republishes`, ADR 0623).
-                if viewer_accessibility::republishes(&command) {
-                    self.spoken = None;
+                // Table 166's `/M` is what §7.5.6's update writes it into, so this window reads
+                // its clock on the way to a save rather than keeping one. Which command that is
+                // is `viewer_host::modification::before`'s, once for all three windows, because
+                // a host reading its clock somewhere else reads it at a different moment (ADR
+                // 1160).
+                if let Some(clock) = viewer_host::modification::before(&command) {
+                    self.run(clock, &mut queue);
                 }
-                let events: Vec<Event> = self.viewer.handle(command).collect();
-                if let Some(described) = described {
-                    self.trace.say(
-                        Topic::Events,
-                        format_args!("{described} -> {} event(s)", events.len()),
-                    );
-                }
-                for event in events {
-                    self.react(event, &mut queue);
-                }
+                self.run(command, &mut queue);
             }
             self.take_the_thread_back();
             self.take_the_drawn(&mut queue);
@@ -1859,6 +1846,36 @@ impl Host {
             }
         }
         self.refresh();
+    }
+
+    /// One command through the viewer, with what it produced put back on the queue.
+    ///
+    /// The body of [`Host::pump`]'s inner loop, named so that a command run *ahead* of another —
+    /// Table 166's clock before a save — goes through the same trace and the same reactions as
+    /// one a person sent.
+    fn run(&mut self, command: Command, queue: &mut std::collections::VecDeque<Command>) {
+        let described = self
+            .trace
+            .on(Topic::Events)
+            .then(|| format!("{command:?}"))
+            .map(|text| text.chars().take(120).collect::<String>());
+        // **A command that changes the document changes what §14.7's tree says**, and
+        // `Showing` cannot see it: an edit and a click move neither the page nor the
+        // viewport. Which commands those are is one statement for all three windows
+        // (`viewer_accessibility::republishes`, ADR 0623).
+        if viewer_accessibility::republishes(&command) {
+            self.spoken = None;
+        }
+        let events: Vec<Event> = self.viewer.handle(command).collect();
+        if let Some(described) = described {
+            self.trace.say(
+                Topic::Events,
+                format_args!("{described} -> {} event(s)", events.len()),
+            );
+        }
+        for event in events {
+            self.react(event, queue);
+        }
     }
 
     /// ADR 0668's second half: takes the drawing thread back from a page the arrangement has
@@ -2271,7 +2288,8 @@ impl Host {
                     Answer::Collection {
                         collection,
                         initial,
-                    } => collection_rows(&collection, &initial, &files),
+                        order,
+                    } => collection_rows(&collection, &initial, &order, &files),
                     _ if files.is_empty() => {
                         vec![PanelRow::saying("This document embeds no files.")]
                     }

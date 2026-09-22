@@ -620,6 +620,32 @@ inside a knockout group; §11.6.4.3 makes that opacity and §11.4.6's NOTE 5 giv
 this tree does not follow them — and if the owner ever wants Acrobat's picture, that is a
 `doc/questions/` item, not a rewrite.
 
+## §11.7.4.3's overprinting mode is 2.8% of the web, and the two backends refuse all of it
+
+**ADR 1158 section 4 left the frequency unmeasured and handed the census here; ADR 1178 is the
+count.** `crates/pdf-model/examples/overprint_ink_group_census.rs` asks the interpreter's own
+verdict — `DisplayList::overprints()`, the commands whose `blend()` is `BlendMode::Overprint`,
+the non-isolated group the clause's last paragraph builds around one, and
+`Unsupported::Overprint` — so a change to the rule moves the number and not the predicate. A
+document no object of which carries Table 58's `/OP` or `/op` is not interpreted at all, which is
+what makes it affordable over 65 944 documents.
+
+**1826 documents and 9863 pages paint under the mode**, 27 435 261 marks; that is 2.8% of the
+documents that open, against the single corpus witness the feature was built against. **145
+documents and 493 pages do it under a non-Normal blend mode** — §11.7.4.3's implicit group — with
+42 075 of the 43 199 marks under `Multiply`. And **not one crawled page carries an
+`Unsupported::Overprint`**: both remaining reports are §11.4.6 NOTE 6's knockout case, and the web
+reaches neither.
+
+So the row this file gains is a backend one rather than a reading one. `render-raster` and
+`render-gpu` refuse a page by name whenever that flag is set, which was the conservative answer
+while the number was unknown; at 1826 documents it is the largest by-name coverage loss either
+carries, and `render-cpu` already draws them. **The flag is also 1.8% wider than the marks**:
+`content::overprint` sets it where it *computes* the mode and `path.rs` asks for the fill's and
+the stroke's before it asks whether either marks the page, so 177 of the 10 040 pages carrying the
+verdict have no command under it and are refused for a mark that is not there. Whoever narrows the
+refusal sets the flag where the command is emitted.
+
 ## What the five precedents have in common, and what the sixth was instead
 
 `ImageSource` carries a raster the list *names* (ADR 0210), a mask group is painted in the one

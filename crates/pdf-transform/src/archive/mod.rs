@@ -132,10 +132,12 @@
 //! keeps nothing. That is the price of the re-validation, and the re-validation is what the
 //! verdict rests on.
 
+mod actions;
 mod census;
 mod config;
 mod decision;
 mod fonts;
+mod hexadecimal;
 mod jpeg2000;
 mod prepare;
 mod preserve;
@@ -159,6 +161,7 @@ use crate::pattern::{Fill, Pattern};
 use crate::tool::ToolOutputs;
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
+pub use actions::RemovedAction;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
     ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Placement,
@@ -473,6 +476,7 @@ fn decide_every_failure(
         removed: Vec::new(),
         appearances: Vec::new(),
         removed_annotations: Vec::new(),
+        removed_actions: Vec::new(),
         substituted: Vec::new(),
         restated: Vec::new(),
         signatures: None,
@@ -770,6 +774,18 @@ fn apply_the_decisions(
         conversion
             .removed_annotations
             .clone_from(&forbidden.removed);
+    }
+    // `doc/pdf-a-conversion-limits.md` section 3.3's condition on its own loss: an action that is
+    // gone leaves nothing in the output to notice, so what went is named one row at a time — the
+    // holder, the entry it was reached through and the action's own type — and only the rows
+    // whose rewrite this conversion actually carried out.
+    if let Ok(removals) = &prepared.actions {
+        conversion.removed_actions = removals
+            .removed
+            .iter()
+            .filter(|row| wanted.contains(&row.by))
+            .cloned()
+            .collect();
     }
     // section 3.9's condition on the loss: what went is named per property, because a removed
     // property leaves nothing in the output for a user to find it by.

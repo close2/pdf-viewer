@@ -352,6 +352,7 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 pub fn collection_rows(
     collection: &Collection,
     initial: &Initial,
+    order: &[String],
     attachments: &[Attachment],
 ) -> Vec<PanelRow> {
     let mut columns: Vec<(&String, &Field)> = collection
@@ -360,6 +361,12 @@ pub fn collection_rows(
         .filter(|(_, field)| field.visible)
         .collect();
     columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
+
+    // Table 153's `/Sort`, applied once and here: every list below is a *filter* of this one, so
+    // sorting the files before they are split into folders puts each folder's own rows in the
+    // stated order without any of those filters knowing there is an order at all.
+    let sorted = in_sort_order(order, attachments);
+    let attachments = sorted.as_slice();
 
     let mut rows = match collection.folders.as_ref() {
         Some(root) => {
@@ -388,6 +395,44 @@ pub fn collection_rows(
         rows.push(PanelRow::saying(&sentence));
     }
     rows
+}
+
+/// The attachments in the order Table 153's `/Sort` states, or as they came where it states none.
+///
+/// §12.3.5.1's Table 153, on the entry:
+///
+/// > A collection sort dictionary, which specifies the order in which items in the collection
+/// > shall be sorted in the user interface
+///
+/// The ordering itself is `pdf_model::collection::sorted_keys`, resolved before this crate sees
+/// it and carried by `viewer_core::Answer::Collection` — what is left here is applying it, which
+/// is a lookup rather than a comparison. A key the order does not name keeps its place after the
+/// ones it does, so a list that disagrees with the order in any way still shows every file: this
+/// panel's standing rule is that a file cannot fall out of it by being filed oddly (ADR 1168).
+///
+/// Public because `viewer-ui` builds its own rows — its row is a widget rather than text, which
+/// is the division [`outline_rows`] already states — and *applying* an order is not a thing two
+/// windows may answer differently.
+#[must_use]
+pub fn in_sort_order<'a>(order: &[String], attachments: &'a [Attachment]) -> Vec<&'a Attachment> {
+    let mut sorted: Vec<&Attachment> = attachments.iter().collect();
+    if order.is_empty() {
+        return sorted;
+    }
+    let places: std::collections::HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(at, key)| (key.as_str(), at))
+        .collect();
+    // Stable, so the files the order does not name keep the order they arrived in — which is the
+    // `/EmbeddedFiles` tree's, the one other order the document itself stated.
+    sorted.sort_by_key(|attachment| {
+        places
+            .get(attachment.name.as_str())
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
+    sorted
 }
 
 /// What a panel says about §12.3.5.2's restricted names, or nothing where the document breaks none.
@@ -527,7 +572,7 @@ fn stated_ids(root: &pdf_model::collection::Folder) -> std::collections::BTreeSe
 /// The files whose name-tree key names `folder`, as rows.
 fn files_in(
     folder: u32,
-    attachments: &[Attachment],
+    attachments: &[&Attachment],
     columns: &[(&String, &Field)],
 ) -> Vec<PanelRow> {
     files_where(attachments, columns, &|id| id == Some(folder))
@@ -535,7 +580,7 @@ fn files_in(
 
 /// The files whose key's folder identifier — `None` where the key names none — `wanted` admits.
 fn files_where(
-    attachments: &[Attachment],
+    attachments: &[&Attachment],
     columns: &[(&String, &Field)],
     wanted: &dyn Fn(Option<u32>) -> bool,
 ) -> Vec<PanelRow> {
@@ -573,7 +618,7 @@ fn files_where(
 /// `/Next` forward only and visits each object once.
 fn folder_row(
     folder: &pdf_model::collection::Folder,
-    attachments: &[Attachment],
+    attachments: &[&Attachment],
     columns: &[(&String, &Field)],
 ) -> PanelRow {
     let mut children = files_in(folder.id, attachments, columns);

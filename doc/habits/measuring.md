@@ -479,3 +479,21 @@ very document the round existed for — a carriage return the face search demand
 only re-running the same census showed it: the "after" was eight of nine until the second cause was
 read (ADR 1163). A round that removes a refusal measures the site again with the command it measured
 before, rather than inferring the gain from the refusal it removed.
+
+## 38. A census over a display list owes a column for a verdict with nothing under it
+
+The overprint census printed "verdict and no mark" beside its counts and that column caught three
+defects in one run — two in the census (a command kind never visited, a fold that dropped its own
+field) and one in the tree (a flag set where a mode is computed rather than where a mark is emitted,
+refusing 177 pages for a mark not on them). Trap 13 plants a defect when a sweep comes back clean;
+this is its counterpart for a walk that comes back full — a traversal that cannot report a miss is
+one nobody can believe (ADR 1178).
+
+## 39. A clause that ships an EXAMPLE is tested by running the example through the code
+
+§8.11.4.4's usage adjustment had been an AND with the group's prior state since the mechanism was
+built, so a usage dictionary could turn a layer off and never on; every `shall` had been read and
+the defect survived a rewrite. The clause's own EXAMPLE — object 4 starts off and receives an ON
+recommendation when printing — is the sentence that found it, and `doc/md/` carries every example
+while no gate reads one. A round implementing such a clause encodes the example as a fixture
+(ADR 1173).

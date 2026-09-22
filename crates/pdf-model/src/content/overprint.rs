@@ -60,12 +60,60 @@
     reason = "this module's prose is largely quotation, and a quotation may not gain backticks"
 )]
 
-use pdf_render::{BlendMode, Overprint};
+use pdf_render::{BlendMode, Command, Overprint};
 
 use crate::colour::{Compositing, Half};
 
 use super::report::Unsupported;
 use super::{GraphicsState, Interpreter};
+
+/// What ISO 32000-2 §11.7.4.4's first bullet asks of a combined fill and stroke.
+///
+/// Three answers rather than two, because the bullet's group is sometimes the two commands
+/// that are already there: see [`Interpreter::combined_overprint`], which decides between
+/// them, and ADR 1170.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FirstBullet {
+    /// The bullet does not apply, and §11.7.4.4's second is the construction owed.
+    No,
+    /// It applies, and the two commands as they stand are what it asks for — exactly, where
+    /// its group is the identity, and reported where a knockout group above makes the group
+    /// unstatable.
+    AsPainted,
+    /// It applies and its group is built, around parts painted with §11.6.4.4's two constants
+    /// at 1.0.
+    Group,
+}
+
+/// Whether §11.7.4.3's last paragraph asks for an implicit group around an object whose parts
+/// are painted under `parts`.
+///
+/// > If the current blend mode is any mode other than Normal when invoking this special
+/// > overprinting blend mode, the object being painted shall be implicitly treated as if it
+/// > were defined in a non-isolated, non-knockout transparency group, and painted using the
+/// > this special blend mode. The group's results shall then be painted using the current
+/// > blend mode in the graphics state.
+///
+/// The special mode being *invoked* is what a part carrying it says, and
+/// [`Interpreter::special_overprint`] hands one out only where the group can be built, so a
+/// caller reading this needs no second condition.
+///
+/// `parts` is by value and this is `#[inline]` so that a caller's own test of `state.blend` is
+/// all a page that states no overprint pays. Measured under callgrind on page 101 of ISO 32000-2
+/// interpreted fifty times, against the same build with §11.7.4's decisions and constructions
+/// planted away: taking the pair by **slice**, so that the array is built and the call made once
+/// per path-painting operator before anything is tested, cost **+4 879 021 instructions,
+/// 0.391%** of one interpretation. By value behind the caller's test it is part of the
+/// **+513 947, 0.041%** that everything but the per-glyph wrap point costs — which is ADR 1158's
+/// own order of magnitude for the two `overprint_blend` calls beside it.
+/// `Interpreter::wrap_in_the_implicit_group` carries the other figure and the whole.
+#[inline]
+pub(super) fn implicit_group_owed(state: &GraphicsState, parts: [BlendMode; 2]) -> bool {
+    state.blend != BlendMode::Normal
+        && parts
+            .iter()
+            .any(|blend| matches!(blend, BlendMode::Overprint(_)))
+}
 
 impl Interpreter<'_> {
     /// The blend mode a fill, stroke or glyph is painted under, §11.7.4.3's special one
@@ -89,18 +137,22 @@ impl Interpreter<'_> {
     ///   in the graphics state when the current colour space is DeviceCMYK". A pattern is not
     ///   such a colour: §8.6.7 excludes shadings outright, and a tiling pattern's cell paints
     ///   its own.
-    /// - At least one component's tint is zero, which is the only way the bullet's value
+    /// - At least one of the four tints is zero, which is the only way the bullet's value
     ///   differs from `C_s`.
     ///
-    /// # Why a non-Normal current blend mode is reported rather than built
+    /// # The fourth condition is asked of four tints and not of this raster's three
     ///
-    /// §11.7.4.3's last paragraph asks for an implicit non-isolated, non-knockout group in
-    /// that case, with the object painted under the special mode inside it and the group
-    /// painted under the current mode. Its NOTE 3 makes the group unnecessary when the current
-    /// mode is Normal, which is the case this builds; the other is named
-    /// ([`Unsupported::Overprint`]) and painted under the document's own mode, so the page is
-    /// short of the clause's construction and says so rather than silently dropping either the
-    /// overprint or the mode.
+    /// §11.4.7's page pair is two interpretations of one page, and
+    /// [`pdf_render::DisplayList::geometry_digest`] refuses a pair whose commands differ in
+    /// structure — a blend mode's discriminant among them — because the halves are resolved
+    /// per pixel and a command in one and not the other would be converted against a shape
+    /// that never drew it. A colour whose only zero tint is black keeps all three channels of
+    /// the black raster and none of the chromatic one, so a question asked of *this half's*
+    /// three tints answers differently in the two runs. Asked of the four the clause decides,
+    /// it answers once, and the mode that keeps nothing is `pdf_render::Overprint`'s empty
+    /// set rather than Normal. ADR 1169 is what that cost before it was asked this way: the
+    /// pair failed its own guard and the page fell back to the device's three components,
+    /// silently.
     ///
     /// # Why it is two functions
     ///
@@ -146,24 +198,19 @@ impl Interpreter<'_> {
         let (true, Some(tints), false) = (enabled, tints, patterned) else {
             return state.blend;
         };
-        // Which of the raster's three channels this half carries, and therefore which of the
-        // four tints decides each of them (`crate::colour::Half`).
-        let kept = match half {
-            Half::Chromatic => [tints[0] == 0.0, tints[1] == 0.0, tints[2] == 0.0],
-            Half::Black => [tints[3] == 0.0; 3],
-        };
-        let Some(overprint) = Overprint::new(kept) else {
-            // No component's tint is zero, so the bullet's value is `C_s` for every one of
-            // them — Normal, and the same picture the implicit group below would have
-            // computed. Nothing is owed and nothing is reported.
+        if !tints.contains(&0.0) {
+            // The bullet's value is `C_s` for every one of the group's four components —
+            // Normal, and the same picture the implicit group below would have computed.
+            // Nothing is owed and nothing is reported.
             return state.blend;
-        };
-        if state.blend != BlendMode::Normal {
+        }
+        if state.blend != BlendMode::Normal && !self.implicit_group_statable() {
             self.note(Unsupported::Overprint {
                 detail: format!(
                     "§11.7.4.3's implicit non-isolated, non-knockout group for an object \
-                     painted under the {:?} blend mode while overprinting is enabled is not \
-                     built; the object is painted under that mode without the special \
+                     painted under the {:?} blend mode while overprinting is enabled cannot \
+                     be an element of the non-isolated knockout group around it (§11.4.6 \
+                     NOTE 6); the object is painted under that mode without the special \
                      overprinting blend mode",
                     state.blend
                 ),
@@ -171,11 +218,98 @@ impl Interpreter<'_> {
             return state.blend;
         }
         self.list.note_overprinting();
-        BlendMode::Overprint(overprint)
+        // Which of the raster's three channels this half carries, and therefore which of the
+        // four tints decides each of them (`crate::colour::Half`).
+        BlendMode::Overprint(Overprint::new(match half {
+            Half::Chromatic => [tints[0] == 0.0, tints[1] == 0.0, tints[2] == 0.0],
+            Half::Black => [tints[3] == 0.0; 3],
+        }))
     }
 
-    /// §11.7.4.4's first bullet for a combined fill and stroke, where this tree's construction
-    /// is not it.
+    /// Whether this content's position lets §11.7.4's implicit group be stated at all.
+    ///
+    /// `Command::Group`'s `isolated` is `false` only where no enclosing group is a knockout
+    /// group, and §11.4.6's NOTE 6 is about this exact nesting:
+    ///
+    /// > When a non-isolated group is nested within a knockout group, the initial backdrop of
+    /// > the inner group is the same as that of the outer group; it is not the immediate
+    /// > backdrop of the inner group.
+    ///
+    /// A command seeded from the immediate backdrop cannot state that. **Where the outer
+    /// group's initial backdrop is transparent the two coincide**, and then §11.4.5's isolated
+    /// group *is* the clause's non-isolated one rather than a substitute for it: the backdrop
+    /// composited in and removed again is nothing either way (§11.4.4 NOTE 3). That is the
+    /// same reading [`Interpreter::transparent_initial_backdrop`] was built for, and it leaves
+    /// one position this tree cannot draw — a direct element of a *non-isolated* knockout
+    /// group — which is §11.4.6's restriction on what such an element may be rather than this
+    /// clause's, and is the restriction §11.7.4.4's ledger row already carries. ADR 1170.
+    fn implicit_group_statable(&self) -> bool {
+        !self.inside_knockout || self.transparent_initial_backdrop
+    }
+
+    /// §11.7.4.3's last paragraph, around the commands from `mark` on.
+    ///
+    /// > the object being painted shall be implicitly treated as if it were defined in a
+    /// > non-isolated, non-knockout transparency group, and painted using the this special
+    /// > blend mode. The group's results shall then be painted using the current blend mode in
+    /// > the graphics state.
+    ///
+    /// The object keeps its own alpha and soft mask inside the group, because the clause moves
+    /// the *blend mode* and says nothing of either — and its NOTE 3 is what checks that
+    /// reading: "[i]t is not necessary to create such an implicit transparency group if the
+    /// current blend mode is Normal ; simply substituting the special blend mode while painting
+    /// the object produces equivalent results". A non-isolated group composited onto its own
+    /// backdrop at an alpha of 1.0 under Normal returns its elements unchanged (§11.4.4 NOTE
+    /// 3), so with the object's constants left on the object the equivalence NOTE 3 states is
+    /// exact; with them moved to the group it is not.
+    pub(super) fn implicit_overprint_group(&mut self, state: &GraphicsState, mark: usize) {
+        self.non_isolated_group(mark, 1.0, state.blend);
+    }
+
+    /// §11.7.4.4's first bullet, around the commands from `mark` on.
+    ///
+    /// The parts were painted with §11.6.4.4's two constants at 1.0, which is what the bullet
+    /// asks for, and the group composites "with the backdrop, using the originally specified
+    /// alpha and blend mode" — `state`'s, the two constants being equal by the bullet's own
+    /// condition. The soft mask stays on the parts: the bullet's nouns are the *alpha
+    /// constants*, and §11.7.4.4's second bullet spends them the same way.
+    pub(super) fn first_bullet_group(&mut self, state: &GraphicsState, mark: usize) {
+        self.non_isolated_group(mark, state.fill_alpha, state.blend);
+    }
+
+    /// The non-isolated, non-knockout group both of §11.7.4's implicit constructions are.
+    fn non_isolated_group(&mut self, mark: usize, alpha: f32, blend: BlendMode) {
+        let commands = self.list.split_off_commands(mark);
+        if commands.is_empty() {
+            return;
+        }
+        self.draw(Command::Group {
+            commands,
+            alpha,
+            clip: None,
+            mask: None,
+            blend,
+            // §11.4.4's own model, which is what both clauses name. `render-cpu` runs the
+            // elements a second time on transparency for Table 140's group alpha and performs
+            // NOTE 3's removal (`blend::remove_backdrop`); the two backends that cannot refuse
+            // the whole list by name, because it overprints (ADR 1158).
+            //
+            // Inside a knockout group with a transparent initial backdrop the clause's
+            // non-isolated group *is* §11.4.5's, exactly: see
+            // [`Interpreter::implicit_group_statable`], which is also what guarantees this
+            // command is never emitted anywhere else with `false`.
+            isolated: self.inside_knockout,
+            knockout: false,
+            // Stated rather than asked: this group carries no clip of its own, and §8.5.4's
+            // intersection at the blit is the only thing the flag decides. A round that gives
+            // it one owes the question (ADR 0554).
+            alpha_is_shape: false,
+            blending: None,
+        });
+    }
+
+    /// §11.7.4.4's first bullet for a combined fill and stroke, and which of its three shapes
+    /// this pair takes.
     ///
     /// The clause gives the pair two constructions and the condition between them is
     /// overprinting:
@@ -195,15 +329,18 @@ impl Interpreter<'_> {
     /// §11.4.4's own cancellation (NOTE 3) and the identity `interpolate` rests on in
     /// `render-cpu`. So nothing is owed there and nothing is reported.
     ///
-    /// What is not built is the general case, where the pair's own alpha or mode is not the
-    /// identity. `true` from here means the caller must leave the parts as they are and say
-    /// so; `false` means the first bullet does not apply and the caller builds the second.
+    /// Everywhere else the group is built ([`Interpreter::first_bullet_group`]), with the
+    /// parts painted at an alpha constant of 1.0 — which is the caller's to arrange, because
+    /// it happens before the two commands exist. The one case left is a pair that is a direct
+    /// element of a non-isolated knockout group, where no nested group can be stated
+    /// ([`Interpreter::implicit_group_statable`]); that is reported and the parts stay as they
+    /// are.
     pub(super) fn combined_overprint(
         &mut self,
         state: &GraphicsState,
         parts: [BlendMode; 2],
         what: &'static str,
-    ) -> bool {
+    ) -> FirstBullet {
         let special = parts
             .iter()
             .any(|blend| matches!(blend, BlendMode::Overprint(_)));
@@ -224,18 +361,22 @@ impl Interpreter<'_> {
         // against the same backdrop under the same alpha and mode, so the choice between them
         // is only visible where a component of one part is left to what the other painted.
         if !(special && both_enabled && equal_alphas) {
-            return false;
+            return FirstBullet::No;
         }
-        if state.fill_alpha < 1.0 || state.blend != BlendMode::Normal {
+        if state.fill_alpha >= 1.0 && state.blend == BlendMode::Normal {
+            return FirstBullet::AsPainted;
+        }
+        if !self.implicit_group_statable() {
             self.note(Unsupported::Overprint {
                 detail: format!(
                     "§11.7.4.4's first bullet asks for {what} to be a non-isolated, \
-                     non-knockout group whose parts paint at an alpha of 1.0 under the \
-                     special overprinting blend mode, composited at the stated alpha and \
-                     blend mode; the parts are painted directly instead"
+                     non-knockout group, which a direct element of the non-isolated knockout \
+                     group around it may not be (§11.4.6 NOTE 6); the parts are painted \
+                     directly instead"
                 ),
             });
+            return FirstBullet::AsPainted;
         }
-        true
+        FirstBullet::Group
     }
 }

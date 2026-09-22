@@ -1264,7 +1264,7 @@ the half with no `/AS` stays `not-built-yet`
 ## 7. Forms and signatures
 
 #### `forms/no-action-on-widget-or-field`
-ISO 19005-2 6.4.1, ISO 19005-4 6.4.1 · all six · today `not-built-yet`
+ISO 19005-2 6.4.1, ISO 19005-4 6.4.1 · all six · **built** (`discard`, `Loss::InteractiveBehaviour`, ADR 1175) — the `/A` half only; the two `preserve`s below are not
 
 - **Mitigation** — `discard` the `/A` entry, which is the limits document's section 3.3 Ask. Two
   `preserve`s sit beside it and neither is in the limits document:
@@ -1357,10 +1357,18 @@ Eight requirements, one subject: an action carries behaviour, and the only way t
 to remove it (section 3.3 of the limits document). What the review adds is that **the behaviour and
 the information it encoded are not the same thing**, and three of the eight can keep the second.
 
+**All eight are built, with `forms/no-action-on-widget-or-field` from section 7 beside them**, because
+one routine answers all nine: `crates/pdf-transform/src/archive/actions.rs`, under
+`Loss::InteractiveBehaviour`. What ADR 1175 decided and a reader of this section should know: a
+removed action's §12.6.2 `/Next` subtree is **promoted into its place** rather than removed with it,
+so the permitted actions behind a forbidden one still run, in the order NOTE 1 states. The report
+names every action that went, the dictionary it was written in and the entry it was reached
+through.
+
 #### `actions/no-launch-multimedia-or-form-actions`
 #### `actions/no-deprecated-set-state-or-no-op-actions`
 #### `actions/named-action-is-page-navigation`
-ISO 19005-2 6.5.1, ISO 19005-4 6.6.1 · all six · today `not-built-yet`
+ISO 19005-2 6.5.1, ISO 19005-4 6.6.1 · all six · **built** (`discard`, `Loss::InteractiveBehaviour`, ADR 1175)
 
 - **Mitigation** — `discard`. For a `Launch` action the thing it named is a path on somebody's disk,
   which an archive cannot keep and should not try to; for `ResetForm`, `ImportData` and `Hide` the
@@ -1378,7 +1386,7 @@ ISO 19005-2 6.5.1, ISO 19005-4 6.6.1 · all six · today `not-built-yet`
 
 #### `actions/no-javascript-action` (PDF/A-2 only)
 #### `actions/no-additional-actions-dictionary` (PDF/A-2 only)
-ISO 19005-2 6.5.1, 6.5.2 · today `not-built-yet`
+ISO 19005-2 6.5.1, 6.5.2 · **built** (`discard`, ADR 1175)
 
 - **Mitigation** — `discard`, and **a retarget that is better than any remedy**: ISO 19005-4 6.6.2
   permits a JavaScript action outright, on the condition that a conforming processor runs it only on
@@ -1399,7 +1407,7 @@ ISO 19005-2 6.5.1, 6.5.2 · today `not-built-yet`
 
 #### `actions/no-optional-content-or-view-action` (PDF/A-2)
 #### `actions/optional-content-or-view-action-only-in-engineering-files` (PDF/A-4, 4f)
-ISO 19005-2 6.5.1, ISO 19005-4 6.6.1 · today `not-built-yet`
+ISO 19005-2 6.5.1, ISO 19005-4 6.6.1 · **built** (`discard`, ADR 1175)
 
 - **Mitigation** — `discard`. A `SetOCGState` action changes which layers are visible; removing it
   freezes the document in whatever the default configuration says, which is what both parts require
@@ -1411,7 +1419,7 @@ ISO 19005-2 6.5.1, ISO 19005-4 6.6.1 · today `not-built-yet`
 - **Departure** — **A**, narrowable by action type.
 
 #### `actions/additional-actions-outside-widgets-hold-only-annotation-triggers`
-ISO 19005-4 6.6.3 · PDF/A-4, 4f, 4e · today `not-built-yet`
+ISO 19005-4 6.6.3 · PDF/A-4, 4f, 4e · **built** (`discard`, ADR 1175)
 
 - **Mitigation** — `discard` the keys outside the permitted set, which is a smaller act than
   removing the dictionary: what goes is a document-open or page-open trigger, and what stays is the

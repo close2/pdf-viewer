@@ -1552,6 +1552,25 @@ pub(super) fn implicit_knockout_group(
     inside_knockout: bool,
     shape_masks: &ShapeMasks,
 ) -> Option<ImplicitKnockout> {
+    // `Command::Group`'s `isolated` is `false` only where no enclosing group is a knockout
+    // group, and §11.4.6's NOTE 6 is the reason: a nested group's initial backdrop is the
+    // *outer* group's rather than its immediate one, which a command seeded from the immediate
+    // backdrop cannot state. An element that is already such a group therefore cannot become
+    // an element of this one under any of the three constructions below — the first two draw
+    // the elements on transparency, where its backdrop would be gone. Two routes reach here
+    // with one: §11.7.4's implicit groups (ADR 1170), and a form XObject inside a Type 3
+    // glyph. The group this refusal leaves unbuilt keeps the report it already has.
+    if commands.iter().any(|command| {
+        matches!(
+            command,
+            Command::Group {
+                isolated: false,
+                ..
+            }
+        )
+    }) {
+        return None;
+    }
     let alpha = seen.settled_over(commands)?;
     if !any_command(commands, &command_blends) {
         return Some(ImplicitKnockout {

@@ -638,14 +638,17 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
                 Reply::Collection {
                     collection: crossed,
                     initial: crossed_initial,
+                    order: crossed_order,
                 },
                 Answer::Collection {
                     collection: ours,
                     initial: ours_initial,
+                    order: ours_order,
                 },
             ) => {
                 assert_eq!(*crossed, ours);
                 assert_eq!(crossed_initial, ours_initial);
+                assert_eq!(crossed_order, ours_order);
             }
             (Reply::None, Answer::None) => {}
             (crossed, ours) => panic!("{name}: a collection came back as {crossed:?} for {ours:?}"),

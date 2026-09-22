@@ -96,10 +96,10 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<Stri
     // rather than about any page — "there is no formal connection between the requirement type
     // and the operation of the associated feature(s)" — so it belongs here rather than in a
     // page's report, and it is the one thing a page report cannot do: tell a person before they
-    // trust what they are looking at. §12.11.6 asks a processor that cannot meet the
-    // requirements to stop; this one draws the document and names what it could not promise,
-    // because refusing to open a file somebody asked for is a worse failure. No corpus document
-    // states any of this.
+    // trust what they are looking at. What §12.11.6 asks a processor to do about the total is a
+    // level this reader sets — `restriction::Operation::Process`, `off` by default — and these
+    // lines are said whatever it is, because naming what could not be promised is a report about
+    // the file rather than an obedience to it (ADR 1167). No corpus document states any of this.
     for (requirement, reason) in pdf_model::requirements::unmet(document) {
         notes.push(format!(
             "this document requires {} (penalty {}) — {reason}",
@@ -127,7 +127,8 @@ pub(crate) fn about(document: &Document, trust: &crate::TrustPolicy) -> Vec<Stri
         notes.push(format!(
             "the requirements this document states and this program cannot meet total {total} \
              penalty points (§12.11.3), over the 100 above which the clause says a processor \
-             should not attempt to display it — it is being displayed anyway, with each one named"
+             should not attempt to display it — it is on the screen because this reader's level \
+             for processing a document says so, with each requirement named"
         ));
     }
 
@@ -444,6 +445,16 @@ pub(crate) fn restricted(
             Restriction::AnnotationLocked => format!(
                 "this annotation is marked LockedContents (§12.5.3's Table 167, bit 10), so its \
                  text may not be changed — {tail}"
+            ),
+            // §12.11.6, and the number is §12.11.3's: "if the penalty value exceeds 100 then the
+            // PDF processor should not attempt to display or process the document." The sentence
+            // names the total rather than only the fact, because the clause's own arithmetic is
+            // what a person is being asked to act on — and it says which requirements it is a
+            // total of, which `about`'s lines name one by one.
+            Restriction::RequirementsUnmet { penalty } => format!(
+                "this document requires features this program cannot meet, totalling {penalty} \
+                 penalty points over the 100 above which §12.11.3 says a processor should not \
+                 attempt to display or process it — {tail}"
             ),
         })
         .collect()

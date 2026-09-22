@@ -511,7 +511,9 @@ impl RestrictKind {
 /// Which operation a restriction level is being set for — `CLAUDE.md`'s levels, per restriction.
 ///
 /// The numbers are `viewer_core::RestrictionPolicy::OPERATIONS`'s order, which is the one order
-/// the wire, this ABI and a command line all enumerate a policy in (ADR 1144).
+/// the wire, this ABI and a command line all enumerate a policy in (ADR 1144). A number added to
+/// the end is a value an old caller never passes, so `QUORRA_ABI_VERSION` does not move for one
+/// (ADR 0576 section 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum RestrictedKind {
@@ -529,6 +531,15 @@ pub enum RestrictedKind {
     /// Bit 11: taking pages into a new document. **No entry point performs it yet**, for
     /// [`RestrictedKind::Print`]'s reason.
     Assemble = 5,
+    /// §12.11.6: going on with a document at all, where the requirements it states and this
+    /// library cannot meet total more penalty than §12.11.3 admits.
+    ///
+    /// **Not one of Table 22's positions**, which is why this arm's comment names a different
+    /// clause from every other: a security handler withholds nothing here. It is answered where
+    /// `quorra_open` is, so at [`RestrictKind::On`] a caller is handed a refusal and no
+    /// `Opened` event at all, and at [`RestrictKind::Ask`] an `Asking` it answers with
+    /// `quorra_answer` (ADR 1167).
+    Process = 6,
 }
 
 impl RestrictedKind {
@@ -542,6 +553,7 @@ impl RestrictedKind {
             3 => Self::Print,
             4 => Self::Modify,
             5 => Self::Assemble,
+            6 => Self::Process,
             _ => return None,
         })
     }
@@ -557,6 +569,7 @@ impl RestrictedKind {
             Self::Print => O::Print,
             Self::Modify => O::Modify,
             Self::Assemble => O::Assemble,
+            Self::Process => O::Process,
         }
     }
 }
@@ -1562,6 +1575,63 @@ pub enum InitialKind {
 
 /// Table 155's `/Subtype`, which decides both a column's type and where its value comes from.
 ///
+/// Table 160's named layouts: how §12.3.6's navigator presents a collection.
+///
+/// **Handed over as the document's whole list rather than as one selection**, and that is the
+/// clause rather than a preference: "[w]hen multiple names are provided, an interactive PDF
+/// processor should present the first one it is capable of displaying in the order present in the
+/// array." What a caller of this library is capable of displaying is the caller's own fact, so the
+/// choice is the caller's to make and the list is what it needs to make it — which is the one
+/// thing `quorra_collection_view` could not say, because Table 153's `/View C` names the navigator
+/// without naming its layout (ADR 1168).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum NavigatorKind {
+    /// `D`, "[c]orresponding to the value of D in the View key" — the details view.
+    Details = 0,
+    /// `T`, likewise — tile mode.
+    Tile = 1,
+    /// `H`, likewise — initially hidden.
+    Hidden = 2,
+    /// `FilmStrip` — "a strip of thumbnails, providing an index to the file attachments".
+    FilmStrip = 3,
+    /// `FreeForm` — thumbnails "randomly in the view".
+    FreeForm = 4,
+    /// `Linear` — "a large size preview of one file attachment … alongside the preview the
+    /// metadata".
+    Linear = 5,
+    /// `Tree` — "a tree view, showing the folder structure and the files as leaf nodes".
+    Tree = 6,
+    /// A custom named layout, whose name `quorra_collection_layout` copies out.
+    ///
+    /// §12.3.6 says the mechanism "is inherently extensible and allows inclusion of custom named
+    /// layouts", so a name outside the table is a document using the extension rather than a
+    /// malformed file.
+    Custom = 7,
+}
+
+impl NavigatorKind {
+    /// The kind of one layout, and the name for [`NavigatorKind::Custom`].
+    #[must_use]
+    pub fn of(layout: &pdf_model::collection::Layout) -> (Self, &str) {
+        use pdf_model::collection::{Layout, View};
+        match layout {
+            Layout::View(View::Details) => (Self::Details, ""),
+            Layout::View(View::Tile) => (Self::Tile, ""),
+            Layout::View(View::Hidden) => (Self::Hidden, ""),
+            // Table 153's `/View C` means "presented by the navigator specified by the Navigator
+            // entry", so a `/Layout` naming it again names no layout at all; the table's own list
+            // of `/Layout` values has no `C`, which makes this a name outside the table.
+            Layout::View(View::Navigator) => (Self::Custom, "C"),
+            Layout::FilmStrip => (Self::FilmStrip, ""),
+            Layout::FreeForm => (Self::FreeForm, ""),
+            Layout::Linear => (Self::Linear, ""),
+            Layout::Tree => (Self::Tree, ""),
+            Layout::Custom(name) => (Self::Custom, name.as_str()),
+        }
+    }
+}
+
 /// The clause's own two groups: the first three "identify the types of fields in the collection
 /// item … dictionary", and the rest "identify the types of file-related fields", whose data is
 /// already in the file specification. A caller filling a column asks this to know where to look —

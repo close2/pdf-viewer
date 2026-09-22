@@ -1,13 +1,16 @@
 //! The version a file states, from §7.5.2's header and Table 29's `/Version`.
 //!
-//! Two places say it and the standard ranks them, so reading one is reading neither. Table 29,
-//! in §7.7.2:
+//! Two kinds of place say it and the standard ranks them, so reading one is reading neither.
+//! Table 29, in §7.7.2:
 //!
 //! > If the header specifies a later version, or if this entry is absent, the document shall
 //! > conform to the version specified in the header.
 //!
-//! The entry counts only "if later than the version specified in the file's header", so the two
-//! numbers are read and the later one wins.
+//! The entry counts only "if later than the version specified in the file's header", so the
+//! numbers are read and the later one wins. **There may be more than two of them**: §7.5.6 lets
+//! each incremental update carry a catalog of its own and forbids any of them to reduce what an
+//! earlier one said, so the file states one version per revision and the document's is the
+//! latest. [`Document::version`] has that sentence and what follows from it for a reader.
 //!
 //! **Why a reader wants it at all**: Annex I is normative, and it asks for a warning rather than
 //! a behaviour — "[i]f a PDF processor opens a PDF file with a version number newer than the
@@ -19,6 +22,8 @@
 use std::fmt;
 
 use crate::Document;
+use crate::object::{Object, ObjectId};
+use crate::xref::Location;
 
 /// The version of the specification a file says it conforms to: `1.7`, `2.0`.
 ///
@@ -104,33 +109,230 @@ impl Document {
         None
     }
 
-    /// The version the document conforms to: the header's, unless Table 29's `/Version` is later.
+    /// The version the document conforms to: the latest of the header's and every revision's.
     ///
-    /// `None` where the header states none and the catalog states none, which is a file that
-    /// never said — not a file that said 1.0.
+    /// `None` where the header states none and no catalog states one, which is a file that never
+    /// said — not a file that said 1.0.
+    ///
+    /// **The chain is walked, not only its newest link**, because §7.5.6 makes the entry
+    /// cumulative. The clause's sentence about it is one Errata Collection 3 rewrote (Issue
+    /// #399, `/State` `Review` `Accepted`), and the amended wording is not quoted here because
+    /// it is not in the published text this tree checks its quotations against: it says that an
+    /// update's catalog `/Version` *upgrades* the version the document conforms to, considering
+    /// the header and any catalog entry already present together, and that the catalog of an
+    /// incremental update shall not reduce that version by the entry's value or by its absence.
+    ///
+    /// So the version at any revision is the version before it or higher, never lower, and the
+    /// document's is the latest thing any revision said. Reading the newest catalog alone gets
+    /// two files wrong in the same direction — one whose later update states a lower `/Version`,
+    /// and one whose later update, rewriting the catalog, simply left the entry out — and the
+    /// second is what the amended sentence's *absence* is for.
+    ///
+    /// The cost is one forwards walk of the `/Prev` chain and one parse of each distinct copy of
+    /// the catalog, which is why this is a question a caller asks and not something
+    /// [`Document::open`] computes: nothing on the launch path needs the number, and Annex I —
+    /// the one clause that does — asks for a warning rather than a behaviour.
     #[must_use]
     pub fn version(&self) -> Option<Version> {
-        let header = self.header_version();
-        let Ok(catalog) = self.catalog() else {
-            return header;
-        };
-        let stated = self.get_key(&catalog, "Version");
-        // "The value of this entry shall be a name object, not a number", and a document that
-        // writes a number instead has not stated the entry the table defines.
-        let catalog_version = stated
-            .as_name()
-            .and_then(|name| Version::parse(name.as_bytes()));
-        match (header, catalog_version) {
-            (Some(header), Some(catalog)) => Some(header.max(catalog)),
-            (header, catalog) => header.or(catalog),
+        let mut latest = self.header_version();
+        for stated in self.stated_versions() {
+            latest = Some(latest.map_or(stated, |so_far| so_far.max(stated)));
         }
+        latest
     }
+
+    /// Table 29's `/Version` as each revision of the file stated it, oldest first.
+    ///
+    /// Two things keep this to one catalog parse for the ordinary file that was written once and
+    /// never updated, and to one per *rewritten catalog* for a file that was. A revision whose
+    /// catalog stands where the previous revision's stood says nothing new and is not read again.
+    /// And a revision whose catalog is the copy this document's own table names is read through
+    /// *this* document, cache and all, rather than through a second one built over a copy of the
+    /// table — which is the newest revision always, and every earlier one that did not touch the
+    /// catalog.
+    fn stated_versions(&self) -> Vec<Version> {
+        let mut stated = Vec::new();
+        let mut previous: Option<(ObjectId, Option<Location>)> = None;
+        crate::xref::walk_revisions(self.bytes(), self.limits(), |table| {
+            let Some(root) = table.trailer().get("Root") else {
+                return;
+            };
+            let catalog = match root.as_reference() {
+                Some(id) => {
+                    let at = table.location(id.number);
+                    let here = (id, at);
+                    if previous.replace(here) == Some(here) {
+                        return;
+                    }
+                    if at.is_some() && at == self.xref().location(id.number) {
+                        let Some(dict) = self.get(id).as_dict().cloned() else {
+                            return;
+                        };
+                        self.get_key(&dict, "Version")
+                    } else {
+                        let revision = self.as_of(table.clone());
+                        let Some(dict) = revision.get(id).as_dict().cloned() else {
+                            return;
+                        };
+                        revision.get_key(&dict, "Version")
+                    }
+                }
+                // A `/Root` written as a direct dictionary is not what §7.5.5 asks for, and it
+                // is read anyway: the entry is in front of us, and the revision's table adds
+                // nothing to a value that is already there.
+                None => root
+                    .as_dict()
+                    .map_or(Object::Null, |dict| self.get_key(dict, "Version")),
+            };
+            if let Some(version) = as_version(&catalog) {
+                stated.push(version);
+            }
+        });
+        if stated.is_empty()
+            && let Ok(catalog) = self.catalog()
+            && let Some(version) = as_version(&self.get_key(&catalog, "Version"))
+        {
+            // The chain said nothing, and the document still has a catalog. Two files reach
+            // here and both are the same shape: one whose `/Prev` chain cannot be read at all,
+            // and one whose chain reads but leads nowhere, which is the document `xref::rebuild`
+            // recovered by scanning. Asking this document's own catalog can only add what the
+            // file itself states, because a chain that did state a version never gets here.
+            stated.push(version);
+        }
+        stated
+    }
+}
+
+/// Table 29's `/Version` as a version, where the object is one.
+///
+/// "The value of this entry shall be a name object, not a number", and a document that writes a
+/// number instead has not stated the entry the table defines.
+fn as_version(stated: &Object) -> Option<Version> {
+    Version::parse(stated.as_name()?.as_bytes())
 }
 
 #[cfg(test)]
 mod tests {
     use super::Version;
     use crate::Document;
+
+    /// A document of one revision per catalog, each update rewriting object 1.
+    ///
+    /// §7.5.6's own shape, built by hand so that the reader is tested against the file rather
+    /// than against this crate's writer: the objects, a cross-reference section covering exactly
+    /// them, a trailer chaining to the section before through `/Prev`, and an `%%EOF` of its own
+    /// for each.
+    fn updated(header: &str, catalogs: &[&str]) -> Document {
+        use std::fmt::Write as _;
+
+        let mut out = String::new();
+        let _ = writeln!(out, "{header}");
+        let mut previous: Option<usize> = None;
+        for (index, catalog) in catalogs.iter().enumerate() {
+            let catalog_at = out.len();
+            let _ = write!(
+                out,
+                "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {catalog} >>\nendobj\n"
+            );
+            let pages_at = out.len();
+            if index == 0 {
+                out.push_str("2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n");
+            }
+            let section_at = out.len();
+            out.push_str("xref\n");
+            if index == 0 {
+                out.push_str("0 3\n0000000000 65535 f \n");
+                let _ = write!(out, "{catalog_at:010} 00000 n \n{pages_at:010} 00000 n \n");
+            } else {
+                let _ = write!(out, "1 1\n{catalog_at:010} 00000 n \n");
+            }
+            out.push_str("trailer\n<< /Root 1 0 R /Size 3");
+            if let Some(previous) = previous {
+                let _ = write!(out, " /Prev {previous}");
+            }
+            let _ = write!(out, " >>\nstartxref\n{section_at}\n%%EOF\n");
+            previous = Some(section_at);
+        }
+        Document::open(out.into_bytes()).expect("the fixture is a document")
+    }
+
+    /// One revision is the case every other test in this module builds, and it reads the same
+    /// way through the chain walk as it did through the trailer alone.
+    #[test]
+    fn a_file_of_one_revision_states_the_version_its_catalog_states() {
+        assert_eq!(
+            updated("%PDF-1.4", &["/Version /2.0"]).version(),
+            Some(Version { major: 2, minor: 0 })
+        );
+        assert_eq!(
+            updated("%PDF-1.7", &[""]).version(),
+            Some(Version { major: 1, minor: 7 })
+        );
+    }
+
+    /// §7.5.6: "The catalog of an incremental update shall not reduce the version of the
+    /// document with the value, or absence, of the Version entry." The value half: a second
+    /// revision states 1.7 over a first that stated 2.0, and the document is still 2.0.
+    #[test]
+    fn a_later_update_cannot_reduce_the_version_an_earlier_one_reached() {
+        assert_eq!(
+            updated("%PDF-1.4", &["/Version /2.0", "/Version /1.7"]).version(),
+            Some(Version { major: 2, minor: 0 })
+        );
+    }
+
+    /// The same sentence's other half — "or absence" — which is the likelier file of the two: an
+    /// update rewrote the catalog and did not carry the entry over.
+    #[test]
+    fn an_update_whose_catalog_states_no_version_reduces_nothing() {
+        assert_eq!(
+            updated("%PDF-1.4", &["/Version /2.0", ""]).version(),
+            Some(Version { major: 2, minor: 0 })
+        );
+    }
+
+    /// And the direction the entry exists for: §7.5.6's "upgrade the current version of the PDF
+    /// specification to which the document conforms", which an update states and the header
+    /// cannot, because an append may not rewrite the first line of the file.
+    #[test]
+    fn an_update_upgrades_the_version_the_header_states() {
+        assert_eq!(
+            updated("%PDF-1.4", &["", "/Version /2.0"]).version(),
+            Some(Version { major: 2, minor: 0 })
+        );
+        assert_eq!(
+            updated("%PDF-1.4", &["", "/Version /1.5", "/Version /2.0"]).version(),
+            Some(Version { major: 2, minor: 0 })
+        );
+    }
+
+    /// A document whose cross-references are unusable still states its version.
+    ///
+    /// The chain yields no revision at all here — `startxref` names bytes that are not a
+    /// section — so the table is `xref::rebuild`'s scan and the catalog is this document's own.
+    /// Falling back to it can only add what the file states, because a chain that did state a
+    /// version never reaches the fallback.
+    #[test]
+    fn a_document_whose_chain_cannot_be_read_still_states_its_catalogs_version() {
+        let whole = updated("%PDF-1.4", &["/Version /2.0"]);
+        let mut bytes = whole.bytes().read(0..whole.bytes().len()).to_vec();
+        let at = bytes
+            .windows(10)
+            .position(|window| window == b"startxref\n")
+            .expect("the fixture writes one");
+        let digits = at.saturating_add(10);
+        for byte in &mut bytes[digits..] {
+            if byte.is_ascii_digit() {
+                *byte = b'9';
+            }
+        }
+        let document = Document::open(bytes).expect("the scan recovers it");
+        assert!(
+            document.was_recovered(),
+            "the fixture has to reach the scan for this to be the case it is about"
+        );
+        assert_eq!(document.version(), Some(Version { major: 2, minor: 0 }));
+    }
 
     /// A one-page document whose header and catalog can be varied.
     fn document(header: &str, catalog: &str) -> Document {

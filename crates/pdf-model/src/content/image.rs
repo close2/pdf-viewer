@@ -49,7 +49,7 @@ impl Interpreter<'_> {
             .under_output_intent(self.output_intent.as_ref())
     }
 
-    /// §8.9.5.4 step d): which of a base image's `/Alternates` is drawn in its place.
+    /// §8.9.5.4 steps c) and d): which of a base image's `/Alternates` is drawn in its place.
     ///
     /// # The algorithm this implements is Errata Collection 3's, not `doc/md/`'s
     ///
@@ -73,10 +73,26 @@ impl Interpreter<'_> {
     /// - e) "If steps c and d above do not identify an alternate to be rendered then the base
     ///   image shall be rendered."
     ///
-    /// **This function is d), and nothing else.** a) and b) are `xobject.rs`'s, because they are
-    /// about the base image and never reach an alternate; c) addresses printing and this device
-    /// is a screen, which is why `/DefaultForPrinting` is read by nothing here; e) is the
-    /// caller's fall-through when this answers `None`.
+    /// **This function is c) and d).** a) and b) are `xobject.rs`'s, because they are about the
+    /// base image and never reach an alternate; e) is the caller's fall-through when this
+    /// answers `None`.
+    ///
+    /// # c) is a question about what the output is for, and a host answers it
+    ///
+    /// "[T]he PDF is being printed" is a fact about the operation under way and not about the
+    /// file, so it arrives the way every such fact arrives here — as an input a host or an
+    /// operation supplies, [`crate::optional_content::Purpose`], reached through the view state
+    /// (ADR 1173). `Purpose::View` and `Purpose::Export` both fail c)'s condition and fall to
+    /// d), which is the clause's own arrangement: c) opens "Otherwise if the PDF is being
+    /// printed", and an export is not a printing.
+    ///
+    /// Two things c) does **not** say, both of which its retired predecessor did and this
+    /// function therefore must not: it does not re-examine the selected alternate's own `/OC`
+    /// (the erratum strikes that sentence), and it states no fallback of its own, because e)
+    /// carries the fallback for c) and d) together. Table 89 is what makes "any of the
+    /// Alternates entries" identify one entry — "[a]t most one alternate for a given base image
+    /// shall be so designated" — so the first is the one, and a document that designates two has
+    /// contradicted its own requirement and gets the first deterministically.
     ///
     /// # Why the amended clause replaced a documented contradiction rather than adding one
     ///
@@ -104,6 +120,11 @@ impl Interpreter<'_> {
     ) -> Option<Arc<pdf_syntax::Stream>> {
         let stated = self.document.get_key(base, "Alternates");
         let alternates = stated.as_array()?;
+        if self.view.purpose() == crate::optional_content::Purpose::Print
+            && let Some(printed) = self.default_for_printing(alternates, name)
+        {
+            return Some(printed);
+        }
         for entry in alternates {
             let resolved = self.document.resolve(entry);
             let Some(alternate) = resolved.as_dict() else {
@@ -131,6 +152,47 @@ impl Interpreter<'_> {
             // "that OC in the image dictionary shall not be examined" — Table 87's `/OC` on the
             // alternate's own image `XObject` is deliberately not consulted here. The dictionary
             // that selected it has already answered the visibility question.
+            return Some(image);
+        }
+        None
+    }
+
+    /// §8.9.5.4 step c): the alternate Table 89 designates as the one to print.
+    ///
+    /// The step is Errata Collection 3's and `doc/md/` carries none of it, so its words are
+    /// quoted in prose as the rest of this algorithm's are: "Otherwise if the PDF is being
+    /// printed and any of the Alternates entries has `DefaultForPrinting` set to true, then that
+    /// alternate image shall be printed."
+    ///
+    /// `None` where no entry designates itself, which is step d)'s turn; and `None` where the
+    /// designated entry states no `/Image`, which Table 89 makes required — that entry
+    /// identifies no alternate to be printed, so the document's defect is named and the rest of
+    /// the algorithm runs.
+    fn default_for_printing(
+        &mut self,
+        alternates: &[Object],
+        name: &str,
+    ) -> Option<Arc<pdf_syntax::Stream>> {
+        for entry in alternates {
+            let resolved = self.document.resolve(entry);
+            let Some(alternate) = resolved.as_dict() else {
+                continue;
+            };
+            // Table 89: "A flag indicating whether this alternate image is the default version
+            // to be used for printing … Default value: false ."
+            if self.document.get_key(alternate, "DefaultForPrinting") != Object::Boolean(true) {
+                continue;
+            }
+            let image = self.document.get_key(alternate, "Image");
+            let Some(image) = image.as_stream().cloned() else {
+                self.note(Unsupported::Image {
+                    name: format!(
+                        "{name}: the /DefaultForPrinting alternate image dictionary states no \
+                         /Image"
+                    ),
+                });
+                return None;
+            };
             return Some(image);
         }
         None

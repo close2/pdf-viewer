@@ -305,3 +305,9 @@ log -L` the function it names: the note on ADR 0121 described a save that had wr
 stream for sixteen hundred commits, and two commands showed it. Where such a premise is stale, look
 for the comment that made it look true — `ViewState::save`'s doc comment still gave the retired
 reason as the current one, which is the defect `CLAUDE.md`'s comment rule names (ADR 1159).
+
+**A list of a table's entries is rewritten from the table, never from the previous list.**
+§7.7.3.3's note kept a list of Table 31's unread entries by editing itself, so it could not gain an
+entry the standard gained: all three of the table's PDF 2.0 additions were missing from it, and one
+of them had been read for two hundred sessions. The cheap instrument is the table's own key column
+in `doc/md/` (ADR 1172).

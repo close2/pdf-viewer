@@ -548,6 +548,62 @@ fn an_image_behind_jpx_is_refused_by_name() {
     );
 }
 
+/// An image carrying §8.9.5.4 `/Alternates` is refused by name, never cleared.
+///
+/// §12.5.6.23 requires the data to be destroyed — "[i]f a portion of an image is contained in a
+/// redaction region, that portion of the image data shall be destroyed; clipping or image masks
+/// shall not be used to hide that data" — and §8.9.5.4 calls an alternate a variant
+/// representation of the *same* image. So clearing the base alone would leave the region
+/// readable in the variant, and §8.9.5.4 step c) draws one of those variants whenever the output
+/// is a printing. Destroying an alternate's samples too is a capability this writer does not
+/// have: each is its own grid and its own filter, and each may be shared with another page.
+/// Trap 5 and principle 1 — refused by name rather than cut wrong.
+#[test]
+fn an_image_carrying_alternates_is_refused_by_name() {
+    let samples = distinct_samples();
+    let encoded = flate_encode(&samples, 6).expect("the fixture image deflates");
+    let mut base = image_object("FlateDecode", &encoded);
+    // The `/Alternates` entry, spliced into the image dictionary before its `>>`.
+    let at = base
+        .windows(4)
+        .position(|window| window == b">>\ns")
+        .expect("the dictionary ends before the stream");
+    base.splice(
+        at..at,
+        b"/Alternates [ << /Image 7 0 R >> ] ".iter().copied(),
+    );
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        base,
+        image_object("FlateDecode", &encoded),
+    ];
+    let bytes = assemble_bytes(&objects);
+
+    let (report, out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused.detail.contains("/Alternates"),
+        "the refusal names the entry: {}",
+        refused.detail
+    );
+    assert!(
+        contains(&out, &encoded),
+        "a refused page keeps its content, so nothing was cut wrong"
+    );
+}
+
 /// The one image `XObject` as a byte object with a stated grid, colour space, bit depth, filter
 /// and (optional) decode parameters — for the codec fixtures whose grid is not the 8×8 default.
 fn codec_image_object(

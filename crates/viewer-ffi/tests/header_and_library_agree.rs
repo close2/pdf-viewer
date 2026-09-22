@@ -27,9 +27,9 @@ use std::path::Path;
 use viewer_ffi::{
     AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
     ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind,
-    PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind,
-    RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, Status, TextKind,
+    FolderTextKind, InitialKind, MarkupKind, NavigatorKind, NoteKind, OrderKind, PageModeKind,
+    PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind,
+    PurposeKind, RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -131,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        188,
+        192,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -332,6 +332,10 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         (
             "QUORRA_RESTRICTED_ASSEMBLE",
             viewer_ffi::RestrictedKind::Assemble,
+        ),
+        (
+            "QUORRA_RESTRICTED_PROCESS",
+            viewer_ffi::RestrictedKind::Process,
         ),
     ] {
         expected.insert(name.to_owned(), kind as i64);
@@ -707,6 +711,19 @@ fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
         ("QUORRA_COLLECTION_TILE", CollectionViewKind::Tile),
         ("QUORRA_COLLECTION_HIDDEN", CollectionViewKind::Hidden),
         ("QUORRA_COLLECTION_NAVIGATOR", CollectionViewKind::Navigator),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    // Table 160's named layouts, which §12.3.6's navigator presents a collection with (ADR 1168).
+    for (name, kind) in [
+        ("QUORRA_NAVIGATOR_DETAILS", NavigatorKind::Details),
+        ("QUORRA_NAVIGATOR_TILE", NavigatorKind::Tile),
+        ("QUORRA_NAVIGATOR_HIDDEN", NavigatorKind::Hidden),
+        ("QUORRA_NAVIGATOR_FILM_STRIP", NavigatorKind::FilmStrip),
+        ("QUORRA_NAVIGATOR_FREE_FORM", NavigatorKind::FreeForm),
+        ("QUORRA_NAVIGATOR_LINEAR", NavigatorKind::Linear),
+        ("QUORRA_NAVIGATOR_TREE", NavigatorKind::Tree),
+        ("QUORRA_NAVIGATOR_CUSTOM", NavigatorKind::Custom),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

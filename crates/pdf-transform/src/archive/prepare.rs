@@ -667,6 +667,20 @@ pub(super) struct Prepared {
     /// because a reader of this struct should be able to see which of its parts are the two
     /// constructions this verb was built around and which are the lossless rewrites it grew.
     pub(super) owed: Owed,
+    /// The content streams whose hexadecimal strings gain the final digit, or why none can.
+    ///
+    /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5, inside a content stream: the
+    /// whole-file rewrite writes every *object's* strings in the even-digit form by construction,
+    /// and a string on a page is bytes that cross byte for byte unless this repair writes into
+    /// them (`doc/adr/1176`).
+    pub(super) hexadecimal: Result<super::hexadecimal::Completed, Because>,
+    /// The entries the action clauses ask each holder to restate, or why none can be.
+    ///
+    /// ISO 19005-2 sections 6.4.1, 6.5.1 and 6.5.2 and ISO 19005-4 sections 6.4.1, 6.6.1 and
+    /// 6.6.3, worked out once over the sites `pdf_archive` walks: three rewrites share one reading
+    /// of §12.6's action trees, and computing them apart would walk the same trees three times
+    /// (`doc/adr/1175`).
+    pub(super) actions: Result<super::actions::Removals, Because>,
     /// Every annotation a target's section 6.3.1 does not admit, or why none can be removed.
     ///
     /// Prepared **before** [`Self::preserved`], because a `preserve` remedy at either subtype site
@@ -749,10 +763,14 @@ impl Prepared {
         // **One survey, for every preparation that asks what the pages actually drew** — the two
         // that read a font's advances and the two that prove a change of encoding moves no mark —
         // because a second walk of every content stream would double a large document's cost.
-        let survey = SURVEYED
-            .iter()
-            .any(|rewrite| wanted(*rewrite))
+        // The repair `super::hexadecimal` makes needs the same walk the font rewrites do, so the
+        // one survey answers both: a document that fails neither is never walked.
+        let odd_digits = super::decision::odd_hexadecimal_digits_on_a_page(input);
+        let survey = (SURVEYED.iter().any(|rewrite| wanted(*rewrite)) || odd_digits)
             .then(|| Survey::of(document));
+        let hexadecimal = asked(odd_digits, || {
+            super::hexadecimal::complete(document, survey.as_ref())
+        });
         // ISO 19005-2 section 6.6.2.1's header attributes are cut before the two writers that
         // rewrite the RDF this header wraps, on the bytes the file holds rather than theirs.
         let headers = asked(wanted(Rewrite::PacketHeaderAttributes), || {
@@ -876,6 +894,19 @@ impl Prepared {
             )
         });
         let structure = structure_tree(wanted(Rewrite::MarkInfo), document, catalog.as_ref());
+        // One reading of §12.6's action trees for the three rewrites the action clauses ask for,
+        // and the rules in force are the ones *this document failed*: a rule the file already
+        // meets asks for nothing, which is `doc/adr/0947`'s second rule read over a population.
+        let actions = asked(
+            [
+                Rewrite::ForbiddenActionRemoved,
+                Rewrite::AdditionalActionsRemoved,
+                Rewrite::WidgetActionEntryRemoved,
+            ]
+            .into_iter()
+            .any(wanted),
+            || super::actions::prepare(document, plan.target, &failed),
+        );
         let already = Already {
             packet_headers: headers,
             survey: survey.as_ref(),
@@ -893,6 +924,8 @@ impl Prepared {
             structure,
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
+            hexadecimal,
+            actions,
             forbidden_annotations,
             preserved,
             recorded_provenance,
@@ -943,6 +976,10 @@ impl Prepared {
             Rewrite::ForbiddenAnnotationRemoved => {
                 self.forbidden_annotations.as_ref().err().copied()
             }
+            Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
+            Rewrite::ForbiddenActionRemoved
+            | Rewrite::AdditionalActionsRemoved
+            | Rewrite::WidgetActionEntryRemoved => self.actions.as_ref().err().copied(),
             Rewrite::SignatureValueRemoved => self.signatures.obstacle,
             Rewrite::ForeignPermissionHandlers => {
                 self.owed.foreign_handlers.as_ref().err().copied()

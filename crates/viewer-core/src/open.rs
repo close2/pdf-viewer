@@ -665,6 +665,16 @@ pub(crate) struct Committed {
 pub(crate) enum Held {
     /// An edit, resolved.
     Edit(Done),
+    /// A document read and not yet processed — §12.11.6, held before anything else opening one
+    /// does (ADR 1167).
+    ///
+    /// The one held thing that is not an operation on a document already open, which is why it
+    /// carries what the open still needs: Annex O's fragment, whose parameters §O.2.2 puts
+    /// *after* the document's own open parameters and which therefore has not been applied yet.
+    Process {
+        /// The fragment identifier `crate::Command::Open` carried, if it carried one.
+        fragment: Option<String>,
+    },
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole

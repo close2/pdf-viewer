@@ -9,6 +9,7 @@ use std::sync::Arc;
 use pdf_render::display_list::Clip;
 use pdf_render::{ClipId, Command, FillRule, Paint, Path, PathCommand, Point, Transform};
 
+use super::overprint::{FirstBullet, implicit_group_owed};
 use super::pattern::{PatternPaint, Tiled};
 use super::report::Unsupported;
 use super::transparency::{Painted, implicit_knockout_group};
@@ -59,14 +60,33 @@ impl Interpreter<'_> {
             // blending colour space, which is all but a handful.
             let fill_blend = self.overprint_blend(state, false);
             let stroke_blend = self.overprint_blend(state, true);
+            // §11.7.4.4's subject is "those path-painting operations that combine filling and
+            // stroking a path in a single operation", and §11.6.2's is the same object: both
+            // parts have to mark the page before the two clauses have anything to say, which
+            // is why a `B` whose fill or stroke is invisible is one object painted once.
+            let combined =
+                fill.is_some() && stroke.is_some() && state.fill_marks() && state.stroke_marks();
+            let (first_bullet, lifted) =
+                self.first_bullet_for_path(state, [fill_blend, stroke_blend], combined);
+            // The state every *paint* below is built from: `state` itself, or `state` with
+            // §11.6.4.4's constants lifted on to §11.7.4.4's first-bullet group. A tiling
+            // pattern's cell takes it too — the cell's own marks are the part the bullet
+            // paints at an alpha of 1.0, and the group applies the stated one once.
+            let painting = lifted.as_ref().unwrap_or(&*state);
             if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
                 (fill, state.fill_pattern.clone())
             {
-                self.tile(&shared, state.transform, Tiled::Fill(rule), &tiling, state);
+                self.tile(
+                    &shared,
+                    state.transform,
+                    Tiled::Fill(rule),
+                    &tiling,
+                    painting,
+                );
             } else if let Some(rule) = fill {
                 let (inside, transfer) =
                     self.mark_transfer(state, Painted::of(state, false), false);
-                let paint = self.fill_paint(state, inside.as_ref());
+                let paint = self.fill_paint(painting, inside.as_ref());
                 self.draw_mark(
                     Command::Fill {
                         path: Arc::clone(&shared),
@@ -93,11 +113,11 @@ impl Interpreter<'_> {
                     state.transform,
                     Tiled::Stroke(&state.stroke),
                     &tiling,
-                    state,
+                    painting,
                 );
             } else if stroke.is_some() {
                 let (inside, transfer) = self.mark_transfer(state, Painted::of(state, true), true);
-                let paint = self.stroke_paint(state, inside.as_ref());
+                let paint = self.stroke_paint(painting, inside.as_ref());
                 self.draw_mark(
                     Command::Stroke {
                         path: Arc::clone(&shared),
@@ -111,7 +131,27 @@ impl Interpreter<'_> {
                     transfer,
                 );
             }
-            self.combine_parts(state, mark, [fill_blend, stroke_blend], fill, stroke);
+            match first_bullet {
+                FirstBullet::Group => self.first_bullet_group(state, mark),
+                // The bullet's group is the two commands as they stand, or a knockout group
+                // above makes it unstatable and `combined_overprint` has said so.
+                FirstBullet::AsPainted => {}
+                FirstBullet::No => {
+                    self.combine_parts(state, mark, [fill_blend, stroke_blend], combined);
+                    // The blend-mode test is here rather than inside, because a page that
+                    // states no overprint pays for this line once per path-painting operator
+                    // and this way it pays one enum comparison (`implicit_group_owed` carries
+                    // the measurement).
+                    if !combined && state.blend != pdf_render::BlendMode::Normal {
+                        self.implicit_group_for_path(
+                            state,
+                            mark,
+                            [fill_blend, stroke_blend],
+                            [fill.is_some(), stroke.is_some()],
+                        );
+                    }
+                }
+            }
         }
 
         // A pending `W` takes effect now: the specification says the clip changes *after*
@@ -149,19 +189,75 @@ impl Interpreter<'_> {
         *path = Path::new();
     }
 
-    /// §11.6.2's one object and §11.7.4.4's two constructions for a path that is filled *and*
+    /// Which of §11.7.4.4's first bullet's three shapes this object takes, and the state its
+    /// parts' colours are built from.
+    ///
+    /// Inside the bullet's group "the fill and stroke shall be performed with an alpha value of
+    /// 1.0", so where it is built the two constants are lifted off the parts and on to the
+    /// group — which is the second of the two returned, `None` where they stay where they are.
+    /// §11.7.5.2's function is still chosen for the object as it *composites*, so
+    /// [`Interpreter::end_path`] keeps asking `Painted::of` of the state the file stated:
+    /// that clause's condition is about what covers a point on the page.
+    fn first_bullet_for_path(
+        &mut self,
+        state: &GraphicsState,
+        parts: [pdf_render::BlendMode; 2],
+        combined: bool,
+    ) -> (FirstBullet, Option<GraphicsState>) {
+        if !combined {
+            return (FirstBullet::No, None);
+        }
+        let bullet =
+            self.combined_overprint(state, parts, "a path filled and stroked by one operator");
+        let lifted = (bullet == FirstBullet::Group).then(|| state.with_opaque_constants());
+        (bullet, lifted)
+    }
+
+    /// §11.7.4.3's last paragraph around the object `end_path` has just painted, where one is
+    /// owed.
+    ///
+    /// `parts` is what [`Interpreter::overprint_blend`] answered for each of §8.6.7's two
+    /// parameters and `painted` which of the two this operator actually marked with: an `f`
+    /// leaves the stroking answer describing a mark that was never made, and a group built
+    /// around it would be a group around the wrong object.
+    fn implicit_group_for_path(
+        &mut self,
+        state: &GraphicsState,
+        mark: usize,
+        parts: [pdf_render::BlendMode; 2],
+        painted: [bool; 2],
+    ) {
+        let modes = [
+            if painted[0] {
+                parts[0]
+            } else {
+                pdf_render::BlendMode::Normal
+            },
+            if painted[1] {
+                parts[1]
+            } else {
+                pdf_render::BlendMode::Normal
+            },
+        ];
+        if implicit_group_owed(state, modes) {
+            self.implicit_overprint_group(state, mark);
+        }
+    }
+
+    /// §11.6.2's one object and §11.7.4.4's second bullet for a path that is filled *and*
     /// stroked.
     ///
     /// Split out of [`Interpreter::end_path`] because it is a decision about the two commands
-    /// already pushed rather than a step in painting them: `mark` is where they begin, and
-    /// `parts` the blend modes they were painted under.
+    /// already pushed rather than a step in painting them: `mark` is where they begin, `parts`
+    /// the blend modes they were painted under, and `combined` whether both of them marked the
+    /// page. The first bullet is chosen before the parts are painted, so a pair that reaches
+    /// here is one §11.7.4.4 sends to its second.
     fn combine_parts(
         &mut self,
         state: &GraphicsState,
         mark: usize,
         parts: [pdf_render::BlendMode; 2],
-        fill: Option<FillRule>,
-        stroke: Option<bool>,
+        combined: bool,
     ) {
         // §11.6.2: the fill and the stroke are two parts of one object, and "[p]ortions
         // of an object shall not be composited with one another". They are two commands
@@ -171,21 +267,13 @@ impl Interpreter<'_> {
         // Two conditions narrow that to the pages where it can be seen, and the second
         // one is not obvious: the paint has to composite at all, since opaque Normal
         // painting puts the stroke over the fill either way, and *both* parts have to
-        // mark the page. A `B` whose fill or stroke alpha is zero is one object painted
-        // once, and three of the six corpus documents that reach this line are exactly
-        // that — `issue11045.pdf` fills at alpha 0 and strokes opaque, `issue3458.pdf`
-        // strokes at alpha 0 and fills. Reporting them would name pages whose pixels are
-        // the same under either model, which costs them their place in the oracle's
-        // comparison and buys nothing.
-        let fill_marks = fill.is_some() && state.fill_marks();
-        // §11.7.4.4 gives the pair two constructions and puts overprinting between them, so
-        // the bullet is chosen before §11.6.2's group is built. Its first applies to the
-        // commands as they already stand wherever the pair's own alpha and mode are the
-        // identity, and is named where they are not (`Interpreter::combined_overprint`).
-        let first_bullet = fill_marks
-            && stroke.is_some()
-            && state.stroke_marks()
-            && self.combined_overprint(state, parts, "a path filled and stroked by one operator");
+        // mark the page — `combined`, which the caller asked. A `B` whose fill or stroke
+        // alpha is zero is one object painted once, and three of the six corpus documents
+        // that reach this line are exactly that — `issue11045.pdf` fills at alpha 0 and
+        // strokes opaque, `issue3458.pdf` strokes at alpha 0 and fills. Reporting them
+        // would name pages whose pixels are the same under either model, which costs them
+        // their place in the oracle's comparison and buys nothing.
+        //
         // A part that keeps a component of the backdrop composites with what is under it
         // however opaque it is, so the special mode is one more way for the portions of an
         // object to be composited with one another (§11.6.2).
@@ -193,7 +281,14 @@ impl Interpreter<'_> {
             || parts
                 .iter()
                 .any(|blend| matches!(blend, pdf_render::BlendMode::Overprint(_)));
-        if !first_bullet && fill_marks && stroke.is_some() && state.stroke_marks() && composites {
+        // §11.7.4.3's last paragraph is not owed on top of this. §11.7.4.4 opens by saying
+        // that clause's considerations "also affect those path-painting operations that
+        // combine filling and stroking a path in a single operation", makes the pair "a single
+        // graphics object" and then states the construction exhaustively — "This implicit
+        // group is established and used as follows", two bullets and an "[i]n all other
+        // cases". The second bullet is where the prevailing blend mode goes, which is on the
+        // parts; there is no third group around them.
+        if combined && composites {
             // The clause's own answer to "not composited with one another" is §11.4.6's:
             // at any point the topmost portion contributes and the ones under it do not,
             // which is what a knockout group of the two portions computes. `B` strokes

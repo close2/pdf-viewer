@@ -120,17 +120,39 @@ pub enum Loss {
     /// appended to the document rather than losing them with the rest (`doc/adr/1099`). Without
     /// it the page loses the mark, and the report names the page it was on.
     ForbiddenAnnotation,
+    /// section 3.3: the behaviour an action carried, removed with the action.
+    ///
+    /// ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1 forbid whole action *types*,
+    /// sections 6.5.2 and 6.6.3 the additional-actions dictionary that triggers them, and both
+    /// parts' section 6.4.1 a widget's or field's `/A`. None of the three offers anywhere to put
+    /// what goes: a `Launch` action names a path on somebody's disk, and a `ResetForm`, an
+    /// `ImportData` or a `Hide` has no representation at all outside a running reader.
+    ///
+    /// **What it costs is stated in one sentence and it is a large one: buttons stop doing
+    /// things.** A form that computed its own fields stops computing them, and at a PDF/A-2
+    /// target there is nowhere in the file to put what it computed — ISO 19005-4 section 6.4.1's
+    /// XFDF route needs an embedded file, which ISO 19005-2 section 6.8 excludes outright.
+    ///
+    /// **What it does not cost is a mark.** Every content stream crosses this conversion byte for
+    /// byte; what changes is what a reader does when a user clicks. And **the actions behind a
+    /// removed one survive it**: §12.6.2's `/Next` chain is spliced rather than dropped, because
+    /// a `GoTo` behind a `Launch` is failing no requirement (ADR 1175).
+    ///
+    /// Not mechanical, for `doc/pdf-a-conversion-limits.md` section 3.3's reason: it classes this
+    /// *Ask*, and every removal is named in the report before it goes.
+    InteractiveBehaviour,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
         Self::Jpeg2000ColourFallback,
         Self::SignatureAssertion,
         Self::ForbiddenAnnotation,
+        Self::InteractiveBehaviour,
     ];
 
     /// The word a caller authorises it by.
@@ -143,6 +165,7 @@ impl Loss {
             Self::Jpeg2000ColourFallback => "jpeg2000-colour-fallback",
             Self::SignatureAssertion => "signature-assertion",
             Self::ForbiddenAnnotation => "forbidden-annotation",
+            Self::InteractiveBehaviour => "interactive-behaviour",
         }
     }
 
@@ -181,6 +204,14 @@ impl Loss {
                  remedy = \"preserve\" and those marks are kept on a page appended to the \
                  document"
             }
+            Self::InteractiveBehaviour => {
+                "an action of a type ISO 19005 does not admit is taken out of the file, an /AA \
+                 the part does not admit goes with it, and a widget's or field's /A goes in both \
+                 parts \u{2014} so buttons stop doing things and a form stops computing its own \
+                 fields. The actions ISO 32000-2 \u{a7}12.6.2's Next entry performed after a \
+                 removed one are kept and take its place; no mark on any page moves, and the \
+                 report names every action that went"
+            }
         }
     }
 
@@ -216,6 +247,8 @@ pub struct Authorisations {
     pub signature_assertion: bool,
     /// Whether [`Loss::ForbiddenAnnotation`] was authorised.
     pub forbidden_annotation: bool,
+    /// Whether [`Loss::InteractiveBehaviour`] was authorised.
+    pub interactive_behaviour: bool,
 }
 
 impl Authorisations {
@@ -229,6 +262,7 @@ impl Authorisations {
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback,
             Loss::SignatureAssertion => self.signature_assertion,
             Loss::ForbiddenAnnotation => self.forbidden_annotation,
+            Loss::InteractiveBehaviour => self.interactive_behaviour,
         }
     }
 
@@ -241,6 +275,7 @@ impl Authorisations {
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback = true,
             Loss::SignatureAssertion => self.signature_assertion = true,
             Loss::ForbiddenAnnotation => self.forbidden_annotation = true,
+            Loss::InteractiveBehaviour => self.interactive_behaviour = true,
         }
     }
 }
@@ -692,6 +727,62 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "file-structure/no-lzw-filter",
         answer: Answer::Mechanical(Rewrite::FlateInsteadOfLzw),
+    },
+    // ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1: six rows naming action *types*,
+    // answered by taking the action out of the tree it sits in and promoting §12.6.2's `/Next`
+    // into its place. One loss for all nine rows below, because it is one thing a person is
+    // being asked to give up — `doc/pdf-a-conversion-limits.md` section 3.3's *Ask*.
+    Remedy {
+        requirement: "actions/no-launch-multimedia-or-form-actions",
+        answer: Answer::Loses(Loss::InteractiveBehaviour, Rewrite::ForbiddenActionRemoved),
+    },
+    Remedy {
+        requirement: "actions/no-deprecated-set-state-or-no-op-actions",
+        answer: Answer::Loses(Loss::InteractiveBehaviour, Rewrite::ForbiddenActionRemoved),
+    },
+    // ISO 19005-4 section 6.6.2 permits a JavaScript action outright, so this row binds part 2
+    // alone and a document refused here for PDF/A-2 converts to PDF/A-4 untouched.
+    Remedy {
+        requirement: "actions/no-javascript-action",
+        answer: Answer::Loses(Loss::InteractiveBehaviour, Rewrite::ForbiddenActionRemoved),
+    },
+    Remedy {
+        requirement: "actions/no-optional-content-or-view-action",
+        answer: Answer::Loses(Loss::InteractiveBehaviour, Rewrite::ForbiddenActionRemoved),
+    },
+    Remedy {
+        requirement: "actions/optional-content-or-view-action-only-in-engineering-files",
+        answer: Answer::Loses(Loss::InteractiveBehaviour, Rewrite::ForbiddenActionRemoved),
+    },
+    Remedy {
+        requirement: "actions/named-action-is-page-navigation",
+        answer: Answer::Loses(Loss::InteractiveBehaviour, Rewrite::ForbiddenActionRemoved),
+    },
+    // ISO 19005-2 section 6.5.2 forbids the dictionary in four places; ISO 19005-4 section 6.6.3
+    // permits it on a widget and admits only Table 197's triggers elsewhere. Two rows, two sizes
+    // of one act.
+    Remedy {
+        requirement: "actions/no-additional-actions-dictionary",
+        answer: Answer::Loses(
+            Loss::InteractiveBehaviour,
+            Rewrite::AdditionalActionsRemoved,
+        ),
+    },
+    Remedy {
+        requirement: "actions/additional-actions-outside-widgets-hold-only-annotation-triggers",
+        answer: Answer::Loses(
+            Loss::InteractiveBehaviour,
+            Rewrite::AdditionalActionsRemoved,
+        ),
+    },
+    // ISO 19005-2 section 6.4.1 and ISO 19005-4 section 6.4.1: the entry itself, so the chain
+    // behind it goes rather than the actions of a forbidden type in it.
+    Remedy {
+        requirement: "forms/no-action-on-widget-or-field",
+        answer: Answer::Loses(
+            Loss::InteractiveBehaviour,
+            Rewrite::WidgetActionEntryRemoved,
+        ),
     },
     // ISO 19005-2 section 6.2.8.1, ISO 19005-4 section 6.2.7.1 — the one row of section 4.7's table
     // marked *not quite mechanical*, and therefore the one that has to be authorised.
@@ -1462,44 +1553,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/provenance-recorded-action-fields-four",
         Because::TheFence(HISTORY_IS_WHAT_HAPPENED),
     ),
-    // ISO 19005-2 section 6.5.1 and section 6.5.2, ISO 19005-4 section 6.6.1 and section 6.6.3,
-    // and both parts' section 6.4.1 for the widget's own `/A`: nine rows, one loss.
-    (
-        "actions/named-action-is-page-navigation",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/no-additional-actions-dictionary",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/no-deprecated-set-state-or-no-op-actions",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/no-javascript-action",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/no-launch-multimedia-or-form-actions",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/no-optional-content-or-view-action",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/optional-content-or-view-action-only-in-engineering-files",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "actions/additional-actions-outside-widgets-hold-only-annotation-triggers",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "forms/no-action-on-widget-or-field",
-        Because::NotBuiltYet(ACTION_REMOVAL_NOT_BUILT),
-    ),
     // ISO 19005-4 section 6.3.1's later paragraphs. The two rows about the subtype *set* are
     // answered in `REMEDIES`; these two are the flavour conditions, and their first answer is a
     // retarget rather than a removal.
@@ -1905,16 +1958,6 @@ const HISTORY_IS_WHAT_HAPPENED: &str = "ISO 19005-4 section 6.7.5 requires every
      is for. This converter adds its own history entries for what it does \
      (doc/pdf-a-conversion-limits.md section 4.2); it does not complete a producer's";
 
-/// Why removing an action is not built, and which targets permit which actions.
-const ACTION_REMOVAL_NOT_BUILT: &str = "an action carries behaviour, and the only way to meet \
-     this clause is to remove it. doc/pdf-a-conversion-limits.md section 3.3 calls that an Ask, \
-     because a form that computed its own fields stops computing them, and neither the \
-     authorisation word nor the rewrite that takes an action out of a dictionary is built. Two \
-     target facts belong beside it: ISO 19005-4 section 6.6.2 permits a JavaScript action \
-     outright and its section 6.6.3 permits an AA entry on a widget annotation, so a document \
-     refused here for PDF/A-2 may convert to PDF/A-4 untouched; and PDF/A-4e admits a \
-     SetOCGState or GoTo3DView action that plain PDF/A-4 does not";
-
 /// Why an annotation a flavour confines is refused rather than removed.
 ///
 /// ISO 19005-4 section 6.3.1 confines `3D` and `RichMedia` to a PDF/A-4e file and
@@ -2258,6 +2301,20 @@ const NOT_BUILT_YET: &str = "this converter does not yet meet this requirement; 
      doc/pdf-a-conversion-limits.md names the resource or the decision each remaining one waits \
      on, and no file is written rather than one wearing a claim it has not earned";
 
+/// The row whose repair ISO 32000-2 §7.3.4.3 states the result of.
+pub(super) const ODD_HEXADECIMAL_DIGITS: &str = "file-structure/hexadecimal-string-digits";
+
+/// Whether this document fails [`ODD_HEXADECIMAL_DIGITS`] inside a content stream.
+///
+/// Asked by [`super::prepare`] so that the repair is worked out for the documents that need it
+/// and for no others: the same failure named at an object is answered by the whole-file rewrite,
+/// which writes every string in §7.3.4.3's even-digit form anyway.
+pub(super) fn odd_hexadecimal_digits_on_a_page(input: &pdf_archive::Report) -> bool {
+    input
+        .failures()
+        .any(|judgement| judgement.id == ODD_HEXADECIMAL_DIGITS && in_a_content_stream(judgement))
+}
+
 /// A syntax rule the whole-file rewrite cannot reach, because the syntax is on a page.
 const SYNTAX_INSIDE_CONTENT: &str = "this failure is inside a content stream, which this verb \
      carries byte for byte; correcting \
@@ -2321,6 +2378,19 @@ pub(super) fn decide(
         // page names is one the whole-file rewrite does not reach, and saying otherwise would
         // be promising a fix that never arrives.
         if in_a_content_stream(judgement) {
+            // **One of the two rows has a value the standard states, and the other does not.**
+            // ISO 32000-2 §7.3.4.3 says the missing final digit "shall be assumed to be 0", so
+            // writing it down transcribes a decision the standard already took and changes
+            // nothing a reader computes; a byte that is neither a digit nor white space has no
+            // value in that clause at all, so removing one would be a guess about the producer.
+            // `doc/adr/1176` is the argument and `super::hexadecimal` the rewrite.
+            if judgement.id == ODD_HEXADECIMAL_DIGITS {
+                return answer_of(
+                    Answer::Mechanical(Rewrite::HexadecimalDigitCompleted),
+                    authorised,
+                    prepared,
+                );
+            }
             return Decision::Refused(Because::TheFence(SYNTAX_INSIDE_CONTENT));
         }
         return Decision::Mechanical(Rewrite::WholeFileRewritten);

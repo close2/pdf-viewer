@@ -687,6 +687,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -824,6 +825,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -888,6 +890,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3304,6 +3307,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3879,6 +3883,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3916,6 +3921,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3951,6 +3957,7 @@ fn two_specifications_marked_best_stay_refused() {
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -3979,6 +3986,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         jpeg2000_colour_fallback: true,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4256,6 +4264,7 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
     let authorised = Authorisations {
         signature_assertion: true,
         forbidden_annotation: false,
+        interactive_behaviour: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4352,6 +4361,7 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
     let authorised = Authorisations {
         signature_assertion: true,
         forbidden_annotation: false,
+        interactive_behaviour: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5216,6 +5226,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: false,
+        interactive_behaviour: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -5699,6 +5710,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: true,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6004,6 +6016,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         jpeg2000_colour_fallback: false,
         signature_assertion: false,
         forbidden_annotation: true,
+        interactive_behaviour: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6025,6 +6038,7 @@ fn every_loss() -> Authorisations {
         jpeg2000_colour_fallback: true,
         signature_assertion: true,
         forbidden_annotation: true,
+        interactive_behaviour: false,
     }
 }
 
@@ -6163,5 +6177,274 @@ fn an_appearance_drawn_as_far_as_its_entries_reach_is_refused_as_partial() {
     assert!(
         because.contains("construct only in part"),
         "and this one is the partial rendering, not the clause's silence: {because}"
+    );
+}
+
+/// The authorisation `doc/pdf-a-conversion-limits.md` section 3.3 asks for, and nothing else.
+fn behaviour_authorised() -> Authorisations {
+    Authorisations {
+        interactive_behaviour: true,
+        ..Authorisations::default()
+    }
+}
+
+#[test]
+fn a_launch_action_goes_and_the_actions_behind_it_stay() {
+    // ISO 19005-2 section 6.5.1 and ISO 19005-4 section 6.6.1 forbid a `Launch` action by name.
+    // §12.6.2's Table 196 makes `/Next` "[t]he next action or sequence of actions that shall be
+    // performed after the action represented by this dictionary", and a `Named` action performing
+    // `NextPage` is one both parts leave permitted — so what the removal may take is the `Launch`
+    // and not the page turn behind it.
+    let source = Conforming {
+        catalog: "/OpenAction 6 0 R".to_owned(),
+        objects: vec![
+            "<< /Type /Action /S /Launch /F (calc.exe) /Next 7 0 R >>".to_owned(),
+            "<< /Type /Action /S /Named /N /NextPage >>".to_owned(),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, "actions/no-launch-multimedia-or-form-actions"),
+        Decision::Unauthorised {
+            loss: Loss::InteractiveBehaviour,
+            rewrite: Rewrite::ForbiddenActionRemoved,
+        }
+    );
+
+    let (report, output) = convert(&source, target, behaviour_authorised());
+    assert_eq!(
+        decision(&report, "actions/no-launch-multimedia-or-form-actions"),
+        Decision::Authorised {
+            loss: Loss::InteractiveBehaviour,
+            rewrite: Rewrite::ForbiddenActionRemoved,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let text = String::from_utf8_lossy(&output);
+    assert!(!text.contains("/Launch"), "the forbidden action is gone");
+    assert!(
+        text.contains("/NextPage"),
+        "and the action its /Next performed after it is not: {text}"
+    );
+    let removed = &conversion(&report).removed_actions;
+    assert_eq!(removed.len(), 1, "one action went: {removed:?}");
+    assert_eq!(removed[0].entry, "OpenAction");
+    assert_eq!(removed[0].what, "a Launch action");
+}
+
+#[test]
+fn a_page_additional_actions_dictionary_goes_under_part_two_and_is_pruned_under_part_four() {
+    // ISO 19005-2 section 6.5.2 forbids `/AA` on a page outright. ISO 19005-4 section 6.6.3
+    // admits only §12.6.3's Table 197 annotation triggers there, and Table 198's `/O` is not one
+    // of them — so both parts take this entry away, by two different rules and with the same
+    // effect on a page whose only trigger is `/O`.
+    let page_action = "<< /Type /Action /S /Named /N /NextPage >>".to_owned();
+    for (target, fixture, requirement) in [
+        (
+            Target::Two(Level::B),
+            Conforming::part_two(),
+            "actions/no-additional-actions-dictionary",
+        ),
+        (
+            Target::Four(Flavour::Plain),
+            Conforming::default(),
+            "actions/additional-actions-outside-widgets-hold-only-annotation-triggers",
+        ),
+    ] {
+        let source = Conforming {
+            page: "/AA << /O 6 0 R >>".to_owned(),
+            objects: vec![page_action.clone()],
+            ..fixture
+        }
+        .build();
+        let (report, output) = convert(&source, target, behaviour_authorised());
+        assert_eq!(
+            decision(&report, requirement),
+            Decision::Authorised {
+                loss: Loss::InteractiveBehaviour,
+                rewrite: Rewrite::AdditionalActionsRemoved,
+            },
+            "{target}"
+        );
+        let output = output.expect("authorised, so it converts");
+        assert_eq!(
+            holds(&output, target).verdict(),
+            Verdict::Conforms,
+            "{target}"
+        );
+        assert!(
+            !String::from_utf8_lossy(&output).contains("/AA"),
+            "{target}: an /AA left with nothing in it goes with its last entry"
+        );
+    }
+}
+
+#[test]
+fn a_widget_loses_its_action_entry_and_keeps_everything_else() {
+    // ISO 19005-2 section 6.4.1 and ISO 19005-4 section 6.4.1 forbid the `/A` entry itself on a
+    // widget annotation or field dictionary, rather than an action type — so the chain behind it
+    // goes with it, and the annotation's own appearance does not.
+    let source = Conforming {
+        page: "/Annots [7 0 R]".to_owned(),
+        catalog: "/AcroForm << /Fields [7 0 R] >>".to_owned(),
+        objects: vec![
+            "<< /Type /Action /S /Named /N /NextPage >>".to_owned(),
+            "<< /Type /Annot /Subtype /Widget /FT /Btn /T (b) /Rect [0 0 10 10] /F 4 \
+             /A 6 0 R /AP << /N << /Off 8 0 R >> >> /AS /Off >>"
+                .to_owned(),
+        ],
+        ..Conforming::default()
+    };
+    let mut source = source;
+    source.objects.push(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >> /Length 0 >>\nstream\n\nendstream"
+            .to_owned(),
+    );
+    let source = source.build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, behaviour_authorised());
+    assert_eq!(
+        decision(&report, "forms/no-action-on-widget-or-field"),
+        Decision::Authorised {
+            loss: Loss::InteractiveBehaviour,
+            rewrite: Rewrite::WidgetActionEntryRemoved,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    let text = String::from_utf8_lossy(&output);
+    assert!(
+        text.contains("/Subtype /Widget"),
+        "the annotation stays; only its action goes: {text}"
+    );
+    assert!(
+        !text.contains("/NextPage"),
+        "and so does the chain behind the entry the clause forbids: {text}"
+    );
+    let removed = &conversion(&report).removed_actions;
+    assert_eq!(removed.len(), 1, "one entry went: {removed:?}");
+    assert_eq!(removed[0].entry, "A");
+    assert_eq!(removed[0].holder, "a widget annotation");
+}
+
+#[test]
+fn an_ecmascript_action_part_four_permits_is_left_where_part_two_removes_it() {
+    // ISO 19005-2 section 6.5.1 forbids a JavaScript action; ISO 19005-4 section 6.6.2 permits
+    // one and moves the restriction onto when a processor may run it. The same document is
+    // therefore converted by taking the action out for one target and by changing nothing for
+    // the other, which is the catalogue's *retarget that is better than any remedy*.
+    let script = "<< /Type /Action /S /JavaScript /JS (app.alert\\(1\\)) >>".to_owned();
+    let two = Conforming {
+        catalog: "/OpenAction 6 0 R".to_owned(),
+        objects: vec![script.clone()],
+        ..Conforming::part_two()
+    }
+    .build();
+    let (report, output) = convert(&two, Target::Two(Level::B), behaviour_authorised());
+    assert_eq!(
+        decision(&report, "actions/no-javascript-action"),
+        Decision::Authorised {
+            loss: Loss::InteractiveBehaviour,
+            rewrite: Rewrite::ForbiddenActionRemoved,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert!(
+        !String::from_utf8_lossy(&output).contains("/JavaScript"),
+        "part 2 admits no such action anywhere in the file"
+    );
+
+    let four = Conforming {
+        catalog: "/OpenAction 6 0 R".to_owned(),
+        objects: vec![script],
+        ..Conforming::default()
+    }
+    .build();
+    let report = holds(&four, Target::Four(Flavour::Plain));
+    assert_eq!(
+        report.verdict(),
+        Verdict::Conforms,
+        "part 4 permits it outright:\n{}",
+        report.render()
+    );
+}
+
+#[test]
+fn the_document_level_script_tree_goes_whole_under_part_two() {
+    // §7.7.4's Table 32 makes the name dictionary's `/JavaScript` "[a] name tree mapping name
+    // strings to document-level ECMAScript actions", so a part 2 target admits no entry of it at
+    // all and the key goes rather than its leaves being edited one at a time.
+    let source = Conforming {
+        catalog: "/Names << /JavaScript << /Names [(one) 6 0 R] >> >>".to_owned(),
+        objects: vec!["<< /Type /Action /S /JavaScript /JS (app.alert\\(1\\)) >>".to_owned()],
+        ..Conforming::part_two()
+    }
+    .build();
+    let target = Target::Two(Level::B);
+    let (report, output) = convert(&source, target, behaviour_authorised());
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        !String::from_utf8_lossy(&output).contains("/JavaScript"),
+        "the tree the clause names is what goes"
+    );
+    let removed = &conversion(&report).removed_actions;
+    assert!(
+        removed.iter().any(|row| row.entry == "Names /JavaScript"),
+        "and the report names it: {removed:?}"
+    );
+}
+
+#[test]
+fn a_content_streams_odd_hexadecimal_string_gains_the_digit_the_base_standard_assumed() {
+    // ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5 forbid an odd number of digits, and
+    // each attaches a NOTE saying the rule removes the base standard's provision for a missing
+    // final one. §7.3.4.3 states that provision — "the final digit shall be assumed to be 0" —
+    // and its EXAMPLE 2 spells the consequence, so `<901FA>` already *is* the three bytes 90 1F
+    // A0 and writing the `0` changes nothing a reader computes. doc/adr/1176 is the argument.
+    let source = Conforming {
+        contents: Some((
+            String::new(),
+            b"/Span << /Alt <901FA> >> BDC\nEMC\n".to_vec(),
+        )),
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|judgement| judgement.id == "file-structure/hexadecimal-string-digits"),
+        "the fixture fails the rule it is about"
+    );
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert_eq!(
+        decision(&report, "file-structure/hexadecimal-string-digits"),
+        Decision::Mechanical(Rewrite::HexadecimalDigitCompleted),
+        "nothing is lost, so nobody is asked"
+    );
+    let output = output.expect("a mechanical rewrite writes a file");
+    let after = holds(&output, target);
+    assert_eq!(after.verdict(), Verdict::Conforms, "{}", after.render());
+
+    let converted = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&converted);
+    let page = pages.get(0).expect("one page");
+    let contents = converted.get_key(&page.dict, "Contents");
+    let stream = contents.as_stream().expect("one content stream");
+    let data = converted
+        .decoded_stream_data(stream)
+        .expect("it decodes again");
+    assert!(
+        String::from_utf8_lossy(&data).contains("<901FA0>"),
+        "the digit §7.3.4.3 assumed is now written down: {}",
+        String::from_utf8_lossy(&data)
     );
 }

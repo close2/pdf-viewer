@@ -178,11 +178,14 @@ fn main() {
         Reply::Collection {
             collection,
             initial,
+            order,
         } => println!(
-            "    {} schema column(s), view {:?}, {} folder(s), opens on {initial:?}",
+            "    {} schema column(s), view {:?}, {} folder(s), opens on {initial:?}, {} file(s) \
+             in Table 153's /Sort order",
             collection.schema.len(),
             collection.view,
-            collection.all_folders().len()
+            collection.all_folders().len(),
+            order.len()
         ),
         Reply::None => println!("    this document states no portable collection"),
         other => println!("    {other:?}"),

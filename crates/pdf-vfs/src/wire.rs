@@ -867,7 +867,7 @@ fn level_code(level: pdf_model::restriction::Level) -> u8 {
 /// `pdf_model::restriction::Operation`, as one byte.
 ///
 /// Every arm named, for [`level_code`]'s reason: an operation added there fails to compile here
-/// rather than crossing as one of the six.
+/// rather than crossing as one this side already knows.
 fn operation_code(operation: Operation) -> u8 {
     match operation {
         Operation::FillInForm => 0,
@@ -876,6 +876,7 @@ fn operation_code(operation: Operation) -> u8 {
         Operation::Extract => 3,
         Operation::Modify => 4,
         Operation::Assemble => 5,
+        Operation::Process => 6,
     }
 }
 
@@ -888,6 +889,7 @@ fn operation_of(code: u8) -> Result<Operation, WireError> {
         3 => Ok(Operation::Extract),
         4 => Ok(Operation::Modify),
         5 => Ok(Operation::Assemble),
+        6 => Ok(Operation::Process),
         value => Err(WireError::Unrecognised {
             what: "an operation",
             value,

@@ -5348,3 +5348,38 @@ rung's image — drawn onto eight device rows at ten sub-pixel phases.
 Those are §47's own first-rung figures **to the thousandth at all ten phases**, on both sides: the
 oracle's staircase, your straight ramp, and the one uniform grey at the half-phase where the
 `levels` column reads 1. Two placements, one rule.
+
+## 49. A seventeenth blend mode nothing can name: ISO 32000-2 §11.7.4.3's special overprinting mode, and the one corpus page it takes off the comparison
+
+`raster_scene::BlendMode` has sixteen arms, which is exactly Table 134 and Table 135, and that
+was complete until this side read §11.7.4.3. That clause defines a mode a document **cannot
+name** — "[i]t shall not be invoked explicitly; rather, it may be implicitly invoked whenever an
+elementary graphics object is painted while overprinting is enabled" — whose value is decided by
+the overprint parameters rather than by arithmetic over the two colours:
+
+> If the overprint mode is 1 (nonzero overprint mode) and the current colour space and group
+> colour space are both DeviceCMYK , then process colour components with nonzero values shall
+> replace the corresponding component values of the backdrop; components with zero values leave
+> the existing backdrop value unchanged.
+
+So it is a **per-channel selection between the backdrop and the source**, fixed for a whole
+command: `B(C_b, C_s)` is `C_b` in the channels the command names and `C_s` in the rest. It is
+separable, it costs one mask per command, and it never varies within one mark — §8.6.7 requires
+the zero test to be made on "the tint value defined within the PDF file, before quantisation into
+a device tint value", so a shader cannot re-derive it from the channel it was handed and this
+side carries the answer on the command instead.
+
+**The ask is one variant carrying three bits**: a mode whose blend function takes each of the
+three channels from the backdrop or from the source, as a `[bool; 3]` the scene states. Nothing
+else in the vocabulary changes — it is separable, it composites under §11.3.3 like any other
+mode, and it only ever appears on a page already compositing in four components, which is the
+pair §17 answered.
+
+**What it costs today.** `render-raster` refuses a list that carries the mode by name, before the
+scene is built, and the frame falls back to the CPU backend. That is one page of the pdf.js
+corpus — `issue12798_page1_reduced.pdf`, a Dutch public-health poster whose `DeviceCMYK` page
+group states `/OP true /op true /OPM 1` and paints black ink over a magenta band under
+`/BM /Multiply`. It is a page this side and yours agreed on to 0.076 of 255 as recently as the
+four-hundred-and-thirty-ninth session, and it is off the cross-backend comparison until the mode
+exists. `crates/render-raster/tests/overprint_refusal.rs` holds the refusal against a scene built
+by hand, so it moves the day the vocabulary does.

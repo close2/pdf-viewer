@@ -74,7 +74,7 @@ fn raster() -> QuorraRasterizer {
 #[test]
 fn a_list_that_overprints_is_refused_and_the_same_list_without_it_is_drawn() {
     let mut raster = raster();
-    let kept = Overprint::new([false, true, true]).expect("a mode that keeps two channels");
+    let kept = Overprint::new([false, true, true]);
 
     let refused = scene(BlendMode::Overprint(kept), true);
     let target = TargetSpec::for_page(&refused, 1.0, GENEROUS).expect("valid target");

@@ -21,17 +21,6 @@ impl App {
         self.pump(VecDeque::from([command]));
     }
 
-    /// Reads this machine's clock for ISO 32000-2 Table 166's `/M`, on the way to a save.
-    ///
-    /// The core has no clock (rule 3) and writes the instant it was last given, so the host reads
-    /// one here — immediately before the save, which is the moment the entry is about. A clock
-    /// this host cannot read states nothing, and the file is then written without the entry,
-    /// which Table 166 allows. ADR 1160.
-    fn state_the_time(&mut self) {
-        let now = viewer_host::modification::now();
-        self.pump(VecDeque::from([Command::Clock(now)]));
-    }
-
     /// Reacts to events that were produced somewhere other than a [`Self::dispatch`].
     ///
     /// One caller: the thread that opens the document while the window and the graphics device
@@ -59,11 +48,14 @@ impl App {
     /// Runs commands until nothing is left, reacting to what each produces.
     fn pump(&mut self, mut queue: VecDeque<Command>) {
         while let Some(command) = queue.pop_front() {
-            // Table 166's `/M` is what a save writes it into, so the clock is read on the way
-            // there rather than kept — and never inside [`App::state_the_time`]'s own pump, which
-            // would be a loop.
-            if matches!(command, Command::Save) {
-                self.state_the_time();
+            // Table 166's `/M` is what §7.5.6's update writes it into, so the clock is read on
+            // the way there rather than kept. Which command that is is
+            // `viewer_host::modification::before`'s, once for all three windows, because a host
+            // reading its clock somewhere else reads it at a different moment (ADR 1160). It is
+            // pumped here rather than put back on the queue, which would put the save behind it
+            // for ever.
+            if let Some(clock) = viewer_host::modification::before(&command) {
+                self.pump(VecDeque::from([clock]));
             }
             let started = std::time::Instant::now();
             // The pointer is its own topic and not `events`: 285 of the 1490 lines of the trace
