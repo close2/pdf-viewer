@@ -26,7 +26,7 @@
 use std::fmt::Write as _;
 
 use pdf_model::optional_content::Purpose;
-use pdf_model::view::ViewState;
+use pdf_model::view::{TargetMedia, ViewState};
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
@@ -105,7 +105,7 @@ struct Drawn {
 /// Both go in through `ViewState`, which `CLAUDE.md`'s rule 1 makes the one channel by which
 /// anything outside the file may decide a mark — so these tests take the path a print job takes
 /// rather than a back door built for them.
-fn drawn(bytes: Vec<u8>, purpose: Purpose, paper: Option<[f32; 4]>) -> Drawn {
+fn drawn(bytes: Vec<u8>, purpose: Purpose, paper: Option<TargetMedia>) -> Drawn {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let mut state = ViewState::of(&document);
@@ -123,7 +123,7 @@ fn drawn(bytes: Vec<u8>, purpose: Purpose, paper: Option<[f32; 4]>) -> Drawn {
 }
 
 /// The smallest box containing every painted pixel, in PDF coordinates.
-fn extent(bytes: Vec<u8>, purpose: Purpose, paper: Option<[f32; 4]>) -> (u32, u32, u32, u32) {
+fn extent(bytes: Vec<u8>, purpose: Purpose, paper: Option<TargetMedia>) -> (u32, u32, u32, u32) {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let mut state = ViewState::of(&document);
@@ -290,7 +290,7 @@ fn a_fixed_print_watermark_goes_against_the_sheet_when_the_sheet_is_known() {
             "/FixedPrint << /Type /FixedPrint /H 0.25 /V 0.25 >>",
         )
     };
-    let sheet = Some([0.0, 0.0, 200.0, 200.0]);
+    let sheet = Some(TargetMedia::unplaced([0.0, 0.0, 200.0, 200.0]));
 
     assert_eq!(
         extent(fixture(), Purpose::View, sheet),
@@ -306,6 +306,77 @@ fn a_fixed_print_watermark_goes_against_the_sheet_when_the_sheet_is_known() {
         extent(fixture(), Purpose::Print, None),
         (25, 25, 64, 64),
         "and a sheet nobody stated is Table 193's dimensions that are not known"
+    );
+}
+
+/// §12.5.6.22's two post-EXAMPLE bullets: the mark keeps its size on the media, not on the page.
+///
+/// Both bullets say **at the specified size**, and n-up says which rectangle the position is
+/// measured against:
+///
+/// > When n -up printing is selected (that is, multiple PDF pages are printed on a single page),
+/// > the annotations shall be printed at the specified size and shall be positioned as if the
+/// > dimensions of the printed page were limited to a single portion of the page.
+///
+/// So a cell is stated as the media, in the page's own space, with the factor the page was
+/// scaled by to reach it — and cancelling that factor is a division of the transformed rectangle.
+///
+/// The pair is what discriminates. On the same media, `1.0` and `2.0` differ **only** in the
+/// mark's size and not in its position: a reader that ignored the factor would pass the first
+/// row and fail the second, and one that applied it to the translation as well would move the
+/// mark off 25% of the media's width.
+///
+/// Checkable by hand on the `/Rect [20 30 60 70]` of the test above — a 40 x 40 box at the origin
+/// under the identity matrix, against a media rectangle of 100 x 100 in the page's own space:
+///
+/// ```text
+/// page_scale 1.0   /H 0.25 /V 0.25 of 100      x 25..65   40 wide
+/// page_scale 2.0   the same corner, half the box          x 25..45   20 wide
+/// ```
+///
+/// which on the media is 40 units wide in both rows, because the page's own placement multiplies
+/// the second by two again.
+#[test]
+fn a_page_placed_on_the_media_keeps_the_watermarks_size_and_not_the_pages() {
+    let fixture = || {
+        watermark(
+            "[0 0 100 100]",
+            "[20 30 60 70]",
+            "/FixedPrint << /Type /FixedPrint /H 0.25 /V 0.25 >>",
+        )
+    };
+    let cell = [0.0, 0.0, 100.0, 100.0];
+
+    assert_eq!(
+        extent(fixture(), Purpose::Print, Some(TargetMedia::unplaced(cell))),
+        (25, 25, 64, 64),
+        "a page at its own size is the clause's usual case and B is the identity"
+    );
+    assert_eq!(
+        extent(
+            fixture(),
+            Purpose::Print,
+            Some(TargetMedia {
+                media: cell,
+                page_scale: 2.0,
+            }),
+        ),
+        (25, 25, 44, 44),
+        "the same corner, and the box divided by what the page will be multiplied by"
+    );
+    // A factor nothing usable was said about leaves the page's own scale standing, rather than
+    // producing a mark of infinite or zero extent from a caller's arithmetic error.
+    assert_eq!(
+        extent(
+            fixture(),
+            Purpose::Print,
+            Some(TargetMedia {
+                media: cell,
+                page_scale: 0.0,
+            }),
+        ),
+        (25, 25, 64, 64),
+        "a factor that is not a finite positive number is a caller that said nothing"
     );
 }
 

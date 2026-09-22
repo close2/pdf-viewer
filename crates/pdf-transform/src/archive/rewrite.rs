@@ -644,7 +644,7 @@ pub enum Rewrite {
     /// put it outside are gone.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1, and the construction is
-    /// \u{a7}7.3.8.2's Table 5 read straight: the external file's bytes go where the stream's own
+    /// §7.3.8.2's Table 5 read straight: the external file's bytes go where the stream's own
     /// were — the table having said a reader ignores those while `/F` stands — `/Filter` and
     /// `/DecodeParms` become the `F`-prefixed pair that described the data now written,
     /// `/Length` is restated, and the forbidden keys are removed. Where a stream states one of
@@ -652,6 +652,29 @@ pub enum Rewrite {
     /// Table 5 gives those keys meaning only through `/F`, so a conforming reader never consulted
     /// them (`doc/adr/1199`).
     ExternalDataEmbedded,
+    /// Every page loses the out-of-range optional boundary entry ISO 19005-2 section 6.1.13's
+    /// limit is failed at, so that §14.11.2.1's own default states the boundary instead.
+    ///
+    /// §7.7.3.3's Table 31 makes `/MediaBox` required and the crop, bleed, trim and art
+    /// boxes optional, and §14.11.2.1 gives each optional one a default that is another box
+    /// in the same file: the crop box's "default value is the page's media box", and the bleed,
+    /// trim and art boxes' "default value is the page's crop box". So the removal is the page
+    /// saying itself the way Table 31 admits rather than an edit to what it says, and no mark
+    /// moves either way.
+    ///
+    /// Whether anything a reader *computes* moves is `doc/adr/1210`'s predicate, asked per
+    /// entry, and §14.11.2.1 answers it for the commonest case outright:
+    ///
+    /// > If the bounds of the crop, trim, bleed or art box extends outside of the bounds of the
+    /// > media box, a processor shall treat the box as its intersection with the media box.
+    ///
+    /// An over-sized box is therefore already its intersection with the media box to every
+    /// conforming processor, and where that intersection is what the default would give the
+    /// entry carried no information a reader used. Where the two differ the removal costs
+    /// [`super::Loss::PageBoundary`] and the caller authorises it. A failing **media box** is
+    /// neither: Table 31 requires it, so there is no default to fall back to and the
+    /// requirement stays refused by name.
+    PageBoundaryRemoved,
 }
 
 impl Rewrite {
@@ -879,6 +902,11 @@ impl Rewrite {
                 "a content stream's hexadecimal string states the final digit ISO 32000-2 \
                  \u{a7}7.3.4.3 already assumed, so the string reads the same and the file says so"
             }
+            Self::PageBoundaryRemoved => {
+                "a page loses the optional crop, bleed, trim or art box entry whose size ISO \
+                 19005-2 section 6.1.13 does not admit, so that ISO 32000-2 \u{a7}14.11.2.1's \
+                 own default states that boundary instead"
+            }
         }
     }
 
@@ -940,6 +968,7 @@ impl Rewrite {
             Self::SeparationAgreed => "separation-agreed",
             Self::EncryptionRemoved => "encryption-removed",
             Self::ExternalDataEmbedded => "external-data-embedded",
+            Self::PageBoundaryRemoved => "page-boundary-removed",
         }
     }
 }
@@ -1007,6 +1036,7 @@ pub(super) fn convert(
         actions: prepared.actions.as_ref().ok(),
         hexadecimal: prepared.hexadecimal.as_ref().ok(),
         external_data: prepared.external_data.as_ref().ok(),
+        boundaries: prepared.boundaries.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1770,6 +1800,8 @@ struct Rewriter<'a> {
     hexadecimal: Option<&'a super::hexadecimal::Completed>,
     /// The streams whose data comes inside the file, where any do.
     external_data: Option<&'a super::external::Embedded>,
+    /// The out-of-range optional page boundary entries each page loses, where any do.
+    boundaries: Option<&'a super::boundaries::Boundaries>,
 }
 
 impl Rewriter<'_> {
@@ -1986,6 +2018,7 @@ impl Rewriter<'_> {
         changed |= self.complete_order(id, out, applied);
         changed |= self.attach_page_resources(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
+        changed |= self.remove_page_boundaries(id, out, applied);
         changed |= self.write_cid_to_gid_map(id, out, applied);
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);
@@ -2339,6 +2372,36 @@ impl Rewriter<'_> {
         out.insert(Name::new(&b"Resources"[..]), resources);
         count(applied, Rewrite::PageResources);
         true
+    }
+
+    /// The out-of-range optional page boundary entries one page loses.
+    ///
+    /// ISO 19005-2 section 6.1.13's limit, answered by ISO 32000-2 §7.7.3.3's Table 31 and
+    /// §14.11.2.1's defaults: an entry Table 31 marks optional and whose default is another box
+    /// in the same file is removable, and the preparation has already decided — per entry, on
+    /// §14.11.2.1's intersection sentence — whether the region a reader computes changes with it
+    /// (`doc/adr/1210`). Nothing is decided here.
+    fn remove_page_boundaries(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(keys) = self
+            .boundaries
+            .filter(|_| self.wants(Rewrite::PageBoundaryRemoved))
+            .and_then(|removals| removals.at.get(&id))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        for key in keys {
+            if out.remove(key).is_some() {
+                count(applied, Rewrite::PageBoundaryRemoved);
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// A font descriptor's incomplete `/CharSet` or `/CIDSet`, removed.

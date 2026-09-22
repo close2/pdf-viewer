@@ -153,12 +153,30 @@ consulted at all because its own row says the annotation may be printed anyway �
 `Print` usage applications run over the reader's own layer switches for the duration and revert
 after, and §12.5.6.22's fixed print watermarks are placed against the sheet rather than against the
 media box. The window shows the same thing while the operation stands, so what a reader sees is
-what would print. `quorra-gtk` spools it through `GtkPrintOperation`, painting the page the
-processor backend drew — the same backend the oracle certifies — into the print context; the other
-two windows show it and say they have no printer, because `cxx-qt-lib` binds no `QtPrintSupport`
-type and the winit host has no toolkit dialogue at all (ADRs 1179, 1180). The resolution is the
-printer's, clamped to 150–600 dots per inch with 300 where none is reported, and §12.2's half of
-Table 147 — scaling, duplex, tray, page range, copies — is what the dialogue opens on.
+what would print. **Two windows print.** `quorra-gtk` spools through `GtkPrintOperation` and
+`quorra-qt` through a `QPrintDialog` and a `QPrinter` its own C++ names, each painting the page the
+processor backend drew — the same backend the oracle certifies — into the toolkit's context; the
+winit host has no toolkit dialogue at all and shows what would print, saying so (ADRs 1179, 1180,
+1203). The resolution is the printer's, clamped to 150–600 dots per inch with 300 where none is
+reported, and §12.2's half of Table 147 — scaling, duplex, tray, page range, copies — is what a
+dialogue opens on.
+
+**Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
+cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
+goes ahead — "printing shall be limited to a low- level representation of the appearance". The
+implementation-dependent algorithm the cell hands to a processor is chosen: a degraded job is drawn
+at the lowest resolution this program draws at, and a destination that writes a document is refused
+by name, because a file is a document a faithful copy could be generated from whatever it was drawn
+at. The *ask* level over it is the one held question whose `no` starts something — a degraded
+print rather than none.
+
+**A page placed on a sheet is where §12.5.6.22's matrix B stops being the identity.** A page shrunk
+to fit the paper, or set two or four to a sheet, states what it was scaled by and which portion of
+the paper it landed in, and a fixed print watermark is drawn immune to the first and measured
+against the second — the clause's own two post-EXAMPLE bullets, "at the specified size" and
+"positioned as if the dimensions of the printed page were limited to a single portion of the page".
+The scale mode and the pages per sheet are on a tab of `quorra-qt`'s print dialogue, because those
+two decide where the marks land and every other setting in a print dialogue does not (ADR 1204).
 
 **And what a document may ask this machine to do is the reader's to set too, at the same four
 levels running the other way.** §12.6.4.8's link is opened by the host and by nothing inside the
@@ -456,6 +474,20 @@ archive.** ISO 19005 requires every `Separation` array naming one colourant to s
 alternate space and tint transform, and §8.6.6.4 makes those what an additive device paints the tint
 through — so the operator names which of the file's *own* definitions wins, by object order or by how
 many arrays state it, and every byte the rewrite writes is the producer's (ADR 1188).
+**Two facts a file cannot carry are the operator's to state, and both are recorded as theirs.**
+ISO 32000-2 §9.9.1 makes whether a font program may be embedded a condition of somebody's licence,
+and ISO 19005-2 section 6.2.11.4.1 demands exactly that — so where no shipped face covers a
+document's characters, `--font <base-font>=<path>` names the program, §9.2.4's widths keep every
+glyph where the content stream put it, and the report and the output's `xmpMM:History` say whose
+authority the face was in (ADR 1209). The same shape answers a stream whose data is outside the
+file: §7.11.5's locator is not a path and fetching one is a network operation this program does not
+have, so a configured tool does it under the operator's trust and what it returns lands in the same
+plan entry `--resolve-external-data` fills. **And a page boundary ISO 19005-2 section 6.1.13
+refuses is answered by the base standard's own default rather than by rescaling anything**:
+§7.7.3.3's Table 31 makes four of §14.11.2's five boxes optional, §14.11.2.1 gives each a default
+that is another box in the same file, and its intersection sentence says whether the removal costs
+a reader anything — mechanical where it does not, `--authorise page-boundary` where it does, and
+refused at the media box, which Table 31 requires (ADR 1210).
 A refusal is a question answered in advance: a configuration names each refusal site and its
 remedy, `--remedy-sites` prints every site a target binds with what this version carries out and its
 own total of what is not built yet — and, given a profile, the answers that profile gives which this
@@ -543,7 +575,11 @@ output intent pushed onto each source's own pages where the sources disagree —
 home the clause gives it, and which this tree's colour path now reads — and §12.7's interactive
 form reconciled entry by entry, with §12.7.4.2's fully qualified field name **refused by name**
 where two sources claim it with a different `/FT`, `/V` or `/DV`. A signature crosses without its
-`/V`, because §12.8.1's digest was computed over bytes the merged file is not. **`pages` is the
+`/V`, because §12.8.1's digest was computed over bytes the merged file is not. §14.3.3's entries
+are the operator's statement and no input's — `--info Key=value`, repeated, with Table 349's keys
+and types the only ones accepted and nothing derived, so a merge told nothing states no `/Info` —
+and where a date is among them §14.3.2's packet is written beside the dictionary saying the same
+instant, which is what §14.3.4 requires of a processor creating a new document. **`pages` is the
 third, and it is the same engine given one document's own page list to edit**: §7.7.3.3's
 `/Rotate` written as an integer — absolute where the angle is unsigned, and where it is signed
 composed with the value §7.7.3.4 gives the page rather than with what the page states — a

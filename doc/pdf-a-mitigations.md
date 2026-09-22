@@ -246,8 +246,8 @@ ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · today `not-built-yet`
   external-stream case with the dependency moved from a disk to an algorithm.
 
 ### `file-structure/no-external-stream-data`
-ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · **built in session 1181** (ADR 1199) for the
-bytes a caller can resolve; the tool route below is what is left
+ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · **built** (ADR 1199) for the bytes a caller
+can resolve, and **the tool route with them** (ADR 1209)
 
 - **What was built.** The conversion embeds the bytes and removes the keys:
   `ArchivePlan::external_data` carries what the caller resolved, §7.3.8.2's Table 5 is the whole
@@ -262,7 +262,7 @@ bytes a caller can resolve; the tool route below is what is left
   `quorra-transform archive --resolve-external-data` reads a name that is a single path component
   beside the document itself and nothing else (ADR 1155's rule, restated at the command-line
   program). Every name refused is printed.
-- **Mitigation for what is left** — **`preserve` with `tool = "resolve-external"`.** §7.11.5's URL
+- **Mitigation, built** — **`preserve` with `tool = "resolve-external"`.** §7.11.5's URL
   is not a file name on any filesystem, and fetching one is a network operation this program does
   not have and `CLAUDE.md` principle 3 will not acquire. A declared tool puts the fetch in the
   operator's program, under their trust, bounded by `timeout` and `output-limit`, and the bytes
@@ -270,7 +270,18 @@ bytes a caller can resolve; the tool route below is what is left
   archive sweep counts, per target, how each such stream names its data, and when this was built
   not one witness named a plain file — three state `/FS /URL` and three state `/FS` as a *string*,
   which Table 43 makes no file system at all and leaves an `http:` locator to be read as a
-  §7.11.2 string of several components.
+  §7.11.2 string of several components. **What the build added is a request population and a
+  config word, not a second mechanism** (ADR 1209): a `preserve` row naming the site and a tool
+  makes the conversion return one `ToolRequest` per stream with the document's own file
+  specification as its input, the caller's executor runs it, and what comes back lands in the same
+  `ArchivePlan::external_data` the switch fills. The report names every fetch — the specification,
+  the object, the resolved program and RFC 0007 section 4.4's digest — and the output's own
+  `xmpMM:History` says the data came from outside the document, because the rewrite leaves those
+  bytes indistinguishable from any other stream's.
+- **And the site is enumerable again.** ADR 1199 left a wrinkle: `--remedy-sites` lists the sites a
+  configuration has something to say about, and once this row became `Mechanical` it dropped off
+  the listing although a URL-named stream still refused. A `Mechanical` answer conditional on what
+  a caller supplies is still a site, and `archive::census` now says so (ADR 1209).
 - **By target** — none in kind. Every target wants the same bytes in the same place.
 - **From a configuration** — `remedy = "preserve"` with `tool = "resolve-external"`, and RFC 0007
   section 4.1's rule does real work here: the `/F` file specification is document-derived, so it
@@ -416,7 +427,13 @@ All ten are stated at ISO 19005-2 6.1.13. What each adds beyond the shared answe
   nothing a reader computes. It is a **`discard` with a stated cost** where the two differ — a box
   under 3 units, or an over-sized one a narrower crop box stands behind — because a reader would
   then show, clip or trim a different region. Where the failing box is the media box, *nothing*
-  stands. ADR 1200 section 1 has the predicate; not built.
+  stands. ADR 1200 section 1 has the predicate; **built in ADR 1210**, as
+  `crates/pdf-transform/src/archive/boundaries.rs`, with `--authorise page-boundary` for the
+  second case. Two refusals the build added are the predicate's honest edges: an entry §7.7.3.4
+  puts in force from an *ancestor* governs every page beneath it, so a removal that moves what a
+  reader computes for a page whose own boundaries met the limit is refused rather than paid for by
+  a page that asked for nothing; and the after-picture is taken by putting the page through
+  `pdf_model::Page` again without the entry, so the clause has one reader here rather than two.
 - `implementation-limits/character-identifiers` — nothing. A CID is the font's own numbering.
 - `implementation-limits/graphics-state-nesting` — nothing. The nesting *is* the content stream.
 - `implementation-limits/values-written-in-content-streams` — nothing, by construction: the subject
@@ -1023,9 +1040,12 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
   program, so the mapping is the producer's and fixed; the only routes are taking the code off the
   page (a mark removed) or drawing a glyph for it (a mark invented). One escape is not a remedy but
   is worth repeating in the report: where the font is **not** embedded, the limits document's
-  section 4.9 substitution applies instead, and `--font` supplying the intended face would move the
-  document into that case — **a flag this program does not yet accept**, which ADR 1200 section 4
-  records as a promise to keep rather than a sentence to delete.
+  section 4.9 substitution applies instead, and `--font <base-font>=<path>` supplying the intended
+  face moves the document into that case. **The flag is built** (ADR 1209): the program is the
+  operator's, the licence ISO 19005-2 section 6.2.11.4.1 demands is theirs to state, and the report
+  and the output's own `xmpMM:History` record whose authority the face was in. It reaches a simple
+  font whose dictionary's `/Subtype` ISO 32000-2 Table 124 pairs with the program's format; a
+  composite font and Table 124's `OpenType` row are what is left.
 - **The two clauses are not the same shape, and only the remedy is shared.** Section 6.2.11.4.1's
   NOTE 2 exempts a font referenced solely in §9.3.6's text rendering mode 3, because such a font is
   not rendered; section 6.2.11.8 forbids a `.notdef` reference **regardless of text rendering
@@ -1033,7 +1053,10 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
   carried the exemption across would under-report. The validator already holds each to its own
   clause.
 - **By target** — none.
-- **From a configuration** — nothing beyond `--font`, which is `supply` in its oldest form.
+- **From a configuration** — nothing beyond `--font`, which is `supply` in its oldest form and is
+  built (ADR 1209). It is a command-line flag rather than a configuration key deliberately: what
+  it states is a licence, and a licence is a fact about one operator's copy of one program rather
+  than a policy a team inherits in a file.
 - **Departure** — **B**, and the reasoning is worth the space because it is easy to get wrong. This
   is *not* the font-embedding requirement RFC 0007 section 4.7.5 calls kind C. The program **is**
   embedded; it defines `.notdef`; a departed file therefore renders deterministically in twenty
@@ -1156,7 +1179,7 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · today `the-fence`
 - **Mitigation** — **none.** Adding a `cmap` subtable invents outlines' addressing the producer
   never shipped; rewriting the `/Differences` array moves the marks on the page. Where the file
   embeds no program at all, section 4.9 of the limits document builds one instead and `--font`
-  supplies the real face — again an escape rather than a remedy.
+  supplies the real face (built, ADR 1209) — again an escape rather than a remedy.
 - **By target** — none.
 - **From a configuration** — nothing.
 - **Departure** — **B** for the three narrower rules (a glyph is still reached, by another route),

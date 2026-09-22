@@ -165,11 +165,37 @@ pub enum Loss {
     /// classes it *Ask* and never a default, because the archived copy becomes readable by anybody
     /// holding it.
     Encryption,
+    /// ISO 19005-2 section 6.1.13: an out-of-range optional page boundary entry, removed, where
+    /// its removal changes the region a reader computes.
+    ///
+    /// §7.7.3.3's Table 31 makes `/MediaBox` required and the crop, bleed, trim and art boxes
+    /// optional, and §14.11.2.1 gives each optional one a default that is another box in the
+    /// same file — the crop box's "default value is the page's media box", the other three's
+    /// "the page's crop box". So removing an out-of-range entry is the page saying itself the
+    /// way Table 31 admits rather than an edit to what it says, and `doc/adr/1210`'s predicate
+    /// decides whether it is free: §14.11.2.1 requires that
+    ///
+    /// > If the bounds of the crop, trim, bleed or art box extends outside of the bounds of the
+    /// > media box, a processor shall treat the box as its intersection with the media box.
+    ///
+    /// Where that intersection is what the default would give, no reader computes anything
+    /// different and the removal is mechanical rather than this loss. **This is the other
+    /// case**: a box too *small* to meet the limit, or an over-sized one a narrower crop box
+    /// stands behind, where a reader would clip, trim or place the page's content differently
+    /// afterwards.
+    ///
+    /// **No mark moves and no content is deleted.** What changes is the region a production
+    /// process is told to clip or trim to, which is what the boxes are for; the report names
+    /// every entry that went, the page it was on, and the rectangle a reader computed before
+    /// and after. A failing **media box** is not this loss and never reaches it: it is the one
+    /// boundary Table 31 requires, so there is nothing to fall back to and the requirement
+    /// stays refused by name.
+    PageBoundary,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
@@ -178,6 +204,7 @@ impl Loss {
         Self::ForbiddenAnnotation,
         Self::InteractiveBehaviour,
         Self::Encryption,
+        Self::PageBoundary,
     ];
 
     /// The word a caller authorises it by.
@@ -192,6 +219,7 @@ impl Loss {
             Self::ForbiddenAnnotation => "forbidden-annotation",
             Self::InteractiveBehaviour => "interactive-behaviour",
             Self::Encryption => "encryption",
+            Self::PageBoundary => "page-boundary",
         }
     }
 
@@ -237,6 +265,15 @@ impl Loss {
                  fields. The actions ISO 32000-2 \u{a7}12.6.2's Next entry performed after a \
                  removed one are kept and take its place; no mark on any page moves, and the \
                  report names every action that went"
+            }
+            Self::PageBoundary => {
+                "an out-of-range crop, bleed, trim or art box entry is removed from the page, \
+                 and ISO 32000-2 \u{a7}14.11.2.1's default for it \u{2014} the media box for a \
+                 crop box, the crop box for the other three \u{2014} names a different region \
+                 from the one that entry named. No mark moves and nothing is deleted; what \
+                 changes is the region a reader clips to or a production process trims to. The \
+                 report names every entry that went, the page it was on, and the rectangle a \
+                 conforming reader computed before and after"
             }
             Self::Encryption => {
                 "the document's encryption is not carried into the output, so the archived copy \
@@ -286,6 +323,8 @@ pub struct Authorisations {
     pub interactive_behaviour: bool,
     /// Whether [`Loss::Encryption`] was authorised.
     pub encryption: bool,
+    /// Whether [`Loss::PageBoundary`] was authorised.
+    pub page_boundary: bool,
 }
 
 impl Authorisations {
@@ -301,6 +340,7 @@ impl Authorisations {
             Loss::ForbiddenAnnotation => self.forbidden_annotation,
             Loss::InteractiveBehaviour => self.interactive_behaviour,
             Loss::Encryption => self.encryption,
+            Loss::PageBoundary => self.page_boundary,
         }
     }
 
@@ -315,6 +355,7 @@ impl Authorisations {
             Loss::ForbiddenAnnotation => self.forbidden_annotation = true,
             Loss::InteractiveBehaviour => self.interactive_behaviour = true,
             Loss::Encryption => self.encryption = true,
+            Loss::PageBoundary => self.page_boundary = true,
         }
     }
 }
@@ -1285,6 +1326,18 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "fonts/non-symbolic-truetype-uses-a-standard-encoding",
         answer: Answer::Mechanical(Rewrite::StandardTrueTypeEncoding),
     },
+    // ISO 19005-2 section 6.1.13's last limit: every page boundary between 3 and 14 400 units.
+    // Nine of that subclause's ten limits are `IMPLEMENTATION_LIMITS` refusals and this one is
+    // not, because §7.7.3.3's Table 31 makes four of §14.11.2's five boxes **optional** and
+    // §14.11.2.1 gives each optional one a default that is another box in the same file. So the
+    // removal is the page saying itself the way the table admits rather than an edit to what it
+    // says, and whether a reader computes anything different is the second question
+    // §14.11.2.1's intersection sentence answers per entry (`doc/adr/1210`). `answer_of` takes
+    // that per document, which is why the row is `Mechanical` and `CONDITIONAL` names it.
+    Remedy {
+        requirement: "implementation-limits/page-boundary-sizes",
+        answer: Answer::Mechanical(Rewrite::PageBoundaryRemoved),
+    },
     // ISO 19005-2 section 6.4.3, ISO 19005-4 section 6.5.1: the annotation rules, asked again of
     // a signature field's widget. Nothing of its own to do — the three rows it names are what
     // answer a widget as they answer any other annotation.
@@ -1293,6 +1346,83 @@ pub(super) const REMEDIES: &[Remedy] = &[
         answer: Answer::AsUnderlying(ANNOTATION_RULES),
     },
 ];
+
+/// What a [`REMEDIES`] row's own answer does not settle by itself.
+///
+/// `doc/adr/1209`. Most rows are decided by the table: a `Mechanical` row is mechanical for every
+/// document that fails the requirement, and a `Loses` row always costs the same thing. Two rows
+/// are not, and both were invisible to the enumeration because of it — [`super::census::standing`]
+/// read them as ordinary `Mechanical` rows and [`super::config::sites`] lists only the sites a
+/// configuration has something to say about, so a site whose answer an operator still has to
+/// supply something for had dropped off the listing while documents went on being refused at it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Conditional {
+    /// The rewrite is mechanical, and only over bytes the **caller** hands in.
+    ///
+    /// `doc/adr/1199`: a stream whose `/F` puts its data on somebody else's disk can be brought
+    /// inside the file without changing anything a reader computes — but only once somebody has
+    /// fetched it, which this program does not do and will not acquire.
+    CallerSuppliesTheBytes,
+    /// The rewrite is mechanical for some documents and costs [`Loss`] for others, and which is
+    /// a property of the file rather than of the requirement.
+    ///
+    /// `doc/adr/1210`: removing an out-of-range optional page boundary moves no mark where
+    /// §14.11.2.1 has already made the entry its intersection with the media box, and changes
+    /// what a reader shows where it has not.
+    PerDocument(Loss),
+}
+
+impl Conditional {
+    /// What the answer waits on, in one clause for the enumeration a person reads.
+    #[must_use]
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::CallerSuppliesTheBytes => {
+                "mechanical, and only over bytes the caller resolved: the data is outside the \
+                 file and nothing in the document supplies it"
+            }
+            Self::PerDocument(_) => {
+                "mechanical for some documents and an authorised loss for others, decided per \
+                 file against the clause rather than by the decision table"
+            }
+        }
+    }
+
+    /// The loss this answer costs where the document makes it one.
+    #[must_use]
+    pub const fn loss(self) -> Option<Loss> {
+        match self {
+            Self::CallerSuppliesTheBytes => None,
+            Self::PerDocument(loss) => Some(loss),
+        }
+    }
+}
+
+/// The rows of [`REMEDIES`] whose answer the table alone does not settle.
+///
+/// Read by [`super::census::standing`], so that a site whose `Mechanical` answer is conditional
+/// stays enumerable in `--remedy-sites` and countable in the census; and by
+/// `super::config`'s loss table, so that a `discard` at a site whose condition is a per-document
+/// loss authorises that loss exactly as a `discard` at an ordinary `Loses` row does.
+pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
+    (
+        "file-structure/no-external-stream-data",
+        Conditional::CallerSuppliesTheBytes,
+    ),
+    (
+        "implementation-limits/page-boundary-sizes",
+        Conditional::PerDocument(Loss::PageBoundary),
+    ),
+];
+
+/// What a row's answer waits on, for the two rows that wait on anything.
+#[must_use]
+pub fn conditional(requirement: &str) -> Option<Conditional> {
+    CONDITIONAL
+        .iter()
+        .find(|(id, _)| *id == requirement)
+        .map(|(_, held)| *held)
+}
 
 /// The three rows ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask again of a
 /// signature field's widget.
@@ -1370,6 +1500,155 @@ pub(super) const IDENTIFICATION_CLAIM: &[&str] = &[
     "metadata/identification-declares-flavour-e",
     "metadata/identification-declares-flavour-f",
 ];
+
+/// One half of a requirement that splits into two, with the answer this converter has for it.
+///
+/// `doc/rfc/0007` section 5b.2 and `doc/pdf-a-mitigations.md` section 14's first finding: seven
+/// requirements fail for two different reasons under one identifier, and the two reasons take
+/// different answers. A configuration that could only key on the identifier would take an operator
+/// who answered the safe half to have answered the dangerous one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Shape {
+    /// The word a `[site."…".shape."<name>"]` header states.
+    pub(super) name: &'static str,
+    /// Whether [`REMEDIES`] answers this half. The other half keeps the refusal its requirement
+    /// carries, which is what makes a row for it inert rather than a promise.
+    pub(super) answered: bool,
+}
+
+/// The requirements that split into two shapes, and which half this converter answers.
+///
+/// **Read beside [`REMEDIES`], because that is what decides each row's `answered`.** A requirement
+/// here is one whose `REMEDIES` entry — or whose absence from it — is true of one half only:
+/// `graphics/content-streams-have-an-explicit-resources-dictionary` has a `Mechanical` answer for a
+/// page's inherited dictionary (§7.7.3.4 resolves it already, so copying it down changes nothing a
+/// reader sees) and none for a form `XObject`'s, whose names are resolved by whatever invoked
+/// it.
+///
+/// `/CIDToGIDMap` is the finding's seventh distinction and is deliberately absent: it differs by
+/// *base edition*, which is a property of the target, so `doc/rfc/0007` section 4.6's target
+/// qualifier already states it and a second spelling would let one row disagree with the other.
+///
+/// ADR 1211 is the argument, and what `answered` decides is in `config::applies_to`.
+pub(super) const SHAPES: &[(&str, &[Shape])] = &[
+    // ISO 19005-2 section 6.2.10, ISO 19005-4 section 6.2.9. §11.6.3's Table 136 entry has a
+    // reader take the first mode of an array that it recognises, or `Normal` if it recognises
+    // none — so an array reduces to a name every reader already used. A bare name the standard
+    // does not define states a compositing function nothing defines, and writing one in its
+    // place chooses how the marks under it are composited.
+    (
+        "graphics/graphics-state-blend-modes-are-defined",
+        &[
+            Shape {
+                name: "array",
+                answered: true,
+            },
+            Shape {
+                name: "name",
+                answered: false,
+            },
+        ],
+    ),
+    (
+        "graphics/annotation-blend-modes-are-defined",
+        &[
+            Shape {
+                name: "array",
+                answered: true,
+            },
+            Shape {
+                name: "name",
+                answered: false,
+            },
+        ],
+    ),
+    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2.
+    (
+        "graphics/content-streams-have-an-explicit-resources-dictionary",
+        &[
+            Shape {
+                name: "page",
+                answered: true,
+            },
+            Shape {
+                name: "form-xobject",
+                answered: false,
+            },
+        ],
+    ),
+    // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3. §12.5.2's Table 166 makes `/AS` what
+    // selects the applicable stream, so an appearance subdictionary with one collapses to the
+    // stream the file was saved showing; with none, nothing in the file says which state the
+    // producer meant.
+    (
+        "annotations/normal-appearance-shape",
+        &[
+            Shape {
+                name: "appearance-state",
+                answered: true,
+            },
+            Shape {
+                name: "no-appearance-state",
+                answered: false,
+            },
+        ],
+    ),
+    // ISO 19005-2 section 6.1.10, ISO 19005-4 section 6.1.9. Both halves keep the refusal
+    // `REFUSED_BY_NAME` states for them — the `/F` entry is inside the producer's content stream —
+    // and the split is what a departure narrows on, not what a remedy selects.
+    (
+        "file-structure/inline-image-filters",
+        &[
+            Shape {
+                name: "LZWDecode",
+                answered: false,
+            },
+            Shape {
+                name: "Crypt",
+                answered: false,
+            },
+        ],
+    ),
+    // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2. The two halves fail for different
+    // reasons: §7.8.2's `BX`/`EX` pair brackets "a compatibility section, a portion of a content
+    // stream within which unrecognised operators shall be ignored without error", so an operator
+    // inside one is already ignored by every reader; outside one, §7.8.2 has an error occur.
+    (
+        "graphics/only-operators-the-base-standard-defines",
+        &[
+            Shape {
+                name: "compatibility-section",
+                answered: false,
+            },
+            Shape {
+                name: "plain",
+                answered: false,
+            },
+        ],
+    ),
+    // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
+    (
+        "forms/no-xfa-key",
+        &[
+            Shape {
+                name: "static",
+                answered: false,
+            },
+            Shape {
+                name: "dynamic",
+                answered: false,
+            },
+        ],
+    ),
+];
+
+/// The shapes a requirement splits into, or nothing where it does not split.
+pub(super) fn shapes(requirement: &str) -> &'static [Shape] {
+    SHAPES
+        .iter()
+        .find(|(id, _)| *id == requirement)
+        .map_or(&[], |(_, shapes)| *shapes)
+}
 
 /// Every requirement identifier this converter answers, from both tables.
 ///
@@ -1520,10 +1799,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     ),
     (
         "implementation-limits/name-lengths",
-        Because::NotThisTarget(IMPLEMENTATION_LIMITS),
-    ),
-    (
-        "implementation-limits/page-boundary-sizes",
         Because::NotThisTarget(IMPLEMENTATION_LIMITS),
     ),
     (
@@ -2502,6 +2777,24 @@ const fn constraint(decision: Decision) -> u8 {
 /// One row's answer, once the caller's authorisations and the document's preparations are known.
 fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) -> Decision {
     match answer {
+        // ISO 19005-2 section 6.1.13's page-boundary limit, whose answer the table cannot take:
+        // §14.11.2.1 has already made an over-sized box its intersection with the media box, so
+        // where that intersection is what the entry's own default would give, removing the entry
+        // changes nothing a reader computes — and where it is not, a reader clips or trims a
+        // different region and the caller has to authorise that. Which of the two it is is a
+        // fact about the file, so the preparation decides it and this routes on the answer
+        // (`doc/adr/1210`).
+        Answer::Mechanical(Rewrite::PageBoundaryRemoved) => match &prepared.boundaries {
+            Err(because) => Decision::Refused(*because),
+            Ok(removals) if removals.costs_nothing() => {
+                Decision::Mechanical(Rewrite::PageBoundaryRemoved)
+            }
+            Ok(_) => answer_of(
+                Answer::Loses(Loss::PageBoundary, Rewrite::PageBoundaryRemoved),
+                authorised,
+                prepared,
+            ),
+        },
         // A rewrite is an answer only where the document can take it, and the reason it cannot
         // is the reason the requirement is refused with — never this converter's own paraphrase
         // of it. `Prepared::obstacle` is where that question is asked, once.

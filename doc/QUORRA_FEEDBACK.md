@@ -5413,3 +5413,40 @@ page this side and yours agreed on to 0.076 of 255 as recently as the four-hundr
 session, and it is off the cross-backend comparison until the mode exists.
 `crates/render-raster/tests/overprint_refusal.rs` holds the refusal against a scene built by hand,
 so it moves the day the vocabulary does.
+
+## 50. §11.4.6's own backdrop: the one value a `GroupSpec` would need is a backdrop *saved*, not the one under the brush
+
+This is a record of what the refusal costs and what would lift it, not a request — the population
+on the corpora this side tracks is zero, and the section exists so that the next person to read
+`refuse_untranslatable_group` finds the arithmetic rather than the sentence.
+
+`render-raster` refuses `Command::Group` with `isolated: false` beside `knockout: true` by name,
+and the frame falls to the CPU backend. ISO 32000-2 §11.4.6 is why. A knockout group composites
+each element with the group's **initial** backdrop rather than with the elements before it, and for
+a non-isolated one that initial backdrop is the group's own; the clause's two stages, with `B` the
+initial backdrop, `Pᵢ` the accumulation and `fᵢ` the element's shape, are
+
+```text
+Pᵢ = (1 − fᵢ) × Pᵢ₋₁ + fᵢ × Eᵢ(B)
+```
+
+where `Eᵢ(B)` is element `i` composited onto `B`. The isolated case is the same line with `B`
+transparent, which makes `Eᵢ(B)` the element itself — and that is exactly what your
+`Compose::DestOut` plus `Compose::Plus` pair draws today (your ADRs 0025, 0032). What the
+non-isolated case adds is that `B` must still be available at element `i`, while the buffer under
+the brush holds `Pᵢ₋₁`. No reordering recovers it: expanding the recurrence top down gives
+`Pₙ = Σᵢ fᵢ · Πⱼ₌ᵢ₊₁..ₙ (1 − fⱼ) · Eᵢ(B) + Πⱼ (1 − fⱼ) · B`, and every term still needs `B` beside
+the accumulation.
+
+So the lift is one value and not an operator: a group that can be **seeded from a saved copy of
+its own initial backdrop** — the pixels under it when the group opened — so that a nested group of
+one element can be opened against `B` at any point in the group's run rather than against whatever
+the accumulation has become. Everything else is already in the vocabulary: the per-element pair is
+the `DestOut`/`Plus` you have, and the shape half arrives stated because `pdf-model` emits every
+element of such a group as a `Command::Shaped`.
+
+**What it buys, counted rather than guessed.** `crates/pdf-model/examples/group_shape_census` over
+`doc/pdf.js`'s 963 opened first pages and `doc/corpora`'s 487 finds **zero** knockout groups on a
+group's own backdrop. The construction exists on the CPU oracle for correctness rather than for a
+page, and `crates/render-raster/tests/headless_quorra.rs::quorra_refuses_a_knockout_group_on_its_own_backdrop`
+holds the refusal so that it moves the day the vocabulary does.

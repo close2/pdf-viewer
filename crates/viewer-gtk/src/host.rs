@@ -1106,7 +1106,9 @@ impl Host {
             // §7.6.4.2's bit 3 granted. The dialogue is opened *after* the grant and from outside
             // this borrow, because `GtkPrintOperation::run` turns the main loop and every
             // callback it raises comes back through `with` (ADR 1180).
-            Event::Printing { pages, .. } => self.open_the_print_dialogue(pages),
+            Event::Printing {
+                pages, fidelity, ..
+            } => self.open_the_print_dialogue(pages, fidelity),
             Event::Copied {
                 logical,
                 page_order,
@@ -2450,7 +2452,7 @@ impl Host {
     /// context. Nothing is composed here — no page number, no header, no watermark — because
     /// `CLAUDE.md`'s authoring exclusion puts marks this program invented on the far side of the
     /// line.
-    fn open_the_print_dialogue(&mut self, pages: usize) {
+    fn open_the_print_dialogue(&mut self, pages: usize, fidelity: viewer_core::Fidelity) {
         let Ok(pages) = i32::try_from(pages) else {
             self.say("this document has more pages than a print job can name");
             self.dispatch(Command::Print(Printing::Finish));
@@ -2467,6 +2469,12 @@ impl Host {
         if let Some(note) = defaults.enforcement_note() {
             self.say(note);
         }
+        // §7.6.4.2's Table 22 bit 12, said before the dialogue rather than after a destination
+        // was chosen: a person about to pick *Print to File* is told the file is the thing this
+        // document withholds, and the refusal below is what enforces it (ADR 1203).
+        if let Some(note) = viewer_host::printing::destination_refused(fidelity) {
+            self.say(note);
+        }
         let window = self.ui.window.clone();
         let me = self.me();
         glib::idle_add_local_once(move || {
@@ -2478,18 +2486,32 @@ impl Host {
             operation.set_unit(gtk4::Unit::Points);
             operation.set_embed_page_setup(true);
             let begin = me.clone();
-            operation.connect_begin_print(move |_, context| {
+            operation.connect_begin_print(move |operation, context| {
+                // Table 22 bit 12's other half, and the one a resolution cannot answer: a job
+                // written to a file is a document a faithful copy could be generated from
+                // whatever it was drawn at. `output-uri` is what GTK's file backend puts in the
+                // settings, so a destination that names one is the destination the bit withholds
+                // — refused by name, with the job stopped before a page is drawn (ADR 1203).
+                if writes_a_file(operation)
+                    && let Some(note) = refused(fidelity)
+                {
+                    with(&begin, |host| host.say(note));
+                    operation.cancel();
+                    return;
+                }
                 // The paper the person actually chose, which is the one §12.5.6.22 places a
                 // watermark against. It reaches the core before a page is drawn, and it asks
                 // nothing: bit 3 was answered before this dialogue existed.
-                let sheet = sheet_of_context(context);
+                let sheet = sheet_of_context(context, fidelity);
                 with(&begin, |host| {
                     host.dispatch(Command::Print(Printing::Paper(sheet)));
                 });
             });
             let draw = me.clone();
             operation.connect_draw_page(move |_, context, page| {
-                with(&draw, |host| host.paint_a_printed_page(context, page));
+                with(&draw, |host| {
+                    host.paint_a_printed_page(context, page, fidelity);
+                });
             });
             let finish = me.clone();
             // §8.11.4.5: the `Print` event's changes "persist only for the duration of the print
@@ -2516,7 +2538,12 @@ impl Host {
     ///
     /// Everything the page could not draw is said in the status bar rather than swallowed, which
     /// is trap 5 applied to a page nobody is looking at while it prints.
-    fn paint_a_printed_page(&mut self, context: &gtk4::PrintContext, page: i32) {
+    fn paint_a_printed_page(
+        &mut self,
+        context: &gtk4::PrintContext,
+        page: i32,
+        fidelity: viewer_core::Fidelity,
+    ) {
         let Ok(index) = usize::try_from(page) else {
             return;
         };
@@ -2544,7 +2571,7 @@ impl Host {
             }
         };
         let cairo = context.cairo_context();
-        let scale = f64::from(sheet_of_context(context).scale);
+        let scale = f64::from(sheet_of_context(context, fidelity).scale);
         if let Err(error) = paint_raster(&cairo, &raster, scale) {
             self.say(&format!(
                 "page {} did not print: {error}",
@@ -2856,17 +2883,49 @@ fn sheet_of(setup: &gtk4::PageSetup) -> viewer_core::Sheet {
 /// `viewer_host::printing::scale` clamps — so this is the one place the toolkit's numbers become
 /// the job's, and [`Host::paint_a_printed_page`] asks the same function of the same context so
 /// that the sheet and the raster cannot disagree about the resolution.
-fn sheet_of_context(context: &gtk4::PrintContext) -> viewer_core::Sheet {
+fn sheet_of_context(
+    context: &gtk4::PrintContext,
+    fidelity: viewer_core::Fidelity,
+) -> viewer_core::Sheet {
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a sheet's dimensions in points and a printer's resolution in dots per inch: \
                   hundreds each, which an f32 resolves exactly"
     )]
-    viewer_host::printing::sheet(
+    let (width, height, dpi) = (
         context.width() as f32,
         context.height() as f32,
-        Some(context.dpi_x() as f32),
-    )
+        context.dpi_x() as f32,
+    );
+    viewer_core::Sheet {
+        media: Some([0.0, 0.0, width.max(0.0), height.max(0.0)]),
+        // §7.6.4.2's Table 22 bit 12: a withheld one draws the job at this module's own floor.
+        scale: viewer_host::printing::scale_at(fidelity, Some(dpi)),
+        // This host places the page at the sheet's own corner and at its own size, which is
+        // §12.5.6.22's "usual case" and what `paint_raster` draws. GTK's dialogue owns its own
+        // page scaling, so a scale mode chosen there is the toolkit's and not one this program
+        // composed — and a placement this host did not make is not one it may claim (ADR 1204).
+        page_scale: 1.0,
+    }
+}
+
+/// Whether this operation's destination writes a document rather than marking paper.
+///
+/// GTK's file backend states `output-uri` in the print settings, which is the one fact that
+/// distinguishes *Print to File* from a printer without this host naming a backend or a printer
+/// by its label. A job with no settings at all is not a file.
+fn writes_a_file(operation: &gtk4::PrintOperation) -> bool {
+    operation.print_settings().is_some_and(|settings| {
+        settings.get(gtk4::PRINT_SETTINGS_OUTPUT_URI).is_some()
+            || settings
+                .get(gtk4::PRINT_SETTINGS_OUTPUT_FILE_FORMAT)
+                .is_some()
+    })
+}
+
+/// The sentence a refused destination is said with, shared with the other windows.
+fn refused(fidelity: viewer_core::Fidelity) -> Option<&'static str> {
+    viewer_host::printing::destination_refused(fidelity)
 }
 
 /// Paints one rasterised page into a print context's cairo surface.

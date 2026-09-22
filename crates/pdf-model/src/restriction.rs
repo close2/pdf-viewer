@@ -120,11 +120,14 @@ pub enum Bit {
     /// representation from which a faithful digital copy of the PDF content could be generated,
     /// based on an implementation-dependent algorithm. When this bit is clear (and bit 3 is
     /// set), printing shall be limited to a low-level representation of the appearance,
-    /// possibly of degraded quality." **Nothing consumes it**: the algorithm that decides what
-    /// "faithful" means is the implementation's, and this tree has not chosen one — a page
-    /// raster at any resolution is a "representation of the appearance", and whether a given
-    /// resolution is degraded enough is a question the clause hands to the processor. Stated
-    /// rather than guessed (trap 11).
+    /// possibly of degraded quality." Consumed by [`Operation::PrintFaithfully`].
+    ///
+    /// **The implementation-dependent algorithm the cell hands to a processor is chosen and
+    /// written down** (ADR 1203): a print job here is a page raster, so the two things that
+    /// decide whether a faithful digital copy could be generated from it are its resolution and
+    /// whether the job goes to a file at all. `viewer_host::printing` states both — the
+    /// resolution floor is the low-level representation, and a destination that writes a
+    /// document is refused by name.
     PrintFaithfully,
 }
 
@@ -143,9 +146,11 @@ impl Bit {
         }
     }
 
-    /// The operation this tree performs that the bit governs, or `None` for a bit nothing here
-    /// consumes — which is a statement rather than a gap; see [`Bit::Assemble`] and
-    /// [`Bit::PrintFaithfully`].
+    /// The operation this tree performs that the bit governs.
+    ///
+    /// `Option` rather than a plain [`Operation`] because a bit nothing here consumes is a
+    /// statement rather than a gap, and Table 22 may state one again: every position the table
+    /// names other than bit 10 — which "PDF readers shall ignore" — is consumed today.
     #[must_use]
     pub const fn consumed_by(self) -> Option<Operation> {
         match self {
@@ -155,7 +160,7 @@ impl Bit {
             Self::Annotate => Some(Operation::Annotate),
             Self::FillInForm => Some(Operation::FillInForm),
             Self::Assemble => Some(Operation::Assemble),
-            Self::PrintFaithfully => None,
+            Self::PrintFaithfully => Some(Operation::PrintFaithfully),
         }
     }
 
@@ -194,8 +199,8 @@ impl Bit {
 ///
 /// **What is missing and why**, because the absences are decisions rather than gaps:
 ///
-/// - **Assembling** (bit 11) and **faithful printing** (bit 12) name operations this program
-///   does not have; [`Bit::Assemble`] and [`Bit::PrintFaithfully`] say so.
+/// - **Bit 10** is the one position of Table 22 with no arm here, and the table says why: "PDF
+///   readers shall ignore this bit". [`Bit`] does not name it either.
 /// - **Copying from a window** is the host's rather than this crate's: what crosses is the
 ///   readback, and the same query answers a drag that merely *shows* a selection. Table 22 also
 ///   carves the bit itself — "for the limited purpose of providing this content to assistive
@@ -226,9 +231,29 @@ pub enum Operation {
     ///
     /// Table 22 bit 3, "Print the document". A choice: a page raster is what a print driver
     /// produces, and it is the nearest of the bits; it is written down as a choice because the
-    /// clause does not mention rasterisation. Bit 12's quality distinction is not read, for the
-    /// reason [`Bit::PrintFaithfully`] gives.
+    /// clause does not mention rasterisation.
     Print,
+    /// Printing at a quality a copy of the document could be rebuilt from.
+    ///
+    /// §7.6.4.2, Table 22 bit 12:
+    ///
+    /// > ( Security handlers of revision 3 or greater ) Print the document to a representation
+    /// > from which a faithful digital copy of the PDF content could be generated, based on an
+    /// > implementation- dependent algorithm. When this bit is clear (and bit 3 is set), printing
+    /// > shall be limited to a low- level representation of the appearance, possibly of degraded
+    /// > quality.
+    ///
+    /// **A second operation rather than a second answer to [`Self::Print`]**, because the cell
+    /// states two different consequences: bit 3 clear withholds printing, and bit 12 clear
+    /// withholds *fidelity* while printing goes ahead. A reader's level therefore attaches to
+    /// each separately — a person may want to be asked before a document is printed at all and
+    /// never asked about its quality, or the reverse — and `CLAUDE.md`'s four levels are stated
+    /// per operation for exactly that. ADR 1203.
+    ///
+    /// The implementation-dependent algorithm the cell names is
+    /// `viewer_host::printing::Fidelity`'s: the resolution floor, and a destination that writes
+    /// a document rather than marking paper.
+    PrintFaithfully,
     /// Taking images or embedded files out of the document as files — `pdf_transform`'s
     /// `images` and `attachments --save`.
     ///
@@ -285,6 +310,9 @@ impl Operation {
             Self::FillInForm => "filling in a form field",
             Self::Annotate => "adding an annotation",
             Self::Print => "rendering a page",
+            // Table 22 bit 12's own subject, in a sentence a host can put after "this document
+            // does not permit": the fidelity rather than the printing.
+            Self::PrintFaithfully => "printing at full quality",
             Self::Extract => "extracting from the document",
             Self::Modify => "modifying the document",
             Self::Assemble => "assembling a document out of these pages",
@@ -314,7 +342,15 @@ impl Operation {
         Some(match self {
             Self::FillInForm if revision >= 3 => Bit::FillInForm,
             Self::FillInForm | Self::Annotate => Bit::Annotate,
-            Self::Print => Bit::Print,
+            // Bit 12 exists only "( Security handlers of revision 3 or greater )", and at
+            // revision 2 its position is inside the range Table 22 reserves and requires to be 1
+            // — the same construction bits 9 and 11 get. What it falls back to is the arm below,
+            // and that is the table's own reading rather than a convenience: the revision-2 cell
+            // for bit 3 is "Print the document" with no quality qualification at all, so a
+            // revision-2 document that permits printing has stated nothing about fidelity and a
+            // reader has nothing to withhold.
+            Self::PrintFaithfully if revision >= 3 => Bit::PrintFaithfully,
+            Self::Print | Self::PrintFaithfully => Bit::Print,
             Self::Extract => Bit::Extract,
             Self::Assemble if revision >= 3 => Bit::Assemble,
             Self::Modify | Self::Assemble => Bit::Modify,
@@ -548,7 +584,11 @@ const LOCKED_CONTENTS: i64 = 1 << 9;
 /// that function.
 const fn certification_binds(operation: Operation) -> bool {
     match operation {
-        Operation::Print | Operation::Extract | Operation::Assemble | Operation::Process => false,
+        Operation::Print
+        | Operation::PrintFaithfully
+        | Operation::Extract
+        | Operation::Assemble
+        | Operation::Process => false,
         Operation::Modify | Operation::FillInForm | Operation::Annotate => true,
     }
 }
@@ -587,7 +627,11 @@ fn certification_permits(level: Modification, operation: Operation) -> bool {
     match operation {
         // And neither is *processing* one: §12.11.6 decides whether the document is opened at
         // all, which is not a change to it, so no level of Table 257 speaks to it.
-        Operation::Print | Operation::Extract | Operation::Assemble | Operation::Process => true,
+        Operation::Print
+        | Operation::PrintFaithfully
+        | Operation::Extract
+        | Operation::Assemble
+        | Operation::Process => true,
         Operation::Modify => matches!(level, Modification::Unknown(_)),
         Operation::FillInForm | Operation::Annotate => match level {
             Modification::None => false,
@@ -852,9 +896,9 @@ mod tests {
         }
     }
 
-    /// Every bit names its position as Table 22 numbers it, and the two nothing consumes say so.
+    /// Every bit names its position as Table 22 numbers it, and every one reaches an operation.
     #[test]
-    fn every_bit_has_its_position_and_two_have_no_consumer() {
+    fn every_bit_has_its_position_and_an_operation_that_consumes_it() {
         let all = [
             Bit::Print,
             Bit::Modify,
@@ -870,15 +914,63 @@ mod tests {
             "§7.6.4.2: the seven positions a reader shall not ignore"
         );
         for bit in all {
-            match bit.consumed_by() {
-                Some(operation) => assert_eq!(
-                    operation.bit(4),
-                    Some(bit),
-                    "{bit:?} says {operation:?} consumes it, and the operation agrees"
-                ),
-                None => assert!(matches!(bit, Bit::Assemble | Bit::PrintFaithfully)),
-            }
+            let operation = bit
+                .consumed_by()
+                .unwrap_or_else(|| panic!("{bit:?} is a position with no operation behind it"));
+            assert_eq!(
+                operation.bit(4),
+                Some(bit),
+                "{bit:?} says {operation:?} consumes it, and the operation agrees"
+            );
         }
+    }
+
+    /// Table 22's bit 12, and the revision that decides whether it exists at all.
+    ///
+    /// The cell is addressed to "( Security handlers of revision 3 or greater )", and at revision
+    /// 2 its position is inside the range the table reserves and requires to be 1 — so reading it
+    /// there would let every conforming revision-2 document withhold a fidelity it never spoke
+    /// about. What it falls back to is bit 3, whose revision-2 cell is "Print the document" with
+    /// no quality qualification at all.
+    ///
+    /// The pair with [`Operation::Print`] is what discriminates: a word that clears bit 3 and
+    /// sets bit 12 withholds printing and not its fidelity, and the other way round.
+    #[test]
+    fn bit_twelve_is_read_from_revision_three_and_falls_back_to_bit_three_below_it() {
+        let word = |print: bool, faithful: bool, revision: u8| {
+            let mut permissions = granted(revision);
+            permissions.print = print;
+            permissions.print_faithfully = faithful;
+            permissions
+        };
+        // Bit 3 set, bit 12 clear: printing is permitted and its fidelity is not, which is the
+        // one case the cell's second sentence is written for.
+        assert_eq!(withheld(word(true, false, 4), Operation::Print), None);
+        assert_eq!(
+            withheld(word(true, false, 4), Operation::PrintFaithfully),
+            Some(Restriction::AccessDenied {
+                bit: Bit::PrintFaithfully
+            })
+        );
+        // And the other way round, which a reader consulting one bit for both would fail.
+        assert_eq!(
+            withheld(word(false, true, 4), Operation::Print),
+            Some(Restriction::AccessDenied { bit: Bit::Print })
+        );
+        assert_eq!(
+            withheld(word(false, true, 4), Operation::PrintFaithfully),
+            None
+        );
+        // At revision 2 the position is reserved, so the fidelity is bit 3's answer whatever the
+        // word says about position 12.
+        assert_eq!(
+            withheld(word(true, false, 2), Operation::PrintFaithfully),
+            None
+        );
+        assert_eq!(
+            withheld(word(false, false, 2), Operation::PrintFaithfully),
+            Some(Restriction::AccessDenied { bit: Bit::Print })
+        );
     }
 
     /// An operation the certification cannot bind is one every level of Table 257 permits.
@@ -899,6 +991,7 @@ mod tests {
             Operation::Modify,
             Operation::Assemble,
             Operation::Process,
+            Operation::PrintFaithfully,
         ] {
             let permitted = [
                 Modification::None,

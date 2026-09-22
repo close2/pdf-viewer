@@ -162,8 +162,9 @@ never made one — and inventing a `ToUnicode` to reach -2u would be manufacturi
 evidence the level exists to require.
 
 - **The user's own workaround beats all of this**: supply the missing font with
-  `--font <name>=<file>` and the codes resolve against the real program, at which point every
-  level is reachable.
+  `--font <base-font>=<path>` and the codes resolve against the real program, at which point every
+  level is reachable. The flag is built (ADR 1209), repeatable, and passes over ISO 32000-2
+  §9.9.2's six-letter subset tag so that `/ABCDEF+Garamond` is named as `Garamond`.
 
 ### 2.2 Content that draws `.notdef`
 
@@ -195,8 +196,10 @@ one §2.1 makes.
     "preserve the absence, never fill it in" is doing all the work. It is allowed because an empty
     glyph preserves the absence. Anything that filled it would not be.
 - A `.notdef` on the page is usually the visible symptom of a missing font, so supplying the font
-  (`--font`) would fix both this and §2.1 — a supply this document describes and the command-line
-  program does not yet accept, which ADR 1200 section 4 records.
+  (`--font <base-font>=<path>`) fixes both this and §2.1. Built in ADR 1209, on ADR 1200 section
+  4's reading: what the flag states is that the named program may lawfully be embedded for
+  unlimited, universal rendering, which ISO 32000-2 §9.9.1 makes a fact about a licence that
+  neither the document nor this program can know.
 
 ### 2.3 Streams whose data is outside the file
 

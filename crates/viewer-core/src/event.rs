@@ -288,6 +288,15 @@ pub enum Event {
         /// The same number [`crate::Query::PageCount`] answers, sent because a print dialogue
         /// needs it at exactly this moment and §12.2's `/PrintPageRange` is stated against it.
         pages: usize,
+        /// What §7.6.4.2's Table 22 bit 12 leaves of the job.
+        ///
+        /// **Carried on the grant rather than asked for afterwards**, because the two facts are
+        /// decided together and a host that had to ask could open its dialogue on a destination
+        /// the document withholds. [`crate::Fidelity::Degraded`] arrives with an
+        /// [`Self::Refused`] naming
+        /// `pdf_model::restriction::Operation::PrintFaithfully` beside it — the printing is
+        /// granted and the fidelity is not, which is the pair Table 22 states. ADR 1203.
+        fidelity: crate::Fidelity,
     },
     /// §7.11.4's list of embedded files is not what [`crate::Query::Attachments`] last answered:
     /// a file was attached or detached, or an undo or a redo crossed such an edit. Ask again.

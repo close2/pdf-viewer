@@ -46,6 +46,12 @@
 //! it at all. It is a requirement on whoever writes the file; what a reader owes is to meet one
 //! that breaks it without losing the pairs around it, which
 //! `a_null_key_yields_nothing_and_leaves_its_neighbours_paired` is.
+//!
+//! **The writer's half is one function's signature**, and the two halves meet there:
+//! `pdf_model::attachment::filing::tree_root` is the only place this tree writes a §7.9.6
+//! `/Names` node, its keys are `Vec<u8>`, and every key that reaches it came out of this reader —
+//! which drops a null one. So a null key cannot cross a document this program writes, by
+//! construction rather than by a check (ADR 1211).
 
 use crate::object::{Dictionary, Object};
 

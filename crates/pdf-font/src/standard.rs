@@ -232,6 +232,116 @@ pub fn shipped_face(
     })
 }
 
+/// A font program an **operator** supplied, with the glyph each of the 256 codes selects in it.
+///
+/// **The other half of [`ShippedFace`]'s argument, and it turns on one sentence of ISO 32000-2
+/// §9.9.1:**
+///
+/// > One of the conditions may be that the font program cannot be embedded, in which case it
+/// > should not be incorporated into a PDF file.
+///
+/// Whether a particular program may be embedded is therefore a fact about a *licence*, and
+/// nothing in a PDF file states it. ISO 19005-2 section 6.2.11.4.1 admits only a program that
+/// may lawfully be embedded for unlimited universal rendering, so a converter that went looking
+/// for a face on the machine it happens to be running on would be asserting something only the
+/// operator can know — which is why this takes the bytes from a caller and finds nothing itself.
+///
+/// The code table is built exactly as [`shipped_face`]'s is, from the document's own
+/// `/Encoding` through §9.6.5's route, so a supplied face and a compiled-in one are addressed
+/// the same way and a converter needs one path rather than two.
+#[derive(Debug, Clone)]
+pub struct SuppliedFace {
+    /// The program's bytes, as the caller handed them over.
+    pub program: std::sync::Arc<[u8]>,
+    /// Which reader parses them, which §9.9's Table 124 turns into the `/FontFile` key a font
+    /// descriptor may carry them under.
+    pub format: Format,
+    /// What the document asked for, derived from the font dictionary alone.
+    pub request: Request,
+    /// The glyph each of the 256 codes selects in this face, by §9.6.5's own route.
+    glyphs: [Option<u16>; 256],
+}
+
+impl SuppliedFace {
+    /// The glyph a code selects in this face, where it selects one.
+    ///
+    /// `None` is a code the document's encoding names a glyph for that this face does not have,
+    /// or names nothing at all — the same answer [`ShippedFace::glyph`] gives and for the same
+    /// reason: §9.6.5.2 sends such a code to `.notdef`, and both parts' `.notdef` clause forbids
+    /// showing it.
+    #[must_use]
+    pub fn glyph(&self, code: u8) -> Option<u16> {
+        self.glyphs.get(usize::from(code)).copied().flatten()
+    }
+}
+
+/// The face an operator named for a font the document did not embed, and its code table.
+///
+/// `program` is the caller's bytes; which reader they belong to is read off the bytes
+/// themselves by [`program_format`], because a file name's extension is a convention rather
+/// than a declaration.
+///
+/// # Errors
+///
+/// [`crate::FontError::UnsupportedEncoding`] where the bytes are in neither of the two formats
+/// §9.9's Table 124 admits for a simple font, and otherwise the same three [`shipped_face`]
+/// answers: an `/Encoding` that cannot be read, a program that cannot be parsed, and a face that
+/// draws none of the codes the document declares.
+pub fn supplied_face(
+    document: &pdf_syntax::Document,
+    dict: &pdf_syntax::Dictionary,
+    name: &str,
+    program: std::sync::Arc<[u8]>,
+) -> Result<SuppliedFace, crate::FontError> {
+    let format = program_format(&program).ok_or_else(|| crate::FontError::UnsupportedEncoding {
+        name: name.to_owned(),
+        encoding: "a supplied font program in neither the sfnt nor the bare CFF format".to_owned(),
+    })?;
+    let descriptor = document.get_key(dict, "FontDescriptor").as_dict().cloned();
+    let request = Request::derive(document, dict, descriptor.as_ref());
+    let names = crate::substituted::substitute_encoding_names(document, dict, request, name)?;
+    let (glyphs, _) = crate::substituted::substitute_code_table(
+        document,
+        dict,
+        request,
+        names,
+        &program,
+        crate::program::Program::from(format),
+        name,
+    )?;
+    Ok(SuppliedFace {
+        program,
+        format,
+        request,
+        glyphs,
+    })
+}
+
+/// Which reader a supplied font program's bytes belong to, read off the bytes.
+///
+/// The two formats §9.9's Table 124 admits under a simple font dictionary, each identified by
+/// what its own specification puts at offset zero: an sfnt by the version tag ISO/IEC 14496-22
+/// gives it — `00 01 00 00` for a `glyf`-based one, `OTTO` for a CFF-based one, `true` for the
+/// Apple spelling and `ttcf` for a collection — and a bare CFF by Adobe Technical Note #5176's
+/// header, whose first two bytes are the major and minor version of the format.
+///
+/// A `ttcf` collection answers `None` rather than being passed to a reader that would take its
+/// first face. §9.9.1 requires an embedded CFF font file to consist of exactly one font, and a
+/// caller naming a collection has not said which of its faces a descriptor is to carry — which
+/// is the operator's to settle by naming a single face.
+#[must_use]
+pub fn program_format(program: &[u8]) -> Option<Format> {
+    match program.get(..4)? {
+        b"\x00\x01\x00\x00" | b"true" | b"OTTO" => Some(Format::Sfnt),
+        // Adobe Technical Note #5176: major 1, minor 0, then the header size and the offset
+        // size, both of which are at least one byte.
+        [1, 0, header, offsets] if *header >= 4 && (1..=4).contains(offsets) => {
+            Some(Format::BareCff)
+        }
+        _ => None,
+    }
+}
+
 /// A compiled-in face's own name, which a report names as the face that was used.
 ///
 /// The names are the files' own, recorded in `data/standard-fonts/PROVENANCE.md`: four Liberation

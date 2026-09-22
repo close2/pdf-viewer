@@ -933,3 +933,73 @@ fn a_names_dictionary_that_is_indirect_is_the_object_rewritten_and_the_catalog_i
         }
     }
 }
+
+/// A one-page document whose §7.7.4 `/EmbeddedFiles` tree states a null key between two real
+/// ones.
+///
+/// Built rather than found (trap 4's other half): Errata Collection 3's Issue #307 adds *Keys
+/// shall not be the null object.* to Table 36's `/Names` row, so a file that states one is by
+/// that erratum's own words a file that should not exist, and no corpus document has one.
+fn null_key_document() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names \
+                [(aa) 5 0 R null 5 0 R (ac) 5 0 R] >> >> >>\nendobj\n\
+                2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+                /Contents 4 0 R >>\nendobj\n\
+                4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+                5 0 obj\n<< /Type /Filespec /F (old.txt) /UF (old.txt) /EF << /F 6 0 R >> \
+                >>\nendobj\n\
+                6 0 obj\n<< /Length 3 >>\nstream\nold\nendstream\nendobj\n";
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// A null key in the source's `/EmbeddedFiles` tree does not reach the updated document's.
+///
+/// Errata Collection 3's Issue #307 adds *Keys shall not be the null object.* to Table 36's
+/// `/Names` row — a prohibition on whoever writes the file. This tree meets it by construction:
+/// `pdf_syntax::tree`'s reader drops a null key's pair, and `filing::tree_root`, the one place
+/// this tree writes a §7.9.6 node, takes its keys as bytes. What neither half asserts on its own
+/// is that a null cannot *cross* an attach, which is what this is (ADR 1211).
+#[test]
+fn a_sources_null_name_tree_key_does_not_cross_an_attach() {
+    let source = null_key_document();
+    let updated = attach(&source, b"new\n", "new.txt", None, None).expect("attached");
+    let document = Document::open(updated).expect("the update opens");
+
+    let catalog = document.catalog().expect("a catalog");
+    let names = document.get_key(&catalog, "Names");
+    let names = names.as_dict().expect("a name dictionary");
+    let node = document.get_key(names, "EmbeddedFiles");
+    let node = node.as_dict().expect("an /EmbeddedFiles tree");
+    let array = document.get_key(node, "Names");
+    let array = array.as_array().expect("a single-node tree states /Names");
+
+    let keys: Vec<&Object> = array.iter().step_by(2).collect();
+    assert!(
+        !keys.iter().any(|key| matches!(key, Object::Null)),
+        "no key of a written tree is the null object: {keys:?}"
+    );
+    assert_eq!(
+        tree_names(&document),
+        vec!["aa".to_owned(), "ac".to_owned(), "new.txt".to_owned()],
+        "the pairs either side of the null keep their own keys, the null keeps nothing, and the \
+         new file is filed in §7.9.6's order"
+    );
+}

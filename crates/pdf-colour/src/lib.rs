@@ -4,7 +4,8 @@
 //! §8.6 asks of every space: what device colour does a set of components become? It holds the
 //! CIE-based and device families ([`colour`]), the ICC profiles a document embeds ([`icc`]),
 //! the §7.10 functions those and shadings evaluate ([`function`]), the §8.7.4 shadings and their
-//! §8.7.4.5 mesh tessellation ([`shading`], [`mesh`]), and §10.5's transfer function
+//! §8.7.4.5 mesh tessellation ([`shading`], [`mesh`]), §10.4.2.4's black-generation and
+//! undercolour-removal functions ([`black_generation`]) and §10.5's transfer function
 //! ([`transfer`]).
 //!
 //! # Why a crate of its own
@@ -24,6 +25,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod black_generation;
 pub mod colour;
 pub mod function;
 pub mod icc;

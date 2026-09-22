@@ -219,8 +219,15 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // path, and seven entry points would be six chances to be handed a string from a different
     // reading of it. The `QUORRA_MEASURE_*` numbers join it as constants, which an old caller
     // never passes, so `QUORRA_ABI_VERSION` stays where it is (ADR 1191).
-    assert_eq!(no_mangle, 199, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 185, "183 `unsafe` entry points and two helpers");
+    // **And two more for printing**: `quorra_print_placed` states §12.5.6.22's matrix B — what
+    // the page is scaled by onto the media — which `quorra_print` cannot, because a changed
+    // signature is a call an old caller has already compiled and no diagnostic would catch;
+    // and `quorra_event_printing` is the grant's two facts, one of which is Table 22 bit 12's
+    // answer. A fourth `QUORRA_RESTRICTED_*` number joins them,
+    // `QUORRA_RESTRICTED_PRINT_QUALITY`, which an old caller never passes — so
+    // `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADRs 1203, 1204).
+    assert_eq!(no_mangle, 201, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 187, "185 `unsafe` entry points and two helpers");
 }
 
 #[test]

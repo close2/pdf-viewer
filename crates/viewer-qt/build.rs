@@ -67,8 +67,53 @@ fn want_the_initializer_before_the_archive_is_read() {
     );
 }
 
+/// Whether this machine has `QtPrintSupport`'s development files.
+///
+/// **The one Qt module this crate asks for conditionally, and the reason is that it is the one it
+/// can do without.** `QPrinter` and `QPrintDialog` are what RFC 0004 §5 wants of a Qt host, and a
+/// machine that has Qt 6 Widgets and not `QtPrintSupport` is a real configuration — the module ships
+/// in its own package on several distributions. Asking for it unconditionally would turn a window
+/// that cannot print into a crate that cannot build, which is a worse answer than a window whose
+/// print key shows what would print and says it has no printer.
+///
+/// `qmake6 -query QT_INSTALL_HEADERS` is how `cxx-qt-build` finds Qt itself, so a header under the
+/// directory it names is the same question asked the same way. The C++ asks it a second time, as
+/// `__has_include(<QtPrintSupport/QPrintDialog>)`, rather than being told the answer through a
+/// preprocessor definition: `cc_builder` is an `unsafe fn` in `cxx-qt-build` 0.9 and this crate's
+/// whole `unsafe` position is one hand-written token in `src/bridge.rs`. The two questions have
+/// one answer because they are the same question about the same directory. ADR 1203.
+fn has_print_support() -> bool {
+    let Ok(output) = std::process::Command::new("qmake6")
+        .args(["-query", "QT_INSTALL_HEADERS"])
+        .output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let headers = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    !headers.is_empty()
+        && std::path::Path::new(&headers)
+            .join("QtPrintSupport")
+            .join("QPrinter")
+            .exists()
+}
+
 fn main() {
-    cxx_qt_build::CxxQtBuilder::new()
+    println!("cargo::rustc-check-cfg=cfg(qt_print_support)");
+    let printing = has_print_support();
+    if printing {
+        println!("cargo::rustc-cfg=qt_print_support");
+    }
+    let mut builder = cxx_qt_build::CxxQtBuilder::new();
+    if printing {
+        // RFC 0004 §5's `QPrintDialog` and `QPrinter`, which `cxx-qt-lib` binds no type of — so
+        // they are named in `cpp/window.cpp` and nowhere else, and this is the module that
+        // resolves and links them.
+        builder = builder.qt_module("PrintSupport");
+    }
+    builder
         // Three modules, named one by one: `qt_module` adds an include directory per module and
         // does not follow Qt's own dependencies, so asking for Widgets alone finds `QWidget` and
         // not `QImage`. Qt Quick is deliberately absent — this is a widget host, and §12.7's
@@ -84,6 +129,8 @@ fn main() {
         .cpp_file("cpp/window.h")
         .cpp_file("cpp/window.cpp")
         .build();
+    println!("cargo::rerun-if-changed=cpp/window.cpp");
+    println!("cargo::rerun-if-changed=cpp/window.h");
 
     // After `build()`, so that this argument is the last word on the subject.
     want_the_initializer_before_the_archive_is_read();

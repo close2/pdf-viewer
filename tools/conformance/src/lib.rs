@@ -54,6 +54,7 @@ pub mod counts;
 pub mod departures;
 pub mod documents;
 pub mod entries;
+pub mod flags;
 pub mod inapplicable;
 pub mod ledger;
 pub mod overstated;

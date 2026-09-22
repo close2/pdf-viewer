@@ -36,6 +36,7 @@ pub mod annotation_state;
 pub mod appearance;
 pub mod article;
 pub mod attachment;
+pub(crate) use pdf_colour::black_generation;
 pub mod case;
 mod cloud;
 pub mod collection;

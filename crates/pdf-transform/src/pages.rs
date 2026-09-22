@@ -295,6 +295,9 @@ pub(crate) fn run(
         &[plan.source],
         Duplicates::Copy,
         &plan.names,
+        // `pages` edits one document's page list and states nothing about the document itself,
+        // so §14.3.3's entries are the source's and the engine writes none of its own.
+        &[],
         sinks,
         protect,
         report,

@@ -323,11 +323,13 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             authorised,
             profile: None,
             substitute_fonts: true,
+            supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
         }),
@@ -690,6 +692,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -829,6 +832,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -895,6 +899,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1733,11 +1738,13 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             authorised: Authorisations::default(),
             profile: Some(profile),
             substitute_fonts: true,
+            supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
         }),
@@ -2195,11 +2202,13 @@ fn convert_with_profile(
             authorised: Authorisations::default(),
             profile: Some(std::sync::Arc::clone(profile)),
             substitute_fonts: true,
+            supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
         }),
@@ -2339,13 +2348,19 @@ fn a_font_the_file_never_embedded_is_given_a_face_the_report_names() {
     );
     let font = substituted.first().expect("the one font");
     assert_eq!(
-        (font.requested.as_str(), font.face, font.route),
+        (
+            font.requested.as_str(),
+            font.face.as_str(),
+            font.authority,
+            font.route
+        ),
         (
             "LiberationSans",
             "Liberation Sans Regular",
+            pdf_transform::archive::FaceAuthority::Shipped,
             pdf_transform::archive::MetricRoute::FaceMetrics
         ),
-        "the face requested, the face used and which metric route was taken"
+        "the face requested, the face used, whose it was, and which metric route was taken"
     );
     assert!(
         conversion(&report)
@@ -2439,11 +2454,13 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             authorised: Authorisations::default(),
             profile: None,
             substitute_fonts: false,
+            supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
         }),
@@ -3316,6 +3333,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3895,6 +3913,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3934,6 +3953,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3971,6 +3991,7 @@ fn two_specifications_marked_best_stay_refused() {
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4001,6 +4022,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4280,6 +4302,7 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4378,6 +4401,7 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4739,11 +4763,13 @@ fn convert_with_departure(
             authorised: Authorisations::default(),
             profile: None,
             substitute_fonts: true,
+            supplied_fonts: std::collections::BTreeMap::new(),
             departures,
             claim_conformance: claim,
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            resolutions: Vec::new(),
             tool_outputs: ToolOutputs::new(),
             external_data: std::collections::BTreeMap::new(),
         }),
@@ -4976,11 +5002,13 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         authorised: Authorisations::default(),
         profile: None,
         substitute_fonts: true,
+        supplied_fonts: std::collections::BTreeMap::new(),
         departures: Vec::new(),
         claim_conformance: false,
         derivations: config.derivations(target),
         supplies: config.supplies(target),
         preservations: config.preservations(target),
+        resolutions: config.resolutions(target),
         tool_outputs: ToolOutputs::new(),
         external_data: std::collections::BTreeMap::new(),
     }
@@ -5509,6 +5537,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         forbidden_annotation: false,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -5994,6 +6023,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         forbidden_annotation: true,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6301,6 +6331,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         forbidden_annotation: true,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6324,6 +6355,7 @@ fn every_loss() -> Authorisations {
         forbidden_annotation: true,
         interactive_behaviour: false,
         encryption: false,
+        page_boundary: false,
     }
 }
 
@@ -6470,6 +6502,7 @@ fn behaviour_authorised() -> Authorisations {
     Authorisations {
         interactive_behaviour: true,
         encryption: false,
+        page_boundary: false,
         ..Authorisations::default()
     }
 }
@@ -6914,4 +6947,574 @@ fn the_tint_samples(document: &Document) -> Vec<Vec<u8>> {
         }
     }
     out
+}
+
+// ------------------------------------------------------------------------------------------
+// `--font`: a program the operator names, embedded where no shipped face covers the document.
+// ADR 1209.
+// ------------------------------------------------------------------------------------------
+
+/// Every glyph's origin in a page's display list, in the order the page draws them.
+///
+/// **What "no glyph moves" is measured on.** ISO 32000-2 §9.2.4 makes the font dictionary's own
+/// widths what positions each glyph — "enables a PDF processor to determine glyph positioning
+/// without having to look inside the font program" — so a conversion that changes which face
+/// draws a glyph while keeping the dictionary's numbers must leave every origin where it was.
+/// The outlines themselves differ, of course, because they are a different face's; what is
+/// asserted is the placement.
+fn glyph_origins(bytes: &[u8]) -> Vec<(i64, i64)> {
+    let document =
+        Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("the document opens");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(0).expect("the one page");
+    let mut out = Vec::new();
+    let interpreted = pdf_model::interpret(&document, &page);
+    collect_origins(interpreted.display_list.commands(), &mut out);
+    out
+}
+
+/// One display list's fill and stroke origins, in order, rounded to a thousandth of a unit.
+///
+/// Rounded because two runs place a glyph with the same matrix arrived at by the same arithmetic
+/// but not necessarily the same rounding; a thousandth of a text space unit is the tolerance ISO
+/// 19005-2 section 6.2.11.5 itself uses for two statements of one advance.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "test code: a glyph origin is a page coordinate in user-space units, which a \
+              thousandth of is nowhere near an i64's range; the rounding is the comparison's \
+              tolerance and the cast is what makes two runs comparable at all"
+)]
+fn collect_origins(commands: &[pdf_render::Command], out: &mut Vec<(i64, i64)>) {
+    for command in commands {
+        match command {
+            pdf_render::Command::Fill { transform, .. }
+            | pdf_render::Command::Stroke { transform, .. } => {
+                let placed = transform.apply(pdf_render::geom::Point::new(0.0, 0.0));
+                out.push((
+                    (f64::from(placed.x) * 1000.0).round() as i64,
+                    (f64::from(placed.y) * 1000.0).round() as i64,
+                ));
+            }
+            pdf_render::Command::Group { commands, .. } => collect_origins(commands, out),
+            pdf_render::Command::Shaped { object, .. } => {
+                collect_origins(std::slice::from_ref(object), out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A plan that embeds one named program for one `/BaseFont`.
+fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePlan {
+    let mut supplied = std::collections::BTreeMap::new();
+    supplied.insert(base_font.to_owned(), std::sync::Arc::from(program.to_vec()));
+    ArchivePlan {
+        source: 0,
+        names: "out.pdf".parse().expect("a pattern"),
+        target,
+        authorised: Authorisations::default(),
+        profile: None,
+        substitute_fonts: true,
+        supplied_fonts: supplied,
+        departures: Vec::new(),
+        claim_conformance: false,
+        derivations: Vec::new(),
+        supplies: Vec::new(),
+        preservations: Vec::new(),
+        resolutions: Vec::new(),
+        tool_outputs: ToolOutputs::new(),
+        external_data: std::collections::BTreeMap::new(),
+    }
+}
+
+#[test]
+fn a_program_the_operator_names_is_embedded_and_reported_as_theirs() {
+    // ISO 19005-2 section 6.2.11.4.1 admits only a font program that may lawfully be embedded
+    // for unlimited, universal rendering, and ISO 32000-2 §9.9.1 makes that a fact about a
+    // licence: "One of the conditions may be that the font program cannot be embedded, in which
+    // case it should not be incorporated into a PDF file." Nothing in a document states it, so
+    // naming the file is the operator's statement — and the report has to say so (ADR 1209).
+    //
+    // The width the fixture states is the face's own, which is section 4.9's *first* metric
+    // route: nothing inside the program is touched.
+    let source = a_font_stating("667", false);
+    let plan = a_supplied_font(Target::Two(Level::B), "LiberationSans", LIBERATION_SANS);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "what was written is held to the target again"
+    );
+    let substituted = &conversion(&report).substituted;
+    let font = substituted.first().expect("the one font");
+    assert_eq!(
+        (font.requested.as_str(), font.authority),
+        (
+            "LiberationSans",
+            pdf_transform::archive::FaceAuthority::Operator
+        ),
+        "the face is the operator's and the report says whose it is: {substituted:?}"
+    );
+    let supplied = &conversion(&report).supplied;
+    assert!(
+        supplied
+            .iter()
+            .any(|fact| fact.site == "fonts/font-programs-embedded"),
+        "doc/rfc/0007 section 5b.1: a supply is named beside the requirement it answered: \
+         {supplied:?}"
+    );
+    assert!(
+        conversion(&report)
+            .recorded
+            .as_ref()
+            .is_some_and(|recorded| recorded.contains("operator")),
+        "and the output's own xmpMM:History records whose authority the face was in"
+    );
+}
+
+#[test]
+fn a_supplied_program_keeps_every_advance_and_every_glyph_where_the_page_put_it() {
+    // The invariant ADR 1200 section 4 names and ADR 1209 builds: the program's advances are
+    // restated to the numbers the file already states, never the other way round.
+    // `doc/pdf-a-conversion-limits.md` section 4.9 calls restating `/Widths` **never**, because
+    // ISO 32000-2 §9.2.4 makes those numbers what positions every glyph on the line.
+    //
+    // The fixture states 600 where the face itself states 667, so this is section 4.9's *second*
+    // route — the program is rewritten — and it is the case where a mistake would move text.
+    let source = a_font_stating("600", false);
+    let plan = a_supplied_font(Target::Two(Level::B), "LiberationSans", LIBERATION_SANS);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the document converts");
+    assert_eq!(
+        stated_widths(&output),
+        stated_widths(&source),
+        "the dictionary's widths are the producer's, untouched — section 4.9's route 3 is never"
+    );
+    assert_eq!(
+        glyph_origins(&output),
+        glyph_origins(&source),
+        "and every glyph is drawn where the content stream put it"
+    );
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .expect("the one font");
+    assert_eq!(
+        font.route,
+        pdf_transform::archive::MetricRoute::RestatedProgram,
+        "the program was restated rather than the dictionary: {font:?}"
+    );
+}
+
+#[test]
+fn a_program_named_for_another_font_is_not_reached_and_the_shipped_face_answers() {
+    // **A supply is never a default** (`doc/questions/A55`'s rule, applied to this remedy): a
+    // `--font` naming a /BaseFont this document does not state changes nothing, and the font the
+    // document *does* state takes ISO 19005-2 section 6.2.11.4.1's shipped-face route exactly as
+    // it would have without the flag.
+    let source = a_font_stating("667", false);
+    let plan = a_supplied_font(Target::Two(Level::B), "Garamond", LIBERATION_SANS);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_some(), "the document converts");
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .expect("the one font");
+    assert_eq!(
+        font.authority,
+        pdf_transform::archive::FaceAuthority::Shipped,
+        "the face is the shipped one: {font:?}"
+    );
+    assert!(
+        conversion(&report).supplied.is_empty(),
+        "and nothing was supplied, so nothing is recorded as the operator's"
+    );
+}
+
+#[test]
+fn a_subset_tag_does_not_hide_the_font_an_operator_named() {
+    // §9.9.2: a subset's `/BaseFont` "shall begin with a tag followed by a plus sign (+) followed
+    // by the PostScript name of the font from which the subset was created", and the tag "shall
+    // consist of exactly six uppercase letters; the choice of letters is arbitrary". An operator
+    // cannot be expected to know which six this producer chose, so the name after the plus sign
+    // is what a `--font` matches on.
+    let source = a_font_stating("667", false)
+        .windows(1)
+        .map(|byte| byte[0])
+        .collect::<Vec<u8>>();
+    let tagged = String::from_utf8_lossy(&source)
+        .replace("/LiberationSans", "/ABCDEF+LiberationSans")
+        .into_bytes();
+    let plan = a_supplied_font(Target::Two(Level::B), "LiberationSans", LIBERATION_SANS);
+    let (report, _) = convert_with_plan(&tagged, &plan);
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .expect("the one font");
+    assert_eq!(
+        font.authority,
+        pdf_transform::archive::FaceAuthority::Operator,
+        "the tag is passed over and the operator's program is the one embedded: {font:?}"
+    );
+}
+
+// ------------------------------------------------------------------------------------------
+// `tool = "resolve-external"`: the bytes a URL-named stream points at, fetched by the
+// operator's own program. ADR 1209, into the seam ADR 1199 built.
+// ------------------------------------------------------------------------------------------
+
+/// A PDF/A-4 document whose one form `XObject` keeps its data at a URL.
+///
+/// §7.11.5 makes `/FS` `/URL` the one file system PDF defines, under which `/F` "is not a file
+/// specification string, but a uniform resource locator". Nothing in this program fetches one,
+/// which is why it is the case a declared tool answers.
+fn a_document_whose_stream_names_a_url(url: &str, metadata: Packet) -> Vec<u8> {
+    let outside = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> /F 7 0 R /Length 0",
+        b"",
+    );
+    Conforming {
+        resources: "/XObject << /Fm0 6 0 R >>".to_owned(),
+        objects: vec![
+            String::from_utf8(outside).expect("ascii"),
+            format!("<< /Type /Filespec /FS /URL /F ({url}) >>"),
+        ],
+        metadata,
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// A configuration answering the external-data site with a fetching tool.
+fn a_resolve_configuration(program: &str, args: &str) -> String {
+    format!(
+        "[site.\"file-structure/no-external-stream-data\"]\nremedy = \"preserve\"\n\
+         tool = \"fetch\"\non-failure = \"stop\"\n\n\
+         [tool.fetch]\nprogram = {program:?}\nargs = [{args}]\n\
+         expects = \"application/octet-stream\"\ntimeout = \"30s\"\noutput-limit = \"16MiB\"\n"
+    )
+}
+
+#[test]
+fn a_url_named_stream_asks_for_the_fetch_and_hands_the_program_the_specification() {
+    // **`doc/questions/A54`'s shape, at this site.** `apply` opens no path and no socket, so the
+    // first pass returns the invocation as data. What travels to the program is the file
+    // specification the *document* wrote — on standard input, because `doc/rfc/0007` section 4.1
+    // keeps everything document-derived out of `args`.
+    let source = a_document_whose_stream_names_a_url(
+        "http://example.invalid/logo.dat",
+        Packet::Identification,
+    );
+    let plan = plan_from(
+        &a_resolve_configuration("/bin/cat", ""),
+        Target::Four(Flavour::Plain),
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "nothing has been fetched yet");
+    assert_eq!(report.requested.len(), 1, "one stream, one invocation");
+    let request = &report.requested[0];
+    assert_eq!(request.site, "file-structure/no-external-stream-data");
+    assert_eq!(
+        String::from_utf8_lossy(&request.input),
+        "http://example.invalid/logo.dat",
+        "the specification the document wrote is what the program is handed"
+    );
+    assert!(
+        request.args.is_empty(),
+        "and nothing document-derived is in the argument vector: {:?}",
+        request.args
+    );
+}
+
+#[test]
+fn what_the_fetch_returned_is_written_into_the_stream_and_recorded_as_fetched() {
+    // The second pass, a pure function of what came back (RFC 0002 section 9). §7.3.8.2's Table 5
+    // is the whole rewrite: the external file's bytes where the stream's own were, and the keys
+    // that pointed off the file's edge gone.
+    // The catalog names no metadata stream, so ISO 19005-4 section 6.7.3's identification is
+    // being written anyway: the file's own xmpMM:History is written where the packet is, and a
+    // conversion that touches no packet has nowhere to record anything.
+    let source =
+        a_document_whose_stream_names_a_url("http://example.invalid/logo.dat", Packet::Unnamed);
+    let mut plan = plan_from(
+        &a_resolve_configuration("/bin/cat", ""),
+        Target::Four(Flavour::Plain),
+    );
+    let fetched = b"% what the locator pointed at\n";
+    plan.tool_outputs.insert(pdf_transform::tool::ToolResult {
+        id: "file-structure/no-external-stream-data/6/0".to_owned(),
+        outcome: pdf_transform::tool::ToolOutcome::Produced,
+        output: std::sync::Arc::from(fetched.to_vec()),
+        stderr: String::new(),
+        program: std::path::PathBuf::from("/bin/cat"),
+        digest: "0".repeat(64),
+    });
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the document converts once the bytes are in hand");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        written.contains("% what the locator pointed at"),
+        "the fetched bytes are inside the file"
+    );
+    assert!(!written.contains("/FS /URL"), "and the locator is gone");
+    let resolved = &conversion(&report).resolved;
+    assert_eq!(resolved.len(), 1, "one fetch, one row: {resolved:?}");
+    assert_eq!(resolved[0].names, "http://example.invalid/logo.dat");
+    assert!(
+        written.contains(pdf_transform::archive::FETCHED_BY_THE_OPERATORS_TOOL),
+        "and the output's own xmpMM:History says the data came from outside the document"
+    );
+}
+
+#[test]
+fn a_preserve_at_the_external_data_site_with_no_tool_is_an_error_naming_what_is_missing() {
+    // `doc/rfc/0007` section 3: a configuration whose remedy this converter cannot carry out is
+    // an error naming both rather than a line quietly ignored. There is nothing in the document
+    // to preserve the data *from*, so the tool is not optional here.
+    let text = "[site.\"file-structure/no-external-stream-data\"]\nremedy = \"preserve\"\n";
+    let error = pdf_transform::archive::Configuration::read(text, Target::Four(Flavour::Plain))
+        .expect_err("a preserve with no tool");
+    let said = error.to_string();
+    assert!(
+        said.contains("fetch") || said.contains("tool"),
+        "the error names what is missing: {said}"
+    );
+}
+
+#[test]
+fn the_external_data_site_stays_in_the_enumeration_although_its_answer_is_mechanical() {
+    // **The wrinkle `doc/adr/1199` recorded and `doc/adr/1209` closes.** `--remedy-sites` lists
+    // the sites a configuration has something to say about, and this one's answer is
+    // `Mechanical` — so it had dropped off the listing while URL-named streams went on being
+    // refused and `keep-everything.toml`'s answer for it went on being counted as not carried
+    // out. A `Mechanical` answer conditional on what a caller supplies is still a site.
+    let sites = pdf_transform::archive::sites(Target::Four(Flavour::Plain));
+    let site = sites
+        .iter()
+        .find(|site| site.requirement == "file-structure/no-external-stream-data")
+        .expect("the site is enumerable");
+    assert!(
+        site.takes_a_fetched_file,
+        "and the listing says a declared tool answers it"
+    );
+    assert_eq!(
+        site.conditional,
+        Some(pdf_transform::archive::Conditional::CallerSuppliesTheBytes),
+        "with what the built answer waits on said in the listing"
+    );
+}
+
+// ------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.1.13's page boundaries, answered by §14.11.2.1's own defaults.
+// ADR 1210.
+// ------------------------------------------------------------------------------------------
+
+/// One byte string replaced by another of exactly the same length.
+///
+/// Equal length because a fixture's cross-reference offsets are taken when it is built: a
+/// substitution of a different length would leave every object after it unreachable, and the test
+/// would then be about the damage rather than about the requirement.
+fn replacing(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    assert_eq!(from.len(), to.len(), "the offsets have to stay right");
+    let at = bytes
+        .windows(from.len())
+        .position(|window| window == from)
+        .expect("the fixture states it");
+    let mut out = bytes.to_vec();
+    let end = at
+        .checked_add(to.len())
+        .expect("the fixture fits in memory");
+    out[at..end].copy_from_slice(to);
+    out
+}
+
+/// A PDF/A-2b document whose page states the given boundary entries.
+///
+/// The fixture's own media box is `[0 0 200 200]`, which is inside section 6.1.13's range of 3 to
+/// 14 400, so the only failures are the ones a test writes into `boxes`.
+fn a_page_stating_boundaries(boxes: &str) -> Vec<u8> {
+    Conforming {
+        page: boxes.to_owned(),
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn an_over_sized_crop_box_the_media_box_already_clipped_is_removed_losing_nothing() {
+    // §14.11.2.1: "If the bounds of the crop, trim, bleed or art box extends outside of the
+    // bounds of the media box, a processor shall treat the box as its intersection with the
+    // media box." So a crop box of 14 402 units over a media box of 4 *is* the media box to
+    // every conforming reader — and §7.7.3.3's Table 31 makes the entry optional with
+    // §14.11.2.1's default "the page's media box". The two are the same rectangle, so the entry
+    // carried nothing a reader used (ADR 1210).
+    let source = a_page_stating_boundaries("/CropBox [0 0 14402 14402]");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert_eq!(
+        decision(&report, "implementation-limits/page-boundary-sizes"),
+        Decision::Mechanical(Rewrite::PageBoundaryRemoved),
+        "removing an entry a reader was already ignoring loses nothing"
+    );
+    let output = output.expect("the document converts");
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target again"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output).contains("CropBox"),
+        "the entry is gone and the default states the boundary"
+    );
+    let removed = &conversion(&report).removed_boundaries;
+    assert_eq!(removed.len(), 1, "one entry, one row: {removed:?}");
+    assert!(
+        removed[0].costs_nothing() && removed[0].removed,
+        "and the row says the rectangle did not move: {:?}",
+        removed[0]
+    );
+}
+
+#[test]
+fn a_crop_box_too_small_for_the_limit_moves_what_a_reader_shows_and_needs_authorising() {
+    // The other half of the predicate. A crop box of 2 units fails section 6.1.13's minimum of 3,
+    // and §14.11.2.1's default for an absent crop box is the *media* box — so removing the entry
+    // makes a reader show and clip to a different region. That is a loss, and the caller
+    // authorises it by name (ADR 1210).
+    let source = a_page_stating_boundaries("/CropBox [0 0 2 2]");
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert_eq!(
+        decision(&report, "implementation-limits/page-boundary-sizes"),
+        Decision::Unauthorised {
+            loss: Loss::PageBoundary,
+            rewrite: Rewrite::PageBoundaryRemoved
+        },
+        "a reader would clip to a different region, so nobody does it silently"
+    );
+    assert!(
+        output.is_none(),
+        "and no file is written until it is asked for"
+    );
+
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::PageBoundary);
+    let (report, output) = convert(&source, Target::Two(Level::B), authorised);
+    let output = output.expect("the document converts once the loss is authorised");
+    assert_eq!(
+        holds(&output, Target::Two(Level::B)).verdict(),
+        Verdict::Conforms
+    );
+    let removed = &conversion(&report).removed_boundaries;
+    assert!(
+        removed.iter().any(|row| !row.costs_nothing()),
+        "and the report names the rectangle that moved: {removed:?}"
+    );
+}
+
+#[test]
+fn a_media_box_outside_the_limit_keeps_the_catalogues_none() {
+    // §7.7.3.3's Table 31 makes `/MediaBox` **required** and §14.11.2.1 gives it no default, so
+    // there is nothing to fall back to: the routes are rescaling the page, which moves every
+    // mark on it, and tiling it, which composes pages nobody produced. Both are on the far side
+    // of ADR 0816's fence, and the catalogue's original *none* stands for this entry alone.
+    // The fixture's own `/MediaBox` is the one that has to fail, and a second entry appended
+    // after it would be a duplicate key rather than a replacement — so the value is substituted
+    // for one of exactly the same length, which leaves every cross-reference offset right.
+    let source = Conforming::part_two().build();
+    let source = replacing(
+        &source,
+        b"/MediaBox [0 0 200 200]",
+        b"/MediaBox [0 0 2 20000]",
+    );
+    let (report, output) = convert(&source, Target::Two(Level::B), Authorisations::default());
+    assert!(output.is_none(), "no file is written");
+    let Decision::Refused(because) = decision(&report, "implementation-limits/page-boundary-sizes")
+    else {
+        panic!("a failing media box is refused by name");
+    };
+    assert!(
+        because.sentence().contains("MediaBox"),
+        "and the refusal names the entry it could not remove: {because:?}"
+    );
+}
+
+#[test]
+fn one_command_fetches_what_a_locator_names_and_writes_it_into_the_stream() {
+    // **The two-pass shape end to end at this site.** `apply` opens no path and no socket; the
+    // program between the passes is started by `quorra-transform`'s own loop through the shared
+    // executor, and the bytes land in the plan exactly as `--resolve-external-data`'s do
+    // (`doc/adr/1199`, `doc/adr/1209`).
+    //
+    // The stand-in fetcher is a shell script this test writes, for `a_stand_in_converter`'s
+    // reason: nothing on the machine this suite runs on resolves a `file:` locator, and what is
+    // proved here is the seam rather than somebody's fetcher. It reads the specification on
+    // standard input — where §7.11.5's locator travels, because `doc/rfc/0007` section 4.1 keeps
+    // everything document-derived out of the argument vector — and writes the bytes back.
+    let scratch = Scratch::make("resolve-external");
+    let data = scratch.0.join("logo.dat");
+    std::fs::write(&data, b"% what the locator pointed at\n").expect("the file");
+    let script = scratch.0.join("fetch");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n# A stand-in fetcher: read the specification, write what it names.\n\
+             cat > \"$0.spec\"\ncat {:?}\n",
+            data.to_string_lossy()
+        ),
+    )
+    .expect("the script");
+    let source = scratch.0.join("in.pdf");
+    std::fs::write(
+        &source,
+        a_document_whose_stream_names_a_url("file:///logo.dat", Packet::Unnamed),
+    )
+    .expect("the source");
+    let config = scratch.0.join("remedies.toml");
+    std::fs::write(
+        &config,
+        a_resolve_configuration("/bin/sh", &format!("{:?}", script.to_string_lossy())),
+    )
+    .expect("the configuration");
+    let out = scratch.0.join("out.pdf");
+
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
+        .args([
+            "archive",
+            source.to_str().expect("utf-8"),
+            "--to",
+            "4",
+            "--config",
+            config.to_str().expect("utf-8"),
+            "-o",
+            out.to_str().expect("utf-8"),
+        ])
+        .output()
+        .expect("the program runs");
+    let said = String::from_utf8_lossy(&run.stderr).into_owned();
+    assert!(
+        run.status.success(),
+        "the conversion exited {:?}: {said}",
+        run.status.code()
+    );
+    let handed = std::fs::read_to_string(format!("{}.spec", script.display()))
+        .expect("the specification reached the program");
+    assert_eq!(
+        handed, "file:///logo.dat",
+        "the locator the document wrote is what the program was handed"
+    );
+    let written = std::fs::read(&out).expect("the file was written");
+    assert_eq!(
+        holds(&written, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms,
+        "and what was written is held to the target"
+    );
+    assert!(
+        String::from_utf8_lossy(&written).contains("% what the locator pointed at"),
+        "with the fetched bytes inside the file"
+    );
 }

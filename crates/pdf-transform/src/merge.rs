@@ -217,10 +217,12 @@
 //! nothing here reads a clock. RFC 0002 section 9's first layer, with no flag.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::attachment::filing;
 use pdf_model::page_label::PageLabels;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::{Assembly, AssemblyError, Form, Options};
@@ -229,6 +231,7 @@ use pdf_syntax::{Document, Version};
 use crate::pattern::{Fill, Pattern};
 use crate::range::Selection;
 use crate::structure::{CarriedPage, Carry, Host};
+use crate::update::InfoEntry;
 use crate::{Origin, Output, Protect, Refusal, Report, Sinks, Warning, structure};
 
 /// Several documents into one file.
@@ -238,6 +241,14 @@ pub struct MergePlan {
     pub inputs: Vec<Input>,
     /// Whether the inputs' pages interleave rather than concatenate — pdftk's `shuffle`.
     pub collate: bool,
+    /// §14.3.3's entries the merged document states, as the operator states them.
+    ///
+    /// **Empty is the default and stays the default**, which leaves the merged document with no
+    /// `/Info` at all: the sources' entries are claims about *their* documents, and deriving the
+    /// merged one's from them would be inventing a producer and a creation time (the module
+    /// comment, ADR 0821 section 9). `doc/questions/A55`'s rule — a derivation is never a
+    /// default — is the same rule one verb over, and ADR 1212 is where it was applied here.
+    pub information: Vec<InfoEntry>,
     /// How the one output is named.
     pub names: Pattern,
 }
@@ -861,6 +872,7 @@ pub(crate) fn run(
         sources,
         Duplicates::Refuse,
         &plan.names,
+        &plan.information,
         sinks,
         protect,
         report,
@@ -902,6 +914,7 @@ pub(crate) fn write(
     sources: &[usize],
     duplicates: Duplicates,
     names: &Pattern,
+    information: &[InfoEntry],
     sinks: &dyn Sinks,
     protect: Option<&Protect>,
     report: &mut Report,
@@ -927,6 +940,7 @@ pub(crate) fn write(
         documents,
         sources,
         duplicates,
+        information,
         protect,
         &mut warnings,
     )?;
@@ -1019,6 +1033,7 @@ fn assemble<'a>(
     documents: &'a [Document],
     sources: &[usize],
     duplicates: Duplicates,
+    information: &[InfoEntry],
     protect: Option<&Protect>,
     warnings: &mut Vec<Warning>,
 ) -> Result<Assembly<'a>, Refusal> {
@@ -1112,7 +1127,7 @@ fn assemble<'a>(
     splice_outline(&mut merge, &placed_tops, outlines)?;
 
     let reconciled = reconcile(&mut merge, &scope, outlines, intents, &reported, warnings)?;
-    let root = build_catalog(&mut merge, tree, &reconciled, &scope, warnings);
+    let mut root = build_catalog(&mut merge, tree, &reconciled, &scope, warnings);
     merge.drain();
     // The elements, the parent tree and the structure tree root, built last because the object
     // keys above are assigned by the walk that has just finished — and drained again, because
@@ -1130,15 +1145,154 @@ fn assemble<'a>(
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
 
+    // §14.3.3's entries are the caller's statement about the merged document, and §14.3.4's
+    // packet goes in beside them: both after the catalog is built, because the packet is an
+    // object of its own and the `/Metadata` entry naming it is the catalog's.
+    write_information(&mut merge.assembly, &mut root, information)?;
+
     merge
         .assembly
         .place(tree, page_tree(&pages))
-        .and_then(|()| merge.assembly.place(catalog, root))
+        .and_then(|()| merge.assembly.place(catalog, Object::Dictionary(root)))
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     merge.assembly.set_root(catalog);
 
     report_losses(&merge, &scope, protect, warnings);
     Ok(merge.assembly)
+}
+
+/// §14.3.3's entries the operator stated, written as the merged document's own.
+///
+/// **Nothing is derived from the sources**, which is the whole of why this is a statement rather
+/// than a reconciliation: the merged document was made by no source's producer at no source's
+/// creation time, so carrying one source's `/Info` would write a false claim (the module comment,
+/// ADR 0821 section 9). What a caller states is the caller's, and an empty list leaves the merged
+/// document stating no `/Info` at all — `doc/questions/A55`'s rule that a derivation is never a
+/// default, applied to metadata (ADR 1212).
+///
+/// **§14.3.4 is why the packet goes in beside it.** The clause's first rule binds a processor
+/// creating a new document, which a merge is: "[w]hen writing the time and date of creation for
+/// the first time, typically when a new document is created, a PDF processor shall ensure that
+/// the data in the document information dictionary and the document level metadata stream -if
+/// both are written -are fully equivalent", and its fourth says the same of the modification
+/// date. So where the stated entries carry a date, both sources are written and both say the same
+/// instant. The three keys the packet carries are the three whose Table 349 NOTE names a property
+/// of the XMP basic schema — `/CreationDate`, `/ModDate` and `/Creator`; the other six NOTEs name
+/// `dc:` and `pdf:` properties whose `rdf:Alt` and `rdf:Seq` shapes this packet writer does not
+/// write, and a NOTE is not a `shall`.
+///
+/// # Errors
+///
+/// [`Refusal::Pattern`] naming the entry, where a key is outside Table 349 or a value is not the
+/// type the table gives it; [`Refusal::Assembly`] where the file cannot number another object.
+fn write_information(
+    assembly: &mut Assembly<'_>,
+    root: &mut Dictionary,
+    entries: &[InfoEntry],
+) -> Result<(), Refusal> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+    for entry in entries {
+        crate::update::validate(entry)?;
+    }
+    let dict = crate::update::information_dictionary(Dictionary::new(), entries);
+    let info = assembly
+        .add(Object::Dictionary(dict))
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    assembly.set_info(Some(info));
+
+    let properties = xmp_properties(entries);
+    if properties.is_empty() {
+        return Ok(());
+    }
+    let packet = pdf_model::xmp::packet(&pdf_model::xmp::Schema {
+        namespace: XMP_BASIC,
+        prefix: "xmp",
+        properties: &properties,
+    });
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"Metadata"[..])),
+    );
+    dict.insert(
+        Name::new(&b"Subtype"[..]),
+        Object::Name(Name::new(&b"XML"[..])),
+    );
+    // Table 5's `/Length`, which §7.3.8.2 makes required; the serializer does not restate it.
+    let length = i64::try_from(packet.len()).map_err(|_| {
+        Refusal::Assembly("the metadata packet is longer than a PDF integer".to_owned())
+    })?;
+    dict.insert(Name::new(&b"Length"[..]), Object::Integer(length));
+    let metadata = assembly
+        .add(Object::Stream(Arc::new(Stream {
+            dict,
+            data: packet.into(),
+            decryption_failed: false,
+        })))
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    root.insert(Name::new(&b"Metadata"[..]), Object::Reference(metadata));
+    Ok(())
+}
+
+/// The XMP basic schema's namespace, which §14.3.2's own EXAMPLE spells.
+const XMP_BASIC: &str = "http://ns.adobe.com/xap/1.0/";
+
+/// Table 349's entries that have a counterpart in the XMP basic schema, as that schema states it.
+///
+/// Table 349's NOTE 5, NOTE 7 and NOTE 8 name the three: `xmp:CreatorTool` for `/Creator`,
+/// `xmp:CreateDate` for `/CreationDate` and `xmp:ModifyDate` for `/ModDate`. An entry the caller
+/// removes has no counterpart to write, and a date the caller states that §7.9.4 does not admit
+/// never reaches here — `update::validate` refused it first.
+fn xmp_properties(entries: &[InfoEntry]) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    for entry in entries {
+        let Some(value) = entry.value.as_deref() else {
+            continue;
+        };
+        match entry.key.as_str() {
+            "Creator" => out.push(("CreatorTool", value.to_owned())),
+            "CreationDate" => {
+                if let Some(date) = as_xmp_date(value) {
+                    out.push(("CreateDate", date));
+                }
+            }
+            "ModDate" => {
+                if let Some(date) = as_xmp_date(value) {
+                    out.push(("ModifyDate", date));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// §7.9.4's date spelled the way ISO 16684-1 spells one, so that §14.3.4's two sources agree.
+///
+/// "[F]ully equivalent" is about the instant, and the two texts spell an instant differently:
+/// §7.9.4's `D:YYYYMMDDHHmmSSOHH'mm` against ISO 8601's `YYYY-MM-DDThh:mm:ss` with an offset.
+/// Every field §7.9.4 leaves out has a default the clause itself states — the month and the day
+/// are 01 and the rest are zero — so the instant is complete either way; the one field with no
+/// default is the zone, where an absent `O HH'mm` is a producer saying nothing rather than saying
+/// UT, and nothing is what this writes.
+fn as_xmp_date(value: &str) -> Option<String> {
+    let date = pdf_syntax::date::Date::parse(value)?;
+    let mut out = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        date.year, date.month, date.day, date.hour, date.minute, date.second
+    );
+    if let Some(offset) = date.offset {
+        if offset == 0 {
+            out.push('Z');
+        } else {
+            let sign = if offset < 0 { '-' } else { '+' };
+            let minutes = offset.unsigned_abs();
+            let _ = write!(out, "{sign}{:02}:{:02}", minutes / 60, minutes % 60);
+        }
+    }
+    Some(out)
 }
 
 /// The output's one page-tree node: §7.7.3.2's `/Kids` in output order, and its `/Count`.
@@ -2683,14 +2837,14 @@ fn merge_name_trees(
     } else {
         let mut out = Dictionary::new();
         for (category, entries) in trees {
-            let mut array = Vec::new();
-            for (key, value) in entries {
-                array.push(Object::String(key.as_slice().into()));
-                array.push(value);
-            }
-            let mut root = Dictionary::new();
-            root.insert(Name::new(&b"Names"[..]), Object::Array(array));
-            out.insert(Name::new(category.as_bytes()), Object::Dictionary(root));
+            // §7.9.6's node is written in one place — `filing::tree_root` — so that Errata
+            // Collection 3's Issue #307, *Keys shall not be the null object.*, is held by that
+            // function's key type rather than checked here. The keys reaching it came through
+            // `pdf_syntax::tree`'s reader, which drops a null one; ADR 1211 joins the two halves.
+            out.insert(
+                Name::new(category.as_bytes()),
+                filing::tree_root(entries.into_iter().collect()),
+            );
         }
         Some(Object::Dictionary(out))
     };
@@ -2764,7 +2918,7 @@ fn build_catalog(
     reconciled: &Reconciled,
     scope: &Scope<'_>,
     warnings: &mut Vec<Warning>,
-) -> Object {
+) -> Dictionary {
     let documents = merge.documents;
     let mut root = Dictionary::new();
     root.insert(
@@ -2845,5 +2999,5 @@ fn build_catalog(
             });
         }
     }
-    Object::Dictionary(root)
+    root
 }

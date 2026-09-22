@@ -529,8 +529,7 @@ pub enum RestrictedKind {
     Annotate = 1,
     /// Bits 6 and 9: putting a value into a field the document already holds.
     FillInForm = 2,
-    /// Bit 3: printing. **No entry point performs it yet**; the level is settable so that a
-    /// reader's policy does not have to be revisited the day one does.
+    /// Bit 3: printing — `quorra_print`.
     Print = 3,
     /// Bit 4: every other change to the document, which is what an embedded file is.
     Modify = 4,
@@ -546,6 +545,13 @@ pub enum RestrictedKind {
     /// `Opened` event at all, and at [`RestrictKind::Ask`] an `Asking` it answers with
     /// `quorra_answer` (ADR 1167).
     Process = 6,
+    /// Bit 12: printing at a quality a copy of the document could be rebuilt from.
+    ///
+    /// **A second operation beside [`RestrictedKind::Print`] rather than a second answer to it**,
+    /// because Table 22 states two consequences: bit 3 clear withholds printing, and bit 12 clear
+    /// limits a print that goes ahead anyway. `quorra_print` asks both, and
+    /// `quorra_printing_fidelity` is what bit 12's answer came to (ADR 1203).
+    PrintFaithfully = 7,
 }
 
 impl RestrictedKind {
@@ -560,6 +566,7 @@ impl RestrictedKind {
             4 => Self::Modify,
             5 => Self::Assemble,
             6 => Self::Process,
+            7 => Self::PrintFaithfully,
             _ => return None,
         })
     }
@@ -576,6 +583,7 @@ impl RestrictedKind {
             Self::Modify => O::Modify,
             Self::Assemble => O::Assemble,
             Self::Process => O::Process,
+            Self::PrintFaithfully => O::PrintFaithfully,
         }
     }
 }

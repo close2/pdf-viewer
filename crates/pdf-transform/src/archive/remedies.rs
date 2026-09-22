@@ -42,8 +42,9 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 
 use crate::tool::{Tool, ToolOutcome, ToolOutputs, ToolRequest, ToolResult};
 
-use super::config::{Derivation, Supplied, Supply, Winner, specification_name};
-use super::report::{Derived, DerivedOutcome, SuppliedFact};
+use super::config::{Derivation, Resolution, Supplied, Supply, Winner, specification_name};
+use super::external::{ExternalData, external_stream_data};
+use super::report::{Derived, DerivedOutcome, Resolved, SuppliedFact};
 use super::rewrite::Rewrite;
 use super::sites::{SeparationUse, separation_uses};
 
@@ -77,6 +78,12 @@ pub(super) struct Remedies {
     pub(super) derived: BTreeMap<ObjectId, Object>,
     /// The requirements a derivation answered at every place they failed.
     pub(super) derive_sites: BTreeSet<&'static str>,
+    /// The bytes an operator's tool fetched for each stream that keeps its data outside the file.
+    ///
+    /// The seam `doc/adr/1199` built, reached from the other side: the embedding does not care
+    /// who resolved the bytes, so these are merged with [`super::ArchivePlan::external_data`]
+    /// before `super::external::embed` is asked for the rewrite (`doc/adr/1209`).
+    pub(super) external: BTreeMap<ObjectId, std::sync::Arc<[u8]>>,
     /// The `/Subtype` the operator supplied for each embedded file stream.
     pub(super) supplied: BTreeMap<ObjectId, String>,
     /// The definition every `Separation` array naming one colourant is to agree on.
@@ -87,6 +94,8 @@ pub(super) struct Remedies {
     pub(super) derived_report: Vec<Derived>,
     /// What the operator stated, beside the requirement it answered.
     pub(super) supplied_report: Vec<SuppliedFact>,
+    /// What an operator's tool fetched, beside the file specification the document wrote.
+    pub(super) resolved_report: Vec<Resolved>,
 }
 
 impl Remedies {
@@ -96,11 +105,13 @@ impl Remedies {
             pending: Vec::new(),
             derived: BTreeMap::new(),
             derive_sites: BTreeSet::new(),
+            external: BTreeMap::new(),
             supplied: BTreeMap::new(),
             separations: BTreeMap::new(),
             supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
+            resolved_report: Vec::new(),
         }
     }
 
@@ -115,6 +126,7 @@ impl Remedies {
         target: Target,
         derivations: &[Derivation],
         supplies: &[Supply],
+        resolutions: &[Resolution],
         recorded: &ToolOutputs,
     ) -> Self {
         let mut out = Self::none();
@@ -124,7 +136,85 @@ impl Remedies {
         for supply in supplies {
             out.supply(document, input, supply);
         }
+        for resolution in resolutions {
+            out.resolve(document, input, target, resolution, recorded);
+        }
         out
+    }
+
+    /// One `preserve`-by-fetch site, over every stream whose data the file keeps outside itself.
+    ///
+    /// **Nothing is opened here and nothing is started**, which is `doc/questions/A54`'s shape and
+    /// the reason this is a request rather than a fetch: the program travels in the request, the
+    /// caller's executor runs it, and the bytes come back as data. What is handed to the program
+    /// is the *file specification the document wrote*, on standard input — `doc/rfc/0007`
+    /// section 4.1 keeps everything document-derived out of `args` — and what a fetcher may
+    /// reach is the operator's own rule under the operator's own trust, which is the whole
+    /// reason §7.11.5's URL is answered this way rather than by widening this program's
+    /// (`doc/adr/1199`, `doc/adr/1209`).
+    ///
+    /// A stream stating the filter keys and no `/F` needs nothing fetched: §7.3.8.2's Table 5
+    /// gives those keys meaning only through `/F`, so [`super::external`] answers it out of the
+    /// file's own bytes and no request is made for it.
+    fn resolve(
+        &mut self,
+        document: &Document,
+        input: &pdf_archive::Report,
+        target: Target,
+        resolution: &Resolution,
+        recorded: &ToolOutputs,
+    ) {
+        let Some(judgement) = input
+            .failures()
+            .find(|judgement| judgement.id == resolution.site)
+        else {
+            // The requirement is met; nothing in this file keeps its data outside it.
+            return;
+        };
+        for stream in external_stream_data(document, input) {
+            let names = match &stream.data {
+                ExternalData::Named { shown, .. } => shown.clone(),
+                ExternalData::AtUrl(url) => url.clone(),
+                // `NoneNamed`: the data is in the file already and the removal alone answers the
+                // requirement. `Unreadable`: a `/F` that is neither of §7.11.1's two forms names
+                // no file any program could be asked for, so the refusal stands.
+                ExternalData::NoneNamed | ExternalData::Unreadable => continue,
+            };
+            let request = request_for(
+                &resolution.tool,
+                judgement.id,
+                target,
+                stream.at,
+                &names,
+                std::sync::Arc::from(names.as_bytes()),
+            );
+            let Some(result) = recorded.get(&request.id) else {
+                self.pending.push(request);
+                continue;
+            };
+            let mut row = Resolved {
+                site: judgement.id,
+                names: names.clone(),
+                object: format!("{} {}", stream.at.number, stream.at.generation),
+                tool: resolution.tool.name.clone(),
+                program: result.program.display().to_string(),
+                bytes: result.output.len(),
+                digest: result.digest.clone(),
+                stderr: result.stderr.clone(),
+                outcome: DerivedOutcome::Attached,
+            };
+            match &result.outcome {
+                ToolOutcome::Produced => {
+                    self.external
+                        .insert(stream.at, std::sync::Arc::clone(&result.output));
+                }
+                ToolOutcome::Declined => row.outcome = DerivedOutcome::Declined,
+                ToolOutcome::Failed(sentence) => {
+                    row.outcome = DerivedOutcome::Failed(sentence.clone());
+                }
+            }
+            self.resolved_report.push(row);
+        }
     }
 
     /// One `derive` site, over every place its requirement failed.
@@ -579,6 +669,40 @@ pub(super) fn derived_history(rows: &[Derived]) -> Option<String> {
             "the embedded file {} was replaced by {} derived from it by the tool {} ({}), \
              SHA-256 {}",
             row.attachment, row.expects, row.tool, row.program, row.digest
+        );
+    }
+    Some(out)
+}
+
+/// The sentence a fetched stream's report and `xmpMM:History` carry.
+///
+/// `doc/rfc/0007` section 5b.1's obligation, in the shape this remedy needs it: what was written
+/// into the stream is not the document's own bytes but what a program the operator declared
+/// returned when it was handed the file specification the document wrote. A reader of the
+/// archive has to be able to see that, because nothing in the file itself says it afterwards —
+/// the whole point of the rewrite is that the bytes are now indistinguishable from any other
+/// stream's (`doc/adr/1209`).
+pub const FETCHED_BY_THE_OPERATORS_TOOL: &str =
+    "this stream's data was fetched from outside the document, by the operator's own tool";
+
+/// The `xmpMM:History` parameters recording every stream an operator's tool resolved.
+pub(super) fn resolved_history(rows: &[Resolved]) -> Option<String> {
+    use std::fmt::Write as _;
+    let mut fetched = rows
+        .iter()
+        .filter(|row| row.outcome == DerivedOutcome::Attached)
+        .peekable();
+    fetched.peek()?;
+    let mut out = format!("{FETCHED_BY_THE_OPERATORS_TOOL}: ");
+    for (index, row) in fetched.enumerate() {
+        if index > 0 {
+            out.push_str("; ");
+        }
+        let _ = write!(
+            out,
+            "the stream {} stated its data at {}, and {} byte(s) were fetched from there by the \
+             tool {} ({}), SHA-256 {}",
+            row.object, row.names, row.bytes, row.tool, row.program, row.digest
         );
     }
     Some(out)

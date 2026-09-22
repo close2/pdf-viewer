@@ -394,6 +394,7 @@ fn derive(
                 },
             ],
             collate: false,
+            information: Vec::new(),
             names: "merged.pdf".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.to_vec()), Source::new(second.to_vec())],

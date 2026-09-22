@@ -404,10 +404,11 @@ impl Restrictions {
 
 /// [`INERT`] where no window performs this operation, and nothing where one does.
 ///
-/// Five of §7.6.4.2's eight positions reach a gesture in this program's windows: copying is
+/// Six of §7.6.4.2's eight positions reach a gesture in this program's windows: copying is
 /// `Command::Copy`, annotating and filling in are edits, modifying is what §7.11.4's attach and
-/// detach are, and printing is `Command::Print` behind [`crate::WindowAct::Print`] (ADR 1180).
-/// Assembling is `pdf-transform`'s verb and no window has one.
+/// detach are, printing is `Command::Print` behind [`crate::WindowAct::Print`] (ADR 1180), and
+/// bit 12's quality is asked of the same press (ADR 1203). Assembling is `pdf-transform`'s verb
+/// and no window has one.
 ///
 /// §12.11.6's processing is not one of the table's positions at all and every window performs it,
 /// because opening a document is the first thing any of them does (ADR 1167).
@@ -419,6 +420,7 @@ pub const fn inert(operation: Operation) -> &'static str {
         | Operation::FillInForm
         | Operation::Modify
         | Operation::Print
+        | Operation::PrintFaithfully
         | Operation::Process => "",
         Operation::Assemble => INERT,
     }

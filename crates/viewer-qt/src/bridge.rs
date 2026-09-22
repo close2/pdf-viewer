@@ -360,12 +360,67 @@ pub mod ffi {
         /// `f` and `/` mean this in all three hosts since ADR 0526, and it is a flag for
         /// `clipboard`'s reason: the bar is a `QToolBar` and Rust does not call one.
         find_bar: bool,
+        /// A print dialogue should be put on the screen — `Event::Printing`, the grant.
+        ///
+        /// A flag for `notices`' reason: a `QPrintDialog` is a Qt object and Rust never calls
+        /// one. What it holds is `print_job`'s answers, and the job is driven from C++ through
+        /// `print_paper`, `print_page` and `print_finish` (ADR 1203).
+        print_dialogue: bool,
         /// The third-party notices should be put on the screen.
         ///
         /// `?`, and the same shape again. The *text* is `viewer_host::NOTICE`, shared with the
         /// other two hosts, because a notice that differs between two binaries of one program is
         /// two claims about one obligation.
         notices: bool,
+    }
+
+    /// A print job, as a `QPrintDialog` opens on it — §12.2's Table 147 and §7.6.4.2's bit 12.
+    ///
+    /// Everything here is read once, when the core grants the operation, because that is the
+    /// moment before the dialogue exists. Table 147's entries are *defaults a dialogue opens
+    /// with* rather than instructions — the clause says so of each of them — and `viewer_host`
+    /// is where they are read, shared with the other two windows (ADR 1180).
+    #[derive(Debug, Clone)]
+    struct QtPrintJob {
+        /// How many pages the document has. `0` is no job running.
+        pages: usize,
+        /// The page's own size in §8.3.2.3's points, which is what a placement is computed from.
+        page_width: f32,
+        /// Its height.
+        page_height: f32,
+        /// §7.6.4.2's Table 22 bit 12: whether the job is limited to a degraded representation.
+        degraded: bool,
+        /// Why a destination that writes a document may not be offered, or empty where one may.
+        refusal: String,
+        /// Table 148's `/Enforce`, worded, or empty where the document asked nothing.
+        enforcement: String,
+        /// `/NumCopies`, or `0` where the document states none.
+        copies: i32,
+        /// `/Duplex`: `-1` none stated, `0` simplex, `1` the long edge, `2` the short one.
+        duplex: i32,
+        /// `/PrintPageRange`'s first page, **one-based**, or `0` where the document states none.
+        from_page: i32,
+        /// Its last page, one-based, or `0`.
+        to_page: i32,
+        /// `/PrintScaling` is `None`: the dialogue opens on the page at its own size.
+        no_scaling: bool,
+    }
+
+    /// Where one page of a sheet is painted, in §8.3.2.3's points from the paper's lower-left
+    /// corner.
+    ///
+    /// The paper's own corner, which is the PDF convention and not Qt's — the C++ side turns it
+    /// over once, where it turns points into the printer's dots.
+    #[derive(Debug, Clone, Copy)]
+    struct QtPrintCell {
+        /// The page's lower-left corner across the paper.
+        x: f32,
+        /// And up it.
+        y: f32,
+        /// How wide the page is drawn.
+        width: f32,
+        /// How tall.
+        height: f32,
     }
 
     /// One entry of the restrictions menu — `CLAUDE.md`'s four levels, as a `QMenuBar` holds them.
@@ -508,6 +563,45 @@ pub mod ffi {
         /// over the page, so a call per widget would cross the bridge seventy-six times on
         /// `160F-2019.pdf` to compute one number.
         fn measured(self: &mut Host, controls: &[QtMeasure]);
+
+        /// The job `QtUpdate::print_dialogue` announced, with everything a dialogue opens on.
+        ///
+        /// `pages` of zero is no job, which is what a window gets if it asks at any other moment.
+        fn print_job(self: &Host) -> QtPrintJob;
+        /// The paper and the arrangement a person chose, as `Printing::Paper`.
+        ///
+        /// `scaling` is 0 actual size, 1 shrink to fit, 2 fit to page; `per_sheet` is 1, 2 or 4.
+        /// What crosses back is nothing: the sheet §12.5.6.22 places a watermark against is
+        /// computed here, from the same numbers `print_cells` answers with, so the two cannot
+        /// disagree about where the page sits (ADR 1204).
+        fn print_paper(
+            self: &mut Host,
+            paper_width: f32,
+            paper_height: f32,
+            dpi: f32,
+            scaling: u8,
+            per_sheet: u8,
+        );
+        /// Where each page of one sheet is painted, for the arrangement `print_paper` was given.
+        fn print_cells(
+            self: &Host,
+            paper_width: f32,
+            paper_height: f32,
+            scaling: u8,
+            per_sheet: u8,
+        ) -> Vec<QtPrintCell>;
+        /// Draws one page of the job on the processor and says how large the raster is.
+        ///
+        /// Width then height in samples, both zero where the page is not this document's to
+        /// print or its marks will not go onto a raster at the job's resolution — which is said
+        /// in `print_reports` rather than swallowed (trap 5).
+        fn print_page(self: &mut Host, page: usize) -> Vec<u32>;
+        /// That page's pixels, row-major RGBA8 with no padding, as `QtFrame`'s are.
+        fn print_page_pixels(self: &Host) -> &[u8];
+        /// What could not be drawn on it, one sentence apiece.
+        fn print_reports(self: &Host) -> Vec<String>;
+        /// The end of the operation — §8.11.4.5's revert. Harmless where none is running.
+        fn print_finish(self: &mut Host);
 
         /// What has changed since this was last called, which also clears it.
         fn take_update(self: &mut Host) -> QtUpdate;

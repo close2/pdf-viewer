@@ -170,7 +170,7 @@ pub struct ViewState {
         clippy::doc_markdown,
         reason = "verbatim quotations: Table 193 and Table 194 spell MediaBox without backticks"
     )]
-    paper: Option<[f32; 4]>,
+    paper: Option<TargetMedia>,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -641,7 +641,54 @@ pub struct AnnotationView<'a> {
     /// target media's dimensions, and no dictionary in the file states what sheet an operation
     /// chose. Read only under [`Purpose::Print`]; `None` is Table 193's *not known*, under which
     /// the page's own media box stands in.
-    pub paper: Option<[f32; 4]>,
+    pub paper: Option<TargetMedia>,
+}
+
+/// §12.5.6.22's target media, and how the page is placed on it.
+///
+/// **Two numbers rather than one, because the clause's last sentence has two terms.** After the
+/// EXAMPLE it says that "given a matrix B that maps a scaled and rotated page into the default
+/// user space, a new matrix shall be computed that cancels out B and translates the origin of the
+/// media (e.g., printed page) to the origin of the default user space" — so what a caller states
+/// is where the media is *and* what B does to the page, and a watermark is drawn immune to the
+/// second.
+///
+/// [`Self::media`] carries the translation because it is stated in the page's own space, and
+/// [`Self::page_scale`] is what is left of B. ADR 1204.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TargetMedia {
+    /// The media rectangle **in the page's own default user space**.
+    ///
+    /// A rectangle rather than a width and a height: Table 194 measures `/H` and `/V` from the
+    /// media's own corner, and a page placed anywhere but at that corner has a media rectangle
+    /// whose lower-left coordinates are negative in its own space. That is the translation term
+    /// of the sentence above, carried by the value rather than computed from it.
+    pub media: [f32; 4],
+    /// What B scales the page by when it is placed on that media.
+    ///
+    /// `1.0` is a page printed at its own size, which is the clause's "usual case where the PDF
+    /// page size equals the media size" and every caller this program had before scale modes
+    /// existed. A page shrunk to fit the paper states the factor it was shrunk by, and an n-up
+    /// composition states the factor its cell imposes — which is the whole of what the two
+    /// bullets after the EXAMPLE need, because both ask for the watermark "at the specified
+    /// size" on a page that is no longer at its own.
+    ///
+    /// Cancelling B is a *division*: the watermark's own rectangle is divided by this so that
+    /// the page's placement scales it back up to the size the media was measured in.
+    pub page_scale: f32,
+}
+
+impl TargetMedia {
+    /// A page placed on the media at its own size, with its corner at the media's.
+    ///
+    /// The clause's usual case, and the one a caller that knows a sheet and nothing else has.
+    #[must_use]
+    pub const fn unplaced(media: [f32; 4]) -> Self {
+        Self {
+            media,
+            page_scale: 1.0,
+        }
+    }
 }
 
 /// Which of Table 170's appearances an annotation shows.
@@ -909,13 +956,13 @@ impl ViewState {
     /// Returns nothing to redraw by itself: the caller that states a paper size is the caller
     /// that is about to ask for the pages, and a change of purpose supersedes the ink already
     /// produced whatever this says.
-    pub fn set_paper(&mut self, paper: Option<[f32; 4]>) {
+    pub fn set_paper(&mut self, paper: Option<TargetMedia>) {
         self.paper = paper;
     }
 
     /// §12.5.6.22's target media, or `None` where nobody has stated one; see [`Self::set_paper`].
     #[must_use]
-    pub fn paper(&self) -> Option<[f32; 4]> {
+    pub fn paper(&self) -> Option<TargetMedia> {
         self.paper
     }
 

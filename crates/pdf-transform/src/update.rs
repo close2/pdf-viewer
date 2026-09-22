@@ -1001,32 +1001,15 @@ fn set_information(
         validate(entry)?;
     }
     let stated = document.trailer().get("Info").cloned();
-    let mut dict = stated
+    let dict = stated
         .as_ref()
         .map(|value| document.resolve(value))
         .and_then(|value| value.as_dict().cloned())
         .unwrap_or_else(Dictionary::new);
-    let mut changed_a_date = false;
-    for entry in entries {
-        let key = Name::new(entry.key.as_bytes());
-        match &entry.value {
-            // Table 349's `/Trapped` is "a name object", and the table says so twice over: "This
-            // shall be the name True , not the boolean value true ." Everything else in the
-            // table is a text string, which §14.3.3 states as a `shall` for every key but the
-            // two dates and which §7.9.4 states for those two as well ("A date shall be a text
-            // string value").
-            Some(value) if entry.key == "Trapped" => {
-                dict.insert(key, Object::Name(Name::new(value.as_bytes())));
-            }
-            Some(value) => {
-                dict.insert(key, text(value));
-            }
-            None => {
-                dict.remove(entry.key.as_str());
-            }
-        }
-        changed_a_date |= entry.key == "CreationDate" || entry.key == "ModDate";
-    }
+    let changed_a_date = entries
+        .iter()
+        .any(|entry| entry.key == "CreationDate" || entry.key == "ModDate");
+    let dict = information_dictionary(dict, entries);
 
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut additions = Dictionary::new();
@@ -1093,8 +1076,35 @@ fn has_metadata_stream(document: &Document) -> bool {
         .is_some_and(|object| object.as_stream().is_some())
 }
 
+/// `base` with Table 349's entries set to what `entries` state, and its other keys untouched.
+///
+/// **The one reading of Table 349's types**, shared with `merge`, which states a merged
+/// document's entries rather than editing a document's own (ADR 1212). Table 349's `/Trapped`
+/// is "a name object", and the table says so twice over: "This shall be the name True , not the
+/// boolean value true ." Everything else in the table is a text string, which §14.3.3 states as
+/// a `shall` for every key but the two dates — "the value associated with any such key shall be
+/// a text string" — and which §7.9.4 states for those two as well ("A date shall be a text
+/// string value"). A key the caller gives no value is an entry the document no longer states.
+pub(crate) fn information_dictionary(mut base: Dictionary, entries: &[InfoEntry]) -> Dictionary {
+    for entry in entries {
+        let key = Name::new(entry.key.as_bytes());
+        match &entry.value {
+            Some(value) if entry.key == "Trapped" => {
+                base.insert(key, Object::Name(Name::new(value.as_bytes())));
+            }
+            Some(value) => {
+                base.insert(key, text(value));
+            }
+            None => {
+                base.remove(entry.key.as_str());
+            }
+        }
+    }
+    base
+}
+
 /// One entry held to Table 349, refused by name where it is not.
-fn validate(entry: &InfoEntry) -> Result<(), Refusal> {
+pub(crate) fn validate(entry: &InfoEntry) -> Result<(), Refusal> {
     if !INFORMATION_KEYS.contains(&entry.key.as_str()) {
         return Err(Refusal::Pattern(format!(
             "{:?} is not one of §14.3.3's Table 349 keys ({})",

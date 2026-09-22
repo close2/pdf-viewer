@@ -117,6 +117,7 @@ fn a4() -> Sheet {
     Sheet {
         media: Some([0.0, 0.0, 595.0, 842.0]),
         scale: 300.0 / 72.0,
+        page_scale: 1.0,
     }
 }
 
@@ -144,7 +145,7 @@ fn no_page_prints_until_the_operation_has_been_granted_and_none_after_it_ends() 
 
     let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
     let granted = events.iter().any(|event| {
-        matches!(event, Event::Printing { document, pages } if *document == DOCUMENT && *pages == 1)
+        matches!(event, Event::Printing { document, pages, .. } if *document == DOCUMENT && *pages == 1)
     });
     assert!(granted, "the grant names the document and its page count");
     assert!(
@@ -233,6 +234,7 @@ fn a_sheet_chosen_after_the_grant_moves_a_fixed_print_watermark_and_asks_nothing
         Command::Print(Printing::Paper(Sheet {
             media: Some([0.0, 0.0, 200.0, 200.0]),
             scale: 300.0 / 72.0,
+            page_scale: 1.0,
         })),
     );
     assert!(
@@ -303,4 +305,169 @@ fn ink_left_edge(viewer: &Viewer) -> u32 {
         }
     }
     raster.width
+}
+
+/// A viewer over `secHandler.pdf` at a stated policy, or `None` when the submodule is absent.
+///
+/// **The fixture Table 22's bit 12 needs, and it is a real file rather than a hand-built one**:
+/// `/V 5 /R 6` with `/P −3136`, which is `0xFFFFF3C0` — **bit 3 clear**, so the document withholds
+/// "[p]rint the document", and **bit 12 clear** with it, so it withholds printing "to a
+/// representation from which a faithful digital copy of the PDF content could be generated".
+/// Revision 6 is what makes bit 12 readable at all: Table 22 marks the position "( Security
+/// handlers of revision 3 or greater )".
+///
+/// `cargo run --release -p pdf-model --example encryption_census -- doc/pdf.js/test/pdfs/*.pdf`
+/// is what found it, and prints the two printing positions over any path given to it.
+fn restricted(policy: viewer_core::RestrictionPolicy) -> Option<Viewer> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/secHandler.pdf");
+    let bytes = std::fs::read(path).ok()?;
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Restrict(viewer_core::RestrictionScope::Window(
+            policy,
+        )))
+        .for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    settle(&mut viewer, events);
+    Some(viewer)
+}
+
+/// The grant's fidelity, where a job started at all.
+fn fidelity(events: &[Event]) -> Option<viewer_core::Fidelity> {
+    events.iter().find_map(|event| match event {
+        Event::Printing { fidelity, .. } => Some(*fidelity),
+        _ => None,
+    })
+}
+
+/// Whether the list refuses, asks about or warns of one operation.
+fn about(events: &[Event], operation: pdf_model::restriction::Operation) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Refused { operation: it, .. } if *it == operation => Some("refused"),
+            Event::Asking { operation: it, .. } if *it == operation => Some("asking"),
+            Event::Warned { operation: it, .. } if *it == operation => Some("warned"),
+            _ => None,
+        })
+        .collect()
+}
+
+/// §7.6.4.2's Table 22 bit 12 is a second operation, asked at all four levels of its own.
+///
+/// **The cell states two consequences and this is the pair that discriminates between them**: bit
+/// 3 clear withholds printing outright, and bit 12 clear limits a print that goes ahead —
+///
+/// > When this bit is clear (and bit 3 is set), printing shall be limited to a low- level
+/// > representation of the appearance, possibly of degraded quality.
+///
+/// — so a reader who has turned bit 3's level off and left bit 12's on prints, degraded, with the
+/// fidelity refused by name. A reader who set one level for both could not express that, which is
+/// why the policy has two entries (ADR 1203).
+#[test]
+fn table_22s_bit_12_limits_a_print_that_bit_3_let_through() {
+    use pdf_model::restriction::Operation;
+    use viewer_core::{Fidelity, RestrictionLevel, RestrictionPolicy};
+
+    let off = RestrictionPolicy::default();
+    let Some(mut viewer) = restricted(off) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    // Every level off: the document withholds both and this reader obeys neither.
+    let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
+    assert_eq!(fidelity(&events), Some(Fidelity::Faithful));
+    assert!(about(&events, Operation::PrintFaithfully).is_empty());
+
+    // Bit 3 on: the operation is refused and no job starts at all, so bit 12 is never reached —
+    // a fidelity is not withheld from a print that is not happening.
+    let mut viewer = restricted(RestrictionPolicy::uniform(RestrictionLevel::On))
+        .expect("the submodule is checked out");
+    let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
+    assert_eq!(fidelity(&events), None);
+    assert_eq!(about(&events, Operation::Print), ["refused"]);
+    assert!(about(&events, Operation::PrintFaithfully).is_empty());
+
+    // Bit 3's level off, bit 12's on: the print goes ahead and the *fidelity* is refused by name.
+    let policy =
+        RestrictionPolicy::default().with(Operation::PrintFaithfully, RestrictionLevel::On);
+    let mut viewer = restricted(policy).expect("the submodule is checked out");
+    let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
+    assert_eq!(fidelity(&events), Some(Fidelity::Degraded));
+    assert_eq!(about(&events, Operation::PrintFaithfully), ["refused"]);
+    assert!(
+        marks(&viewer, 0).is_some(),
+        "the job is limited rather than refused"
+    );
+
+    // Warn: the job is faithful and the document's reasons are said afterwards.
+    let policy =
+        RestrictionPolicy::default().with(Operation::PrintFaithfully, RestrictionLevel::Warn);
+    let mut viewer = restricted(policy).expect("the submodule is checked out");
+    let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
+    assert_eq!(fidelity(&events), Some(Fidelity::Faithful));
+    assert_eq!(about(&events, Operation::PrintFaithfully), ["warned"]);
+}
+
+/// The *ask* level over bit 12 is the one question whose `no` starts something.
+///
+/// Every other held operation forgets what it held on a `no`; this one prints degraded, because
+/// Table 22 makes bit 12's clear state a limit on a job rather than the end of one. A `no` that
+/// cancelled the print would have made bit 12 a second bit 3 (ADR 1203).
+#[test]
+fn asking_about_the_fidelity_starts_a_job_either_way() {
+    use pdf_model::restriction::Operation;
+    use viewer_core::{Fidelity, RestrictionLevel, RestrictionPolicy};
+
+    let policy =
+        RestrictionPolicy::default().with(Operation::PrintFaithfully, RestrictionLevel::Ask);
+    let Some(mut viewer) = restricted(policy) else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let events = sent(&mut viewer, Command::Print(Printing::Start(a4())));
+    assert_eq!(about(&events, Operation::PrintFaithfully), ["asking"]);
+    assert_eq!(
+        fidelity(&events),
+        None,
+        "nothing starts until it is answered"
+    );
+    assert!(marks(&viewer, 0).is_none(), "and no page is handed out");
+
+    let events = sent(
+        &mut viewer,
+        Command::Answer {
+            document: DOCUMENT,
+            proceed: false,
+        },
+    );
+    assert_eq!(
+        fidelity(&events),
+        Some(Fidelity::Degraded),
+        "a `no` asked for the degraded job the cell describes"
+    );
+    assert!(marks(&viewer, 0).is_some());
+
+    // And a `yes` prints faithfully, which is what makes the two answers a pair rather than one
+    // answer and a silence.
+    let policy =
+        RestrictionPolicy::default().with(Operation::PrintFaithfully, RestrictionLevel::Ask);
+    let mut viewer = restricted(policy).expect("the submodule is checked out");
+    sent(&mut viewer, Command::Print(Printing::Start(a4())));
+    let events = sent(
+        &mut viewer,
+        Command::Answer {
+            document: DOCUMENT,
+            proceed: true,
+        },
+    );
+    assert_eq!(fidelity(&events), Some(Fidelity::Faithful));
 }

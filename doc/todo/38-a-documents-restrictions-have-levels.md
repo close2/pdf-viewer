@@ -9,7 +9,8 @@ joined the six as a seventh operation in session 1165 (ADR 1167), which is the f
 not a verb a person presses: what its level decides is whether a document is opened at all. What is
 left is the *attach and detach gestures*, which wait on the owner's HTML mockups, and `Assemble`,
 which awaits a verb this program does not have. `Print` has one since session 1171 (ADR 1180):
-`Command::Print` is the operation and `viewer_host::WindowAct::Print` is the key that sends it.
+`Command::Print` is the operation and `viewer_host::WindowAct::Print` is the key that sends it, and
+`PrintFaithfully` joined it in session 1183 as Table 22 bit 12's own level (ADR 1203).
 
 **A second policy with the same four levels sits beside this one and is not part of it**, because
 the direction is the other one: `viewer_host::Links` is what this machine does when §12.6.4.8's
@@ -256,11 +257,21 @@ screen still takes the bar — that sentence is the reader asking rather than th
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
   operation (`Command::Extract`) that no document restricts today. The level exists now; what is
   missing is `Operation` reaching that path at all.
-- **Assembling and faithful printing** (Table 22 bits 11 and 12) are named in `restriction::Bit`
-  and consumed by nothing, each saying why; bit 3 is consumed by `pdf-transform`'s page render and,
-  since session 1171, by a window's own `Command::Print`. `Operation` gets an arm for 11 the day
-  `split`, `merge` or `pages` exist (`doc/todo/57`), and for 12 only if this tree chooses the
-  "implementation-dependent algorithm" the row leaves to the processor.
+- **Every position of Table 22 that has a meaning reaches an operation**, since session 1183. Bit 3
+  is `Operation::Print` — `pdf-transform`'s page render, and a window's own `Command::Print` since
+  session 1171. Bit 11 is `Operation::Assemble`, consumed where assembling happens: `pdf-transform`'s
+  `split` and `merge`, and `pdf-vfs`'s `InsertPages` and `DeletePage`. **Bit 12 is
+  `Operation::PrintFaithfully`**, asked of the same press as bit 3 and at a level of its own, because
+  the cell states two consequences — bit 3 clear withholds printing and bit 12 clear limits a print
+  that goes ahead. The "implementation-dependent algorithm" the cell leaves to the processor is
+  chosen and written down: `viewer_host::printing::scale_at` draws a degraded job at the module's own
+  resolution floor, and `destination_refused` refuses a destination that writes a document, because a
+  file is a document a faithful copy could be generated from whatever it was drawn at. ADR 1203.
+  Bit 10 is the one position with no variant at all, on the table's own word that "PDF readers shall
+  ignore this bit".
+- **No window has an assembling gesture**, and that is a fact about the windows rather than about the
+  clause: `viewer_host::restriction::inert` says so in the menu, and the level is already the
+  reader's the day one arrives.
 
 ## What not to do
 

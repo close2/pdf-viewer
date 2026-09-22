@@ -520,6 +520,24 @@ depends on nothing but `thiserror`.
   own population; whether it wants the same rule is a question this line leaves open rather than
   answers.
 
+- **One asks whether a message that names a command-line flag names one the program accepts**, and
+  it is the only sweep here whose two halves are not both in the ledger: the accepted set is in a
+  binary's argument parser and the mention is usually in a library's error text, in another crate.
+  `cargo run -p conformance --bin flags`, `tools/state.sh flags`, gated by
+  `cargo test -p conformance --test flags`. Both populations are derived — the programs from the
+  workspace's manifests (two of them are renamed by a `[[bin]]` block, so filenames alone would
+  name programs that do not exist), the accepted flags from each binary's own source set followed
+  through its `mod` declarations. Three conditions decide what a *mention* is, and each was added
+  because the run without it produced findings that were not the rule: a `#[cfg(test)]` module is
+  not the program, a literal with no words around the flag is an argument handed to another
+  program rather than a message, and a flag standing in a command span belongs to the program that
+  span names — cargo's `--bins` is cargo's wherever it is printed, and cargo's `--` is where the
+  named program's own flags begin. Attribution outside a command span is **by crate**, because a
+  message a program prints is written in its own crate; attribution by name-on-the-line was tried
+  first and gave a `quorra-transform` message to the `counts` binary, on the word *counts*. Its
+  second test is the calibration and is not optional (trap 13): it plants a flag no program
+  accepts into both paths and fails unless the sweep names both. ADR 1213.
+
 ## A twenty-third that is not built, and the reason is that its two sides agree
 
 **A parent restating a child's *refusal* and dropping the condition the child stated it under**, and

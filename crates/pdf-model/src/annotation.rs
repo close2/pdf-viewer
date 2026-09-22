@@ -999,27 +999,43 @@ pub(crate) fn decide(
 /// corner is the media origin the sentence names, and the arithmetic in [`fixed_print`] measures
 /// Table 194's percentages from it exactly as it measures them from the media box's corner.
 ///
-/// **The two bullets after the EXAMPLE are the cases where B stops being the identity** — page
-/// tiling and n-up printing, each of which the clause gives its own placement rule — and neither
-/// is a thing this program offers. Whoever adds a scale mode or an n-up composition owes this
-/// function the rest of that sentence; until then there is no operating condition for it.
-/// ADR 1179.
-fn target_media(view: crate::view::AnnotationView<'_>, media_box: [f32; 4]) -> [f32; 4] {
+/// **The two bullets after the EXAMPLE are the cases where B stops being the identity**, and
+/// they are what [`crate::view::TargetMedia::page_scale`] carries:
+///
+/// > When page tiling is selected in a PDF processor (that is, a single PDF page is printed on
+/// > multiple pages), watermark annotations shall be printed at the specified size and position
+/// > on each page to ensure that the content of the watermark annotation is present and legible
+/// > on each printed page.
+///
+/// > When n -up printing is selected (that is, multiple PDF pages are printed on a single page),
+/// > the annotations shall be printed at the specified size and shall be positioned as if the
+/// > dimensions of the printed page were limited to a single portion of the page. This ensures
+/// > that any content of the watermark annotation does not overlap content from other pages,
+/// > thus rendering it illegible.
+///
+/// Both say **at the specified size**, and n-up says which rectangle the position is measured
+/// against — "a single portion of the page", which is the cell rather than the sheet. So a
+/// caller composing either states the cell as the media, in the page's own space, and the factor
+/// the page was scaled by to reach it; [`fixed_print`] divides by that factor, which is what
+/// cancelling B means for a page this program places without rotating. ADRs 1179, 1204.
+fn target_media(
+    view: crate::view::AnnotationView<'_>,
+    media_box: [f32; 4],
+) -> crate::view::TargetMedia {
     match (view.purpose, view.paper) {
         (Purpose::Print, Some(paper)) => paper,
-        _ => media_box,
+        _ => crate::view::TargetMedia::unplaced(media_box),
     }
 }
 
 /// [`decide`] without §12.5.3's view-dependent flags, which it applies to whatever this returns.
 ///
-/// `media` is the page's media box, which §12.5.6.22 places a watermark against; see
-/// [`fixed_print`].
+/// `media` is §12.5.6.22's target media and how the page sits on it; see [`fixed_print`].
 fn decided(
     document: &Document,
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
-    media: [f32; 4],
+    media: crate::view::TargetMedia,
 ) -> Decision {
     let subtype = document
         .get_key(annotation, "Subtype")
@@ -1692,14 +1708,14 @@ fn placement(bbox: [f32; 4], matrix: Transform, rect: [f32; 4]) -> Transform {
 /// > matrix shall be computed that cancels out B and translates the origin of the media (e.g.,
 /// > printed page) to the origin of the default user space
 ///
-/// **B's scale and rotation are the identity here by the clause's own stipulation rather than by
-/// a choice.** B is what places a scaled and rotated page onto a sheet — the paragraphs after the
-/// EXAMPLE are about tiling and n-up, which is where that happens, and they open "[i]n situations
-/// other than the usual case where the PDF page size equals the media size" — while the on-screen
-/// sentence above makes the page's media box *be* the media, which is that usual case by
-/// construction. What is left of the sentence is the translation between two origins, and that is
-/// the media box's lower-left corner: nothing at all for a file whose media box starts at (0, 0),
-/// and the whole difference for one whose does not.
+/// **B's translation is the media rectangle's own corner, and its scale is what the caller
+/// states.** The paragraphs after the EXAMPLE open "[i]n situations other than the usual case
+/// where the PDF page size equals the media size", and a page shrunk onto a sheet or placed in an
+/// n-up cell is exactly such a situation: the clause asks for the mark "at the specified size" on
+/// a page that is no longer at its own, so B's scale is cancelled by dividing the transformed
+/// rectangle by it. `crate::view::TargetMedia::page_scale` is that factor, `1.0` for the usual
+/// case, and the translation is the media's lower-left corner — nothing at all for a file whose
+/// media box starts at (0, 0), and the whole difference for one whose does not.
 ///
 /// **§7.7.3.3's `/Rotate` is deliberately not cancelled, and that one is a choice.** §12.5.6.22
 /// never mentions the entry; what it says of a screen is that the behaviour is "the same as for
@@ -1729,18 +1745,29 @@ fn fixed_print(
     annotation: &Dictionary,
     subtype: &[u8],
     rect: [f32; 4],
-    media: [f32; 4],
+    target: crate::view::TargetMedia,
 ) -> Option<[f32; 4]> {
     if subtype != b"Watermark" {
         return None;
     }
     let stated = document.get_key(annotation, "FixedPrint");
     let fixed = stated.as_dict()?;
+    let media = target.media;
 
     // Bullet one, in the order it is written: to the origin, through `/Matrix`, then the smallest
     // upright rectangle around what came out — which is [`transformed`], §12.5.5's own step 1.
     let at_origin = [0.0, 0.0, rect[2] - rect[0], rect[3] - rect[1]];
     let upright = transformed(at_origin, matrix(document, fixed));
+    // Cancelling B, which is a division because the page's own placement multiplies by it
+    // afterwards: the two bullets after the EXAMPLE both require the mark "at the specified
+    // size", and the size they specify is measured on the media. A factor that is not a finite
+    // positive number is a caller that has said nothing usable, so the page's own scale stands.
+    let cancel = if target.page_scale.is_finite() && target.page_scale > 0.0 {
+        target.page_scale.recip()
+    } else {
+        1.0
+    };
+    let upright = upright.map(|value| value * cancel);
 
     // Table 194: "1.0 represents 100% and 0.0 represents 0%", with the default 0 for both, and
     // the media's own corner is where a percentage of its width is measured from.

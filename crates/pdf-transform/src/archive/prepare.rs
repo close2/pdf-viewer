@@ -170,6 +170,14 @@ pub(super) const DERIVED_ACTION: &str = "converted";
 /// records that a human rather than the document is the value's source.
 pub(super) const SUPPLIED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` for a stream an operator's tool fetched.
+///
+/// `doc/adr/1209`. The rewrite writes the fetched bytes where the stream's own were, so nothing in
+/// the file says afterwards that they came from outside it — which is exactly the fact a reader of
+/// an archive is entitled to find in the archive. The word is `converted`, like every other
+/// recorded action here.
+pub(super) const RESOLVED_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when a page preserves content.
 ///
 /// `doc/adr/1014` section 5's fifth bullet, which the amendment makes a condition of the
@@ -681,6 +689,11 @@ pub(super) struct Prepared {
     /// the caller resolved ([`ArchivePlan::external_data`]) and, where a stream states the
     /// filter keys without a `/F`, out of the file's own (`doc/adr/1199`).
     pub(super) external_data: Result<super::external::Embedded, Because>,
+    /// The out-of-range optional page boundary entries removed, or why none can be.
+    ///
+    /// ISO 19005-2 section 6.1.13's limit, answered by ISO 32000-2 §7.7.3.3's Table 31 and
+    /// §14.11.2.1's defaults rather than by rescaling anything (`doc/adr/1210`).
+    pub(super) boundaries: Result<super::boundaries::Boundaries, Because>,
     /// The content streams whose hexadecimal strings gain the final digit, or why none can.
     ///
     /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5, inside a content stream: the
@@ -734,6 +747,8 @@ pub(super) struct Provenance<'a> {
     pub(super) supplied: Option<&'a str>,
     /// What the source's encryption asserted, where one was removed (`doc/adr/1187`).
     pub(super) protection: Option<&'a str>,
+    /// The streams an operator's tool fetched from outside the document (`doc/adr/1209`).
+    pub(super) resolved: Option<&'a str>,
 }
 
 impl Prepared {
@@ -750,6 +765,7 @@ impl Prepared {
         input: &pdf_archive::Report,
         omit_identification: bool,
         provenance: Provenance<'_>,
+        remedies: &super::remedies::Remedies,
     ) -> Self {
         let failed: BTreeSet<&'static str> =
             input.failures().map(|judgement| judgement.id).collect();
@@ -860,6 +876,7 @@ impl Prepared {
                 departure: provenance.departure,
                 derived: provenance.derived,
                 supplied: provenance.supplied,
+                resolved: provenance.resolved,
                 protection: provenance.protection,
                 preserved: preserved_history.as_deref(),
                 when: now.as_deref(),
@@ -927,8 +944,29 @@ impl Prepared {
         // The streams whose data the source keeps outside the file, answered out of what the
         // caller resolved and, for a stream stating the filter keys without a `/F`, out of the
         // file's own bytes (`doc/adr/1199`).
+        // **The bytes are the same whoever fetched them** — `doc/adr/1199`'s seam, reached from
+        // both sides: `--resolve-external-data` puts what this program's own rule permits in the
+        // plan, and a configured `preserve` with a tool puts what the operator's program
+        // returned here (`doc/adr/1209`). The plan wins a collision, because a caller who named
+        // bytes for an object said so outright.
+        let resolved: BTreeMap<ObjectId, std::sync::Arc<[u8]>> = remedies
+            .external
+            .iter()
+            .map(|(at, bytes)| (*at, std::sync::Arc::clone(bytes)))
+            .chain(
+                plan.external_data
+                    .iter()
+                    .map(|(at, bytes)| (*at, std::sync::Arc::clone(bytes))),
+            )
+            .collect();
         let external_data = asked(wanted(Rewrite::ExternalDataEmbedded), || {
-            super::external::embed(document, input, &plan.external_data)
+            super::external::embed(document, input, &resolved)
+        });
+        // ISO 19005-2 section 6.1.13's page-boundary limit, answered by the entry's own
+        // absence: §7.7.3.3's Table 31 makes four of the five boxes optional and §14.11.2.1
+        // gives each of those a default that is another box in the same file (`doc/adr/1210`).
+        let boundaries = asked(wanted(Rewrite::PageBoundaryRemoved), || {
+            super::boundaries::removal(document, input)
         });
         let already = Already {
             packet_headers: headers,
@@ -949,6 +987,7 @@ impl Prepared {
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
             hexadecimal,
             external_data,
+            boundaries,
             actions,
             forbidden_annotations,
             preserved,
@@ -1002,6 +1041,7 @@ impl Prepared {
             }
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
+            Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
             Rewrite::ForbiddenActionRemoved
             | Rewrite::AdditionalActionsRemoved
             | Rewrite::WidgetActionEntryRemoved => self.actions.as_ref().err().copied(),
@@ -2455,7 +2495,7 @@ fn prepare_fonts(
 ) -> PreparedFonts {
     let substitutes = match (wants_substitutes, survey) {
         (true, _) if !plan.substitute_fonts => Err(Because::Declined(SUBSTITUTION_DECLINED)),
-        (true, Some(survey)) => fonts::embed_faces(document, survey, spare),
+        (true, Some(survey)) => fonts::embed_faces(document, survey, spare, &plan.supplied_fonts),
         _ => Err(Because::NotBuiltYet(NOT_ASKED_FOR)),
     };
     let metrics = match (wants_metrics.widths || wants_metrics.vertical, survey) {
@@ -2488,9 +2528,10 @@ pub(super) fn substituted_fonts_recorded(fonts: &[fonts::SubstitutedFont]) -> St
         .take(MOST_FONTS_NAMED)
         .map(|font| {
             format!(
-                "{} was not embedded and {} was embedded in its place ({})",
+                "{} was not embedded and {} was embedded in its place, {}, taking the {} route",
                 font.requested,
                 font.face,
+                font.authority.describe(),
                 font.route.word()
             )
         })
@@ -2528,6 +2569,8 @@ struct Recording<'a> {
     derived: Option<&'a str>,
     /// What the operator stated that the document does not (`doc/rfc/0007` section 5b.1).
     supplied: Option<&'a str>,
+    /// What an operator's tool fetched from outside the document (`doc/adr/1209`).
+    resolved: Option<&'a str>,
     /// What the removed encryption asserted about the reader (`doc/adr/1187`).
     protection: Option<&'a str>,
     /// What an appended page preserved, where one was appended (`doc/adr/1014` section 5).
@@ -2635,6 +2678,13 @@ fn the_packet(
             events.push(xmp::Event {
                 action: SUPPLIED_ACTION,
                 parameters: supplied,
+                when,
+            });
+        }
+        if let Some(resolved) = recording.resolved {
+            events.push(xmp::Event {
+                action: RESOLVED_ACTION,
+                parameters: resolved,
                 when,
             });
         }

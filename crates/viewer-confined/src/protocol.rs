@@ -1435,6 +1435,11 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                     }
                 }
                 writer.f32(sheet.scale);
+                // §12.5.6.22's matrix B, as much of it as this program produces: what the page is
+                // scaled by onto that media. A separate number from the resolution above and
+                // never derived from it — one is pixels per unit and the other is the page's own
+                // placement (ADR 1204).
+                writer.f32(sheet.page_scale);
             }
         }
         Command::RenderReady { .. } => {
@@ -1635,20 +1640,27 @@ pub(crate) fn decode_command_holding(
                     }
                 };
                 let scale = reader.f32("a print resolution")?;
+                let page_scale = reader.f32("a page's scale on the media")?;
                 // A scale that is not a finite positive number is a target nobody could
                 // rasterise, and the worker is the untrusted side of a wire whose sender it does
                 // not choose. `TargetSpec::for_page` would refuse it too, one page at a time and
                 // as though the document were at fault.
                 if !scale.is_finite()
                     || scale <= 0.0
+                    || !page_scale.is_finite()
+                    || page_scale <= 0.0
                     || !media.iter().flatten().all(|corner| corner.is_finite())
                 {
                     return Err(ProtocolError::Unbuildable {
                         what: "a print sheet",
-                        why: "a corner or a resolution that is not a finite number",
+                        why: "a corner, a resolution or a placement that is not a finite number",
                     });
                 }
-                let sheet = viewer_core::Sheet { media, scale };
+                let sheet = viewer_core::Sheet {
+                    media,
+                    scale,
+                    page_scale,
+                };
                 match tag {
                     1 => Command::Print(viewer_core::Printing::Start(sheet)),
                     2 => Command::Print(viewer_core::Printing::Paper(sheet)),
@@ -2108,6 +2120,7 @@ fn operation_code(operation: Operation) -> u8 {
         Operation::Modify => 4,
         Operation::Assemble => 5,
         Operation::Process => 6,
+        Operation::PrintFaithfully => 7,
     }
 }
 
@@ -2121,6 +2134,7 @@ fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, ProtocolError> {
         4 => Operation::Modify,
         5 => Operation::Assemble,
         6 => Operation::Process,
+        7 => Operation::PrintFaithfully,
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "an operation",
@@ -2327,8 +2341,22 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .option_str(logical.as_deref())
                 .str(page_order);
         }
-        Event::Printing { document, pages } => {
-            writer.u8(k::PRINTING).document(*document).usize(*pages);
+        Event::Printing {
+            document,
+            pages,
+            fidelity,
+        } => {
+            // §7.6.4.2's bit 12 as a byte: 0 faithful, 1 degraded. A grant the window process
+            // needs before it opens a dialogue, because one of the two things it decides is
+            // which destinations that dialogue may offer (ADR 1203).
+            writer
+                .u8(k::PRINTING)
+                .document(*document)
+                .usize(*pages)
+                .u8(match fidelity {
+                    viewer_core::Fidelity::Faithful => 0,
+                    viewer_core::Fidelity::Degraded => 1,
+                });
         }
         Event::Refused {
             document,
@@ -2539,6 +2567,16 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         k::PRINTING => Event::Printing {
             document: reader.document(what)?,
             pages: reader.usize("how many pages a print operation has")?,
+            fidelity: match reader.u8("what Table 22 bit 12 left of a print job")? {
+                0 => viewer_core::Fidelity::Faithful,
+                1 => viewer_core::Fidelity::Degraded,
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "what Table 22 bit 12 left of a print job",
+                        value: u32::from(value),
+                    });
+                }
+            },
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
@@ -4111,10 +4149,12 @@ mod tests {
             Command::Print(viewer_core::Printing::Start(viewer_core::Sheet {
                 media: Some([0.0, 0.0, 595.0, 842.0]),
                 scale: 300.0 / 72.0,
+                page_scale: 1.0,
             })),
             Command::Print(viewer_core::Printing::Paper(viewer_core::Sheet {
                 media: None,
                 scale: 150.0 / 72.0,
+                page_scale: 0.5,
             })),
             Command::Print(viewer_core::Printing::Finish),
             // §12.8.1's third question: the empty policy every host starts with, and a populated

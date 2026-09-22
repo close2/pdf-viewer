@@ -71,14 +71,14 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   names what it needs in `Conversion::external_data`, `quorra-transform archive
   --resolve-external-data` reads a plain file name beside the document under ADR 1155's rule, the
   plan carries the bytes, and §7.3.8.2's Table 5 is the rewrite; a stream stating the filter keys
-  and no `/F` needs nothing from outside and is `Mechanical` on its own. What is left is the
-  `tool = "resolve-external"` route, which is what §7.11.5's URL needs and what every corpus
-  witness turns out to be — the archive sweep counts, per target, how each such stream names its
-  data. **One wrinkle the build left**: `--remedy-sites` lists a site while the census classes it
-  `Refused` or a `Loses` remedy, and this one is now `Mechanical`, so it has dropped off the
-  listing although a URL-named stream still refuses and `keep-everything.toml`'s answer for it is
-  still counted as not carried out. A `Mechanical` answer conditional on something the *caller*
-  supplies wants to stay enumerable; the classification that decides is `archive::census`.
+  and no `/F` needs nothing from outside and is `Mechanical` on its own. The
+  `tool = "resolve-external"` route — what §7.11.5's URL needs and what every corpus witness turns
+  out to be, the archive sweep counting per target how each such stream names its data — is
+  **built** (ADR 1209): a `preserve` row naming the site and a tool returns one request per stream
+  carrying the document's own file specification, and what the caller's executor gets back lands
+  in the same `ArchivePlan::external_data`. The enumerability wrinkle ADR 1199 left is closed with
+  it: a `Mechanical` answer the decision table does not settle by itself is
+  `census::Kind::Conditional`, which `--remedy-sites` lists and describes.
 - **Graphics state keys** (`graphics/no-transfer-function-*`, `no-halftone-*`,
   `second-transfer-function-is-default`, `rendering-intent-*`): a key removed from an `ExtGState`
   or a halftone dictionary, each a `discard`; at 4f the sampled function may be attached.
@@ -97,17 +97,25 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   `fonts/no-notdef-glyph-shown` hold their *none* on a re-reading of both clauses (ADR 1200), and
   the difference between them is ISO 19005-2 section 6.2.11.8's *regardless of text rendering
   mode*, which its neighbour's NOTE 2 does not say.
-- **Fonts, the supply this tree describes and does not accept**: five messages tell a user to
-  supply a face with `--font`, and `quorra-transform` has no such flag. ADR 1200 section 4 is the
-  reading — the licence ISO 19005-2 section 6.2.11.4.1 demands is a fact only an operator can
-  state, so the flag is `doc/rfc/0007`'s `supply` in its oldest form — and the recommendation is
-  `--font <base-font>=<path>` carried in the plan, reported and recorded in `xmpMM:History` beside
-  the substitution already there, with `pdf_font::restate` applied so no glyph moves.
+- **Fonts, the supply this tree describes**: `--font <base-font>=<path>` is **built** (ADR 1209),
+  on ADR 1200 section 4's reading — the licence ISO 19005-2 section 6.2.11.4.1 demands is a fact
+  only an operator can state, which §9.9.1 says outright, so the flag is `doc/rfc/0007`'s `supply`
+  in its oldest form. The program is carried in the plan, `pdf_font::restate` makes its advances
+  the numbers the dictionary already states so no glyph moves, and the report and the output's own
+  `xmpMM:History` record whose authority the face was in. **What it does not reach yet, measured
+  over the corpus rather than guessed**: no corpus document refuses at this site for want of
+  repertoire, so a supplied DejaVu or Droid face closes none of the thirteen that refuse. Twelve
+  fail §9.9's Table 124 on the format-to-`/Subtype` pairing — a `Type1` or `MMType1` dictionary
+  needing a bare CFF program, or a composite font, where §9.7.4.2's CIDs index the supplied
+  program directly and §9.7.4.3's `/W` and `/DW` are the advances to restate against — and one
+  states no `/FontDescriptor` at all. Table 124's `OpenType` row and the composite route are the
+  two builds that would close them.
 - **Implementation limits**: *none* for nine of the ten, and **not** for
   `implementation-limits/page-boundary-sizes` — §7.7.3.3's Table 31 makes four of §14.11.2's five
   boxes optional and §14.11.2.1 gives each a default that is another box in the file, so removing
   an out-of-range optional entry moves no mark. ADR 1200 section 1 has the predicate that decides
-  whether the removal is mechanical or a loss; not built.
+  whether the removal is mechanical or a loss; **built** in ADR 1210, with
+  `--authorise page-boundary` for the second case and the media box keeping its refusal.
 
 What every site needs alike: the answer carried out at rewrite, the report naming what left and
 where it went, a fixture per site in `crates/pdf-transform/tests/archive.rs`, the output validated

@@ -46,6 +46,13 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QtGlobal>
+#include <QFormLayout>
+#if __has_include(<QtPrintSupport/QPrintDialog>)
+#define QUORRA_QT_HAS_PRINT_SUPPORT 1
+#include <QtPrintSupport/QAbstractPrintDialog>
+#include <QtPrintSupport/QPrintDialog>
+#include <QtPrintSupport/QPrinter>
+#endif
 
 namespace quorra_qt {
 namespace {
@@ -1171,6 +1178,180 @@ void MainWindow::showNotices()
     dialog->show();
 }
 
+void MainWindow::say(const QString& what)
+{
+    status_->setText(what);
+    // A QLabel in a status bar is clipped rather than elided, so the tail of a long sentence is
+    // off the end of it — and a refusal's tail is the half that names the way out.
+    status_->setToolTip(what);
+}
+
+// RFC 0004 §5's Qt print path — the one place in this tree that names a `QPrinter`.
+//
+// Compiled only where QtPrintSupport's headers are installed. `build.rs` asks the same question of
+// the same directory before it asks `cxx-qt-build` to link the module, so the two cannot disagree;
+// a build without it keeps RFC 0004 §6's preview and says the window has no printer (ADR 1203).
+void MainWindow::runThePrintDialogue()
+{
+#if defined(QUORRA_QT_HAS_PRINT_SUPPORT)
+    const QtPrintJob job = host_->print_job();
+    if (job.pages == 0) {
+        return;
+    }
+    if (!job.enforcement.empty()) {
+        say(text(job.enforcement));
+    }
+
+    QPrinter printer(QPrinter::HighResolution);
+    // The painter covers the whole sheet rather than its printable area, because ISO 32000-2
+    // §12.5.6.22 measures Table 194's percentages from "the origin of the media (e.g., printed
+    // page)" and an unprintable margin is not part of that measurement. NOTE 1 of that clause is
+    // the reason a document may place a watermark away from the edge, and it says the *document*
+    // does it with `/Matrix` — not the processor by shrinking the sheet.
+    printer.setFullPage(true);
+    // ISO 32000-2 §12.2, Table 147: every one of these is "the value that shall be selected when
+    // a print dialogue is displayed", so each seeds the dialogue and a person changes it.
+    if (job.copies > 0) {
+        printer.setCopyCount(job.copies);
+    }
+    switch (job.duplex) {
+    case 0:
+        printer.setDuplex(QPrinter::DuplexNone);
+        break;
+    case 1:
+        printer.setDuplex(QPrinter::DuplexLongSide);
+        break;
+    case 2:
+        printer.setDuplex(QPrinter::DuplexShortSide);
+        break;
+    default:
+        break;
+    }
+    const int pages = static_cast<int>(job.pages);
+    printer.setFromTo(1, pages);
+    // `/PrintPageRange`, one-based as the table's own NOTE insists, clamped to the document rather
+    // than refused: a document naming a page it has not got has said nothing a dialogue can open
+    // on, and the range it did name is still worth opening on.
+    if (job.from_page > 0 && job.to_page >= job.from_page) {
+        printer.setFromTo(qBound(1, job.from_page, pages), qBound(1, job.to_page, pages));
+    }
+
+    QPrintDialog dialog(&printer, this);
+    dialog.setOption(QAbstractPrintDialog::PrintPageRange, true);
+    // RFC 0004 §6's two choices, which no print system offers and which decide where the page sits
+    // on the paper — ISO 32000-2 §12.5.6.22's matrix B, and therefore a question about the marks
+    // rather than about the spooler. A build whose dialogue does not show option tabs still has
+    // these two values at their defaults, which is the arrangement every job had before this.
+    auto* options = new QWidget;
+    auto* form = new QFormLayout(options);
+    auto* scaling = new QComboBox(options);
+    scaling->addItem(QStringLiteral("Actual size"), 0);
+    scaling->addItem(QStringLiteral("Shrink to fit"), 1);
+    scaling->addItem(QStringLiteral("Fit to page"), 2);
+    // `/PrintScaling` of `None` is "no page scaling", which is the first of the three.
+    scaling->setCurrentIndex(job.no_scaling ? 0 : 1);
+    auto* perSheet = new QComboBox(options);
+    perSheet->addItem(QStringLiteral("1"), 1);
+    perSheet->addItem(QStringLiteral("2"), 2);
+    perSheet->addItem(QStringLiteral("4"), 4);
+    form->addRow(QStringLiteral("Scaling"), scaling);
+    form->addRow(QStringLiteral("Pages per sheet"), perSheet);
+    options->setWindowTitle(QStringLiteral("Page"));
+    dialog.setOptionTabs({options});
+
+    if (dialog.exec() != QDialog::Accepted) {
+        host_->print_finish();
+        say(QStringLiteral("printing cancelled"));
+        applyUpdates();
+        return;
+    }
+    // ISO 32000-2 §7.6.4.2, Table 22 bit 12's other half, and the one a resolution cannot answer:
+    // a job written to a file is a document a faithful copy could be generated from whatever it
+    // was drawn at. Refused by name, with the job stopped before a page is drawn (ADR 1203).
+    if (job.degraded && !printer.outputFileName().isEmpty()) {
+        host_->print_finish();
+        say(text(job.refusal));
+        applyUpdates();
+        return;
+    }
+
+    const QRectF paper = printer.pageLayout().fullRect(QPageLayout::Point);
+    const float paperWidth = static_cast<float>(paper.width());
+    const float paperHeight = static_cast<float>(paper.height());
+    const auto mode = static_cast<std::uint8_t>(scaling->currentData().toInt());
+    const auto upCount = static_cast<std::uint8_t>(perSheet->currentData().toInt());
+    const auto resolution = static_cast<float>(printer.resolution());
+    // The sheet ISO 32000-2 §12.5.6.22 places a watermark against, composed on the Rust side from
+    // these same numbers so that the cells below and the media cannot disagree (ADR 1204).
+    host_->print_paper(paperWidth, paperHeight, resolution, mode, upCount);
+    const rust::Vec<QtPrintCell> cells = host_->print_cells(paperWidth, paperHeight, mode, upCount);
+    if (cells.empty()) {
+        host_->print_finish();
+        say(QStringLiteral("this paper has no printable extent"));
+        applyUpdates();
+        return;
+    }
+
+    int first = printer.fromPage();
+    int last = printer.toPage();
+    if (first <= 0) {
+        first = 1;
+    }
+    if (last <= 0 || last > pages) {
+        last = pages;
+    }
+
+    QPainter painter;
+    if (!painter.begin(&printer)) {
+        host_->print_finish();
+        say(QStringLiteral("the print job could not be started"));
+        applyUpdates();
+        return;
+    }
+    // Points to the printer's own dots, which is the only unit conversion in this function:
+    // `setFullPage` put the painter's origin at the paper's top-left corner, and a cell's origin
+    // is its *lower*-left one because that is where ISO 32000-2 §8.3.2.3 puts an origin.
+    const qreal perPoint = static_cast<qreal>(printer.resolution()) / 72.0;
+    std::size_t onSheet = 0;
+    for (int page = first; page <= last; ++page) {
+        if (onSheet == 0 && page != first) {
+            printer.newPage();
+        }
+        const rust::Vec<std::uint32_t> size = host_->print_page(static_cast<std::size_t>(page - 1));
+        for (const rust::String& note : host_->print_reports()) {
+            say(text(note));
+        }
+        const std::uint32_t width = size.size() > 0 ? size[0] : 0;
+        const std::uint32_t height = size.size() > 1 ? size[1] : 0;
+        if (width != 0 && height != 0) {
+            const rust::Slice<const std::uint8_t> pixels = host_->print_page_pixels();
+            const qsizetype stride = static_cast<qsizetype>(width) * 4;
+            if (static_cast<qsizetype>(pixels.size()) >= stride * static_cast<qsizetype>(height)) {
+                const QImage borrowed(pixels.data(), static_cast<int>(width),
+                                      static_cast<int>(height), static_cast<int>(stride),
+                                      QImage::Format_RGBA8888);
+                const QtPrintCell& cell = cells[onSheet];
+                const QRectF into(static_cast<qreal>(cell.x) * perPoint,
+                                  static_cast<qreal>(paperHeight - cell.y - cell.height) * perPoint,
+                                  static_cast<qreal>(cell.width) * perPoint,
+                                  static_cast<qreal>(cell.height) * perPoint);
+                painter.drawImage(into, borrowed);
+            }
+        }
+        onSheet = (onSheet + 1) % cells.size();
+    }
+    painter.end();
+    host_->print_finish();
+    say(QStringLiteral("the print job was sent"));
+    applyUpdates();
+#else
+    // §8.11.4.5's operation still runs — the pages on the screen are what would print — and the
+    // same key ends it. What this build has not got is a printer to send them to.
+    say(QStringLiteral("this build has no QtPrintSupport, so this window shows what would print "
+                       "rather than printing it; press the key again to stop"));
+#endif
+}
+
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
     if (busy_) {
@@ -1267,6 +1448,12 @@ void MainWindow::applyUpdates()
     }
     if (update.notices) {
         showNotices();
+    }
+    if (update.print_dialogue) {
+        // Queued for `update.password`'s reason below: `QPrintDialog::exec` runs a nested event
+        // loop, and so does the job's own painting on some backends. This lets the handler that
+        // received the key unwind first.
+        QTimer::singleShot(0, this, [this] { runThePrintDialogue(); });
     }
     if (update.question) {
         // Queued for `update.password`'s reason one line down: a modal dialogue runs a nested

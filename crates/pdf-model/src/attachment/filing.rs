@@ -265,6 +265,13 @@ pub fn file_attachment_annotation(
 ///
 /// "[T]he keys shall be sorted in lexical order", and "[s]horter keys shall appear before longer
 /// ones beginning with the same byte sequence" — which is what a byte vector's own ordering does.
+///
+/// **The one place this tree writes a §7.9.6 `/Names` node**, which is what makes Errata
+/// Collection 3's Issue #307 — adding *Keys shall not be the null object.* to Table 36's `/Names`
+/// row — a prohibition held by a signature rather than by a check at four call sites. A key here
+/// is a `Vec<u8>` and leaves as [`Object::String`], so no caller can put a null in a key position;
+/// a null a *source* states is dropped by `pdf_syntax::tree`'s reader, which is the same erratum's
+/// other half (ADR 1211).
 #[must_use]
 pub fn tree_root(mut entries: Vec<(Vec<u8>, Object)>) -> Object {
     entries.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -671,5 +678,32 @@ mod tests {
         assert!(!tree.holds(b"old"));
         let plain = Tree::read(&document, &catalog, &|id| document.get(id));
         assert!(plain.holds(b"old"));
+    }
+
+    /// Every key of a written node is a string, which is Issue #307's prohibition as a type.
+    ///
+    /// Errata Collection 3's Issue #307 adds *Keys shall not be the null object.* to Table 36's
+    /// `/Names` row. Nothing here checks for a null: [`tree_root`] takes its keys as `Vec<u8>`,
+    /// so a caller has no way to state one, and this asserts that the bytes leave as
+    /// [`Object::String`] rather than as anything a reader would have to guess at. The four
+    /// writers that used to build the node themselves now call this, so the guarantee has one
+    /// home (ADR 1211).
+    #[test]
+    fn every_key_of_a_written_node_leaves_as_a_string() {
+        let node = tree_root(vec![
+            (b"ac".to_vec(), Object::Integer(3)),
+            (b"aa".to_vec(), Object::Integer(1)),
+        ]);
+        let node = node.as_dict().expect("a node is a dictionary");
+        let array = node
+            .get("Names")
+            .and_then(Object::as_array)
+            .expect("a root that is also a leaf states /Names");
+        let keys: Vec<Option<&[u8]>> = array.iter().step_by(2).map(Object::as_string).collect();
+        assert_eq!(
+            keys,
+            vec![Some(&b"aa"[..]), Some(&b"ac"[..])],
+            "the keys are strings, and sorted as §7.9.6 requires"
+        );
     }
 }

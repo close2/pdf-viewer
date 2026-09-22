@@ -137,8 +137,8 @@ extern "C" {
 
 /* Which operation a level is being set for: CLAUDE.md's four levels, per restriction (ADR 1144).
  * Table 22 states eight positions with eight different subjects, and a reader who wants to be
- * asked before text leaves the program has said nothing about form filling. PRINT and ASSEMBLE
- * are settable and performed by no entry point yet. */
+ * asked before text leaves the program has said nothing about form filling. ASSEMBLE is
+ * settable and performed by no entry point yet. */
 #define QUORRA_RESTRICTED_COPY     0u
 #define QUORRA_RESTRICTED_ANNOTATE 1u
 #define QUORRA_RESTRICTED_FILL     2u
@@ -152,6 +152,10 @@ extern "C" {
  * at QUORRA_RESTRICT_ASK gets QUORRA_EVENT_KIND_ASKING and answers it with quorra_answer (ADR
  * 1167). */
 #define QUORRA_RESTRICTED_PROCESS  6u
+/* Bit 12: printing at a quality a copy of the document could be rebuilt from. A second operation
+ * beside QUORRA_RESTRICTED_PRINT and not a second answer to it — Table 22 states two
+ * consequences, and bit 12 clear limits a print that bit 3 let through (ADR 1203). */
+#define QUORRA_RESTRICTED_PRINT_QUALITY 7u
 
 /* §12.8.1's third question: what a reader does where the document's own §12.8.4 material settles
  * nothing about revocation. Nothing computes a clean answer out of an absent one either way — RFC
@@ -734,6 +738,17 @@ int32_t quorra_copy(quorra_viewer *viewer, quorra_events **events);
  * QUORRA_NUMBER_OUT_OF_RANGE where a corner or the scale is not a finite positive number. */
 int32_t quorra_print(quorra_viewer *viewer, const float *media, float scale,
                        quorra_events **events);
+/* The same with §12.5.6.22's matrix B stated: `page_scale` is what the page is scaled by onto the
+ * media, 1.0 being quorra_print. A caller that shrinks a page onto the paper or composes an n-up
+ * sheet states the factor, and a fixed print watermark is drawn immune to it — the clause's two
+ * post-EXAMPLE bullets both require the mark at the size the media was measured in (ADR 1204). */
+int32_t quorra_print_placed(quorra_viewer *viewer, const float *media, float scale,
+                       float page_scale, quorra_events **events);
+/* A QUORRA_EVENT_PRINTING's two facts: how many pages the job has, and whether §7.6.4.2's Table 22
+ * bit 12 was withheld — in which case the job is drawn at the resolution floor and no destination
+ * that writes a document may be offered (ADR 1203). */
+int32_t quorra_event_printing(const quorra_events *events, size_t index, size_t *pages,
+                       bool *degraded);
 /* The end of that operation — §8.11.4.5's "then all groups shall revert to their prior states".
  * Sent whether the job finished or the person cancelled; harmless where none is running. */
 int32_t quorra_print_finish(quorra_viewer *viewer, quorra_events **events);

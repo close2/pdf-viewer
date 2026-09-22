@@ -1541,7 +1541,12 @@ impl Viewer {
         let Some(held) = open.asking.take() else {
             return;
         };
-        if !proceed {
+        // §7.6.4.2's bit 12 is the one question whose `no` is an answer and not a cancellation:
+        // Table 22 makes bit 3 the permission to print and bit 12 only the permission to print
+        // faithfully, so declining there asks for the degraded job the cell describes rather than
+        // for no job at all (ADR 1203). Every other `no` forgets what was held.
+        let answered_either_way = matches!(held, crate::open::Held::PrintFaithfully(_));
+        if !proceed && !answered_either_way {
             // §12.11.6's question is the one whose `no` has something to undo: a document held
             // before it was processed was never opened, no `Event::Opened` named it, and leaving
             // it in the map would be this crate holding a document nobody can see or close.
@@ -1567,7 +1572,29 @@ impl Viewer {
             }),
             // Nothing to commit here either: a print operation changes no document. What the
             // `yes` releases is the intent, applied to the sheet the question named.
-            crate::open::Held::Print(sheet) => Self::begin_printing(document, open, sheet, events),
+            // A `yes` to bit 3 releases the printing; bit 12 is a second question and is asked
+            // here for the first time, because a person answering one had not been asked the
+            // other (ADR 1203).
+            crate::open::Held::PrintFaithfully(sheet) => {
+                let fidelity = if proceed {
+                    crate::Fidelity::Faithful
+                } else {
+                    crate::Fidelity::Degraded
+                };
+                Self::begin_printing(document, open, sheet, fidelity, events);
+            }
+            crate::open::Held::Print(sheet) => {
+                let granted = Self::faithfulness(
+                    document,
+                    open,
+                    self.restrictions.under(open.restrictions),
+                    sheet,
+                    events,
+                );
+                if let Some(fidelity) = granted {
+                    Self::begin_printing(document, open, sheet, fidelity, events);
+                }
+            }
         }
     }
 
@@ -1595,7 +1622,7 @@ impl Viewer {
                     return;
                 }
                 open.printing = Some(sheet);
-                open.view.set_paper(sheet.media);
+                open.view.set_paper(paper_of(sheet));
                 open.stale();
                 events.push(damage(self.viewport));
                 return;
@@ -1612,16 +1639,25 @@ impl Viewer {
         match self.standing(id, Operation::Print, None, None) {
             Standing::Refuse(refused) => events.push(refused),
             Standing::Proceed => {
+                let policy = self.restrictions;
                 let Some(open) = self.documents.get_mut(&id) else {
                     return;
                 };
-                Self::begin_printing(id, open, sheet, events);
+                let under = policy.under(open.restrictions);
+                if let Some(fidelity) = Self::faithfulness(id, open, under, sheet, events) {
+                    Self::begin_printing(id, open, sheet, fidelity, events);
+                }
             }
             Standing::Warn(notes) => {
+                let policy = self.restrictions;
                 let Some(open) = self.documents.get_mut(&id) else {
                     return;
                 };
-                Self::begin_printing(id, open, sheet, events);
+                let under = policy.under(open.restrictions);
+                let granted = Self::faithfulness(id, open, under, sheet, events);
+                if let Some(fidelity) = granted {
+                    Self::begin_printing(id, open, sheet, fidelity, events);
+                }
                 events.push(Event::Warned {
                     document: id,
                     operation: Operation::Print,
@@ -1643,6 +1679,66 @@ impl Viewer {
         events.push(damage(self.viewport));
     }
 
+    /// §7.6.4.2's Table 22 bit 12, asked of a print bit 3 has already let through.
+    ///
+    /// `None` is the *ask* level: the question is out and the job waits on
+    /// [`Command::Answer`], which is the only one of the four verdicts that does not start a
+    /// print. The other three all start one, at the fidelity they decided:
+    ///
+    /// - **`Proceed`** — the document withholds nothing, or this reader said not to obey it.
+    /// - **`Refuse`** — the document withholds bit 12 and this reader obeys it, so the job goes
+    ///   ahead degraded and [`Event::Refused`] names the *fidelity* that was withheld. Table 22
+    ///   is what makes a refusal and a grant arrive together: "[w]hen this bit is clear (and bit
+    ///   3 is set), printing shall be limited to a low- level representation of the appearance,
+    ///   possibly of degraded quality" — a limit on the job rather than the end of it.
+    /// - **`Warn`** — the job is faithful and the document's reasons are said afterwards, which
+    ///   is what that level means everywhere else in this crate.
+    ///
+    /// ADR 1203.
+    fn faithfulness(
+        id: DocumentId,
+        open: &mut Open,
+        policy: crate::RestrictionPolicy,
+        sheet: crate::Sheet,
+        events: &mut Vec<Event>,
+    ) -> Option<crate::Fidelity> {
+        use pdf_model::restriction::Operation;
+
+        let operation = Operation::PrintFaithfully;
+        let standing = Self::verdict_of(
+            id,
+            policy.level(operation).level(),
+            &open.document,
+            operation,
+            None,
+            None,
+        );
+        match standing {
+            Standing::Proceed => Some(crate::Fidelity::Faithful),
+            Standing::Refuse(refused) => {
+                events.push(refused);
+                Some(crate::Fidelity::Degraded)
+            }
+            Standing::Warn(notes) => {
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes,
+                });
+                Some(crate::Fidelity::Faithful)
+            }
+            Standing::Ask(notes) => {
+                open.asking = Some(crate::open::Held::PrintFaithfully(sheet));
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes,
+                });
+                None
+            }
+        }
+    }
+
     /// Puts one document into print intent, and says so.
     ///
     /// Three statements about the *output* rather than about the document, which is why they go
@@ -1651,20 +1747,25 @@ impl Viewer {
     /// chosen; §12.5.6.22's target media; and, through the first of those, §12.5.3's device.
     /// Every page already interpreted was interpreted for a screen, so all of them are superseded
     /// — which is what `Open::stale` means and why a print operation redraws the window.
+    ///
+    /// `fidelity` is Table 22 bit 12's answer, decided by [`Self::faithfulness`] before this is
+    /// reached and carried on the grant so that a host knows what its dialogue may offer.
     fn begin_printing(
         id: DocumentId,
         open: &mut Open,
         sheet: crate::Sheet,
+        fidelity: crate::Fidelity,
         events: &mut Vec<Event>,
     ) {
         open.printing = Some(sheet);
         open.view
             .set_purpose(pdf_model::optional_content::Purpose::Print);
-        open.view.set_paper(sheet.media);
+        open.view.set_paper(paper_of(sheet));
         open.stale();
         events.push(Event::Printing {
             document: id,
             pages: open.page_count,
+            fidelity,
         });
     }
 
@@ -3814,6 +3915,18 @@ fn commit(id: DocumentId, open: &mut Open, done: crate::open::Done, events: &mut
 /// print intent — so this function states nothing about §12.5.3 or §8.11.4.5 and could not: the
 /// whole of the print reading is in `pdf_model`, asked of a state that says what the output is
 /// for.
+/// A sheet as §12.5.6.22 reads it: the media, and what B does to the page on it.
+///
+/// `None` is Table 193's dimensions that "are not known at the time of drawing", under which the
+/// page's own media box stands in and there is no B to cancel — so the scale is dropped with the
+/// rectangle rather than carried alone. ADR 1204.
+fn paper_of(sheet: crate::Sheet) -> Option<pdf_model::view::TargetMedia> {
+    sheet.media.map(|media| pdf_model::view::TargetMedia {
+        media,
+        page_scale: sheet.page_scale,
+    })
+}
+
 fn print_page(open: &Open, index: usize, sheet: crate::Sheet) -> Option<crate::PrintPage> {
     let read = crate::open::interpret(open, index)?;
     let list = Arc::new(read.interpretation.display_list);

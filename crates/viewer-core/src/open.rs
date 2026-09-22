@@ -691,6 +691,15 @@ pub(crate) enum Held {
     /// answer arrives after the person has read the question, and what goes ahead on a `yes` is
     /// the job they were asked about rather than whatever a dialogue says now.
     Print(crate::Sheet),
+    /// §7.6.4.2's bit 12, asked of a print the reader's level for bit 3 already let through —
+    /// `crate::Command::Print`.
+    ///
+    /// **The one held question whose `no` is an answer rather than a cancellation**, and Table
+    /// 22 is why: bit 3 clear withholds printing and bit 12 clear withholds only the fidelity,
+    /// with the job going ahead "limited to a low- level representation of the appearance". So a
+    /// person who declines here has asked for a degraded print rather than for no print, and
+    /// `Viewer::answer` begins one. ADR 1203.
+    PrintFaithfully(crate::Sheet),
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole

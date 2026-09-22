@@ -269,3 +269,27 @@ is mine to overwrite" from a count owes that second question.
 composed into a measurement it showed a slope of nothing beside the word *slope*. When a reader
 composes several optional clause-derived strings into one answer, only the absence of the input
 belongs in the answer (ADR 1191).
+
+## Before building a refusal, check whether the type already refuses
+
+Errata #307's `shall not` on a null name-tree key asked for a typed refusal at four writers; every
+writer builds its keys from byte strings, so no caller has an `Object` to put in a key position and
+a `Refusal` variant would be dead code with a doc comment claiming a failure mode that does not
+exist. The rule got one home instead (`filing::tree_root`) and tests that a source's null key does
+not cross a merge, a split or an attach (ADR 1211). A `shall not` addressed to a writer is answered
+by the type the writer's keys have.
+
+## A predicate borrowed from a neighbouring function answers that neighbour's question
+
+`settled_over` reused `group_alpha_is_shape`'s element test because the two looked like one
+question; the borrowed arm's `false` for a `Command::Shaped` was a decision about §8.5.4's exactness
+silently imported into §11.6.4.3's reading, while the doc comment beside it argued the opposite of
+what the code did. When a doc comment and a borrowed predicate disagree, the predicate is answering
+another clause (ADR 1205).
+
+## A message that names a remedy is checked against the code that would carry it out
+
+Five messages named a `--font` flag the program refused as a usage error (ADR 1200); once the flag
+existed, two of them still named it for cases it structurally cannot reach — a bare-CFF `Type1`
+dictionary and a composite font (ADR 1209). `tools/state.sh flags` catches the first shape; the
+second is read by hand at the call site that prints the message.

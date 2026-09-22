@@ -324,3 +324,9 @@ obliges a reclassification.** §12.9 and §12.10 sat in `doc/todo/65`'s host-UI 
 sentence — nothing takes the two points, and projection needs a registry; building the drag left
 the geospatial rows correctly `partial` and wrongly bucketed. When a note's reason is a conjunction,
 the bucket is the first conjunct, and a round that retires it moves the row (ADR 1191).
+
+**An ADR's stated ground that is a fact about this tree's code decays the way a ledger row's does,
+and the cheapest check is reading the function the ADR names.** ADR 1069's premise was one sentence
+about `rgb_to_ink`; the refuting doc comment was forty lines above it, and §10.4.2.4's row had
+already written the correct answer down two rows away (ADR 1207). `doc/todo/65`'s "expired
+premises" section is where such a decision goes once its ground has moved.

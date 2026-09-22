@@ -432,6 +432,25 @@ impl Events {
         }
     }
 
+    /// [`Event::Printing`]: how many pages the job has, and what Table 22 bit 12 left of it.
+    ///
+    /// `true` is [`viewer_core::Fidelity::Degraded`] — §7.6.4.2's bit 12 is clear and this reader
+    /// obeys it, so the job is "limited to a low- level representation of the appearance". A
+    /// caller draws its pages at the floor and offers no destination that writes a document
+    /// (ADR 1203).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn printing(&self, index: usize) -> Result<(usize, bool), Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::Printing {
+                pages, fidelity, ..
+            } => Ok((*pages, *fidelity == viewer_core::Fidelity::Degraded)),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
     /// [`Event::Transition`]: Table 164's numbers, without the style.
     ///
     /// # Errors

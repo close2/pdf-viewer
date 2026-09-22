@@ -36,6 +36,7 @@ use pdf_transform::merge::{Input, MergePlan};
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::split::{Pieces, SplitPlan};
+use pdf_transform::update::InfoEntry;
 use pdf_transform::{Budget, MemorySinks, Origin, Plan, Policy, Refusal, Report, Source, apply};
 
 use support::committed;
@@ -53,6 +54,15 @@ const WITH_INTENT: &str = "Tagged-PDF-Best-Practice-Guide.pdf";
 
 /// Merges these inputs, answering the report and the one output.
 fn merge(inputs: &[(&[u8], &str)], collate: bool) -> Result<(Report, Vec<u8>), Refusal> {
+    merge_stating(inputs, collate, &[])
+}
+
+/// [`merge`], with §14.3.3's entries the merged document states.
+fn merge_stating(
+    inputs: &[(&[u8], &str)],
+    collate: bool,
+    information: &[InfoEntry],
+) -> Result<(Report, Vec<u8>), Refusal> {
     let sinks = MemorySinks::new();
     let plan = Plan::Merge(MergePlan {
         inputs: inputs
@@ -64,6 +74,7 @@ fn merge(inputs: &[(&[u8], &str)], collate: bool) -> Result<(Report, Vec<u8>), R
             })
             .collect(),
         collate,
+        information: information.to_vec(),
         names: "merged.pdf".parse().expect("a pattern"),
     });
     let sources: Vec<Source> = inputs
@@ -982,4 +993,227 @@ fn a_parent_tree_value_stated_out_of_line_is_carried_as_the_array_it_names() {
 /// The object number of the page at this index, for the `/Pg` comparison above.
 fn page_id(document: &Document, index: usize) -> Option<ObjectId> {
     Pages::new(document).get(index).and_then(|page| page.id)
+}
+
+/// A one-page document whose §7.9.6 `/Dests` tree states a null key between two real ones.
+///
+/// Built rather than found (trap 4's other half): Errata Collection 3's Issue #307 adds *Keys
+/// shall not be the null object.* to Table 36's `/Names` row, so a file that states one is by
+/// that erratum's own words a file that should not exist, and no corpus document has one. The
+/// keys are `aa`, null and `ac`, each naming a different destination on the one page, so a
+/// writer that dropped the null *element* rather than its whole pair would re-pair the
+/// remainder and give `ac` the wrong array.
+fn null_key_document() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Names \
+                [(aa) 5 0 R null 6 0 R (ac) 7 0 R] >> >> >>\nendobj\n\
+                2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+                3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+                /Contents 4 0 R >>\nendobj\n\
+                4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+                5 0 obj\n[3 0 R /XYZ 0 11 null]\nendobj\n\
+                6 0 obj\n[3 0 R /XYZ 0 22 null]\nendobj\n\
+                7 0 obj\n[3 0 R /XYZ 0 33 null]\nendobj\n";
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Every key of every §7.9.6 tree the catalog's `/Names` holds, in the file's own order.
+///
+/// The verbs write each tree as one node — §7.9.6 permits it, "[i]f the root node has a Names
+/// entry, it shall be the only node in the tree" — so one level is the whole of it.
+fn tree_keys(document: &Document) -> Vec<Object> {
+    let Ok(catalog) = document.catalog() else {
+        return Vec::new();
+    };
+    let names = document.get_key(&catalog, "Names");
+    let Some(names) = names.as_dict() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (_, node) in names.iter() {
+        let node = document.resolve(node);
+        let Some(node) = node.as_dict() else {
+            continue;
+        };
+        let array = document.get_key(node, "Names");
+        if let Some(array) = array.as_array() {
+            for pair in array.chunks(2) {
+                if let Some(key) = pair.first() {
+                    out.push(key.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A null key in a source's name tree does not reach the merged document's.
+///
+/// Errata Collection 3's Issue #307 adds *Keys shall not be the null object.* to Table 36's
+/// `/Names` row — a prohibition on whoever writes the file. This tree meets it by construction:
+/// `pdf_syntax::tree`'s reader drops a null key's pair, and `filing::tree_root`, the one place a
+/// §7.9.6 node is written, takes its keys as bytes. The end-to-end assertion is here because
+/// neither half alone says a null cannot *cross* (ADR 1211).
+#[test]
+fn a_sources_null_name_tree_key_does_not_cross_into_the_merge() {
+    let source = null_key_document();
+    let second = std::fs::read(committed(FIRST)).expect("a committed document");
+    let (_, merged) = merge(&[(&source, "1"), (&second, "1")], false).expect("merged");
+    let document = Document::open(merged).expect("the merge opens");
+
+    let keys = tree_keys(&document);
+    assert!(
+        !keys.iter().any(|key| matches!(key, Object::Null)),
+        "no key of a written tree is the null object: {keys:?}"
+    );
+    let strings: BTreeSet<Vec<u8>> = keys
+        .iter()
+        .filter_map(|key| key.as_string().map(<[u8]>::to_vec))
+        .collect();
+    assert!(
+        strings.contains(&b"aa"[..]) && strings.contains(&b"ac"[..]),
+        "the pairs either side of the null keep their own keys: {strings:?}"
+    );
+}
+
+/// A merge states no `/Info` unless the caller states one, and states exactly what they state.
+///
+/// §14.3.3's entries are claims about *the document*, and the merged document was made by no
+/// source's producer at no source's creation time — so carrying a source's would write a false
+/// claim, and deriving one would invent a producer. `doc/questions/A55`'s rule, that a
+/// derivation is never a default, is what the empty half asserts (ADR 1212, ADR 0821 section 9).
+#[test]
+fn a_merge_states_only_the_information_the_caller_states() {
+    let first = std::fs::read(committed(FIRST)).expect("a committed document");
+    let second = std::fs::read(committed(SECOND)).expect("a committed document");
+
+    let (_, bare) = merge(&[(&first, "1"), (&second, "1")], false).expect("merged");
+    let bare = Document::open(bare).expect("the merge opens");
+    assert!(
+        bare.trailer().get("Info").is_none(),
+        "with nothing stated the merged document states no /Info, whatever its sources state"
+    );
+
+    let (_, stated) = merge_stating(
+        &[(&first, "1"), (&second, "1")],
+        false,
+        &[
+            InfoEntry {
+                key: "Title".to_owned(),
+                value: Some("a merged document".to_owned()),
+            },
+            InfoEntry {
+                key: "Trapped".to_owned(),
+                value: Some("Unknown".to_owned()),
+            },
+        ],
+    )
+    .expect("merged");
+    let stated = Document::open(stated).expect("the merge opens");
+    let info = stated.trailer().get("Info").cloned().expect("an /Info");
+    let info = stated.resolve(&info);
+    let info = info.as_dict().expect("a document information dictionary");
+    assert_eq!(
+        info.get("Title")
+            .and_then(Object::as_string)
+            .map(<[u8]>::to_vec),
+        Some(pdf_syntax::text_string::encode_text_string(
+            "a merged document"
+        )),
+        "§14.3.3: \"the value associated with any such key shall be a text string\""
+    );
+    assert_eq!(
+        info.get("Trapped")
+            .and_then(Object::as_name)
+            .and_then(pdf_syntax::object::Name::as_str),
+        Some("Unknown"),
+        "Table 349: \"This shall be the name True , not the boolean value true .\""
+    );
+    assert_eq!(info.len(), 2, "and nothing was derived from the sources");
+}
+
+/// A key outside Table 349, or a value outside its type, is refused by name.
+#[test]
+fn a_merge_refuses_an_information_entry_table_349_does_not_define() {
+    let first = std::fs::read(committed(FIRST)).expect("a committed document");
+    let error = merge_stating(
+        &[(&first, "1")],
+        false,
+        &[InfoEntry {
+            key: "Producer ".to_owned(),
+            value: Some("nobody".to_owned()),
+        }],
+    )
+    .expect_err("a key Table 349 does not define");
+    assert!(
+        matches!(&error, Refusal::Pattern(detail) if detail.contains("Table 349")),
+        "{error:?}"
+    );
+}
+
+/// A merged document stating a date states §14.3.2's packet beside it, saying the same instant.
+///
+/// §14.3.4's first rule binds a processor creating a new document: "[w]hen writing the time and
+/// date of creation for the first time, typically when a new document is created, a PDF
+/// processor shall ensure that the data in the document information dictionary and the document
+/// level metadata stream -if both are written -are fully equivalent." The two texts spell an
+/// instant differently, so what is asserted is that they name the same one (ADR 1212).
+#[test]
+fn a_stated_date_is_written_into_both_of_the_clauses_two_sources() {
+    let first = std::fs::read(committed(FIRST)).expect("a committed document");
+    let (_, merged) = merge_stating(
+        &[(&first, "1")],
+        false,
+        &[
+            InfoEntry {
+                key: "CreationDate".to_owned(),
+                value: Some("D:20260922114500+02'00".to_owned()),
+            },
+            InfoEntry {
+                key: "ModDate".to_owned(),
+                value: Some("D:20260922114500Z".to_owned()),
+            },
+        ],
+    )
+    .expect("merged");
+    let document = Document::open(merged).expect("the merge opens");
+
+    let catalog = document.catalog().expect("a catalog");
+    let metadata = document.get_key(&catalog, "Metadata");
+    let metadata = metadata.as_stream().expect("§14.3.2's stream");
+    let packet = String::from_utf8(metadata.data.to_vec()).expect("an XMP packet is XML text");
+    assert!(
+        packet.contains("<xmp:CreateDate>2026-09-22T11:45:00+02:00</xmp:CreateDate>"),
+        "the same instant the /CreationDate states: {packet}"
+    );
+    assert!(
+        packet.contains("<xmp:ModifyDate>2026-09-22T11:45:00Z</xmp:ModifyDate>"),
+        "the same instant the /ModDate states: {packet}"
+    );
+    assert_eq!(
+        metadata
+            .dict
+            .get("Subtype")
+            .and_then(Object::as_name)
+            .and_then(pdf_syntax::object::Name::as_str),
+        Some("XML"),
+        "Table 347's /Subtype: \"( Required ) The type of metadata stream that this dictionary \
+         describes; shall be XML .\""
+    );
 }

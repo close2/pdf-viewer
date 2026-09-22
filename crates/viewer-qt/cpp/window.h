@@ -296,6 +296,24 @@ private:
     /// ADR 0526; the text is `viewer_host::NOTICE`, so that two binaries of one program do not
     /// make two claims about one obligation.
     void showNotices();
+    /// Runs RFC 0004 §5's `QPrintDialog` and paints the job — ISO 32000-2 §7.6.4.2's bit 3,
+    /// already granted by the time this is reached.
+    ///
+    /// **The whole of this window's print path, and it is the only place a `QPrinter` is named.**
+    /// The dialogue's own tab adds RFC 0004 §6's two choices that no print system offers — the
+    /// scale mode and how many pages go on a sheet — because those two decide where the page
+    /// sits on the paper, which is ISO 32000-2 §12.5.6.22's matrix B and therefore a question
+    /// about the *marks* rather than about the spooler (ADR 1204).
+    ///
+    /// Compiled only where QtPrintSupport is installed; `build.rs` asks the same question of the
+    /// same directory, and a build without it keeps the preview and says the window has no
+    /// printer (ADR 1203).
+    void runThePrintDialogue();
+    /// Puts one sentence in the status bar, with the tooltip a clipped `QLabel` needs.
+    ///
+    /// The window's own sentences — "the print job was sent" — rather than the viewer's, which
+    /// arrive through `Host::status`. Both end in the same place, so both are said the same way.
+    void say(const QString& what);
     /// Builds the find bar: a real `QLineEdit` and two buttons in a `QToolBar`.
     void buildFindBar();
     /// Posts one step of the search on a zero-delay timer, for as long as pages remain.

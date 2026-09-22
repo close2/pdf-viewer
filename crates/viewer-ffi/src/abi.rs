@@ -3166,9 +3166,87 @@ pub unsafe extern "C" fn quorra_print(
         viewer_core::Sheet {
             media: Some(media),
             scale,
+            page_scale: 1.0,
         },
     ))));
     Status::Ok.code()
+}
+
+/// `quorra_print` with §12.5.6.22's matrix B stated — a page placed on the media rather than at
+/// its own size.
+///
+/// **A second entry point rather than a fifth argument on the first**, which is this header's own
+/// rule: a function added later is a symbol an old caller never looks up, while a changed
+/// signature is a call an old caller has already compiled and no diagnostic would catch.
+///
+/// `page_scale` is what the page is scaled by onto the media — 1.0 is `quorra_print`, and a
+/// caller that shrinks a page to fit the paper or composes an n-up sheet states the factor. A
+/// fixed print watermark is drawn immune to it: §12.5.6.22's two post-EXAMPLE bullets both
+/// require the mark at the size the *media* was measured in. ADR 1204.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_print_placed(
+    viewer: *mut Session,
+    media: *const f32,
+    scale: f32,
+    page_scale: f32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    if media.is_null() {
+        return Status::NullArgument.code();
+    }
+    let media: [f32; 4] = std::array::from_fn(|corner| *media.add(corner));
+    if !scale.is_finite()
+        || scale <= 0.0
+        || !page_scale.is_finite()
+        || page_scale <= 0.0
+        || !media.iter().all(|corner| corner.is_finite())
+    {
+        return Status::OutOfRange.code();
+    }
+    *events = Box::into_raw(Box::new(viewer.print(viewer_core::Printing::Start(
+        viewer_core::Sheet {
+            media: Some(media),
+            scale,
+            page_scale,
+        },
+    ))));
+    Status::Ok.code()
+}
+
+/// A `QUORRA_EVENT_PRINTING`'s two facts: how many pages, and whether the job is degraded.
+///
+/// `degraded` is §7.6.4.2's Table 22 bit 12 answered — see `quorra_print`.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_printing(
+    events: *const Events,
+    index: usize,
+    pages: *mut usize,
+    degraded: *mut bool,
+) -> c_int {
+    let (Some(events), Some(pages), Some(degraded)) =
+        (events.as_ref(), pages.as_mut(), degraded.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    match events.printing(index) {
+        Ok((found, was_degraded)) => {
+            *pages = found;
+            *degraded = was_degraded;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
 }
 
 /// The end of the print operation `quorra_print` began — §8.11.4.5's revert.

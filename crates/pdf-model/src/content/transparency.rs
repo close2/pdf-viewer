@@ -516,7 +516,13 @@ fn parent_channels(parent: &Compositing, rendering: Rendering, rgb: [f32; 3]) ->
         | Compositing::Grey
         | Compositing::Calibrated(_)
         | Compositing::Subtractive(..) => {
-            let painted = parent.paint(&ColourSpace::Rgb, &rgb, rendering);
+            // §11.7.5.3's *second* bullet — a group whose colour space is `DeviceRGB` painted
+            // into a `DeviceCMYK` parent — names the functions in effect at the `Do`, and this
+            // cube is built there. It is not carried out: the conversion happens per pixel in a
+            // backend over a composited result, where no colour space and no graphics state
+            // exist. `Interpreter::note_black_generation_departure` is what says so, and ADR
+            // 1207 records that the first bullet is performed and this one is not.
+            let painted = parent.paint(&ColourSpace::Rgb, &rgb, rendering, None);
             Some([painted.r, painted.g, painted.b])
         }
     }
@@ -834,9 +840,8 @@ impl AlphaSourcesSeen {
     /// So where nothing in `commands` states either of those two, the flag reinterprets
     /// nothing: every element's source shape is its object shape and its source opacity is
     /// 1.0 under **both** readings, and [`Self::Mixed`] content is described by both rather
-    /// than by neither. That is [`group_alpha_is_shape`]'s own predicate asked under
-    /// [`AlphaSource::Opacity`] — element by element and at every depth, does anything state
-    /// a mask or a constant *as opacity* — so the two questions are one question.
+    /// than by neither. [`flag_reinterprets_nothing`] is that question, element by element
+    /// and at every depth.
     ///
     /// [`AlphaSource::Opacity`] is the answer it then gives because Table 57 makes it the
     /// default and because it is the cheaper of two equal display lists: under it an opaque
@@ -847,10 +852,37 @@ impl AlphaSourcesSeen {
         self.settled().or_else(|| {
             commands
                 .iter()
-                .all(|command| element_alpha_is_shape(command, AlphaSource::Opacity))
+                .all(flag_reinterprets_nothing)
                 .then_some(AlphaSource::Opacity)
         })
     }
+}
+
+/// Whether §11.6.4.3's flag reinterprets nothing in this element, so that both readings
+/// describe it and [`AlphaSourcesSeen::Mixed`] content holding it can still be drawn.
+///
+/// §11.6.4.3 and §11.6.4.4 give the flag exactly two things to reinterpret — the soft mask and
+/// the two alpha constants — and §11.6.4.2 fixes every other opacity input at 1.0. So the
+/// question is [`element_alpha_is_shape`]'s under [`AlphaSource::Opacity`]: does this element
+/// state a mask or a constant *as opacity*.
+///
+/// **A [`Command::Shaped`] answers yes here and no there, and the two answers are to different
+/// questions.** [`group_alpha_is_shape`] declines a stated pair because proving that the alpha
+/// its two composites leave is §8.5.4's shape is a separate argument, which costs an exact
+/// intersection and never correctness. This question is the clause's: a pair arrives with its
+/// shape *already stated*, under the reading its own group's content ran under, and no flag in
+/// an enclosing state can reinterpret a quantity that is no longer an input. Borrowing the
+/// other predicate whole made a group holding an inner knockout group's element refuse for a
+/// reason that belongs to the other question (ADR 1205).
+///
+/// **Cost, `callgrind_interpret`, 50 interpretations of ISO 32000-2 page 101, one sitting**:
+/// 1 252 899 002 → 1 252 899 128, +126 instructions, **+0.00001%**. A page whose record is
+/// already settled cannot pay at all — `Option::or_else` is not evaluated there — so what the
+/// number bounds is the `matches!` this adds per element of a group that painted under both
+/// readings.
+fn flag_reinterprets_nothing(command: &Command) -> bool {
+    matches!(command, Command::Shaped { .. })
+        || element_alpha_is_shape(command, AlphaSource::Opacity)
 }
 
 /// What was decided about a group, for the reports that ask what it did not get.
@@ -1087,10 +1119,8 @@ fn stated_shape(
 /// Only the blend mode is dropped, for the reason [`shape_without_the_mask_and_the_constants`]
 /// drops it: §11.4.6 leaves a knockout element nothing to blend against.
 ///
-/// `None` for a nested group, which is the one element whose alpha is not its shape even here:
-/// §11.3.7.2 makes a group object's opacity "the result of the opacity computations for all of
-/// the objects it contains" rather than 1.0, and a non-isolated one accumulates its backdrop's
-/// alpha besides. That is the shape channel §11.3.7.2's row owes, and it stays owed.
+/// A nested group answers with the union §11.3.7.2 makes its shape, accumulated on
+/// transparency — see the arm's own comment for why isolation does not enter into it.
 fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
     match command {
         Command::Fill {
@@ -1142,22 +1172,27 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
             mask: *mask,
             blend: BlendMode::Normal,
         }),
-        // A group's shape is the union of its elements' (§11.3.7.2), and under this reading
-        // each element's shape is its own alpha — which is exactly what an isolated group
-        // accumulates: compositing by Over takes the union of the alphas whatever blend
-        // function the *colours* go through, and §11.4.6's `(1 − f) × F + f` is that same
-        // union. Its opacity is 1.0 because every one of §11.3.7.2's opacity inputs inside it
-        // is 1.0, so the group's alpha is its shape and the shape command is the group itself.
+        // §11.3.7.2 gives a group's shape without reference to its backdrop:
         //
-        // **Isolated only**, and that is the one place this reading does not simplify: a
-        // non-isolated group is drawn on a buffer seeded from its backdrop (ADR 0237), so what
-        // it accumulates carries the backdrop's alpha beside its own and is not a shape at all.
+        // > The shape of a group object shall be the union (as defined in 11.3.7.3, "Result
+        // > shape and opacity") of the shapes of the objects it contains.
+        //
+        // Under this reading each element's shape is its own drawn alpha, and compositing by
+        // Over takes the union of the alphas whatever blend function the *colours* go through
+        // — §11.4.6's `(1 − f) × F + f` being that same union — so a group accumulated on
+        // transparency accumulates exactly that union. Its opacity is 1.0 because every one of
+        // §11.3.7.2's opacity inputs inside it is 1.0, so its alpha is its shape.
+        //
+        // **Emitted isolated whatever the element was**, which is the clause rather than a
+        // substitution: a non-isolated group is *drawn* on a buffer seeded from its backdrop
+        // (ADR 0237), so what it accumulates carries the backdrop's alpha beside its own — but
+        // the sentence above makes the group's shape the union of its elements' either way, and
+        // accumulating that union on transparency is the one way to hold it alone. ADR 1205.
         Command::Group {
             commands,
             alpha,
             clip,
             mask,
-            isolated: true,
             knockout,
             blending,
             ..
@@ -1470,9 +1505,6 @@ fn unstatable_shape(
             return None;
         }
         Some(match (command, alpha) {
-            (Command::Group { .. }, AlphaSource::Shape) => {
-                "a non-isolated group, whose accumulated alpha carries its backdrop's (§11.4.4)"
-            }
             (Command::Image { .. }, _) => {
                 "an image mask under a soft mask of its own, whose samples multiply shape \
                  by opacity"
@@ -3461,42 +3493,63 @@ impl Interpreter<'_> {
         self.blending_beyond
     }
 
-    /// Says that Table 57's black generation was stated where this tree converts without one.
+    /// Says where a stated black generation reached a conversion that did not use it.
     ///
-    /// ISO 32000-2 §11.7.5.3, and the reading is [`Unsupported::BlackGeneration`]'s and ADR
-    /// 1069's: the entry names a parameter of §10.4.2.4, which §10.4.2.1 ranks below the branch
-    /// this tree converts on, so there is no step of the conversion for a stated function to
-    /// replace. Until session 1055 this cost the page §11.4.7's blending space as well, on a
-    /// refusal that did not evaluate the functions either.
+    /// ISO 32000-2 §11.7.5.3 states the pair's three moments and this tree carries out the
+    /// first: a `DeviceRGB` colour painted into a group whose colour space is `DeviceCMYK` is
+    /// separated by §10.4.2.4 with the file's own functions (`ColourSpace::to_cmyk_under`, ADR
+    /// 1207). What is left is what this reports, and the condition names each half rather than
+    /// the statement alone:
     ///
-    /// **The condition is the clause's own and it over-approximates in one direction only.**
-    /// §11.7.5.3 applies the functions "only during conversion from DeviceRGB to DeviceCMYK
-    /// colour spaces", so both halves have to hold: the file states a function
-    /// ([`Interpreter::states_black_generation`], which is Table 57's precedence and its
-    /// `Default`), and this interpretation actually converted into four components — it is
-    /// compositing in a press, or named one for a group or a soft mask's group along the way.
-    /// It over-reports a page that names a press and paints nothing into it in `DeviceRGB`, and
-    /// it cannot under-report, because a colour converted by §10.4.2.4 has both halves on the
-    /// page. Raised once per interpretation, the statement being monotone for the page: the
-    /// parameters apply wherever a conversion happens rather than only where a `gs` set them.
-    #[expect(
-        clippy::doc_markdown,
-        reason = "the comment quotes §11.7.5.3 verbatim, and a quotation is not marked up"
-    )]
+    /// - **The second bullet**, a transparency group whose colour space is `DeviceRGB` painted
+    ///   into a parent whose colour space is `DeviceCMYK`. That conversion is a *cube* resolved
+    ///   per pixel in a backend over a composited raster, where no colour space and no graphics
+    ///   state exist, so the functions in effect at the `Do` reach nothing. `Self::into_parent`
+    ///   holds one key per such pair, and the test reads them; it over-approximates by exactly
+    ///   as much as `Compositing::Device` is wider than `DeviceRGB` — a group whose blending
+    ///   space this tree composites on the device's three components without its being that
+    ///   space.
+    /// - **A press whose own profile states the conversion in.** §8.6.5.5 requires a blending
+    ///   space's profile to carry "from CIE" information and this tree uses it (ADR 0796), so
+    ///   the black generation there is the document's own measured transform rather than the
+    ///   device default §10.4.2.4's last paragraph asks for — which is what a stated pair
+    ///   substitutes for. Replacing a `B2A` table with §10.4.2.4's arithmetic would convert into
+    ///   a profile's space by a formula that never reads the profile.
+    ///
+    /// The third bullet is neither: it conditions on "the native colour space of the output
+    /// device" being `DeviceCMYK`, and this device's is sRGB (ADR 0009).
+    ///
+    /// Raised once per interpretation, the statement being monotone for the page: the parameters
+    /// apply wherever a conversion happens rather than only where a `gs` set them.
     pub(super) fn note_black_generation_departure(&mut self) {
         if !self.black_generation_stated {
             return;
         }
-        if !matches!(self.compositing, Compositing::Subtractive(..)) && self.presses.named() == 0 {
+        let by_profile = matches!(
+            &self.compositing,
+            Compositing::Subtractive(_, press) if press.converts_in_by_profile()
+        );
+        let into_parent = self.into_parent.keys().any(|(own, parent, _)| {
+            matches!(own, Compositing::Device) && matches!(parent, Compositing::Subtractive(..))
+        });
+        if !by_profile && !into_parent {
             return;
         }
+        let which = if by_profile {
+            "this page composites in a press sampled from the document's own profile, whose \
+             B2A table is the conversion in (§8.6.5.5)"
+        } else {
+            "a transparency group this tree composites on the device's three components is \
+             painted into a four-component parent, and that conversion is resolved per pixel in \
+             a backend where no colour space exists"
+        };
         self.note(Unsupported::BlackGeneration {
-            detail: "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
-                     function of its own, and this page converts colours into a four-component \
-                     space (§11.7.5.3): §10.4.2.1 ranks §10.4.2.4's classic conversion, whose \
-                     parameters those are, below §10.3's branch this tree converts on, so the \
-                     stated function acts on no step of it"
-                .to_owned(),
+            detail: format!(
+                "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
+                 function of its own, and {which}, so the stated pair reaches no step of it \
+                 (§11.7.5.3). A DeviceRGB colour painted into a DeviceCMYK group is \
+                 separated with the stated functions and is not affected"
+            ),
         });
     }
 
@@ -3859,7 +3912,9 @@ mod tests {
     };
     use render_cpu::CpuRasterizer;
 
-    use super::{AlphaSource, AlphaSourcesSeen, ImplicitKnockout, implicit_knockout_group};
+    use super::{
+        AlphaSource, AlphaSourcesSeen, ImplicitKnockout, implicit_knockout_group, stated_shape,
+    };
     use crate::image::ShapeMasks;
 
     const RED: Color = Color {
@@ -4814,6 +4869,159 @@ mod tests {
             page_pixel(&drawn, 70, 50),
             [0, 0, 255],
             1,
+        );
+    }
+
+    /// A [`Command::Shaped`] arrives with its shape already stated, so §11.6.4.3's flag
+    /// reinterprets nothing in it and content painted under **both** readings that holds one
+    /// still has a reading (`flag_reinterprets_nothing`, ADR 1205).
+    ///
+    /// The parts are an opaque blue lower and a stated pair whose object is green at a
+    /// constant of ½ and whose shape is the same rectangle opaque. §11.4.6's stage a)
+    /// composites the object with the group's transparent initial backdrop, where §11.3.6
+    /// leaves the blend mode nothing to do — "[a]n alpha value of αs = 0.0 or αb = 0.0
+    /// results in no blend mode effect" — so it is the object itself; stage b) weights by the
+    /// stated shape, which is 1.0 in the overlap, so the pair knocks the blue out whole and
+    /// the group's result there is green at an alpha of ½. §11.4.7 composites that over the
+    /// red page: `½ × green + ½ × red` = `(128, 128, 0)`.
+    ///
+    /// **Calibrated by replacing the pair with its object alone** (trap 13): the flag then
+    /// does reinterpret §11.6.4.4's constant, no reading describes the content, and the group
+    /// is refused — which is what the borrowed predicate answered about the pair as well.
+    #[test]
+    fn a_stated_pair_leaves_mixed_content_a_reading() {
+        let green = Color {
+            r: 0.0,
+            g: 1.0,
+            b: 0.0,
+            a: 1.0,
+        };
+        let translucent = fill(
+            [40.0, 40.0, 80.0, 80.0],
+            Color { a: 0.5, ..green },
+            BlendMode::Normal,
+            None,
+        );
+        let pair = Command::Shaped {
+            object: Box::new(translucent.clone()),
+            shape: Box::new(fill(
+                [40.0, 40.0, 80.0, 80.0],
+                green,
+                BlendMode::Normal,
+                None,
+            )),
+        };
+        let blue = Color {
+            r: 0.0,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        let parts = vec![
+            fill([20.0, 20.0, 60.0, 60.0], blue, BlendMode::Normal, None),
+            pair,
+        ];
+        assert_eq!(
+            AlphaSourcesSeen::Mixed.settled_over(&parts),
+            Some(AlphaSource::Opacity),
+            "the flag reinterprets nothing a stated pair carries"
+        );
+        let answer = implicit_knockout_group(
+            &parts,
+            AlphaSourcesSeen::Mixed,
+            false,
+            &ShapeMasks::default(),
+        )
+        .expect("content described by both readings is drawn");
+        assert!(answer.isolated);
+        let drawn = render(vec![group_of(answer)]);
+        assert_close(
+            "the stated pair knocks the blue out and shows its own alpha over the page",
+            pixel(&drawn, 50, 50),
+            [128, 128, 0],
+            1,
+        );
+        assert_close(
+            "where only the lower element paints, it composites with the transparent \
+             initial backdrop and covers the page",
+            pixel(&drawn, 30, 70),
+            [0, 0, 255],
+            1,
+        );
+        assert_close(
+            "outside both elements the group marks nothing and the page shows",
+            pixel(&drawn, 90, 10),
+            [255, 0, 0],
+            1,
+        );
+
+        let bare = vec![
+            fill([20.0, 20.0, 60.0, 60.0], blue, BlendMode::Normal, None),
+            translucent,
+        ];
+        assert_eq!(
+            AlphaSourcesSeen::Mixed.settled_over(&bare),
+            None,
+            "a bare constant is the input the flag reinterprets"
+        );
+        assert!(
+            implicit_knockout_group(
+                &bare,
+                AlphaSourcesSeen::Mixed,
+                false,
+                &ShapeMasks::default()
+            )
+            .is_none(),
+            "content painted under both readings of a stated constant has no one shape"
+        );
+    }
+
+    /// §11.3.7.2 gives a group's shape without reference to its backdrop — "[t]he shape of a
+    /// group object shall be the union (as defined in 11.3.7.3, \"Result shape and
+    /// opacity\") of the shapes of the objects it contains" — so a *non-isolated* group's
+    /// stated shape is that union accumulated on transparency, and isolation is not a
+    /// condition on stating it (`shape_the_alpha_already_is`, ADR 1205).
+    #[test]
+    fn a_non_isolated_groups_shape_is_the_union_accumulated_on_transparency() {
+        let element = Command::Group {
+            commands: vec![fill(
+                [10.0, 10.0, 60.0, 60.0],
+                RED,
+                BlendMode::Multiply,
+                None,
+            )],
+            alpha: 1.0,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Multiply,
+            isolated: false,
+            knockout: false,
+            alpha_is_shape: false,
+            blending: None,
+        };
+        let shape = stated_shape(&element, AlphaSource::Shape, &ShapeMasks::default())
+            .expect("a group's shape is stated whatever its backdrop was");
+        let Command::Group {
+            isolated,
+            alpha_is_shape,
+            blend,
+            ..
+        } = shape
+        else {
+            panic!("a group's shape is a group");
+        };
+        assert!(
+            isolated,
+            "the union is accumulated on transparency, where nothing but the elements is in it"
+        );
+        assert!(
+            alpha_is_shape,
+            "what the arm returns is the shape by contract"
+        );
+        assert_eq!(
+            blend,
+            BlendMode::Normal,
+            "§11.4.6 leaves a knockout element nothing to blend against"
         );
     }
 }

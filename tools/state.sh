@@ -82,6 +82,18 @@ section_departures() {
         cargo run -q -p conformance --bin departures
 }
 
+# Every mention of a command-line flag, against the flags the program named actually accepts.
+# Both populations are derived — the binaries from the workspace's manifests, the accepted set
+# from each binary's own source — so a program added or a flag renamed is counted without this
+# script being edited (ADR 1213). The filter keeps the run's denominators, the per-binary line and
+# every finding; `cargo test -p conformance --test flags` is the gate, and its second test is the
+# calibration.
+section_flags() {
+    run "flags a message names against the flags the program accepts" \
+        '^[0-9]+ binary\(ies\)|mention\(s\) of a flag|^  [a-z]' \
+        cargo run -q -p conformance --bin flags
+}
+
 section_conformance() {
     run "conformance (citations, quotations, tables, ledger rows)" \
         '^[0-9]+ (citations|quotations)|naming a section of one of this|instruction documents, every one|owe a review|^conformance ledger|^  (implemented|partial|departed|reported|silent|inapplicable|writer-side|out-of-scope) |unsettled rows owe a debt|name .* distinct tables|name a test file' \
@@ -273,7 +285,7 @@ section_remedies() {
     # The targets come from the program rather than from a list here, so that a target added to
     # `pdf_archive::Target::ALL` is counted without this script being edited: `--to ""` is refused
     # with a sentence naming every one of them.
-    local target listing code trailer targets profile answered name
+    local target listing code trailer targets profile answered name absent
     targets=$(cargo run -q -p pdf-transform --bin quorra-transform -- \
         archive --remedy-sites --to '' 2>&1 |
         sed -n 's/^error: --to .*: the targets are //p' | tr -d ',')
@@ -319,7 +331,24 @@ section_remedies() {
                     "$(printf '%s\n' "$listing" | sed -n 's/^error: //p' | head -1)"
                 continue
             fi
-            printf '  %-22s %-3s %s answers not carried out yet\n' "$name" "$target" "$answered"
+            # **ADR 1199's wrinkle, made visible.** A site whose answer is conditional on data the
+            # caller supplies can drop off the target's own listing while a profile still answers
+            # it with a remedy this version does not carry out — so the two halves of this section
+            # can disagree, and the disagreement is exactly what the catalogue's gap is made of.
+            # Counted in one pass over the same output, because the `--config` run prints the
+            # listing above the answers; a non-zero count is a finding to read, not a broken
+            # instrument, and `--remedy-sites --to <target> --config <profile>` names each.
+            absent=$(printf '%s\n' "$listing" | awk '
+                /^  [a-z][a-z0-9\/-]* \(/ { listed[$1] = 1; next }
+                /^  "/ {
+                    site = $0
+                    sub(/^  "/, "", site)
+                    sub(/".*/, "", site)
+                    if (!(site in listed)) { missing++ }
+                }
+                END { print missing + 0 }')
+            printf '  %-22s %-3s %s answers not carried out yet, %s at a site the listing does not name\n' \
+                "$name" "$target" "$answered" "$absent"
         done
     done
 }
@@ -758,8 +787,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
-quick="ledger departures conformance annex-o governing questions records counts hosts windows binaries disk remedies"
+all="ledger departures flags conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
+quick="ledger departures flags conformance annex-o governing questions records counts hosts windows binaries disk remedies"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -781,6 +810,7 @@ for section in $sections; do
     case $section in
     ledger) section_ledger ;;
     departures) section_departures ;;
+    flags) section_flags ;;
     conformance) section_conformance ;;
     tests) section_tests ;;
     corpus) section_corpus ;;

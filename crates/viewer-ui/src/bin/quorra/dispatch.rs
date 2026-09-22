@@ -250,8 +250,17 @@ answers in two places"
             // `Print` event and §12.5.6.22's sheet are already in force on every page it draws,
             // which is RFC 0004 §6's preview. The spool is ADR 1180's deferral and is named here
             // rather than left as a key that appears to do nothing.
-            Event::Printing { pages, .. } => {
+            Event::Printing {
+                pages, fidelity, ..
+            } => {
                 self.printing = true;
+                // §7.6.4.2's Table 22 bit 12, said in the window that shows what would print for
+                // the same reason the two that print say it: the three are level in what they
+                // *show* (ADR 1190), and a reader looking at a preview of a job the document
+                // wants degraded should be told so here too (ADR 1203).
+                if let Some(note) = viewer_host::printing::destination_refused(fidelity) {
+                    println!("note: {note}");
+                }
                 println!(
                     "note: showing what would print, over {pages} page(s) — this window has no \
                      printer of its own yet (ADR 1180); press the key again to stop"

@@ -1753,11 +1753,14 @@ fn a_non_isolated_group_inside_another_keeps_the_backdrop_alpha_it_composites_on
 /// out; `form_group` is the form's; `form` is what the form draws and `page` what the page
 /// draws around it.
 ///
-/// Its `/ExtGState` dictionary carries two states about Table 57's black generation, because
-/// §11.7.5.3's condition is what tells them apart: `/GK` states a function of its own, and
-/// `/GD` names the device's — `/BG2 /Default` beside a `/BG` function, which is Table 57's own
-/// precedence ("[i]f both BG and BG2 are present in the same graphics state parameter
-/// dictionary, BG2 shall take precedence") putting the default back.
+/// Its `/ExtGState` dictionary carries three states about Table 57's black generation, because
+/// §11.7.5.3's condition is what tells them apart: `/GK` states a function of its own — the
+/// nominal one, `f(x) = x` — and `/GD` names the device's, `/BG2 /Default` beside a `/BG`
+/// function, which is Table 57's own precedence ("[i]f both BG and BG2 are present in the same
+/// graphics state parameter dictionary, BG2 shall take precedence") putting the default back.
+/// `/GB` is the pair that *moves* a colour: `BG(x) = 1 − x` and `UCR(x) = x ÷ 2`, neither of
+/// which any device default would produce, so a mark drawn under it witnesses §10.4.2.4's
+/// formula rather than agreeing with it by coincidence.
 fn page_group_fixture(
     page_group: &str,
     form_group: &str,
@@ -1771,7 +1774,9 @@ fn page_group_fixture(
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
          /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
          /GK << /BG2 << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> \
-         /GD << /BG2 /Default /BG << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> >> \
+         /GD << /BG2 /Default /BG << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> \
+         /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> \
+         /UCR << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [0.5] /N 1 >> >> >> \
          /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
          5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
@@ -1969,15 +1974,15 @@ fn the_blending_space_is_the_one_in_force_rather_than_the_one_declared() {
     );
 }
 
-/// §11.7.5.3's black generation: reported where it is stated, and the page keeps its space.
+/// §11.7.5.3's black generation: the page keeps its space, and what is left is reported.
 ///
 /// The clause applies Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` "only during conversion from
 /// DeviceRGB to DeviceCMYK colour spaces", and names §10.4.2.4 as the conversion they are
-/// parameters of. §10.4.2.1 ranks that conversion below §10.3's, which is the branch this tree
-/// converts into a press on (ADRs 0009, 0042, 0263, 0796) and which has no black-generation step
-/// for a stated function to replace. So the file states something this conversion has nowhere to
-/// put, and what it costs is a *report* — not, as it did until session 1055, the page's own
-/// blending space, which the fallback did not evaluate the functions in either (ADR 1069).
+/// parameters of. Its first bullet is carried out — see the test below, which measures the
+/// separation — so what a stated pair costs here is neither the page's blending space nor the
+/// whole of the clause: it is the report about the *second* bullet, a group this tree composites
+/// on the device's three components painted into a four-component parent, which is a conversion
+/// resolved per pixel in a backend where no colour space exists (ADR 1207).
 ///
 /// Two halves, and the second is Table 57's rather than §11.7.5.3's: `/BG2`'s second admissible
 /// value is "the name Default, denoting the black-generation function that was in effect at the
@@ -2013,17 +2018,34 @@ fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
         silent.unsupported
     );
 
-    // `/GK` states a function of its own. The page is still drawn in §11.4.7's space — that is
-    // this round's change — and the departure is named.
+    // `/GK` states a function of its own, and on this page every conversion the pair governs
+    // is one §11.7.5.3's first bullet names and this tree performs — so the page keeps
+    // §11.4.7's space *and* has nothing to report. That is the change ADR 1207 made, and trap
+    // 5's distinction is the one to keep in view: this population stops being reported because
+    // the clause is carried out, not because a condition was narrowed until it stopped firing.
     let stated = drawn("/GK gs");
     assert!(
         stated.display_list.blending().is_some(),
         "a stated black generation no longer costs the page the space §11.4.7 requires"
     );
-    let reported = format!("{:?}", stated.unsupported);
     assert!(
-        reported.contains("BlackGeneration") && reported.contains("§10.4.2.1"),
-        "the departure names the clause that ranks the branch: {reported}"
+        !format!("{:?}", stated.unsupported).contains("BlackGeneration"),
+        "the first bullet is performed, so a page reaching only it departs from nothing: {:?}",
+        stated.unsupported
+    );
+
+    // And the report is not dead, which is what says the narrowing above is the clause's: a
+    // press sampled from the document's own bi-directional profile converts in through its
+    // `B2A` (§8.6.5.5, ADR 0796), which is the document's measured transform rather than the
+    // device default §10.4.2.4's last paragraph asks for — so a stated pair reaches no step of
+    // it, and that is what a reader is told.
+    let by_profile = interpret(two_way_press_fixture(
+        "/GB gs 0.5 0.5 0.5 rg 0 0 100 100 re f /GS gs 1 1 1 1 k 0 0 100 100 re f",
+    ));
+    let reported = format!("{:?}", by_profile.unsupported);
+    assert!(
+        reported.contains("BlackGeneration") && reported.contains("B2A table"),
+        "a stated pair over a profile's own conversion in is named: {reported}"
     );
 
     // `/GD` names the device's own function, with a `/BG` beside it that Table 57's precedence
@@ -2037,6 +2059,81 @@ fn a_stated_black_generation_is_reported_and_the_page_keeps_its_space() {
         !format!("{:?}", defaulted.unsupported).contains("BlackGeneration"),
         "/BG2 /Default names the function already in force: {:?}",
         defaulted.unsupported
+    );
+}
+
+/// ISO 32000-2 §10.4.2.4's conversion, run with the functions the file states.
+///
+/// §11.7.5.3's first bullet:
+///
+/// > When painting an elementary object with a DeviceRGB colour directly into a transparency
+/// > group whose colour space is DeviceCMYK , the functions used shall be the current
+/// > black-generation and undercolour-removal functions in effect in the graphics state at the
+/// > time of the painting operation.
+///
+/// The colour is §10.4.2.4's own EXAMPLE — "0.2 red , 0.7 green , and 0.4 blue can also be
+/// expressed as 1.0 - 0.2 = 0.8 cyan , 1.0 - 0.7 = 0.3 magenta , and 1.0 - 0.4 = 0.6 yellow" —
+/// so `k = min(c, m, y) = 0.3`. The fixture's `/GB` states `BG(x) = 1 − x` and `UCR(x) = x ÷ 2`,
+/// giving `BG(0.3) = 0.7` and `UCR(0.3) = 0.15`, and the clause's formula then reads
+/// `cyan = min(1, max(0, 0.8 − 0.15)) = 0.65`, magenta `0.15`, yellow `0.45` and black `0.7`.
+/// Every one of those numbers is the clause worked by hand; none is read off this code.
+///
+/// **The control is the same page with no `gs`**, which separates through the press's own search
+/// (§10.3's branch, ADR 0263) and gives a visibly different ink — so the test cannot pass by the
+/// two answers happening to agree. ADR 1207.
+#[test]
+fn a_device_rgb_colour_in_a_cmyk_group_is_separated_by_the_stated_functions() {
+    // The right half composites at ½, which is what puts the page in §11.4.7's four components;
+    // the left half is one opaque mark and is the one this reads.
+    let drawn = |state: &str| {
+        interpret(page_group_fixture(
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "/Group << /S /Transparency >>",
+            "",
+            "",
+            &format!(
+                "{state} 0.2 0.7 0.4 rg 0 0 50 100 re f \
+                 /GS gs 0 0 0 0 k 60 0 40 100 re f"
+            ),
+        ))
+    };
+    let space = pdf_model::colour::device_cmyk_blending_space();
+    let under = |ink: [f32; 4]| {
+        let out = space.convert(ink[0], ink[1], ink[2], ink[3]);
+        [
+            (out[0] * 255.0 + 0.5) as i32,
+            (out[1] * 255.0 + 0.5) as i32,
+            (out[2] * 255.0 + 0.5) as i32,
+        ]
+    };
+
+    let stated = drawn("/GB gs");
+    assert!(
+        stated.display_list.blending().is_some(),
+        "the page composites in its four components: {:?}",
+        stated.unsupported
+    );
+    let painted = pixel(&stated, 25, 50);
+    let want = under([0.65, 0.15, 0.45, 0.7]);
+    for (axis, want) in want.into_iter().enumerate() {
+        assert!(
+            (i32::from(painted[axis]) - want).abs() <= 2,
+            "§10.4.2.4 with the stated pair: channel {axis} of {painted:?} against {want}"
+        );
+    }
+
+    // The control: the press's search, which is a right inverse of the conversion out, so the
+    // mark comes back the colour the file stated.
+    let control = pixel(&drawn(""), 25, 50);
+    assert!(
+        (i32::from(control[0]) - 51).abs() <= 3
+            && (i32::from(control[1]) - 179).abs() <= 3
+            && (i32::from(control[2]) - 102).abs() <= 3,
+        "with no stated pair the search reproduces 0.2 0.7 0.4: {control:?}"
+    );
+    assert!(
+        control != painted,
+        "a stated pair that changed nothing would not witness the clause: {painted:?}"
     );
 }
 
@@ -4355,7 +4452,8 @@ fn two_way_press_fixture(content: &str) -> Vec<u8> {
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
          /Group << /S /Transparency /CS [/ICCBased 5 0 R] >> \
-         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
+         /GB << /BG << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >> >> >> \
          /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\

@@ -77,6 +77,7 @@ use std::io::Write as _;
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::attachment::filing;
 use pdf_model::destination::Destination;
 use pdf_model::outline::{Item, Outline};
 use pdf_model::page_label::PageLabels;
@@ -1214,16 +1215,14 @@ fn carry_name_trees(piece: &mut Piece<'_>, job: &Job<'_>, held: &BTreeSet<usize>
         let mut dict = Dictionary::new();
         for (category, entries) in trees {
             // §7.9.6: a root that is also a leaf states `/Names`, "an array of the form [ key1
-            // value1 key2 value2 … keyn valuen ] … The keys shall be sorted in lexical order",
-            // which is what iterating a `BTreeMap` over the key bytes gives.
-            let mut array = Vec::new();
-            for (key, value) in entries {
-                array.push(Object::String(key.as_slice().into()));
-                array.push(value);
-            }
-            let mut node = Dictionary::new();
-            node.insert(Name::new(&b"Names"[..]), Object::Array(array));
-            dict.insert(Name::new(category.as_bytes()), Object::Dictionary(node));
+            // value1 key2 value2 … keyn valuen ] … The keys shall be sorted in lexical order".
+            // `filing::tree_root` is the one place this tree writes such a node, which is what
+            // makes Errata Collection 3's Issue #307 — *Keys shall not be the null object.* —
+            // a property of its key type rather than a check here (ADR 1211).
+            dict.insert(
+                Name::new(category.as_bytes()),
+                filing::tree_root(entries.into_iter().collect()),
+            );
         }
         out.names = Some(Object::Dictionary(dict));
     }

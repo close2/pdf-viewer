@@ -132,7 +132,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        199,
+        201,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -340,6 +340,10 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
         (
             "QUORRA_RESTRICTED_PROCESS",
             viewer_ffi::RestrictedKind::Process,
+        ),
+        (
+            "QUORRA_RESTRICTED_PRINT_QUALITY",
+            viewer_ffi::RestrictedKind::PrintFaithfully,
         ),
     ] {
         expected.insert(name.to_owned(), kind as i64);

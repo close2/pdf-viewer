@@ -36,12 +36,14 @@ are not a gap in the reading — each one's core is already in place, waiting on
 the operation it drives. **What builds them:** the host work of `doc/todo/30`–`38` and RFC 0004's
 print path.
 
-- §6.3.2.1, §7.6.4.1 — Table 22's assembling, and bit 12's faithful printing, each gated by an
-  operation this program does not have. Bit 3 left this bucket in session 1171: `Command::Print` is
-  the verb and `restriction::asserted` is asked for it like every other (`doc/todo/38`).
-- §12.2 — `/PrintArea` and `/PrintClip`, which need the `Page::print_box` that row names, and
-  `/PrintScaling`'s second sentence, which needs a print path that scales a page onto a sheet. The
-  five dialogue entries are handed to one since session 1171 (ADR 1180).
+- §6.3.2.1 — the one `should` this tree does not follow, "Linearized files should be read as
+  specified in Annex F". Not a host surface at all: what closes it is a decision about
+  linearisation, and nothing less does. §7.6.4.1 and the whole §7.6.4 family left this bucket in
+  session 1183, when bit 12 became `Operation::PrintFaithfully` and every position of Table 22 that
+  has a meaning reached an operation (`doc/todo/38`, ADR 1203).
+- §12.2 — `/PrintArea` and `/PrintClip`, which need the `Page::print_box` that row names, and which
+  are work rather than a capability nothing would use now that a page is rendered for paper.
+  `/PrintScaling` has something to honour since session 1183 (ADR 1204).
 - §12.3.5, §12.3.5.1 — a collection's `/View` tile mode, `/Sort`, `/Colors`, `/Split`: surfaces one
   panel does not offer as alternatives.
 - §12.6.4.15 — animating a transition outside a presentation.
@@ -80,8 +82,11 @@ permanent) or an owner decision to acquire a specification.
   restriction on a file is not a reader's job and is no longer counted as debt (ADR 1184).
 - §8.9.6.2 — smoothing a low-resolution stencil's edges needs premultiplication moved into quorra's
   upload or sampler (`doc/QUORRA_FEEDBACK.md` section 39).
-- §8.6.5.9 — black point compensation's ON half defers to ISO 18619, which this tree does not hold
-  (ADR 0510).
+- §8.6.5.9 — black point compensation's ON half defers to ISO 18619, and **the blocker is the
+  construction rather than the document**: no ICC text held states the algorithm, the content is
+  obtainable free from the ICC, and ADR 1208 lists the eight things it adds — of which four move
+  pixels, the LUT-destination estimation being the eleven levels ADR 0510 measured. This is a build
+  across a round or two rather than a missing text (ADRs 0510, 1208; `doc/third-party-data.md`).
 - §12.7.8.3.4 — FDF annotation dictionaries need ISO 19444-1 sections 6.4 and 6.6; the preview held
   stops at 5.7.1.
 - §12.8.3.4.4 — a signature policy: ETSI EN 319 122-1 clause 5.2.10 defines the attribute that
@@ -101,10 +106,18 @@ pixels.
   translucent one, a whole second rasterisation pass (`doc/todo/13`, ADR 1125).
 - §11.4.6 — a knockout element whose one alpha is the product of shape and opacity, and the
   own-backdrop construction's remainder on the oracle alone.
-- §11.3.6, §11.3.7.2, §11.3.7.3, §11.4.4, §11.6.4.3, §11.7.4.4 — the missing shape channel every
-  command would carry, and the two-object seam a rasteriser leaves nothing between.
+- §11.3.6, §11.3.7.2, §11.3.7.3, §11.4.4, §11.6.4.3, §11.7.4.4 — one raster carrying the product
+  where the clause wants the pair, and the two-object seam a rasteriser leaves nothing between.
+  **Not a shape channel**: §11.4.6's shape is an input to each element's composite rather than a
+  pass over the finished page, so §11.7.5.2's construction does not transfer to it, and what the
+  remaining case needs is `pdf_model::image::Picture` handing a stencil back beside its `/SMask`
+  (ADR 1205).
 - §11.4.7, §11.6.6, §11.7.2 — compositing a painted group in a group colour space, and a four-component
   space with no ICC profile behind it.
+- §11.7.5.3 — its first bullet is carried out (ADR 1207); the second is not, because a group's result
+  reaches its parent's space as a cube resolved per pixel in a backend, where no colour space and no
+  graphics state exist. The stated black generation in force at the `Do` would have to reach that
+  conversion, which is the same per-pixel machinery the rows above want.
 - §11.3.4, §11.5.3 — the non-affine route into a one-component or three-curve blending space
   (`doc/todo/23`).
 - §11.6.5.2 — a soft mask behind an image codec, which would decode per raster request.
@@ -210,9 +223,10 @@ into their notes rather than here. The membership below is what survived.
 - §12.7.4.1 (`departed`) — a field-inheritance bound the clause forbids, kept because principle 3's
   resource budgets answer a `/Parent` cycle; reaching it is reported. The number was chosen from a
   measurement rather than asserted, after 32 was found to be refusing real fields (ADR 1198).
-- §12.5.6.2, §12.7.8.3.3 — a markup annotation's `/ExData`, and the `/Rename` branch whose
-  alternative would write fields onto an immutable document. (`/ExData` is disposed of by Table 173
-  stating no entries for `MarkupGeo`, not by a scope claim: geospatial is §12.10's and is in scope.
+- §12.5.6.2, §12.7.8.3.3 — `/Subj`, `/CreationDate` and `/DS`, which reach a comments pane this
+  program does not have, and the `/Rename` branch whose alternative would write fields onto an
+  immutable document. (`/ExData` is no longer part of §12.5.6.2's debt: Table 173 states no entries
+  for `MarkupGeo` and §12.10 names the subtype nowhere, checked in ADR 1212 rather than assumed.
   §12.7.8.3.3 keeps a debt of its own beside that branch, Table 253's `/F`, which is in bucket 1.)
 - §12.7.5.4 — a choice field's selection: the clause states no appearance for it, so the page shows
   the list and reports which item `/V` names.
@@ -272,40 +286,26 @@ rather than against its own words (ADR 1201's method), and what stands here is t
 premise no longer blocks. A round takes one of these the way it takes a ledger row; the ADR that
 recorded the premise is a record and stays as written.
 
-- **ADR 0803 section 1 — Table 22 bit 12.** `viewer-host`'s `printing` module states an
-  output-resolution algorithm with a documented floor (`MIN_DPI`), and the GTK host runs a print
-  dialogue whose print-to-file destination is bit 12's own subject. A round asks
-  `Operation::PrintFaithfully` beside `Operation::Print` in the print path, so a document with bit 3
-  set and bit 12 clear is drawn at the floor and refused the faithful destination by name.
-- **ADR 0821 — the merged `/Info`.** Its second ground, that synthesising one would be authoring
-  metadata this program does not author, is gone: `update::Edit::SetInformation` writes Table 349's
-  nine keys through `pdf-vfs`'s verbs. A round gives `merge`'s `Plan` the same stated-entries path,
-  validated against `INFORMATION_KEYS`. (The `/Info` decision is ADR 0821 section 9, not section 4;
-  section 4's outline splice holds.)
 - **ADR 1012 — the converter's inert verbs.** `executor::execute`, `archive/preserve.rs` and
   `archive/remedies.rs` carry out `derive`, `supply` and `preserve`; the attachment writer the ADR
-  waited on predates it. What is left is one item: `Qualifier::Shape` still parses and is discarded
-  in `archive/config.rs`, so a round makes it select a remedy in `decision.rs`.
-- **ADR 1057 section 4 — `/FixedPrint`'s printing half.** §12.5.6.22 is `implemented` and a print
-  path exists (ADR 1180), so the wait is over; what remains is narrower than the ADR's sentence — a
-  round gives `target_media` a non-identity placement from `Sheet` so tiling and n-up are placed
-  under §12.5.6.22's two post-EXAMPLE bullets.
-- **ADR 1069 — the black-generation departure.** Its screen ground is retired by name (ADR 1173,
-  `CLAUDE.md`'s clause-10 amendment) and the group is the device the overprint rule addresses
-  (ADR 1157). A round evaluates a stated `/BG`, `/BG2`, `/UCR` or `/UCR2` as the black-generation
-  step of `pdf_colour::rgb_to_ink` under `Compositing::Subtractive`, turning
-  `note_black_generation_departure` into an applied conversion.
-- **ADR 1107 — the second element run's population.** §11.4.4's note still says no first page states
-  a non-isolated group under a mode — 0 of 1477 — counted on *file*-stated groups, while
-  `overprint::non_isolated_group` (ADR 1170) synthesises exactly that command for §11.7.4.3's
-  implicit group. A round re-counts the population on the interpreter's condition and re-prices the
-  second run on the first corpus page that reaches it.
-- **ADR 1113 — the per-pixel shape channel's cost.** `pdf_render::transfer_channel` is that
-  machinery, built for §11.7.5.2 (ADR 1125), and the population it called zero is thirteen
-  documents. A round puts §11.4.6's knockout shape on the same construction — one run-numbered
-  per-pixel channel resolved in both backends — in place of `Command::Shaped`'s raster per element,
-  with `viewer-confined`'s protocol answering it the way it already answers the transfer channel.
-- **ADR 0660 — #307's `shall not` as a writer's.** This tree writes §7.9.6 name trees in four
-  places (`merge::merge_name_trees`, `attachments`, `split`, `attachment::filing`), so the erratum
-  binds it as producer. A round asserts no emitted `/Names` key is `Object::Null` where the trees
-  are written, and joins the two halves of §7.9.6's note.
+  waited on predates it, and `Qualifier::Shape` selects against `decision::SHAPES` since ADR 1211.
+  What is left is the listing: `--remedy-sites` does not enumerate the shapes, so an operator meets
+  the distinction only in the error that names it.
+- **ADR 1107 — the second element run's population.** The re-count is done and §11.4.4's note
+  carries it: on the interpreter's own condition — `CpuRasterizer::group_buffer`'s conjunction over
+  the display list's group commands, `crates/pdf-model/examples/non_isolated_group_census` — one
+  curated first page reaches the construction where the file-stated count was zero, and 205 crawled
+  ones do. What is left of this item is the pricing: a round measures the second run on
+  `doc/pdf.js/test/pdfs/issue12798_page1_reduced.pdf` page 1, which is the first corpus page that
+  reaches it and holds both of its groups under `/Multiply` (ADR 1214).
+- **ADR 1113 — the per-pixel shape channel's cost. Taken, and the conclusion upheld on another
+  reason** (ADR 1205): §11.7.5.3's NOTE puts the transfer function after all compositing, so
+  `transfer_channel` can be a pass over a finished raster, where §11.4.6's weighted average
+  multiplies the accumulation *as it stood under each element* — which a finished page no longer
+  holds. What is left is one `Picture` arm in `pdf-model::image`, for the stencil under its own
+  `/SMask`.
+- **ADR 0660 — #307's `shall not` as a writer's.** Discharged by ADR 1211: the four writers call
+  one function, `filing::tree_root`, whose key type is the prohibition, and three end-to-end tests
+  hold that a source's null key does not cross. `structure.rs`'s §14.7.5 `/IDTree` is the fifth
+  writer of the same shape and is under the same guarantee without calling it yet; a round that
+  touches it routes it through the same function.

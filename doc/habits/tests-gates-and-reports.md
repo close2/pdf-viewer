@@ -238,3 +238,11 @@ the population so a reader can see which half is under it (ADRs 1189, 1201).
 on the deepest producer-written chain on the disk, refusing 25 real widgets at its own value. The
 instrument that measures a bound walks past it — the census now goes to 1024 — or it cannot see the
 far side (ADR 1198).
+
+## A calibration's plant goes into the function, never into a file of a shared tree
+
+`flags::calibrate` feeds a synthetic unaccepted flag through the same attribution paths the sweep
+uses, so the plant runs on every gate run and there is nothing to remember to remove; the flag is
+assembled from two pieces so the calibrating crate's own source does not carry the defect its sweep
+reports (ADR 1213). On a worktree six rounds share, a plant written into a file is a file somebody
+else may be editing — and a whole-file `cp` restore of it is the move the brief forbids.

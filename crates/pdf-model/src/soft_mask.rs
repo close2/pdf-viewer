@@ -170,6 +170,34 @@ fn read(
 /// branches the group's colour space takes, and in which quantity its elements are therefore
 /// painted — taken once and threaded into the compositing, the backdrop, the transfer table
 /// and the report together.
+///
+/// One half of a four-component `/BC` backdrop, in the quantity that half's raster carries.
+///
+/// §11.6.5.1 gives the entry "n numbers, where n is the number of components in the colour space
+/// specified by the CS entry", so a `DeviceCMYK` mask group's backdrop has four and each of
+/// §11.4.7's two rasters composites onto the ones it holds. The rendering parameters are
+/// `Rendering::compensating()` for the reason the press below is sampled under them — §11.7.5.3's
+/// second bullet names them at a group's `Do` and a mask group has none — and §10.4.2.4's black
+/// generation is `None` for the same reason: the clause names that pair at the moments a graphics
+/// state exists, and `/BC` is a mask dictionary's entry rather than an object painted under one
+/// (ADR 1207).
+fn backdrop_half(
+    half: Half,
+    press: &Arc<crate::colour::Press>,
+    space: &ColourSpace,
+    values: &[f32],
+) -> Color {
+    Color {
+        a: 1.0,
+        ..Compositing::Subtractive(half, Arc::clone(press)).paint(
+            space,
+            values,
+            Rendering::compensating(),
+            None,
+        )
+    }
+}
+
 fn luminosity(
     document: &Document,
     mask: &Dictionary,
@@ -231,15 +259,12 @@ fn luminosity(
     // The black half's backdrop, where there is one: §11.6.5.1's `/BC` has four
     // components and each raster composites onto the ones it carries.
     let black_backdrop = ink.as_ref().zip(space.as_ref()).map(|((press, _), space)| {
-        let values = backdrop_values(document, mask, space);
-        Color {
-            a: 1.0,
-            ..Compositing::Subtractive(Half::Black, Arc::clone(press)).paint(
-                space,
-                &values,
-                Rendering::compensating(),
-            )
-        }
+        backdrop_half(
+            Half::Black,
+            press,
+            space,
+            &backdrop_values(document, mask, space),
+        )
     });
     let backdrop = match (scale, &route, &additive, &ink, &space) {
         // The group's elements are painted in `1 − ink ÷ scale`, so its backdrop is
@@ -264,17 +289,12 @@ fn luminosity(
         }
         // And a four-component group's chromatic half: §11.3.4's additive complements
         // of cyan, magenta and yellow, which is what that raster carries.
-        (None, None, None, Some((press, _)), Some(space)) => {
-            let values = backdrop_values(document, mask, space);
-            Color {
-                a: 1.0,
-                ..Compositing::Subtractive(Half::Chromatic, Arc::clone(press)).paint(
-                    space,
-                    &values,
-                    Rendering::compensating(),
-                )
-            }
-        }
+        (None, None, None, Some((press, _)), Some(space)) => backdrop_half(
+            Half::Chromatic,
+            press,
+            space,
+            &backdrop_values(document, mask, space),
+        ),
         _ => Color {
             a: 1.0,
             ..space.as_ref().map_or(Color::BLACK, |space| {

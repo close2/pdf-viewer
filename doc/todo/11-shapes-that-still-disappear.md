@@ -999,3 +999,70 @@ every bit an `f32` has, so the determinant cancels to zero in the arithmetic rat
 recoverable from anything the renderer can compute about it — a second reason not to build the run of
 pixels on the strength of that witness. The three well-formed witnesses are the ordinary kind, `a`
 or `d` exactly zero.
+
+## 9. A clipping path that encloses an area **and** rules a line — the clip keeps only one of them
+
+Status: **open, priced, and not taken** — the closing would need all three backends and one of them
+cannot state it without a readback. §10.7.4's ledger row carries it as departure (4); ADR 1064 built
+the substitute and said this was left.
+
+**What the clause requires**, in its own words and with no inference in between:
+
+> For clipping, the clipping region consists of the set of pixels that would be included by a fill
+> operation.
+
+A fill of a path whose subpaths both enclose an area and collapse along one axis paints both — the
+second by this subclause's own EXAMPLE, "[a] zero-width or zero-height rectangle paints a line 1
+pixel wide" — so the region the clip admits is the union of the two pixel sets. That is a
+requirement about the *region*, which is why it survives however a backend happens to represent a
+clip: the representation is this project's, the region is the standard's.
+
+**What is built instead.** `pdf_render::collapsed::clip_region` splits the path into the
+area-enclosing subpaths and the collapsed ones, and appends a collapsed mark to the path only where
+appending it is exactly the union — outside the filled part, where the winding number and the
+crossing count are both zero, so one path under one rule gives the right set. A mark that meets the
+filled part is dropped. Dropping is *correct* wherever the mark lies inside the filled region and
+costs a one-device-pixel line wherever it does not, and the whole of it is never worse than what
+every backend did before ADR 1064, which was to lose every such mark.
+
+**Two ways the drop is wider than it has to be**, both found by reading `clip_region` against
+`geom.rs` in session 1185 and both cheap to narrow without touching a backend:
+
+- The test is against `Path::hull()` of the *whole* filled part — one axis-aligned rectangle over
+  every area subpath at once. A mark lying in the gap between two separated subpaths is inside that
+  rectangle and outside every subpath, so it is dropped although appending it there is exactly the
+  union. One hull per subpath would keep it.
+- `Rect::intersection` answers `Some` for rectangles that merely touch along an edge or a corner,
+  so a mark abutting the hull is dropped too.
+
+**What closing it properly costs, per backend**, which is the number this item exists to record:
+
+- **`render-cpu`: free today.** `MaskCache::build` already owns a `tiny_skia::Mask` and fills it
+  through `scan::mask_fill`, and both that and `scan::mask_rectangle` compose by taking the larger
+  of what is already there. So the union is a second `mask_fill` into the same mask for the root
+  step, and a second one into the same cleared `scratch` before `mask_intersect`'s `min` fold for a
+  nested step. No new dependency API, no new buffer; `Shape` carries two (path, rule) pairs instead
+  of one, and `room_for_marks` already widens the band.
+- **`render-raster`: new vocabulary.** `SceneBuilder::clip` takes one outline, one rule and one
+  parent, and the parent is an intersection. The only per-pixel coverage the library offers is an
+  alpha mask group, which *multiplies* into a command rather than intersecting a clip — so using it
+  here would trade this departure for the composition question item 4 is about.
+- **`render-gpu`: a readback.** `push_clip_layer` takes one path and one rule. Vello's per-pixel
+  route is the one `soft_mask.rs` uses — rasterise to an image and composite `DestIn` — whose own
+  module comment prices it at a GPU round trip per mask.
+
+**So it is not taken, and the reason is the oracle rather than the effort.** Building it in
+`render-cpu` alone would make the processor right and the two other backends wrong, and the
+cross-backend comparison is the instrument that would then be reporting the fix as a defect. The
+honest order is: narrow the two over-drops above (all in `pdf_render`, all three backends at once),
+then decide whether the union is worth a mask group in `render-raster` and a readback in
+`render-gpu`.
+
+**There is no corpus witness and the census that says so is calibrated** (trap 13): `clip_region`
+is reached 38 267 times over the 965 first pages `raster_golden` draws and substitutes a region
+**0** times, so `raster_golden` is a control here and not a witness. **And there is no test of the
+union at all**, which is the gap worth closing first and costs nothing: `render-cpu`'s
+`tests/zero_area_clip.rs` holds a *wholly* collapsed clip to the fill of the same path, pixel for
+pixel, at three scales — the exact shape of assertion a mixed clip needs, and the one that would
+fail today by construction. `collapsed.rs`'s own unit test asserts the substitute's geometry
+instead, which cannot see the clause.

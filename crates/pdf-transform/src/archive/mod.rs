@@ -133,6 +133,7 @@
 //! verdict rests on.
 
 mod actions;
+mod boundaries;
 mod census;
 mod config;
 mod decision;
@@ -165,18 +166,22 @@ use crate::tool::ToolOutputs;
 use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 
 pub use actions::RemovedAction;
+pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
     ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Placement,
-    Preservation, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Winner, sites,
+    Preservation, Resolution, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Winner,
+    sites,
 };
-pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
-pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
+pub use decision::{
+    Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
+};
+pub use fonts::{FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use report::{
     Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
-    Preserved, SetIn, SignatureDecision, SuppliedFact,
+    Preserved, Resolved, SetIn, SignatureDecision, SuppliedFact,
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
@@ -192,7 +197,7 @@ pub use preserve::{
     PLACEMENT_OF_MARKS, PLACEMENT_ON_PAGE, PRESERVED_AS_A_PAGE, PRESERVED_MARKS_AS_A_PAGE,
 };
 use remedies::Remedies;
-pub use remedies::{DERIVED_NOT_ORIGINAL, SUPPLIED_BY_THE_OPERATOR};
+pub use remedies::{DERIVED_NOT_ORIGINAL, FETCHED_BY_THE_OPERATORS_TOOL, SUPPLIED_BY_THE_OPERATOR};
 use report::describe_decision;
 use rewrite::convert;
 
@@ -265,6 +270,15 @@ pub struct ArchivePlan {
     pub derivations: Vec<Derivation>,
     /// The `supply` remedies the caller's configuration named — facts the document does not state.
     pub supplies: Vec<Supply>,
+    /// The `preserve` remedies the caller's configuration named that fetch what a stream points at.
+    ///
+    /// `doc/adr/1209`, into the seam `doc/adr/1199` built. Like [`Self::derivations`] the type is
+    /// the guardrail — a [`Resolution`] cannot exist without its tool — and the fetch is the
+    /// caller's executor's, never this crate's: [`crate::apply`] opens no path and no socket, so
+    /// a pass names what it needs and the next pass is a function of what came back. Empty for
+    /// every conversion that resolves nothing, which is every conversion until an operator's
+    /// file says otherwise.
+    pub resolutions: Vec<Resolution>,
     /// The `preserve` remedies the caller's configuration named that append pages.
     ///
     /// `doc/adr/1014`, on the owner's `A58`: a page composed solely of content the document
@@ -273,6 +287,21 @@ pub struct ArchivePlan {
     /// preserves nothing, which is every conversion until an operator's file says otherwise, and
     /// a site named here whose requirement the document meets is inert — there is nothing to keep.
     pub preservations: Vec<Preservation>,
+    /// The font program the caller states for each `/BaseFont` the document does not embed.
+    ///
+    /// **`doc/rfc/0007`'s `supply` in its oldest form** (`doc/adr/1200` section 4,
+    /// `doc/adr/1209`). ISO 19005-2 section 6.2.11.4.1 admits only a program that may lawfully
+    /// be embedded for unlimited universal rendering, and ISO 32000-2 §9.9.1 makes that a fact
+    /// about a licence rather than about the bytes: "[o]ne of the conditions may be that the
+    /// font program cannot be embedded, in which case it should not be incorporated into a PDF
+    /// file." Nothing in a document states it and nothing on a machine states it either, so it
+    /// is the **operator's** to state — and naming a file is the statement, which is why the
+    /// report and the output's own `xmpMM:History` record whose authority it was.
+    ///
+    /// Keyed by `/BaseFont`, with §9.9.2's six-letter subset tag passed over. Never a default:
+    /// a font nobody named takes `doc/questions/A47`'s shipped-face route exactly as before, and
+    /// no shipped profile states one.
+    pub supplied_fonts: BTreeMap<String, std::sync::Arc<[u8]>>,
     /// The bytes of each stream whose data the source keeps outside its own file.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid the keys that put a
@@ -345,11 +374,13 @@ pub(crate) fn run(
         plan.target,
         &plan.derivations,
         &plan.supplies,
+        &plan.resolutions,
         &plan.tool_outputs,
     );
     report.requested.clone_from(&remedies.pending);
     let derived_history = remedies::derived_history(&remedies.derived_report);
     let supplied_history = remedies::supplied_history(&remedies.supplied_report);
+    let resolved_history = remedies::resolved_history(&remedies.resolved_report);
     // `doc/adr/1187`: what the source's encryption asserted, read before the conversion writes a
     // file that cannot assert it. Read whether or not the requirement is failing, because a
     // document the target does not admit encrypted is the only one whose statement is going.
@@ -360,6 +391,7 @@ pub(crate) fn run(
         derived: derived_history.as_deref(),
         supplied: supplied_history.as_deref(),
         protection: protection_history.as_deref(),
+        resolved: resolved_history.as_deref(),
     };
     // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
     // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
@@ -500,6 +532,7 @@ fn decide_every_failure(
         appearances: Vec::new(),
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
+        removed_boundaries: Vec::new(),
         // What this file keeps outside itself, named whether or not anything was resolved: the
         // caller reads it to know what to resolve, exactly as it reads `Report::requested` to
         // know what to run (`doc/adr/1199`).
@@ -510,10 +543,18 @@ fn decide_every_failure(
         departures,
         derived: remedies.derived_report.clone(),
         supplied: remedies.supplied_report.clone(),
+        resolved: remedies.resolved_report.clone(),
         preserved: Vec::new(),
         protection: SourceProtection::of(document),
     };
-    let prepared = Prepared::of(plan, document, input, omit_identification, provenance);
+    let prepared = Prepared::of(
+        plan,
+        document,
+        input,
+        omit_identification,
+        provenance,
+        remedies,
+    );
     let mut version = None;
     for judgement in input.failures() {
         // A requirement the caller departed from does not stop the conversion and is not decided:
@@ -771,6 +812,30 @@ fn apply_the_decisions(
         && let Ok(substitutes) = &prepared.substitutes
     {
         conversion.substituted.clone_from(&substitutes.done);
+        // **`doc/rfc/0007` section 5b.1's obligation, which `supply` carries and no other
+        // remedy does.** A face the operator named is in the file on the operator's authority:
+        // ISO 32000-2 §9.9.1 makes embeddability a fact about a licence, and ISO 19005-2
+        // section 6.2.11.4.1 admits only a program that may lawfully be embedded for unlimited
+        // universal rendering. So the report says whose statement that was, beside the
+        // requirement it answered (`doc/adr/1209`).
+        for font in substitutes
+            .done
+            .iter()
+            .filter(|font| font.authority == FaceAuthority::Operator)
+        {
+            conversion.supplied.push(SuppliedFact {
+                site: "fonts/font-programs-embedded",
+                subject: format!(
+                    "the font program embedded for {}, which this file did not carry",
+                    font.requested
+                ),
+                value: format!(
+                    "{}, which the operator states may lawfully be embedded for unlimited, \
+                     universal rendering (ISO 19005-2 section 6.2.11.4.1)",
+                    font.face
+                ),
+            });
+        }
         recorded.push(format!(
             "{SUBSTITUTED_FONTS_ACTION} — {}",
             substituted_fonts_recorded(&substitutes.done)
@@ -813,6 +878,14 @@ fn apply_the_decisions(
             .filter(|row| wanted.contains(&row.by))
             .cloned()
             .collect();
+    }
+    // `doc/adr/1210`: a removed page boundary leaves nothing in the output to notice, so what
+    // went is named per entry with the rectangle a reader computed for it before and after —
+    // which is what says whether the removal cost anything.
+    if wanted.contains(&Rewrite::PageBoundaryRemoved)
+        && let Ok(removals) = &prepared.boundaries
+    {
+        conversion.removed_boundaries.clone_from(&removals.done);
     }
     // section 3.9's condition on the loss: what went is named per property, because a removed
     // property leaves nothing in the output for a user to find it by.

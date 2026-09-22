@@ -13,12 +13,24 @@ Shift and says why, and `p` unshifted is §12.4.4's presentation. `quorra-gtk` p
 Section 6's preview, in the form the recommendation asked for and not yet as a panel: the pages on
 the screen are interpreted for paper for the duration of the operation.
 
-**What is not**: the print panel and its paper composition (section 6's picture), page ranges,
-scale modes and n-up; the Qt bridge for `QPrinter`; the winit panel and IPP submission; the spool
-container of section 5, and with it the scope sentence of section 9 that the owner has not
-answered. Section 10's questions 2, 3, 4, 5 and 6 are still open; question 1 is answered by Route B
-being what is built, and question 7 by `Operation::Print` going through `restriction::asserted` at
-the four levels.
+**And since ADRs 1203 and 1204**: section 6's scale modes and n-up as a *placement* rather than as a
+panel — `viewer_host::printing::Scaling`, `PagesPerSheet`, `placed` and `cell`, with §12.5.6.22's
+matrix B cancelled where a page stops being at its own size; page ranges from §12.2's
+`/PrintPageRange` as the dialogue's opening state in both windows that print; and `quorra-qt`
+printing through a hand-written `QPrintDialog`/`QPrinter` path, with the scale mode and the pages
+per sheet on a tab of the dialogue's own because those two decide where the marks land and every
+other setting does not. §7.6.4.2's Table 22 bit 12 is a second operation beside bit 3, at the same
+four levels.
+
+**What is not**: the print panel as section 6's picture — a docked panel with live paper
+composition, as against the placement the two toolkit dialogues now carry; the winit panel and IPP
+submission; the spool container of section 5, and with it the scope sentence of section 9 that the
+owner has not answered; and page *tiling*, which §12.5.6.22's first post-EXAMPLE bullet is about and
+which the model expresses and no host composes. Section 10's questions 2, 5 and 6 are still open;
+question 1 is answered by Route B being what is built, question 3 by preview being a mode of every
+window and Qt's stock `QPrintPreviewDialog` going unused, question 4 by n-up of 1, 2 and 4 being
+built, and question 7 by `Operation::Print` going through `restriction::asserted` at the four
+levels.
 
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — page ranges and any spool-shaping derivative

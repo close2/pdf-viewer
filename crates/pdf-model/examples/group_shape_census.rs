@@ -231,8 +231,6 @@ fn refused_knockout(report: &str) -> Option<&'static str> {
         "non-isolated with a blending element (§11.4.6 NOTE 6)"
     } else if report.contains("image mask under a soft mask of its own") {
         "a stencil under its own /SMask (SampleAlpha::Both)"
-    } else if report.contains("a non-isolated group, whose accumulated alpha") {
-        "a non-isolated group as an element (§11.3.7.2)"
     } else {
         "a paint or element whose shape this renderer cannot describe"
     })

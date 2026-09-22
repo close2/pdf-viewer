@@ -38,6 +38,7 @@ use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
+use crate::black_generation::BlackGeneration;
 use crate::icc::Rendering;
 
 use crate::function::Function;
@@ -240,8 +241,26 @@ impl Compositing {
     /// on the samples, not on what they convert to — and buying it back would mean a second
     /// function deciding which spaces mark the page, which is exactly the drift trap 6 exists
     /// for.
+    ///
+    /// `generation` is §10.4.2.4's pair of functions where the graphics state states one, and it
+    /// reaches only the subtractive branch — §11.7.5.3 scopes the pair to "painting an elementary
+    /// object with a DeviceRGB colour directly into a transparency group whose colour space is
+    /// DeviceCMYK". A caller with no graphics state has no stated pair and passes `None`
+    /// honestly: `/BC`'s backdrop colour in `pdf_model::soft_mask` is the standing case, and it
+    /// is the one §11.7.5.3's second bullet already answers for the rendering parameters. ADR
+    /// 1207.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §11.7.5.3 verbatim, and a quotation may not gain backticks"
+    )]
     #[must_use]
-    pub fn paint(&self, space: &ColourSpace, values: &[f32], rendering: Rendering) -> Color {
+    pub fn paint(
+        &self,
+        space: &ColourSpace,
+        values: &[f32],
+        rendering: Rendering,
+        generation: Option<&BlackGeneration>,
+    ) -> Color {
         let colour = space.to_rgb_under(values, rendering);
         match self {
             Self::Device => colour,
@@ -269,7 +288,8 @@ impl Compositing {
                 }
             }
             Self::Subtractive(half, press) => {
-                let [cyan, magenta, yellow, black] = space.to_cmyk(values, rendering, press);
+                let [cyan, magenta, yellow, black] =
+                    space.to_cmyk_under(values, rendering, press, generation);
                 let painted = match *half {
                     Half::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
                     Half::Black => Color::grey(1.0 - black),
@@ -860,6 +880,16 @@ pub struct Conversion {
     /// caches keyed on a conversion — `shading::Cache`, `image::RasterCache` — need an
     /// identity to compare, which [`crate::icc::Profile::identity`] is.
     output_intent: Option<Arc<crate::icc::Profile>>,
+    /// §10.4.2.4's black generation and undercolour removal, where the graphics state states a
+    /// function.
+    ///
+    /// Here for the same reason the black point is: §11.7.5.3 lists the four together — "[t]he
+    /// rendering intent, black-generation, undercolour-removal and black point compensation
+    /// parameters control certain colour conversions" — and says they "may need to be applied
+    /// earlier than the actual rendering of colour onto the page", which is exactly why an
+    /// image's samples, a shading's ramp and a mesh's vertices need the state to travel with
+    /// them. ADR 1207.
+    black_generation: Option<Arc<BlackGeneration>>,
 }
 
 /// What distinguishes one [`Conversion`] from another, for the caches keyed on one.
@@ -867,7 +897,7 @@ pub struct Conversion {
 /// Written out for [`Compositing`]'s reason: the intent is behind an `Arc`, and two `Arc`s of
 /// one profile — one per interpretation of the same page — are one intent. Every derived trait
 /// below goes through here, which keeps them agreeing with equality.
-type ConversionKey<'a> = (&'a Compositing, Rendering, Option<u128>);
+type ConversionKey<'a> = (&'a Compositing, Rendering, Option<u128>, Option<usize>);
 
 impl Conversion {
     /// This value as the tuple every trait below is defined on.
@@ -878,6 +908,9 @@ impl Conversion {
             self.output_intent
                 .as_ref()
                 .map(|profile| profile.identity()),
+            self.black_generation
+                .as_ref()
+                .map(BlackGeneration::identity),
         )
     }
 
@@ -894,6 +927,7 @@ impl Conversion {
             into,
             rendering,
             output_intent: None,
+            black_generation: None,
         }
     }
 
@@ -950,6 +984,7 @@ impl Conversion {
             into,
             rendering: self.rendering,
             output_intent: self.output_intent.clone(),
+            black_generation: self.black_generation.clone(),
         }
     }
 
@@ -959,10 +994,29 @@ impl Conversion {
         self.rendering
     }
 
+    /// The same conversion under §10.4.2.4's functions, where the graphics state states one.
+    ///
+    /// `pdf_model::content` is the only caller: Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` are
+    /// read there — from an `/ExtGState` and from a shading pattern's own (§11.6.7) — and this is
+    /// how the pair reaches the three routes that convert after the interpreter has handed the
+    /// work over.
+    #[must_use]
+    pub fn under_black_generation(mut self, generation: Option<Arc<BlackGeneration>>) -> Self {
+        self.black_generation = generation;
+        self
+    }
+
+    /// §10.4.2.4's pair this conversion carries, if the state stated one.
+    #[must_use]
+    pub fn black_generation(&self) -> Option<&BlackGeneration> {
+        self.black_generation.as_deref()
+    }
+
     /// The colour `values` become, through [`Compositing::paint`].
     #[must_use]
     pub fn paint(&self, space: &ColourSpace, values: &[f32]) -> Color {
-        self.into.paint(space, values, self.rendering)
+        self.into
+            .paint(space, values, self.rendering, self.black_generation())
     }
 }
 
@@ -2205,7 +2259,46 @@ impl ColourSpace {
     /// clipped where it does not, which is the same gamut question one space earlier.
     #[must_use]
     pub fn to_cmyk(&self, values: &[f32], rendering: Rendering, press: &Press) -> [f32; 4] {
-        self.to_cmyk_at(values, 0, rendering, press)
+        self.to_cmyk_at(values, 0, rendering, press, None)
+    }
+
+    /// [`Self::to_cmyk`] under §10.4.2.4's black generation, where the graphics state states one.
+    ///
+    /// **This is the one place §10.4.2's branch converts a colour this tree paints**, and it is
+    /// there because §11.7.5.3 puts it there rather than because the branch was reconsidered:
+    ///
+    /// > When painting an elementary object with a DeviceRGB colour directly into a transparency
+    /// > group whose colour space is DeviceCMYK , the functions used shall be the current
+    /// > black-generation and undercolour-removal functions in effect in the graphics state at
+    /// > the time of the painting operation.
+    ///
+    /// §10.4.2.4 is the only algorithm in the standard that invokes those two functions, and its
+    /// title is the conversion this sentence is about. What a stated function replaces is a step
+    /// the route above already performs: [`rgb_to_ink`]'s search chooses a black amount and
+    /// solves the other three for the colour, which is a black generation and an undercolour
+    /// removal, and §10.4.2.4 requires every device to have a pair — "[e]ach device shall be
+    /// configured with default values that are appropriate for that device". So the file's pair
+    /// substitutes for this device's, over the colours the sentence names and no others.
+    ///
+    /// Everything else stays on §10.3's branch, which is what §10.4.2.1's ranking recommends and
+    /// what nothing here overrides: a `CalRGB`, a `Lab`, an `ICCBased` or a `DeviceGray` colour
+    /// is not the "DeviceRGB colour" the sentence conditions on, and a press that converts in
+    /// through its own `B2A` is the document's own measured transform rather than a default this
+    /// pair could stand in for. ADR 1207, which supersedes ADR 1069.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "\"DeviceRGB colour\" is quoted from §11.7.5.3, and a quotation may not gain \
+                  backticks"
+    )]
+    #[must_use]
+    pub fn to_cmyk_under(
+        &self,
+        values: &[f32],
+        rendering: Rendering,
+        press: &Press,
+        generation: Option<&BlackGeneration>,
+    ) -> [f32; 4] {
+        self.to_cmyk_at(values, 0, rendering, press, generation)
     }
 
     /// [`Self::to_cmyk`], carrying the recursion depth a nested space costs.
@@ -2215,6 +2308,7 @@ impl ColourSpace {
         depth: usize,
         rendering: Rendering,
         press: &Press,
+        generation: Option<&BlackGeneration>,
     ) -> [f32; 4] {
         if depth > MAX_DEPTH {
             return [0.0, 0.0, 0.0, 1.0];
@@ -2232,6 +2326,7 @@ impl ColourSpace {
                 depth.saturating_add(1),
                 rendering,
                 press,
+                generation,
             ),
             Self::Separation {
                 alternate, tints, ..
@@ -2240,10 +2335,26 @@ impl ColourSpace {
                 depth.saturating_add(1),
                 rendering,
                 press,
+                generation,
             ),
             Self::Pattern { base } => base.as_ref().map_or([0.0, 0.0, 0.0, 1.0], |base| {
-                base.to_cmyk_at(values, depth.saturating_add(1), rendering, press)
+                base.to_cmyk_at(
+                    values,
+                    depth.saturating_add(1),
+                    rendering,
+                    press,
+                    generation,
+                )
             }),
+            // §11.7.5.3's own condition, and it is the leaf rather than the operand that has
+            // to meet it: an `Indexed` entry, a `Separation`'s alternate or a `/Default` space
+            // arrives here as the `DeviceRGB` colour the clause names, and a `CalRGB` or an
+            // `ICCBased` one never does. A press that converts in through its own `B2A` is not
+            // a default this pair stands in for, so it keeps the profile's table.
+            Self::Rgb if !press.converts_in_by_profile() => generation.map_or_else(
+                || rgb_to_ink(press, self.to_rgb_at(values, depth, rendering)),
+                |generation| generation.separate(at(0), at(1), at(2)),
+            ),
             // A CIE-based colour goes into a profile's press from its own XYZ (§10.3.1), and
             // every other colour, and every press without a `B2A`, through this crate's one
             // RGB route — `xyz_to_ink` and `rgb_to_ink` say which is which.

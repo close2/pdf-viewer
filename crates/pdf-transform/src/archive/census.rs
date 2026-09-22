@@ -27,7 +27,9 @@
 
 use pdf_archive::{Check, Requirement, Target, table};
 
-use super::decision::{Answer, Because, REFUSED_BY_NAME, REMEDIES, WRITER_EMITS};
+use super::decision::{
+    Answer, Because, Conditional, REFUSED_BY_NAME, REMEDIES, WRITER_EMITS, conditional,
+};
 
 /// What this converter has to say about one requirement, before any document is opened.
 ///
@@ -113,6 +115,15 @@ pub enum Kind {
     /// rows named, and what was missing was the routing. What it is *not* is a rewrite of its
     /// own, which is why it is a class here rather than folded into one of the four above.
     Underlying,
+    /// `super::decision::CONDITIONAL`: the rewrite exists, and what the row's own answer does not
+    /// settle is either the document's own geometry or bytes only the caller can hand in.
+    ///
+    /// **Counted as an answer this converter has**, because it is one — the rewrite runs. What it
+    /// is not is an answer the *table* gives, which is why it is a class of its own: a site here
+    /// still has something an operator or a caller must say, so it stays in
+    /// [`super::config::sites`]' enumeration where an ordinary `Mechanical` row does not
+    /// (`doc/adr/1209`).
+    Conditional(Conditional),
 }
 
 impl Kind {
@@ -125,6 +136,7 @@ impl Kind {
             Self::Loses => "loses",
             Self::TwoLicences => "two-licences",
             Self::Underlying => "underlying",
+            Self::Conditional(_) => "conditional",
         }
     }
 }
@@ -150,6 +162,11 @@ pub fn standing(requirement: &Requirement) -> Standing {
         .iter()
         .find(|remedy| remedy.requirement == requirement.id)
     {
+        // A row whose answer the table alone does not settle is its own class, so that a site
+        // still needing something from an operator or a caller stays enumerable (`doc/adr/1209`).
+        if let Some(waits_on) = conditional(requirement.id) {
+            return Standing::Remedy(Kind::Conditional(waits_on));
+        }
         return Standing::Remedy(match remedy.answer {
             Answer::Mechanical(_) => Kind::Mechanical,
             Answer::Stated(..) => Kind::Stated,

@@ -26,6 +26,7 @@ use pdf_render::{
 };
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 
+use crate::black_generation::BlackGeneration;
 use crate::colour::{ColourSpace, Compositing};
 use crate::icc::Rendering;
 use crate::page::Page;
@@ -224,6 +225,19 @@ struct GraphicsState {
     /// [`GraphicsState::black_point`] rather than directly, because the rendering intent can
     /// override it.
     use_black_pt_comp: BlackPoint,
+    /// Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` — §10.4.2.4's black-generation and
+    /// undercolour-removal functions — where this state states one.
+    ///
+    /// ISO 32000-2 §11.7.5.3 scopes what they do: the pair in force here is the pair used to
+    /// convert a `DeviceRGB` colour painted into a group whose colour space is `DeviceCMYK`, and
+    /// nothing else on the page changes. `None` is the initial value and what `/BG2 /Default`
+    /// and `/UCR2 /Default` restore between them — the functions "in effect at the start of the
+    /// page", which is this device's own conversion (ADR 1207).
+    ///
+    /// Saved and restored by `q`/`Q` like every other parameter here, which is why it is a field
+    /// of this state rather than of the interpreter: `Interpreter::black_generation_stated` is
+    /// monotone for the page because it feeds a *report*, and a parameter is not.
+    black_generation: Option<Arc<BlackGeneration>>,
     /// The rendering intent parameter, set by `ri` and by `/RI` (§8.6.5.8).
     ///
     /// §8.4.1 Table 51 states the initial value, and it is not the absent answer a `bool` would
@@ -376,6 +390,7 @@ impl GraphicsState {
             fill_alpha: 1.0,
             stroke_alpha: 1.0,
             use_black_pt_comp: BlackPoint::Default,
+            black_generation: None,
             intent: Intent::Relative,
             fill_space: ColourSpace::Gray,
             stroke_space: ColourSpace::Gray,
@@ -412,6 +427,15 @@ impl GraphicsState {
     /// why this takes the intent as an argument rather than reading it.
     fn rendering_under(&self, intent: Intent) -> Rendering {
         Rendering::new(intent.a2b(), self.black_point_under(intent).applies())
+    }
+
+    /// ISO 32000-2 §10.4.2.4's pair this state states, if it states one.
+    ///
+    /// §11.7.5.3 asks for the pair "in effect in the graphics state at the time of the painting
+    /// operation", which is this field read at the moment a colour is converted — the same
+    /// moment, and for the same reason, as [`GraphicsState::rendering`].
+    fn black_generation(&self) -> Option<&BlackGeneration> {
+        self.black_generation.as_deref()
     }
 
     /// Whether §8.6.5.9's black point compensation applies under `intent`.

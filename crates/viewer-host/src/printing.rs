@@ -24,7 +24,7 @@
 
 use pdf_model::page::Boundary;
 use pdf_model::viewer_preferences::{Duplex, PrintScaling, ViewerPreferences};
-use viewer_core::Sheet;
+use viewer_core::{Fidelity, Sheet};
 
 /// Dots per inch a printed page is drawn at where the print system reports none.
 ///
@@ -83,13 +83,278 @@ pub fn scale(dpi: Option<f32>) -> f32 {
 /// case where the PDF page size equals the media size" read one step out: this program places a
 /// page on the sheet unscaled and unrotated, so the matrix the clause asks to be cancelled is the
 /// identity but for that translation. A host that scales a page onto the sheet — shrink-to-fit,
-/// n-up, tiling — owes the rest of that sentence and is not offered this function.
+/// n-up — states the rest of that sentence through [`placed`] instead.
 #[must_use]
 pub fn sheet(width: f32, height: f32, dpi: Option<f32>) -> Sheet {
     Sheet {
         media: Some([0.0, 0.0, width.max(0.0), height.max(0.0)]),
         scale: scale(dpi),
+        page_scale: 1.0,
     }
+}
+
+/// The scale a printed page is drawn at once §7.6.4.2's Table 22 bit 12 has been asked.
+///
+/// **This is the implementation-dependent algorithm the cell hands to a processor**, written
+/// down rather than left unchosen (ADR 1203). Table 22:
+///
+/// > When this bit is clear (and bit 3 is set), printing shall be limited to a low- level
+/// > representation of the appearance, possibly of degraded quality.
+///
+/// What leaves this program is a raster of the page, so the resolution is the thing that decides
+/// whether "a faithful digital copy of the PDF content could be generated" from it — and
+/// [`MIN_DPI`] is the low-level representation because it is this module's own floor: the
+/// narrowest resolution a printed page is drawn at at all, below which RFC 0004 §3 says a
+/// printed page is visibly a screen picture. Choosing the floor rather than a number invented
+/// for the occasion is what keeps the degradation a *statement* rather than a second budget.
+///
+/// The second half of the algorithm is [`destination_refused`], because a job written to a file
+/// is a document whatever its resolution.
+#[must_use]
+pub fn scale_at(fidelity: Fidelity, dpi: Option<f32>) -> f32 {
+    match fidelity {
+        Fidelity::Faithful => scale(dpi),
+        Fidelity::Degraded => MIN_DPI / POINTS_PER_INCH,
+    }
+}
+
+/// Why a destination that writes a document may not be offered, where it may not.
+///
+/// `None` is a job Table 22 bit 12 left alone, which is every job where the document withholds
+/// nothing or this reader said not to obey it.
+///
+/// **The destination is the half of bit 12 the resolution cannot answer.** A print-to-file
+/// destination produces exactly what the cell's own words describe — "a representation from which
+/// a faithful digital copy of the PDF content could be generated" — at any resolution at all, so
+/// degrading the pixels and then writing them into a document would obey the bit in one direction
+/// and not the other. A host that has such a destination refuses it by name and says why; one
+/// that has none has nothing to do here, which is how the windows stay level (ADR 1203).
+#[must_use]
+pub fn destination_refused(fidelity: Fidelity) -> Option<&'static str> {
+    match fidelity {
+        Fidelity::Faithful => None,
+        Fidelity::Degraded => Some(
+            "this document does not permit printing to a file (§7.6.4.2, Table 22 bit 12);              printing to a printer goes ahead at the lowest resolution this program draws at",
+        ),
+    }
+}
+
+/// RFC 0004 §6's scale modes: how large a page is drawn on the sheet it is placed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scaling {
+    /// The page at its own size, whether or not it fits. §12.2's `/PrintScaling` `None`.
+    ActualSize,
+    /// The page at its own size unless it is too large, and then just small enough.
+    ///
+    /// The default, and the field's: a page that already fits is not touched, so a document
+    /// printed on the paper it was written for is unscaled and §12.5.6.22's matrix B stays the
+    /// identity.
+    #[default]
+    ShrinkToFit,
+    /// The page as large as fits, enlarging a small one.
+    FitToPage,
+}
+
+/// How many pages go on one sheet — RFC 0004 §6's 1, 2 and 4.
+///
+/// **The grid is a convention and no clause states one.** §12.5.6.22 says only what happens to a
+/// watermark "[w]hen n -up printing is selected", leaving what n-up *is* to the processor; this
+/// splits the sheet's longer axis for two and both axes for four, which keeps each cell's
+/// proportions as near the sheet's as the count allows. Written down as a choice (ADR 1204).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PagesPerSheet {
+    /// One page per sheet: the cell is the sheet.
+    #[default]
+    One,
+    /// Two, side by side across the sheet's longer axis.
+    Two,
+    /// Four, two by two.
+    Four,
+}
+
+impl PagesPerSheet {
+    /// How many pages one sheet takes.
+    #[must_use]
+    pub const fn count(self) -> usize {
+        match self {
+            Self::One => 1,
+            Self::Two => 2,
+            Self::Four => 4,
+        }
+    }
+
+    /// How the sheet is divided, as (across, up) for a sheet of these proportions.
+    fn grid(self, paper: (f32, f32)) -> (usize, usize) {
+        match self {
+            Self::One => (1, 1),
+            Self::Two if paper.0 >= paper.1 => (2, 1),
+            Self::Two => (1, 2),
+            Self::Four => (2, 2),
+        }
+    }
+}
+
+/// Where one page of an n-up sheet goes, in points from the paper's lower-left corner.
+///
+/// What a host paints into: the raster of that page, scaled to `extent`, with its lower-left
+/// corner at `origin`. The cells are filled left to right and top to bottom, which is the reading
+/// order every print system in reach uses and which no clause states.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cell {
+    /// The page's lower-left corner on the paper, in points.
+    pub origin: (f32, f32),
+    /// How large the page is drawn there, in points.
+    pub extent: (f32, f32),
+}
+
+/// The sheet a job of these pages on this paper is going onto — §12.5.6.22's media and its B.
+///
+/// **The media is the *cell* and not the paper**, which is the clause's own instruction for
+/// n-up: the annotations "shall be positioned as if the dimensions of the printed page were
+/// limited to a single portion of the page". For one page per sheet the cell is the paper and
+/// this is [`sheet`] with a scale mode applied.
+///
+/// The rectangle is stated in the *page's* own default user space, so the page's origin is at
+/// (0, 0) and the cell's corners fall wherever the placement put them — which is how the
+/// translation term of the clause's B sentence is carried by the value rather than computed from
+/// it. [`Sheet::page_scale`] is what is left of B, and [`Cell`] is the same placement said the
+/// other way round, for a host that has to paint it.
+///
+/// `scale` is pixels per default user space unit at the printer's resolution, from [`scale`] or
+/// [`scale_at`]; the raster is multiplied by the page's own scale so that a page drawn at half
+/// size costs a quarter of the pixels and still lands on the paper at the printer's resolution.
+///
+/// A paper or a page with no extent gives the page back at its own size against the paper, which
+/// is [`sheet`]'s answer: there is no placement to compute and nothing a print system said that
+/// this could honour.
+#[must_use]
+pub fn placed(
+    paper: (f32, f32),
+    page: (f32, f32),
+    scaling: Scaling,
+    per_sheet: PagesPerSheet,
+    scale: f32,
+) -> Sheet {
+    let Some(placement) = geometry(paper, page, scaling, per_sheet) else {
+        return Sheet {
+            media: Some([0.0, 0.0, paper.0.max(0.0), paper.1.max(0.0)]),
+            scale,
+            page_scale: 1.0,
+        };
+    };
+    // The cell in the page's own space: its corner is as far from the page's origin as the page
+    // sits from the cell's, divided by what the page is scaled by. Which cell of the sheet it is
+    // does not enter — every cell of a grid places its page the same way inside itself, so the
+    // sheet is one value for the whole job.
+    let scale_back = |value: f32| value / placement.page_scale;
+    let (left, bottom) = (
+        -scale_back(placement.inset.0),
+        -scale_back(placement.inset.1),
+    );
+    Sheet {
+        media: Some([
+            left,
+            bottom,
+            left + scale_back(placement.cell.0),
+            bottom + scale_back(placement.cell.1),
+        ]),
+        scale: scale * placement.page_scale,
+        page_scale: placement.page_scale,
+    }
+}
+
+/// Where the `index`th page of a sheet is painted, for the same job [`placed`] described.
+///
+/// `None` for an index past what this many pages per sheet holds, and for a paper or a page with
+/// no extent.
+#[must_use]
+pub fn cell(
+    paper: (f32, f32),
+    page: (f32, f32),
+    scaling: Scaling,
+    per_sheet: PagesPerSheet,
+    index: usize,
+) -> Option<Cell> {
+    if index >= per_sheet.count() {
+        return None;
+    }
+    let placement = geometry(paper, page, scaling, per_sheet)?;
+    let (across, _) = per_sheet.grid(paper);
+    // `across` is 1 or 2 by construction — [`PagesPerSheet::grid`] returns no other value — so
+    // neither of these can divide by zero; `checked_*` says so rather than a comment alone.
+    let column = index.checked_rem(across)?;
+    let row = index.checked_div(across)?.checked_add(1)?;
+    Some(Cell {
+        origin: (
+            as_f32(column) * placement.cell.0 + placement.inset.0,
+            // Filled top to bottom, and the paper's origin is its lower-left corner, so row 0 is
+            // the topmost one and its cell's own lower edge is one cell below the paper's top.
+            paper.1 - as_f32(row) * placement.cell.1 + placement.inset.1,
+        ),
+        extent: placement.extent,
+    })
+}
+
+/// One sheet's arrangement, with the cell's position on the paper left out.
+///
+/// The three facts every cell of a grid shares: how large a cell is, how far inside it the page
+/// sits, and what the page was scaled by to fit. The cell's own corner is the only thing that
+/// differs between them, which is why [`placed`] needs none of it and [`cell`] adds it.
+struct Placement {
+    /// A cell's size in points.
+    cell: (f32, f32),
+    /// The page's lower-left corner within its cell, in points.
+    inset: (f32, f32),
+    /// How large the page is drawn, in points.
+    extent: (f32, f32),
+    /// §12.5.6.22's B, as much of it as a placement without rotation has.
+    page_scale: f32,
+}
+
+/// The arrangement of one sheet, or `None` where nothing usable was said.
+///
+/// A paper or a page with no extent is a print system that answered nothing rather than a job
+/// with a placement of zero, so the caller falls back to the page at its own size.
+fn geometry(
+    paper: (f32, f32),
+    page: (f32, f32),
+    scaling: Scaling,
+    per_sheet: PagesPerSheet,
+) -> Option<Placement> {
+    let usable = |value: f32| value.is_finite() && value > 0.0;
+    if !usable(paper.0) || !usable(paper.1) || !usable(page.0) || !usable(page.1) {
+        return None;
+    }
+    let (across, up) = per_sheet.grid(paper);
+    let cell = (paper.0 / as_f32(across), paper.1 / as_f32(up));
+    let fit = (cell.0 / page.0).min(cell.1 / page.1);
+    let page_scale = match scaling {
+        Scaling::ActualSize => 1.0,
+        Scaling::ShrinkToFit => fit.min(1.0),
+        Scaling::FitToPage => fit,
+    };
+    if !usable(page_scale) {
+        return None;
+    }
+    let extent = (page.0 * page_scale, page.1 * page_scale);
+    // Centred in the cell, which is what every print system in reach does and what no clause
+    // states. A page larger than its cell insets negatively, which is the page hanging over the
+    // edge — the honest arithmetic for `ActualSize` on paper too small for the page.
+    Some(Placement {
+        cell,
+        inset: ((cell.0 - extent.0) / 2.0, (cell.1 - extent.1) / 2.0),
+        extent,
+        page_scale,
+    })
+}
+
+/// A small count as a coordinate. Exact: a grid is never more than a handful of cells.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a grid's dimension is 1 or 2, and every integer below 2^24 is exact in an f32"
+)]
+fn as_f32(value: usize) -> f32 {
+    value as f32
 }
 
 /// The job of a window that is showing what would print without having a printer.
@@ -107,6 +372,7 @@ pub fn unknown_sheet(dpi: Option<f32>) -> Sheet {
     Sheet {
         media: None,
         scale: scale(dpi),
+        page_scale: 1.0,
     }
 }
 
@@ -220,9 +486,11 @@ impl Defaults {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_DPI, Defaults, MAX_DPI, MIN_DPI, POINTS_PER_INCH, scale, sheet, unknown_sheet,
+        DEFAULT_DPI, Defaults, MAX_DPI, MIN_DPI, POINTS_PER_INCH, PagesPerSheet, Scaling, cell,
+        destination_refused, placed, scale, scale_at, sheet, unknown_sheet,
     };
     use pdf_model::viewer_preferences::{Duplex, PrintScaling, ViewerPreferences};
+    use viewer_core::Fidelity;
 
     /// The clamp is RFC 0004 §3's budget, and both ends of it hold.
     #[test]
@@ -250,6 +518,147 @@ mod tests {
         let unknown = unknown_sheet(Some(300.0));
         assert_eq!(unknown.media, None);
         assert!((unknown.scale - a4.scale).abs() < f32::EPSILON);
+    }
+
+    /// §7.6.4.2's Table 22 bit 12, as this module carries it out: a floor and a destination.
+    ///
+    /// **The pair is what makes it a reading rather than a clamp.** A degraded job that was only
+    /// drawn smaller would still write a file a faithful copy could be generated from, which is
+    /// the cell's own subject — "a representation from which a faithful digital copy of the PDF
+    /// content could be generated" — so the destination is refused beside it (ADR 1203).
+    #[test]
+    fn a_withheld_bit_12_draws_at_the_floor_and_refuses_a_destination_that_writes_a_document() {
+        // Faithful is the unchanged function, at every one of its three answers.
+        for dpi in [None, Some(1200.0), Some(400.0)] {
+            assert!((scale_at(Fidelity::Faithful, dpi) - scale(dpi)).abs() < f32::EPSILON);
+        }
+        // Degraded is the floor whatever the printer reported, including a printer that reported
+        // *less* than the floor — which the clamp would already have raised.
+        for dpi in [None, Some(1200.0), Some(400.0), Some(72.0)] {
+            assert!(
+                (scale_at(Fidelity::Degraded, dpi) - MIN_DPI / POINTS_PER_INCH).abs()
+                    < f32::EPSILON,
+                "{dpi:?}"
+            );
+        }
+        assert_eq!(destination_refused(Fidelity::Faithful), None);
+        let refusal = destination_refused(Fidelity::Degraded).expect("a sentence");
+        assert!(
+            refusal.contains("Table 22 bit 12"),
+            "the refusal names the position it comes from: {refusal}"
+        );
+    }
+
+    /// §12.5.6.22's two post-EXAMPLE bullets, as a placement a host can paint and a core can read.
+    ///
+    /// The n-up bullet fixes both halves: the annotations "shall be printed at the specified size
+    /// and shall be positioned as if the dimensions of the printed page were limited to a single
+    /// portion of the page". So the media is the *cell* and the factor is the page's, and the two
+    /// have to agree — a cell a host painted into and a media the core measured percentages
+    /// against that disagreed would put a watermark somewhere no printer chose.
+    ///
+    /// A4 in points, two up: the sheet's longer axis is halved, so each cell is 595 x 421 and a
+    /// 595 x 842 page fits at exactly half size.
+    #[test]
+    fn an_n_up_sheet_places_each_page_in_its_own_cell_at_the_factor_the_core_cancels() {
+        let paper = (595.0, 842.0);
+        let page = (595.0, 842.0);
+        let job = placed(
+            paper,
+            page,
+            Scaling::ShrinkToFit,
+            PagesPerSheet::Two,
+            300.0 / POINTS_PER_INCH,
+        );
+        assert!(
+            (job.page_scale - 0.5).abs() < f32::EPSILON,
+            "half of each axis"
+        );
+        // The cell in the page's own space: 595 x 421 of paper at half size is 1190 x 842 of
+        // page, and the page sits at its corner because it fills the cell in one axis and the
+        // other is exactly its own height.
+        let media = job.media.expect("a sheet somebody chose");
+        assert!((media[2] - media[0] - 1190.0).abs() < 0.01, "{media:?}");
+        assert!((media[3] - media[1] - 842.0).abs() < 0.01, "{media:?}");
+        // The raster is the page's own scale times the printer's, so a page drawn at half size
+        // costs a quarter of the pixels and still lands at the printer's resolution.
+        assert!((job.scale - 150.0 / POINTS_PER_INCH).abs() < f32::EPSILON);
+
+        // The two cells tile the paper's longer axis and neither overlaps the other.
+        let first = cell(paper, page, Scaling::ShrinkToFit, PagesPerSheet::Two, 0).expect("a cell");
+        let second =
+            cell(paper, page, Scaling::ShrinkToFit, PagesPerSheet::Two, 1).expect("a cell");
+        assert!((first.extent.0 - 297.5).abs() < 0.01, "{first:?}");
+        assert!((first.extent.1 - 421.0).abs() < 0.01, "{first:?}");
+        assert_eq!(first.extent, second.extent, "one size for every cell");
+        assert!(
+            (first.origin.1 - 421.0).abs() < 0.01,
+            "the top row: {first:?}"
+        );
+        assert!(
+            (second.origin.1 - 0.0).abs() < 0.01,
+            "the bottom row: {second:?}"
+        );
+        assert!(
+            cell(paper, page, Scaling::ShrinkToFit, PagesPerSheet::Two, 2).is_none(),
+            "a third page on a sheet that holds two"
+        );
+    }
+
+    /// One page per sheet at its own size is what [`sheet`] already built, and the three modes
+    /// differ only where the page and the paper differ.
+    #[test]
+    fn a_single_page_placed_at_its_own_size_is_the_clauses_usual_case() {
+        let paper = (595.0, 842.0);
+        let unscaled = placed(
+            paper,
+            paper,
+            Scaling::ShrinkToFit,
+            PagesPerSheet::One,
+            300.0 / POINTS_PER_INCH,
+        );
+        assert_eq!(unscaled.media, sheet(595.0, 842.0, Some(300.0)).media);
+        assert!((unscaled.page_scale - 1.0).abs() < f32::EPSILON);
+
+        // A page twice the paper: shrinking halves it, actual size leaves it alone and hanging
+        // over the edge, and fitting is shrinking here because the page is the larger.
+        let large = (1190.0, 1684.0);
+        let modes = [
+            (Scaling::ActualSize, 1.0),
+            (Scaling::ShrinkToFit, 0.5),
+            (Scaling::FitToPage, 0.5),
+        ];
+        for (mode, expected) in modes {
+            let job = placed(paper, large, mode, PagesPerSheet::One, 1.0);
+            assert!((job.page_scale - expected).abs() < f32::EPSILON, "{mode:?}");
+        }
+        // And a page half the paper: only fitting enlarges it, which is the difference between
+        // the two modes that are otherwise the same.
+        let small = (297.5, 421.0);
+        for (mode, expected) in [(Scaling::ShrinkToFit, 1.0), (Scaling::FitToPage, 2.0)] {
+            let job = placed(paper, small, mode, PagesPerSheet::One, 1.0);
+            assert!((job.page_scale - expected).abs() < f32::EPSILON, "{mode:?}");
+        }
+        // Nothing usable said is the page at its own size against the paper, rather than a
+        // placement of zero — a print system that answered nothing has not asked for anything.
+        let nothing = placed(
+            (0.0, 842.0),
+            paper,
+            Scaling::FitToPage,
+            PagesPerSheet::Four,
+            1.0,
+        );
+        assert!((nothing.page_scale - 1.0).abs() < f32::EPSILON);
+        assert!(
+            cell(
+                (0.0, 842.0),
+                paper,
+                Scaling::FitToPage,
+                PagesPerSheet::Four,
+                0
+            )
+            .is_none()
+        );
     }
 
     /// Table 147's print half reaches a dialogue entry by entry, and its absence is its defaults.

@@ -1261,6 +1261,16 @@ impl CpuRasterizer {
     /// this combination for a group that is non-isolated, non-knockout, outside every knockout
     /// group, holds an element that blends, and is composited under a mode of its own.
     ///
+    /// **Priced on the first corpus page that reaches it** —
+    /// `doc/pdf.js/test/pdfs/issue12798_page1_reduced.pdf`, whose two groups are both
+    /// §11.7.4's implicit construction under `/Multiply` (ADR 1206). `callgrind_rasterise`,
+    /// 20 draws, one sitting, two arms from one tree with this call planted away in the second:
+    /// 6 225 323 395 → 6 668 515 460, **+443 192 065 instructions, +7.12%**, or 22.2 M a draw.
+    /// The elements re-run are the group's own, so the figure is the page's marks rather than a
+    /// constant; what bounds it is that no other page of the curated corpora reaches this branch
+    /// at all, and that a page stating no group under a mode of its own pays the one comparison
+    /// at the call site.
+    ///
     /// # Errors
     ///
     /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::Allocation`] for the second buffer.

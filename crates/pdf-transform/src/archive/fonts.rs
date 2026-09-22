@@ -69,7 +69,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_archive::survey::{SelectedFont, Survey};
-use pdf_font::standard::ShippedFace;
+use pdf_font::standard::{ShippedFace, SuppliedFace};
 use pdf_font::substitute::Format;
 use pdf_font::{Code, LoadedFont};
 use pdf_syntax::Document;
@@ -134,10 +134,112 @@ pub struct SubstitutedFont {
     pub resource: String,
     /// The `/BaseFont` the document asked for.
     pub requested: String,
-    /// The face this program embedded in its place.
-    pub face: &'static str,
+    /// The face this conversion embedded in its place.
+    pub face: String,
+    /// Whose face it was — this program's, or the operator's.
+    pub authority: FaceAuthority,
     /// Which of section 4.9's two metric routes it took.
     pub route: MetricRoute,
+}
+
+/// Whose font program a substitution embedded.
+///
+/// **Two, and the difference is a licence rather than a preference.** ISO 32000-2 §9.9.1:
+///
+/// > One of the conditions may be that the font program cannot be embedded, in which case it
+/// > should not be incorporated into a PDF file.
+///
+/// ISO 19005-2 section 6.2.11.4.1 admits only a program that may lawfully be embedded for
+/// unlimited universal rendering. For a face this program ships, that is a fact the project
+/// checked once and recorded in `data/standard-fonts/PROVENANCE.md`; for a face an operator
+/// names on the command line it is a fact **only the operator can state**, and naming the file
+/// is the statement. So the two are kept apart everywhere they are reported — in the run's own
+/// report and in the output's `xmpMM:History` — rather than both appearing as *a face was
+/// embedded* (`doc/rfc/0007`'s `supply`, `doc/adr/1209`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaceAuthority {
+    /// One of the faces this program ships, whose licence the project checked once.
+    Shipped,
+    /// A program the operator named with `--font`, on the operator's own authority.
+    Operator,
+}
+
+impl FaceAuthority {
+    /// A stable word for the report's machine-readable form.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Shipped => "shipped",
+            Self::Operator => "operator",
+        }
+    }
+
+    /// Whose the face was, in one clause for a person reading the file's own provenance.
+    #[must_use]
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Shipped => "a face this program ships",
+            Self::Operator => {
+                "a program the converting operator named, who states it may lawfully be embedded                  for unlimited, universal rendering"
+            }
+        }
+    }
+}
+
+/// One face a substitution may embed: this program's, or the one an operator named.
+///
+/// **One type rather than two paths**, because everything after the choice is the same: §9.9's
+/// Table 124 decides which key carries it, [`face_widths`] asks it for the glyph each shown code
+/// selects, and [`pdf_font::restate`] makes its advances the numbers the dictionary already
+/// states so that no glyph moves. What differs is only where the bytes came from and who said
+/// they could be embedded, which is [`FaceAuthority`].
+enum Face {
+    /// [`pdf_font::standard::shipped_face`]'s answer.
+    Shipped(ShippedFace),
+    /// [`pdf_font::standard::supplied_face`]'s answer, over bytes the operator named.
+    Supplied(SuppliedFace, String),
+}
+
+impl Face {
+    /// The program's bytes.
+    fn program(&self) -> &[u8] {
+        match self {
+            Self::Shipped(face) => face.program,
+            Self::Supplied(face, _) => &face.program,
+        }
+    }
+
+    /// Which reader the bytes belong to, which §9.9's Table 124 turns into a `/FontFile` key.
+    const fn format(&self) -> Format {
+        match self {
+            Self::Shipped(face) => face.format,
+            Self::Supplied(face, _) => face.format,
+        }
+    }
+
+    /// The glyph a code selects in this face, where it selects one.
+    fn glyph(&self, code: u8) -> Option<u16> {
+        match self {
+            Self::Shipped(face) => face.glyph(code),
+            Self::Supplied(face, _) => face.glyph(code),
+        }
+    }
+
+    /// The face's own name, for a report that has to say which face was embedded.
+    fn describe(&self) -> String {
+        match self {
+            Self::Shipped(face) => face.describe().to_owned(),
+            Self::Supplied(_, named) => named.clone(),
+        }
+    }
+
+    /// Whose face it was.
+    const fn authority(&self) -> FaceAuthority {
+        match self {
+            Self::Shipped(_) => FaceAuthority::Shipped,
+            Self::Supplied(..) => FaceAuthority::Operator,
+        }
+    }
 }
 
 /// One font whose own embedded program had its advances restated.
@@ -440,6 +542,7 @@ pub(super) fn embed_faces(
     document: &Document,
     survey: &Survey,
     spare: &mut Spare,
+    supplied: &BTreeMap<String, std::sync::Arc<[u8]>>,
 ) -> Result<Substitutes, Because> {
     let mut substitutes = Substitutes::default();
     for used in survey.fonts() {
@@ -461,18 +564,46 @@ pub(super) fn embed_faces(
             .get("FontDescriptor")
             .and_then(Object::as_reference)
             .ok_or(Because::NotBuiltYet(NO_DESCRIPTOR_TO_EMBED_INTO))?;
-        let face = pdf_font::standard::shipped_face(document, &used.dict, &used.name)
-            .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?;
-        let key = key_for(&subtype, face.format).ok_or(Because::NotBuiltYet(NO_SHIPPED_FORMAT))?;
+        // **The operator's face first, and only where the operator named one.** ISO 19005-2
+        // section 6.2.11.4.1 admits a program that may lawfully be embedded for unlimited
+        // universal rendering, which ISO 32000-2 §9.9.1 makes a fact about a licence — so it is
+        // the operator's to state and never this program's to find. `--font` is the statement,
+        // and it is never a default: a font nobody named takes the shipped route exactly as
+        // before (`doc/adr/1209`, `doc/questions/A47`).
+        let requested = base_font(document, &used.dict);
+        let face = match named_program(supplied, &requested) {
+            Some((named, program)) => Face::Supplied(
+                pdf_font::standard::supplied_face(
+                    document,
+                    &used.dict,
+                    &used.name,
+                    std::sync::Arc::clone(program),
+                )
+                .map_err(|_| Because::NotBuiltYet(SUPPLIED_FACE_NOT_READ))?,
+                named,
+            ),
+            None => Face::Shipped(
+                pdf_font::standard::shipped_face(document, &used.dict, &used.name)
+                    .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
+            ),
+        };
+        let key =
+            key_for(&subtype, face.format()).ok_or(Because::NotBuiltYet(NO_SHIPPED_FORMAT))?;
         let font = LoadedFont::load(document, &used.dict, &used.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
         let (widths, route) = face_widths(&font, &face, used)?;
         let program = if route == MetricRoute::FaceMetrics {
-            face.program.to_vec()
+            face.program().to_vec()
         } else {
-            pdf_font::restate::with_widths(face.program, face.format, &widths)
+            pdf_font::restate::with_widths(face.program(), face.format(), &widths)
                 .map_err(|_| Because::NotBuiltYet(FACE_NOT_RESTATABLE))?
         };
+        // **The invariant the whole supply rests on, proved rather than trusted.** Section 4.9
+        // ranks restating the program above restating `/Widths` because `/Widths` is what
+        // positions the glyphs; a face whose advances do not read back as the file's numbers
+        // would move every line of the page, so the program is asked again through the same two
+        // readers a caller holding nothing but bytes has.
+        proves(&program, face.format(), &widths, &BTreeMap::new())?;
         let at = spare
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
@@ -486,8 +617,9 @@ pub(super) fn embed_faces(
         substitutes.at.insert(descriptor, Embedding { key, at });
         substitutes.done.push(SubstitutedFont {
             resource: used.name.clone(),
-            requested: base_font(document, &used.dict),
+            requested,
             face: face.describe(),
+            authority: face.authority(),
             route,
         });
     }
@@ -506,7 +638,7 @@ pub(super) fn embed_faces(
 /// and ISO 19005-4 section 6.2.10.9 forbid.
 fn face_widths(
     font: &LoadedFont,
-    face: &ShippedFace,
+    face: &Face,
     used: &SelectedFont,
 ) -> Result<(BTreeMap<u16, f32>, MetricRoute), Because> {
     let mut widths: BTreeMap<u16, f32> = BTreeMap::new();
@@ -517,7 +649,10 @@ fn face_widths(
             let glyph = face
                 .glyph(byte)
                 .filter(|glyph| *glyph != pdf_font::NOTDEF_GLYPH)
-                .ok_or(Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?;
+                .ok_or(Because::NotBuiltYet(match face.authority() {
+                    FaceAuthority::Shipped => NO_SHIPPED_FACE_COVERS_IT,
+                    FaceAuthority::Operator => NO_SUPPLIED_FACE_COVERS_IT,
+                }))?;
             let stated = font.advance(code);
             match widths.entry(glyph) {
                 Entry::Vacant(slot) => {
@@ -528,7 +663,7 @@ fn face_widths(
                 }
                 Entry::Occupied(_) => {}
             }
-            if pdf_font::restate::advance(face.program, face.format, glyph)
+            if pdf_font::restate::advance(face.program(), face.format(), glyph)
                 .is_none_or(|own| disagrees(stated, own))
             {
                 route = MetricRoute::RestatedProgram;
@@ -536,6 +671,39 @@ fn face_widths(
         }
     }
     Ok((widths, route))
+}
+
+/// The program an operator named for one `/BaseFont`, where they named one.
+///
+/// **The subset tag is passed over, and §9.9.2 is why.** A subset's `/BaseFont` "shall begin
+/// with a tag followed by a plus sign (+) followed by the PostScript name of the font from which
+/// the subset was created", and the tag "shall consist of exactly six uppercase letters" chosen
+/// arbitrarily — so an operator naming a face cannot be expected to know which six letters this
+/// document's producer picked, and two subsets of one face in one file have different ones. The
+/// exact name is tried first all the same, so an operator who does write the tag gets the font
+/// they asked for and nothing else.
+///
+/// The returned name is what the operator typed, because that is what the report has to say: it
+/// is the operator's statement about a licence, and paraphrasing it would be reporting this
+/// program's reading of it instead.
+fn named_program<'a>(
+    supplied: &'a BTreeMap<String, std::sync::Arc<[u8]>>,
+    base_font: &str,
+) -> Option<(String, &'a std::sync::Arc<[u8]>)> {
+    if let Some(program) = supplied.get(base_font) {
+        return Some((base_font.to_owned(), program));
+    }
+    let untagged = subset_tag_removed(base_font)?;
+    supplied
+        .get(untagged)
+        .map(|program| (untagged.to_owned(), program))
+}
+
+/// The PostScript name inside a §9.9.2 subset `/BaseFont`, where the name carries a tag.
+fn subset_tag_removed(base_font: &str) -> Option<&str> {
+    let (tag, name) = base_font.split_once('+')?;
+    let six_upper = tag.len() == 6 && tag.bytes().all(|byte| byte.is_ascii_uppercase());
+    (six_upper && !name.is_empty()).then_some(name)
 }
 
 /// A simple font's code as the one byte §9.10.3 makes it, or nothing for a wider one.
@@ -642,7 +810,11 @@ fn key_for(subtype: &str, format: Format) -> Option<&'static str> {
     }
 }
 
-/// The stream dictionary a `/FontFile3` needs, which §9.9's Table 126 makes `/Subtype` on.
+/// The stream dictionary a `/FontFile3` needs, which §9.9's Table 125 makes `/Subtype` on.
+///
+/// Table 125 rather than Table 124: the key is the descriptor's and the subtype is the *stream
+/// dictionary's*, which is what "Additional entries in an embedded font stream dictionary" lists.
+/// Table 126 is §10.6.5's predefined spot functions and names nothing here.
 fn subtype_dictionary(key: &str) -> Option<Dictionary> {
     (key == "FontFile3").then(|| {
         let mut dict = Dictionary::new();
@@ -654,9 +826,9 @@ fn subtype_dictionary(key: &str) -> Option<Dictionary> {
     })
 }
 
-/// A font program as a stream, compressed, with the lengths §9.9's Table 126 requires.
+/// A font program as a stream, compressed, with the lengths §9.9's Table 125 requires.
 ///
-/// `/Length1` is the program's own length before any filter, which Table 126 makes required of a
+/// `/Length1` is the program's own length before any filter, which Table 125 makes required of a
 /// `/FontFile2`; a rewritten program is a different length from the one the producer wrote, so a
 /// conversion that left the producer's number would be handing a reader a lie about its own
 /// bytes. Every other key of the source's stream dictionary is carried, because a `/FontFile3`'s
@@ -773,8 +945,11 @@ const COMPOSITE_NOT_SUBSTITUTED: &str = "this document renders a composite font 
      it, so a code of this font names a glyph of a program that is not here and names nothing in \
      any other face — a substitute could be given the right shapes only by deciding which \
      character each code was for, which is the evidence the file never carried. \
-     doc/pdf-a-conversion-limits.md section 2.1 is the reading, and supplying the font itself \
-     with --font resolves it";
+     doc/pdf-a-conversion-limits.md section 2.1 is the reading. Supplying the producer's own \
+     program would resolve it, because its CIDs would then index the glyphs they were written \
+     for; --font reaches a simple font and not yet a composite one, where the program goes into \
+     the descendant CIDFont's descriptor and the advances are §9.7.4.3's /W and /DW rather than \
+     a /Widths array";
 
 /// Why a font with no descriptor is not given a substitute.
 const NO_DESCRIPTOR_TO_EMBED_INTO: &str = "this rendered font states no FontDescriptor, which is \
@@ -782,7 +957,7 @@ const NO_DESCRIPTOR_TO_EMBED_INTO: &str = "this rendered font states no FontDesc
      descriptor. Writing one means stating the entries §9.8.1's Table 122 makes required of it — \
      /StemV above all, which is a measurement of a face's stems that nothing in this file states \
      — so the descriptor would be this converter's description of a face rather than the \
-     document's";
+     document's. --font names a program and not a descriptor, so it does not reach this case";
 
 /// Why no face covers a document's characters.
 const NO_SHIPPED_FACE_COVERS_IT: &str = "this document renders a font it does not embed, and no \
@@ -790,14 +965,35 @@ const NO_SHIPPED_FACE_COVERS_IT: &str = "this document renders a font it does no
      that where no shipped face covers a document's characters the answer is to refuse rather \
      than guess: embedding a face that draws nothing for those codes would reference the .notdef \
      glyph, which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid outright. \
-     Supplying the font with --font resolves it";
+     Naming the face with --font <base-font>=<path> resolves it: ISO 19005-2 section 6.2.11.4.1 \
+     admits only a program that may lawfully be embedded for unlimited, universal rendering, \
+     which ISO 32000-2 §9.9.1 makes a fact about a licence that only you can state";
+
+/// Why a program the operator named is not embedded.
+const SUPPLIED_FACE_NOT_READ: &str = "the font program named with --font for this document's \
+     BaseFont could not be read as either of the two formats ISO 32000-2 \u{a7}9.9's Table 124 \
+     admits under a simple font dictionary - an sfnt (TrueType or OpenType) or a bare Compact \
+     Font Format program - or its glyphs could not be matched to the codes this document's own \
+     Encoding names. A font collection (ttcf) is refused for the same reason \u{a7}9.9.1 gives \
+     for CFF: an embedded font file shall consist of exactly one font";
+
+/// Why a face the operator named that does not cover the document's codes is not embedded.
+const NO_SUPPLIED_FACE_COVERS_IT: &str = "the font program named with --font has no glyph for \
+     every code this document shows. Embedding it would reference the .notdef glyph for the \
+     rest, which ISO 19005-2 section 6.2.11.8 and ISO 19005-4 section 6.2.10.9 forbid outright, \
+     so the face is not embedded rather than embedded with holes in it. Naming a face with the \
+     document's whole repertoire resolves it";
 
 /// Why a face of the wrong format for the dictionary is not embedded.
-const NO_SHIPPED_FORMAT: &str = "the face this program ships for the font this document asks for \
-     is not in a format ISO 32000-2 §9.9's Table 124 admits under this font dictionary's own \
-     Subtype — a Type1 dictionary takes a Compact Font Format program and the sans-serif face \
-     shipped here is a glyf-based sfnt. Shipping an open sans-serif face in CFF form would close \
-     it, which is a licence question rather than a code one";
+const NO_SHIPPED_FORMAT: &str = "the face this conversion would embed is not in a format ISO \
+     32000-2 §9.9's Table 124 admits under this font dictionary's own Subtype. Two pairings are \
+     written here, both stated in the table outright — a glyf-based sfnt into a /FontFile2 under \
+     a TrueType dictionary, and a bare Compact Font Format program into a /FontFile3 with \
+     Subtype Type1C under a Type1 or MMType1 one. So a Type1 or MMType1 dictionary needs a bare \
+     CFF program, which --font can name and which the sans-serif face shipped here is not. \
+     Table 124's OpenType row would admit an sfnt carrying a CFF table here too, under a \
+     /FontFile3 with Subtype OpenType; reading a CFF table out of an sfnt is what that needs, \
+     and nobody has written it";
 
 /// Why a face whose advances cannot be restated is not embedded.
 const FACE_NOT_RESTATABLE: &str = "the face this program ships would have to have its advances \

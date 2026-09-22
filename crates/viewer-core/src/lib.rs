@@ -105,7 +105,7 @@ pub mod transition;
 
 pub use accessibility::{AccessibilityNode, Character, TableCell, TextLine, places};
 pub use command::{
-    AttachHome, Command, Edit, Find, FindDirection, FocusMove, PageTarget, PointerAction,
+    AttachHome, Command, Edit, Fidelity, Find, FindDirection, FocusMove, PageTarget, PointerAction,
     PresentationMode, Printing, Purpose, ReferenceFiles, Rendered, RestrictionLevel,
     RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection, Sheet, TrustPolicy,
     Viewing, Zoom,

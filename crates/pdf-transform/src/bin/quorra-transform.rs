@@ -70,6 +70,7 @@ use pdf_transform::range::Selection;
 use pdf_transform::redact::RedactPlan;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
 use pdf_transform::split::{Pieces, SplitPlan};
+use pdf_transform::update::{INFORMATION_KEYS, InfoEntry};
 
 use pdf_syntax::serialize::{ObjectStreams, Streams};
 use pdf_transform::{
@@ -198,6 +199,7 @@ const VALUED: &[&str] = &[
     "--restrictions",
     "--report",
     "--max-pixels",
+    "--info",
     "--page-box",
     "--attach",
     "--name",
@@ -220,6 +222,7 @@ const VALUED: &[&str] = &[
     "--authorise",
     "--output-intent-profile",
     "--config",
+    "--font",
 ];
 
 /// The flags whose value is optional and, when given, is written inline with `=`.
@@ -257,6 +260,7 @@ const KNOWN: &[&str] = &[
     "--at-bookmarks",
     "--collate",
     "--no-substitute",
+    "--font",
     "--delete",
     "--rotate",
     "--move",
@@ -343,6 +347,19 @@ impl Arguments {
             .rev()
             .find(|(flag, _)| names.contains(&flag.as_str()))
             .and_then(|(_, value)| value.as_deref())
+    }
+
+    /// Every value a repeatable flag was given, in the order they were written.
+    ///
+    /// `--info` is the one flag a caller may state more than once and mean all of them:
+    /// §14.3.3's Table 349 has nine keys and a merge may state any of them, so the last-wins
+    /// rule [`Self::value`] applies to every other flag would silently drop eight of nine.
+    fn every(&self, name: &str) -> Vec<&str> {
+        self.flags
+            .iter()
+            .filter(|(flag, _)| flag == name)
+            .filter_map(|(_, value)| value.as_deref())
+            .collect()
     }
 
     /// A parsed value, with the flag named in the error.
@@ -808,6 +825,7 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         })?;
         authorised.authorise(loss);
     }
+    let supplied_fonts = supplied_fonts(arguments)?;
     // `doc/rfc/0007`: the configuration is read by the *caller* and handed in as data, so `apply`
     // stays the pure function RFC 0002 section 5 tests. What it contributes is the losses its
     // `discard` remedies stand for — folded into the same `Authorisations` the flags build — and
@@ -820,11 +838,13 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         authorised,
         profile: output_intent_profile(arguments)?,
         substitute_fonts: !arguments.switch("--no-substitute"),
+        supplied_fonts,
         departures: read.departures,
         claim_conformance: read.claim_conformance,
         derivations: read.derivations,
         supplies: read.supplies,
         preservations: read.preservations,
+        resolutions: read.resolutions,
         tool_outputs: pdf_transform::tool::ToolOutputs::new(),
         // Empty until a pass says which streams keep their data outside the file; `run` resolves
         // what `--resolve-external-data` allows it to and applies again (`doc/adr/1199`).
@@ -844,6 +864,53 @@ struct FromConfig {
     supplies: Vec<pdf_transform::archive::Supply>,
     /// The `preserve` remedies it names that append pages.
     preservations: Vec<pdf_transform::archive::Preservation>,
+    /// The `preserve` remedies it names that fetch what a stream keeps outside the file.
+    resolutions: Vec<pdf_transform::archive::Resolution>,
+}
+
+/// Reads every `--font <base-font>=<path>`, one program per `/BaseFont` the operator names.
+///
+/// **The file is read here, in the binary — the caller** — so `apply` opens no path (RFC 0002
+/// section 5, `doc/questions/A54`). What reaches the conversion is bytes.
+///
+/// **Naming the file is the operator's statement about a licence, and that is the whole reason
+/// this is a flag rather than a search.** ISO 32000-2 §9.9.1:
+///
+/// > One of the conditions may be that the font program cannot be embedded, in which case it
+/// > should not be incorporated into a PDF file.
+///
+/// ISO 19005-2 section 6.2.11.4.1 admits only a program that may lawfully be embedded for
+/// unlimited universal rendering. Nothing in the document says whether a given program may be,
+/// and neither does the program on somebody's disk; the operator does. So the run records whose
+/// authority it was, in the report and in the output's own `xmpMM:History`, and this program
+/// never goes looking for a face by itself (`doc/adr/1209`, `doc/adr/1200` section 4).
+fn supplied_fonts(arguments: &Arguments) -> Result<BTreeMap<String, Arc<[u8]>>, Failure> {
+    let mut out: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
+    for stated in arguments.every("--font") {
+        let Some((base_font, path)) = stated.split_once('=') else {
+            return Err(Failure::Usage(format!(
+                "--font {stated:?}: the form is --font <base-font>=<path>, naming the /BaseFont \
+                 the document states and a file holding the program to embed for it"
+            )));
+        };
+        if base_font.is_empty() || path.is_empty() {
+            return Err(Failure::Usage(format!(
+                "--font {stated:?}: both halves are needed — the /BaseFont on the left of the \
+                 equals sign and the font program's path on the right"
+            )));
+        }
+        let path = PathBuf::from(path);
+        let bytes =
+            std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+        eprintln!(
+            "note: --font states that {} may lawfully be embedded for unlimited, universal \
+             rendering (ISO 19005-2 section 6.2.11.4.1); that is your statement, not this \
+             program's, and the report and the output's xmpMM:History record it as yours",
+            path.display()
+        );
+        out.insert(base_font.to_owned(), Arc::from(bytes));
+    }
+    Ok(out)
 }
 
 /// Reads `--config <file>`, folds its built `discard` remedies into `authorised`, and returns its
@@ -868,6 +935,7 @@ fn read_config(
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
+            resolutions: Vec::new(),
         });
     };
     let path = PathBuf::from(path);
@@ -901,6 +969,7 @@ fn read_config(
     let derivations = config.derivations(target);
     let supplies = config.supplies(target);
     let preservations = config.preservations(target);
+    let resolutions = config.resolutions(target);
     // **`doc/questions/A56`'s warning, where the operator meets it.** The answer put it at the
     // configuration site rather than in a security document nobody opens, and the two places an
     // operator meets a tool are the `[tool.…]` block they wrote and this line: a run that is about
@@ -920,6 +989,7 @@ fn read_config(
         derivations,
         supplies,
         preservations,
+        resolutions,
     })
 }
 
@@ -954,7 +1024,11 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
         // whose catalogued remedy has no code behind it is one with no built `discard`, no tool to
         // derive from and no fact to supply. Counting the predicate rather than the words means the
         // trailer cannot disagree with the listing when a sentence is reworded (`doc/todo/66`).
-        let built = site.built_discard.is_some() || site.takes_a_tool || site.takes_a_supplied_fact;
+        let built = site.built_discard.is_some()
+            || site.takes_a_tool
+            || site.takes_a_supplied_fact
+            || site.takes_a_fetched_file
+            || site.conditional.is_some();
         if !built {
             not_built = not_built.saturating_add(1);
         }
@@ -980,12 +1054,31 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
                         .to_owned()
                 }
             }
+            // **`doc/adr/1209`.** A stream whose data the file keeps outside itself is brought
+            // inside by bytes somebody fetched, and §7.11.5's URL is what the operator's own
+            // program reaches: `--resolve-external-data` is this program's own rule and reads
+            // only a plain file name beside the document (`doc/adr/1155`).
+            None if site.takes_a_fetched_file => {
+                "preserve, with `tool = \"<name>\"` and a [tool.<name>] block — the program is \
+                 handed the file specification the document wrote, on standard input, and what \
+                 it returns is written into the stream; every fetch is named in the report and \
+                 recorded in the file's own xmpMM:History. --resolve-external-data reads a plain \
+                 file name beside the document without any tool (doc/adr/1155)"
+                    .to_owned()
+            }
             None if site.departable => {
                 "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
                     .to_owned()
             }
             None => "stop; the catalogued remedy is not built yet".to_owned(),
         };
+        // **`doc/adr/1209`, in the listing an operator reads.** A site whose built answer the
+        // decision table does not settle by itself still refuses documents, so the line says what
+        // that answer waits on rather than leaving the site looking finished.
+        if let Some(waits_on) = site.conditional {
+            remedy.push_str("\n      ");
+            remedy.push_str(waits_on.describe());
+        }
         // **`doc/adr/1014`'s amendment, in the listing an operator reads.** A site may take more
         // than one remedy, and the page is the one that keeps what a `discard` at the same site
         // would lose — so it is named beside it rather than instead of it.
@@ -998,7 +1091,7 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             );
         }
         println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
-        if site.takes_a_tool {
+        if site.takes_a_tool || site.takes_a_fetched_file {
             // **`doc/questions/A56`.** The warning lives where an operator configures a tool rather
             // than in a security document nobody opens, and this listing is one of the two places
             // they meet one — the `[tool.…]` block they write is the other.
@@ -1320,8 +1413,37 @@ fn merge_plan(arguments: &Arguments, names: Pattern) -> Result<MergePlan, Failur
     Ok(MergePlan {
         inputs,
         collate: arguments.switch("--collate"),
+        information: information_entries(arguments)?,
         names,
     })
+}
+
+/// `--info Key=value`, repeated: §14.3.3's entries the merged document states.
+///
+/// **Never derived from the inputs**, which is the merge's own rule (ADR 0821 section 9) and
+/// `doc/questions/A55`'s: the entries a merged document states are the operator's statement
+/// about a document no producer wrote, and stating none leaves it with no `/Info` at all. A key
+/// outside Table 349, or a value the table's type refuses, is an error naming both rather than a
+/// quietly dropped flag. `--info Key=` with nothing after the `=` states no entry and removes
+/// none, because a merged document begins with none to remove.
+fn information_entries(arguments: &Arguments) -> Result<Vec<InfoEntry>, Failure> {
+    let mut out = Vec::new();
+    for text in arguments.every("--info") {
+        let Some((key, value)) = text.split_once('=') else {
+            return Err(Failure::Usage(format!(
+                "--info takes Key=value, one of §14.3.3's Table 349 keys ({}), and {text:?} has                  no =",
+                INFORMATION_KEYS.join(", ")
+            )));
+        };
+        if value.is_empty() {
+            continue;
+        }
+        out.push(InfoEntry {
+            key: key.to_owned(),
+            value: Some(value.to_owned()),
+        });
+    }
+    Ok(out)
 }
 
 /// One positional argument split into a path and, where it has one, a page selection.
@@ -1778,6 +1900,15 @@ merge:
                         a.pdf:1-5 or b.pdf:end-1, using the same grammar as --pages
   --collate             interleave the inputs a page at a time (pdftk's shuffle) instead of
                         concatenating them
+  --info Key=value      one of §14.3.3's Table 349 entries the merged document states, repeat
+                        for more: Title, Author, Subject, Keywords, Creator, Producer,
+                        CreationDate, ModDate, Trapped. Nothing is taken from the inputs — the
+                        merged document was made by no input's producer at no input's creation
+                        time — so with no --info it states no /Info at all, which is what it did
+                        before this flag existed. Where CreationDate, ModDate or Creator is
+                        stated, §14.3.2's metadata stream is written beside the dictionary with
+                        the same values, because §14.3.4 requires the two fully equivalent where
+                        both are written
   the merged document is a new file: every page's object closure and content streams carried
   byte for byte under one page tree, with §7.7.3.4's inherited /Resources, /MediaBox, /CropBox
   and /Rotate written onto each page. What is reconciled, and where each choice comes from:
@@ -1899,6 +2030,19 @@ archive:
                            or restated to the widths the file states; no glyph moves either way.
                            Batch archiving wants the default; a curator checking one document
                            may want the flag
+  --font <base>=<path>     embed the font program in <path> for the /BaseFont <base>, instead of
+                           one of the shipped faces. Repeatable, one per font; §9.9.2's six-letter
+                           subset tag is passed over, so /ABCDEF+Garamond is named as Garamond.
+                           This is the answer where no shipped face covers a document's
+                           characters, and it is a statement you are making rather than a setting:
+                           ISO 19005-2 section 6.2.11.4.1 admits only a program that may lawfully
+                           be embedded for unlimited, universal rendering, and ISO 32000-2 §9.9.1
+                           makes that a fact about a licence which nothing in a document or on a
+                           disk states. So the report and the output's own xmpMM:History record
+                           the face as the operator's. The program's advances are restated to the
+                           widths the file already states, so no glyph moves; a face without a
+                           glyph for every code the document shows is refused by name rather than
+                           embedded with holes in it
   --resolve-external-data  a stream whose dictionary states F keeps its data in another file, and
                            both parts of ISO 19005 forbid that outright. With this flag the bytes
                            are read and written into the stream, its Filter and DecodeParms taken
@@ -1956,7 +2100,8 @@ archive:
   output intent is reported as what it is: it states an interpretation, so every device colour
   in the file afterwards means what that profile says it means to a conforming reader. A font
   the file does not embed is given one of the faces this program ships unless --no-substitute
-  says otherwise, and an embedded program whose stated advances disagree with its own font
+  says otherwise or --font names a program of your own, and an embedded program whose stated
+  advances disagree with its own font
   dictionary has the program's numbers restated, never the dictionary's — /Widths is what
   positions the glyphs. The structure tree, encryption, attachments, a composite font nothing
   embedded, and a page that draws a glyph its own program has not got are refused **by name**,

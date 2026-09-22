@@ -15,6 +15,7 @@ use pdf_render::{
 };
 use pdf_syntax::{Dictionary, Name, Object, ObjectId};
 
+use crate::black_generation::BlackGeneration;
 use crate::colour::ColourSpace;
 use crate::icc::Rendering;
 
@@ -68,7 +69,7 @@ use reach::Reach;
 /// So a transfer is not part of a pattern's evaluation at all; §11.7.5.2 puts it at the topmost
 /// painting object, which is the mark — and [`ShadingDefinition`] is what lets the mark have it
 /// without any of these three moving with it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct PatternInitial {
     /// Table 57's `/UseBlackPtComp` as the beginning of this content stream had it.
     black_point: BlackPoint,
@@ -76,6 +77,13 @@ pub(super) struct PatternInitial {
     intent: Intent,
     /// Table 57's `/SM`, §10.7.3's smoothness tolerance.
     smoothness: Option<f32>,
+    /// Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`, §10.4.2.4's pair.
+    ///
+    /// A fourth parameter that affects `sh`, on the third bullet's own test: it decides what a
+    /// colour becomes when the shading's ramp is converted into a `DeviceCMYK` group (§11.7.5.3,
+    /// ADR 1207), and the bullet's list is "such as" rather than closed. It is also why this
+    /// type is no longer `Copy`.
+    black_generation: Option<Arc<BlackGeneration>>,
 }
 
 impl PatternInitial {
@@ -88,6 +96,7 @@ impl PatternInitial {
             black_point: state.use_black_pt_comp,
             intent: state.intent,
             smoothness: state.smoothness,
+            black_generation: state.black_generation.clone(),
         }
     }
 
@@ -132,6 +141,8 @@ impl PatternInitial {
         if let Some(tolerance) = document.get_key(&state, "SM").as_number() {
             augmented.smoothness = Some(narrow(tolerance));
         }
+        augmented.black_generation =
+            BlackGeneration::read(document, &state, augmented.black_generation.as_deref());
         augmented
     }
 
@@ -139,7 +150,7 @@ impl PatternInitial {
     ///
     /// The same combination [`GraphicsState::black_point`] makes, for the same reason: the clause
     /// states the override over an object's intent rather than over the entry.
-    fn black_point(self) -> BlackPoint {
+    fn black_point(&self) -> BlackPoint {
         if self.intent == Intent::Absolute {
             return BlackPoint::Off;
         }
@@ -151,8 +162,13 @@ impl PatternInitial {
     /// The same pair [`GraphicsState::rendering`] makes, off the state §11.6.7 puts a shading
     /// pattern's definition under: §8.6.5.8's intent selects the profile transform and decides
     /// the black point above.
-    fn rendering(self) -> Rendering {
+    fn rendering(&self) -> Rendering {
         Rendering::new(self.intent.a2b(), self.black_point().applies())
+    }
+
+    /// §10.4.2.4's pair the colours built under this convert with, if the state states one.
+    fn black_generation(&self) -> Option<Arc<BlackGeneration>> {
+        self.black_generation.clone()
     }
 }
 
@@ -165,18 +181,17 @@ impl PatternInitial {
 //
 // - **Read there**: `/UseBlackPtComp`, `/RI`, `/SM` — the three §11.6.7's own sentence names, less
 //   the transformation matrix, which Table 57 cannot state and which `Interpreter::base` already
-//   carries.
+//   carries — and `/BG`, `/BG2`, `/UCR`, `/UCR2`, which the sentence does not name and which its
+//   "such as" does not exclude: §10.4.2.4's pair decides what a shading's ramp becomes when it is
+//   converted into a `DeviceCMYK` group, so it affects `sh` on the bullet's own test (ADR 1207).
 // - **Excluded by §11.6.7's first bullet**, which initialises them: `/BM`, `/CA`, `/ca`,
 //   `/SMask`, `/AIS`. A pattern's `/ExtGState` may not put a blend mode or an alpha constant
 //   back, because "as always for transparency groups" they are the group's own, applied once
 //   where the pattern is used.
 // - **Excluded because they affect path painting** and `sh` "does not entail painting a path":
 //   `/LW`, `/LC`, `/LJ`, `/ML`, `/D`, `/SA`, `/FL`, and the whole of Table 102's text state.
-// - **Left to a standing decision recorded elsewhere**, because this device does not perform them
-//   at all: `/OP`, `/op`, `/OPM` (§8.6.7's own permission), and `/BG`, `/BG2`, `/UCR`, `/UCR2` —
-//   which are §11.7.5.3's conversion parameters and are noted by
-//   `Interpreter::note_black_generation` below, since a pattern dictionary is a second route to a
-//   statement `gs` already makes.
+// - **Left to a standing decision recorded elsewhere**, because this device does not perform it
+//   at all: `/OP`, `/op` and `/OPM`, on §8.6.7's own permission.
 // - **`/TR`, `/TR2` and `/HT`**, which are none of those: §11.7.5.3's NOTE takes the transfer
 //   function out of the group evaluation entirely, so one stated here says nothing about the
 //   pattern's own colours. **This list put `/HT` in the bullet above until the
@@ -189,11 +204,14 @@ impl Interpreter<'_> {
     /// Records Table 57's black generation and undercolour removal where a *pattern dictionary*
     /// states them (ISO 32000-2 §11.6.7's third bullet, Table 75's `/ExtGState`).
     ///
-    /// `Interpreter::apply_ext_gstate` records the same statement for the `gs` operator and says
-    /// what it costs; this is the second of the two routes §8.4.5's parameters have to the same
-    /// page, and reading one of them is the failure mode that reports nothing. The flag is
-    /// monotone for the page there and here for the same reason: the parameters apply wherever a
-    /// §10.4.2.4 conversion happens, not only where they were set.
+    /// `Interpreter::apply_ext_gstate` records the same statement for the `gs` operator; this is
+    /// the second of the two routes §8.4.5's parameters have to the same page, and reading one of
+    /// them is the failure mode that reports nothing. The flag is monotone for the page there and
+    /// here for the same reason: the parameters apply wherever a §10.4.2.4 conversion happens,
+    /// not only where they were set. What the flag decides is
+    /// `Interpreter::note_black_generation_departure`, which is now a report about the two
+    /// moments of §11.7.5.3 this tree does *not* carry out rather than about all three; the pair
+    /// itself reaches a shading pattern's colours through `PatternInitial::augmented` above.
     fn note_black_generation(&mut self, dict: &Dictionary) {
         let Some(state) = self.document.get_key(dict, "ExtGState").as_dict().cloned() else {
             return;
@@ -1664,7 +1682,7 @@ impl Interpreter<'_> {
             object: shading_object,
             resources: resources.clone(),
             transform: matrix.then(self.base),
-            initial: self.pattern_initial.augmented(self.document, &dict),
+            initial: self.pattern_initial.clone().augmented(self.document, &dict),
             // Table 77's `/Background` "shall be applied only when the shading is used as part
             // of a shading pattern, not when painted directly with the sh operator", so this is
             // the one place in the interpreter where the entry means anything at all.
@@ -1738,7 +1756,9 @@ impl Interpreter<'_> {
         transfer: Option<&Arc<crate::content::Transfer>>,
     ) -> MarkColouring {
         MarkColouring {
-            conversion: self.conversion_under(definition.initial.rendering()),
+            conversion: self
+                .conversion_under(definition.initial.rendering())
+                .under_black_generation(definition.initial.black_generation()),
             transfer: transfer.cloned(),
         }
     }
@@ -2070,6 +2090,10 @@ impl Interpreter<'_> {
                     tint,
                     Rendering::default(),
                     &self.compositing,
+                    // And §10.4.2.4's pair for the same reason: §11.7.5.3 names it "in effect in
+                    // the graphics state at the time of the painting operation", which for an
+                    // uncoloured cell is the state that paints the cell rather than this one.
+                    None,
                 ))
             }
             _ => None,

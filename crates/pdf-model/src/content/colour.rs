@@ -7,6 +7,7 @@
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
+use crate::black_generation::BlackGeneration;
 use crate::colour::{ColourSpace, Compositing, Conversion};
 use crate::icc::{A2b, Rendering};
 
@@ -116,9 +117,15 @@ impl Interpreter<'_> {
         &mut self,
         space: &ColourSpace,
         values: &[f32],
-        rendering: Rendering,
+        state: &GraphicsState,
     ) -> Color {
-        convert(space, values, rendering, &self.compositing)
+        convert(
+            space,
+            values,
+            state.rendering(),
+            &self.compositing,
+            state.black_generation(),
+        )
     }
 
     /// How an object painted under `state` converts its colours.
@@ -132,6 +139,7 @@ impl Interpreter<'_> {
     /// rendering of colour onto the page".
     pub(super) fn conversion(&self, state: &GraphicsState) -> Conversion {
         self.conversion_under(state.rendering())
+            .under_black_generation(state.black_generation.clone())
     }
 
     /// As [`Interpreter::conversion`], for colours whose black point setting is not the current
@@ -225,7 +233,7 @@ impl Interpreter<'_> {
         let colour = if initial.is_empty() {
             Color::TRANSPARENT
         } else {
-            self.colour(&space, &initial, state.rendering())
+            self.colour(&space, &initial, state)
         };
         if fill {
             state.fill_tints = cmyk_tints(&space, &initial);
@@ -294,19 +302,19 @@ impl Interpreter<'_> {
             (0, _) => return,
             (given, expected) if given == expected => {
                 let space = space.clone();
-                (self.colour(&space, &values, state.rendering()), space)
+                (self.colour(&space, &values, state), space)
             }
             (1, _) => {
                 let space = self.device_space("DeviceGray", resources);
-                (self.colour(&space, &values, state.rendering()), space)
+                (self.colour(&space, &values, state), space)
             }
             (3, _) => {
                 let space = self.device_space("DeviceRGB", resources);
-                (self.colour(&space, &values, state.rendering()), space)
+                (self.colour(&space, &values, state), space)
             }
             (4, _) => {
                 let space = self.device_space("DeviceCMYK", resources);
-                (self.colour(&space, &values, state.rendering()), space)
+                (self.colour(&space, &values, state), space)
             }
             (given, expected) => {
                 self.note(Unsupported::Shading {
@@ -426,8 +434,9 @@ pub(super) fn convert(
     values: &[f32],
     rendering: Rendering,
     into: &Compositing,
+    generation: Option<&BlackGeneration>,
 ) -> Color {
-    into.paint(space, values, rendering)
+    into.paint(space, values, rendering, generation)
 }
 
 /// Reads the colour space the output intent in force for this page describes.

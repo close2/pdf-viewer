@@ -70,6 +70,12 @@ impl Outcome {
 }
 
 /// One document's row.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a census row is one column per question asked of one document, and each of Table \
+              22's positions is a yes or a no; a state machine here would be an enumeration of \
+              the combinations rather than of the questions"
+)]
 struct Row {
     /// The file's name, without its directory.
     name: String,
@@ -87,6 +93,14 @@ struct Row {
     withholds_annotate: bool,
     /// Whether Table 22 withholds filling in a form field, where it opened.
     withholds_fill: bool,
+    /// Whether Table 22's bit 3 withholds printing, where it opened.
+    withholds_print: bool,
+    /// Whether its bit 12 withholds printing faithfully while bit 3 still permits printing.
+    ///
+    /// The pair rather than the bit, because that is the case the cell describes: "[w]hen this
+    /// bit is clear (and bit 3 is set), printing shall be limited to a low- level representation
+    /// of the appearance, possibly of degraded quality" (ADR 1203).
+    withholds_fidelity: bool,
     /// The reason, where it did not open.
     reason: String,
 }
@@ -174,6 +188,8 @@ fn read(path: &Path, passwords: &BTreeMap<String, String>) -> Option<Row> {
         owner: permissions.is_some_and(|granted| granted.owner),
         withholds_annotate: withholds(Operation::Annotate),
         withholds_fill: withholds(Operation::FillInForm),
+        withholds_print: withholds(Operation::Print),
+        withholds_fidelity: withholds(Operation::PrintFaithfully) && !withholds(Operation::Print),
         reason,
     })
 }
@@ -212,7 +228,7 @@ fn main() {
             (false, false) => "",
         };
         println!(
-            "{:<40}{:<10}{:<10}{:>3}{:>3}  {}{}{}",
+            "{:<40}{:<10}{:<10}{:>3}{:>3}  {}{}{}{}",
             row.name,
             row.outcome.as_str(),
             row.filter,
@@ -220,6 +236,13 @@ fn main() {
             row.revision,
             if row.owner { "as the owner " } else { "" },
             withheld,
+            if row.withholds_print {
+                " withholds printing"
+            } else if row.withholds_fidelity {
+                " withholds printing faithfully"
+            } else {
+                ""
+            },
             row.reason
         );
     }
@@ -246,6 +269,12 @@ fn main() {
         rows.iter()
             .filter(|row| row.withholds_annotate || row.withholds_fill)
             .count(),
+    );
+    println!(
+        "Table 22's two printing positions: {} withhold printing (bit 3), {} permit printing and \
+         withhold its fidelity (bit 3 set, bit 12 clear).",
+        rows.iter().filter(|row| row.withholds_print).count(),
+        rows.iter().filter(|row| row.withholds_fidelity).count(),
     );
     let mut revisions: BTreeMap<i64, usize> = BTreeMap::new();
     for row in &rows {

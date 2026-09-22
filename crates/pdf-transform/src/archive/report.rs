@@ -175,6 +175,59 @@ pub struct Derived {
     pub outcome: DerivedOutcome,
 }
 
+/// One stream whose data an operator's tool fetched from outside the document.
+///
+/// `doc/adr/1209`. The rewrite makes the bytes indistinguishable from any other stream's, so the
+/// report and the file's own `xmpMM:History` are the only places a reader of the archive can
+/// learn that they came from outside it. Every field is what that reader needs to check the
+/// claim: what the document said its data was, which object holds it, which program was run, and
+/// `doc/rfc/0007` section 4.4's digest of what came back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    /// The requirement the fetch answered.
+    pub site: &'static str,
+    /// The file specification the document wrote, as a person reads it.
+    pub names: String,
+    /// The stream object, in the source's own numbering.
+    pub object: String,
+    /// The `[tool.…]` block's name.
+    pub tool: String,
+    /// The program as the operating system resolved it.
+    pub program: String,
+    /// How many bytes came back.
+    pub bytes: usize,
+    /// The SHA-256 of what came back, lower-case hexadecimal.
+    pub digest: String,
+    /// What the tool wrote to standard error, bounded.
+    pub stderr: String,
+    /// What became of it.
+    pub outcome: DerivedOutcome,
+}
+
+impl Resolved {
+    /// The row in the report's machine-readable form.
+    #[must_use]
+    pub fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("site".to_owned(), Value::text(self.site.to_owned())),
+            ("names".to_owned(), Value::text(self.names.clone())),
+            ("object".to_owned(), Value::text(self.object.clone())),
+            ("tool".to_owned(), Value::text(self.tool.clone())),
+            ("program".to_owned(), Value::text(self.program.clone())),
+            (
+                "bytes".to_owned(),
+                Value::Integer(i64::try_from(self.bytes).unwrap_or(i64::MAX)),
+            ),
+            ("digest".to_owned(), Value::text(self.digest.clone())),
+            ("stderr".to_owned(), Value::text(self.stderr.clone())),
+            (
+                "outcome".to_owned(),
+                Value::text(self.outcome.word().to_owned()),
+            ),
+        ])
+    }
+}
+
 /// One piece of the document's own content a `preserve` remedy kept on an appended page.
 ///
 /// **`doc/adr/1014` section 5's fourth bullet, which is the condition every step onto that line
@@ -388,7 +441,10 @@ pub struct Achieved {
 /// `doc/pdf-a-conversion-limits.md` the promise it keeps: what conformed already, what was
 /// changed and under which clause, what was refused and why, what was lost with authorisation
 /// — and the list of requirements the verdict is a verdict *over*.
-#[derive(Debug, Clone, PartialEq, Eq)]
+// `Eq` is deliberately absent: `removed_boundaries` carries the rectangles a reader computed
+// for a page boundary before and after its entry went, which are §7.9.5 real numbers, and a
+// type holding one has no reflexive equality to claim (`doc/adr/1210`).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Conversion {
     /// Which source.
     pub source: usize,
@@ -464,6 +520,15 @@ pub struct Conversion {
     /// dictionary it was written in, the entry it was reached through and what it was. Empty for
     /// every conversion whose target admitted what the document held (`doc/adr/1175`).
     pub removed_actions: Vec<RemovedAction>,
+    /// Every out-of-range page boundary entry this conversion removed.
+    ///
+    /// ISO 19005-2 section 6.1.13's limit, answered by ISO 32000-2 §7.7.3.3's Table 31 and
+    /// §14.11.2.1's defaults. Each row names the page, the entry, and the rectangle a conforming
+    /// reader computed for that boundary before and after — which is what says whether the
+    /// removal cost anything, since §14.11.2.1 had already made an over-sized box its
+    /// intersection with the media box. Empty for every conversion whose pages met the limit
+    /// (`doc/adr/1210`).
+    pub removed_boundaries: Vec<super::RemovedBoundary>,
     /// Every font this conversion embedded a face for, with what was asked for and what was used.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 4.9's condition, in its own words: report per
@@ -497,6 +562,13 @@ pub struct Conversion {
     /// *this is derived, not original* — and the same sentence goes into the file's `xmpMM:History`,
     /// so the archive carries the fact rather than relying on a report nobody kept.
     pub derived: Vec<Derived>,
+    /// Every stream whose data an operator's tool fetched from outside the document.
+    ///
+    /// `doc/adr/1209`. Empty for every conversion whose configuration names no fetching tool,
+    /// which is every conversion until an operator's file does. The rewrite leaves the fetched
+    /// bytes indistinguishable from any other stream's, so this list and the file's own
+    /// `xmpMM:History` are where the archive says they came from outside it.
+    pub resolved: Vec<Resolved>,
     /// Every fact the operator's configuration stated that the document does not.
     ///
     /// `doc/rfc/0007` section 5b.1. Empty until a configuration supplies one.
@@ -594,6 +666,19 @@ impl Conversion {
                     self.removed_actions
                         .iter()
                         .map(RemovedAction::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "resolved_external_data".to_owned(),
+                Value::Array(self.resolved.iter().map(Resolved::to_json).collect()),
+            ),
+            (
+                "removed_page_boundaries".to_owned(),
+                Value::Array(
+                    self.removed_boundaries
+                        .iter()
+                        .map(boundary_to_json)
                         .collect(),
                 ),
             ),
@@ -1109,7 +1194,11 @@ fn substituted_to_json(font: &SubstitutedFont) -> Value {
     Value::Object(vec![
         ("resource".to_owned(), Value::text(font.resource.clone())),
         ("requested".to_owned(), Value::text(font.requested.clone())),
-        ("face".to_owned(), Value::text(font.face)),
+        ("face".to_owned(), Value::text(font.face.clone())),
+        (
+            "face_authority".to_owned(),
+            Value::text(font.authority.word()),
+        ),
         ("metric_route".to_owned(), Value::text(font.route.word())),
     ])
 }
@@ -1153,6 +1242,36 @@ fn external_to_json(stream: &super::ExternalStream) -> Value {
         ),
         ("form".to_owned(), Value::text(form.to_owned())),
         ("names".to_owned(), Value::text(names)),
+    ])
+}
+
+/// One removed page boundary entry, with what a reader computed for it before and after.
+///
+/// The two rectangles are what says whether the removal cost anything: equal means
+/// §14.11.2.1 had already made the entry its intersection with the media box and no reader used
+/// what it said (`doc/adr/1210`).
+fn boundary_to_json(removed: &super::RemovedBoundary) -> Value {
+    let rect = |sides: [f32; 4]| {
+        Value::Array(
+            sides
+                .iter()
+                .map(|side| Value::Number(f64::from(*side)))
+                .collect(),
+        )
+    };
+    Value::Object(vec![
+        (
+            "page".to_owned(),
+            Value::Integer(i64::try_from(removed.page).unwrap_or(i64::MAX)),
+        ),
+        ("entry".to_owned(), Value::text(removed.entry.to_owned())),
+        ("removed".to_owned(), Value::Bool(removed.removed)),
+        ("was".to_owned(), rect(removed.was)),
+        ("now".to_owned(), rect(removed.now)),
+        (
+            "costs_nothing".to_owned(),
+            Value::Bool(removed.costs_nothing()),
+        ),
     ])
 }
 

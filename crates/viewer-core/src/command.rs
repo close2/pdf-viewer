@@ -897,6 +897,11 @@ impl RestrictionLevel {
 /// contract's "carried for the day those operations exist" and it is deliberate rather than
 /// speculative: a policy with a hole in it would have to grow a message to fill it.
 ///
+/// **`Print` and `PrintFaithfully` are two entries because Table 22 states two consequences**:
+/// bit 3 clear withholds printing and bit 12 clear withholds only the fidelity, with printing
+/// going ahead at a quality the processor chooses. A reader may want to be asked about one and
+/// not the other, which one level could not say (ADR 1203).
+///
 /// **One entry is not about a verb a person presses**: `Process` is §12.11.6's, and what its level
 /// decides is whether a document whose unmet requirements pass §12.11.3's threshold is processed
 /// at all. It is asked once, where the document opens, and never again (ADR 1167).
@@ -906,6 +911,7 @@ pub struct RestrictionPolicy {
     annotate: RestrictionLevel,
     fill_in_form: RestrictionLevel,
     print: RestrictionLevel,
+    print_faithfully: RestrictionLevel,
     modify: RestrictionLevel,
     assemble: RestrictionLevel,
     process: RestrictionLevel,
@@ -917,13 +923,14 @@ impl RestrictionPolicy {
     /// The order is this type's own and is what the wire, the C ABI and a command line all
     /// enumerate in, so that the three cannot drift: a policy is six levels and this says which
     /// six and in what sequence.
-    pub const OPERATIONS: [pdf_model::restriction::Operation; 7] = {
+    pub const OPERATIONS: [pdf_model::restriction::Operation; 8] = {
         use pdf_model::restriction::Operation as O;
         [
             O::Extract,
             O::Annotate,
             O::FillInForm,
             O::Print,
+            O::PrintFaithfully,
             O::Modify,
             O::Assemble,
             O::Process,
@@ -938,6 +945,7 @@ impl RestrictionPolicy {
             annotate: level,
             fill_in_form: level,
             print: level,
+            print_faithfully: level,
             modify: level,
             assemble: level,
             process: level,
@@ -953,6 +961,7 @@ impl RestrictionPolicy {
             O::Annotate => self.annotate,
             O::FillInForm => self.fill_in_form,
             O::Print => self.print,
+            O::PrintFaithfully => self.print_faithfully,
             O::Modify => self.modify,
             O::Assemble => self.assemble,
             O::Process => self.process,
@@ -972,6 +981,7 @@ impl RestrictionPolicy {
             O::Annotate => self.annotate = level,
             O::FillInForm => self.fill_in_form = level,
             O::Print => self.print = level,
+            O::PrintFaithfully => self.print_faithfully = level,
             O::Modify => self.modify = level,
             O::Assemble => self.assemble = level,
             O::Process => self.process = level,
@@ -993,6 +1003,10 @@ impl RestrictionPolicy {
             O::Annotate => "annotate",
             O::FillInForm => "fill",
             O::Print => "print",
+            // Table 22 bit 12's subject is the *quality* of a print, so the word names that
+            // rather than a second kind of printing: a person setting `print-quality:ask` is
+            // asking to be told when a document wants its pages degraded.
+            O::PrintFaithfully => "print-quality",
             O::Modify => "modify",
             O::Assemble => "assemble",
             // §12.11.6's own noun. Not "open": the clause evaluates the requirements *before*
@@ -1073,6 +1087,7 @@ pub struct RestrictionOverride {
     annotate: Option<RestrictionLevel>,
     fill_in_form: Option<RestrictionLevel>,
     print: Option<RestrictionLevel>,
+    print_faithfully: Option<RestrictionLevel>,
     modify: Option<RestrictionLevel>,
     assemble: Option<RestrictionLevel>,
     process: Option<RestrictionLevel>,
@@ -1088,6 +1103,7 @@ impl RestrictionOverride {
         annotate: None,
         fill_in_form: None,
         print: None,
+        print_faithfully: None,
         modify: None,
         assemble: None,
         process: None,
@@ -1105,6 +1121,7 @@ impl RestrictionOverride {
             O::Annotate => self.annotate,
             O::FillInForm => self.fill_in_form,
             O::Print => self.print,
+            O::PrintFaithfully => self.print_faithfully,
             O::Modify => self.modify,
             O::Assemble => self.assemble,
             O::Process => self.process,
@@ -1125,6 +1142,7 @@ impl RestrictionOverride {
             O::Annotate => self.annotate = level,
             O::FillInForm => self.fill_in_form = level,
             O::Print => self.print = level,
+            O::PrintFaithfully => self.print_faithfully = level,
             O::Modify => self.modify = level,
             O::Assemble => self.assemble = level,
             O::Process => self.process = level,
@@ -1406,6 +1424,46 @@ pub struct Sheet {
     /// divide by 72. `viewer_host::printing::scale` is where a host turns what its print system
     /// reported into this number, clamped to a stated budget.
     pub scale: f32,
+    /// What §12.5.6.22's matrix B scales the page by when it is placed on that media.
+    ///
+    /// `1.0` is the clause's "usual case where the PDF page size equals the media size" — a page
+    /// printed at its own size, which is every job this program composed before scale modes
+    /// existed. A page shrunk to fit the paper, or placed in an n-up cell, states the factor,
+    /// and a fixed print watermark is drawn immune to it: the clause's two post-EXAMPLE bullets
+    /// both require the mark "at the specified size" on a page that is no longer at its own.
+    ///
+    /// **Ignored where `media` is `None`**, because Table 193's *not known* leaves the page's
+    /// own media box standing and there is then no B to cancel.
+    /// `viewer_host::printing::placed` is where a host composes the pair. ADR 1204.
+    pub page_scale: f32,
+}
+
+/// What Table 22 bit 12 leaves of a print job — [`crate::Event::Printing`].
+///
+/// § 7.6.4.2's Table 22 states the bit as a quality distinction inside a print that bit 3 has
+/// already permitted:
+///
+/// > ( Security handlers of revision 3 or greater ) Print the document to a representation from
+/// > which a faithful digital copy of the PDF content could be generated, based on an
+/// > implementation- dependent algorithm. When this bit is clear (and bit 3 is set), printing
+/// > shall be limited to a low- level representation of the appearance, possibly of degraded
+/// > quality.
+///
+/// **The algorithm is the implementation's and this one is written down** rather than left as a
+/// silence (ADR 1203): what leaves this program is a raster of the page, so the two things that
+/// decide whether a faithful digital copy could be generated from it are the resolution it was
+/// drawn at and whether the job produces a document at all. `viewer_host::printing` states both,
+/// and a host that has neither a resolution to choose nor a destination to refuse is level with
+/// the others by having nothing to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Fidelity {
+    /// The document withholds nothing, or the reader's level says not to obey it: the job is
+    /// drawn at the resolution the print system asked for and may go anywhere.
+    #[default]
+    Faithful,
+    /// Bit 12 is clear and this reader obeys it: "printing shall be limited to a low- level
+    /// representation of the appearance, possibly of degraded quality".
+    Degraded,
 }
 
 /// How large the page is drawn.

@@ -60,7 +60,7 @@ use pdf_syntax::object::ObjectId;
 
 use crate::tool::{Bounds, PLACEHOLDERS, Tool};
 
-use super::decision::{Answer, Loss, REMEDIES};
+use super::decision::{self, Answer, Loss, REMEDIES};
 use super::toml::{self, Value};
 
 /// `doc/rfc/0007` section 2's remedy vocabulary, closed and small so a configuration is legible.
@@ -197,6 +197,21 @@ pub enum ConfigError {
         site: String,
         /// The qualifier.
         qualifier: String,
+    },
+    /// A shape qualifier names something that is not one of the requirement's shapes.
+    #[error(
+        "line {line}: {qualifier:?} is no shape of {site:?} — {shapes}. A shape narrows a \
+         requirement that fails for two different reasons (doc/rfc/0007 section 5b.2)"
+    )]
+    UnknownShapeQualifier {
+        /// The 1-based line.
+        line: usize,
+        /// The site.
+        site: String,
+        /// The qualifier.
+        qualifier: String,
+        /// The shapes the requirement does split into, for an error a person can act on.
+        shapes: String,
     },
     /// A `[depart."…"]` names a requirement this round's departure cannot carry.
     #[error(
@@ -417,6 +432,23 @@ pub struct Derivation {
     pub on_failure: Kind,
 }
 
+/// One `preserve` remedy this conversion carries out by fetching what a stream points at.
+///
+/// `doc/adr/1209`, into the seam `doc/adr/1199` built: the bytes land in
+/// [`super::ArchivePlan::external_data`] whoever resolved them, so what this adds is a request
+/// population and a word — not a second mechanism. Like [`Derivation`], it cannot be constructed
+/// without its [`Tool`], so *never reachable without the configuration naming the site and the
+/// tool* is a property of the shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolution {
+    /// The requirement identifier it answers.
+    pub site: String,
+    /// The program, as the `[tool.…]` block declares it.
+    pub tool: Tool,
+    /// What is done where the tool declines or fails — `A57`: one alternative, never a chain.
+    pub on_failure: Kind,
+}
+
 /// One fact the operator states that the document does not.
 ///
 /// `doc/pdf-a-mitigations.md` section 0.2's fifth remedy kind. **The operator is the source**, which
@@ -598,6 +630,33 @@ const DERIVABLE: [&str; 2] = [
     "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
 ];
 
+/// The one requirement a built `preserve` may answer by fetching what the file points at.
+///
+/// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid the keys that put a
+/// stream's data outside the file, and `doc/adr/1199` built the embedding for the bytes a caller
+/// can resolve: §7.11.2's plain file name beside the document, which the command-line program
+/// reads under `doc/adr/1155`'s rule. What is left is §7.11.5's `/FS` `/URL`, which every corpus
+/// witness turns out to be — and fetching one is a network operation this program does not have
+/// and `CLAUDE.md` principle 3 will not acquire. So it is the **operator's** tool, declared and
+/// run under the operator's own trust, and what reaches this conversion is the bytes it returned
+/// (`doc/adr/1209`).
+const FETCHABLE: [&str; 1] = ["file-structure/no-external-stream-data"];
+
+/// Why a `preserve` at the external-data site needs a tool.
+const FETCHING_NEEDS_A_TOOL: &str = "the data this stream keeps outside the file is not in the \
+     document, so preserving it means somebody fetching it. This program opens no path but the \
+     one --resolve-external-data reads — a plain file name beside the document itself \
+     (doc/adr/1155) — and it opens no network connection at all, so a stream naming a URL or a \
+     path of several components is answered by a program you declare: name the tool (`tool = \
+     \"<name>\"` and a [tool.<name>] block whose program reads the file specification on \
+     standard input and writes the bytes back)";
+
+/// Why `on-failure` at a built `preserve` by fetched file takes only `stop` this version.
+const ONLY_STOP_WHEN_NOTHING_WAS_FETCHED: &str = "the only on-failure this version carries out \
+     is `stop`: a stream whose data nobody fetched leaves its requirement refused with the \
+     sentence it already carries. The alternatives would be writing an empty stream or dropping \
+     one, and both put a document in an archive claiming to hold bytes it does not";
+
 /// Why a `derive` at an embedded-file site needs a tool that makes a PDF.
 const WANTS_A_PDF: &str = "the requirement it answers is that the embedded file itself conform to \
      a part of ISO 19005, so the only artefact that can answer it is a PDF: declare the tool with \
@@ -719,7 +778,7 @@ impl Configuration {
                     let site = site_identifier(tbl, &requirements)?;
                     let remedy = site_remedy(tbl, &site)?;
                     check_fallback(tbl, &site)?;
-                    check_target_qualifier(tbl, &site)?;
+                    check_qualifier(tbl, &site)?;
                     check_key_shapes(tbl, &site)?;
                     let row = row(tbl, site, remedy)?;
                     // The target qualifier decides *whether this row applies* to the conversion:
@@ -787,6 +846,9 @@ impl Configuration {
                 // A `preserve` by appended page is built at the one site `PRESERVABLE_BY_PAGE`
                 // names; one by attachment is carried out by the same derivation a `derive` row
                 // would be, so it is built wherever that is.
+                Kind::Preserve if FETCHABLE.contains(&row.site.as_str()) => {
+                    self.resolution(row).is_some()
+                }
                 Kind::Preserve => match row.placement {
                     Some(Placement::Append) => PRESERVABLE_BY_PAGE.contains(&row.site.as_str()),
                     Some(Placement::Attach) => self.derivation(row).is_some(),
@@ -816,6 +878,33 @@ impl Configuration {
             .filter(|row| requirement_binds(&row.site, target))
             .filter_map(|row| self.derivation(row))
             .collect()
+    }
+
+    /// Every `preserve` remedy this conversion carries out by fetching what a stream points at.
+    ///
+    /// A row naming a site outside [`FETCHABLE`] is not one, and neither is one naming no tool:
+    /// its requirement stays refused with the sentence it already carries, and [`Self::unbuilt`]
+    /// names it so the operator sees their intent was read rather than ignored.
+    #[must_use]
+    pub fn resolutions(&self, target: Target) -> Vec<Resolution> {
+        self.sites
+            .iter()
+            .filter(|row| requirement_binds(&row.site, target))
+            .filter_map(|row| self.resolution(row))
+            .collect()
+    }
+
+    /// One row as a built resolution, where it is one.
+    fn resolution(&self, row: &Row) -> Option<Resolution> {
+        if row.remedy != Kind::Preserve || !FETCHABLE.contains(&row.site.as_str()) {
+            return None;
+        }
+        let tool = self.tools.get(row.tool.as_ref()?)?;
+        Some(Resolution {
+            site: row.site.clone(),
+            tool: tool.clone(),
+            on_failure: row.on_failure,
+        })
     }
 
     /// Every `supply` remedy this conversion carries out.
@@ -885,6 +974,37 @@ impl Configuration {
             .cloned()
             .collect()
     }
+}
+
+/// What a `preserve` row at the external-data site owes, checked once.
+///
+/// **`doc/adr/1209`, as a refusal rather than a silent no-op.** A `preserve` there keeps the
+/// stream's data by bringing it inside the file, and there is nothing in the document to bring:
+/// the bytes are the operator's program's to fetch, so the tool is not optional.
+fn check_fetching_row(row: &Row, target: Target) -> Result<(), ConfigError> {
+    if row.remedy != Kind::Preserve || !FETCHABLE.contains(&row.site.as_str()) {
+        return Ok(());
+    }
+    if row.tool.is_none() {
+        if !requirement_binds(&row.site, target) {
+            return Ok(());
+        }
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: "remedy = \"preserve\" with no tool".to_owned(),
+            why: FETCHING_NEEDS_A_TOOL,
+        });
+    }
+    if row.on_failure != Kind::Stop {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: format!("on-failure = \"{}\"", row.on_failure.word()),
+            why: ONLY_STOP_WHEN_NOTHING_WAS_FETCHED,
+        });
+    }
+    Ok(())
 }
 
 /// Every check a row needs once the whole file has been read.
@@ -967,6 +1087,7 @@ fn check_rows(
                 why: ATTACHING_NEEDS_A_CONFORMING_FILE,
             });
         }
+        check_fetching_row(row, target)?;
         if answers_by_derivation(row) && row.on_failure != Kind::Stop {
             return Err(ConfigError::NotBuiltThatWay {
                 line: row.line,
@@ -1355,20 +1476,19 @@ fn check_key_shapes(tbl: &toml::Table, site: &str) -> Result<(), ConfigError> {
 /// What narrows a site row beyond its identifier.
 ///
 /// Two qualifiers, both `doc/rfc/0007` and the mitigations catalogue argue the site key needs:
-/// `doc/rfc/0007` section 4.6's **target** (a remedy differs in kind by target) and section 14's
-/// first finding's **shape** (one requirement splits into two shapes with different answers — a
-/// blend mode written as an array against a bare name, an inline image's `LZWDecode` against its
-/// `Crypt` filter). The target qualifier is applied today; the shape qualifier is parsed and
-/// validated so a configuration can be written against it, and a shape-qualified row is inert
-/// until the shape-aware remedies exist, exactly as a row for another target is.
+/// `doc/rfc/0007` section 4.6's **target** (a remedy differs in kind by target) and section 5b.2's
+/// **shape** (one requirement splits into two shapes with different answers — a blend mode written
+/// as an array against a bare name, an inline image's `LZWDecode` against its `Crypt` filter).
+/// Both select: the target against the conversion's own target, the shape against
+/// [`super::decision::shapes`], which states each split requirement's halves and which of them
+/// [`super::decision::REMEDIES`] answers.
 enum Qualifier<'a> {
-    /// `[site."x"]` — applies to every target.
+    /// `[site."x"]` — applies to every target and to both halves of a split requirement.
     None,
     /// `[site."x".target."<t>"]`.
     Target(&'a str),
-    /// `[site."x".shape."<s>"]`. The shape string is parsed and discarded until a shape-aware
-    /// remedy reads it; the row is inert meanwhile.
-    Shape,
+    /// `[site."x".shape."<s>"]` — the half of a split requirement this row answers.
+    Shape(&'a str),
 }
 
 /// The qualifier a site header carries, or the error naming a malformed one.
@@ -1376,7 +1496,7 @@ fn qualifier<'a>(tbl: &'a toml::Table, site: &str) -> Result<Qualifier<'a>, Conf
     match tbl.path.as_slice() {
         [_, _] => Ok(Qualifier::None),
         [_, _, marker, value] if marker == "target" => Ok(Qualifier::Target(value.as_str())),
-        [_, _, marker, _] if marker == "shape" => Ok(Qualifier::Shape),
+        [_, _, marker, value] if marker == "shape" => Ok(Qualifier::Shape(value.as_str())),
         _ => Err(ConfigError::UnknownTargetQualifier {
             line: tbl.line,
             site: site.to_owned(),
@@ -1385,31 +1505,71 @@ fn qualifier<'a>(tbl: &'a toml::Table, site: &str) -> Result<Qualifier<'a>, Conf
     }
 }
 
-/// Validates a site header's qualifier: a target one must name a target.
-fn check_target_qualifier(tbl: &toml::Table, site: &str) -> Result<(), ConfigError> {
-    if let Qualifier::Target(value) = qualifier(tbl, site)?
-        && Target::parse(value).is_none()
-    {
-        return Err(ConfigError::UnknownTargetQualifier {
-            line: tbl.line,
-            site: site.to_owned(),
-            qualifier: value.to_owned(),
-        });
+/// Validates a site header's qualifier: a target one must name a target, a shape one a shape the
+/// requirement actually splits into.
+///
+/// `doc/rfc/0007` section 3.1's enumerability rule reaches the shape as it reaches the site: a
+/// header naming a shape no requirement has is an error naming both, because the alternative is a
+/// row an operator believes they wrote and nothing reads.
+fn check_qualifier(tbl: &toml::Table, site: &str) -> Result<(), ConfigError> {
+    match qualifier(tbl, site)? {
+        Qualifier::Target(value) if Target::parse(value).is_none() => {
+            Err(ConfigError::UnknownTargetQualifier {
+                line: tbl.line,
+                site: site.to_owned(),
+                qualifier: value.to_owned(),
+            })
+        }
+        Qualifier::Shape(name)
+            if !decision::shapes(site)
+                .iter()
+                .any(|shape| shape.name == name) =>
+        {
+            Err(ConfigError::UnknownShapeQualifier {
+                line: tbl.line,
+                site: site.to_owned(),
+                qualifier: name.to_owned(),
+                shapes: shape_names(site),
+            })
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
-/// Whether a site row applies to this conversion's target.
+/// The shapes a requirement splits into, for an error a person can act on.
+fn shape_names(site: &str) -> String {
+    let names: Vec<&str> = decision::shapes(site)
+        .iter()
+        .map(|shape| shape.name)
+        .collect();
+    if names.is_empty() {
+        "it splits into none".to_owned()
+    } else {
+        format!("its shapes are {}", names.join(", "))
+    }
+}
+
+/// Whether a site row applies to this conversion.
 ///
 /// An unqualified row applies to every target; a target-qualified one only to the target it names
 /// (`doc/rfc/0007` section 4.6, why the same profile works with all six targets — the 4f-only answer
-/// sits behind a qualifier the other five skip); a shape-qualified row is inert until a shape-aware
-/// remedy reads it, because no conversion carries a shape yet.
+/// sits behind a qualifier the other five skip).
+///
+/// A shape-qualified row applies to the half this converter answers and is inert for the other,
+/// which is [`super::decision::SHAPES`]'s `answered` column and therefore
+/// [`super::decision::REMEDIES`] read once rather than restated here. That keeps
+/// `doc/pdf-a-mitigations.md` section 14's first finding true in the direction it cares about: an
+/// operator who answered the half with a rewrite behind it has not thereby answered the half whose
+/// honest answer is still the refusal its requirement carries.
 fn applies_to(tbl: &toml::Table, target: Target) -> bool {
-    match qualifier(tbl, "") {
+    let site = tbl.path.get(1).map_or("", String::as_str);
+    match qualifier(tbl, site) {
         Ok(Qualifier::None) => true,
         Ok(Qualifier::Target(value)) => Target::parse(value) == Some(target),
-        Ok(Qualifier::Shape) | Err(_) => false,
+        Ok(Qualifier::Shape(name)) => decision::shapes(site)
+            .iter()
+            .any(|shape| shape.name == name && shape.answered),
+        Err(_) => false,
     }
 }
 
@@ -1459,7 +1619,13 @@ fn loss_sites() -> BTreeMap<&'static str, Loss> {
         .iter()
         .filter_map(|remedy| match remedy.answer {
             Answer::Loses(loss, _) => Some((remedy.requirement, loss)),
-            _ => None,
+            // A row whose answer the table does not settle still costs a named loss where the
+            // document makes it one, and a `discard` there authorises exactly that loss
+            // (`doc/adr/1209`). A row waiting on bytes rather than on a document costs nothing
+            // and contributes none.
+            _ => decision::conditional(remedy.requirement)
+                .and_then(decision::Conditional::loss)
+                .map(|loss| (remedy.requirement, loss)),
         })
         .collect()
 }
@@ -1579,6 +1745,20 @@ pub struct Site {
     /// makes enumerability a gate: a remedy a configuration may name and this listing does not
     /// mention is a site that exists undocumented.
     pub takes_a_page: bool,
+    /// Whether a configuration may answer this site with `preserve` and a tool that fetches the
+    /// bytes the file keeps outside itself.
+    ///
+    /// `doc/adr/1209`. The tool is the operator's own program under the operator's own trust,
+    /// which is the whole reason it is a tool rather than a rule of this program's: §7.11.5's
+    /// `/FS` `/URL` names a locator, and fetching one is a network operation `CLAUDE.md`
+    /// principle 3 will not acquire.
+    pub takes_a_fetched_file: bool,
+    /// What this site's built answer waits on, where the decision table does not settle it.
+    ///
+    /// `doc/adr/1209`: a `Mechanical` row whose answer depends on the document's own geometry or
+    /// on bytes the caller hands in is still a site an operator has something to say about, and
+    /// the listing says which of the two it is.
+    pub conditional: Option<super::Conditional>,
 }
 
 /// What an operator is agreeing to when they declare a `[tool.…]` block.
@@ -1608,7 +1788,14 @@ pub fn sites(target: Target) -> Vec<Site> {
     let losses = loss_sites();
     super::census::census(target)
         .filter_map(|(requirement, standing)| {
-            let is_site = matches!(standing, Row::Refused(_) | Row::Remedy(Standing::Loses));
+            // **`doc/adr/1209` widened this predicate.** A site is a requirement a configuration
+            // has something to say about, and a row whose `Mechanical` answer the table does not
+            // settle by itself is one: it still refuses documents until an operator supplies a
+            // tool or authorises a loss, so leaving it out made the listing quietly untrue.
+            let is_site = matches!(
+                standing,
+                Row::Refused(_) | Row::Remedy(Standing::Loses | Standing::Conditional(_))
+            );
             if !is_site {
                 return None;
             }
@@ -1623,6 +1810,8 @@ pub fn sites(target: Target) -> Vec<Site> {
                 takes_a_tool: DERIVABLE.contains(&requirement.id),
                 takes_a_supplied_fact: SUPPLIABLE.contains(&requirement.id),
                 takes_a_page: PRESERVABLE_BY_PAGE.contains(&requirement.id),
+                takes_a_fetched_file: FETCHABLE.contains(&requirement.id),
+                conditional: decision::conditional(requirement.id),
             })
         })
         .collect()
@@ -1712,20 +1901,53 @@ remedy = \"preserve\"
         assert_eq!(four.unbuilt(Target::Four(Flavour::Plain)).len(), 1);
     }
 
+    /// A shape qualifier selects the half of a split requirement the converter answers.
+    ///
+    /// `doc/rfc/0007` section 5b.2 and `doc/pdf-a-mitigations.md` section 14's first finding: a
+    /// blend mode stated as an **array** reduces to the name §11.6.3's Table 136 entry has every
+    /// reader take from it, and a bare **name** the standard does not define has no answer at
+    /// all. So an operator who answers the array half has not thereby answered the other, which
+    /// is exactly what the qualifier exists to say (ADR 1211).
     #[test]
-    fn a_shape_qualifier_reads_and_is_inert_until_a_shape_aware_remedy_exists() {
-        // `doc/pdf-a-mitigations.md` section 14's first finding: a site is finer than a requirement.
-        // The format carries the shape qualifier so a configuration can be written against it; a
-        // shape-qualified row is inert this round, like a row for another target.
-        let text = "\
+    fn a_shape_qualifier_selects_the_half_the_converter_answers() {
+        let answered = "\
 [site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"array\"]
 remedy = \"discard\"
 ";
-        let config = Configuration::read(text, TWO_B).expect("a shape qualifier reads");
+        let config = Configuration::read(answered, TWO_B).expect("a shape qualifier reads");
+        assert_eq!(
+            config
+                .unbuilt(TWO_B)
+                .iter()
+                .map(|row| row.site.as_str())
+                .collect::<Vec<_>>(),
+            vec!["graphics/graphics-state-blend-modes-are-defined"],
+            "the answered half's row applies, and is named because no discard is built there"
+        );
+
+        let other = "\
+[site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"name\"]
+remedy = \"discard\"
+";
+        let config = Configuration::read(other, TWO_B).expect("a shape qualifier reads");
         assert!(
             config.unbuilt(TWO_B).is_empty(),
-            "a shape-qualified row does not apply yet"
+            "the half with no answer stays inert, exactly as a row for another target does"
         );
+    }
+
+    /// A shape no requirement splits into is an error naming both, as an unknown target is.
+    #[test]
+    fn a_shape_the_requirement_does_not_have_is_an_error_naming_its_shapes() {
+        let text = "\
+[site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"dictionary\"]
+remedy = \"discard\"
+";
+        let error = Configuration::read(text, TWO_B).expect_err("no such shape");
+        let ConfigError::UnknownShapeQualifier { shapes, .. } = &error else {
+            panic!("{error}");
+        };
+        assert_eq!(shapes, "its shapes are array, name", "{error}");
     }
 
     #[test]

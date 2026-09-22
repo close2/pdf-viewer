@@ -13,6 +13,7 @@ use super::colour::{BlackPoint, Intent};
 use super::report::Unsupported;
 use super::run::{name_at, narrow};
 use super::{GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_limit};
+use crate::black_generation::BlackGeneration;
 
 pub(crate) use crate::transfer::{Stated, Transfer};
 
@@ -242,9 +243,16 @@ impl Interpreter<'_> {
             return;
         };
 
+        // Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`: the pair in force, and the flag that
+        // says a function was stated at all. The two are separate because they answer separate
+        // questions — the pair is a graphics state parameter and is saved and restored with the
+        // rest of this state, and the flag feeds one report for the whole interpretation
+        // (`Interpreter::note_black_generation_departure`). ADR 1207.
         if self.states_black_generation(dict) {
             self.black_generation_stated = true;
         }
+        state.black_generation =
+            BlackGeneration::read(self.document, dict, state.black_generation.as_deref());
         if let Some(alpha) = self.document.get_key(dict, "ca").as_number() {
             state.fill_alpha = clamp_unit(alpha);
         }

@@ -291,6 +291,17 @@ cargo run --release -p pdf-model --example group_shape_census -- doc/pdf.js/test
   # Written to answer one line of a dependency's question and kept because it is how the two proofs
   # are compared: 162 groups over the 964 first pages, 135 carrying shape, 61 of them beyond a
   # command-list proof and none the other way (ADR 0554)
+cargo run --profile gates -p pdf-model --example non_isolated_group_census -- @<paths>
+  # which pages state §11.4.4's result step — a non-isolated, non-knockout group composited under a
+  # blend mode of its own, which is the one construction that costs a second run of the elements
+  # (`CpuRasterizer::remove_the_backdrop`, ADR 1107). The predicate is that rasteriser's own
+  # conjunction over the display list's group commands rather than a second reading of the clause,
+  # so §11.7.4's *synthesised* groups (ADR 1170) are counted beside a file's own `/Group` and
+  # counted apart; the first page only, which is the denominator §11.4.4's row states, and
+  # `--pages N` for more. A document no object of which carries Table 58's `/BM` is not interpreted
+  # at all, which is what makes it affordable over the crawl — about 17 minutes at two threads, and
+  # it wants them: at four it peaked over 10 GiB. The two exclusions and the blending-space
+  # self-check are printed beside the count, because a predicate's exclusions are part of it
 cargo run --release -p pdf-model --example group_blit_census -- doc/pdf.js/test/pdfs/*.pdf
   # what each first page's transparency groups would cost to composite, in blitted pixels, and it
   # is `pdf_render::group_blit_demand` itself rather than a second reading of the same idea — the
