@@ -282,6 +282,13 @@ fn an_uncoloured_cell_that_sets_a_colour_is_ignored() {
 ///
 /// The fixture's function is `{ pop 0 }`: every component to zero, which would paint the cell
 /// black. `scn` supplies blue, and blue is what must come out.
+///
+/// §8.6.8's list is belt and braces for `/TR` since ADR 1266 and it is still the clause: no `gs`
+/// inside *any* cell decides a transfer function now, because §11.7.5.3's NOTE puts §10.5's
+/// values "only when all colour compositing has been completed and rasterization is being
+/// performed" and §11.7.5.2 takes the function from the mark that paints the pattern. The
+/// positive half of the pair — the same function stated at that mark, which does reach these
+/// pixels — is `transfer_functions.rs::a_tilings_pixels_take_the_function_the_painting_mark_states`.
 #[test]
 fn an_uncoloured_cell_that_sets_a_transfer_function_is_ignored() {
     let function = "6 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] /Length 10 >>\n\
@@ -304,13 +311,16 @@ fn an_uncoloured_cell_that_sets_a_transfer_function_is_ignored() {
     );
 }
 
-/// The same fixture *outside* an uncoloured cell, where the transfer function does apply.
+/// The same fixture in a **coloured** cell, where a transfer function is ignored for a second
+/// reason.
 ///
-/// The pair is what makes the test above a statement about §8.6.8 rather than about
-/// `Transfer::read` having been broken: the identical function on a coloured tiling turns its
-/// blue cell black, which is §10.5 working.
+/// §8.6.8's list reaches an uncoloured pattern's cell alone, so this one is outside it — and the
+/// function still decides nothing, because §11.7.5.3's NOTE takes §10.5's values out of
+/// colour-making altogether and §11.7.5.2 puts the function of the mark *painting* the pattern at
+/// each point a tile covers. So the cell paints its own blue here as it does above, and the two
+/// tests together say that no `gs` inside a cell, of either paint type, decides a colour. ADR 1266.
 #[test]
-fn the_same_transfer_function_applies_to_a_coloured_cell() {
+fn a_coloured_cells_own_transfer_function_is_ignored_too() {
     let function = "6 0 obj\n<< /FunctionType 4 /Domain [0 1] /Range [0 1] /Length 10 >>\n\
                     stream\n{ pop 0 }\nendstream\nendobj\n";
     let cell = dotted_cell(1, "/Dark gs 0 0 1 rg").replace(
@@ -326,8 +336,9 @@ fn the_same_transfer_function_applies_to_a_coloured_cell() {
     let (r, g, b, a) = pixel(&raster, 4, 95);
     assert_eq!(a, 255, "the cell should paint");
     assert!(
-        r < 15 && g < 15 && b < 15,
-        "every component maps to zero, so the blue cell is black: got {r},{g},{b}"
+        b > 240 && r < 15 && g < 15,
+        "the mark states no function, so the cell's own is not applied and this stays blue: \
+         got {r},{g},{b}"
     );
 }
 
@@ -1531,4 +1542,106 @@ fn a_cell_that_blends_gets_the_non_isolated_group_the_clause_names() {
         "with nothing blending inside the cell the backdrop cannot reach it: {:?}",
         pixel(&plain, 5, 5)
     );
+}
+
+/// A tiling pattern with a blending cell, painted inside a knockout group of the stated
+/// isolation.
+///
+/// The page is filled grey, a form `XObject` whose `/Group` is a knockout group of that
+/// isolation is invoked, and inside it an opaque red fill is covered by the pattern under
+/// Screen. The red fill is there so that §11.4.6's rule has something to knock out: with one
+/// element a knockout group and §11.4.4's group are the same picture.
+fn cell_in_a_knockout_group(isolated: bool) -> Vec<u8> {
+    const CELL: &str = "/Mul gs 0.5 0.5 0.5 rg 0 0 10 10 re f";
+    const FORM: &str = "1 0 0 rg 0 0 100 100 re f /Screen gs /Pattern cs /P0 scn 0 0 100 100 re f";
+    let content = "0.5 0.5 0.5 rg 0 0 100 100 re f /Fm Do";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+         /XStep 10 /YStep 10 \
+         /Resources << /ExtGState << /Mul << /BM /Multiply >> >> >> /Length {} >>\n\
+         stream\n{CELL}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /K true /I {} >> \
+         /Resources << /Pattern << /P0 5 0 R >> \
+         /ExtGState << /Screen << /BM /Screen >> >> >> /Length {} >>\n\
+         stream\n{FORM}\nendstream\nendobj\n",
+        content.len().saturating_add(1),
+        CELL.len().saturating_add(1),
+        if isolated { "true" } else { "false" },
+        FORM.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// ISO 32000-2 §11.6.7's implicit group takes the backdrop §11.4.6 gives an element, and the
+/// two kinds of knockout group give different ones.
+///
+/// > A knockout group may be isolated or non-isolated; that is, isolated and knockout are
+/// > independent attributes. A nonisolated knockout group composites its topmost enclosing
+/// > element with the group's backdrop. An isolated knockout group composites the element with
+/// > a transparent backdrop.
+///
+/// §11.6.7 makes the cell's definition "implicitly enclosed in a non-isolated transparency
+/// group", and §11.4.6's NOTE 6 says what that group's initial backdrop is where it is a
+/// direct element of a knockout group: "the same as that of the outer group". So the two
+/// isolations are two different pictures, and the arithmetic is the clause's with the page's
+/// grey reaching the raster as 128 of 255:
+///
+/// - **Non-isolated**: the initial backdrop is the page, so the cell's Multiply element is
+///   `128 × 128 ÷ 255` = 64 (§11.3.5.2), §11.4.4's result step leaves it where it is at an
+///   alpha of 1, and the mark's Screen against the same backdrop gives
+///   `128 + 64 − 128 × 64 ÷ 255` = 160.
+/// - **Isolated**: the initial backdrop is transparent, where §11.3.6 leaves a blend mode
+///   nothing to do — "[a]n alpha value of αs = 0.0 or αb = 0.0 results in no blend mode
+///   effect" — so the cell is 128, Screen against transparency is 128, and the group is
+///   painted over the page under Normal at an alpha of 1.
+///
+/// The red fill under the pattern is knocked out entirely in both, which is §11.4.6's own
+/// "only the topmost object enclosing the point shall contribute". ADR 1265.
+#[test]
+fn a_cell_takes_the_backdrop_its_enclosing_knockout_group_has() {
+    let non_isolated = render(cell_in_a_knockout_group(false));
+    let isolated = render(cell_in_a_knockout_group(true));
+    for (across, down) in [(5u32, 5u32), (55, 55)] {
+        let (red, green, blue, alpha) = pixel(&non_isolated, across, down);
+        assert_eq!(alpha, 255, "the tiles cover the page at ({across},{down})");
+        for (name, level) in [("red", red), ("green", green), ("blue", blue)] {
+            assert!(
+                level.abs_diff(160) <= 2,
+                "a non-isolated knockout group composites its element with the group's \
+                 backdrop, so the channel is 160: {name} is {level} at ({across},{down})"
+            );
+        }
+        let (red, green, blue, _) = pixel(&isolated, across, down);
+        for (name, level) in [("red", red), ("green", green), ("blue", blue)] {
+            assert!(
+                level.abs_diff(128) <= 2,
+                "an isolated knockout group composites the element with a transparent \
+                 backdrop, so the channel is 128: {name} is {level} at ({across},{down})"
+            );
+        }
+    }
 }

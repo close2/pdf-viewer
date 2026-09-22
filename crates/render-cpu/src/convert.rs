@@ -11,7 +11,7 @@ use pdf_render::{
 
 /// Converts a PDF matrix to a `tiny-skia` transform.
 ///
-/// The component orders coincide exactly: `Transform::from_row` takes
+/// The component orders coincide exactly: `tiny_skia::Transform::from_row` takes
 /// `(sx, ky, kx, sy, tx, ty)`, which is `(a, b, c, d, e, f)` in the PDF matrix
 /// spelling. This is verified by a test rather than assumed, because a silent
 /// transposition here would misplace every stroke and glyph on the page.
@@ -215,7 +215,7 @@ mod tests {
     use super::transform;
     use pdf_render::Transform;
 
-    /// The component orders of a PDF matrix and `Transform::from_row` are asserted
+    /// The component orders of a PDF matrix and `tiny_skia::Transform::from_row` are asserted
     /// to coincide. A transposition here would misplace all geometry, and would do
     /// so subtly enough to survive casual inspection, so it is pinned by a test.
     #[test]

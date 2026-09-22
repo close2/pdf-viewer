@@ -1048,6 +1048,11 @@ mod command_kind {
     // decides what colour every mark is, and only the host was told which of the two pictures
     // this reader asked for (ADR 1228).
     pub(super) const SEPARATIONS: u8 = 34;
+    // The name a document opened beside the one showing would be called by. It crosses for the
+    // reason every other host-supplied policy value does: the confined worker reads Table 203's
+    // and Table 204's `/NewWindow` and the host is the only party that knows whether this window
+    // has a second place to put a document (ADR 1263).
+    pub(super) const BESIDE: u8 = 35;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1317,6 +1322,14 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         // §10.8.3's simulation: one bit, because the preference has two states and the algorithm
         // is the worker's — it holds the document and therefore every colour on the page.
+        Command::Beside(name) => match name {
+            Some(name) => {
+                writer.u8(k::BESIDE).u8(1).document(*name);
+            }
+            None => {
+                writer.u8(k::BESIDE).u8(0);
+            }
+        },
         Command::Separations(simulate) => {
             writer.u8(k::SEPARATIONS).bool(*simulate);
         }
@@ -1632,6 +1645,16 @@ pub(crate) fn decode_command_holding(
             }))
         }
         k::SEPARATIONS => Command::Separations(reader.bool("whether separations are simulated")?),
+        k::BESIDE => Command::Beside(match reader.u8("a reserved name")? {
+            0 => None,
+            1 => Some(reader.document(what)?),
+            value => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a reserved name",
+                    value: u32::from(value),
+                });
+            }
+        }),
         k::PRINT => {
             let tag = reader.u8("which end of a print operation")?;
             if tag == 0 {
@@ -4385,6 +4408,8 @@ mod tests {
             // encoding that wrote the wrong byte would look like the other answer.
             Command::Separations(true),
             Command::Separations(false),
+            Command::Beside(None),
+            Command::Beside(Some(DocumentId(9))),
             // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:
             // three lists of names with a language, and the empty answer whose language is
             // *unstated* rather than empty (§14.9.2.2 gives the empty tag its own meaning).

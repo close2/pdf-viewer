@@ -196,3 +196,10 @@ describes by pointing at XFA, and this tree already read the identical construct
 Table 177's `/RC`. Before believing a row that hands something to an exclusion, check what the
 excluding clause actually permits, and grep the entry's own words across the tree for the same
 construct read elsewhere (ADR 1197).
+
+**A media type, a default value or a fallback a converter is about to choose is grepped for in
+`doc/md/` before it is recorded as a choice.** Round 1216 wrote a paragraph arguing
+`application/octet-stream` as a documented choice and then found §14.13.2 mandating exactly it,
+with the `/Params` `/ModDate` answer in the same sentence (ADR 1270). `CLAUDE.md` states the rule
+for recording a silence; a choice is a claim that the standard states nothing, and it decays the
+same way — grep for the value, not only the clause number.

@@ -600,3 +600,82 @@ fn the_overprint_clauses_own_example_is_an_equivalence() {
         "and not the picture the same fill paints with the controls off"
     );
 }
+
+/// §11.7.4.4's first-bullet group inside a knockout group of the stated isolation.
+///
+/// The page paints an opaque `0 0 0 0.5` backdrop and invokes a form whose `/Group` is a
+/// knockout group. Inside it a translucent fill is covered by the `B` of
+/// [`a_pair_under_a_constant_alpha_gets_the_first_bullets_group`], so §11.4.6's rule has
+/// something to knock out: with one element a knockout group and §11.4.4's group are the same
+/// picture.
+fn pair_in_a_knockout_group(isolated: bool) -> Vec<u8> {
+    const FORM: &str = "/GH gs 0 0 0.6 0 k 0 0 40 40 re f \
+                        /GS gs 0.9 0 0 0 k 0 0.7 0 0 K 4 w 10 10 20 20 re B";
+    let form = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+         /Group << /S /Transparency /K true /I {} >> \
+         /Resources << /ExtGState << /GS << /OP true /op true /OPM 1 /ca 0.5 /CA 0.5 >> \
+         /GH << /ca 0.5 >> >> >> /Length {} >>\nstream\n{FORM}\nendstream\nendobj\n",
+        if isolated { "true" } else { "false" },
+        FORM.len() + 1
+    );
+    cmyk_page_with(
+        "/XObject << /Fm 5 0 R >>",
+        "0 0 0 0.5 k 0 0 40 40 re f /Fm Do",
+        &form,
+    )
+}
+
+/// §11.7.4.4's first bullet is built inside a knockout group of either isolation, and the two
+/// draw the two backdrops §11.4.6 names.
+///
+/// > A knockout group may be isolated or non-isolated; that is, isolated and knockout are
+/// > independent attributes. A nonisolated knockout group composites its topmost enclosing
+/// > element with the group's backdrop. An isolated knockout group composites the element with
+/// > a transparent backdrop.
+///
+/// The bullet's group is "a non-isolated, non-knockout transparency group", and §11.4.6's
+/// NOTE 6 says what that means for a direct element of a knockout group: "the initial backdrop
+/// of the inner group is the same as that of the outer group". So the pair's own backdrop is
+/// the enclosing group's initial one, and the two isolations give two derivable colours:
+///
+/// - **Non-isolated**: the initial backdrop is the page's `0 0 0 0.5`, so the fill's part is
+///   §11.7.4.3's `B(C_b, C_s)` component by component — cyan from the source, the other three
+///   from the backdrop — which is `0.9 0 0 0.5`, composited once at the stated alpha of 0.5.
+/// - **Isolated**: the initial backdrop is transparent, where §11.3.6 leaves the blend function
+///   nothing to do — "[a]n alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect"
+///   — so the fill's part is the source colour `0.9 0 0 0`, and the group is composited over
+///   the page at 0.5.
+///
+/// Each assertion is an equality with a page that paints that colour directly at `/ca 0.5`
+/// over the same backdrop, so nothing here depends on what the ink cube makes of the four
+/// components. ADR 1265.
+#[test]
+fn a_pairs_group_takes_the_backdrop_its_enclosing_knockout_group_has() {
+    let half = |colour: &str| {
+        interpret(cmyk_page(
+            "/ExtGState << /GS << /ca 0.5 >> >>",
+            &format!("0 0 0 0.5 k 0 0 40 40 re f /GS gs {colour} k 0 0 40 40 re f"),
+        ))
+    };
+    let non_isolated = interpret(pair_in_a_knockout_group(false));
+    let isolated = interpret(pair_in_a_knockout_group(true));
+
+    assert_eq!(
+        pixel(&non_isolated, 20, 20),
+        pixel(&half("0.9 0 0 0.5"), 20, 20),
+        "a non-isolated knockout group composites its element with the group's backdrop, so \
+         the overprint keeps the backdrop's other three components"
+    );
+    assert_eq!(
+        pixel(&isolated, 20, 20),
+        pixel(&half("0.9 0 0 0"), 20, 20),
+        "an isolated knockout group composites the element with a transparent backdrop, where \
+         the special blend mode has no backdrop to keep"
+    );
+    assert_ne!(
+        pixel(&non_isolated, 20, 20),
+        pixel(&isolated, 20, 20),
+        "which are two pictures, or the fixture would be about neither"
+    );
+}

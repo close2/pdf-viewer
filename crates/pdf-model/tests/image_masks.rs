@@ -1512,3 +1512,125 @@ fn a_stencil_under_a_codec_carrying_soft_mask_still_states_its_shape() {
         plain.unsupported
     );
 }
+
+/// A soft mask in a one-component space Table 143 does not permit supplies its samples, and
+/// says so.
+///
+/// Table 143 makes `/ColorSpace` "Required; shall be DeviceGray", so a mask stating `CalGray`
+/// is a non-conforming file and the question is what a reader does with it. §11.6.5.2 reads one
+/// number per sample as the image's opacity, and a colour space says which colour a value
+/// denotes rather than what the value is — the reading ADR 1054 already took for §8.6.5.6's
+/// defaults one key along — so the number the file states is the opacity and the departure is
+/// reported beside the drawing.
+///
+/// The fixture's gamma is what discriminates: a `CalGray` of `/Gamma 1` states linear light,
+/// which a sample of 128 carries to the device at 188 of 255, so a reader that converted the
+/// mask to a colour and took a channel would make this image half again as opaque as the file
+/// says. Calibrated by handing the mask on under its own space, which lands the alpha at 188
+/// and fails the second assertion.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the sentence quotes Table 143 verbatim, and a quotation may not gain backticks"
+)]
+#[test]
+fn a_soft_mask_in_a_calibrated_grey_states_its_samples_and_is_reported() {
+    let fixture = || {
+        page_with_image(
+            "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R",
+            &[255, 0, 0],
+            &[stream_object(
+                6,
+                "/Type /XObject /Subtype /Image /Width 1 /Height 1 \
+                 /ColorSpace [/CalGray << /WhitePoint [0.9505 1.0 1.089] /Gamma 1 >>] \
+                 /BitsPerComponent 8",
+                &[128],
+            )],
+        )
+    };
+
+    let interpretation = interpret(fixture());
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("Table 143 requires DeviceGray"),
+        "the departure from Table 143 is named: {reported}"
+    );
+
+    let [_, _, _, alpha] = pixel(&rasterise(interpret(fixture())), 20, 20);
+    assert!(
+        (120..=136).contains(&alpha),
+        "the mask's own sample is the opacity, not the colour its gamma denotes: {alpha}"
+    );
+}
+
+/// §11.6.5.2: the pre-blending is undone in the image's own colour space, whatever it is.
+///
+/// > The preblending computation shall be done in the colour space specified by the parent
+/// > image's ColorSpace entry. … If a colour conversion is required, inversion of the
+/// > pre-blending shall precede the colour conversion.
+///
+/// The fixture is the smallest one where the two orders disagree: a `DeviceCMYK` image whose
+/// samples state a quarter of cyan and a quarter of magenta, pre-blended with white paper at
+/// α = 64/255, so the colour the producer meant is one unit of each — the ink cube's blue
+/// corner. §10.4.2.4's conversion is multilinear in the four inks, so dividing the *raster*
+/// by α instead lands two thirds of the way down a different chord and clamps two channels to
+/// zero: 0,0,131 against the corner's 46,49,146. Calibrated by putting the inversion after the
+/// conversion, which produces exactly that.
+#[test]
+fn a_matte_is_undone_in_the_images_own_space_before_it_is_converted() {
+    let raster = render(page_with_image(
+        "/Width 1 /Height 1 /ColorSpace /DeviceCMYK /BitsPerComponent 8 /SMask 6 0 R",
+        &[64, 64, 0, 0],
+        &[stream_object(
+            6,
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 \
+             /ColorSpace /DeviceGray /BitsPerComponent 8 /Matte [0 0 0 0]",
+            &[64],
+        )],
+    ));
+
+    let [red, green, blue, alpha] = pixel(&raster, 20, 20);
+    assert!(
+        (56..=72).contains(&alpha),
+        "the mask's own sample is the opacity: {alpha}"
+    );
+    assert!(
+        (38..=54).contains(&red) && (41..=57).contains(&green) && (138..=154).contains(&blue),
+        "one unit each of cyan and magenta is the cube's blue corner, not {red},{green},{blue}"
+    );
+}
+
+/// §11.6.5.2 and Table 144: an `Indexed` image's *table entries* carry the matte.
+///
+/// > If the image colour space is an Indexed space (see 8.6.6.3, "Indexed colour spaces"),
+/// > the colour values in the colour table (not the index values themselves) shall be
+/// > pre-blended.
+///
+/// So the `/Matte` states the base space's components — Table 144 counts them there — and the
+/// inversion runs on the entry an index selects, never on the index. The fixture's first entry
+/// is full red pre-blended with white paper at α = 64/255, which is `FF BF BF`; restored it is
+/// red again. A reader that left the entry alone would draw that pink, and one that divided
+/// the *index* would run off the end of a two-entry table and draw the paper.
+#[test]
+fn a_matte_on_an_indexed_image_is_undone_on_its_table_entry() {
+    let raster = render(page_with_image(
+        "/Width 1 /Height 1 /ColorSpace [/Indexed /DeviceRGB 1 <FFBFBF FFFFFF>] \
+         /BitsPerComponent 8 /SMask 6 0 R",
+        &[0],
+        &[stream_object(
+            6,
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 \
+             /ColorSpace /DeviceGray /BitsPerComponent 8 /Matte [1 1 1]",
+            &[64],
+        )],
+    ));
+
+    let [red, green, blue, alpha] = pixel(&raster, 20, 20);
+    assert!(
+        (56..=72).contains(&alpha),
+        "the mask's own sample is the opacity: {alpha}"
+    );
+    assert!(
+        red > 240 && green < 16 && blue < 16,
+        "the entry restored against white paper is full red, not {red},{green},{blue}"
+    );
+}

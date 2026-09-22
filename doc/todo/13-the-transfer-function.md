@@ -355,13 +355,29 @@ pattern's cell — decide which marks the first sentence hands a function to.
    `tests/transfer_functions.rs` hold each against the clause's value. `SampleAlpha::Both` is the
    one shape left unstated, which is ADR 1218's pair.
 
-   **What that unblocks is the first of the two paints, and ADR 1255 writes it out.** ADR 0479 put a
-   shading's function inside its colours because mapping a simplified ramp's two stops draws the
-   chord between the transferred ends; the channel maps the finished pixel and has no stops to
-   interpolate between, so the argument does not reach it, and what did block the move was a shape
-   that claimed the whole path. Two hunks in `content/pattern.rs` — `mark_transfer`'s
-   `PatternPaint::Shading` arm, and `sh`'s `Colouring` — would leave `Unsupported::TransferFunction`
-   about the tiling cell alone.
+   **Both paints joined the channel in ADR 1266, and no colour in this tree carries a transfer
+   function any more.** ADR 0479 put a shading's function inside its colours because mapping a
+   simplified ramp's two stops draws the chord between the transferred ends; the channel maps the
+   finished pixel and has no stops to interpolate between, so the argument does not reach it — the
+   ramp is sampled raw and the curve is evaluated once per pixel instead of once per stop.
+   `MarkColouring` loses its transfer, `shading::Cache` keys a pattern's colours again where a
+   stated function had disabled it, and a type 1 shading keeps the §7.10.5 device program that was
+   withdrawn for having nowhere to apply one. The **tiling** took the clause's own sixth condition
+   at its word: "[i]f the current colour is a tiling pattern, all objects in the definition of its
+   pattern cell also satisfy the foregoing conditions" is a condition on the object *painted with*
+   the pattern, so that object is the elementary one, its function is the one in force at the
+   painting operation, and the cell's objects decide only whether it is withheld — which makes a
+   `/TR` in a cell's own `/ExtGState` decide nothing, as §11.6.7's row has said since the
+   six-hundred-and-fifty-fifth session and the code did not. `Interpreter::record_tiling` puts the
+   mark's function on every tile of the finished tiling as one run.
+
+   **What is left is one shape and it is ADR 1218's pair**: `SampleAlpha::Both`, a stencil under an
+   `/SMask` of its own, whose single alpha channel is §11.6.4.2's shape multiplied by §11.6.4.3's
+   opacity and cannot be separated again, so such an image occludes only where its mask is non-zero
+   where the clause gives it the whole rectangle. `Interpreter::note_unstatable_shape` names it,
+   asked at `draw_image` rather than at `draw_mark` because a never-taken branch in the latter cost
+   0.12% of an interpretation of page 101 and the same test at the former costs 0.002% (ADR 1266
+   section 6).
 
    **The build's pricing was corrected in the one-thousand-one-hundred-and-thirty-seventh session,
    and the "matching pass in all three backends" above is where it was wrong.** `render-raster` is

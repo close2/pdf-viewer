@@ -67,7 +67,7 @@ impl Interpreter<'_> {
             let combined =
                 fill.is_some() && stroke.is_some() && state.fill_marks() && state.stroke_marks();
             let (first_bullet, lifted) =
-                self.first_bullet_for_path(state, [fill_blend, stroke_blend], combined);
+                Self::first_bullet_for_path(state, [fill_blend, stroke_blend], combined);
             // The state every *paint* below is built from: `state` itself, or `state` with
             // §11.6.4.4's constants lifted on to §11.7.4.4's first-bullet group. A tiling
             // pattern's cell takes it too — the cell's own marks are the part the bullet
@@ -84,9 +84,8 @@ impl Interpreter<'_> {
                     painting,
                 );
             } else if let Some(rule) = fill {
-                let (inside, transfer) =
-                    self.mark_transfer(state, Painted::of(state, false), false);
-                let paint = self.fill_paint(painting, inside.as_ref());
+                let transfer = self.mark_transfer(state, Painted::of(state, false));
+                let paint = self.fill_paint(painting);
                 self.draw_mark(
                     Command::Fill {
                         path: Arc::clone(&shared),
@@ -116,8 +115,8 @@ impl Interpreter<'_> {
                     painting,
                 );
             } else if stroke.is_some() {
-                let (inside, transfer) = self.mark_transfer(state, Painted::of(state, true), true);
-                let paint = self.stroke_paint(painting, inside.as_ref());
+                let transfer = self.mark_transfer(state, Painted::of(state, true));
+                let paint = self.stroke_paint(painting);
                 self.draw_mark(
                     Command::Stroke {
                         path: Arc::clone(&shared),
@@ -133,8 +132,8 @@ impl Interpreter<'_> {
             }
             match first_bullet {
                 FirstBullet::Group => self.first_bullet_group(state, mark),
-                // The bullet's group is the two commands as they stand, or a knockout group
-                // above makes it unstatable and `combined_overprint` has said so.
+                // The bullet's group is the two commands as they stand, which is what
+                // `combined_overprint` answers where §11.4.4's NOTE 3 makes it so.
                 FirstBullet::AsPainted => {}
                 FirstBullet::No => {
                     self.combine_parts(state, mark, [fill_blend, stroke_blend], combined);
@@ -199,7 +198,6 @@ impl Interpreter<'_> {
     /// [`Interpreter::end_path`] keeps asking `Painted::of` of the state the file stated:
     /// that clause's condition is about what covers a point on the page.
     fn first_bullet_for_path(
-        &mut self,
         state: &GraphicsState,
         parts: [pdf_render::BlendMode; 2],
         combined: bool,
@@ -207,8 +205,7 @@ impl Interpreter<'_> {
         if !combined {
             return (FirstBullet::No, None);
         }
-        let bullet =
-            self.combined_overprint(state, parts, "a path filled and stroked by one operator");
+        let bullet = Interpreter::combined_overprint(state, parts);
         let lifted = (bullet == FirstBullet::Group).then(|| state.with_opaque_constants());
         (bullet, lifted)
     }
@@ -306,7 +303,7 @@ impl Interpreter<'_> {
             if let Some(group) = implicit_knockout_group(
                 &parts,
                 self.alpha_sources,
-                self.inside_knockout,
+                self.enclosing_knockout,
                 self.image_masks.shape_masks(),
             ) {
                 self.draw(Command::Group {

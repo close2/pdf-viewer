@@ -372,6 +372,22 @@ pub enum WindowAct {
     /// three windows take the thread back in three different places — `viewer_host::Drawing` in
     /// the two native ones and the composing thread in `viewer-ui`'s.
     AbortDrawing,
+    /// Show the next of the documents this window has open, wrapping round to the first.
+    ///
+    /// **A window act rather than a [`Command`] although it ends in one**, for
+    /// [`Self::Separations`]'s reason: *which* documents a window holds and in what order is the
+    /// host's — `viewer_core` keeps a map with no order in it and no tab strip to show one — and
+    /// what crosses the boundary is [`viewer_core::Command::Focus`] with the name the host
+    /// decided on. [`crate::documents`] is the strip and the order. ADR 1264.
+    NextDocument,
+    /// Close the document in front, or the window where it is the only one.
+    ///
+    /// The second half is why this is a [`WindowAct`] and not simply
+    /// [`viewer_core::Command::Close`]: a window with one document left has nothing to show after
+    /// the close, and what "close the window" *is* differs in all three —
+    /// `gtk4::Window::close` against `QWidget::close` against an event loop that stops.
+    /// [`crate::documents::Close::Last`] is where the two cases divide. ADR 1264.
+    CloseDocument,
     /// Turn §10.8.3's separation simulation on, or off again.
     ///
     /// **A window act rather than a [`Command`] although it ends in one**, for this half of the
@@ -574,8 +590,18 @@ pub fn ctrl_meaning(key: Key, mode: Mode) -> Option<Meaning> {
         // §7.6.4.2's bit 3 is asked by the message this act sends once the window knows what
         // sheet the person chose; the key names the job (ADR 1180).
         Key::P => Meaning::Window(WindowAct::Print),
-        Key::F if matches!(mode, Mode::Presenting) => return None,
+        // Three rows go away while a presentation is running, and for one reason: Table 29's
+        // `FullScreen` shows "no menu bar, window controls, or any other window visible", so the
+        // find bar and the strip of open documents are both chrome the clause takes away — and a
+        // key whose only effect is on something nobody can see is a key with no effect
+        // (ADRs 1192, 1264).
+        Key::F | Key::Tab | Key::W if matches!(mode, Mode::Presenting) => return None,
         Key::F => Meaning::Window(WindowAct::Find),
+        // Two conventional bindings this program's tab strip earns, on ADR 1192's rule: a
+        // modifier this program binds is one it has a row for, and these are the two rows a
+        // window holding more than one document needs (ADR 1264).
+        Key::Tab => Meaning::Window(WindowAct::NextDocument),
+        Key::W => Meaning::Window(WindowAct::CloseDocument),
         _ => return None,
     })
 }
@@ -837,6 +863,41 @@ mod tests {
         assert!(meaning(Key::F, Modifiers::CTRL, Mode::Presenting, Waiting::Nothing).is_none());
     }
 
+    /// The two rows a window holding more than one document needs, and what they are not.
+    ///
+    /// Both are conventional bindings for an operation this program can now perform, which is
+    /// ADR 1192's own test for a Control row. The pairing that matters is with the unmodified
+    /// keys: §12.5.1's tab key moves the focus between a page's widgets and `w` is the
+    /// magnification every §12.7 control fits at, and neither changes because a second document
+    /// is open. ADR 1264.
+    #[test]
+    fn control_moves_between_documents_and_closes_one() {
+        assert!(matches!(
+            meaning(Key::Tab, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::NextDocument))
+        ));
+        assert!(matches!(
+            meaning(Key::W, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::CloseDocument))
+        ));
+        assert!(matches!(
+            meaning(Key::Tab, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Send(Command::Focused(
+                viewer_core::FocusMove::Next
+            )))
+        ));
+        assert!(matches!(
+            meaning(Key::W, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::FitControls))
+        ));
+        for key in [Key::Tab, Key::W] {
+            assert!(
+                meaning(key, Modifiers::CTRL, Mode::Presenting, Waiting::Nothing).is_none(),
+                "the strip is chrome Table 29's FullScreen takes away, and so are its keys"
+            );
+        }
+    }
+
     /// A Control this program does not bind means **nothing**, and never the unmodified row.
     ///
     /// The defect this is written against: all three hosts discarded Control before asking, so
@@ -847,7 +908,7 @@ mod tests {
     #[test]
     fn a_control_this_table_does_not_bind_falls_through_to_nothing() {
         for key in Key::ALL {
-            if matches!(key, Key::C | Key::S | Key::P | Key::F) {
+            if matches!(key, Key::C | Key::S | Key::P | Key::F | Key::Tab | Key::W) {
                 continue;
             }
             for mode in [Mode::Reading, Mode::Presenting] {

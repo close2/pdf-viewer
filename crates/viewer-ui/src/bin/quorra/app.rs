@@ -50,6 +50,48 @@ pub(crate) enum Pending {
     },
 }
 
+/// Everything this window holds about the document **in front**, and nothing about the others.
+///
+/// **Parked beside every tab that is not in front**, by `viewer_host::Documents`, and swapped in
+/// one move by [`App::park`] and [`App::unpark`]. The two native hosts keep the same set of facts
+/// as a field on their own host struct; this one keeps them where they already are — [`App`]'s
+/// fields are read by name from eight modules — and moves them through a struct that names every
+/// one of them. The completeness is compiler-checked in both directions: `park` constructs this
+/// and `unpark` destructures it, and neither may leave a field out. ADR 1264.
+#[derive(Debug)]
+pub(crate) struct Showing {
+    /// The file's name, for the title bar.
+    pub(crate) title: String,
+    /// Where the bytes came from.
+    pub(crate) path: PathBuf,
+    /// Annex O's `ef`, where this document came out of another one.
+    pub(crate) embedded: Option<Vec<u8>>,
+    /// Annex O's fragment identifier.
+    pub(crate) fragment: Option<String>,
+    /// The directory §12.7.6.4's policy resolves against.
+    pub(crate) directory: Option<PathBuf>,
+    /// What the title bar says about the page.
+    pub(crate) caption: String,
+    /// §12.9's measuring: whether a press is a point, and the points put down so far.
+    pub(crate) measuring: viewer_host::Measuring,
+    /// What the title bar says about the path being measured.
+    pub(crate) measured: String,
+    /// Whether anything a person did to this document is unsaved.
+    pub(crate) dirty: bool,
+    /// §7.6.4.1's attempts against this document.
+    pub(crate) asking: viewer_host::Asking,
+    /// Whether this document still owes what it says about itself.
+    pub(crate) report_due: viewer_host::report::Due,
+    /// Table 29's arrangement, as this window last asked for it for this document.
+    pub(crate) layout: pdf_model::viewer_preferences::PageLayout,
+    /// What this document departs from the window's restriction levels in.
+    ///
+    /// The one half of `viewer_host::Restrictions` that belongs to a file rather than to the
+    /// window: `viewer_core` already keeps the departures beside the document they are about
+    /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
+    pub(crate) departures: viewer_core::RestrictionOverride,
+}
+
 #[expect(
     clippy::struct_excessive_bools,
     reason = "independent facts about a window, each read in one place: whether a button is \
@@ -57,6 +99,24 @@ pub(crate) enum Pending {
               frame, whether anything is unsaved, and what this run asked of the graphics stack"
 )]
 pub(crate) struct App {
+    /// The documents this window has open, in the order the strip shows them.
+    ///
+    /// One of these until something opens a second — a `/NewWindow true` on a remote go-to — and
+    /// the strip draws nothing at all for one, so a window showing one document looks exactly as
+    /// it did (ADR 1264).
+    pub(crate) documents: viewer_host::Documents<Showing>,
+    /// A name held out to `viewer_core::Command::Beside`, and the file that would arrive under it.
+    ///
+    /// Set when this window offers a name for a document Table 203's `/NewWindow true` might open
+    /// beside the one showing, and taken on the `Event::Opened` that names it (ADR 1263).
+    pub(crate) reserved: Option<(viewer_core::DocumentId, PathBuf)>,
+    /// The strip of tabs this window draws for itself, rebuilt whenever the list moves.
+    pub(crate) strip: viewer_ui::chrome::DocumentStrip,
+    /// Whether the last document was closed, so the window goes with it.
+    ///
+    /// A flag rather than a call, because the key table hands out a `viewer_host::WindowAct` and
+    /// the event loop is only in scope where a window event arrives (ADR 1264).
+    pub(crate) leaving: bool,
     /// Everything about documents, pages and clicks.
     pub(crate) viewer: Viewer,
     /// The file's name, for the title bar.
@@ -600,6 +660,189 @@ impl App {
                 self.caption,
                 self.said_about_the_drawing()
             ));
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // The strip of open documents (ADR 1264). The order, the names and the picture are this
+    // window's; `viewer_host::Documents` is the bookkeeping the three hosts share.
+    // -------------------------------------------------------------------------------------
+
+    /// Takes everything this window holds about the document in front, ready to be parked.
+    ///
+    /// The pair with [`Self::unpark`]: this constructs [`Showing`] and that destructures it, so a
+    /// field added to it fails to compile in both and cannot be left behind.
+    fn park(&mut self) -> Showing {
+        Showing {
+            title: std::mem::take(&mut self.title),
+            path: std::mem::take(&mut self.path),
+            embedded: self.embedded.take(),
+            fragment: self.fragment.take(),
+            directory: self.directory.take(),
+            caption: std::mem::take(&mut self.caption),
+            measuring: std::mem::take(&mut self.measuring),
+            measured: std::mem::take(&mut self.measured),
+            dirty: self.dirty,
+            asking: std::mem::replace(&mut self.asking, viewer_host::Asking::new()),
+            report_due: std::mem::take(&mut self.report_due),
+            layout: self.layout,
+            departures: self.restrictions.document(),
+        }
+    }
+
+    /// Puts a document's own state back into this window's fields.
+    fn unpark(&mut self, showing: Showing) {
+        let Showing {
+            title,
+            path,
+            embedded,
+            fragment,
+            directory,
+            caption,
+            measuring,
+            measured,
+            dirty,
+            asking,
+            report_due,
+            layout,
+            departures,
+        } = showing;
+        self.title = title;
+        self.path = path;
+        self.embedded = embedded;
+        self.fragment = fragment;
+        self.directory = directory;
+        self.caption = caption;
+        self.measuring = measuring;
+        self.measured = measured;
+        self.dirty = dirty;
+        self.asking = asking;
+        self.report_due = report_due;
+        self.layout = layout;
+        self.restrictions.depart(departures);
+    }
+
+    /// Brings the strip's own picture level with what this window holds.
+    fn restrip(&mut self) {
+        self.strip.labels = self
+            .documents
+            .iter()
+            .map(|(_, label)| label.to_owned())
+            .collect();
+        self.strip.focused = self.documents.focused_index();
+    }
+
+    /// Brings one of the open documents to the front.
+    ///
+    /// Two things move together and neither may move without the other: what this window holds
+    /// about the document ([`Showing`]), and the document scope of the restriction menu — which
+    /// `viewer_core` already keeps beside the document it is about (ADR 1145).
+    pub(crate) fn show_document(&mut self, id: viewer_core::DocumentId) {
+        let mut parked = self.park();
+        if !self.documents.focus(id, &mut parked) {
+            self.unpark(parked);
+            return;
+        }
+        self.unpark(parked);
+        self.restrip();
+        self.dispatch(Command::Focus(id));
+        self.retitle();
+        self.redraw();
+    }
+
+    /// A press landed on the strip of tabs, where there is one. Answers whether it did.
+    pub(crate) fn pressed_the_strip(&mut self, at: (f32, f32)) -> bool {
+        let Some((width, _, scale)) = self.window() else {
+            return false;
+        };
+        let Some(index) = self.strip.tab_at(at, width, scale) else {
+            return false;
+        };
+        if let Some(id) = self.documents.id_at(index) {
+            self.show_document(id);
+        }
+        true
+    }
+
+    /// A name held out for a document Table 203's `/NewWindow true` would open beside this one.
+    ///
+    /// **An offer rather than a request**, which is `viewer_core::Command::Beside`'s own shape:
+    /// the name is used only where the action states the entry, and one this window offers and
+    /// nothing opens under is simply skipped (ADR 1263).
+    pub(crate) fn offer_a_name(&mut self, path: &std::path::Path) {
+        let name = self.documents.reserve();
+        self.reserved = Some((name, path.to_path_buf()));
+        self.dispatch(Command::Beside(Some(name)));
+    }
+
+    /// A document opened beside the one that was showing, under the name this window offered.
+    ///
+    /// The core has already made it the focused document — a person who followed a link asking for
+    /// a new window asked to be reading the destination — so what is left here is the tab, the
+    /// swap of this window's own per-document state, and the sentence.
+    pub(crate) fn opened_beside(&mut self, id: viewer_core::DocumentId) {
+        let Some((_, path)) = self.reserved.take().filter(|(name, _)| *name == id) else {
+            return;
+        };
+        let label = viewer_host::documents::label(&path);
+        let fresh = Showing {
+            title: path.to_string_lossy().into_owned(),
+            directory: path.parent().map(std::path::Path::to_path_buf),
+            path,
+            embedded: None,
+            fragment: None,
+            caption: String::new(),
+            measuring: viewer_host::Measuring::default(),
+            measured: String::new(),
+            dirty: false,
+            asking: viewer_host::Asking::new(),
+            report_due: viewer_host::report::Due::default(),
+            layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
+            departures: viewer_core::RestrictionOverride::NONE,
+        };
+        // Added parked and then focused, which is the one order that keeps `Documents`' invariant:
+        // the state of the document in front lives in this window's fields and nowhere else.
+        self.documents.add(id, label.clone(), fresh);
+        let mut current = self.park();
+        self.documents.focus(id, &mut current);
+        self.unpark(current);
+        self.restrip();
+        self.retitle();
+        self.redraw();
+        println!(
+            "note: {}",
+            viewer_host::documents::opened_beside(&label, self.documents.len())
+        );
+    }
+
+    /// Closes the document in front, or the window where it is the only one.
+    ///
+    /// `viewer_host::documents::Close::Last` is where the two part: a window with one document
+    /// left has nothing to show after the close, and closing the window here is the event loop
+    /// being told to exit (ADR 1264).
+    pub(crate) fn close_document(&mut self) {
+        let closing = self.documents.focused();
+        let mut parked = self.park();
+        match self.documents.close(closing, &mut parked) {
+            viewer_host::Close::Last => {
+                self.unpark(parked);
+                self.leaving = true;
+            }
+            viewer_host::Close::Unknown => self.unpark(parked),
+            viewer_host::Close::Done { state, focused } => {
+                self.unpark(parked);
+                let label = viewer_host::documents::label(&state.path);
+                drop(state);
+                self.restrip();
+                self.dispatch(Command::Close(closing));
+                self.dispatch(Command::Focus(focused));
+                self.retitle();
+                self.redraw();
+                println!(
+                    "note: {}",
+                    viewer_host::documents::closed(&label, self.documents.len())
+                );
+            }
         }
     }
 

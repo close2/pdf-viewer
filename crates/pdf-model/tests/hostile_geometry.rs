@@ -99,7 +99,7 @@ fn a_stroke_reaching_ten_million_units_is_drawn_rather_than_aborting() {
     );
 }
 
-/// The same shape as a clip, which reaches it through `Mask::fill_path` instead.
+/// The same shape as a clip, which reaches it through `tiny_skia::Mask::fill_path` instead.
 ///
 /// The rectangle drawn afterwards is what proves the clip was built at all: a mask that came
 /// back empty would leave the page blank and the assertion would say so.

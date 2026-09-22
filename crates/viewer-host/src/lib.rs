@@ -46,6 +46,12 @@
 //!   the three event loops that could supply one — `glib::timeout_add_local`, `QTimer`, winit's
 //!   `ControlFlow::WaitUntil` — agree about every question the clause asks and differ in every
 //!   letter of how it is asked.
+//! - [`documents`] — the documents one window has open, in the order it shows them, and which of
+//!   them is in front. `viewer_core` has held a map of them since it existed and every window put
+//!   one name in it; what a second tab needs is the bookkeeping no toolkit supplies — which names
+//!   are open, what closing one does to the front, and where a window's per-document state goes
+//!   while the person is reading the other. A `gtk4::Notebook` against a `QTabWidget` against a
+//!   strip a program draws is what a toolkit is; the rules are one decision (ADR 1264).
 //! - [`drawing`] — the rasterisation of a page, on a thread of its own, with the one rule that says
 //!   when to take that thread back. Both native windows used to draw inside the arm that received
 //!   `Event::NeedsRender`, on the toolkit's main thread, so a page written to be expensive took the
@@ -116,6 +122,7 @@
 pub mod arrangement;
 pub mod clock;
 pub mod copying;
+pub mod documents;
 pub mod drawing;
 pub mod fit;
 pub mod form;
@@ -137,6 +144,7 @@ pub mod trace;
 pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
+pub use documents::{Close, Documents};
 pub use drawing::{DrawRequest, Drawing, Finished};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};

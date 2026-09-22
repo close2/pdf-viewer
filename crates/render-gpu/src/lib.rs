@@ -207,7 +207,7 @@ const MIN_BAND_HEIGHT: u32 = 32;
 ///
 /// A scene that needs more — many small paths over many tiles, which is a page of text at a high
 /// resolution — overflows one of them *on the device*. The shaders set a `failed` flag in the
-/// bump allocators and stop filling; `Renderer::render_to_texture` cannot see that flag, returns
+/// bump allocators and stop filling; `vello::Renderer::render_to_texture` cannot see that flag, returns
 /// `Ok`, and the target texture is left **blank**. Page 6 of ISO 32000-2 at 1132×1600 is such a
 /// scene: it needs 2 183 025 tile records against the 2 097 152 the buffer holds, four per cent
 /// more, and every pixel comes back empty (ADR 0127).
@@ -220,7 +220,7 @@ const MIN_BAND_HEIGHT: u32 = 32;
 /// dynamic memory proposes subdividing the viewport and resubmitting — implemented by the caller
 /// because vello 0.9 does not implement it and exposes no way to enlarge the buffers instead.
 ///
-/// **Public because it is the only call a host should make.** `Renderer::render_to_texture` is
+/// **Public because it is the only call a host should make.** `vello::Renderer::render_to_texture` is
 /// right there and reports success on a blank page; a viewer drawing to its own surface — which
 /// is the tier-2 path, and the one a person actually looks at — has to come through here or it
 /// inherits exactly the defect this exists to catch. The texture it draws into therefore needs

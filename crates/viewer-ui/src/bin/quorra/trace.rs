@@ -114,7 +114,7 @@ pub(crate) struct Trace {
     ///
     /// **ADR 0227**: every line of the trace that raised it carried a *duration* and
     /// none carried a time, so the interval a person actually waited could not be recovered and
-    /// a gap in the log could not be told from a run of cheap work. One `Instant::elapsed` per
+    /// a gap in the log could not be told from a run of cheap work. One `std::time::Instant::elapsed` per
     /// line — tens of nanoseconds against a `println!` that costs microseconds.
     began: std::time::Instant,
 }
@@ -270,6 +270,12 @@ pub(crate) fn describe_command(command: &Command) -> String {
     match command {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
+        // Table 203's and Table 204's `/NewWindow true`: the name a second document would open
+        // under, or the reserve emptied (ADR 1263).
+        Command::Beside(name) => name.map_or_else(
+            || "beside: no name in reserve".to_owned(),
+            |name| format!("beside {name:?}"),
+        ),
         Command::Print(printing) => describe_printing(*printing),
         // Every operation's level, because a policy where five are `Off` and one is `Ask` is not
         // legible from one of the six (ADR 1144).

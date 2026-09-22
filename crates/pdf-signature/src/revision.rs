@@ -42,8 +42,10 @@
 //!   something changed — inside what the level permits, not inside it, or not ranked — and no
 //!   fourth.
 //! - **No answer here is a verdict on a signature.** §12.8.2.2.2 makes the byte range digest step
-//!   one and this step two, and §12.8.1's third question has no trust store behind it in this
-//!   program (ADR 1039). [`Judgement::WithinWhatIsPermitted`] is a statement about objects.
+//!   one and this step two, and §12.8.1's third question is [`crate::trust`]'s, under anchors a
+//!   host supplies (ADR 1039); the word itself belongs to [`crate::verdict::Valid`], which takes
+//!   all three answers (ADR 1076). [`Judgement::WithinWhatIsPermitted`] is a statement about
+//!   objects.
 //!
 //! ADRs 1043 and 1049.
 
@@ -534,7 +536,9 @@ impl Ranking {
 /// Three answers where something changed, and the fourth answer this deliberately does not have
 /// is the point: **nothing here says a signature is valid.** §12.8.2.2.2 makes the byte range
 /// digest step one and this step two, and §12.8.1's third question — whether the signer is
-/// trusted — has no trust store behind it in this program at all (ADR 1039). What a caller gets
+/// trusted — is [`crate::trust`]'s, answered against anchors a host supplies rather than a store
+/// this crate keeps (ADR 1039), and the word itself is [`crate::verdict::Valid`]'s, which takes
+/// all three answers together (ADR 1076). What a caller gets
 /// is what this step alone can support: the change is inside what the level permits, it is not,
 /// or it could not be ranked and the objects that could not be are named.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -877,7 +881,8 @@ pub enum RightsJudgement {
     /// §12.8.2.3: "If the signature is invalid because the document has been modified in a way
     /// that is not permitted or the identity of the signer is not granted the extended
     /// permissions, additional rights shall not be granted." The first of those two is what this
-    /// answers; the second is §12.8.1's third question and has no trust store behind it here.
+    /// answers; the second is §12.8.1's third question, which [`crate::trust`] answers against
+    /// anchors a host supplies.
     OutsideTheRightsGranted {
         /// How many objects the rights do not grant.
         objects: u64,

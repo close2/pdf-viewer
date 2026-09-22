@@ -10,7 +10,7 @@
 //! # The placement that separates them
 //!
 //! An image drawn at its own sample resolution composes with `render_cpu`'s pattern transform to a
-//! **pure translation**, and `tiny-skia`'s `Pattern::push_stages` point-samples every such
+//! **pure translation**, and `tiny_skia::Pattern::push_stages` point-samples every such
 //! placement (`tiny-skia-0.12.0/src/shaders/pattern.rs`: `if ts.is_identity() || ts.is_translate()
 //! { quality = Nearest }`, with its whole-pixel refinement unreachable underneath). Now that the
 //! request is `Nearest` at a native placement too, request and delivery agree and the oracle draws

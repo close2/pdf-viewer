@@ -29,7 +29,10 @@ membership** (ADR 0709), **the twenty-third in the eight-hundred-and-thirtieth, 
 right-hand side is the corpora on disk** (ADR 0758), and **the twenty-fourth in the
 nine-hundred-and-thirtieth, the only one whose discriminator is on neither side of the
 comparison the other twenty-three make — it is the standard's own modal verb** (ADR 0900), **and
-the twenty-fifth, the only one whose subject is a row that owes nothing** (ADR 1166). **The eighteenth was built in
+the twenty-fifth, the only one whose subject is a row that owes nothing** (ADR 1166), **the
+twenty-sixth, the only one whose two sides are both inside `crates/` — a Rust path written in
+prose against the items the workspace declares** (ADR 1273), **and the twenty-seventh, which reads
+a clause citation against the `code` list of the row for that clause** (ADR 1274). **The eighteenth was built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
 against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
 declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
@@ -538,6 +541,49 @@ depends on nothing but `thiserror`.
   second test is the calibration and is not optional (trap 13): it plants a flag no program
   accepts into both paths and fails unless the sweep names both. ADR 1213.
 
+- **One asks whether the tree declares the item a doc comment names**: `cargo run --release -p
+  conformance --bin names`, a second, over every Rust source of the workspace — `tools/state.sh
+  names` is the same run, and `cargo test -p conformance --test names` is the gate. Its subject is
+  the pointer no instrument here could reach: a `§` is checked against the standard and a file path
+  against the tree (`--bin pointers`), and a **Rust path written in prose** — `` `Interpreter::run`
+  ``, `` `crate::edit::apply` `` — was read by nothing. Two thirds of them are intra-doc links,
+  which `rustdoc` resolves under `cargo doc` and `doc/todo/02` §2 runs in no tier; the rest are
+  plain backticks, which `rustdoc` never resolves. **Resolution is the last two segments and
+  nothing else** — some item named by the last is declared in a context named by the one before
+  it — and *where* the prefix is looked for is the crate the comment is written in and the
+  workspace crates that one depends on, which is what separates `wgpu`'s `Surface` from
+  `viewer-ui`'s. Three rungs are counted rather than listed, each a reason the sweep is not being
+  asked: a relative or generic prefix (`Self::`, a type parameter), a path opening with or prefixed
+  by a dependency's name, and a prefix this tree declares nowhere the comment can reach. What is
+  left is the finding, and the gate holds it to a **named population** rather than a count —
+  `tests/names.rs`'s `STANDING`, one line per path — so a path that arrives fails and a path that
+  is fixed fails too. Calibrated per trap 13 by a plant in the function, never in the tree: a
+  module of `conformance` and a function nothing declares. ADR 1273. **The list it left** is the
+  round's own finding and is the reading: each entry is a renamed item, a name a round meant to
+  write and did not, or a library's type named without its crate, and the day it empties this
+  becomes a zero.
+- **One asks whether a file that cites a clause is a file that clause's row names**: `cargo run
+  --release -p conformance --bin cited`, seconds, over the source roots and `ledger.toml` —
+  `tools/state.sh cited` is the same run. A row's `code` array is the ledger's index into the tree
+  and **it decays in one direction only**: a round adding a reader cites the clause beside the code
+  because principle 5 requires it, and editing a row in another file is the step it forgets. Session
+  1210 found the shape by reading — `pdf-transform`'s archive converter cites §12.7.3, §7.9.6 and
+  §14.13.2 and not one of the three rows named it. The discriminator is two decidable things and
+  neither is the citation's meaning: **what the row claims** (only `implemented`, `partial` and
+  `departed` have a `code` list that is supposed to be complete) and **how often the file cites it**
+  (three or more; one `§` is a cross-reference as often as a reading). Two rungs, closest first: the
+  row's `code` names no file of the reading crate **at all**, which is 1210's own shape; and it
+  names the crate and not the file. A test, an example and a bench are not read — a `test` array is
+  where those go — and the member a path belongs to is chosen by the longest member directory
+  rather than by Cargo's directory names, because a site the ledger lists outside `src/` is still
+  its crate's. It ranks rather than fails, for `--bin pointers`' reason in the other direction: a
+  build failing on a hit would teach rounds to drop the citation. Calibrated per trap 13 by
+  plucking a file the ledger already names out of its own row in memory, with the pair chosen by
+  the sweep rather than written down. **Its first ten hits read, eight were the rule** — §11.6.6
+  read 24 times by `pdf-colour/src/colour.rs`, §8.9.5 17 times by `pdf-transform/src/redact.rs`,
+  §11.3.5.2 14 times by `raster-scene/src/blend.rs`, each under a row naming no file of that crate;
+  the two that were not are a validator citing a clause it checks rather than implements, and a
+  crate whose listed site is its C++ half. ADR 1274.
 - **One asks whether a note's own sentence about the row agrees with the row's `status` field**, and
   it is the only sweep here whose two sides are both inside one row: `cargo run --release -p
   conformance --bin last_sentences`, a fraction of a second, over `ledger.toml` and nothing else —
@@ -1022,7 +1068,9 @@ thirty lines below the `Transfer::read` that has read both since the three-hundr
 that list is behind, so a transfer function inside an uncoloured tiling pattern or a `d1` glyph
 description decided a colour §8.6.8 reserves for whoever uses the figure. Seventeen sessions, and
 the stale comment is why nobody looked. `an_uncoloured_cell_that_sets_a_transfer_function_is_ignored`
-fails without the guard, painting black where the clause requires the `scn` blue.
+pins the clause's answer, the `scn` blue; §8.6.8's guard is belt and braces for `/TR` since
+ADR 1266, because §11.7.5.3's NOTE keeps §10.5's values out of every cell's colours and
+§11.7.5.2 takes the function from the mark that paints the pattern.
 
 **What that adds to the method**: a comment explaining *why* a list is what it is will be read as
 the reason not to check the list. The sweeps hunt claims about capabilities; this was a claim about

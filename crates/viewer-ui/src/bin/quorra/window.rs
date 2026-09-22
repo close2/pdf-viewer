@@ -355,6 +355,17 @@ impl ApplicationHandler for App {
                 if self.about.shown || self.password.shown {
                     return;
                 }
+                // The strip of open documents, over everything the page area holds and answered
+                // on the press for the panel's reason: a strip acting on both ends of one click
+                // would change tabs twice (ADR 1264).
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a pointer position in this window, which is thousands of pixels"
+                )]
+                let at = (self.cursor.0 as f32, self.cursor.1 as f32);
+                if element == ElementState::Pressed && self.pressed_the_strip(at) {
+                    return;
+                }
                 if self.over_panel() {
                     // Answered once, on the press: a panel that acted on both ends of a click
                     // would follow a destination twice.
@@ -428,6 +439,11 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => self.redraw_requested(),
 
             _ => {}
+        }
+        // Closing the last document is closing the window, and this is where that happens: the
+        // key table hands out a `WindowAct` and has no event loop to reach (ADR 1264).
+        if self.leaving {
+            event_loop.exit();
         }
     }
 }
@@ -553,6 +569,14 @@ impl App {
                 dy: by * self.scale(),
             }),
             viewer_host::WindowAct::Copy => self.copy_selection(),
+            // The strip of open documents, whose *order* is this window's and whose focus is a
+            // message. One document is its own next, so the key is harmless before anything has
+            // opened a second (ADR 1264).
+            viewer_host::WindowAct::NextDocument => {
+                let next = self.documents.next_id();
+                self.show_document(next);
+            }
+            viewer_host::WindowAct::CloseDocument => self.close_document(),
             // Only ever *opens*. While the bar is shown it has the keyboard, so neither `f` nor
             // `/` reaches the table at all (see [`App::pressed`]), and Escape inside the bar is
             // what closes it and sends `Find::Stop`.

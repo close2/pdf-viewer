@@ -351,7 +351,7 @@ pub(crate) struct Window {
 /// a core dump. So the fatal branch is reachable on the first configure of a process and never
 /// again.
 ///
-/// And the first configure is exactly the one this program used to race. `Surface::configure`
+/// And the first configure is exactly the one this program used to race. `wgpu::Surface::configure`
 /// waits for the device to come idle, and wgpu's own documentation of it says what happens when
 /// that wait meets a busy queue: "Submissions that happen _during_ the configure may cause the
 /// internal wait-for-idle to fail, raising a validation error"

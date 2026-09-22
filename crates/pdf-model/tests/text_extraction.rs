@@ -171,7 +171,7 @@ fn without_spaces(text: &str) -> String {
 
 /// How long `pdftotext` is given for one page before it is killed.
 ///
-/// The pdf.js corpus holds files written to make a reader loop, and `Command::output` waits
+/// The pdf.js corpus holds files written to make a reader loop, and `std::process::Command::output` waits
 /// forever — the same reason `pdfref::Reference::render_within` exists and the same budget it
 /// uses. A document that times out is skipped and counted rather than hanging the suite.
 const EXTRACTION_TIMEOUT: Duration = Duration::from_secs(30);

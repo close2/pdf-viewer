@@ -406,6 +406,24 @@ impl GreyRoute {
         &self.curve
     }
 
+    /// The conversion *into* the space from this processor's own three components, as a cube
+    /// whose three channels carry the one component (ISO 32000-2 §11.6.6, §10.4.2.2).
+    ///
+    /// [`GreyRoute::component_of`] asked of a `DeviceRGB` colour, which is what §11.6.6's
+    /// painting of a group's result into a parent compositing in this space does, split at
+    /// the stage that is not affine. §10.4.2.2's weights are stated on the components
+    /// themselves rather than on linear light, so the input curves are the identity and the
+    /// grid holds the weighted sum; the search that inverts the space's own curve is the
+    /// output curve, and it is one curve for all three channels because a one-component
+    /// space composites one number. ADR 1267.
+    #[must_use]
+    pub fn into_cube(&self) -> Option<pdf_render::ColourCube> {
+        let light =
+            |components: [f32; 3]| [InkScale::Unit.grey_of(&ColourSpace::Rgb, &components); 3];
+        let encode = |_axis: usize, value: f32| self.component_with_grey(channel(value));
+        inward_cube(&|value| value, &light, &encode)
+    }
+
     /// Which space this is the route into.
     #[must_use]
     pub fn identity(&self) -> GreyIdentity {
@@ -642,6 +660,145 @@ fn profile_stages(profile: &crate::icc::Profile) -> Option<Stages> {
     Some((vec![[0.0f32; 3], [1.0f32; 3]], side, grid, inward))
 }
 
+/// How many samples [`inward_cube`] takes of the device's decoding, on each of the three
+/// axes of the cube's input.
+///
+/// A thousand and twenty-four rather than the conversion out's 256, because this curve is
+/// read *before* a stage whose slope is unbounded: the space's own encoding is an inverse
+/// gamma, so an error of `e` in the linear value it is handed can come back as `e` raised to
+/// a power below one. At 256 samples that worst case is a level of 255; at 1024 it is a
+/// third of one, and the table costs twelve kilobytes.
+const INWARD_INPUT_SAMPLES: usize = 1024;
+
+/// How many samples [`inward_cube`] takes of the space's own encoding, which is the cube's
+/// output curve.
+///
+/// This is the one stage of the conversion *in* that cannot be resolved by a finer grid: a
+/// `CalRGB` with `/Gamma 2.2` encodes a linear value as its 1/2.2 power, whose slope at zero
+/// is infinite, so a uniformly sampled table's worst cell is its first one and the error
+/// there falls only as the 1/2.2 power of the sample count. Measured by
+/// `a_cube_into_a_gamma_space_is_within_a_level` over 200 000 colours, in levels of 255:
+/// 1.20 at 8192 samples, **0.88 at 16 384**, and 0.88 at 65 536, where this curve has stopped
+/// being the largest term. The table costs sixty-four kilobytes, once per group rather than
+/// once per pixel, and it is a sixth of the 431 kilobytes the grid it replaces held.
+const INWARD_OUTPUT_SAMPLES: usize = 16_384;
+
+/// How many samples an axis of [`inward_cube`]'s grid takes where the space's three
+/// components are not encoded alike.
+///
+/// Where they are alike the grid holds nothing but the linear stage and two samples an axis
+/// reproduce it exactly. Where they are not, one of the three has to be carried into the grid
+/// as its residue against the reference curve — see [`inward_cube`] — and the residue is a
+/// power of at least one, smooth and with a bounded slope, so a grid of the side this crate
+/// already samples a table profile at resolves it.
+const INWARD_CURVED_SIDE: usize = 33;
+
+/// The conversion *into* a blending colour space from the device's own three components, as
+/// the three stages [`pdf_render::ColourCube`] carries (ISO 32000-2 §11.6.6, §10.3.1).
+///
+/// `decode` is the device's own half: the function that takes one of this processor's three
+/// components to the quantity `light` is stated in — sRGB's decoding where that quantity is
+/// linear light, the identity where the clause states its weights on the components
+/// themselves, as §10.4.2.2 does. `light` is the linear stage: it takes those three
+/// quantities and answers the space's own components before their encoding, unclamped, so
+/// that interpolating it interpolates the map rather than a sampling of it. `encode` is that
+/// encoding, one function per component, taking a linear value to the component the space
+/// states — §8.6.5.3's gamma raised to its reciprocal, or a profile's tone curve inverted.
+///
+/// The three stages then land where the cube's own documentation puts them: the device's
+/// decoding on the **input** curves, the linear map in the **grid**, and the encoding on the
+/// **output** curve. That is the whole of this function's reason. A cube sampled with
+/// identity curves puts every stage in the grid, and a grid cannot resolve a stage whose
+/// slope is unbounded: ADR 1254 measured 4.66 levels of 255 for a `/Gamma 2.2` space at
+/// thirty-three samples an axis, against 3.40 at sixty-five, which is a sampling that does
+/// not converge.
+///
+/// **The output curve is one curve and the space has three components**, which is the one
+/// place this needs an argument rather than a decomposition. Where the three encodings agree
+/// — which is every space stating one gamma, and every profile whose three tone curves are
+/// one curve — the output curve is that encoding and the grid holds the linear map alone.
+/// Where they differ, the output curve is their **pointwise maximum** and the grid holds each
+/// component's residue against it: the maximum of the three encodings is the one whose
+/// inverse is flattest, so every residue is a function of slope at most one and the grid,
+/// which is what carries them, is asked for nothing steep. ADR 1267.
+fn inward_cube(
+    decode: &dyn Fn(f32) -> f32,
+    light: &dyn Fn([f32; 3]) -> [f32; 3],
+    encode: &dyn Fn(usize, f32) -> f32,
+) -> Option<pdf_render::ColourCube> {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an index below the sample count"
+    )]
+    let at = |index: usize, count: usize| index as f32 / count.saturating_sub(1) as f32;
+    let output: Vec<f32> = (0..INWARD_OUTPUT_SAMPLES)
+        .map(|index| {
+            let linear = at(index, INWARD_OUTPUT_SAMPLES);
+            let mut highest = encode(0, linear);
+            for axis in 1..3 {
+                highest = highest.max(encode(axis, linear));
+            }
+            highest
+        })
+        .collect();
+    let alike = (0..INWARD_OUTPUT_SAMPLES).all(|index| {
+        let linear = at(index, INWARD_OUTPUT_SAMPLES);
+        let reference = output.get(index).copied().unwrap_or(0.0);
+        (0..3).all(|axis| (encode(axis, linear) - reference).abs() <= f32::EPSILON)
+    });
+    let input: Vec<[f32; 3]> = (0..INWARD_INPUT_SAMPLES)
+        .map(|index| [decode(at(index, INWARD_INPUT_SAMPLES)); 3])
+        .collect();
+    let (side, grid) = if alike {
+        (2, corners(light))
+    } else {
+        let side = INWARD_CURVED_SIDE;
+        let mut grid = Vec::with_capacity(side.pow(3));
+        for third in 0..side {
+            for second in 0..side {
+                for first in 0..side {
+                    let components = light([at(first, side), at(second, side), at(third, side)]);
+                    grid.push(std::array::from_fn(|axis| {
+                        let stated = encode(axis, channel(components[axis]));
+                        inverted(&output, stated)
+                    }));
+                }
+            }
+        }
+        (side, grid)
+    };
+    pdf_render::ColourCube::new(Arc::from(input), side, Arc::from(grid), Arc::from(output))
+}
+
+/// Where `value` sits in a monotone table of evenly spaced samples, as a position on
+/// `0.0..=1.0`.
+///
+/// The inverse of the linear interpolation [`pdf_render::ColourCube`] applies to its output
+/// curve, so that a grid sample written here comes back out of that curve as the value it was
+/// derived from. Samples that repeat — a curve flat over a stretch — answer the first
+/// position that produces the value, which is the only one an inverse can promise.
+fn inverted(samples: &[f32], value: f32) -> f32 {
+    let last = samples.len().saturating_sub(1);
+    let above = samples.partition_point(|sample| *sample <= value);
+    if above == 0 {
+        return 0.0;
+    }
+    if above > last {
+        return 1.0;
+    }
+    let below = above.saturating_sub(1);
+    let (Some(&low), Some(&high)) = (samples.get(below), samples.get(above)) else {
+        return 1.0;
+    };
+    // `high > value >= low` by the partition, so the span is positive.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an index below the sample count"
+    )]
+    let position = (below as f32 + (value - low) / (high - low)) / last as f32;
+    channel(position)
+}
+
 impl RgbRoute {
     /// The route into and out of `space`, or `None` where `space` is not a three-component
     /// space §11.3.4 lists, or is a profile with no way in.
@@ -682,6 +839,60 @@ impl RgbRoute {
     #[must_use]
     pub fn cube(&self) -> &pdf_render::ColourCube {
         &self.cube
+    }
+
+    /// The conversion *into* the space from this processor's own three components, as the
+    /// cube a backend interpolates (ISO 32000-2 §11.6.6, §10.3.1, §8.6.5.3, §8.6.5.5).
+    ///
+    /// [`RgbRoute::components_of_srgb`] is what this samples — §11.6.6's painting of a
+    /// group's result into a parent compositing in this space — and it is carried as a cube
+    /// for the same reason the conversion out is: the backend applies one lookup per pixel
+    /// and never sees a colour space. What it is *not* is a grid over the whole conversion,
+    /// which is [`inward_cube`]'s subject and ADR 1267's.
+    ///
+    /// `None` for a profile whose conversion in is a lookup table, which has no linear stage
+    /// to separate, and for one whose matrix will not invert; the caller samples the whole
+    /// conversion for those, as [`profile_stages`] does for the conversion out.
+    #[must_use]
+    pub fn into_cube(&self, rendering: Rendering) -> Option<pdf_render::ColourCube> {
+        match &self.inward {
+            Inward::CalRgb {
+                white,
+                gamma,
+                columns,
+            } => {
+                // §8.6.5.3 run backwards, split at the one stage that is not linear: the
+                // adaptation and the inverted `Matrix` are the grid's, and the reciprocal
+                // gamma — with the clause's clamp of a component "falling outside that
+                // range" — is the output curve's.
+                let light = |linear: [f32; 3]| {
+                    solve_three(columns, adapt(linear_srgb_to_xyz_d50(linear), D50, *white))
+                        .unwrap_or([0.0; 3])
+                };
+                let encode = |axis: usize, value: f32| {
+                    let clamped = channel(value);
+                    match gamma.get(axis).copied() {
+                        Some(exponent) if exponent > 0.0 => clamped.powf(1.0 / exponent),
+                        _ => clamped,
+                    }
+                };
+                inward_cube(&degamma, &light, &encode)
+            }
+            Inward::Profile(profile) => {
+                // A matrix profile's PCS-to-device direction is the inverse of the matrix
+                // followed by the inverse of each tone curve, which is the same split; a
+                // table profile has neither stage apart and answers `None`.
+                profile.matrix_light(linear_srgb_to_xyz_d50([1.0; 3]), rendering)?;
+                let light = |linear: [f32; 3]| {
+                    profile
+                        .matrix_light(linear_srgb_to_xyz_d50(linear), rendering)
+                        .unwrap_or([0.0; 3])
+                };
+                let encode =
+                    |axis: usize, value: f32| channel(profile.matrix_component(axis, value));
+                inward_cube(&degamma, &light, &encode)
+            }
+        }
     }
 
     /// Which space this is the route into.
@@ -2580,7 +2791,14 @@ impl ColourSpace {
     /// clamped once: two readings of §8.6.6.3's table would be two chances to round it
     /// differently. Any other space's values are its own components already, and come back as
     /// they went in — which is what lets [`crate::mesh`] call this for every vertex it reads.
-    pub(crate) fn entry_of(&self, values: &[f32]) -> Vec<f32> {
+    ///
+    /// Public for one reader outside this crate: ISO 32000-2 §11.6.5.2's `/Matte` is undone
+    /// on an `Indexed` image's *table entries* rather than on its indices — Table 144, "the
+    /// colour values in the colour table (not the index values themselves) shall be
+    /// pre-blended" — so `pdf_model::image` needs the entry and [`Self::indexed_base`]'s
+    /// space to invert in.
+    #[must_use]
+    pub fn entry_of(&self, values: &[f32]) -> Vec<f32> {
         let Self::Indexed { base, lookup, high } = self else {
             return values.to_vec();
         };
@@ -2607,6 +2825,18 @@ impl ColourSpace {
                     .unwrap_or(0.0)
             })
             .collect()
+    }
+
+    /// The space an `Indexed` space's table entries are stated in, or `None` for any other.
+    ///
+    /// §8.6.6.3's `base`, which is the space a table entry's components belong to and
+    /// therefore the space Table 144's `/Matte` is counted and inverted in.
+    #[must_use]
+    pub fn indexed_base(&self) -> Option<&Self> {
+        match self {
+            Self::Indexed { base, .. } => Some(base),
+            _ => None,
+        }
     }
 
     /// Converts a colour in this space to RGB.
@@ -4754,7 +4984,17 @@ fn cal_rgb_xyz(decoded: [f32; 3], matrix: &[f32; 9]) -> [f32; 3] {
 /// and this processor's is sRGB (ADR 0009) — and it is the one route by which such a colour
 /// reaches a profile's `B2A`.
 pub(crate) fn srgb_to_xyz_d50(colour: Color) -> [f32; 3] {
-    let (r, g, b) = (degamma(colour.r), degamma(colour.g), degamma(colour.b));
+    linear_srgb_to_xyz_d50([degamma(colour.r), degamma(colour.g), degamma(colour.b)])
+}
+
+/// Converts *linear* sRGB to D50 XYZ: [`srgb_to_xyz_d50`] without its decoding.
+///
+/// The matrix alone, so that a caller carrying the decoding on a curve of its own has the
+/// linear stage by itself — which is what [`inward_cube`] separates the conversion into a
+/// blending colour space at, and it is the inverse of [`xyz_d50_to_linear_srgb`]'s role in
+/// the conversion out. Unclamped, for the same reason that one is.
+fn linear_srgb_to_xyz_d50(linear: [f32; 3]) -> [f32; 3] {
+    let (r, g, b) = (linear[0], linear[1], linear[2]);
     [
         0.436_035_2 * r + 0.385_068_1 * g + 0.143_066_6 * b,
         0.222_481_3 * r + 0.716_877_6 * g + 0.060_610_2 * b,
@@ -4882,7 +5122,7 @@ mod tests {
 
     use pdf_render::Color;
 
-    use super::{ColourSpace, GreyRoute, InkScale, Rendering, Tints};
+    use super::{ColourSpace, GreyRoute, InkScale, Rendering, RgbRoute, Tints};
 
     /// The assumed press's grid, for the tests that search against it directly.
     fn assumed() -> pdf_render::BlendingSpace {
@@ -5803,6 +6043,200 @@ mod tests {
             })));
             assert_eq!(bytes(space.to_rgb(&input)), expected, "{input:?}");
         }
+    }
+
+    /// A `CalRGB` stating one gamma, for the cube into a blending colour space.
+    fn gamma_space(exponent: [f32; 3]) -> ColourSpace {
+        #[rustfmt::skip]
+        let matrix = [
+            0.412_456, 0.212_673, 0.019_334,
+            0.357_576, 0.715_152, 0.119_192,
+            0.180_437, 0.072_175, 0.950_304,
+        ];
+        ColourSpace::CalRgb {
+            white: [0.950_47, 1.0, 1.088_83],
+            black: [0.0, 0.0, 0.0],
+            gamma: exponent,
+            matrix,
+        }
+    }
+
+    /// Three device components from a counter, spread over the unit cube.
+    ///
+    /// A multiplicative congruential generator rather than a crate: the population has to be
+    /// the same on every machine and in every session for the levels below to mean anything.
+    fn scattered(index: u32) -> [f32; 3] {
+        let mut state = index.wrapping_mul(2_654_435_761).wrapping_add(1);
+        std::array::from_fn(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            #[expect(clippy::cast_precision_loss, reason = "a sample of a 32-bit state")]
+            {
+                (state >> 8) as f32 / 16_777_216.0
+            }
+        })
+    }
+
+    /// The worst a route's cube departs from evaluating its conversion in, in levels of 255.
+    fn worst_inward(route: &RgbRoute, cube: &pdf_render::ColourCube) -> f32 {
+        let mut worst = 0.0f32;
+        for index in 0..200_000u32 {
+            let device = scattered(index);
+            let exact = route.components_of_srgb(
+                Color::rgb(device[0], device[1], device[2]),
+                Rendering::default(),
+            );
+            let through = cube.convert(device);
+            for (interpolated, stated) in through.iter().zip(exact) {
+                worst = worst.max((interpolated - stated).abs() * 255.0);
+            }
+        }
+        println!("worst {worst} levels of 255 over 200 000 colours");
+        worst
+    }
+
+    /// The cube into a `CalRGB` with a gamma is within a level of 255 of the conversion.
+    ///
+    /// ISO 32000-2 §11.6.6's conversion of a group's result into a parent compositing in the
+    /// space, which `pdf_model::content::transparency` carries to the backends as a cube. The
+    /// number is what ADR 1267 is about: sampling the whole conversion on a grid with identity
+    /// curves put 4.66 levels here at thirty-three samples an axis and 3.40 at sixty-five
+    /// (ADR 1254), because the last stage is an inverse gamma whose slope at zero is
+    /// unbounded. Splitting the stages — the device's decoding on the input curves, the
+    /// linear map in the grid, the space's encoding on the output curve — leaves only the
+    /// output curve's own sampling, which is what this measures.
+    ///
+    /// Calibrated by raising `INWARD_OUTPUT_SAMPLES` to the 33 the grid had: the worst rises
+    /// to 21 levels, which is the stage this test is about being put back where it was.
+    #[test]
+    fn a_cube_into_a_gamma_space_is_within_a_level() {
+        let space = gamma_space([2.2, 2.2, 2.2]);
+        let route = RgbRoute::of(&space).expect("a CalRGB is a route");
+        let cube = route
+            .into_cube(Rendering::default())
+            .expect("a CalRGB decomposes");
+        // Two samples an axis: the grid holds the linear stage and nothing else.
+        assert_eq!(cube.side(), 2, "a shared gamma leaves the grid linear");
+        let worst = worst_inward(&route, &cube);
+        assert!(worst < 1.0, "worst departure {worst} levels of 255");
+    }
+
+    /// A linear `CalRGB`'s cube is the conversion exactly, to the arithmetic's own precision.
+    ///
+    /// With `/Gamma 1` the encoding is the identity and every stage of the conversion in is
+    /// linear, so two samples an axis reproduce it — the property `own_space_conversion`
+    /// already has for the conversion out, now held in the other direction.
+    #[test]
+    fn a_cube_into_a_linear_space_is_the_conversion() {
+        let space = gamma_space([1.0, 1.0, 1.0]);
+        let route = RgbRoute::of(&space).expect("a CalRGB is a route");
+        let cube = route
+            .into_cube(Rendering::default())
+            .expect("a CalRGB decomposes");
+        let worst = worst_inward(&route, &cube);
+        assert!(worst < 0.1, "worst departure {worst} levels of 255");
+    }
+
+    /// The cube into a `CalGray` parent is the conversion, where sampling the whole of it
+    /// was 1.70 levels of 255 out.
+    ///
+    /// §11.6.6's conversion of a group's result into a parent compositing in a one-component
+    /// space: §10.4.2.2's weighted sum, then the space's own curve inverted. The sum is affine
+    /// on the components themselves, so the grid holds it exactly and only the inverted curve
+    /// is sampled — where the construction this replaced interpolated the *composition* over
+    /// a grid whose cells span a thirty-second of the range.
+    #[test]
+    fn a_cube_into_a_calibrated_grey_parent_is_within_a_level() {
+        let space = ColourSpace::CalGray {
+            white: super::D50,
+            black: [0.0, 0.0, 0.0],
+            gamma: 2.2,
+        };
+        let route = GreyRoute::of(&space).expect("a CalGray is a route");
+        let cube = route.into_cube().expect("a one-component space decomposes");
+        assert_eq!(cube.side(), 2, "one component leaves the grid affine");
+        let exact = |device: [f32; 3]| route.component_of(&ColourSpace::Rgb, &device);
+        let mut worst = 0.0f32;
+        let mut sampled = 0.0f32;
+        let side = 33usize;
+        #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+        let at = |index: usize| index as f32 / side.saturating_sub(1) as f32;
+        let mut grid = Vec::with_capacity(side.pow(3));
+        for blue in 0..side {
+            for green in 0..side {
+                for red in 0..side {
+                    grid.push([exact([at(red), at(green), at(blue)]); 3]);
+                }
+            }
+        }
+        let whole = pdf_render::ColourCube::new(
+            std::sync::Arc::from([[0.0f32; 3], [1.0f32; 3]]),
+            side,
+            std::sync::Arc::from(grid),
+            std::sync::Arc::from([0.0f32, 1.0]),
+        )
+        .expect("a grid of the side it was built at is a cube");
+        for index in 0..200_000u32 {
+            let device = scattered(index);
+            let stated = exact(device);
+            worst = worst.max((cube.convert(device)[0] - stated).abs() * 255.0);
+            sampled = sampled.max((whole.convert(device)[0] - stated).abs() * 255.0);
+        }
+        println!("grey: decomposed {worst}, sampled whole {sampled}, levels of 255");
+        assert!(worst < 1.0, "worst departure {worst} levels of 255");
+    }
+
+    /// The cube the conversion in had before ADR 1267: the whole of it on a grid.
+    ///
+    /// Kept as a test helper rather than as code, because it is what the measurement below
+    /// is *against* — a construction with identity curves on both sides, which puts every
+    /// stage of the conversion into the grid.
+    fn sampled_whole(route: &RgbRoute, side: usize) -> pdf_render::ColourCube {
+        #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+        let at = |index: usize| index as f32 / side.saturating_sub(1) as f32;
+        let mut grid = Vec::with_capacity(side.pow(3));
+        for blue in 0..side {
+            for green in 0..side {
+                for red in 0..side {
+                    grid.push(route.components_of_srgb(
+                        Color::rgb(at(red), at(green), at(blue)),
+                        Rendering::default(),
+                    ));
+                }
+            }
+        }
+        pdf_render::ColourCube::new(
+            std::sync::Arc::from([[0.0f32; 3], [1.0f32; 3]]),
+            side,
+            std::sync::Arc::from(grid),
+            std::sync::Arc::from([0.0f32, 1.0]),
+        )
+        .expect("a grid of the side it was built at is a cube")
+    }
+
+    /// The cube into a space whose three components are encoded differently beats sampling
+    /// the conversion whole, which is the construction it replaced.
+    ///
+    /// The output curve is one curve and the space states three encodings, so two of them
+    /// ride in the grid as residues against the third (see `inward_cube`) and the grid is no
+    /// longer exact. What that leaves is measured here against what it replaced rather than
+    /// asserted to be small: sampling the whole conversion at the same side puts 6.32 levels
+    /// of 255 here and the residues put 3.96, and the gap is the decomposition's.
+    ///
+    /// A space of one gamma has no residue at all and is the test above.
+    #[test]
+    fn a_cube_of_three_encodings_beats_sampling_the_conversion_whole() {
+        let space = gamma_space([1.8, 2.2, 2.4]);
+        let route = RgbRoute::of(&space).expect("a CalRGB is a route");
+        let cube = route
+            .into_cube(Rendering::default())
+            .expect("a CalRGB decomposes");
+        assert!(cube.side() > 2, "three encodings need a curved grid");
+        let decomposed = worst_inward(&route, &cube);
+        let whole = worst_inward(&route, &sampled_whole(&route, cube.side()));
+        assert!(
+            decomposed < whole,
+            "decomposed {decomposed} levels against {whole} sampled whole"
+        );
     }
 
     /// `Matrix` holds one XYZ column per input component, not one row.

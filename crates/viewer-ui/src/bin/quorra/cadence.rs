@@ -132,7 +132,7 @@ impl Cadence {
     /// answer moved.
     ///
     /// **This exists because of Wayland, and the defect it repairs was invisible on X11.** winit's
-    /// `Window::current_monitor` on that backend is the first output in the surface's own
+    /// `winit::window::Window::current_monitor` on that backend is the first output in the surface's own
     /// `wl_surface::enter` list, and *a Wayland surface enters no output until it has been drawn
     /// to* — winit's own platform note says windows do not appear until you present to them. The
     /// cadence was read once, in `resumed`, which is strictly before the first present: so on

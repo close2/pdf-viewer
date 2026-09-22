@@ -191,6 +191,15 @@ pub struct Viewer {
     /// §10.8.2's alternate space and tint transform are what every colour is drawn through.
     /// ADR 1228.
     separations: bool,
+    /// The name the next document opened **beside** the one showing would be called by.
+    ///
+    /// The eleventh host-supplied policy value, held here for `separations`'s reason — it is a
+    /// fact about the *window* rather than about any one file — and set by [`Command::Beside`].
+    /// `None` until a host says otherwise, under which Table 203's and Table 204's `/NewWindow
+    /// true` is answered by a destination that replaces the document it was reached from, said out
+    /// loud. Taken rather than read when one is opened under it, so a host offers a name per tab.
+    /// ADR 1263.
+    beside: Option<DocumentId>,
     /// §8.10.4's target documents, parsed once for every document this viewer holds.
     ///
     /// Handed to each [`Open`] as it is created, so that a document opened after
@@ -228,6 +237,7 @@ impl Viewer {
             audience: pdf_model::optional_content::Audience::NONE,
             clock: None,
             separations: false,
+            beside: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
             reference_refusals: Vec::new(),
         }
@@ -606,6 +616,10 @@ impl Viewer {
                     }
                 }
             }
+            // A name and nothing else: nothing is opened, nothing is drawn and no document is
+            // touched, because what this carries is what the window *could* do rather than
+            // something it has been asked to do (ADR 1263).
+            Command::Beside(name) => self.beside = name,
             Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -765,6 +779,23 @@ impl Viewer {
                 document: id,
                 reason: error.to_string(),
             }),
+        }
+    }
+
+    /// Hands a document this window has just acquired every answer its reader has already given.
+    ///
+    /// [`Self::open`] does this inline for a document a host asked for by name; a document reached
+    /// through §12.6.4.3's or §12.6.4.4's action arrives without passing through it, and every one
+    /// of these values is documented as applying to "every open document and to every one opened
+    /// afterwards". A document shown in this window by this reader is one of those, whether they
+    /// named it or a link did. ADR 1263.
+    fn adopt(&self, open: &mut Open) {
+        open.references = Arc::clone(&self.references);
+        open.view.set_audience(self.audience.clone());
+        open.view.set_modification_time(self.clock);
+        open.view.set_separation_simulation(self.separations);
+        if self.presenting == crate::PresentationMode::On {
+            crate::presentation::enter(open);
         }
     }
 
@@ -1255,8 +1286,28 @@ impl Viewer {
     }
 
     /// Turns what a click asked for into events, and does the parts that are this crate's.
-    fn apply(&mut self, id: DocumentId, outcome: interact::Outcome, events: &mut Vec<Event>) {
+    fn apply(&mut self, id: DocumentId, mut outcome: interact::Outcome, events: &mut Vec<Event>) {
         let page = self.focused().map(|open| open.page_index);
+        // Table 203's and Table 204's `/NewWindow true`, decided here because this is where the
+        // two halves meet: `interact` read the entry, and whether this program has a second place
+        // to put a document is the name `Command::Beside` left in reserve. Both outcomes are said
+        // out loud — a person who asked for a second window and got one view is owed the
+        // difference, and so is one who got a second tab they did not ask this program for
+        // (trap 5, ADR 1263).
+        let into = if outcome.replacement.is_some() && outcome.beside {
+            let reserved = self.beside.take();
+            outcome.notes.push(match reserved {
+                Some(_) => "this link asks for a new window: the destination opens beside the \
+                            document it was reached from"
+                    .to_owned(),
+                None => "this link asks for a new window; this view has one, so the destination \
+                         replaces what was open"
+                    .to_owned(),
+            });
+            reserved
+        } else {
+            None
+        };
         if !outcome.notes.is_empty() {
             events.push(Event::Reported {
                 document: id,
@@ -1295,19 +1346,32 @@ impl Viewer {
         }
 
         // §12.6.4.4 replaces the document every other request was about, so a page named by one
-        // of them is a page of a document that is no longer open.
-        if let Some(replacement) = outcome.replacement {
+        // of them is a page of a document that is no longer open — unless the action asked for a
+        // window of its own and this host reserved a name for one, in which case the document
+        // that was open is still open and still focused.
+        if let Some(mut replacement) = outcome.replacement {
             let pages = replacement.page_count;
-            self.documents.insert(id, *replacement);
+            let target = into.unwrap_or(id);
+            // Every host-supplied value applies to "every open document and to every one opened
+            // afterwards", which a document reached through an action is: it is shown in this
+            // window, by this reader, under the answers they gave (ADR 1263).
+            self.adopt(&mut replacement);
+            self.documents.insert(target, *replacement);
+            // A document that opens beside the one showing is *focused*, which is
+            // `Command::Open`'s own rule and not a second decision: a person who followed a link
+            // asking for a new window asked to be reading the destination. A host that wants the
+            // source back in front says so with `Command::Focus`, and it knows which document
+            // arrived from the name on the event below.
+            self.focused = Some(target);
             events.push(Event::Opened {
-                document: id,
+                document: target,
                 pages,
             });
             // What the replacement says about itself waits for `Command::Report`, exactly as the
             // document it replaced did: an embedded go-to is an open, and an open draws a page
             // before it digests a signature (ADR 1044).
             self.announce_page(events);
-            self.page_events(id, None, events);
+            self.page_events(target, None, events);
             return;
         }
 

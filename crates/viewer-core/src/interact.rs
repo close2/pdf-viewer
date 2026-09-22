@@ -53,6 +53,13 @@ pub(crate) struct Outcome {
     pub(crate) view: Option<pdf_model::destination::View>,
     /// §12.6.4.4: a document from inside this one, which replaces it.
     pub(crate) replacement: Option<Box<Open>>,
+    /// Whether the action asked for [`Self::replacement`] to be shown in a window of its own.
+    ///
+    /// The *reading* of Table 203's and Table 204's `/NewWindow true`, and nothing more: whether
+    /// this program has a second place to put a document is [`crate::Command::Beside`]'s answer
+    /// and is settled one layer up, where the host's reserve is held. So this function says what
+    /// the file asked for and says not one word about what the window can do. ADR 1263.
+    pub(crate) beside: bool,
     /// Whether what is on the screen has to be drawn again.
     pub(crate) redraw: bool,
 }
@@ -829,16 +836,11 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         return outcome;
     };
     replacement.page_index = page_index;
-    if remote.new_window == Some(true) {
-        // Table 203 states no `shall` about a new window and this program's preference — which
-        // the entry's own last sentence defers to when it is absent — is one document in one
-        // view, the same answer Table 204's identical entry already gets.
-        outcome.notes.push(
-            "this link asks for a new window; this view has one, so the remote document replaces \
-             what was open"
-                .to_owned(),
-        );
-    }
+    // Table 203's `/NewWindow`, read and carried. What a window does with it — open the document
+    // beside the one it was reached from, or in place of it and say so — is decided where
+    // `Command::Beside`'s reserve is held, because that is the only place this program knows
+    // whether it has a second view at all (ADR 1263).
+    outcome.beside = remote.new_window == Some(true);
     outcome.notes.push(format!(
         "opened {name}, {} page(s), at page {}",
         replacement.page_count,
@@ -1084,13 +1086,9 @@ fn jump_into(target: &EmbeddedGoTo, opened: Document, outcome: &mut Outcome) {
             .unwrap_or(0);
     drop(pages);
     replacement.page_index = page_index;
-    if target.new_window == Some(true) {
-        outcome.notes.push(
-            "this link asks for a new window; this view has one, so the embedded document \
-             replaces what was open"
-                .to_owned(),
-        );
-    }
+    // Table 204's `/NewWindow`, on `resume_remote`'s argument one clause over — and this is the
+    // entry of the two that states the `true` case with a `should` rather than with nothing.
+    outcome.beside = target.new_window == Some(true);
     outcome.notes.push(format!(
         "opened an embedded document, {} page(s), at page {}",
         replacement.page_count,

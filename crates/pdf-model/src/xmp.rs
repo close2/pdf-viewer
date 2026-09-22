@@ -1178,6 +1178,190 @@ pub fn describe(bytes: &[u8], schemas: &[SchemaDescription<'_>]) -> Result<Vec<u
     Ok(out.into_bytes())
 }
 
+/// Which of ISO 16684-1's shapes one supplemented property is written in.
+///
+/// A property's shape is part of its definition rather than a choice a writer makes:
+/// §14.3.3's Table 349 NOTE 1 names `dc:title` as `/Title`'s counterpart and NOTE 2 names
+/// `dc:creator` as `/Author`'s, and §14.3.3's own EXAMPLE prints the first as an `rdf:Alt` of
+/// `rdf:li` elements and the second as an `rdf:Seq` of them. Everything else Table 349's NOTEs
+/// name is a simple value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Form {
+    /// ISO 16684-1 section 7.5's simple value: one element holding the text.
+    Simple,
+    /// A language alternative: an `rdf:Alt` whose one item carries `xml:lang="x-default"`.
+    ///
+    /// `x-default` is ISO 16684-1 section 8.2.2.4's name for the alternative to show when nothing
+    /// better is known, which is the whole of what a single-language value can say.
+    Alternative,
+    /// An ordered array: an `rdf:Seq` whose one item holds the text.
+    Ordered,
+}
+
+/// One property to add to a packet that does not already state it.
+///
+/// The prefix is carried beside the namespace because the description this writes declares its
+/// own binding — [`description`]'s rule — so the spelling has to come from somewhere, and the
+/// spelling a caller wants is the conventional one for the schema it is writing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Supplement<'a> {
+    /// The namespace URI the property belongs to.
+    pub namespace: &'a str,
+    /// The prefix to spell it with.
+    pub prefix: &'a str,
+    /// Its local name.
+    pub local: &'a str,
+    /// Its value.
+    pub value: String,
+    /// Which of ISO 16684-1's shapes to write it in.
+    pub form: Form,
+}
+
+/// `bytes` with each of `properties` added, and every property the packet already states left
+/// exactly as its producer wrote it.
+///
+/// **Additive, and that is the whole of the contract.** ISO 32000-2 §14.3.4 states when a
+/// processor may write a value into one of a document's two metadata sources from the other, and
+/// it is only where the other source is silent:
+///
+/// > When writing modifications to an existing PDF document, if the PDF document contains time
+/// > and date of creation only in the document information dictionary or in the document's
+/// > metadata stream but not both, a PDF processor may add the information to the other, as long
+/// > as both are fully equivalent.
+///
+/// Where both speak and disagree the clause is equally plain, and this writer obeys it by having
+/// no way to do otherwise:
+///
+/// > When writing modifications to an existing PDF document, if the PDF document already contains
+/// > time and date of creation in both the document information dictionary and in the document's
+/// > metadata stream, and the two are not equivalent, a PDF processor should leave the
+/// > inconsistent values unchanged.
+///
+/// So a supplement whose property the packet already states is dropped, whatever the two values
+/// are, and the caller is told nothing was written by reading the packet back.
+///
+/// [`restate`] is the wrong function for this and not a near miss: it *removes* every property in
+/// a namespace before writing its own, which for `dc:` or `xmp:` would throw away the producer's
+/// metadata in order to add one entry to it.
+///
+/// Every other byte of the packet crosses unchanged, for [`remove`]'s reason and by the same
+/// means: one insertion just before the packet's `</rdf:RDF>`, and no other edit.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched. A packet whose properties
+/// this module cannot read is [`WriteError::Malformed`]: what the packet already states is the
+/// question this writer has to answer before it may write anything.
+pub fn supplement(bytes: &[u8], properties: &[Supplement<'_>]) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let stated = Xmp::parse(bytes).map_err(|error| match error {
+        XmpError::NotText => WriteError::NotUtf8,
+        XmpError::TooLarge { bytes } => WriteError::TooLarge { bytes },
+        other => WriteError::Malformed {
+            detail: other.to_string(),
+        },
+    })?;
+    let wanted: Vec<&Supplement<'_>> = properties
+        .iter()
+        .filter(|property| stated.value(property.namespace, property.local).is_none())
+        .collect();
+    if wanted.is_empty() {
+        return Ok(bytes.to_vec());
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let edit = Editor::run(text, Cut::Namespaces(&[]))?;
+    let at = edit.inside_rdf.ok_or(WriteError::NoPlaceForADescription {
+        found: edit.rdf_elements,
+    })?;
+    let mut out = String::with_capacity(text.len().saturating_add(512));
+    out.push_str(text.get(..at).unwrap_or_default());
+    // One description per namespace, which is the shape §14.3.3's own EXAMPLE prints: its packet
+    // states `xmp:`, `pdf:` and `dc:` in three `rdf:Description` elements about the same subject.
+    let mut written: Vec<&str> = Vec::new();
+    for property in &wanted {
+        if written.contains(&property.namespace) {
+            continue;
+        }
+        written.push(property.namespace);
+        let group: Vec<&&Supplement<'_>> = wanted
+            .iter()
+            .filter(|other| other.namespace == property.namespace)
+            .collect();
+        supplements(property.prefix, property.namespace, &group, &mut out);
+    }
+    out.push_str(text.get(at..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
+/// One namespace's supplemented properties, in a description declaring its own two bindings.
+///
+/// Declared rather than inherited, for [`description`]'s reason: what a prefix is bound to where
+/// this is inserted is the producer's business, and an element carrying its own bindings means
+/// the same thing wherever it is put.
+fn supplements(prefix: &str, namespace: &str, properties: &[&&Supplement<'_>], out: &mut String) {
+    out.push_str("<rdf:Description rdf:about=\"\" xmlns:rdf=\"");
+    escaped(RDF, out);
+    out.push_str("\" xmlns:");
+    out.push_str(prefix);
+    out.push_str("=\"");
+    escaped(namespace, out);
+    out.push_str("\">\n");
+    for property in properties {
+        out.push('<');
+        out.push_str(prefix);
+        out.push(':');
+        out.push_str(property.local);
+        out.push('>');
+        match property.form {
+            Form::Simple => escaped(&property.value, out),
+            Form::Alternative => {
+                out.push_str("<rdf:Alt><rdf:li xml:lang=\"x-default\">");
+                escaped(&property.value, out);
+                out.push_str("</rdf:li></rdf:Alt>");
+            }
+            Form::Ordered => {
+                out.push_str("<rdf:Seq><rdf:li>");
+                escaped(&property.value, out);
+                out.push_str("</rdf:li></rdf:Seq>");
+            }
+        }
+        out.push_str("</");
+        out.push_str(prefix);
+        out.push(':');
+        out.push_str(property.local);
+        out.push_str(">\n");
+    }
+    out.push_str("</rdf:Description>\n");
+}
+
+/// §7.9.4's date spelled the way ISO 16684-1 spells one.
+///
+/// The two texts spell an instant differently: §7.9.4's `D:YYYYMMDDHHmmSSOHH'mm` against
+/// ISO 8601's `YYYY-MM-DDThh:mm:ss` with an offset. Every field §7.9.4 leaves out has a default
+/// the clause itself states — the month and the day are 01 and the rest are zero — so the instant
+/// is complete either way; the one field with no default is the zone, where an absent `O HH'mm`
+/// is a producer saying nothing rather than saying UT, and nothing is what this writes.
+#[must_use]
+pub fn spelled_date(date: &pdf_syntax::Date) -> String {
+    use std::fmt::Write as _;
+    let mut out = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        date.year, date.month, date.day, date.hour, date.minute, date.second
+    );
+    match date.offset {
+        None => {}
+        Some(0) => out.push('Z'),
+        Some(offset) => {
+            let sign = if offset < 0 { '-' } else { '+' };
+            let minutes = u32::from(offset.unsigned_abs());
+            let _ = write!(out, "{sign}{:02}:{:02}", minutes / 60, minutes % 60);
+        }
+    }
+    out
+}
+
 /// The whole container, in its own description, with the three prefixes it uses declared on it.
 ///
 /// Declared rather than inherited, for [`description`]'s reason — and the three are the ones
@@ -2429,9 +2613,10 @@ fn numeric(reference: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DC, EXTENSION, Event, Name, PDF, PropertyDescription, RDF, RESOURCE_EVENT, RequiredPrefix,
-        Schema, SchemaDescription, Value, WriteError, XMP, XMP_MM, Xmp, XmpError, describe,
-        empty_packet, instant, packet, record, remove, respell, restate,
+        DC, EXTENSION, Event, Form, Name, PDF, PropertyDescription, RDF, RESOURCE_EVENT,
+        RequiredPrefix, Schema, SchemaDescription, Supplement, Value, WriteError, XMP, XMP_MM, Xmp,
+        XmpError, describe, empty_packet, instant, packet, record, remove, respell, restate,
+        spelled_date, supplement,
     };
 
     /// A packet stating no property parses, states one `rdf:RDF`, and takes a description.
@@ -3386,6 +3571,160 @@ mod tests {
             Xmp::stray_character_data(packet.as_bytes()).expect("well-formed"),
             vec!["rdf:RDF".to_owned()]
         );
+    }
+
+    /// §14.3.3's own EXAMPLE, which prints the packet beside the information dictionary it is
+    /// reconciled with — the one place the standard shows `dc:title` and `dc:creator` written out.
+    const EXAMPLE_14_3_3: &str = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="My XMP Tool Kit v3.7">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/">
+<xmp:CreateDate>2014-03-14T12:42:11+01:00</xmp:CreateDate>
+<xmp:ModifyDate>2014-09-24T21:23:03+02:00</xmp:ModifyDate>
+<xmp:CreatorTool>My Word Processor v10.7</xmp:CreatorTool>
+<xmp:MetadataDate>2014-09-24T21:23:03+02:00</xmp:MetadataDate>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
+<pdf:Producer>My Word Processor PDF Exporter Module v2.1</pdf:Producer>
+</rdf:Description>
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:format>application/pdf</dc:format>
+<dc:title>
+<rdf:Alt>
+<rdf:li xml:lang="x-default">Annual report 2014</rdf:li>
+<rdf:li xml:lang="en">Annual report 2014</rdf:li>
+<rdf:li xml:lang="de">Jahresbericht 2014</rdf:li>
+</rdf:Alt>
+</dc:title>
+<dc:creator>
+<rdf:Seq>
+<rdf:li>John Doe</rdf:li>
+<rdf:li>Mary Miller</rdf:li>
+</rdf:Seq>
+</dc:creator>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+
+    /// §14.3.4: a value the packet already states is left as its producer wrote it, whatever the
+    /// other source says.
+    #[test]
+    fn a_supplement_never_overwrites_what_the_packet_already_states() {
+        let after = supplement(
+            EXAMPLE_14_3_3.as_bytes(),
+            &[
+                Supplement {
+                    namespace: DC,
+                    prefix: "dc",
+                    local: "title",
+                    value: "Something else entirely".to_owned(),
+                    form: Form::Alternative,
+                },
+                Supplement {
+                    namespace: XMP,
+                    prefix: "xmp",
+                    local: "CreateDate",
+                    value: "1999-01-01T00:00:00Z".to_owned(),
+                    form: Form::Simple,
+                },
+            ],
+        )
+        .expect("a packet this writer can read");
+        assert_eq!(
+            after,
+            EXAMPLE_14_3_3.as_bytes(),
+            "both properties are stated already, so not one byte moves"
+        );
+    }
+
+    /// The three shapes Table 349's NOTEs and §14.3.3's EXAMPLE put the counterparts in.
+    #[test]
+    fn a_supplement_writes_each_shape_the_example_prints() {
+        let before = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
+<pdf:Producer>Somebody's exporter</pdf:Producer>
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+        let after = supplement(
+            before,
+            &[
+                Supplement {
+                    namespace: DC,
+                    prefix: "dc",
+                    local: "title",
+                    value: "Annual report 2014".to_owned(),
+                    form: Form::Alternative,
+                },
+                Supplement {
+                    namespace: DC,
+                    prefix: "dc",
+                    local: "creator",
+                    value: "John Doe".to_owned(),
+                    form: Form::Ordered,
+                },
+                Supplement {
+                    namespace: XMP,
+                    prefix: "xmp",
+                    local: "CreateDate",
+                    value: "2014-03-14T12:42:11+01:00".to_owned(),
+                    form: Form::Simple,
+                },
+                Supplement {
+                    namespace: PDF,
+                    prefix: "pdf",
+                    local: "Producer",
+                    value: "Not this one".to_owned(),
+                    form: Form::Simple,
+                },
+            ],
+        )
+        .expect("a packet this writer can read");
+        let read = Xmp::parse(&after).expect("the supplemented packet parses");
+        assert_eq!(read.text(DC, "title"), Some("Annual report 2014"));
+        assert_eq!(
+            read.value(DC, "creator"),
+            Some(&Value::Seq(vec!["John Doe".to_owned()])),
+            "dc:creator is the ordered array the EXAMPLE prints"
+        );
+        assert!(
+            matches!(read.value(DC, "title"), Some(Value::Alt(items)) if items.len() == 1),
+            "dc:title is the language alternative the EXAMPLE prints"
+        );
+        assert_eq!(
+            read.text(XMP, "CreateDate"),
+            Some("2014-03-14T12:42:11+01:00")
+        );
+        assert_eq!(
+            read.text(PDF, "Producer"),
+            Some("Somebody's exporter"),
+            "the producer's own value stands"
+        );
+        assert_eq!(
+            Xmp::rdf_elements(&after),
+            Ok(1),
+            "one rdf:RDF element, which is what ISO 19005 requires of a packet"
+        );
+    }
+
+    /// §7.9.4's grammar against ISO 8601's, field by field, including the zone that is not there.
+    #[test]
+    fn a_date_is_spelled_the_way_iso_16684_1_spells_one() {
+        let cases = [
+            ("D:20140314124211+01'00", "2014-03-14T12:42:11+01:00"),
+            ("D:20140924212303-05'30", "2014-09-24T21:23:03-05:30"),
+            ("D:19990101000000Z", "1999-01-01T00:00:00Z"),
+            // Every field §7.9.4 leaves out has the default the clause states; the zone has none.
+            ("D:2001", "2001-01-01T00:00:00"),
+        ];
+        for (pdf, expected) in cases {
+            let date = pdf_syntax::Date::parse(pdf).expect("§7.9.4's grammar");
+            assert_eq!(spelled_date(&date), expected, "{pdf}");
+        }
     }
 
     /// The `xmp:` accessors name the properties Table 349's NOTEs pair with the dictionary.

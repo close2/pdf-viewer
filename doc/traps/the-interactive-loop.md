@@ -184,3 +184,18 @@ Two things about the shape are worth more than the instance:
 Found by pressing the key at a window that was showing a sentence naming it and watching nothing
 happen — which is the only instrument this has: `doc/environment.md`'s `Xvfb` recipe, a real
 window, a real key, and looking (ADR 0729).
+
+### 44. A notebook page owns its child, so the view leaves before the page is destroyed
+
+GTK's `remove_page` and Qt's `removeTab` followed by `delete` destroy the page widget — and in a
+design where one widget tree is moved between tabs, the page being removed is the one holding it.
+Closing a tab would have taken the splitter, the panels and the page area down with it; both hosts
+now reparent the view first (ADR 1264). Caught by reading, not by a test, and a third toolkit
+will spring it again.
+
+### 45. A host method reachable from `react` takes the queue; it does not start one
+
+`viewer-qt`'s `show_document` sent `Command::Focus` and was reached from the `Event::Opened` arm —
+a `pump` nested inside a `pump`. Split into `take_the_front` (state only) and `show_document`
+(state plus the message), which is the shape `viewer-gtk` already has by taking the queue as a
+parameter (ADR 1264).

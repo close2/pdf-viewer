@@ -269,3 +269,134 @@ fn a_relative_url_the_clause_forbids_asks_for_nothing() {
         "and it is said rather than dropped (trap 5)"
     );
 }
+
+/// Table 203's `/NewWindow true`, with a host that has a second place to put a document.
+///
+/// The entry says the destination is opened "in a new window" and defers the absent case to the
+/// processor's preference; what this program's preference *is* depends on the window, which is
+/// why the name a second document would take arrives from out here. Both documents stay open,
+/// the one the link named is focused, and the source is still the source — a reader that
+/// replaced it would fail the page assertion below, which names the source's own page count.
+#[test]
+fn a_new_window_opens_the_destination_beside_the_document_it_was_reached_from() {
+    const BESIDE: DocumentId = DocumentId(9);
+    let (mut viewer, _) =
+        asked("<< /Type /Action /S /GoToR /D [2 /Fit] /F (chapter2.pdf) /NewWindow true >>");
+    viewer.handle(Command::Beside(Some(BESIDE))).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::RemoteDocument,
+            bytes: Some(plain(4)),
+        })
+        .collect();
+    let opened: Vec<(DocumentId, usize)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Opened { document, pages } => Some((*document, *pages)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        opened,
+        [(BESIDE, 4)],
+        "the remote document opened under the name the host offered, not under the source's"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("opens beside the document it was reached from")),
+        "and the difference is said out loud (trap 5): {:?}",
+        notes(&events)
+    );
+    // The source is still open, and still the source: going back to it finds the two pages it
+    // has rather than the four the remote document has.
+    let back: Vec<Event> = viewer.handle(Command::Focus(DOCUMENT)).collect();
+    let of: Vec<usize> = back
+        .iter()
+        .filter_map(|event| match event {
+            Event::PageChanged { of, .. } => Some(*of),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        of.last(),
+        Some(&2),
+        "the document holding the link was not replaced by the one it named"
+    );
+}
+
+/// The same action with no name in reserve replaces, and says so.
+///
+/// The `true` case is not a `shall` — Table 203 states none — so a window with one view is still
+/// conforming; what it may not do is pass the request over in silence.
+#[test]
+fn a_new_window_with_nowhere_to_put_it_replaces_and_says_so() {
+    let (mut viewer, _) =
+        asked("<< /Type /Action /S /GoToR /D [2 /Fit] /F (chapter2.pdf) /NewWindow true >>");
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::RemoteDocument,
+            bytes: Some(plain(4)),
+        })
+        .collect();
+    let opened: Vec<DocumentId> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Opened { document, .. } => Some(*document),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        opened,
+        [DOCUMENT],
+        "it replaced the document it was reached from"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("this view has one, so the destination replaces")),
+        "{:?}",
+        notes(&events)
+    );
+}
+
+/// A name is used **once**: the second `/NewWindow true` replaces unless a second name is offered.
+///
+/// The reserve is what stops a second remote go-to opening under the first one's identity, which
+/// `Command::Open`'s own rule would make a replacement of a tab somebody is reading.
+#[test]
+fn a_reserved_name_is_spent_by_the_document_that_opens_under_it() {
+    const BESIDE: DocumentId = DocumentId(9);
+    let (mut viewer, _) =
+        asked("<< /Type /Action /S /GoToR /D [2 /Fit] /F (chapter2.pdf) /NewWindow true >>");
+    viewer.handle(Command::Beside(Some(BESIDE))).for_each(drop);
+    viewer
+        .handle(Command::Supply {
+            purpose: Purpose::RemoteDocument,
+            bytes: Some(plain(4)),
+        })
+        .for_each(drop);
+    // Back to the source, and the same link again with nothing offered this time.
+    viewer.handle(Command::Focus(DOCUMENT)).for_each(drop);
+    viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(5, 0)))
+        .for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::RemoteDocument,
+            bytes: Some(plain(4)),
+        })
+        .collect();
+    let opened: Vec<DocumentId> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Opened { document, .. } => Some(*document),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        opened,
+        [DOCUMENT],
+        "the spent name was not reused, so the destination replaced the source"
+    );
+}

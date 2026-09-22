@@ -537,7 +537,10 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    group's shape the union of its elements', accumulated on transparency, whatever its isolation
    (ADR 1205) — and the one construction that refused such an element for §11.4.6's NOTE 6 takes it
    now, wherever the knockout group composites its elements against an initial backdrop it keeps
-   (ADR 1256).
+   (ADR 1256). **Which knockout groups those are is a field rather than a guess since ADR 1265**:
+   `Interpreter::enclosing_knockout` carries §11.4.6's own "isolated or non-isolated" as a kind, so
+   the own-backdrop construction is refused under an *isolated* enclosing group alone and the
+   non-isolated one — which keeps its initial backdrop and clones it per element — takes it.
 3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed in the
    four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
    three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
@@ -641,7 +644,11 @@ documents and 494 pages do it under a non-Normal blend mode** — §11.7.4.3's i
 42 107 of the 43 231 marks under `Multiply`. And **not one crawled page carries an
 `Unsupported::Overprint`**: both remaining reports are §11.4.6 NOTE 6's knockout case, and the web
 reaches neither. ADR 1241 moved the population by 11 documents and 27 pages, which is what a
-`Separation` reverting to `DeviceCMYK` entering the first bullet is worth on the web.
+`Separation` reverting to `DeviceCMYK` entering the first bullet is worth on the web. **Both of
+those reports are gone as of ADR 1265**: §11.4.6's NOTE 6 gives a direct element of a *non-isolated*
+knockout group that group's initial backdrop, which ADR 1256's construction hands each element a
+private clone of, so `Interpreter::non_isolated_group` states which backdrop the note gives it
+instead of refusing the position, and `implicit_group_statable` is gone with them.
 
 So the row this file gains is a backend one rather than a reading one, and it is `render-raster`'s
 alone. That backend refuses a page by name whenever the flag is set and `render-cpu` draws them;
@@ -717,8 +724,42 @@ an inverse gamma whose derivative is unbounded at zero, and a grid sampled unifo
 encoded domain cannot resolve it. `ColourCube`'s own doc comment already says this about the
 device's transfer function; the parent's gamma is the same shape one conversion earlier.
 
-**What is owed**: give the cube the parent's per-component curve as its input curves, so the grid
-between them is linear and two samples an axis reproduce it exactly — which is what
-`own_space_conversion` already does for the conversion *out* of a `CalRGB` group. It changes what
-is drawn on the 31 documents of 88 890 that reach a group composited into a parent's own space,
-so it is a round with `raster_golden` and the oracle behind it.
+**Built** (ADR 1267), and the fix was two curves rather than one: the conversion in is
+`E ∘ L ∘ D` — the *device's* decoding, a linear stage, and the *space's own* encoding — so the
+input curves carry `D` and the output curve carries `E`, which is where the unbounded slope is.
+The grid between them is then the linear stage alone, exact at two samples an axis wherever the
+space encodes its three components alike. Where it does not, the output curve is their pointwise
+maximum, whose inverse is the flattest of the three, and the grid carries each component's residue
+against it — a slope of at most one, so nothing steep is asked of the grid. Worst of the same
+200 000 colours, in levels of 255: `/Gamma 2.2` **0.88** against 4.66, `/Gamma 1` **0.0003**
+against 0.09, `/Gamma [1.8 2.2 2.4]` **3.96** against 6.32, and a one-component `CalGray` parent
+**0.0002** against 1.70. A profile whose conversion in is a lookup table has no stage to separate
+and keeps the sampled grid. One page of the 974 tracked documents draws a different display list
+and no pixel moves.
+
+## A plane per spot ink, which is the other half of §10.8.3's step a)
+
+**Designed and priced, not built.** §10.8.2's worked example needs a buffer per colourant: two spot
+inks over one area cannot combine while a spot reverts to the group's four process components as it
+is painted (§11.7.3). The shape follows ADR 0262's two rasters for four process components —
+§11.3.4 composites per component and a raster holds three, so `S` spot colourants need
+`ceil(S / 3)` rasters beside the chromatic and black halves, `Half` becomes a plane index, and the
+content stream is interpreted once per plane: `2 + ceil(S / 3)` runs where there are two today.
+
+Which colourants the simulated device has is step a)'s own sentence — "[t]he PDF processor
+determines what process colours and possible spot colours the simulated device is to have" — so it
+is the page's own named `Separation` and `DeviceN` colourants less §8.6.6.4's `All` and `None` and
+less Table 71's process names, enumerated before the first mark lands by a walk of the page's
+resources. A mark in a colourant the device has paints its **tint** on that plane and leaves the
+process planes at their backdrop, which is §11.7.4.3's first bullet one plane wider; one it does
+not have keeps §8.6.6.4's reversion. Steps b) to d) are `colour::simulate` unchanged (ADR 1229),
+its inputs coming from planes rather than from one painting operation.
+
+The bound is this tree's: §8.6.6.5 says a `DeviceN` "may contain an arbitrary number of colour
+components" and no clause bounds how many colourants a page names, so trap 38's question has the
+answer *the standard states none* and the shape to take is `MAX_PRESSES`'s — a measured population
+with the refusal reported by name.
+
+**The price**: `Half` has 18 call sites and `BlendingSpace` or `GroupBlending::FourComponents` 69
+across seven crates, three of them backends, and each is a place where "two rasters" is written
+into a type. Several rounds, and a census that sizes `S` over the crawl before any of them.

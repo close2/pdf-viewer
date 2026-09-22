@@ -227,8 +227,28 @@ another file is asking this reader to open a PDF in place of the one being read 
 start another program, and the file is looked for beside the open document and nowhere else at
 every level, including the permissive one — Table 203's `/D` and `/SD` are then read in the
 document that came back, because §12.3.2.2 makes an explicit destination's first element a page
-number *there*. A request for a new window is said out loud rather than obeyed, which the entry's
-own wording permits: its only sentence with force is the `false` case (ADR 1227).
+number *there*. **A request for a new window opens a second document beside the first**: Table 203's
+and Table 204's `/NewWindow true` are read in the core and answered where the host's answer is,
+because whether this program has a second place to put a document is a fact about the window —
+`Command::Beside` carries a name a host has free for one, and a window that offers none gets the
+sentence saying the destination replaced what was open (ADRs 1227, 1263).
+
+**Three windows hold more than one document, in a strip of tabs apiece.** A `gtk4::Notebook`, a
+`QTabWidget` and a strip `viewer-ui` draws for itself, with `viewer_host::Documents` as the
+bookkeeping the three share — which names are open, what closing one does to the front, and where
+a window's per-document state goes while the person is reading the other. Ctrl + Tab moves and
+Ctrl + W closes; closing the last one closes the window; the strip hides itself for one document,
+so a window that opened one file is the window it was. What travels with a tab is what is about the
+*file* — the path, the caption, whether anything is unsaved, §7.6.4.1's attempts, Table 29's
+arrangement, §12.9's points, and the document's own departure from the window's restriction levels
+— and what stays is what is about the *window*. The second document comes from an action today:
+there is no file chooser and no second path on a command line (`doc/todo/30`). `quorra-confined`
+holds one, on ADR 1190's rule. ADRs 1263, 1264.
+
+**And §12.9's measurement is drawn as well as said.** The traced path is over the page in all three
+windows, each press marked, in each platform's own colour — the points have been the host's since
+the clause was built and `Query::Measure` answers what they mean, so this needed no message at all
+(ADRs 1191, 1264).
 
 **§10.8.3's separation simulation has a control, which is the one thing the clause conditioned
 itself on.** The simulation is for when the colours of a display matter "on a device that normally
@@ -253,11 +273,20 @@ clause chooses the function at a pixel by the topmost object whose shape there i
 mapping is applied once after compositing rather than per mark: the interpreter records every
 elementary mark's shape and function as runs on the display list, in painting order, and both
 backends resolve the runs top down over their own read-back, so the rule is stated once and the two
-agree by construction; a page stating no function records nothing. A shading's colours and a
-tiling's cells still take the function where they are made, reported by name (ADR 1125; ADRs 0479,
-0430 for the two). **Colour is its own crate**: `pdf-colour` holds the colour spaces, the ICC
+agree by construction; a page stating no function records nothing. **No colour anywhere in this
+tree carries a transfer function**: a shading's ramp is sampled raw and rides its function on the
+mark, and a tiling's function is the one in force at the mark that paints the pattern, which the
+finished tiling carries as one run (ADR 1125, ADR 1266). What is left unstated is one shape, a
+stencil under an `/SMask` of its own, and it is named by `Unsupported::TransferFunction`. **Colour is its own crate**: `pdf-colour` holds the colour spaces, the ICC
 reader, the functions, shadings, meshes and transfer, below the interpreter with no cycle and
-re-exported by `pdf-model` under the paths its callers knew (ADR 1131).
+re-exported by `pdf-model` under the paths its callers knew (ADR 1131). **§8.6.5.9's black point
+compensation is performed rather than reported**, on the `ON` case the clause states by reference:
+ISO 18619's procedure, whose source black is read from an output-capable profile's own perceptual
+`B2A` where it carries one and taken as the display's `L*` 0 where it does not, so a press's deepest
+ink converts where an uncompensated route was eleven levels out (ADR 1253). `/UseBlackPtComp` joins
+Table 69's four intents in selecting the conversion, which is why `colour::MAX_PRESSES` is stated
+against the standard's own floor of seven pairs per profile rather than against a round number
+(ADR 1254).
 
 **A page paints under §11.7.4's overprinting, and it is not a seventeenth blend mode.** Table 57's
 `/OP`, `/op` and `/OPM` are read, §8.6.7's zero test is made before quantisation, and §11.7.4.3's
@@ -266,7 +295,9 @@ special mode is two Porter-Duff operators chosen per channel — so `render-cpu`
 where those clauses say (ADRs 1157, 1158, 1169, 1170, 1182). A `Separation` or `DeviceN` that
 reverts to a `DeviceCMYK` alternate is in the first bullet on the components its alternate
 receives, which is §11.7.4.3's NOTE 2 and the equivalence §8.6.7's own EXAMPLE states (ADR 1241).
-The other two backends refuse a display
+A pair that is a direct element of a knockout group takes the implicit group too, with §11.4.6's
+NOTE 6 deciding which of that group's two initial backdrops it composites onto rather than refusing
+the position (ADR 1265). The other two backends refuse a display
 list carrying the mode by name and the frame falls back, which is the largest by-name coverage loss
 either carries: 2.7% of the crawled documents that open paint under it, counted rather than guessed
 (ADRs 1178, 1181, 1241; `doc/questions/Q76` asks who builds it in quorra). **And where the file states a
@@ -623,8 +654,22 @@ has no span to write into. So `--authorise metadata-packet` puts a conforming pa
 — one stating no property of its own, the catalog's gaining the identification schema and this
 conversion's recorded actions beside it, because nothing in the file says what the unreadable one
 meant —
-and `remedy = "preserve"` with `original = "page"` lays the producer's own bytes out on an
-appended page, so what stops being metadata is still in the archive (ADR 1245). **An extension
+and `remedy = "preserve"` keeps the producer's own bytes either way: `original = "page"` lays
+them out on an appended page (ADR 1245) and `original = "attach"` files them as an embedded file
+at PDF/A-4f or PDF/A-4e, whose Annexes A and B are what let an archive hold a file that is not
+itself a PDF — with §14.13.3's catalog `/AF` beside it, Table 43's `/AFRelationship` `Source` on
+its specification and §14.13.2's own `application/octet-stream` as its media type, which the
+clause names for a type the writer does not know (ADR 1270). The XFA resource a part 4 target
+forbids is kept the same way, `keep-xfa = "attach"`, as the XDP document Annex K's packets make
+end to end. So what stops being metadata, or a form, is still in the archive.
+**And the document information dictionary a part 4 target forbids moves into the packet rather
+than being lost.** §14.3.3 deprecates it and its Table 349 names the XMP counterpart of every one
+of its keys, so each value is written under that property in the shape its predefined schema
+gives it — `pdf_model::xmp::supplement` being additive by construction, because §14.3.4 permits an
+addition only into a silence and leaves an inconsistent value as the producer wrote it. A catalog
+stating a `/PieceInfo` keeps its `/Info` holding `/ModDate` alone, which is the clause's own
+carve-out and §14.5's reason for it, and a key Table 349 names nothing for is the operator's
+`unmapped` answer (ADR 1269). **An extension
 schema the file describes nowhere is described from what the packet itself states**: the namespace,
 the prefix, each property's name and the value type its own serialisation shows, with one fixed
 sentence in each of the three fields section 6.6.2.3.3 requires and no file holds — so the archive

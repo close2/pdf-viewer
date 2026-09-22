@@ -21,7 +21,7 @@ use crate::page::Page;
 use super::colour::output_intent_space;
 use super::reader::NestedContent;
 use super::report::Unsupported;
-use super::{GraphicsState, Interpreter, MAX_SOFT_MASK_DEPTH, Transfer};
+use super::{GraphicsState, Interpreter, KnockoutKind, MAX_SOFT_MASK_DEPTH, Transfer};
 
 /// What a form `XObject`'s `/Group` asks for (ISO 32000-2 §11.6.6 Table 145).
 ///
@@ -536,13 +536,45 @@ fn parent_channels(
     }
 }
 
-/// [`parent_channels`] sampled over device RGB, as the cube a backend interpolates — or `None`
+/// The conversion into a parent's components as the cube a backend interpolates — or `None`
 /// where the parent composites on the device.
+///
+/// **A CIE-based parent's conversion is carried in stages and not as one grid**, which is
+/// ADR 1267 and the whole of the first branch: `crate::colour`'s route decomposes the
+/// conversion into the device's own decoding, a linear map and the space's encoding, and puts
+/// each where `pdf_render::ColourCube` has a place for it. Sampling the whole of it here put
+/// 4.66 levels of 255 between the cube and the conversion for a `CalRGB` with `/Gamma 2.2`
+/// (ADR 1254), because a grid cannot resolve a stage whose slope at zero is unbounded; the
+/// stages put 0.88.
+///
+/// Every other parent is sampled whole, and none of them has that stage: a `DeviceGray`
+/// parent's §10.4.2.2 weights and a device parent's identity are affine, and §10.4.2.3's ink
+/// and §10.4.2.4's generation are piecewise linear with a bounded slope, so a grid of
+/// [`INTO_PARENT_SIDE`] resolves what they do between its samples.
 fn into_parent_cube(
     parent: &Compositing,
     rendering: Rendering,
     generation: Option<&BlackGeneration>,
 ) -> Option<pdf_render::ColourCube> {
+    match parent {
+        Compositing::Additive(route) => {
+            if let Some(cube) = route.into_cube(rendering) {
+                return Some(cube);
+            }
+        }
+        Compositing::Calibrated(route) => {
+            if let Some(cube) = route.into_cube() {
+                return Some(cube);
+            }
+        }
+        // A profile whose conversion in is a lookup table has no stage to separate and comes
+        // back from `into_cube` as `None`, which is the grid below — the same answer
+        // `crate::colour` gives such a profile for the conversion *out*.
+        Compositing::Device
+        | Compositing::Luminosity(_)
+        | Compositing::Grey
+        | Compositing::Subtractive(..) => {}
+    }
     let side = INTO_PARENT_SIDE;
     #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
     let at = |index: usize| index as f32 / (side - 1) as f32;
@@ -908,7 +940,7 @@ struct GroupDrawn {
     knockout: bool,
     /// What the elements were composited onto — see `Command::Group`'s `isolated`.
     isolated: bool,
-    /// §11.4.6's NOTE 6 — see [`Interpreter::transparent_initial_backdrop`].
+    /// §11.4.6's NOTE 6 — see [`Interpreter::enclosing_knockout`].
     backdrop_transparent: bool,
     /// Which readings of §11.6.4.3's `/AIS` the group's content painted under.
     alpha_sources: AlphaSourcesSeen,
@@ -1632,7 +1664,7 @@ pub(super) struct ImplicitKnockout {
 pub(super) fn implicit_knockout_group(
     commands: &[Command],
     seen: AlphaSourcesSeen,
-    inside_knockout: bool,
+    enclosing: Option<KnockoutKind>,
     shape_masks: &ShapeMasks,
 ) -> Option<ImplicitKnockout> {
     let alpha = seen.settled_over(commands)?;
@@ -1672,7 +1704,13 @@ pub(super) fn implicit_knockout_group(
             });
         }
     }
-    if inside_knockout {
+    // §11.4.6's NOTE 6 from the other side: this group is a direct element of `enclosing`, so
+    // the backdrop the clause hands it is *that* group's initial backdrop. Where the enclosing
+    // knockout group is non-isolated, ADR 1256's construction gives each of its elements a
+    // private clone of exactly that backdrop, which is what the command below is seeded from;
+    // where it is isolated, its elements are drawn on transparency and this one would be seeded
+    // from the accumulation instead, which is neither backdrop. ADR 1265.
+    if enclosing == Some(KnockoutKind::Isolated) {
         return None;
     }
     Some(ImplicitKnockout {
@@ -1917,9 +1955,9 @@ struct KnockoutConstruction {
 /// `alpha` is the one reading of §11.6.4.3's `/AIS` that describes the content, or `None`:
 /// the shape §11.4.6 weights by is built one way under each reading, so a group whose content
 /// painted under both *and states something the flag reinterprets* is refused
-/// ([`AlphaSourcesSeen::settled_over`]). `backdrop_transparent` is NOTE 6's answer for a
-/// group that is a direct element of a knockout group whose initial backdrop is transparent,
-/// and `enclosing_knockout` whether there is such an enclosing group at all.
+/// ([`AlphaSourcesSeen::settled_over`]). `enclosing` is NOTE 6's answer for a group that is a
+/// direct element of a knockout group: which of §11.4.6's two initial backdrops that group
+/// composites its elements with, or `None` where there is no such enclosing group.
 ///
 /// - **On transparency**, where the group is isolated, NOTE 6 makes it so, or nothing in it
 ///   blends: §11.4.5's group stands in for the non-isolated one exactly, by §11.4.4's NOTE 3
@@ -1937,10 +1975,12 @@ struct KnockoutConstruction {
 ///   every element a `Command::Shaped`, and a backend retains the initial backdrop beside
 ///   the accumulation (ADR 0327). Three conditions bound it, each the clause's: the `Do`'s
 ///   mode is Normal, because the final composite's cancellation against §11.4.4's backdrop
-///   removal is the Normal blend function's (ADR 0237's argument, unchanged by knockout);
-///   no enclosing knockout group, because an element of one is weighted by its own shape,
-///   which `Command::Group` does not carry; and every element's shape statable, because the
-///   weighted average's factor has to come from somewhere.
+///   removal is the Normal blend function's (ADR 0237's argument, unchanged by knockout); no
+///   enclosing knockout group that is *isolated*, because there the elements are drawn on
+///   transparency and this command would be seeded from the accumulation rather than from
+///   either of the backdrops NOTE 6 contrasts — a non-isolated one keeps its initial backdrop
+///   and hands each element a private clone of it (ADR 1256, ADR 1265); and every element's
+///   shape statable, because the weighted average's factor has to come from somewhere.
 ///
 /// The second construction shares the first of those conditions — the `Do` has to be Normal
 /// for the group to have a mode to give away — and its constant alpha and mask pass through
@@ -1957,19 +1997,12 @@ struct KnockoutConstruction {
 /// [`Interpreter::group_press`] admit a knockout group at all. Where the black half will not
 /// take the same rewrite the group falls to the flat drawing with the report §11.4.6 already
 /// had, which is the answer it had before the pair existed.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "§11.4.6's conditions are the clause's own, and each is read from a different \
-              scope: the group's entry, the state at the `Do`, the enclosing group and the \
-              interpretation's shape masks"
-)]
 fn knockout_construction(
     group: &TransparencyGroup,
     commands: Vec<Command>,
     pair: Option<pdf_render::GroupBlending>,
     alpha: Option<AlphaSource>,
-    backdrop_transparent: bool,
-    enclosing_knockout: bool,
+    enclosing: Option<KnockoutKind>,
     outer_blend: BlendMode,
     shape_masks: &ShapeMasks,
 ) -> KnockoutConstruction {
@@ -1989,9 +2022,25 @@ fn knockout_construction(
     let Some(alpha) = alpha.filter(|_| group.knockout) else {
         return construction;
     };
-    if group.isolated
-        || backdrop_transparent
-        || !any_command(&construction.commands, &command_blends)
+    // §11.4.6's NOTE 6, over this group's own elements: one that is itself a non-isolated group
+    // takes *this* group's initial backdrop, which only a construction that keeps that backdrop
+    // can hand over. The two routes below that draw the elements on transparency cannot — there
+    // an element's backdrop is the accumulation — so a group holding such an element goes
+    // straight to the own-backdrop construction. ADR 1256, ADR 1265.
+    let nested_non_isolated = construction.commands.iter().any(|command| {
+        matches!(
+            command,
+            Command::Group {
+                isolated: false,
+                ..
+            }
+        )
+    });
+    let backdrop_transparent = enclosing == Some(KnockoutKind::Isolated);
+    if !nested_non_isolated
+        && (group.isolated
+            || backdrop_transparent
+            || !any_command(&construction.commands, &command_blends))
     {
         // The bare case rewrites nothing, so both halves of a pair are already the lists the
         // backends will resolve — but the question is still asked of each, because what the
@@ -2015,7 +2064,13 @@ fn knockout_construction(
         // its own transparency either way, but the report reads a group's tree, and a mode
         // left anywhere in it would be named as blending with the backdrop this group
         // excludes.
-        let mode = blend_at_the_do(&construction.commands);
+        // `nested_non_isolated` blocks this route for the reason above: moving the mode to the
+        // `Do` draws the elements on transparency too.
+        let mode = if nested_non_isolated {
+            None
+        } else {
+            blend_at_the_do(&construction.commands)
+        };
         let moved = mode.is_some()
             && commit_knockout(&mut construction, |commands| {
                 let stripped = commands
@@ -2029,7 +2084,7 @@ fn knockout_construction(
             });
         if let Some(mode) = mode.filter(|_| moved) {
             construction.blend = mode;
-        } else if !enclosing_knockout
+        } else if enclosing != Some(KnockoutKind::Isolated)
             && commit_knockout(&mut construction, |commands| {
                 stated_elements(commands, alpha, shape_masks)
             })
@@ -2883,10 +2938,12 @@ impl Interpreter<'_> {
         // page at all — §11.5.3 turns its result into one luminosity — so no space inside it
         // is a space the page composites in.
         let saved_change = std::mem::replace(&mut self.blending_changed, false);
-        // And so does §11.4.6's NOTE 6, for the reason the `false` below it states: the mask's
-        // group is not an element of the knockout group the `gs` appears in, so nothing inside
-        // it inherits that group's initial backdrop.
-        let saved_backdrop = std::mem::replace(&mut self.transparent_initial_backdrop, false);
+        // And so does §11.4.6, for the reason the `None` below it states: the mask's group is
+        // not an element of the knockout group the `gs` appears in — an `/SMask` is named by an
+        // `/ExtGState` rather than being an element of anything — so nothing inside it is a
+        // direct element of that group and nothing inside it inherits that group's initial
+        // backdrop.
+        let saved_backdrop = self.enclosing_knockout.take();
         // And §11.6.4.3's `/AIS`, restored exactly rather than folded back: the record answers
         // "which readings did the elements of the group being built paint under", and a
         // mask's content is not an element of anything — its marks become one alpha per pixel.
@@ -2947,7 +3004,7 @@ impl Interpreter<'_> {
         self.nested_space_departed = saved_departed;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
         self.alpha_sources_mark = saved_ais_mark;
-        self.transparent_initial_backdrop = saved_backdrop;
+        self.enclosing_knockout = saved_backdrop;
         self.blending_changed = saved_change;
         self.blending = saved_blending;
         self.compositing = saved_compositing;
@@ -3037,17 +3094,20 @@ impl Interpreter<'_> {
         inner.stroke_alpha = 1.0;
         inner.soft_mask = None;
 
-        let enclosing_knockout = self.inside_knockout;
-        // §11.4.6's NOTE 6, which decides what *this* group's elements composite onto: this
-        // group's own initial backdrop is transparent when it says so or when NOTE 6 hands it
-        // the transparent one an enclosing knockout group has, and its elements inherit that
-        // in turn only if this group is itself a knockout group.
-        let backdrop_transparent = self.transparent_initial_backdrop;
-        let enclosing_transparent = std::mem::replace(
-            &mut self.transparent_initial_backdrop,
-            group.knockout && (group.isolated || backdrop_transparent),
-        );
-        self.inside_knockout = enclosing_knockout || group.knockout;
+        // §11.4.6's NOTE 6, which decides what *this* group's elements composite onto. This
+        // group is a direct element of `enclosing`, so its own initial backdrop is transparent
+        // when Table 145's `/I` says so and where NOTE 6 hands it the transparent one an
+        // isolated enclosing knockout group has; and the content below is a direct element of
+        // *this* group only where this group is itself a knockout group.
+        let enclosing = self.enclosing_knockout;
+        let backdrop_transparent = enclosing == Some(KnockoutKind::Isolated);
+        self.enclosing_knockout = if !group.knockout {
+            None
+        } else if group.isolated || backdrop_transparent {
+            Some(KnockoutKind::Isolated)
+        } else {
+            Some(KnockoutKind::NonIsolated)
+        };
         // §11.6.6's group colour space, which the elements composite in and which
         // [`group_blending`] resolves against §11.7.2's inheritance rule. Saved and restored
         // rather than set once, because a group is a scope: what is in force after the `Do` is
@@ -3067,8 +3127,7 @@ impl Interpreter<'_> {
             in_own_space,
         } = self.group_commands(group, content, resources, (&inner, outer), changed);
         self.blending = outside;
-        self.inside_knockout = enclosing_knockout;
-        self.transparent_initial_backdrop = enclosing_transparent;
+        self.enclosing_knockout = enclosing;
         // A group that changes the space in force, with something compositing in it, and
         // is not drawn in that space is a departure the reports can only name on the
         // device's components — so on any other compositing it is *recorded* instead, and
@@ -3121,7 +3180,7 @@ impl Interpreter<'_> {
         // that was worse than useless, which is this project's own name for the shape.
         if !group.isolated
             && !group.knockout
-            && !enclosing_knockout
+            && enclosing.is_none()
             && outer.fill_alpha >= 1.0
             && outer.blend == BlendMode::Normal
             && outer.soft_mask.is_none()
@@ -3175,8 +3234,7 @@ impl Interpreter<'_> {
             commands,
             pair,
             settled,
-            backdrop_transparent,
-            enclosing_knockout,
+            enclosing,
             outer.blend,
             self.image_masks.shape_masks(),
         );
@@ -3210,8 +3268,14 @@ impl Interpreter<'_> {
         //   it is isolated or when nothing in it blends — and it is stated rather than
         //   derived because the flag is a fact about what this group *became*, which the
         //   element list no longer says once its parts are `Command::Shaped`.
-        // - **Not inside a knockout group.** A knockout group's element is weighted by its
-        //   own shape, which is a quantity this command does not carry.
+        // - **Not a direct element of an *isolated* knockout group.** There the elements are
+        //   drawn on transparency, so a command seeded from its immediate backdrop would take
+        //   the accumulation and neither of the backdrops NOTE 6 contrasts; the note's answer
+        //   is this group's own `isolated: true` instead. A direct element of a *non-isolated*
+        //   knockout group is the opposite case: that group keeps its initial backdrop and
+        //   hands each element a private clone of it, which is exactly what this command is
+        //   seeded from, so the note is met by stating Table 145's `/I` truthfully
+        //   (ADR 1256, ADR 1265).
         //
         // And a fourth condition, which is not about correctness but about *cost*: with
         // every element painting Normal the backdrop is composited in and removed again
@@ -3229,7 +3293,7 @@ impl Interpreter<'_> {
             && (group.isolated
                 || knockout_shows
                 || knockout
-                || enclosing_knockout
+                || backdrop_transparent
                 || !any_command(&commands, &command_blends));
         self.note_group_departures(
             group,
@@ -3610,11 +3674,12 @@ impl Interpreter<'_> {
     /// Which transfer function §11.7.5.2 puts on the mark about to be painted, and what it costs.
     ///
     /// Called **once per elementary graphics object** that marks the page, with the state it is
-    /// painted under, and its answer is the only route by which §10.5's function reaches a colour.
-    /// Every caller passes what comes back to whatever builds its paint — `solid_fill`,
-    /// `transferred_image`, `shading::Colouring` — so no other reader of `state.transfer` decides
-    /// anything, which is the shape trap 2 asks for one layer up: a device decision either backend
-    /// could make alone is a decision neither has made, and this one is made here.
+    /// painted under, and its answer is the only route by which §10.5's function reaches the
+    /// page. It reaches no *colour*: every caller passes what comes back to
+    /// [`Interpreter::draw_mark`], which puts it on §11.7.5.2's channel, and a backend maps the
+    /// finished pixel where §11.7.5.3's NOTE says the values are used (ADR 1148, ADR 1266). That
+    /// is the shape trap 2 asks for one layer up: a device decision either backend could make
+    /// alone is a decision neither has made, and this one is made here.
     ///
     /// # What §11.7.5.2 chooses between
     ///
@@ -3651,28 +3716,27 @@ impl Interpreter<'_> {
     /// the conversion itself: it is done "with no compensation for gamma or other colour
     /// calibration", which is what Table 52 calls a transfer function.
     ///
-    /// # What is left over, and is reported
+    /// # A mark inside a tiling pattern's cell
     ///
-    /// The clause composites raw colours and maps the result *once* at each point; this tree maps
-    /// each fully opaque contributor's colour *before* compositing. Where the topmost object at a
-    /// point is fully opaque the two are the same picture, because the six conditions "ensure that
-    /// only the object itself shall contribute to the colour at the given point" — the composited
-    /// colour **is** that object's colour. Where the topmost object is not fully opaque, the
-    /// clause wants the whole composite unmapped, and this tree's composite is unmapped too
-    /// **unless something underneath it was fully opaque and carried a function**. So one shape
-    /// survives, and it takes two objects: a fully opaque transferred mark, seen through a later
-    /// mark that is not fully opaque.
+    /// §11.7.5.2's sixth condition is about a *point* covered by a tiling, and it names the
+    /// cell's objects rather than making each of them the topmost object there:
     ///
-    /// Nothing here knows which objects overlap, so what fires is the geometric
-    /// over-approximation of that: a mark this clause does not call fully opaque, painted while
-    /// some *fully opaque* mark on the page has already carried a function. It cannot under-report
-    /// — a point drawn wrong has both halves on the page, in that order — and it over-reports only
-    /// a page whose translucent marks all miss its transferred ones.
+    /// > If the current colour is a tiling pattern, all objects in the definition of its pattern
+    /// > cell also satisfy the foregoing conditions.
     ///
-    /// The population that can reach either is measured rather than assumed:
+    /// So the elementary object the clause chooses a function for at such a point is the object
+    /// *painted with the pattern*, and the cell's marks decide only whether that object is fully
+    /// opaque. They are accumulated into [`Interpreter::tiling_cell_opaque`] here, where the
+    /// other five conditions are already read, and handed no function of their own —
+    /// [`Interpreter::record_tiling`] puts the painting mark's on the finished tiling. A `/TR` a
+    /// cell's own `/ExtGState` states therefore decides nothing, which §11.7.5.3's NOTE is what
+    /// settles: the value is used "only when all colour compositing has been completed", so it is
+    /// not one of the parameters §11.6.7's bullets evaluate a pattern definition under. ADR 1266.
+    ///
+    /// The population that can reach any of this is measured rather than assumed:
     /// `examples/transfer_function_census` counts how many documents state a Table 57 `/TR` or
-    /// `/TR2` and how many state a real one; run it rather than reading a figure here. The report
-    /// has no corpus witness and is defended by `tests/transfer_functions.rs`'s fixtures (trap 8).
+    /// `/TR2` and how many state a real one; run it rather than reading a figure here. The
+    /// fixtures in `tests/transfer_functions.rs` stand in for the missing corpus witness (trap 8).
     pub(super) fn transfer_for_mark<'state>(
         &mut self,
         state: &'state GraphicsState,
@@ -3681,28 +3745,14 @@ impl Interpreter<'_> {
         if self.soft_mask_depth > 0 {
             return None;
         }
-        let Some(because) = self.not_fully_opaque(state, painted) else {
-            // Every mark's function is the one its own state states, shadings included since the
-            // rebuild landed — so this is the whole of "a fully opaque mark carried one".
-            return state.transfer.shared();
-        };
-        // **Narrowed to the one paint whose function is still inside its colour.** §11.7.5.2's
-        // channel carries every other mark's function to the backend, which applies it to the
-        // finished pixel (ADR 1125), so the ordering this report was about is the clause's now.
-        // What is left is a *shading*, whose ramp is sampled under the function where its colours
-        // are made (ADR 0479) — see `Interpreter::mark_transfer`, the one place that sets the flag.
-        if self.transfer_painted_opaquely {
-            self.note(Unsupported::TransferFunction {
-                detail: format!(
-                    "§11.7.5.2: a fully opaque shading on this page was painted under a transfer \
-                     function, which is sampled into its colours rather than carried on the mark, \
-                     and {because} — so where such an object covers that shading the clause puts \
-                     the page's default function on the whole composited colour, and this tree \
-                     has already put the shading's own on the colours underneath"
-                ),
-            });
+        if self.tiling_cell {
+            self.tiling_cell_opaque &= self.not_fully_opaque(state, painted).is_none();
+            return None;
         }
-        None
+        if self.not_fully_opaque(state, painted).is_some() {
+            return None;
+        }
+        state.transfer.shared()
     }
 
     /// Which of §11.7.5.2's six conditions the object being painted fails, if any.
@@ -3855,7 +3905,7 @@ impl Interpreter<'_> {
     /// element of a knockout group whose initial backdrop is transparent **is** §11.4.5's
     /// isolated group by that clause's own definition, whatever Table 145's `/I` says here,
     /// so both questions below are asked of that rather than of the entry. See
-    /// [`Interpreter::transparent_initial_backdrop`], and `knockout_inner_backdrop.pdf` is
+    /// [`Interpreter::enclosing_knockout`], and `knockout_inner_backdrop.pdf` is
     /// the page that showed the difference: its inner group states `/I false` inside an
     /// isolated knockout group, is drawn on the transparency the clause asks for, and was
     /// reported as departing from it (ADR 0307).
@@ -3967,7 +4017,8 @@ mod tests {
     use render_cpu::CpuRasterizer;
 
     use super::{
-        AlphaSource, AlphaSourcesSeen, ImplicitKnockout, implicit_knockout_group, stated_shape,
+        AlphaSource, AlphaSourcesSeen, ImplicitKnockout, KnockoutKind, implicit_knockout_group,
+        stated_shape,
     };
     use crate::image::ShapeMasks;
 
@@ -4068,7 +4119,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            true,
+            Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
         )
         .expect("a masked pair is drawable");
@@ -4150,7 +4201,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            true,
+            Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
         )
         .expect("an image states the shape its raster names");
@@ -4193,7 +4244,7 @@ mod tests {
         let multiply = implicit_knockout_group(
             &two_parts(BlendMode::Multiply),
             opacity,
-            true,
+            Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
         )
         .expect("Multiply is affine in its source");
@@ -4216,15 +4267,19 @@ mod tests {
                 None,
             ),
         ];
-        let difference =
-            implicit_knockout_group(&same_colour, opacity, true, &ShapeMasks::default())
-                .expect("one colour under any mode is one colour after averaging");
+        let difference = implicit_knockout_group(
+            &same_colour,
+            opacity,
+            Some(KnockoutKind::Isolated),
+            &ShapeMasks::default(),
+        )
+        .expect("one colour under any mode is one colour after averaging");
         assert!(difference.isolated);
         assert_eq!(difference.blend, BlendMode::Difference);
 
         let differing = two_parts(BlendMode::Difference);
         let own_backdrop =
-            implicit_knockout_group(&differing, opacity, false, &ShapeMasks::default())
+            implicit_knockout_group(&differing, opacity, None, &ShapeMasks::default())
                 .expect("§11.4.6's own backdrop draws what the move cannot");
         assert!(!own_backdrop.isolated);
         assert_eq!(own_backdrop.blend, BlendMode::Normal);
@@ -4235,10 +4290,32 @@ mod tests {
                 .all(|element| matches!(element, Command::Shaped { .. })),
             "every element of a group on its own backdrop states its shape"
         );
+        // §11.4.6's NOTE 6, and the two enclosing kinds part company here. An *isolated*
+        // knockout group draws its elements on transparency, so this command — seeded from its
+        // immediate backdrop — would take the accumulation and neither of the backdrops the
+        // note contrasts. A *non-isolated* one keeps its initial backdrop and hands each
+        // element a private clone of it (ADR 1256), which is what this command is seeded from,
+        // so the note is met rather than refused. ADR 1265.
         assert!(
-            implicit_knockout_group(&differing, opacity, true, &ShapeMasks::default()).is_none(),
-            "inside a knockout group the immediate backdrop is not the initial one (NOTE 6)"
+            implicit_knockout_group(
+                &differing,
+                opacity,
+                Some(KnockoutKind::Isolated),
+                &ShapeMasks::default()
+            )
+            .is_none(),
+            "inside an isolated knockout group the immediate backdrop is the accumulation \
+             rather than the initial one (NOTE 6)"
         );
+        let inside_non_isolated = implicit_knockout_group(
+            &differing,
+            opacity,
+            Some(KnockoutKind::NonIsolated),
+            &ShapeMasks::default(),
+        )
+        .expect("a non-isolated knockout group hands its element the initial backdrop");
+        assert!(!inside_non_isolated.isolated);
+        assert_eq!(inside_non_isolated.blend, BlendMode::Normal);
         // These parts carry §11.6.4.4's constant, which is the input §11.6.4.3's flag
         // reinterprets, so a record of both readings leaves no one shape to state — where a
         // group of opaque parts would be described by both (`AlphaSourcesSeen::settled_over`).
@@ -4246,7 +4323,7 @@ mod tests {
             implicit_knockout_group(
                 &differing,
                 AlphaSourcesSeen::Mixed,
-                false,
+                None,
                 &ShapeMasks::default()
             )
             .is_none(),
@@ -4269,7 +4346,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            true,
+            Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
         )
         .expect("Multiply moves to the Do");
@@ -4326,7 +4403,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            false,
+            None,
             &ShapeMasks::default(),
         )
         .expect("§11.4.6's own backdrop");
@@ -4379,7 +4456,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            true,
+            Some(KnockoutKind::Isolated),
             &ShapeMasks::default(),
         )
         .expect("one coloured part under any mode moves it to the Do");
@@ -4983,7 +5060,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Mixed,
-            false,
+            None,
             &ShapeMasks::default(),
         )
         .expect("content described by both readings is drawn");
@@ -5019,13 +5096,8 @@ mod tests {
             "a bare constant is the input the flag reinterprets"
         );
         assert!(
-            implicit_knockout_group(
-                &bare,
-                AlphaSourcesSeen::Mixed,
-                false,
-                &ShapeMasks::default()
-            )
-            .is_none(),
+            implicit_knockout_group(&bare, AlphaSourcesSeen::Mixed, None, &ShapeMasks::default())
+                .is_none(),
             "content painted under both readings of a stated constant has no one shape"
         );
     }

@@ -3825,7 +3825,13 @@ fn a_press_inside_a_press_converts_between_the_two_at_its_do() {
 ///   that — ADR 0237 — so the difference between this fixture and the one above is the whole of
 ///   what NOTE 6 says, at the pixel.
 /// - `/K true /I false` outside: the outer group's own initial backdrop is the page, so the
-///   inner group's is too, and this renderer substitutes transparency and reports it.
+///   inner group's is too — §11.4.6 hands each element of a knockout group "the group's initial
+///   backdrop rather than ... the stack of preceding elements", which `render-cpu` retains and
+///   clones per element (ADR 0327, ADR 1256), so the Multiply is of white with red and the
+///   square is red again. That it agrees with the first fixture is NOTE 6 rather than a
+///   coincidence: both hand the inner group the *outer* group's initial backdrop, and
+///   §11.3.5.2's Multiply leaves the source alone against white as §11.3.6 does against
+///   transparency. The second fixture is what makes the three discriminate. ADR 1265.
 #[test]
 fn a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives_it() {
     let inner = "/Group << /S /Transparency /I false >>";
@@ -3856,11 +3862,16 @@ fn a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives
         "/Group << /S /Transparency /I false /K true >>",
         inner,
     ));
-    let reported = format!("{:?}", opaque_backdrop.unsupported);
     assert!(
-        reported.contains("non-isolated, and an element blends with the backdrop it excludes"),
-        "a knockout group whose own initial backdrop is the page passes that page inward, \
-         and this renderer substitutes transparency for it: {reported}"
+        opaque_backdrop.is_complete(),
+        "{:?}",
+        opaque_backdrop.unsupported
+    );
+    assert_eq!(
+        pixel(&opaque_backdrop, 50, 50),
+        [255, 0, 0, 255],
+        "a non-isolated knockout group passes its own initial backdrop inward, which here is \
+         the white page, and §11.3.5.2's Multiply of white with red is red"
     );
 }
 

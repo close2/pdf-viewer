@@ -426,11 +426,7 @@ impl Interpreter<'_> {
             first_bullet: FirstBullet::No,
         };
         if matches!(state.text.render_mode, 2 | 6) && !self.is_hidden() {
-            parts.first_bullet = self.combined_overprint(
-                state,
-                [parts.fill, parts.stroke],
-                "a glyph filled and stroked by text rendering mode 2 or 6",
-            );
+            parts.first_bullet = Interpreter::combined_overprint(state, [parts.fill, parts.stroke]);
         }
         let painting = GlyphPainting::read(state.text.render_mode, self.is_hidden(), state, parts);
         // Inside §11.7.4.4's first-bullet group "the fill and stroke shall be performed with an
@@ -1012,8 +1008,8 @@ impl Interpreter<'_> {
             );
             return;
         }
-        let (inside, transfer) = self.mark_transfer(state, Painted::of(state, false), false);
-        let paint = self.fill_paint(paints, inside.as_ref());
+        let transfer = self.mark_transfer(state, Painted::of(state, false));
+        let paint = self.fill_paint(paints);
         self.draw_mark(
             Command::Fill {
                 // The font hands out shared outlines and the display list keeps them shared: a
@@ -1085,8 +1081,8 @@ impl Interpreter<'_> {
             return;
         }
         let glyph_stroke_clip = self.paint_clip(state, false);
-        let (inside, transfer) = self.mark_transfer(state, Painted::of(state, true), true);
-        let paint = self.stroke_paint(paints, inside.as_ref());
+        let transfer = self.mark_transfer(state, Painted::of(state, true));
+        let paint = self.stroke_paint(paints);
         self.draw_mark(
             Command::Stroke {
                 path: in_user_space,
@@ -1150,13 +1146,12 @@ impl Interpreter<'_> {
         //
         // §11.7.4.4's implicit group is decided here too, and it has to be: a glyph shown in
         // mode 2 or 6 owes a knockout group of its own fill and stroke, and where the object
-        // above is built that group is *inside* it. One knockout group inside another is not
-        // something either backend can state — `implicit_knockout_group` rejects an element
-        // that is a group — and it does not have to be stated, because it computes the same
-        // picture flat: in a knockout group every element composites with the initial
-        // backdrop, so at each point the topmost element wins, and nesting cannot change
-        // which element that is. So the whole-object group subsumes every glyph's, and the
-        // per-glyph groups are built only where there is no whole-object group to be inside.
+        // above is built that group is *inside* it. It does not have to be stated, because it
+        // computes the same picture flat: in a knockout group every element composites with
+        // the initial backdrop, so at each point the topmost element wins, and nesting cannot
+        // change which element that is. So the whole-object group subsumes every glyph's, and
+        // the per-glyph groups are built only where there is no whole-object group to be
+        // inside — `push_combined_glyphs` builds them on the other branch.
         let knockout_owed = text.knockout_owed;
         if knockout_owed || !text.combined.is_empty() {
             let glyphs = text.composited.len();
@@ -1166,7 +1161,7 @@ impl Interpreter<'_> {
                     implicit_knockout_group(
                         &elements,
                         self.alpha_sources,
-                        self.inside_knockout,
+                        self.enclosing_knockout,
                         self.image_masks.shape_masks(),
                     )
                 })
@@ -1354,7 +1349,7 @@ impl Interpreter<'_> {
             if let Some(group) = implicit_knockout_group(
                 &parts,
                 self.alpha_sources,
-                self.inside_knockout,
+                self.enclosing_knockout,
                 self.image_masks.shape_masks(),
             ) {
                 self.draw(Command::Group {

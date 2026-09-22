@@ -2172,6 +2172,148 @@ impl FindBar {
     }
 }
 
+/// How tall the strip of open documents is, in logical pixels.
+///
+/// The find bar's height, because the two are the same kind of thing — a band of this host's own
+/// chrome across the top of the window — and two bands of different heights would read as two
+/// unrelated interfaces.
+const DOCUMENTS_HEIGHT: f32 = FIND_HEIGHT;
+
+/// The widest one tab is allowed to be, in logical pixels.
+///
+/// A choice, and written down as one: no clause states a tab strip. Wide enough for a file name,
+/// narrow enough that two documents do not each take half a window.
+const DOCUMENT_TAB: f32 = 220.0;
+
+/// The strip of open documents this host draws for itself.
+///
+/// **The counterpart of `viewer-gtk`'s `GtkNotebook` and `viewer-qt`'s `QTabWidget`, and the
+/// reason it looks like neither is the point**: what a tab strip *is* belongs to a platform, and
+/// this host has no platform to ask. What is shared with the two native windows is
+/// `viewer_host::Documents` — which names are open, what closing one does to the front — and this
+/// is the picture of it. ADR 1264.
+///
+/// **Nothing is drawn for one document**, so a window that opened one file is the window it was.
+///
+/// **It lies over the top of the page rather than taking a band out of the viewport**, which is
+/// [`FindBar`]'s own choice one band up and is made here for the same reason: the viewport this
+/// host tells `viewer_core` about is what decides where a fitted page sits and what a pointer
+/// lands on, and a second offset in that arithmetic is a second place for it to be wrong. The
+/// cost is the top thirty logical pixels of a page while a second document is open, and it is
+/// written down as a cost rather than left to be discovered.
+#[derive(Debug, Default)]
+pub struct DocumentStrip {
+    /// What each tab says, in the order they are shown.
+    pub labels: Vec<String>,
+    /// Which of them is in front.
+    pub focused: usize,
+}
+
+impl DocumentStrip {
+    /// How wide one tab is, in device pixels, for a window of this width.
+    fn tab_width(&self, width: u32, scale: f32) -> f32 {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's width in pixels, which is thousands"
+        )]
+        let wide = width as f32;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "how many documents a person has open, which is units"
+        )]
+        let count = self.labels.len().max(1) as f32;
+        (wide / count).min(DOCUMENT_TAB * scale)
+    }
+
+    /// Which tab a press landed on, or nothing for a press that missed the strip.
+    ///
+    /// `at` is in device pixels of the window, which is what every other hit test in this host
+    /// takes (ADR 0118).
+    #[must_use]
+    pub fn tab_at(&self, at: (f32, f32), width: u32, scale: f32) -> Option<usize> {
+        if self.labels.len() < 2 || at.1 < 0.0 || at.1 >= DOCUMENTS_HEIGHT * scale || at.0 < 0.0 {
+            return None;
+        }
+        let each = self.tab_width(width, scale);
+        if each <= 0.0 {
+            return None;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a non-negative quotient of two pixel counts, bounded by the test below"
+        )]
+        let index = (at.0 / each) as usize;
+        (index < self.labels.len()).then_some(index)
+    }
+
+    /// The strip, in device pixels of the window.
+    #[must_use]
+    pub fn draw(&self, chrome: &Chrome, width: u32, scale: f32) -> Option<DisplayList> {
+        if self.labels.len() < 2 {
+            return None;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's width in pixels, which is thousands"
+        )]
+        let wide = width as f32;
+        let tall = DOCUMENTS_HEIGHT * scale;
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: wide,
+            height: tall,
+        });
+        rectangle(&mut list, (0.0, 0.0, wide, tall), BACKGROUND);
+        rectangle(&mut list, (0.0, tall - scale, wide, scale), EDGE);
+
+        let each = self.tab_width(width, scale);
+        let size = TEXT_SIZE * scale;
+        let baseline = f32::midpoint(tall, size * 0.72);
+        for (index, label) in self.labels.iter().enumerate() {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "how many documents a person has open, which is units"
+            )]
+            let left = each * index as f32;
+            if index == self.focused {
+                rectangle(&mut list, (left, 0.0, each, tall - scale), HOVER);
+            }
+            rectangle(
+                &mut list,
+                (left + each - scale, 3.0 * scale, scale, tall - 6.0 * scale),
+                EDGE,
+            );
+            // Elided by drawing into the tab's own width rather than by measuring: the clipped
+            // name is what a strip of tabs shows everywhere, and a name this host cannot fit is a
+            // name it says as much of as there is room for.
+            let room = each - 12.0 * scale;
+            let mut shown = label.as_str();
+            while chrome.width(shown, size, Style::default()) > room && !shown.is_empty() {
+                // By characters rather than by bytes: a file name is UTF-8 and slicing one in the
+                // middle of a code point would panic on a document nobody chose the name of.
+                let keep = shown
+                    .char_indices()
+                    .next_back()
+                    .map_or(0, |(index, _)| index);
+                shown = &shown[..keep];
+            }
+            chrome.text(
+                &mut list,
+                shown,
+                (left + 6.0 * scale, baseline),
+                size,
+                Style::default(),
+                if index == self.focused {
+                    Color::BLACK
+                } else {
+                    DIMMED
+                },
+            );
+        }
+        Some(list)
+    }
+}
+
 /// How tall a popup window's title bar is, as a multiple of the text size.
 ///
 /// §12.5.6.14 says a popup "displays text in a popup window" and describes no furniture at all,

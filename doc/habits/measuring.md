@@ -536,3 +536,25 @@ function (ADR 1260). A gesture's price includes what the last gesture left behin
 the host owns across the gesture and fill them the way the host fills them. The same ADR's other
 half: a page turn and a zoom step are drawn by different rasterisers, and a budget for one taken on
 the other is a configuration nobody runs.
+
+## 42. When the faster arm of an A/B also changes which library function runs, the profile must show the one you asked for
+
+`zune-jpeg` picks its colour conversion when it reads the headers; `set_options` afterwards changes
+only the output buffer's shape, so asking the same decoder for RGBA after `decode_headers()` filled a
+four-lane raster with a three-lane conversion — the instrument reported −15.3% and the pixels were
+wrong. The tell was in the profile: `decode_jpeg` had vanished and the three-lane conversion was
+still there to the instruction (ADR 1271). A library that takes an option after it has decided
+something answers half of it, faster, and a wall clock cannot tell the difference.
+
+## 43. A never-taken branch in a per-mark function is not free; ask the question where the answer is known
+
+Two spellings of one report's condition in `draw_mark` cost 0.12% each; the same test at
+`draw_image`, the one kind of mark it is about, cost 0.002% (ADR 1266). The measurement that
+discriminated was not which spelling but which function.
+
+## 44. A fix an earlier ADR named is a hypothesis, re-derived before it is built
+
+ADR 1254 measured its 4.66 levels correctly and named the fix as the cube's input curves; the stage
+with the unbounded slope was at the output end, and building only what the ADR named would have
+left the defect in the grid (ADR 1267). The brief says this of `doc/adr_revisit/` notes; the same is
+true of a named fix inside an accepted ADR.

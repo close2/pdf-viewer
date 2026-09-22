@@ -1574,6 +1574,29 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "embedded-files/relationship-stated",
         answer: Answer::Mechanical(Rewrite::AssociatedFileRelationship),
     },
+    // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary, which
+    // part 2 does not state. §14.3.3 deprecates the dictionary in favour of the metadata stream
+    // and Table 349's NOTEs name the XMP counterpart of every one of its keys, so the remedy is
+    // the standard's own direction of travel rather than a choice: the values move and the
+    // dictionary goes. **`Stated` rather than `Mechanical`** because two things an operator has
+    // to be told happen — §14.3.4 leaves a value the packet already states as the packet has it,
+    // and a custom key Table 349 names nothing for is answered by `unmapped` (`doc/adr/1269`).
+    Remedy {
+        requirement: "file-structure/document-information-dictionary-needs-piece-info",
+        answer: Answer::Stated(
+            None,
+            Rewrite::InformationMovedIntoThePacket,
+            INFORMATION_MOVES_INTO_THE_PACKET,
+        ),
+    },
+    Remedy {
+        requirement: "file-structure/document-information-dictionary-holds-only-a-modification-date",
+        answer: Answer::Stated(
+            None,
+            Rewrite::InformationMovedIntoThePacket,
+            INFORMATION_MOVES_INTO_THE_PACKET,
+        ),
+    },
     // -----------------------------------------------------------------------------------------
     // `doc/pdf-a-mitigations.md` section 13.3, *owed, not optional*: the refusals whose right
     // answer loses nothing and which were waiting on code rather than on a decision. Each row's
@@ -2310,15 +2333,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "annotations/file-attachment-only-in-embedded-file-files",
         Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
     ),
-    // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary.
-    (
-        "file-structure/document-information-dictionary-holds-only-a-modification-date",
-        Because::NotBuiltYet(INFO_DICTIONARY_NOT_RECONCILED),
-    ),
-    (
-        "file-structure/document-information-dictionary-needs-piece-info",
-        Because::NotBuiltYet(INFO_DICTIONARY_NOT_RECONCILED),
-    ),
     // ISO 19005-2 section 6.1.7.2, ISO 19005-4 section 6.1.6.2.
     (
         "file-structure/stream-filters-are-standard",
@@ -2668,14 +2682,21 @@ const NOTHING_UNDERLYING_FAILED: &str = "this requirement asks other rules of th
      rewrites annotations the pages reach, and one reachable only through the field tree is not \
      among them";
 
-/// Why `/Info` is not reconciled with the XMP packet.
-const INFO_DICTIONARY_NOT_RECONCILED: &str = "ISO 19005-4 section 6.1.3 leaves a document \
-     information dictionary no entry but ModDate, and only where the catalog states a PieceInfo. \
-     §14.3.3 deprecates the dictionary, so the answer is doc/pdf-a-conversion-limits.md section \
-     4.2's: what it holds moves into the XMP packet and the dictionary goes. This converter \
-     writes the identification schema into that packet and does not reconcile Info with it, \
-     which is the rewrite this needs — and a value moved wrongly would be metadata this \
-     converter had asserted rather than carried";
+/// What an operator is told when `/Info` moves into the XMP packet.
+///
+/// Every value written is the producer's and every property it is written under is the one
+/// §14.3.3's Table 349 names for that key — so nothing is invented. What an operator has to be
+/// told is that a reader's File → Properties panel now reads from somewhere else, and that a key
+/// the packet already states keeps the packet's value rather than the dictionary's, which is
+/// §14.3.4's own instruction.
+const INFORMATION_MOVES_INTO_THE_PACKET: &str = "the document information dictionary is \
+     deprecated by §14.3.3 and ISO 19005-4 section 6.1.3 admits it only beside a PieceInfo and \
+     holding only a ModDate, so each of its entries is written into the XMP packet under the \
+     property Table 349's own NOTE names for it and the dictionary goes. Every value is the \
+     producer's. Where the packet already states a property the dictionary also states, the \
+     packet's value stands and the dictionary's is dropped, which is §14.3.4's instruction to \
+     leave inconsistent values unchanged; a key Table 349 names no counterpart for is the \
+     `unmapped` answer's. What a reader sees change is where File → Properties reads from";
 
 /// Why a stream in a filter this tree cannot decode is refused.
 const NON_STANDARD_FILTER_NOT_BUILT: &str = "this stream names a filter outside the set the base \

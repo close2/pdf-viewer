@@ -25,8 +25,8 @@
 //!
 //! Two consequences, and neither is a matter of taste. **A limit is a maximum rather than a
 //! length**: a join at or under it is drawn to the length its own angle implies, and one over it
-//! is a bevel — not a mitre truncated at the limit, which is what `tiny-skia`'s
-//! `LineJoin::MiterClip` and SVG's `stroke-linejoin: miter-clip` are and what PDF has no
+//! is a bevel — not a mitre truncated at the limit, which is what
+//! `tiny_skia::LineJoin::MiterClip` and SVG's `stroke-linejoin: miter-clip` are and what PDF has no
 //! spelling for. And **the standard is explicit that the result may be enormous**: the NOTE
 //! under the formula is one line, "Very large miter lengths are allowed."
 //!

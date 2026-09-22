@@ -60,7 +60,7 @@ is four costs with two owners:
 | raster's encode of a page seen for the first time, on the lane a page turn takes | quorra's | asked, with the measurement: `doc/QUORRA_FEEDBACK.md` §52 ask 1 |
 | an image restaged for every placement it is drawn at | quorra's | asked, with the byte counts: `doc/QUORRA_FEEDBACK.md` §52 ask 2 |
 | a mesh shading rasterised into device pixels on every view change | this tree's | the **paint** is divided across the pool (ADR 1259); `PatchMesh::tessellate` is still serial and is what remains |
-| a photograph decoded on the way into a page turn | this tree's | untaken. Callgrind puts two thirds of it in `zune-jpeg` and about a sixth in `pdf-model`'s `image.rs` — the expansion of decoded components into RGBA, and `frame_as_defined`'s linear scan of the whole codestream for a `DNL` marker nearly no file has (ADR 1260 §5) |
+| a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which is most of it and is nobody's to divide — `doc/stack.md`'s crate is single-threaded by construction |
 
 ## Two standing facts about measuring this, which no command prints
 
@@ -79,14 +79,15 @@ is four costs with two owners:
 
 The two that are this tree's, in this order:
 
-1. **`pdf-model`'s `image.rs` on the way into a page turn.** The largest single stage of any row
-   measured, and two of its parts are this tree's own loops rather than the codec's. The scan for
-   `DNL` runs over every `DCTDecode` codestream in every document and finds nothing in nearly all
-   of them; whether it can be cheaper without changing what it finds is a question with a clean
-   before-and-after, and `examples/callgrind_interpret` counts it without a clock.
-2. **`PatchMesh::tessellate`.** Each patch is independent and produces its triangles in order, so
+1. **`PatchMesh::tessellate`.** Each patch is independent and produces its triangles in order, so
    ADR 1259's argument carries — but it needs its own measurement, because the paint was the half
    that was measured and the tessellation is what is left of that stage.
+2. **A page's images decoded in parallel.** Every image `XObject` a page names is decoded
+   independently and the pool is already there, so a page of many photographs is divisible where
+   one photograph is not — and nothing incorrect is ever presented, which is what separates this
+   from the deferral ADR 1272 prices and `doc/questions/Q121` puts to the owner. It is a change to
+   how the interpreter walks a content stream rather than to how a codestream is decoded, and it
+   needs a witness page with several images to be measured on.
 
 Both are wall-clock changes on a shared machine, so both owe `doc/habits/measuring.md`'s method:
 arms alternated in one sitting, the minimum of several fresh processes, the load average printed

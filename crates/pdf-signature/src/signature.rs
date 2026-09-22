@@ -42,7 +42,9 @@
 //! certificate arrived in the same file.** §12.8.3.3.1 requires the signer's certificate to be in
 //! the signature value, so verifying against it is a self-consistency check — a real one, and the
 //! thing a forger who edits the document cannot produce, but not a statement that the signer is
-//! anybody. Nothing here is called `Valid` and nothing this program prints uses the word.
+//! anybody. No answer in this module is called `Valid`: the one type in this tree that carries
+//! the word is [`crate::verdict::Valid`], which has no public constructor and cannot be made
+//! without a certification path reaching an anchor a host supplied (ADR 1076).
 //!
 //! # What is here
 //!

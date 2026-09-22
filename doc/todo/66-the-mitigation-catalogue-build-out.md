@@ -57,19 +57,31 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   from a form the document does not itself say is dynamic (ADR 1257). §12.7.3's Table 224 makes
   clearing the flag a claim that streams have been provided, so the construction is what makes the
   claim true and a widget whose appearance cannot be built keeps the flag with its field named;
-  §7.7.2's Table 29 is the dynamic predicate, because Annex K states no test. What is left in this
-  family is `keep-xfa = "attach"`, the packet kept as a file at 4f, which needs the same attachment
-  machinery `original = "attach"` does.
+  §7.7.2's Table 29 is the dynamic predicate, because Annex K states no test. `keep-xfa =
+  "attach"` is **built** too (ADR 1270), on the attachment machinery `original = "attach"` uses:
+  Annex K says the array form's packets are a string and a stream each, the first and last carrying
+  the `xdp:xdp` tags, so the streams end to end are the resource. Nothing is left in this family.
 - **Metadata** (`metadata/*`, eight): **built but for one mechanism.** The fresh packet is written
   where this tree cannot read the producer's, with the original laid out on an appended page
   (ADR 1245, catalogue section 9; the owner's *append or prefix the packet as a page*); the
   extension schema container is written from what the packet itself states, with one fixed sentence
   in each of the three fields no file holds (ADR 1245); the malformed amendment identifier is cut
   by span (ADR 1246). The appended page carries the structure entries it owes a tagged document
-  (ADRs 1025, 1163). What is left in this family is `original = "attach"` — the producer's packet
-  kept as an embedded file at 4f and 4e rather than as a page — and
-  `metadata/provenance-recorded-action-fields-four`, whose catalogue entry recommends a departure
-  over every remedy.
+  (ADRs 1025, 1163). `original = "attach"` is **built**
+  (ADR 1270): the producer's packet stays as an embedded file at 4f and 4e, filed in §7.7.4's name
+  tree with §14.13.3's catalog `/AF` beside it and §14.13.2's own `application/octet-stream` as its
+  media type — the clause names that value for a type the writer does not know. What is left in
+  this family is `metadata/provenance-recorded-action-fields-four`, whose catalogue entry
+  recommends a departure over every remedy.
+- **The document information dictionary** (`file-structure/document-information-dictionary-*`,
+  two sites at part 4 only): **built** (ADR 1269). §14.3.3 deprecates the dictionary and Table
+  349's NOTEs name the XMP counterpart of every key, so the values move and the dictionary goes;
+  `pdf_model::xmp::supplement` is additive because §14.3.4 permits an addition only into a silence.
+  A catalog stating a `/PieceInfo` keeps `/Info` holding `/ModDate` alone, which is the clause's
+  own carve-out and §14.5's reason for it. `unmapped = "discard"` drops a key Table 349 names
+  nothing for; `unmapped = "extension-schema"` is recognised and **refused**, because a container
+  describes a schema a packet uses and a `/Info` key is in none — putting one in needs a namespace
+  URI no file states, which is the property's identity rather than a label for it.
 - **File structure and encryption** (`file-structure/no-encryption`, `crypt-filter-is-identity`,
   `permissions-dictionary-keys`): **built** — `Loss::Encryption`, the word `encryption`, with
   `crates/pdf-transform/src/archive/protection.rs` carrying the producer's Table 22 flags into the

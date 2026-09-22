@@ -406,6 +406,13 @@ pub mod ffi {
         /// for `QClipboard`: it is this flag, and `take_clipboard` beside it, which is exactly the
         /// shape `window` above has and for the same reason.
         clipboard: bool,
+        /// The strip of open documents changed: one was added, one was closed, or the one in
+        /// front moved.
+        ///
+        /// A flag beside `documents` and `focused_document` rather than the labels themselves,
+        /// which is the shape every other answer in this bridge has: what changed is cheap to say
+        /// on every update and what it changed *to* is asked for only when it did (ADR 1264).
+        documents: bool,
         /// The find bar should be shown and given the keyboard.
         ///
         /// `f` and `/` mean this in all three hosts since ADR 0526, and it is a flag for
@@ -752,6 +759,24 @@ pub mod ffi {
         fn find_stop(self: &mut Host);
         /// Whether the search still has pages to read, which is what the timer pumps on.
         fn searching(self: &Host) -> bool;
+        /// What each tab of the strip of open documents says, in the order it shows them.
+        ///
+        /// One entry until something opens a second document — a `/NewWindow true` on §12.6.4.3's
+        /// remote go-to — and the `QTabBar` is hidden for a strip of one, so a window showing one
+        /// document looks exactly as it did before tabs existed (ADR 1264).
+        fn documents(self: &Host) -> Vec<String>;
+        /// Which of them is in front, as a place in the list above.
+        fn focused_document(self: &Host) -> usize;
+        /// A person chose a tab, by its place in that list.
+        fn choose_document(self: &mut Host, index: usize);
+        /// Whether the window should close, because the last document in it was closed.
+        fn closing_the_window(self: &Host) -> bool;
+        /// §12.9's traced path in device pixels of the viewport, as flat `x, y` pairs.
+        ///
+        /// The rubber band a person draws while measuring. §12.9 states no state for a viewer to
+        /// be in, so the points are the host's and what they look like is this platform's;
+        /// `Query::Measure` answers what they *mean* and never sees a pixel of it (ADR 1264).
+        fn measuring(self: &Host) -> Vec<f32>;
         /// The window moved or was resized, in the screen's own pixels: its frame, then its
         /// contents.
         ///

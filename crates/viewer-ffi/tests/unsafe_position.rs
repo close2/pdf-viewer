@@ -238,8 +238,12 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // `quorra_thumbnail_read` already produces, so `info`, `copy` and `free` are not repeated
     // (ADR 1251). Neither takes a struct by value, so `QUORRA_ABI_VERSION` stays where it is for
     // the standing reason.
-    assert_eq!(no_mangle, 204, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 190, "188 `unsafe` entry points and two helpers");
+    // **And one for Table 203's and Table 204's `/NewWindow`**: `quorra_beside` holds a name out
+    // for a document an action would open beside the one showing, which is a fact about the
+    // caller — whether it has a second place to put one — and about no file. It takes no struct
+    // by value, so `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADR 1263).
+    assert_eq!(no_mangle, 205, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 191, "189 `unsafe` entry points and two helpers");
 }
 
 #[test]

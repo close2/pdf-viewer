@@ -128,7 +128,11 @@ answers in two places"
             // told a person who launched it from a desktop nothing at all, and the two native
             // hosts have said the sentence into a status bar and stayed up since their first
             // session. The wording is `viewer_host`'s so that the three say one thing.
-            Event::Opened { pages, .. } => {
+            Event::Opened { document, pages } => {
+                // A document that arrived under the name this window held out for
+                // `/NewWindow true` is a *second* document rather than this one reopened, so it
+                // gets a tab of its own before anything else is said about it (ADR 1263).
+                self.opened_beside(document);
                 println!("{}: {pages} page(s)", self.title);
                 if pages == 0 {
                     let said = viewer_host::no_pages(&self.title);
@@ -486,10 +490,13 @@ impl App {
         ) {
             viewer_host::Remote::Supply { path, note } => {
                 let bytes = App::read_remote(purpose, name, &path);
-                if bytes.is_some()
-                    && let Some(note) = note
-                {
-                    println!("note: {note}");
+                if bytes.is_some() {
+                    if let Some(note) = note {
+                        println!("note: {note}");
+                    }
+                    let name = self.documents.reserve();
+                    self.reserved = Some((name, path));
+                    queue.push_back(Command::Beside(Some(name)));
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
             }
@@ -516,6 +523,11 @@ impl App {
     /// The bytes of a file this window has just been given leave to open.
     fn supply_remote(&mut self, purpose: Purpose, name: &str, path: &Path) {
         let bytes = App::read_remote(purpose, name, path);
+        if bytes.is_some() {
+            // Table 203's `/NewWindow true` opens the destination beside this document rather
+            // than in place of it, where this window has a name free for one (ADR 1263).
+            self.offer_a_name(path);
+        }
         self.dispatch(Command::Supply { purpose, bytes });
     }
 

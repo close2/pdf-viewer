@@ -298,7 +298,7 @@ impl Interpreter<'_> {
         // graphics state — "[i]f the object is an image XObject and there is not an SMask entry
         // in its image dictionary" — so it is answered here, where the dictionary is.
         let soft_mask = !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null);
-        let (_, transfer) = self.mark_transfer(state, Painted::Image { soft_mask }, false);
+        let transfer = self.mark_transfer(state, Painted::Image { soft_mask });
         match self.image_rasters.parts(
             self.document,
             image,
@@ -325,6 +325,12 @@ impl Interpreter<'_> {
                 // what makes the image's own antialiased edge take the clause's value rather than
                 // the composite of an already-transferred colour.
                 let image = picture.source(|image| image);
+                if image.sample_alpha() == pdf_render::SampleAlpha::Both
+                    && image.shape().is_none()
+                    && self.transfers.is_live()
+                {
+                    self.note_unstatable_shape();
+                }
                 self.draw_mark(
                     Command::Image {
                         image,
@@ -490,8 +496,8 @@ impl Interpreter<'_> {
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
-        let (inside, transfer) = self.mark_transfer(state, Painted::of(state, false), false);
-        let paint = self.fill_paint(state, inside.as_ref());
+        let transfer = self.mark_transfer(state, Painted::of(state, false));
+        let paint = self.fill_paint(state);
         self.draw_mark(
             Command::Fill {
                 path: Arc::new(path),

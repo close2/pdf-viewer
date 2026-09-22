@@ -312,6 +312,17 @@ this crate's scene walk; `MeshRaster`'s rows are now divided across rayon's pool
 boundary in the arithmetic the way ADR 0138's strips were — and it is held to that by a calibrated
 test. ADR 1259 has the A/B and the floor's derivation.
 
+**And the photograph's row moved afterwards, which is why the table above is one sitting's and not
+a standing claim.** Its `interp` was two of this tree's own passes over the codestream's bytes on
+top of the decode: the components widened into a four-byte raster after `zune-jpeg` had already
+widened them once, and a byte-at-a-time walk looking for the `DNL` marker that defines a frame
+header's number of lines. The decoder is now asked for the raster directly — it holds the same
+conversion writing four lanes instead of three — and the walk reads a word at a time, with nothing
+drawn differently on any of `raster_golden`'s pages. What is left of that stage is the codec's own
+Huffman and IDCT. ADR 1271 has the three-arm instruction count, the wall-clock A/B and the reason
+the conditional walk that looks obvious is a refusal ISO/IEC 10918-1 does not permit; run
+`tools/state.sh frame` for where the row stands.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

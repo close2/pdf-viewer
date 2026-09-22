@@ -103,9 +103,24 @@ remedy = "preserve"
 as = "xfdf"                # an error naming both site and target under 2b/2u/2a/4/4e
 on-failure = "stop"
 
+# Qualified by target, because the mechanism is: ISO 19005-4 Annex A lifts the
+# conforming-embedded-file rule for 4f and Annex B for 4e, and those two are the only targets that
+# can hold an XFA resource at all. The unqualified row states the intent and nothing this version
+# can carry out, which `--remedy-sites` names rather than hiding.
 [site."forms/no-xfa-key"]
 remedy = "preserve"
-keep-xfa = "attach"        # the XFA packet is XML; 4f and 4e can hold it
+dynamic = "stop"
+on-failure = "stop"
+
+[site."forms/no-xfa-key".target."4f"]
+remedy = "preserve"
+keep-xfa = "attach"        # the XFA resource is XML; 4f holds a file of any type
+dynamic = "stop"
+on-failure = "stop"
+
+[site."forms/no-xfa-key".target."4e"]
+remedy = "preserve"
+keep-xfa = "attach"
 dynamic = "stop"
 on-failure = "stop"
 

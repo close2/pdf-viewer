@@ -4,14 +4,14 @@
 //! # Why wgpu has a channel like this at all
 //!
 //! Most of `wgpu`'s calls answer for themselves. Two of the ones on a window's path do not:
-//! `Surface::configure` returns `()`, and so does `Queue::write_buffer`. When one of those fails,
+//! `wgpu::Surface::configure` returns `()`, and so does `Queue::write_buffer`. When one of those fails,
 //! the only place it is said is the device's *uncaptured error handler*, whose default is
 //! silence — and a host that installs a handler which prints has made the failure visible and
 //! nothing more. The call after it proceeds as though the device had agreed.
 //!
 //! # The failure this type was written for
 //!
-//! The project owner's viewer aborted on launch. `Surface::configure` failed with wgpu's
+//! The project owner's viewer aborted on launch. `wgpu::Surface::configure` failed with wgpu's
 //! `GpuWaitTimeout`; this program printed the handler's line and carried on; the acquire that
 //! followed found a surface that had never been configured, and `wgpu` **panics** there rather
 //! than returning a status — which under `panic = "abort"` is a core dump. The second launch, on
@@ -135,7 +135,7 @@ mod tests {
     }
 
     /// The words survive the sentence, which is the whole point: a host that reads this after a
-    /// `Surface::configure` that returned `()` learns that it failed.
+    /// `wgpu::Surface::configure` that returned `()` learns that it failed.
     #[test]
     fn what_the_device_said_survives_to_be_taken() {
         let errors = UncapturedErrors::default();

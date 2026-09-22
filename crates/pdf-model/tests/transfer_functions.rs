@@ -43,7 +43,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use pdf_render::{Command, Corners, Paint, Ramp, Rasterizer, Shading, ShadingKind, Transform};
+use pdf_render::{Command, Paint, Rasterizer, Shading, Transform};
 use pdf_syntax::Document;
 
 /// One eight-bit level, which is the resolution every colour below is finally drawn at.
@@ -241,7 +241,8 @@ fn a_translucent_marks_own_transfer_function_is_used_at_no_point() {
     );
 }
 
-/// A page painting one translucent mark **over** a fully opaque *shading*, which is reported.
+/// A page painting one translucent mark **over** a fully opaque *shading pattern*, which is the
+/// two-mark case §11.7.5.2's last sentence is about.
 ///
 /// ISO 32000-2 §11.7.5.2:
 ///
@@ -249,19 +250,25 @@ fn a_translucent_marks_own_transfer_function_is_used_at_no_point() {
 /// > at all, the default halftone and transfer function for the page shall be used
 ///
 /// The clause composites raw colours and maps the result once, per point, with the topmost
-/// object's function. Since the one-thousand-one-hundred-and-forty-eighth session every mark but
-/// one carries its function to the backend rather than into its colour, and the backend does
-/// exactly that (`pdf_render::resolve_transfers`, ADR 1125) — so the two agree and there is
-/// nothing to report. **The exception is a shading**, whose ramp is sampled *under* the function
-/// where its colours are made (ADR 0479), because mapping a simplified ramp's two stops would draw
-/// the chord between the transferred ends instead of the transfer's own curve. A shading's colours
-/// therefore arrive already mapped, and where a translucent mark covers one the clause asks for a
-/// composite of the raw ramp instead. That is what this reports and what the first arm below pins.
+/// object's function. A shading pattern's ramp used to be sampled *under* the function where its
+/// colours are made (ADR 0479), so the composite under a translucent mark already had the map
+/// inside it and the departure was reported; the ramp is sampled raw now and the function rides
+/// on the mark into §11.7.5.2's channel, where the translucent mark above it claims the pixel and
+/// maps nothing (ADR 1266).
 ///
-/// The two mutations are the same page with a *solid* fill under the translucent mark — closed by
-/// the channel and no longer named — and the shading painted opaque throughout.
+/// The expected values are the clause's, and each is asserted against a page that paints the same
+/// thing without the shading. Under the translucent blue the composite is the *raw* ramp's colour
+/// blended with blue and mapped by nothing, so the page draws exactly what the solid colour the
+/// shading paints there draws under the same blue. Outside the blue the shading is the topmost
+/// object and is fully opaque, so its own inverting function applies to the composited grey —
+/// the ramp's own quarter-scale value at that corner, inverted.
+///
+/// The third arm is the same page with the blue painted **opaque**. It draws yellow rather than
+/// blue, and that is the clause rather than a surprise: the `/Solid gs` that set the function is
+/// still in force at the blue fill, the blue is then the topmost object *and* fully opaque, and
+/// the inverting function is the one in force at the time of painting it.
 #[test]
-fn a_transferred_opaque_shading_seen_through_a_translucent_one_is_reported() {
+fn a_translucent_mark_over_a_transferred_shading_takes_the_pages_default() {
     let resources = format!(
         "/ExtGState << /Solid << /TR {INVERT} >> /Half << /ca 0.5 >> >> \
          /Pattern << /P << /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB \
@@ -269,44 +276,71 @@ fn a_transferred_opaque_shading_seen_through_a_translucent_one_is_reported() {
          /C1 [1 1 1] /N 1 >> /Extend [true true] >> >> >>"
     );
     let shading = "/Solid gs /Pattern cs /P scn 0 0 50 50 re f";
-    let content = format!("{shading} /Half gs 0 0 1 rg 10 10 50 50 re f");
-
-    let translucent = transfer_reports(fixture(&resources, &content, ""));
-    assert_eq!(
-        translucent.len(),
-        1,
-        "one report for the page, not one per mark: {translucent:?}"
-    );
-    let detail = translucent.first().expect("the report just counted");
-    assert!(
-        detail.contains("§11.7.5.2")
-            && detail.contains("shading")
-            && detail.contains("non-stroking alpha constant is below 1.0"),
-        "the report names the clause, the paint and the condition that matched: {detail}"
-    );
-
-    // A solid fill under the same translucent mark: the channel carries its function to the
-    // backend, the clause's ordering is what gets drawn, and nothing is owed.
-    let solid = transfer_reports(fixture(
+    let seen_through = rendered(fixture(
         &resources,
-        "/Solid gs 1 0 0 rg 0 0 50 50 re f /Half gs 0 0 1 rg 10 10 50 50 re f",
+        &format!("{shading} /Half gs 0 0 1 rg 10 10 50 50 re f"),
         "",
     ));
-    assert!(
-        solid.is_empty(),
-        "a solid mark's function rides on the mark, so §11.7.5.2 is drawn rather than \
-         reported: {solid:?}"
+    // The shading's axis runs across the page's diagonal, so at (25,25) in user space — the
+    // centre of the square it fills, and the raster's (25,74) — its own colour is a quarter of
+    // the way along a black-to-white ramp measured from the corner, which is the same value the
+    // solid mutation below is asked for.
+    let solid = rendered(fixture(
+        &resources,
+        &format!(
+            "/Solid gs {} rg 0 0 50 50 re f /Half gs 0 0 1 rg 10 10 50 50 re f",
+            ramp_level(25.0)
+        ),
+        "",
+    ));
+    assert_eq!(
+        at(&seen_through, 25, 74),
+        at(&solid, 25, 74),
+        "under a translucent mark the clause maps nothing, so a shading and the solid colour it \
+         paints there draw the same pixel"
     );
 
-    let opaque = transfer_reports(fixture(
+    // Outside the blue the shading is the topmost object and is fully opaque, so its function
+    // applies to the composited colour — which is the inverse of the same grey.
+    let outside = at(&seen_through, 5, 94);
+    assert!(
+        outside[0].abs_diff(255 - 13) <= 8,
+        "where the shading is topmost and opaque its own function maps the pixel: {outside:?}"
+    );
+
+    // And the same page with nothing translucent on it, where every reading agrees.
+    let opaque = rendered(fixture(
         &resources,
         &format!("{shading} 0 0 1 rg 10 10 50 50 re f"),
         "",
     ));
-    assert!(
-        opaque.is_empty(),
-        "a fully opaque page is what the clause and this tree agree on: {opaque:?}"
+    assert_eq!(
+        at(&opaque, 25, 74),
+        [255, 255, 0],
+        "an opaque blue is the topmost object there and the `/Solid gs` above it is still in \
+         force, so the clause maps the composite through the inverting function"
     );
+
+    let reports = transfer_reports(fixture(
+        &resources,
+        &format!("{shading} /Half gs 0 0 1 rg 10 10 50 50 re f"),
+        "",
+    ));
+    assert!(
+        reports.is_empty(),
+        "the departure is drawn rather than named: {reports:?}"
+    );
+}
+
+/// The `rg` operands of the black-to-white diagonal ramp `RAMP` and the pattern above share, at a
+/// point `units` along the page's diagonal from its origin.
+///
+/// The axis runs from `(0, 0)` to `(100, 100)`, so the parameter at `(units, units)` is
+/// `units / 100` and §7.10.3's `/N 1` exponential makes the colour that parameter in every
+/// component.
+fn ramp_level(units: f32) -> String {
+    let level = units / 100.0;
+    format!("{level} {level} {level}")
 }
 
 /// The clause's fifth condition, which a mark inside a group cannot see for itself.
@@ -458,15 +492,6 @@ const RAMP: &str = "/Shading << /Sh << /ShadingType 2 /ColorSpace /DeviceRGB \
                     /Coords [0 0 100 100] /Function << /FunctionType 2 /Domain [0 1] \
                     /C0 [0 0 0] /C1 [1 1 1] /N 1 >> /Extend [true true] >> >>";
 
-/// The ramp of the shading a page paints, or a panic if it paints another kind.
-fn painted_ramp(bytes: Vec<u8>) -> Ramp {
-    let shading = painted_shading(bytes);
-    match shading.kind.as_ref() {
-        ShadingKind::Axial { ramp, .. } | ShadingKind::Radial { ramp, .. } => ramp.clone(),
-        other => panic!("expected an axial shading, got {other:?}"),
-    }
-}
-
 /// §10.5 applies to every component value, and an `sh`'s ramp is made of component values.
 ///
 /// > In the sequence of steps for processing colours, the PDF processor shall apply the transfer
@@ -476,36 +501,41 @@ fn painted_ramp(bytes: Vec<u8>) -> Ramp {
 /// > either specified directly or produced by conversion from some other colour space.
 ///
 /// Nothing in the clause distinguishes a colour a `rg` operator states from a colour a shading's
-/// function produces, so the ramp below is inverted end for end. The mutation is the same `sh`
-/// with `/Identity` in force, which Table 57 makes the way to state no function at all.
+/// function produces, so the page below is inverted end for end. **Where** it is applied is
+/// §11.7.5.3's NOTE's answer rather than this clause's — "only when all colour compositing has
+/// been completed and rasterization is being performed" — so the ramp itself is sampled raw and
+/// the map is read off the finished raster (ADR 1266). The mutation is the same `sh` with
+/// `/Identity` in force, which Table 57 makes the way to state no function at all.
 #[test]
-fn an_axial_ramp_is_sampled_through_the_transfer_function() {
-    let inverted = painted_ramp(fixture(
+fn an_axial_ramps_pixels_go_through_the_transfer_function() {
+    let inverted = rendered(fixture(
         &format!("/ExtGState << /Solid << /TR {INVERT} >> >> {RAMP}"),
         "/Solid gs /Sh sh",
         "",
     ));
+    // The axis runs from the page's bottom-left corner to its top-right, and a raster's y grows
+    // downward — so the ramp's black end is the bottom-left pixel and its white end the top-right.
     assert!(
-        (inverted.colour_at(0.0).r - 1.0).abs() < LEVEL,
+        at(&inverted, 1, 98)[0] > 250,
         "the ramp's black end is white under an inverting function: {:?}",
-        inverted.colour_at(0.0)
+        at(&inverted, 1, 98)
     );
     assert!(
-        inverted.colour_at(1.0).r < LEVEL,
+        at(&inverted, 98, 1)[0] < 5,
         "and its white end is black: {:?}",
-        inverted.colour_at(1.0)
+        at(&inverted, 98, 1)
     );
 
-    let plain = painted_ramp(fixture(
+    let plain = rendered(fixture(
         &format!("/ExtGState << /Solid << /TR /Identity >> >> {RAMP}"),
         "/Solid gs /Sh sh",
         "",
     ));
     assert!(
-        plain.colour_at(0.0).r < LEVEL && (plain.colour_at(1.0).r - 1.0).abs() < LEVEL,
+        at(&plain, 1, 98)[0] < 5 && at(&plain, 98, 1)[0] > 250,
         "/Identity leaves the shading's own colours: {:?} {:?}",
-        plain.colour_at(0.0),
-        plain.colour_at(1.0)
+        at(&plain, 1, 98),
+        at(&plain, 98, 1)
     );
 }
 
@@ -515,29 +545,29 @@ fn an_axial_ramp_is_sampled_through_the_transfer_function() {
 /// every stop within half an eight-bit level of the line its neighbours draw — so the linear grey
 /// ramp above reaches the display list as two stops and nothing else. Applying a transfer function
 /// to a finished ramp would therefore map two colours and let the rasteriser interpolate between
-/// them, drawing a straight line wherever the clause asks for the function's own curve.
+/// them, drawing a straight line wherever the clause asks for the function's own curve; applying
+/// it to the *ramp's samples* would put the curve back but would cost the simplifier a resolution
+/// chosen for the wrong function (ADR 0479). §11.7.5.3's NOTE answers both by putting the map
+/// after rasterisation, where it is evaluated once per pixel and the ramp stays the shading's own
+/// (ADR 1266).
 ///
 /// `/N 2` is that curve: §7.10.3 makes an exponential function `C0 + x^N × (C1 − C0)`, so this one
 /// squares its input. The composition at the ramp's midpoint is 0.5² = 0.25; the chord between the
 /// mapped endpoints is 0.5. A quarter of full scale is 64 levels of 255 — no rounding question.
 #[test]
-fn a_ramp_is_the_composition_and_not_its_endpoints() {
+fn a_ramps_pixel_is_the_composition_and_not_the_chord() {
     let square = "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 2 >>";
-    let ramp = painted_ramp(fixture(
+    let raster = rendered(fixture(
         &format!("/ExtGState << /Curve << /TR {square} >> >> {RAMP}"),
         "/Curve gs /Sh sh",
         "",
     ));
-    let middle = ramp.colour_at(0.5).r;
+    // The axis's midpoint is the page's centre, and a raster's y grows downward.
+    let middle = at(&raster, 50, 49)[0];
     assert!(
-        (middle - 0.25).abs() < 8.0 * LEVEL,
-        "the ramp samples the transfer of the shading's colour, not the chord between its \
-         transferred ends: {middle} is not 0.25"
-    );
-    assert!(
-        ramp.stops.len() > 2,
-        "a curve needs more than the two stops the linear shading simplified to: {}",
-        ramp.stops.len()
+        middle.abs_diff(64) <= 4,
+        "the pixel is the transfer of the shading's colour, not the chord between its \
+         transferred ends: {middle} is not 64"
     );
 }
 
@@ -545,9 +575,12 @@ fn a_ramp_is_the_composition_and_not_its_endpoints() {
 ///
 /// The fixture is one type 4 triangle with `/BitsPerFlag 8`, `/BitsPerCoordinate 8` and
 /// `/BitsPerComponent 8`, so a vertex is six bytes with no padding to compute. Under the inverting
-/// function its black corner is white and its mid-grey corners are their complement.
+/// function its black corner draws white and its mid-grey corners draw their complement. The
+/// pixels are read off the raster rather than the corners off the mesh, because §11.7.5.3's NOTE
+/// puts the map after rasterisation (ADR 1266) — at a corner the two orders agree, which is what
+/// makes a corner the place to ask.
 #[test]
-fn a_mesh_corner_colour_goes_through_the_transfer_function() {
+fn a_mesh_corners_pixel_goes_through_the_transfer_function() {
     // flag, x, y, r, g, b — `/Decode` maps the coordinates one-for-one and the components to 0..1.
     // Every byte is below 0x80 so that the stream survives being written as text: `char::from`
     // above that is two UTF-8 bytes, which shifts every vertex after it.
@@ -563,45 +596,40 @@ fn a_mesh_corner_colour_goes_through_the_transfer_function() {
          stream\n{stream}\nendstream\nendobj\n",
         vertices.len()
     );
-    let shading = painted_shading(fixture(
+    let raster = rendered(fixture(
         &format!("/ExtGState << /Solid << /TR {INVERT} >> >> /Shading << /Sh 5 0 R >>"),
         "/Solid gs /Sh sh",
         &mesh,
     ));
-    let ShadingKind::Mesh { triangles, .. } = shading.kind.as_ref() else {
-        panic!("expected a mesh, got {:?}", shading.kind);
-    };
-    let corners = triangles
-        .iter()
-        .flat_map(|triangle| match triangle.corners {
-            Corners::Colours(colours) => colours.into_iter(),
-            Corners::Parameters(_) => panic!("a mesh with no /Function states colours"),
-        })
-        .map(|colour| colour.r)
-        .collect::<Vec<_>>();
+    // The three vertices are (0,0), (100,0) and (0,100) in user space, and a raster's y grows
+    // downward — so the black corner is the bottom-left pixel and the two grey ones are the
+    // bottom-right and the top-left.
+    // A pixel two units in from a corner is already two units along the interpolation, which is
+    // about five of the 127 levels the triangle spans; the tolerance is that and nothing more.
     assert!(
-        corners.iter().any(|red| (red - 1.0).abs() < LEVEL),
-        "the black corner is white under an inverting function: {corners:?}"
+        at(&raster, 2, 97)[0].abs_diff(255) <= 10,
+        "the black corner draws white under an inverting function: {:?}",
+        at(&raster, 2, 97)
     );
-    assert_eq!(corners.len(), 3, "one triangle, three corners: {corners:?}");
-    assert!(
-        corners
-            .iter()
-            .filter(|red| (*red - 1.0).abs() >= LEVEL)
-            .all(|red| (red - (1.0 - 127.0 / 255.0)).abs() < LEVEL),
-        "and the mid-grey corners are their own complement: {corners:?}"
-    );
+    for (across, down) in [(97u32, 97u32), (2, 2)] {
+        let red = at(&raster, across, down)[0];
+        assert!(
+            red.abs_diff(255 - 127) <= 10,
+            "and a mid-grey corner draws its own complement: {red} at ({across},{down})"
+        );
+    }
 }
 
 /// §8.7.4.5.2's function of two variables is evaluated per cell, and each cell is a colour.
 ///
 /// The colours of a type 1 shading do not exist until a device says how large the domain will be
-/// drawn, so the transfer travels with the producer and is applied as each cell is made. The
-/// second half of the test is the reason it has to: a device *program* — §7.10.5's function lowered
-/// to instructions `render-raster` evaluates on the GPU — computes the colour and nothing else, so
-/// there is nowhere on that path to put the function, and it is withdrawn.
+/// drawn, and §11.7.5.3's NOTE puts §10.5's map after rasterisation — so the cells are made raw
+/// and the map is read off the finished raster. The second half of the test is what that buys: a
+/// device *program*, §7.10.5's function lowered to instructions `render-raster` evaluates on the
+/// GPU, computes the colour and nothing else, and with the function off that path it can stand
+/// (ADR 1266).
 #[test]
-fn a_function_based_shading_maps_every_cell_and_withdraws_its_device_program() {
+fn a_function_based_shadings_pixels_are_mapped_and_its_device_program_stands() {
     // `{ pop dup dup }`: discard y, and give the x coordinate to all three components.
     let grey = "<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length 16 >>\n\
                 stream\n{ pop dup dup }\nendstream";
@@ -614,20 +642,20 @@ fn a_function_based_shading_maps_every_cell_and_withdraws_its_device_program() {
     };
     let extra = format!("5 0 obj\n{grey}\nendobj\n");
 
-    let mapped = painted_shading(fixture(&shading(INVERT), "/Solid gs /Sh sh", &extra));
-    let grid = mapped
-        .sampled_at(Transform::IDENTITY, (16, 16))
-        .expect("a type 1 shading resolves to a grid");
-    let first = grid.pixels.first().expect("a grid has cells");
-    let last = grid.pixels.last().expect("a grid has cells");
+    let mapped = rendered(fixture(&shading(INVERT), "/Solid gs /Sh sh", &extra));
     assert!(
-        first.r > last.r,
-        "the function rises with x and the transfer inverts it, so the grid falls: \
-         {first:?} then {last:?}"
+        at(&mapped, 2, 50)[0] > at(&mapped, 97, 50)[0],
+        "the function rises with x and the transfer inverts it, so the page falls: \
+         {:?} then {:?}",
+        at(&mapped, 2, 50),
+        at(&mapped, 97, 50)
     );
     assert!(
-        mapped.device_program().is_none(),
-        "a device evaluating the program would draw the untransferred colours"
+        painted_shading(fixture(&shading(INVERT), "/Solid gs /Sh sh", &extra))
+            .device_program()
+            .is_some(),
+        "the colours the program computes are the shading's own, and §11.7.5.2's channel maps \
+         what the device drew"
     );
 
     let plain = painted_shading(fixture(&shading("/Identity"), "/Solid gs /Sh sh", &extra));
@@ -662,8 +690,9 @@ fn a_function_based_shading_maps_every_cell_and_withdraws_its_device_program() {
 ///
 /// and §11.7.5.2 puts the transfer function at "the last (topmost) elementary graphics object
 /// enclosing that point" — the mark. So a file that states one function at the `scn` and another
-/// at the `f` is painted with the **second**, and the ramp below is read both ways round to say
-/// so. Reported rather than drawn until the six-hundred-and-sixtieth session.
+/// at the `f` is painted with the **second**, and the page below is read both ways round to say
+/// so. The pixel is where it is read, because §11.7.5.3's NOTE puts the map after rasterisation
+/// (ADR 1266).
 #[test]
 fn a_pattern_is_painted_under_the_transfer_function_the_mark_states() {
     let resources = format!(
@@ -674,31 +703,31 @@ fn a_pattern_is_painted_under_the_transfer_function_the_mark_states() {
     );
 
     // Selected under the inverting function and painted with none: the mark's answer is the
-    // shading's own colours, black at one end and white at the other.
-    let dropped = painted_ramp(fixture(
+    // shading's own colours, black at the bottom-left corner and white at the top-right.
+    let dropped = rendered(fixture(
         &resources,
         "/On gs /Pattern cs /P scn /Off gs 0 0 100 100 re f",
         "",
     ));
     assert!(
-        dropped.colour_at(0.0).r < LEVEL && (dropped.colour_at(1.0).r - 1.0).abs() < LEVEL,
+        at(&dropped, 1, 98)[0] < 5 && at(&dropped, 98, 1)[0] > 250,
         "the function was turned off before the mark, so the pattern paints its own colours: \
          {:?} {:?}",
-        dropped.colour_at(0.0),
-        dropped.colour_at(1.0)
+        at(&dropped, 1, 98),
+        at(&dropped, 98, 1)
     );
 
     // And the other way round: selected under no function and painted under the inverting one.
-    let gained = painted_ramp(fixture(
+    let gained = rendered(fixture(
         &resources,
         "/Off gs /Pattern cs /P scn /On gs 0 0 100 100 re f",
         "",
     ));
     assert!(
-        (gained.colour_at(0.0).r - 1.0).abs() < LEVEL && gained.colour_at(1.0).r < LEVEL,
-        "the function stated at the mark reaches the pattern's colours: {:?} {:?}",
-        gained.colour_at(0.0),
-        gained.colour_at(1.0)
+        at(&gained, 1, 98)[0] > 250 && at(&gained, 98, 1)[0] < 5,
+        "the function stated at the mark reaches the pattern's pixels: {:?} {:?}",
+        at(&gained, 1, 98),
+        at(&gained, 98, 1)
     );
 
     // Nothing is left for §10.5 to report about a pattern, and the page below is the one that
@@ -1012,5 +1041,73 @@ fn an_images_shape_is_its_rectangle_although_its_soft_mask_empties_half_of_it() 
         at(&page, 75, 50),
         [255, 255, 255],
         "and so does the half its soft mask empties, which is inside the rectangle all the same"
+    );
+}
+
+/// A one-page fixture filling the whole page through a tiling pattern of one mid-grey cell.
+///
+/// `state` is the `/ExtGState` the tiling mark is painted under, and `over` whatever the page
+/// paints after it.
+fn tiled(state: &str, over: &str) -> Vec<u8> {
+    const CELL: &str = "0.25 0.25 0.25 rg 0 0 10 10 re f";
+    let pattern = format!(
+        "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{CELL}\nendstream\nendobj\n",
+        CELL.len() + 1
+    );
+    fixture(
+        &format!(
+            "/ExtGState << /Solid << /TR {INVERT} >> /Off << /TR /Identity >> \
+             /Half << /ca 0.5 >> >> /Pattern << /P 5 0 R >>"
+        ),
+        &format!("{state} /Pattern cs /P scn 0 0 100 100 re f {over}"),
+        &pattern,
+    )
+}
+
+/// §11.7.5.2's sixth condition makes the object *painted with* a tiling pattern the elementary
+/// object the clause chooses a function for.
+///
+/// > If the current colour is a tiling pattern, all objects in the definition of its pattern cell
+/// > also satisfy the foregoing conditions.
+///
+/// It is a condition on that object being **fully opaque**, not a sentence making each of the
+/// cell's marks the topmost object at a point — so the function at a point a tile covers is the
+/// one in force at the painting operation, and §8.7.3.1's cell, which is interpreted once and
+/// copied to every site (ADR 0430), carries none of its own. ADR 1266.
+///
+/// The expected values are the clause's. The cell paints `0.25` grey, which is 64 of 255; the
+/// inverting function takes that to 191. Under a translucent mark the topmost object is not fully
+/// opaque, so "the default halftone and transfer function for the page shall be used" and the
+/// composite is the raw grey under the blue — which is the same pixel the page draws with
+/// `/Identity` in force, and the second assertion says so by rendering it.
+#[test]
+fn a_tilings_pixels_take_the_function_the_painting_mark_states() {
+    let inverted = rendered(tiled("/Solid gs", ""));
+    assert!(
+        at(&inverted, 50, 50)[0].abs_diff(255 - 64) <= 2,
+        "the tiling's pixels go through the mark's function: {:?}",
+        at(&inverted, 50, 50)
+    );
+    let plain = rendered(tiled("/Off gs", ""));
+    assert!(
+        at(&plain, 50, 50)[0].abs_diff(64) <= 2,
+        "/Identity leaves the cell's own colour: {:?}",
+        at(&plain, 50, 50)
+    );
+
+    let seen_through = rendered(tiled("/Solid gs", "/Half gs 0 0 1 rg 10 10 50 50 re f"));
+    let default = rendered(tiled("/Off gs", "/Half gs 0 0 1 rg 10 10 50 50 re f"));
+    assert_eq!(
+        at(&seen_through, 30, 70),
+        at(&default, 30, 70),
+        "under the translucent blue the clause uses the page's default, so the tiling's own \
+         function reaches no point there"
+    );
+    assert_ne!(
+        at(&seen_through, 80, 20),
+        at(&default, 80, 20),
+        "and away from it the tiling is the topmost object and is fully opaque, so its function \
+         is the one the clause names"
     );
 }

@@ -321,6 +321,28 @@ impl Decode {
             .unwrap_or(0)
     }
 
+    /// The sample of `component` whose value is nearest `value`: the map run backwards.
+    ///
+    /// The map is a table rather than a formula, so its inverse is a search over that table;
+    /// it is asked once per image — for §11.6.5.2's matte colour, which Table 144 states in
+    /// the image's own components while the `DCTDecode` route holds its raster in samples —
+    /// rather than once per pixel, so the linear search is the shape to write.
+    fn raw_of(&self, component: usize, value: f32) -> usize {
+        let Some(table) = self.values.get(component) else {
+            return 0;
+        };
+        let mut nearest = 0;
+        let mut distance = f32::INFINITY;
+        for (raw, stated) in table.iter().enumerate() {
+            let apart = (stated - value).abs();
+            if apart < distance {
+                distance = apart;
+                nearest = raw;
+            }
+        }
+        nearest
+    }
+
     /// Whether the map is the identity on eight-bit device channels.
     ///
     /// The one question the `DCTDecode` route asks, because that route has already turned
@@ -558,6 +580,29 @@ pub fn decode_parts(
             detail: "stream did not decode".to_owned(),
         })?;
 
+    // §11.6.5.2's pre-blending is undone here rather than after the raster exists, because
+    // the clause says where: "inversion of the pre-blending shall precede the colour
+    // conversion". So the matte and the mask's samples travel into the route that turns
+    // samples into colour, and the inversion happens in the parent image's own components.
+    // Table 143 gives a `/Matte`'d mask the parent's own grid — `matte_colour` refuses one
+    // that states another — so the two pair by position. ADR 1268.
+    //
+    // The mask is decoded twice on this path, once for its samples here and once for the
+    // opacity below. That is the cost of the clause's ordering and it is paid only by an
+    // image that states a `/Matte`; the filter chain in front of the mask is memoised by the
+    // document, so what runs twice is the widening into a raster.
+    let premultiplied = match soft_mask_entry(document, dict, resources, (width, height)) {
+        SoftMaskEntry::Image {
+            stream,
+            matte: Some(matte),
+            ..
+        } => prematte_alpha(document, &stream).map(|alpha| (matte, alpha)),
+        _ => None,
+    };
+    let prematte = premultiplied
+        .as_ref()
+        .map(|(matte, alpha)| Prematte { matte, alpha });
+
     let SamplesOnGrid {
         rgba,
         grid: (raster_width, raster_height),
@@ -567,10 +612,13 @@ pub fn decode_parts(
         at,
         &source,
         (width, height),
-        is_mask,
-        fill,
-        colour_key,
-        into,
+        Painting {
+            is_mask,
+            fill,
+            colour_key,
+            into,
+            matte: prematte.as_ref(),
+        },
     )?;
 
     let image = Image {
@@ -693,10 +741,7 @@ fn samples_of(
     at: Dictionaries,
     source: &ImageStream,
     (width, height): (u32, u32),
-    is_mask: bool,
-    fill: pdf_render::Color,
-    colour_key: Option<&[(u32, u32)]>,
-    into: &Conversion,
+    painting: Painting,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -704,53 +749,9 @@ fn samples_of(
         resources,
     } = at;
     match source.codec.as_deref() {
-        Some(b"DCTDecode" | b"DCT") => {
-            // The codestream's grid rather than the dictionary's, on §7.4.8's own statement of
-            // where a JPEG's dimensions live; [`decode_jpeg`] has the reading and says why the
-            // two disagreeing costs no mark.
-            //
-            // Table 13's `/ColorTransform` is read out of the filter's own parameter dictionary
-            // and nowhere else, because that is the one place both clauses mentioning it put a
-            // filter's parameters — §7.4.1's "These optional parameters shall be specified by
-            // the DecodeParms entry in the stream's dictionary", and this clause's own "the
-            // parameter need not be present in the encoded data but shall be specified in the
-            // filter parameter dictionary". ADR 1183.
-            let stated = source
-                .parms
-                .as_ref()
-                .map(|parms| document.get_key(parms, "ColorTransform"))
-                .and_then(|value| value.as_integer());
-            let DecodedJpeg {
-                samples: mut rgba,
-                components,
-                grid,
-            } = decode_jpeg(&source.data, stated)?;
-            // §8.9.6.4's ranges cover "colour components before decoding", which for this
-            // filter are the bytes just answered with; the conversion below replaces them, so
-            // the test is taken here and its answer applied afterwards. It cannot be applied
-            // here as well: [`convert_channels`] writes the alpha byte of a four-component
-            // frame, where it carries `k` until then, and would paint the sample back in.
-            let masked = colour_key.map(|ranges| jpeg_colour_key(&rgba, ranges));
-            convert_channels(at, is_mask, components, &mut rgba, into)?;
-            if let Some(masked) = masked {
-                // The same answer [`unpack`] gives a masked sample: its position, and no
-                // opacity at all.
-                for (pixel, covered) in rgba.chunks_exact_mut(4).zip(masked) {
-                    if covered {
-                        pixel.fill(0);
-                    }
-                }
-            }
-            Ok(SamplesOnGrid {
-                rgba,
-                grid,
-                opacity_included: false,
-                shortfall: None,
-            })
-        }
+        Some(b"DCTDecode" | b"DCT") => decode_dct(at, source, (width, height), painting),
         Some(b"JBIG2Decode") => {
-            let (rgba, shortfall) =
-                decode_jbig2(at, source, (width, height), is_mask, fill, colour_key, into)?;
+            let (rgba, shortfall) = decode_jbig2(at, source, (width, height), painting)?;
             Ok(SamplesOnGrid {
                 rgba,
                 grid: (width, height),
@@ -758,12 +759,9 @@ fn samples_of(
                 shortfall,
             })
         }
-        Some(b"JPXDecode") => {
-            decode_jpx(at, source, (width, height), is_mask, fill, colour_key, into)
-        }
+        Some(b"JPXDecode") => decode_jpx(at, source, (width, height), painting),
         Some(b"CCITTFaxDecode" | b"CCF") => {
-            let (rgba, shortfall) =
-                decode_ccitt(at, source, (width, height), is_mask, fill, colour_key, into)?;
+            let (rgba, shortfall) = decode_ccitt(at, source, (width, height), painting)?;
             Ok(SamplesOnGrid {
                 rgba,
                 grid: (width, height),
@@ -787,7 +785,7 @@ fn samples_of(
             // `examples/required_entry_census` counts 0 of the 2997 image dictionaries over 963
             // pdf.js documents missing a required `/BitsPerComponent`. A stated value of another
             // type is repaired the same way, for the same reason.
-            let bits = if is_mask {
+            let bits = if painting.is_mask {
                 1
             } else {
                 u32::try_from(
@@ -798,10 +796,10 @@ fn samples_of(
                 )
                 .unwrap_or(8)
             };
-            let space = if is_mask {
+            let space = if painting.is_mask {
                 ColourSpace::Mask
             } else {
-                colour_space(document, dict, resources, into)?
+                colour_space(document, dict, resources, painting.into)?
             };
             let decode = Decode::read(document, dict, &space, bits);
             let rgba = unpack(
@@ -812,9 +810,10 @@ fn samples_of(
                     bits,
                     space: &space,
                     decode: &decode,
-                    colour_key,
-                    fill,
-                    into,
+                    colour_key: painting.colour_key,
+                    fill: painting.fill,
+                    into: painting.into,
+                    matte: painting.matte,
                 },
             )?;
             Ok(SamplesOnGrid {
@@ -825,6 +824,124 @@ fn samples_of(
             })
         }
     }
+}
+
+/// Undoes §11.6.5.2's pre-blending on a `DCTDecode` raster's own samples, or says why not.
+///
+/// The clause puts the inversion before the colour conversion, and this route holds its raster in
+/// the frame's components until [`convert_channels`] reads them — so it happens here, in samples
+/// rather than in component values. §8.9.5.2's map is affine, so carrying Table 144's colour into
+/// the same units with [`Decode::raw_of`] makes the two domains one answer.
+///
+/// `Some` is the sentence for [`SamplesOnGrid::shortfall`] where the inversion could not be done:
+/// §7.4.8 puts a JPEG's dimensions in the data and Table 143 pairs a `/Matte`'d mask with the
+/// dictionary's, so where the two disagree there is no pairing to invert by. Said rather than
+/// guessed at. ADR 1268.
+fn matte_on_channels(
+    at: Dictionaries,
+    matte: &Prematte,
+    rgba: &mut [u8],
+    components: usize,
+    grid: (u32, u32),
+    stated: (u32, u32),
+    into: &Conversion,
+) -> Option<String> {
+    if grid != stated {
+        return Some(format!(
+            "the /Matte could not be undone: the codestream is {}x{} where the dictionary says \
+             {}x{}",
+            grid.0, grid.1, stated.0, stated.1
+        ));
+    }
+    let Dictionaries {
+        document,
+        dict,
+        resources,
+    } = at;
+    // The space [`convert_channels`] is about to read the samples through, so that
+    // [`Decode::raw_of`] inverts the same map that route applies.
+    let space = colour_space(document, dict, resources, into).unwrap_or(ColourSpace::Rgb);
+    let decode = Decode::read(document, dict, &space, 8);
+    let raw: Vec<u8> = matte
+        .matte
+        .iter()
+        .enumerate()
+        .map(|(component, value)| u8::try_from(decode.raw_of(component, *value)).unwrap_or(u8::MAX))
+        .collect();
+    Prematte::restore_samples(rgba, components, &raw, matte.alpha);
+    None
+}
+
+/// Decodes a `DCTDecode` image: §7.4.8's frame, converted from the space its dictionary names.
+///
+/// One of [`samples_of`]'s five routes, split out for the same reason the other four are: what a
+/// route does with the bytes is its own, and everything around it is about masks.
+fn decode_dct(
+    at: Dictionaries,
+    source: &ImageStream,
+    (width, height): (u32, u32),
+    painting: Painting,
+) -> Result<SamplesOnGrid, ImageError> {
+    // The codestream's grid rather than the dictionary's, on §7.4.8's own statement of
+    // where a JPEG's dimensions live; [`decode_jpeg`] has the reading and says why the
+    // two disagreeing costs no mark.
+    //
+    // Table 13's `/ColorTransform` is read out of the filter's own parameter dictionary
+    // and nowhere else, because that is the one place both clauses mentioning it put a
+    // filter's parameters — §7.4.1's "These optional parameters shall be specified by
+    // the DecodeParms entry in the stream's dictionary", and this clause's own "the
+    // parameter need not be present in the encoded data but shall be specified in the
+    // filter parameter dictionary". ADR 1183.
+    let stated = source
+        .parms
+        .as_ref()
+        .map(|parms| at.document.get_key(parms, "ColorTransform"))
+        .and_then(|value| value.as_integer());
+    let DecodedJpeg {
+        samples: mut rgba,
+        components,
+        grid,
+    } = decode_jpeg(&source.data, stated)?;
+    // §8.9.6.4's ranges cover "colour components before decoding", which for this
+    // filter are the bytes just answered with; the conversion below replaces them, so
+    // the test is taken here and its answer applied afterwards. It cannot be applied
+    // here as well: [`convert_channels`] writes the alpha byte of a four-component
+    // frame, where it carries `k` until then, and would paint the sample back in.
+    let masked = painting
+        .colour_key
+        .map(|ranges| jpeg_colour_key(&rgba, ranges));
+    // §11.6.5.2's inversion, in the samples this route holds and before
+    // [`convert_channels`] reads them as components — which is the clause's own
+    // ordering, "inversion of the pre-blending shall precede the colour conversion".
+    // The matte is carried into the same units by [`Decode::raw_of`], and §8.9.5.2's
+    // map is affine, so the two domains give the same answer.
+    let shortfall = painting.matte.and_then(|matte| {
+        matte_on_channels(
+            at,
+            matte,
+            &mut rgba,
+            components,
+            grid,
+            (width, height),
+            painting.into,
+        )
+    });
+    convert_channels(at, painting.is_mask, components, &mut rgba, painting.into)?;
+    if let Some(masked) = masked {
+        // The same answer [`unpack`] gives a masked sample: its position, and no
+        // opacity at all.
+        for (pixel, covered) in rgba.chunks_exact_mut(4).zip(masked) {
+            if covered {
+                pixel.fill(0);
+            }
+        }
+    }
+    Ok(SamplesOnGrid {
+        rgba,
+        grid,
+        opacity_included: false,
+        shortfall,
+    })
 }
 
 /// Reads a required positive dimension, Table 87's `/Width` or `/Height`.
@@ -972,6 +1089,97 @@ fn mask_colour_space(
     )
 }
 
+/// What a route needs beyond the bytes to turn samples into a raster.
+///
+/// The four things every route from bytes to colour asks for and none of them decides: whether
+/// §8.9.6.2's stencil rule applies and what colour it paints through, §8.9.6.4's ranges, what the
+/// samples are being composited into, and §11.6.5.2's pre-blending where they carry one. Grouped
+/// because the routes differ in where the bytes came from and in nothing else, which is
+/// [`Samples`]'s reason one level down.
+#[derive(Clone, Copy)]
+struct Painting<'a> {
+    /// §8.9.5.1's `/ImageMask`: the samples are one bit of shape rather than colour.
+    is_mask: bool,
+    /// The current fill colour, which a stencil paints through the bits that mark the page.
+    fill: pdf_render::Color,
+    /// §8.9.6.4's colour-key ranges, one per component, in raw sample values.
+    colour_key: Option<&'a [(u32, u32)]>,
+    /// How the samples are converted (`crate::colour::Conversion`).
+    into: &'a Conversion,
+    /// §11.6.5.2's pre-blending, where the samples carry one. See [`Prematte`].
+    matte: Option<&'a Prematte<'a>>,
+}
+
+/// §11.6.5.2's pre-blending, and what a reader needs to undo it.
+///
+/// > If the image data are pre-blended, the matte colour shall be specified by a Matte entry
+/// > in the soft-mask image dictionary
+///
+/// The clause states the blending as `c′ = m + α × (c - m)`, "performed independently for
+/// each component", and requires the inversion to run where the blending did:
+///
+/// > The preblending computation shall be done in the colour space specified by the parent
+/// > image's ColorSpace entry. This is independent of the group colour space into which the
+/// > image may be painted. If a colour conversion is required, inversion of the pre-blending
+/// > shall precede the colour conversion.
+///
+/// So this travels *into* the routes that turn samples into colour and is applied to the
+/// components, before the space is consulted. Doing it afterwards — on the raster this crate
+/// holds — is exact only where the conversion is the identity on components, which is the two
+/// device spaces and nothing else; in any other space the bytes are a function of the
+/// pre-blended components rather than the components. ADR 1268.
+///
+/// Table 143 makes the mask's `/Width` and `/Height` "the same as the … value of the parent
+/// image" wherever a `/Matte` is present, so [`Prematte::alpha`] is one byte per sample of the
+/// parent's own grid and the two are paired by position.
+struct Prematte<'a> {
+    /// Table 144's colour, in the parent image's own component values.
+    matte: &'a [f32],
+    /// The mask's samples, one byte each, on the parent image's grid: the clause's `α`.
+    alpha: &'a [u8],
+}
+
+impl Prematte<'_> {
+    /// The original components of the pixel at `at`, from the pre-blended ones.
+    ///
+    /// `c = m + (c′ - m) ÷ α`, per component, clamped by §11.6.5.2's own closing requirement —
+    /// "[t]he resulting c value shall lie within the range of colour component values for the
+    /// image colour space". Where α is 0 the clause's NOTE says the inversion divides by zero
+    /// and "an arbitrary value for c can be chosen", because a fully transparent sample cannot
+    /// affect the output; the matte colour is the value that costs nothing to justify.
+    fn restore(&self, values: &mut [f32], at: usize, permitted: &dyn Fn(usize) -> (f32, f32)) {
+        let alpha = self.alpha.get(at).copied().unwrap_or(0);
+        for (component, value) in values.iter_mut().enumerate() {
+            let matte = self.matte.get(component).copied().unwrap_or(0.0);
+            let (low, high) = permitted(component);
+            *value = if alpha == 0 {
+                matte
+            } else {
+                let opacity = f32::from(alpha) / 255.0;
+                (*value - matte).mul_add(1.0 / opacity, matte)
+            }
+            .clamp(low.min(high), low.max(high));
+        }
+    }
+
+    /// The same, on a raster of eight-bit samples that has not been decoded yet.
+    ///
+    /// The `DCTDecode` route holds its raster in the frame's own samples until
+    /// [`convert_channels`] reads them, and §8.9.5.2's map from a sample to a component value
+    /// is affine — so undoing the pre-blending in samples, with the matte carried into the same
+    /// units by [`Decode::raw_of`], is the same arithmetic on the same domain. `matte` is
+    /// Table 144's colour as samples, one per component.
+    fn restore_samples(rgba: &mut [u8], components: usize, matte: &[u8], alpha: &[u8]) {
+        for (at, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+            let opacity = alpha.get(at).copied().unwrap_or(0);
+            for (component, value) in pixel.iter_mut().take(components.min(4)).enumerate() {
+                let matte = matte.get(component).copied().unwrap_or(0);
+                *value = unblend(*value, matte, opacity);
+            }
+        }
+    }
+}
+
 /// How a row of raw bytes becomes colour: the layout, and what a value means.
 ///
 /// Grouped rather than passed one at a time because all five are settled by the image
@@ -999,6 +1207,9 @@ struct Samples<'a> {
     /// quantity that is not the device's — so a raster that ignored this would be the one
     /// thing in such a group painted in the wrong units (ADR 0220).
     into: &'a Conversion,
+    /// §11.6.5.2's pre-blending, where the samples carry one and it has to be undone before
+    /// the space is consulted. See [`Prematte`].
+    matte: Option<&'a Prematte<'a>>,
 }
 
 /// Unpacks raw samples into RGBA8.
@@ -1010,6 +1221,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
         colour_key,
         fill: _,
         into,
+        matte,
     } = samples;
     // Table 87 names five, and a value it does not name says nothing about how the bytes are
     // packed — so it is refused rather than rounded to a depth that would shift every sample.
@@ -1032,8 +1244,16 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     // Only up to eight bits: a 16-bit table is 65 536 conversions, which is more work than
     // the image itself for anything smaller than a quarter-megapixel, and the per-sample arm
     // below already memoises exactly. No corpus image reaches that combination.
+    // A matte takes both of this function's shortcuts away, and for the same reason: the
+    // colour of a sample is no longer a function of the sample alone — §11.6.5.2 makes it a
+    // function of the sample *and* the mask value at that pixel — so a table indexed by the
+    // sample, and a memo keyed on it, would both answer for the wrong pixel. It costs one
+    // conversion per sample on the images that state one, which `issue13931.pdf` is the only
+    // corpus witness of.
     let palette = match space {
-        ColourSpace::Resolved(resolved) if resolved.components() == 1 && bits <= 8 => {
+        ColourSpace::Resolved(resolved)
+            if resolved.components() == 1 && bits <= 8 && matte.is_none() =>
+        {
             Some(palette(resolved, bits, decode, into))
         }
         _ => None,
@@ -1050,7 +1270,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
     // The memo's key packs eight bits per component, so it is exact only at or below that
     // depth; see `resolved_sample`.
     let mut cache = matches!(space, ColourSpace::Resolved(_))
-        .then(|| palette.is_none() && components <= 4 && bits <= 8)
+        .then(|| palette.is_none() && components <= 4 && bits <= 8 && matte.is_none())
         .filter(|fits| *fits)
         .map(|_| SampleMemo::for_pixels(width_usize.saturating_mul(height_usize)));
 
@@ -1099,6 +1319,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
                 &mut cache,
                 row,
                 x,
+                y.saturating_mul(width_usize).saturating_add(x),
             ));
         }
     }
@@ -1316,6 +1537,7 @@ fn sample_rgba(
     cache: &mut Option<SampleMemo>,
     row: &[u8],
     x: usize,
+    at: usize,
 ) -> [u8; 4] {
     let &Samples {
         bits,
@@ -1323,10 +1545,21 @@ fn sample_rgba(
         decode,
         colour_key: _,
         fill,
-        into,
+        matte,
+        ..
     } = samples;
     let opaque =
         |colour: pdf_render::Color| [channel(colour.r), channel(colour.g), channel(colour.b), 255];
+    // §11.6.5.2's inversion, "independently for each component" and before the space is
+    // consulted, which is the clause's own ordering: "inversion of the pre-blending shall
+    // precede the colour conversion". `at` is the pixel's position on the parent's grid,
+    // which Table 143 makes the mask's grid too wherever a `/Matte` is present.
+    let restored = |mut values: Vec<f32>| -> Vec<f32> {
+        if let Some(matte) = matte {
+            matte.restore(&mut values, at, &|component| space.permitted(component));
+        }
+        values
+    };
     match (space, bits) {
         (ColourSpace::Mask, _) => {
             // §8.9.6.2: a sample decoding to 0 marks the page, so the default `[0 1]` paints
@@ -1344,27 +1577,43 @@ fn sample_rgba(
                 [0, 0, 0, 0]
             }
         }
-        (ColourSpace::Gray, _) => {
+        // `Decode::channel` is `channel` applied to `Decode::value` and tabulated, so the two
+        // arms of each pair are one answer; the matte'd one recomputes what the table holds,
+        // because §11.6.5.2's inversion stands between the two steps.
+        (ColourSpace::Gray, _) if matte.is_none() => {
             let value = decode.channel(0, index_of(row, x, bits));
             [value, value, value, 255]
         }
-        (ColourSpace::Rgb, _) => {
-            let at = x.saturating_mul(3);
-            let read = |component: usize| {
-                decode.channel(component, index_of(row, at.saturating_add(component), bits))
-            };
+        (ColourSpace::Gray, _) => {
+            let value = channels(&restored(vec![decode.value(0, index_of(row, x, bits))]))[0];
+            [value, value, value, 255]
+        }
+        (ColourSpace::Rgb, _) if matte.is_none() => {
+            let read =
+                |component: usize| decode.channel(component, rgb_index(row, x, bits, component));
             [read(0), read(1), read(2), 255]
         }
+        (ColourSpace::Rgb, _) => {
+            let read =
+                |component: usize| decode.value(component, rgb_index(row, x, bits, component));
+            let rgb = channels(&restored(vec![read(0), read(1), read(2)]));
+            [rgb[0], rgb[1], rgb[2], 255]
+        }
         (ColourSpace::Cmyk, _) => {
-            let at = x.saturating_mul(4);
+            let first = x.saturating_mul(4);
             let read = |offset: usize| {
-                decode.value(offset, index_of(row, at.saturating_add(offset), bits))
+                decode.value(offset, index_of(row, first.saturating_add(offset), bits))
             };
             // The *same* conversion a `k` operator or an `scn` in DeviceCMYK gets. Having a
             // second one here is how the same colour came to render differently depending on
             // whether it was drawn as a fill or as an image, which is exactly the bug this
             // crate should not have.
-            opaque(crate::colour::ColourSpace::Cmyk.to_rgb(&[read(0), read(1), read(2), read(3)]))
+            opaque(crate::colour::ColourSpace::Cmyk.to_rgb(&restored(vec![
+                read(0),
+                read(1),
+                read(2),
+                read(3),
+            ])))
         }
         (ColourSpace::Resolved(_), _) if palette.is_some() => {
             let sample = index_of(row, x, bits);
@@ -1377,10 +1626,57 @@ fn sample_rgba(
                     .unwrap_or(pdf_render::Color::BLACK),
             )
         }
-        (ColourSpace::Resolved(resolved), _) => {
-            opaque(resolved_sample(resolved, row, x, bits, decode, cache, into))
+        (ColourSpace::Resolved(resolved), _)
+            if matte.is_some() && resolved.indexed_base().is_some() =>
+        {
+            opaque(indexed_entry_sample(
+                resolved,
+                samples,
+                decode.value(0, index_of(row, x, bits)),
+                at,
+            ))
         }
+        (ColourSpace::Resolved(resolved), _) => opaque(resolved_sample(
+            resolved,
+            samples,
+            (row, x),
+            cache,
+            &restored,
+        )),
     }
+}
+
+/// Three component values as the channels a raster holds, in [`Decode::channel`]'s own terms.
+fn channels(values: &[f32]) -> [u8; 3] {
+    std::array::from_fn(|index| channel(values.get(index).copied().unwrap_or(0.0)))
+}
+
+/// Where component `component` of pixel `x` sits among a three-component row's samples.
+fn rgb_index(row: &[u8], x: usize, bits: u32, component: usize) -> usize {
+    index_of(row, x.saturating_mul(3).saturating_add(component), bits)
+}
+
+/// One pixel of an `Indexed` image whose table entries carry Table 144's matte.
+///
+/// §11.6.5.2's inversion runs on "the colour values in the colour table (not the index values
+/// themselves)", so the entry an index selects is what is restored, in the base space's
+/// components — after which it is painted as a colour of that space rather than as an index of
+/// this one. `at` is the pixel's position on the parent's grid, which Table 143 makes the mask's
+/// grid too wherever a `/Matte` is present. ADR 1268.
+fn indexed_entry_sample(
+    space: &crate::colour::ColourSpace,
+    samples: &Samples,
+    index: f32,
+    at: usize,
+) -> pdf_render::Color {
+    let base = space.indexed_base().unwrap_or(space);
+    let mut values = space.entry_of(&[index]);
+    if let Some(matte) = samples.matte {
+        matte.restore(&mut values, at, &|component| {
+            base.component_range(component)
+        });
+    }
+    samples.into.paint(base, &values)
 }
 
 /// One pixel of a space the colour module resolves, converted through it.
@@ -1389,13 +1685,14 @@ fn sample_rgba(
 /// table lookup, built by [`palette`].
 fn resolved_sample(
     space: &crate::colour::ColourSpace,
-    row: &[u8],
-    x: usize,
-    bits: u32,
-    decode: &Decode,
+    samples: &Samples,
+    (row, x): (&[u8], usize),
     cache: &mut Option<SampleMemo>,
-    into: &Conversion,
+    restored: &dyn Fn(Vec<f32>) -> Vec<f32>,
 ) -> pdf_render::Color {
+    let &Samples {
+        bits, decode, into, ..
+    } = samples;
     let count = space.components();
     let at = x.saturating_mul(count);
     // The raw samples, before `/Decode`, which is what makes them a key: the map from a
@@ -1436,7 +1733,7 @@ fn resolved_sample(
     {
         return colour;
     }
-    let colour = into.paint(space, &values);
+    let colour = into.paint(space, &restored(values));
     if let Some(cache) = cache.as_mut() {
         cache.put(key, colour);
     }
@@ -1622,10 +1919,7 @@ fn decode_jbig2(
     at: Dictionaries,
     source: &ImageStream,
     (width, height): (u32, u32),
-    is_mask: bool,
-    fill: pdf_render::Color,
-    colour_key: Option<&[(u32, u32)]>,
-    into: &Conversion,
+    painting: Painting,
 ) -> Result<(Vec<u8>, Option<String>), ImageError> {
     let Dictionaries {
         document,
@@ -1673,10 +1967,10 @@ fn decode_jbig2(
         });
     }
 
-    let space = if is_mask {
+    let space = if painting.is_mask {
         ColourSpace::Mask
     } else {
-        colour_space(document, dict, resources, into)?
+        colour_space(document, dict, resources, painting.into)?
     };
     let decode = Decode::read(document, dict, &space, 1);
     let rgba = unpack(
@@ -1689,9 +1983,10 @@ fn decode_jbig2(
             decode: &decode,
             // Table 87: "a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit
             // samples", and those are the bits below, so §8.9.6.4's test is exact here.
-            colour_key,
-            fill,
-            into,
+            colour_key: painting.colour_key,
+            fill: painting.fill,
+            into: painting.into,
+            matte: painting.matte,
         },
     )?;
     Ok((rgba, bilevel.stopped_by))
@@ -1786,10 +2081,7 @@ fn decode_ccitt(
     at: Dictionaries,
     source: &ImageStream,
     (width, height): (u32, u32),
-    is_mask: bool,
-    fill: pdf_render::Color,
-    colour_key: Option<&[(u32, u32)]>,
-    into: &Conversion,
+    painting: Painting,
 ) -> Result<(Vec<u8>, Option<String>), ImageError> {
     let Dictionaries {
         document,
@@ -1863,14 +2155,11 @@ fn decode_ccitt(
     }
 
     let end_of_block = flag("EndOfBlock", true);
+    let stated_rows = u32::try_from(integer("Rows", 0)).unwrap_or(0);
     let parameters = pdf_sandbox::CcittParameters {
         k: i32::try_from(k).unwrap_or(0),
         columns,
-        rows: ccitt_rows(
-            u32::try_from(integer("Rows", 0)).unwrap_or(0),
-            end_of_block,
-            height,
-        ),
+        rows: ccitt_rows(stated_rows, end_of_block, height),
         height,
         end_of_line,
         encoded_byte_align: flag("EncodedByteAlign", false),
@@ -1914,10 +2203,10 @@ fn decode_ccitt(
         )
     });
 
-    let space = if is_mask {
+    let space = if painting.is_mask {
         ColourSpace::Mask
     } else {
-        colour_space(document, dict, resources, into)?
+        colour_space(document, dict, resources, painting.into)?
     };
     let decode = Decode::read(document, dict, &space, 1);
     let mut rgba = unpack(
@@ -1930,9 +2219,10 @@ fn decode_ccitt(
             decode: &decode,
             // As in [`decode_jbig2`]: Table 87 makes this filter's samples one bit, which is
             // what §8.9.6.4's ranges are stated over and what [`unpack`] reads.
-            colour_key,
-            fill,
-            into,
+            colour_key: painting.colour_key,
+            fill: painting.fill,
+            into: painting.into,
+            matte: painting.matte,
         },
     )?;
     if shortfall.is_some() {
@@ -1968,10 +2258,7 @@ fn decode_jpx(
     at: Dictionaries,
     source: &ImageStream,
     (width, height): (u32, u32),
-    is_mask: bool,
-    fill: pdf_render::Color,
-    colour_key: Option<&[(u32, u32)]>,
-    into: &Conversion,
+    painting: Painting,
 ) -> Result<SamplesOnGrid, ImageError> {
     let Dictionaries {
         document,
@@ -1988,13 +2275,14 @@ fn decode_jpx(
         // Under the page's output intent, as [`colour_space`] parses every other image's:
         // the codestream's colour specification is what §7.4.9 lets `/ColorSpace` override,
         // and a `/DeviceCMYK` stated here means what it means on this page.
-        let intent = into.output_intent();
+        let intent = painting.into.output_intent();
         Some(
             crate::colour::ColourSpace::parse_under(
                 document,
                 &declared,
                 resources,
-                crate::colour::Reading::new(intent.as_ref()).under_separations(into.separations()),
+                crate::colour::Reading::new(intent.as_ref())
+                    .under_separations(painting.into.separations()),
             )
             .ok_or_else(|| ImageError::UnsupportedColourSpace {
                 space: space_name(&declared),
@@ -2045,8 +2333,8 @@ fn decode_jpx(
     let use_opacity = smask_in_data != 0 && raster.has_opacity;
     let premultiplied = smask_in_data == 2;
 
-    if is_mask {
-        return jpx_stencil(document, dict, &raster, fill, use_opacity);
+    if painting.is_mask {
+        return jpx_stencil(document, dict, &raster, painting.fill, use_opacity);
     }
 
     let stated_by_the_dictionary = declared_space.is_some();
@@ -2071,7 +2359,13 @@ fn decode_jpx(
     let KeyedSamples {
         ranges: colour_key,
         shortfall,
-    } = colour_key_in_the_rasters_domain(colour_key, &raster);
+    } = colour_key_in_the_rasters_domain(painting.colour_key, &raster);
+    // §11.6.5.2's inversion pairs the mask's samples with the parent's by position, and
+    // Table 143 makes the two grids the dictionary's; [`matte_at_the_stated_grid`] says what a
+    // codestream decoded at a reduced level gets instead.
+    let grid = (raster.width, raster.height);
+    let paired = painting.matte.filter(|_| grid == (width, height));
+    let reduced = painting.matte.is_some() && paired.is_none();
     Ok(SamplesOnGrid {
         rgba: jpx_samples_to_rgba(
             &raster,
@@ -2082,11 +2376,29 @@ fn decode_jpx(
                 premultiplied,
             },
             colour_key,
-            into,
+            painting.into,
+            paired,
         ),
-        grid: (raster.width, raster.height),
+        grid,
         opacity_included: use_opacity,
-        shortfall,
+        shortfall: shortfall.or_else(|| matte_at_the_stated_grid(reduced, grid, (width, height))),
+    })
+}
+
+/// What a `/Matte` gets where the codestream did not decode at the grid the dictionary states.
+///
+/// §7.4.9 NOTE 3 lets a `JPXDecode` codestream over the confined worker's budget come back at one
+/// of its own reduced resolution levels (ADR 0321), and Table 143 pairs a `/Matte`'d mask with the
+/// parent's *stated* grid — so on such a raster there is no pairing to invert by, and the
+/// pre-blending is named through [`SamplesOnGrid::shortfall`] rather than applied to samples it
+/// was not blended into. ADR 1268.
+fn matte_at_the_stated_grid(reduced: bool, grid: (u32, u32), stated: (u32, u32)) -> Option<String> {
+    reduced.then(|| {
+        format!(
+            "the /Matte could not be undone: the codestream decoded at {}x{} where the \
+             dictionary says {}x{}",
+            grid.0, grid.1, stated.0, stated.1
+        )
     })
 }
 
@@ -2227,6 +2539,9 @@ fn jpx_stencil(
                 // A stencil carries no colour, so nothing here depends on what the samples are
                 // composited into; the fill has been redirected already.
                 into: &Conversion::device(),
+                // Nor is there a component for Table 144's matte colour to have been blended
+                // into: §8.9.6.2's stencil states where the page is marked and nothing else.
+                matte: None,
             },
         )?,
         grid: (raster.width, raster.height),
@@ -2306,6 +2621,7 @@ fn jpx_samples_to_rgba(
     opacity_channel: JpxOpacity,
     colour_key: Option<&[(u32, u32)]>,
     into: &Conversion,
+    matte: Option<&Prematte>,
 ) -> Vec<u8> {
     let JpxOpacity {
         use_opacity,
@@ -2352,6 +2668,15 @@ fn jpx_samples_to_rgba(
             for slot in &mut values {
                 *slot /= opacity;
             }
+        }
+        // §11.6.5.2's inversion, before the space is consulted and after §8.9.5.2's map, which
+        // is where the clause puts it. §7.4.9's own premultiplication above is a different
+        // entry with a different weight — `/SMaskInData`'s opacity channel, not `/SMask`'s
+        // samples — and the two are undone in the order the raster carries them.
+        if let Some(matte) = matte {
+            matte.restore(&mut values, pixel, &|component| {
+                space.component_range(component)
+            });
         }
         let colour = into.paint(space, &values);
         out.extend_from_slice(&[
@@ -2698,6 +3023,49 @@ struct DecodedJpeg {
 /// codestream whose first scan is not followed by a `DNL`, which is nearly every one. `Some` is
 /// the offset of the frame header's two-byte `Y`, the `DNL`'s `NL`, and the byte range of the
 /// `DNL` segment itself, from the `FF` that opens it to the end of `NL`.
+/// The offset of the next `FF` at or after `from`, or `None` where the data ends without one.
+///
+/// **This is where the walk over a codestream's entropy-coded data spends nearly all of its
+/// time, and the byte it looks for is rare.** ISO/IEC 10918-1 section B.1.1.5 has an encoder
+/// stuff a zero byte after every `FF` its entropy coder produces, so inside a scan the byte
+/// stands only at a restart, at a stuffed pair, or at the marker that ends the scan — a few
+/// thousand places in a five-megabyte photograph, against five million bytes that are none of
+/// them. A byte-at-a-time loop therefore pays a bounds check and a branch per byte for an answer
+/// it gets every few thousand: the walk cost 70.1 M instructions of interpreting a
+/// five-megapixel photograph's page and reading eight bytes at a time costs 20.6 M
+/// (ADR 1271, `examples/callgrind_interpret`).
+///
+/// The word test is the classic one for a zero byte: `x - 0x0101…` borrows into the high bit of
+/// a lane only where that lane is zero, so `(x - 0x0101…) & !x & 0x8080…` is non-zero exactly
+/// when some lane of `x` is zero. Applied to the complement of the data, a zero lane is an `FF`.
+/// The lane itself is then found by looking, so that a word the test lets through costs a second
+/// look rather than a wrong answer.
+fn next_ff_byte(data: &[u8], from: usize) -> Option<usize> {
+    /// One in every byte lane.
+    const ONES: u64 = u64::from_ne_bytes([0x01; 8]);
+    /// The high bit of every byte lane.
+    const HIGHS: u64 = u64::from_ne_bytes([0x80; 8]);
+
+    let tail = data.get(from..)?;
+    let mut words = tail.chunks_exact(8);
+    let mut at = from;
+    for chunk in words.by_ref() {
+        let mut eight = [0u8; 8];
+        // `chunks_exact(8)` yields eight bytes, so the lengths agree and this cannot panic.
+        eight.copy_from_slice(chunk);
+        let bytes = u64::from_ne_bytes(eight);
+        let holes = !bytes;
+        if holes.wrapping_sub(ONES) & bytes & HIGHS != 0
+            && let Some(offset) = chunk.iter().position(|&byte| byte == 0xFF)
+        {
+            return at.checked_add(offset);
+        }
+        at = at.checked_add(8)?;
+    }
+    let offset = words.remainder().iter().position(|&byte| byte == 0xFF)?;
+    at.checked_add(offset)
+}
+
 fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<usize>)> {
     if data.get(..2)? != [0xFF, 0xD8] {
         return None;
@@ -2739,12 +3107,8 @@ fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<u
                 // The first scan's entropy-coded data: inside it, `FF` is followed only by a
                 // stuffed `00` or a restart marker. The next marker is what ends the scan.
                 loop {
-                    let opens = at;
-                    let byte = *data.get(at)?;
-                    at = at.checked_add(1)?;
-                    if byte != 0xFF {
-                        continue;
-                    }
+                    let opens = next_ff_byte(data, at)?;
+                    at = opens.checked_add(1)?;
                     while data.get(at) == Some(&0xFF) {
                         at = at.checked_add(1)?;
                     }
@@ -2996,7 +3360,39 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
     let components = decoder
         .output_colorspace()
         .map_or(3, |space| space.num_components());
-    let mut pixels = decoder.decode().map_err(|e| ImageError::Malformed {
+    // **Where the decoder can write this crate's raster itself, it is asked to.** The loops
+    // below exist to widen the decoder's components into the four-byte pixels the display list
+    // carries, and for a frame whose components the decoder is converting anyway that widening
+    // is work done twice: `zune-jpeg` holds a `YCbCr → RGBA` and a `Luma → RGBA` beside the
+    // three-channel forms — the same arithmetic, writing four lanes instead of three — so
+    // asking for the four saves a second buffer, the pass that fills it and the pass that
+    // clears it. It is 10.6% of interpreting a five-megapixel photograph's page (ADR 1271).
+    //
+    // Only where the decoder is converting: a frame this crate takes `untouched` is one whose
+    // samples Table 13 says are *not* the decoder's to transform, and `zune-jpeg` has no
+    // four-lane copy for those in any case. Four-component frames stay four for the reason
+    // above — they are `/ColorSpace`'s to interpret.
+    let direct = untouched.is_none()
+        && matches!(components, 1 | 3)
+        && matches!(input, Some(ColorSpace::Luma | ColorSpace::YCbCr));
+    // **And it is asked of a decoder that has not read the headers yet**, which is not a
+    // formality: `zune-jpeg` chooses its colour-conversion function while it reads them, and
+    // `set_options` after that changes the shape of the output buffer without changing the
+    // function that fills it. Asking the decoder above would have had a three-lane conversion
+    // write into a four-lane raster — every row three quarters written and its colours walking
+    // along it — and the instrument would have called it faster, because it is. The second
+    // decoder re-reads the marker segments, which is a walk over a few hundred bytes; the
+    // scan's data is still read once. ADR 1271.
+    let mut pixels = if direct {
+        zune_jpeg::JpegDecoder::new_with_options(
+            zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
+            jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA),
+        )
+        .decode()
+    } else {
+        decoder.decode()
+    }
+    .map_err(|e| ImageError::Malformed {
         detail: format!("JPEG data: {e}"),
     })?;
     // Table 13's transform, in the two places it is this crate's to apply rather than the
@@ -3013,20 +3409,46 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
         ycbcr_to_rgb(&mut pixels);
     }
     let count = usize::from(info.width).saturating_mul(usize::from(info.height));
+    // How many channels the decoder wrote for each pixel: four wherever it was asked for the
+    // raster directly, and the frame's own component count otherwise.
+    let delivered = if direct { 4 } else { components };
+    // A buffer that is already four channels a pixel *is* the raster, and moving it into
+    // another one of the same size would be a copy for nothing. `zune-jpeg` sizes its output as
+    // the frame's grid times the channels asked for, so the length is the test for that.
+    if delivered == 4 && pixels.len() == count.saturating_mul(4) {
+        return Ok(DecodedJpeg {
+            samples: pixels,
+            components,
+            grid,
+        });
+    }
 
-    // Filled with 255 so that alpha is already set and the loops below touch three bytes per
-    // pixel instead of four.
-    //
-    // This loop is written for speed, and the benchmark that says it had to be is worth
-    // recording: on `22060_A1_01_Plans.pdf`, `callgrind` put the *previous* version of it at
-    // 6.89 G instructions, 38% of the whole run and nearly twice what `zune-jpeg` spent
-    // actually decoding the JPEG. The cost was per pixel and structural — a `match` on the
-    // component count inside the loop, three bounds-checked `get`s with `unwrap_or`,
-    // saturating index arithmetic, and an `extend_from_slice` that re-checks capacity every
-    // time. Pairing two `chunks_exact` iterators removes all four: the component count is
-    // decided once, the chunk lengths are known to the compiler, and nothing is indexed.
+    Ok(DecodedJpeg {
+        samples: widened(&pixels, count, delivered)?,
+        components,
+        grid,
+    })
+}
+
+/// `count` four-byte pixels built from `channels` channels each, with alpha set.
+///
+/// The frames that reach this are the ones [`decode_jpeg`] could not have the decoder write
+/// directly: its components, widened into the raster a display list carries.
+///
+/// Filled with 255 so that alpha is already set and the loops below touch three bytes per pixel
+/// instead of four.
+///
+/// This is written for speed, and the benchmark that says it had to be is worth recording: on
+/// `22060_A1_01_Plans.pdf`, `callgrind` put an earlier version of it at 6.89 G instructions, 38%
+/// of the whole run and nearly twice what `zune-jpeg` spent actually decoding the JPEG. The cost
+/// was per pixel and structural — a `match` on the component count inside the loop, three
+/// bounds-checked `get`s with `unwrap_or`, saturating index arithmetic, and an
+/// `extend_from_slice` that re-checks capacity every time. Pairing two `chunks_exact` iterators
+/// removes all four: the component count is decided once, the chunk lengths are known to the
+/// compiler, and nothing is indexed.
+fn widened(pixels: &[u8], count: usize, channels: usize) -> Result<Vec<u8>, ImageError> {
     let mut out = vec![255u8; count.saturating_mul(4)];
-    match components {
+    match channels {
         1 => {
             for (destination, source) in out.chunks_exact_mut(4).zip(pixels.iter()) {
                 if let Some(rgb) = destination.get_mut(..3) {
@@ -3051,16 +3473,11 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
         }
         _ => {
             return Err(ImageError::UnsupportedColourSpace {
-                space: format!("{components}-component JPEG"),
+                space: format!("{channels}-component JPEG"),
             });
         }
     }
-
-    Ok(DecodedJpeg {
-        samples: out,
-        components,
-        grid,
-    })
+    Ok(out)
 }
 
 /// Applies §8.9.5.2's map to a raster that is already eight-bit RGB.
@@ -4123,7 +4540,7 @@ enum SoftMaskEntry {
     /// where α is 0, `c′ = m` — which is worse on the page and no more honest.
     Image {
         stream: Arc<Stream>,
-        matte: Option<[u8; 3]>,
+        matte: Option<Vec<f32>>,
         owed: Option<String>,
     },
     /// Present, and not applied. Carries the words the interpreter reports.
@@ -4207,8 +4624,25 @@ fn soft_mask_entry(
             "/SMask carries a /Mask of its own, which Table 143 says shall be absent".to_owned(),
         );
     }
-    match mask_colour_space(document, &mask.dict) {
-        Ok(space) if space.components() == 1 => {}
+    // Table 143: "ColorSpace | Required; shall be DeviceGray." A mask stating another
+    // one-component space is the **file's** failure, and what a reader does with it is
+    // §11.6.5.2's own arithmetic rather than a second clause: the mask supplies one number per
+    // sample and the clause reads that number as the image's opacity, so the number is what is
+    // taken — the sample through §8.9.5.2's `/Decode`, whose default Table 143 fixes at
+    // `[0 1]`. It is the reading ADR 1054 already settled one key along, on §8.6.5.6's own
+    // sentence that a remapping "shall be passed unchanged" to the default space: a space says
+    // which colour a value denotes and never what the value is, and what this clause uses is
+    // the value. Refusing instead would draw the image opaque, which loses the transparency
+    // the producer did state; so the mask applies and the departure from Table 143 is
+    // reported beside it. ADR 1268.
+    let stated_space = match mask_colour_space(document, &mask.dict) {
+        Ok(ColourSpace::Gray) => None,
+        Ok(space) if space.components() == 1 => {
+            Some(match document.get_key(&mask.dict, "ColorSpace") {
+                Object::Name(name) => format!("/{name}"),
+                _ => "a one-component colour space".to_owned(),
+            })
+        }
         Ok(space) => {
             return SoftMaskEntry::Unusable(format!(
                 "/SMask has a {}-component colour space where Table 143 requires DeviceGray",
@@ -4218,7 +4652,13 @@ fn soft_mask_entry(
         Err(error) => {
             return SoftMaskEntry::Unusable(format!("/SMask colour space: {error}"));
         }
-    }
+    };
+    let departure = stated_space.map(|named| {
+        format!(
+            "/SMask states {named} where Table 143 requires DeviceGray; its samples are read \
+             as the mask values they state"
+        )
+    });
 
     // §11.6.4.2 makes a stencil's painted areas this element's **shape** — "[f]or image masks
     // (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted areas and 0.0 for masked
@@ -4257,24 +4697,52 @@ fn soft_mask_entry(
              grid of {grid} samples"
         ));
     }
-    let (matte, owed) = match matte_colour(document, dict, resources, &mask.dict) {
+    let (matte, unreadable) = match matte_colour(document, dict, resources, &mask.dict) {
         Matte::Absent => (None, None),
         Matte::Colour(colour) => (Some(colour), None),
         Matte::Unreadable(reason) => (None, Some(reason)),
     };
+    let stream = if departure.is_some() {
+        as_device_grey(mask)
+    } else {
+        Arc::clone(mask)
+    };
     SoftMaskEntry::Image {
-        stream: Arc::clone(mask),
+        stream,
         matte,
-        owed,
+        // Two departures can stand at once and the report names one thing, so the `/Matte`'s
+        // comes first: it is about the colours on the page, where the space's is about which
+        // number the mask supplies and that number has been taken.
+        owed: unreadable.or(departure),
     }
+}
+
+/// The same stream under Table 143's own `/ColorSpace`, for a mask that states another.
+///
+/// Carried as a substituted dictionary rather than as a flag, so that the one route which reads
+/// the samples reads them as values by construction: every decode goes through the dictionary, and
+/// a dictionary saying `DeviceGray` is what makes a sample the mask value. The bytes are the same
+/// `Arc`, so the document's memo of the decoded stream is the same entry and nothing is inflated
+/// twice. ADR 1268.
+fn as_device_grey(mask: &Arc<Stream>) -> Arc<Stream> {
+    let mut dict = mask.dict.clone();
+    dict.insert(
+        pdf_syntax::Name::new(*b"ColorSpace"),
+        Object::Name(pdf_syntax::Name::new(*b"DeviceGray")),
+    );
+    Arc::new(Stream {
+        dict,
+        data: Arc::clone(&mask.data),
+        decryption_failed: mask.decryption_failed,
+    })
 }
 
 /// Table 144's `/Matte`, once read against the image whose samples it was blended into.
 enum Matte {
     /// No `/Matte`: the image's samples are its colours.
     Absent,
-    /// The matte colour, in the components the parent image's raster carries.
-    Colour([u8; 3]),
+    /// The matte colour, in the parent image's own components.
+    Colour(Vec<f32>),
     /// Present, and not undone. Carries the words the interpreter reports.
     Unreadable(String),
 }
@@ -4317,28 +4785,71 @@ fn matte_colour(
         .map(|item| document.resolve(item))
         .filter_map(|item| item.as_number().map(|value| value as f32))
         .collect();
-    // A component is a colour value in the parent's space, so 0..1 for both device spaces
-    // this can invert; anything outside that is clamped by `channel` rather than refused,
-    // which is what §8.9.5.2 does with an out-of-range sample.
-    match (
-        colour_space(document, dict, resources, &Conversion::device()),
-        components.as_slice(),
-    ) {
-        (Ok(ColourSpace::Gray), [grey]) => {
-            let grey = channel(*grey);
-            Matte::Colour([grey, grey, grey])
-        }
-        (Ok(ColourSpace::Rgb), [red, green, blue]) => {
-            Matte::Colour([channel(*red), channel(*green), channel(*blue)])
-        }
-        (Ok(space), _) => Matte::Unreadable(format!(
-            "/SMask has a /Matte of {} components against a {}-component image, or one whose \
-             pre-blending cannot be undone after conversion",
-            components.len(),
-            space.components()
-        )),
-        (Err(error), _) => Matte::Unreadable(format!("/SMask has a /Matte and {error}")),
+    let space = match colour_space(document, dict, resources, &Conversion::device()) {
+        Ok(space) => space,
+        Err(error) => return Matte::Unreadable(format!("/SMask has a /Matte and {error}")),
+    };
+    // Table 144 counts the numbers in "the colour space specified by the ColorSpace entry (or
+    // the base entry of the colour space, if the colour space is Indexed ) in the parent
+    // image's image dictionary", which is the same sentence that decides what the inversion
+    // runs on: an `Indexed` image's table entries, not its indices.
+    let counted = match &space {
+        ColourSpace::Resolved(resolved) => resolved.indexed_base().map_or_else(
+            || space.components(),
+            crate::colour::ColourSpace::components,
+        ),
+        _ => space.components(),
+    };
+    if components.len() != counted {
+        return Matte::Unreadable(format!(
+            "/SMask has a /Matte of {} components against a {counted}-component image",
+            components.len()
+        ));
     }
+    // Table 143: with a `/Matte` the mask's `/Width` "shall be the same as the Width value of
+    // the parent image", and `/Height` likewise. The inversion is per sample and pairs the two
+    // grids by position, so a file that states two grids has stated no pairing at all.
+    let dimension =
+        |from: &Dictionary, key| crate::integer_entry::dimension(document, from, key).unwrap_or(0);
+    if (
+        dimension(mask_dict, "Width"),
+        dimension(mask_dict, "Height"),
+    ) != (dimension(dict, "Width"), dimension(dict, "Height"))
+    {
+        return Matte::Unreadable(
+            "/SMask has a /Matte on a grid Table 143 requires to be the parent image's and is \
+             not"
+            .to_owned(),
+        );
+    }
+    Matte::Colour(components)
+}
+
+/// The soft mask's samples as one byte apiece, for undoing §11.6.5.2's pre-blending.
+///
+/// The mask is `DeviceGray` by Table 143 — and by substitution where the file states another
+/// one-component space — so its decoded raster holds one value in each of its three colour
+/// channels and the first of them is it. `None` where the mask does not decode, which is the
+/// same answer [`apply_soft_mask`] gives such a mask: the image is drawn, with its samples
+/// left as the file wrote them.
+fn prematte_alpha(document: &Document, mask: &Stream) -> Option<Vec<u8>> {
+    let Flattened { image, .. } = decode(
+        document,
+        mask,
+        // No resource dictionary and no colour to redirect, for [`mask_colour_space`]'s
+        // reason: a mask's samples are mask values rather than colours.
+        &Dictionary::new(),
+        pdf_render::Color::BLACK,
+        &Conversion::device(),
+    )
+    .ok()?;
+    Some(
+        image
+            .data
+            .chunks_exact(4)
+            .map(|sample| sample.first().copied().unwrap_or(0))
+            .collect(),
+    )
 }
 
 /// Undoes §11.6.5.2's pre-blending for one component: `c = m + (c′ - m) / α`.
@@ -5343,7 +5854,6 @@ fn apply_soft_mask(
     // grid already passed, and the mask's own decode reduces the same way the base's did.
     let SoftMaskEntry::Image {
         stream: mask_stream,
-        matte,
         ..
     } = soft_mask_entry(document, dict, resources, stated_grid(document, dict))
     else {
@@ -5375,17 +5885,14 @@ fn apply_soft_mask(
         };
     };
     let masked = combine_on_the_finer_grid(&image, &mask, |colour, sample| {
-        // Table 143 required `DeviceGray` and `soft_mask_entry` checked it, so the three
-        // colour channels of a mask sample hold one value and the first of them is it.
+        // The stream `soft_mask_entry` handed on states `DeviceGray` — Table 143's own
+        // requirement, and the space it substitutes for a file that states another
+        // one-component space and is reported for it — so the three colour channels of a mask
+        // sample hold one value and the first of them is it.
         let opacity = sample.first().copied().unwrap_or(0);
-        let colour = match matte {
-            None => colour,
-            Some(matte) => [
-                unblend(colour[0], matte[0], opacity),
-                unblend(colour[1], matte[1], opacity),
-                unblend(colour[2], matte[2], opacity),
-            ],
-        };
+        // Nothing but the opacity is taken here: §11.6.5.2's `/Matte` was undone in the
+        // parent's own components, before the colour conversion the clause puts it before,
+        // which is where [`Prematte`] travels to.
         (colour, opacity)
     });
     Softened {

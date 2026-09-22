@@ -511,6 +511,19 @@ pub struct Conversion {
     /// and an archive's owner is entitled to see which schemas that happened to
     /// (`doc/adr/1245`).
     pub described_schemas: Vec<super::prepare::DescribedSchema>,
+    /// Every document information dictionary entry this conversion moved, dropped or kept.
+    ///
+    /// ISO 19005-4 section 6.1.3, and the same obligation the lists above carry: a reader's
+    /// File → Properties panel reads from somewhere else afterwards, and an entry §14.3.4 left
+    /// the packet's own value standing for is one whose dictionary value is gone from the file
+    /// (`doc/adr/1269`).
+    pub moved_information: Vec<super::prepare::MovedEntry>,
+    /// Every file this conversion kept as an attachment rather than losing.
+    ///
+    /// `doc/rfc/0007` section 4.6.1's other `preserve` mechanism: the bytes are in the archive
+    /// under a §7.9.6 name nothing else in the document states, so the report is where an
+    /// archivist reads what was kept and where to look for it (`doc/adr/1270`).
+    pub attached: Vec<super::AttachedFile>,
     /// Every annotation appearance this conversion constructed.
     ///
     /// `doc/questions/A21`'s condition on the permission, in the answer's own words: report every
@@ -715,6 +728,24 @@ impl Conversion {
                     self.removed_boundaries
                         .iter()
                         .map(boundary_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "attached_files".to_owned(),
+                Value::Array(
+                    self.attached
+                        .iter()
+                        .map(super::AttachedFile::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "moved_information_entries".to_owned(),
+                Value::Array(
+                    self.moved_information
+                        .iter()
+                        .map(super::prepare::MovedEntry::to_json)
                         .collect(),
                 ),
             ),

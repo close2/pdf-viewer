@@ -192,7 +192,7 @@ fn cpu_and_gpu_agree_on_a_transparency_group() {
 ///
 /// The clause's rule is one sentence and each backend reaches it through its own library's
 /// spelling of Porter-Duff Source: `tiny-skia` sets a per-draw blend mode, Vello has no such
-/// parameter and composites a layer clipped to the element's shape with `Compose::Copy`.
+/// parameter and composites a layer clipped to the element's shape with `peniko::Compose::Copy`.
 /// Trap 2's question — what does every scene leave at its default — is what this answers for
 /// the group flag that was `false` in every scene until the seventy-first session.
 #[test]
@@ -523,7 +523,7 @@ fn cpu_and_gpu_agree_on_every_blend_mode() {
 ///
 /// The two mechanisms could hardly be less alike: `tiny-skia` builds an eight-bit coverage
 /// mask and multiplies it into the clip, while Vello renders the mask's group to a texture
-/// of its own and composites it back with `Compose::DestIn`. What they *share* is
+/// of its own and composites it back with `peniko::Compose::DestIn`. What they *share* is
 /// `pdf_render::SoftMask::value`, which turns rendered pixels into mask values — and that is
 /// the point of the scene: the derivation is one function, so a difference here is a
 /// difference in how a mask is applied rather than in what it says.

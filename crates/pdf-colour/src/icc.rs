@@ -1476,13 +1476,13 @@ impl Profile {
         // colour the device cannot reach is clamped to its range per component after the
         // matrix, which is the clamp §8.6.5.3 applies to a component "falling outside that
         // range" and the only answer the two stages define.
-        if let Transform::Matrix { curves, columns } = &self.colorimetric.transform {
-            let linear = crate::colour::solve_three(columns, xyz)?;
+        if matches!(&self.colorimetric.transform, Transform::Matrix { .. }) {
+            let linear = self.matrix_light(xyz, rendering)?;
             let mut out = [0.0f32; MAX_OUTPUTS];
-            for ((value, curve), light) in out.iter_mut().zip(curves).zip(linear) {
-                *value = curve.invert(light.clamp(0.0, 1.0));
+            for (channel, value) in out.iter_mut().enumerate().take(3) {
+                *value = self.matrix_component(channel, linear[channel]);
             }
-            return Some(self.decoded(out));
+            return Some(out);
         }
         let inverse = self.inverse.as_ref()?;
         // Section 4.2.7's map run backwards, on the route the colour was produced *under*
@@ -1507,6 +1507,56 @@ impl Profile {
             *value = 0.0;
         }
         Some(self.decoded(out))
+    }
+
+    /// The linear values a matrix profile's inverse matrix gives a D50 XYZ, before the tone
+    /// curves and without their clamp.
+    ///
+    /// [`Self::to_device`]'s first stage for such a profile, by itself, so that a caller
+    /// carrying the conversion in as separate stages has the linear one alone — which is what
+    /// `crate::colour`'s cube into a blending colour space is built from. Unclamped for that
+    /// caller's sake: it interpolates this map between its corners, and the clamp belongs
+    /// after the interpolation, where [`Self::matrix_component`] applies it.
+    ///
+    /// `None` for any profile that is not a three-component matrix profile, and for one whose
+    /// matrix will not invert.
+    #[must_use]
+    pub fn matrix_light(&self, xyz: [f32; 3], rendering: Rendering) -> Option<[f32; 3]> {
+        let Transform::Matrix { columns, .. } = &self.colorimetric.transform else {
+            return None;
+        };
+        let mut xyz = xyz;
+        if rendering.transform() == A2b::Absolute {
+            for ((value, white), medium) in xyz.iter_mut().zip(WHITE).zip(self.media_white) {
+                // Positive by construction — `parse` keeps no media white with a zero axis.
+                *value *= white / medium;
+            }
+        }
+        crate::colour::solve_three(columns, xyz)
+    }
+
+    /// The device value on `channel` whose light a matrix profile's tone curve makes `light`.
+    ///
+    /// [`Self::to_device`]'s second stage for such a profile: the curve inverted, with the
+    /// clamp ISO 32000-2 §8.6.5.3 applies to a component "falling outside that range" — the
+    /// only answer the two stages define for a colour the device cannot reach — and
+    /// [`Self::decoded`]'s map onto this component's own range. A channel the profile states
+    /// no curve for is zero, which is what zipping the curves with the outputs already gave
+    /// it.
+    #[must_use]
+    pub fn matrix_component(&self, channel: usize, light: f32) -> f32 {
+        let Transform::Matrix { curves, .. } = &self.colorimetric.transform else {
+            return 0.0;
+        };
+        let value = curves
+            .get(channel)
+            .map_or(0.0, |curve| curve.invert(light.clamp(0.0, 1.0)));
+        let (low, high) = if channel < self.channels {
+            self.component_range(channel)
+        } else {
+            (0.0, 1.0)
+        };
+        low + value * (high - low)
     }
 }
 

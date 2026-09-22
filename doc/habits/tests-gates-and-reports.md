@@ -293,3 +293,11 @@ constructed appearance renders a font, so the file needs it embedded with widths
 tolerance; it paints in `DeviceGray`, so the page must already fail the output-intent row or nothing
 is prepared for it; and a builder that appends objects while a dictionary names one by number
 silently re-points the reference (ADR 1257).
+
+## A named-population gate list is keyed by what does not move
+
+`tests/names.rs`'s `STANDING` was keyed `path:line` and failed within the hour on a sibling's edit
+above one of the comments — a false failure whose only cure a later round would find is regenerating
+the list, which is how a named population degrades into a bare count (ADR 1273). Key such a list by
+the thing the finding is about, the file and the name, and let the run print the position; the
+frontier map and the oracle's page lists are keyed by name for the same reason.

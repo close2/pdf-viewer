@@ -87,6 +87,8 @@ machinery, and those are not indexed here.
 | 41 | you add a field to a `pdf_render` vocabulary type and `raster_golden` moves rows "list only" | the list digest is the `Debug` of the list, so every page using that variant moves with no pixel moving; count the digest-only rows as the variant's users before reading one as a change | instruments |
 | 42 | a doc comment or an ADR says a refusal fires for a specific reason, or its reason carries a qualifier | read the branch that prints the message and the test of the qualifier: the generic arm may be the one that fires, and a condition may have been applied as a classification | instruments |
 | 43 | you fetch a specification PDF into `doc/` | its page one joins the oracle's judged population; run the oracle and diagnose the page your file added before reporting | oracle |
+| 44 | you remove a tab or notebook page in a host that moves one widget tree between pages | the page owns its child; reparent the view before the page is destroyed | loop |
+| 45 | you write a host method that sends a command and it is reachable from the event handler | a method reachable from `react` takes the queue as a parameter; it does not start a `pump` of its own | loop |
 
 **Two are not optional for the round they are about.** If this round can change a pixel, **trap 1**
 is the one that has paid every session since the tenth. If this round adds a report, **trap 11** is

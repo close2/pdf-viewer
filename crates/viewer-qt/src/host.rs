@@ -153,14 +153,16 @@ enum Pending {
     },
 }
 
-/// One document, one viewer, and the loop between them.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "independent facts about one window, each read in one place and none a state"
-)]
-pub struct Host {
-    /// The state machine every host on this boundary drives.
-    pub(crate) viewer: Viewer,
+/// Everything this window holds about the document **in front**, and nothing about the others.
+///
+/// A struct rather than a row of fields on [`Host`] because this window now holds more than one
+/// document: `viewer_host::Documents` parks one of these beside every tab that is not in front and
+/// swaps the whole of it in one move when the person changes tabs. A field that must not leak
+/// between two documents therefore cannot be left behind by forgetting it at a call site — either
+/// all of it travels or none of it does (ADR 1264). `viewer-gtk` holds the same six things under
+/// the same name, which is what makes the two hosts checkably level.
+#[derive(Debug)]
+struct Showing {
     /// Where the bytes came from, which is what rule 2 makes a host's business and not the core's.
     path: PathBuf,
     /// The directory §12.7.6.4's policy resolves against.
@@ -169,6 +171,77 @@ pub struct Host {
     bytes: pdf_syntax::FileBytes,
     /// Annex O's fragment, where the host was given one.
     fragment: Option<String>,
+    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
+    asking: viewer_host::Asking,
+    /// Whether the open document still owes what it says about *itself*.
+    ///
+    /// Asked for once the first frame is on the screen rather than as part of opening, because
+    /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
+    /// off a launch. [`viewer_host::report::Due`] holds the rule for every host. ADR 1044.
+    report_due: viewer_host::report::Due,
+    /// Whether anything is unsaved.
+    dirty: bool,
+    /// What the title bar says about the page.
+    caption: String,
+    /// §12.9's measuring: whether a press on the page is a point, and the points so far.
+    ///
+    /// `viewer_host::Measuring` is shared with the other two windows — when a press is a point,
+    /// and what the answer says — and what is Qt's is the press and the status bar (ADR 1191).
+    measuring: viewer_host::Measuring,
+    /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
+    layout: pdf_model::viewer_preferences::PageLayout,
+    /// What this document departs from the window's restriction levels in.
+    ///
+    /// The one half of `viewer_host::Restrictions` that belongs to a file rather than to the
+    /// window: `viewer_core` already keeps the departures beside the document they are about
+    /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
+    departures: viewer_core::RestrictionOverride,
+}
+
+impl Showing {
+    /// A document this window has just been handed, before anything has been read from it.
+    fn new(path: PathBuf, bytes: pdf_syntax::FileBytes, fragment: Option<String>) -> Self {
+        Self {
+            directory: path.parent().map(Path::to_path_buf),
+            path,
+            bytes,
+            fragment,
+            asking: viewer_host::Asking::new(),
+            report_due: viewer_host::report::Due::default(),
+            dirty: false,
+            caption: String::new(),
+            measuring: viewer_host::Measuring::default(),
+            layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
+            departures: viewer_core::RestrictionOverride::NONE,
+        }
+    }
+}
+
+/// One document, one viewer, and the loop between them.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about one window, each read in one place and none a state"
+)]
+pub struct Host {
+    /// The state machine every host on this boundary drives.
+    pub(crate) viewer: Viewer,
+    /// Everything this window holds about the document in front.
+    showing: Showing,
+    /// The documents this window has open, in the order the strip shows them.
+    ///
+    /// One of these until something opens a second — a `/NewWindow true` on a remote go-to — and
+    /// the `QTabBar` is hidden until then, so a window showing one document looks exactly as it
+    /// did (ADR 1264).
+    documents: viewer_host::Documents<Showing>,
+    /// A name held out to `viewer_core::Command::Beside`, and the file that would arrive under it.
+    ///
+    /// Set when this window offers a name for a document Table 203's `/NewWindow true` might open
+    /// beside the one showing, and taken on the `Event::Opened` that names it (ADR 1263).
+    reserved: Option<(DocumentId, PathBuf)>,
+    /// Whether the strip of documents has changed since C++ last asked.
+    documents_moved: bool,
+    /// Whether the last document was closed, so the window should go with it.
+    closing: bool,
     /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
     /// §12.4.4.1's two transition faces.
     ///
@@ -254,14 +327,6 @@ pub struct Host {
     /// One at a time, for `viewer_ffi::Session`'s reason: an A4 page at 300 dots per inch is 35
     /// megabytes, and a print job draws a page, spools it and moves on.
     printed: Option<PrintedPage>,
-    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
-    asking: viewer_host::Asking,
-    /// Whether the open document still owes what it says about *itself*.
-    ///
-    /// Asked for once the first frame is on the screen rather than as part of opening, because
-    /// §12.8's answer digests the signed part of the file and `CLAUDE.md` principle 2 keeps that
-    /// off a launch. [`viewer_host::report::Due`] holds the rule for every host. ADR 1044.
-    report_due: viewer_host::report::Due,
     /// `CLAUDE.md`'s *ask* level: what the standing question is about, and what it says.
     ///
     /// One at a time, which is `viewer_core::Command::Answer`'s own rule — a second question
@@ -272,10 +337,6 @@ pub struct Host {
     prompt: String,
     /// Whether the document has been opened yet, which waits for the first resize.
     opened: bool,
-    /// Whether anything is unsaved.
-    dirty: bool,
-    /// What the title bar says about the page.
-    caption: String,
     /// The most recent sentence for a person.
     message: String,
     /// The three trees.
@@ -304,11 +365,6 @@ pub struct Host {
     /// `QWidget::showFullScreen` and which widget each of Table 147's three flags names — and
     /// that half is in `cpp/window.cpp`, because the widgets are.
     presenting: viewer_host::Presenting,
-    /// §12.9's measuring: whether a press on the page is a point, and the points so far.
-    ///
-    /// `viewer_host::Measuring` is shared with the other two windows — when a press is a point,
-    /// and what the answer says — and what is Qt's is the press and the status bar (ADR 1191).
-    measuring: viewer_host::Measuring,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
     /// §14.7's tree on AT-SPI, brought up after the first frame and never before it (ADR 0623).
@@ -361,8 +417,6 @@ pub struct Host {
     playing: Option<pdf_render::Raster>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
     pub(crate) viewport: (u32, u32),
-    /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
-    layout: pdf_model::viewer_preferences::PageLayout,
     /// §14.8.2.5's text between the key that copied it and the C++ side taking it to `QClipboard`.
     ///
     /// Empty at every other moment, because `take_clipboard` clears it: this is a hand-over and
@@ -376,9 +430,9 @@ impl std::fmt::Debug for Host {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Host")
-            .field("path", &self.path)
+            .field("path", &self.showing.path)
             .field("opened", &self.opened)
-            .field("dirty", &self.dirty)
+            .field("dirty", &self.showing.dirty)
             .field("placed", &self.placed.len())
             .finish_non_exhaustive()
     }
@@ -415,10 +469,13 @@ impl Host {
         );
         Ok(Self {
             viewer: Viewer::new(1, 1, 1.0),
-            path: path.to_owned(),
-            directory: path.parent().map(Path::to_owned),
-            bytes,
-            fragment,
+            showing: Showing::new(path.to_owned(), bytes, fragment),
+            // One document, and the strip is hidden for it — the launch path opens exactly the
+            // one document it always has, under exactly the name it always had (ADR 1264).
+            documents: viewer_host::Documents::new(DOCUMENT, viewer_host::documents::label(path)),
+            reserved: None,
+            documents_moved: false,
+            closing: false,
             rasterizer: CpuRasterizer::new(),
             // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule that
             // nothing page one does not need happens before page one.
@@ -436,13 +493,9 @@ impl Host {
             printing: false,
             print: None,
             printed: None,
-            asking: viewer_host::Asking::new(),
-            report_due: viewer_host::report::Due::default(),
             question: None,
             prompt: String::new(),
             opened: false,
-            dirty: false,
-            caption: String::new(),
             message: String::new(),
             trees: std::array::from_fn(|_| Vec::new()),
             fields: Vec::new(),
@@ -466,8 +519,6 @@ impl Host {
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
             presenting: viewer_host::Presenting::default(),
-            measuring: viewer_host::Measuring::default(),
-            layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             clipboard: String::new(),
         })
     }
@@ -762,6 +813,14 @@ impl Host {
             // clipboard. Not a command, because what a copy *is* belongs to the platform (ADR
             // 0519).
             viewer_host::WindowAct::Copy => self.copy_selection(),
+            // The strip of open documents, whose *order* is this window's and whose focus is a
+            // message. One document is its own next, so the key is harmless before anything has
+            // opened a second (ADR 1264).
+            viewer_host::WindowAct::NextDocument => {
+                let next = self.documents.next_id();
+                self.show_document(next);
+            }
+            viewer_host::WindowAct::CloseDocument => self.close_document(),
             viewer_host::WindowAct::Find => self.update.find_bar = true,
             // Table 29's "any other window visible" is a *permission* and this is the reader's
             // wish beside it; `Host::chrome` composes the two, so leaving full screen puts back
@@ -773,7 +832,7 @@ impl Host {
             // §12.9's measuring. No pixel of the page is different: what the mode changes is
             // that a press is a point rather than the start of §12.4.2's selection.
             viewer_host::WindowAct::Measure => {
-                let on = self.measuring.toggle();
+                let on = self.showing.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
             }
             // §10.8.3: the state is this window's, because it is a preference a person toggles
@@ -791,9 +850,9 @@ impl Host {
             // Table 29's six arrangements are cycled, so what to send depends on which one is in
             // force — a fact about this host's state rather than about the key.
             viewer_host::WindowAct::NextLayout => {
-                self.layout = next_layout(self.layout);
-                self.dispatch(Command::Layout(self.layout));
-                self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
+                self.showing.layout = next_layout(self.showing.layout);
+                self.dispatch(Command::Layout(self.showing.layout));
+                self.say(&format!("page layout: {:?} (§7.7.2)", self.showing.layout));
                 // A new arrangement is a new set of pages on the screen, and therefore a new set
                 // of things they could not draw.
                 self.restate();
@@ -846,7 +905,7 @@ impl Host {
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
             return;
         };
-        self.layout = opening.layout;
+        self.showing.layout = opening.layout;
         if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
             self.say(&format!(
                 "this document opens in the {:?} page layout (§7.7.2)",
@@ -1157,10 +1216,10 @@ impl Host {
     /// document's, which is the split `viewer_core::Query::Measure` exists for: Table 267's
     /// conversions and §12.9.2's formatting are a reading of the file, and no host holds either.
     fn measure(&mut self, at: (f32, f32)) {
-        if !self.measuring.point(at) {
+        if !self.showing.measuring.point(at) {
             return;
         }
-        let points = self.measuring.points().to_vec();
+        let points = self.showing.measuring.points().to_vec();
         let traced = match self.viewer.query(Query::Measure(&points)) {
             Answer::Measured(traced) => Some(traced),
             _ => None,
@@ -1195,7 +1254,7 @@ impl Host {
         // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing
         // it takes away: the two gestures are the same gesture and a window cannot tell them
         // apart from the pointer alone (ADR 1191).
-        if self.measuring.is_on() {
+        if self.showing.measuring.is_on() {
             if matches!(action, PointerAction::Pressed) {
                 self.measure((x, y));
             }
@@ -1366,7 +1425,7 @@ impl Host {
     /// §12.6.4.8's URI, resolved against this document's location and then opened, declined or put
     /// to the person at the level `--links=` set.
     fn follow_the_link(&mut self, uri: &str) {
-        let uri = viewer_host::resolve_uri(Some(&self.path), uri);
+        let uri = viewer_host::resolve_uri(Some(&self.showing.path), uri);
         match viewer_host::link(&uri, self.links) {
             viewer_host::Link::Say(note) => self.say(&note),
             viewer_host::Link::Ask(words) => self.put_the_question(Pending::Link { uri }, &words),
@@ -1379,7 +1438,8 @@ impl Host {
     /// rule `viewer_host::resolve_import` states — a single path component beside the open
     /// document. A refusal is said rather than swallowed (trap 5).
     fn import(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
-        let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), name) {
+        let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), name)
+        {
             Ok(bytes) => Some(bytes),
             Err(refusal) => {
                 self.say(&viewer_host::policy::supply_note(purpose, &refusal));
@@ -1396,17 +1456,18 @@ impl Host {
     /// one clause along. What is this window's is the dialogue and the status line (ADR 1227).
     fn remote(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
         match viewer_host::remote(
-            self.directory.as_deref(),
+            self.showing.directory.as_deref(),
             name,
             self.remote_documents,
             purpose,
         ) {
             viewer_host::Remote::Supply { path, note } => {
                 let bytes = self.read_remote(purpose, name, &path);
-                if bytes.is_some()
-                    && let Some(note) = note
-                {
-                    self.say(&note);
+                if bytes.is_some() {
+                    if let Some(note) = note {
+                        self.say(&note);
+                    }
+                    self.offer_a_name(&path, queue);
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
             }
@@ -1492,13 +1553,18 @@ impl Host {
                 name,
                 path,
             } => {
+                let mut queue = VecDeque::new();
                 let bytes = if proceed {
                     self.read_remote(purpose, &name, &path)
                 } else {
                     self.say(&viewer_host::remote_declined(purpose, &name));
                     None
                 };
-                self.dispatch(Command::Supply { purpose, bytes });
+                if bytes.is_some() {
+                    self.offer_a_name(&path, &mut queue);
+                }
+                queue.push_back(Command::Supply { purpose, bytes });
+                self.pump(queue.into());
             }
         }
     }
@@ -1672,7 +1738,9 @@ impl Host {
 
     /// What has changed since this was last called, which also clears it.
     pub(crate) fn take_update(&mut self) -> QtUpdate {
-        std::mem::replace(&mut self.update, nothing_changed())
+        let mut update = std::mem::replace(&mut self.update, nothing_changed());
+        update.documents = std::mem::take(&mut self.documents_moved);
+        update
     }
 
     /// Puts what is selected on the page where the C++ side will hand it to `QClipboard`.
@@ -2122,6 +2190,163 @@ impl Host {
         self.pages_left > 0
     }
 
+    // ---------------------------------------------------------------------------------------
+    // The strip of open documents (ADR 1264). The order and the state are this host's; the
+    // `QTabBar` is the C++ side's, and nothing here calls a Qt object.
+    // ---------------------------------------------------------------------------------------
+
+    /// What each tab says, in the order the strip shows them.
+    pub(crate) fn documents(&self) -> Vec<String> {
+        self.documents
+            .iter()
+            .map(|(_, label)| label.to_owned())
+            .collect()
+    }
+
+    /// Which of them is in front.
+    pub(crate) fn focused_document(&self) -> usize {
+        self.documents.focused_index()
+    }
+
+    /// A person chose a tab, by its place in the strip.
+    pub(crate) fn choose_document(&mut self, index: usize) {
+        let Some(id) = self.documents.id_at(index) else {
+            return;
+        };
+        self.show_document(id);
+    }
+
+    /// Brings one of the open documents to the front.
+    ///
+    /// Two things move together and neither may move without the other: what this window holds
+    /// about the document ([`Showing`]), and the document scope of the restriction menu — which
+    /// `viewer_core` already keeps beside the document it is about (ADR 1145).
+    fn show_document(&mut self, id: DocumentId) {
+        if self.take_the_front(id) {
+            self.dispatch(Command::Focus(id));
+            self.build_panels();
+        }
+    }
+
+    /// The half of [`Host::show_document`] that sends nothing.
+    ///
+    /// Its own function because a document opened *beside* the one showing arrives while the core
+    /// is already settling the command that opened it: the core has moved its own focus by then,
+    /// so what is left is this window's own swap and a nested `pump` would be a second command
+    /// loop inside the first. Answers whether anything moved.
+    fn take_the_front(&mut self, id: DocumentId) -> bool {
+        self.showing.departures = self.restrictions.document();
+        if !self.documents.focus(id, &mut self.showing) {
+            return false;
+        }
+        self.restrictions.depart(self.showing.departures);
+        // §12.7's controls and §12.5.6.14's windows are **not** taken down here. Each is rebuilt
+        // from the answer that follows `Command::Focus`, and both rebuilds are guarded by a
+        // comparison against what is on the screen.
+        self.documents_moved = true;
+        self.update.title = true;
+        self.update.controls = true;
+        self.update.popups = true;
+        true
+    }
+
+    /// A name held out for a document Table 203's `/NewWindow true` would open beside this one.
+    ///
+    /// **An offer rather than a request**, which is `viewer_core::Command::Beside`'s own shape:
+    /// the name is used only where the action states the entry, and one this window offers and
+    /// nothing opens under is simply skipped (ADR 1263).
+    fn offer_a_name(&mut self, path: &Path, queue: &mut VecDeque<Command>) {
+        let name = self.documents.reserve();
+        self.reserved = Some((name, path.to_owned()));
+        queue.push_back(Command::Beside(Some(name)));
+    }
+
+    /// A document opened beside the one that was showing, under the name this window offered.
+    fn opened_beside(&mut self, id: DocumentId) {
+        let Some((_, path)) = self.reserved.take().filter(|(name, _)| *name == id) else {
+            return;
+        };
+        // Read again rather than kept from the supply, because what this field is for is
+        // §7.6.4.1's second attempt with a password — and a document that opened without one will
+        // not need it. Opening on disk is what the launch path does with the first file (ADR 0809).
+        let bytes = match pdf_syntax::FileBytes::on_disk(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.say(&format!(
+                    "cannot keep {} open for a second attempt: {error}",
+                    path.display()
+                ));
+                return;
+            }
+        };
+        let label = viewer_host::documents::label(&path);
+        self.documents
+            .add(id, label.clone(), Showing::new(path, bytes, None));
+        // `Documents::focus` is what swaps this window's fields; the core has moved its own focus
+        // already, so nothing is sent from inside the settling of the command that opened it.
+        if self.take_the_front(id) {
+            self.build_panels();
+        }
+        self.say(&viewer_host::documents::opened_beside(
+            &label,
+            self.documents.len(),
+        ));
+    }
+
+    /// Closes the document in front, or the window where it is the only one.
+    ///
+    /// `viewer_host::documents::Close::Last` is where the two part, and the second half is the
+    /// C++ side's: closing a window is `QWidget::close` and Rust never calls a Qt object, so it
+    /// goes out as [`Host::closing_the_window`] on the next update (ADR 1264).
+    fn close_document(&mut self) {
+        let closing = self.documents.focused();
+        // The menu's document scope goes into the state that is about to be swapped, exactly as
+        // it does on a switch.
+        self.showing.departures = self.restrictions.document();
+        match self.documents.close(closing, &mut self.showing) {
+            viewer_host::Close::Last => self.closing = true,
+            viewer_host::Close::Unknown => {}
+            viewer_host::Close::Done { state, focused } => {
+                self.restrictions.depart(self.showing.departures);
+                let label = viewer_host::documents::label(&state.path);
+                drop(state);
+                self.documents_moved = true;
+                self.pump(vec![Command::Close(closing), Command::Focus(focused)]);
+                self.update.title = true;
+                self.update.controls = true;
+                self.update.popups = true;
+                self.build_panels();
+                self.say(&viewer_host::documents::closed(
+                    &label,
+                    self.documents.len(),
+                ));
+            }
+        }
+    }
+
+    /// Whether the window should close, because the last document in it was closed.
+    ///
+    /// A flag read by C++ rather than a call into it, which is this bridge's own rule:
+    /// `QWidget::close` is a Qt object's method and Rust never calls one.
+    pub(crate) fn closing_the_window(&self) -> bool {
+        self.closing
+    }
+
+    /// §12.9's traced path, in device pixels of the viewport, as flat `x, y` pairs.
+    ///
+    /// **The rubber band, which is chrome and not a message.** §12.9 states no state for a viewer
+    /// to be in, so the points are this host's (`viewer_host::Measuring`) and what they look like
+    /// is this platform's; `viewer_core::Query::Measure` answers what they *mean* and never sees a
+    /// pixel of this (ADR 1264).
+    pub(crate) fn measuring(&self) -> Vec<f32> {
+        self.showing
+            .measuring
+            .points()
+            .iter()
+            .flat_map(|point| [point[0], point[1]])
+            .collect()
+    }
+
     /// §12.5.1's focus ring: one quadrilateral, or none.
     pub(crate) fn focus(&self) -> Vec<QtQuad> {
         match self.viewer.query(Query::Focus) {
@@ -2170,11 +2395,15 @@ impl Host {
 
     /// What the title bar should say.
     pub(crate) fn title(&self) -> String {
-        let mark = if self.dirty { "• " } else { "" };
-        if self.caption.is_empty() {
-            return format!("{mark}{}", named(&self.path));
+        let mark = if self.showing.dirty { "• " } else { "" };
+        if self.showing.caption.is_empty() {
+            return format!("{mark}{}", named(&self.showing.path));
         }
-        format!("{mark}{} — {}", named(&self.path), self.caption)
+        format!(
+            "{mark}{} — {}",
+            named(&self.showing.path),
+            self.showing.caption
+        )
     }
 
     /// The most recent sentence for a person.
@@ -2242,12 +2471,12 @@ impl Host {
 
     /// What to call the document, which is the file's own name.
     pub(crate) fn named(&self) -> String {
-        named(&self.path)
+        named(&self.showing.path)
     }
 
     /// What the title bar says about the page, after the document's name.
     pub(crate) fn caption(&self) -> &str {
-        &self.caption
+        &self.showing.caption
     }
 
     /// One sentence from the C++ side.
@@ -2261,8 +2490,8 @@ impl Host {
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
     fn open_document(&mut self, password: Option<viewer_core::Secret>) {
-        let bytes = self.bytes.clone();
-        let fragment = self.fragment.clone();
+        let bytes = self.showing.bytes.clone();
+        let fragment = self.showing.fragment.clone();
         // Both policy values go before the document, and for one reason: a policy applied halfway
         // through is not a policy. §6.3.2.2's instruction is a property of *this host* rather than
         // of the document (ADR 0245), and `Restrict` is the reader's answer to what the *file*
@@ -2423,7 +2652,7 @@ impl Host {
             // The reader has their page, so the document may now be asked what it says about
             // itself — the same moment `viewer-gtk` asks, and `viewer_host::report::Due` is the
             // rule both follow. ADR 1044.
-            if self.report_due.after_a_frame() {
+            if self.showing.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
             }
             // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
@@ -2514,23 +2743,30 @@ impl Host {
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
-            Event::Opened { pages, .. } => {
+            Event::Opened { document, pages } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                // A document that arrived under the name this window held out for
+                // `/NewWindow true` is a *second* document rather than this one reopened, so it
+                // gets a tab of its own before anything else is said about it (ADR 1263).
+                self.opened_beside(document);
                 // Trap 5, and the same sentence the other two hosts say — see `viewer-gtk`.
                 if pages == 0 {
-                    self.say(&viewer_host::no_pages(&named(&self.path)));
+                    self.say(&viewer_host::no_pages(&named(&self.showing.path)));
                 }
-                self.asking.opened();
+                self.showing.asking.opened();
                 // A document opens at the window's levels, so the menu's ticks go back to them
                 // too — the core's `Open` forgets the departures (ADR 1145).
                 self.restrictions.opened();
-                self.report_due.opened();
+                self.showing.report_due.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
-                self.say(&viewer_host::cannot_open(&named(&self.path), &reason));
+                self.say(&viewer_host::cannot_open(
+                    &named(&self.showing.path),
+                    &reason,
+                ));
             }
             // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
             // is a window, and a window is a host's — which is the whole reason this event exists
@@ -2538,9 +2774,10 @@ impl Host {
             // the clause states no number and three hosts held three copies of the same three.
             //
             // Exhaustive over `Ask` on purpose: a case added there fails to compile here.
-            Event::PasswordRequired { .. } => match self.asking.required() {
+            Event::PasswordRequired { .. } => match self.showing.asking.required() {
                 viewer_host::Ask::Prompt { attempt, of } => {
-                    let words = viewer_host::password::prompt(&named(&self.path), attempt, of);
+                    let words =
+                        viewer_host::password::prompt(&named(&self.showing.path), attempt, of);
                     // One `QLabel` for both, which is this toolkit's arrangement of the same two
                     // sentences `viewer-gtk` puts in two labels and the card draws in two colours.
                     self.prompt = format!("{}\n{}", words.question, words.counted);
@@ -2600,7 +2837,7 @@ impl Host {
             } => self.write_extracted(asked, &name, &bytes),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             Event::Dirty { dirty, .. } => {
-                self.dirty = dirty;
+                self.showing.dirty = dirty;
                 self.update.title = true;
             }
             Event::Searched {
@@ -2802,7 +3039,7 @@ impl Host {
 
     /// §7.5.6's update, written beside the document rather than over it.
     fn write_saved(&mut self, bytes: &[u8]) {
-        let path = self.path.with_extension("edited.pdf");
+        let path = self.showing.path.with_extension("edited.pdf");
         match std::fs::write(&path, bytes) {
             Ok(()) => self.say(&format!(
                 "saved {} bytes to {}",
@@ -2825,7 +3062,7 @@ impl Host {
             self.say(&refusal);
             return;
         }
-        let Some(directory) = self.directory.clone() else {
+        let Some(directory) = self.showing.directory.clone() else {
             self.say("cannot write the attachment: the document is not in a known directory");
             return;
         };
@@ -2863,7 +3100,7 @@ impl Host {
             Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
             None => format!("page {} of {of}", index.saturating_add(1)),
         };
-        self.caption = match section {
+        self.showing.caption = match section {
             Some(section) if !section.is_empty() => format!("{page} — {section}"),
             _ => page,
         };
@@ -3124,6 +3361,7 @@ fn nothing_changed() -> QtUpdate {
         find_bar: false,
         notices: false,
         print_dialogue: false,
+        documents: false,
     }
 }
 
@@ -3449,7 +3687,10 @@ mod tests {
             !said.contains(viewer_host::IGNORE_RESTRICTIONS),
             "the reader said not to obey it, so nothing is refused: {said}"
         );
-        assert!(host.dirty, "and the annotation is in the edit log: {said}");
+        assert!(
+            host.showing.dirty,
+            "and the annotation is in the edit log: {said}"
+        );
     }
 
     /// A Control this program does not bind does **nothing**, and the unbound row is untouched.
@@ -3472,12 +3713,12 @@ mod tests {
         host.key(0x41, false, false);
         host.key(0x48, false, true);
         assert!(
-            !host.dirty,
+            !host.showing.dirty,
             "Ctrl and `h` is not a binding this program has, so nothing was annotated"
         );
         host.key(0x48, false, false);
         assert!(
-            host.dirty,
+            host.showing.dirty,
             "and the unmodified key still means §12.5.6.10's highlight"
         );
     }
@@ -3512,7 +3753,7 @@ mod tests {
             vec![0_u32, 2],
             "both, which is what a single value could not have said"
         );
-        assert!(host.dirty, "and the document knows it was edited");
+        assert!(host.showing.dirty, "and the document knows it was edited");
     }
 
     /// A frame the viewer is holding crosses as its own dimensions and a borrowed slice.

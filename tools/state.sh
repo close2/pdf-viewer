@@ -94,6 +94,30 @@ section_flags() {
         cargo run -q -p conformance --bin flags
 }
 
+# Every Rust path a doc comment names, against the items this workspace declares. A `§` is checked
+# against the standard and a file path against the tree; a path in prose — `Interpreter::run`,
+# `crate::edit::apply` — was read by nothing, and rustdoc resolves only the linked form and only
+# under `cargo doc`, which no tier runs (ADR 1273). The filter keeps the run's denominators, each
+# finding and the count on every rung; `cargo test -p conformance --test names` is the gate, and
+# its second test is the calibration.
+section_names() {
+    run "a Rust path a doc comment names against the items this tree declares" \
+        'path\(s\) in |name\(s\) this workspace declares|whose prefix this tree declares|^  [a-z]|^ *[0-9]+  ' \
+        cargo run -q --release -p conformance --bin names
+}
+
+# Every clause a source file cites, against the `code` list of the row for that clause. A `code`
+# list is the ledger's index into the tree and it decays in one direction only: a round adding a
+# reader cites the clause beside the code, because principle 5 requires it, and editing a row in
+# another file is the step it forgets (ADR 1274). It ranks rather than fails — a citation may point
+# at a neighbour rather than implement anything — so the filter keeps the denominators and the top
+# rung; `cargo test -p conformance --test cited` gates the calibration alone.
+section_cited() {
+    run "a clause a file cites against that clause's own code list" \
+        'pair\(s\) over |a row claiming work|pair\(s\) the row already names|^  §' \
+        cargo run -q --release -p conformance --bin cited
+}
+
 # Every ledger note's opening and closing sentence, against the row's own `status` field. A note's
 # last sentence is the "what keeps this row `partial`" clause and every later round appends above
 # it; its first sentence is what a round that moves a status rewrites around. Both are inside the
@@ -646,8 +670,6 @@ section_hosts() {
 # did not.
 reading() {
     cat <<'READING'
-Command:Close|not a debt|every window opens exactly one document from its command line and lives as long as it, so there is no second document to close and closing the only one is quitting. It is Query::Collection's companion: §12.3.5 presents several documents, and a host that presented one would hold two DocumentIds and need both this and Focus.
-Command:Focus|not a debt|the same pair, and the same condition: choosing between two open documents is a question no window can be asked while every window has one.
 Command:Delegate|not a debt|viewer-ui alone, and by construction. §6.3.2.2's instruction takes the widget appearances *out* of the page so that a host can put real controls there; a tier-2 host that draws its own chrome places none, so delegating would leave a form with holes. viewer_ui::chrome::ChoiceList is the drawn counterpart (ADR 0596).
 Query:Dirty|not a debt|all three windows learn that a document has been edited from Event::Dirty and mark their titles from it. The question is for a host that did not keep the event.
 Query:Frame|not a debt|viewer-ui alone, and it is the tier rather than a gap: a tier-2 host draws its own pixels onto its own surface and hands the viewer none, so there is no frame of the viewer's to ask about. The answer would be Answer::None, which its own documentation says.
@@ -823,8 +845,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
-quick="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk remedies"
+all="ledger departures flags names cited last-sentences conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
+quick="ledger departures flags names cited last-sentences conformance annex-o governing questions records counts hosts windows binaries disk remedies"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -847,6 +869,8 @@ for section in $sections; do
     ledger) section_ledger ;;
     departures) section_departures ;;
     flags) section_flags ;;
+    names) section_names ;;
+    cited) section_cited ;;
     last-sentences) section_last_sentences ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;

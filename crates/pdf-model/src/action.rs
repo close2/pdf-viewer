@@ -1564,7 +1564,7 @@ fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
 /// string is read as UTF-8 rather than through §7.9.2.2's text-string rules — Table 210 calls
 /// it an ASCII string and states the encoding of what those bytes spell, and a `/UTF-16`
 /// text string would be a different entry. Bytes that are not UTF-8 are a malformed URI, and
-/// [`String::from_utf8_lossy`] keeps the rest of it rather than dropping the link.
+/// [`std::string::String::from_utf8_lossy`] keeps the rest of it rather than dropping the link.
 fn uri(document: &Document, dict: &Dictionary) -> Option<Uri> {
     let Object::String(bytes) = document.get_key(dict, "URI") else {
         return None;

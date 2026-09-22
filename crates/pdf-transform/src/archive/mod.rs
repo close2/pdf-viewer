@@ -133,6 +133,7 @@
 //! verdict rests on.
 
 mod actions;
+mod attach;
 mod boundaries;
 mod census;
 mod config;
@@ -171,7 +172,7 @@ pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
     ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Original,
     Placement, Preservation, Resolution, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt,
-    Winner, sites,
+    Unmapped, Winner, sites,
 };
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
@@ -188,6 +189,7 @@ pub use signatures::{Reached, SourceSignature};
 
 pub use external::{ExternalData, ExternalStream, external_stream_data};
 
+pub use attach::{AttachedFile, PRESERVED_AS_AN_ATTACHMENT};
 use decision::decide;
 use prepare::{
     DEFAULT_CMYK_ACTION, DEFAULT_CMYK_PARAMETERS, Prepared, Provenance, SUBSTITUTED_FONTS_ACTION,
@@ -567,6 +569,8 @@ fn decide_every_failure(
         replaced_packets: Vec::new(),
         removed_identifiers: Vec::new(),
         described_schemas: Vec::new(),
+        moved_information: Vec::new(),
+        attached: Vec::new(),
         appearances: Vec::new(),
         unconstructed: Vec::new(),
         removed_files: Vec::new(),
@@ -635,6 +639,12 @@ fn decide_every_failure(
     if let Ok(composed) = &prepared.preserved {
         conversion.preserved.clone_from(&composed.carried);
     }
+    // The same, for the other mechanism: what was attached is read off the one attachment rather
+    // than recomputed, and `rewrites_wanted` reads it back to decide whether the catalog is
+    // edited at all (`doc/adr/1270`).
+    if let Ok(attached) = &prepared.attached {
+        conversion.attached.clone_from(&attached.rows);
+    }
     // Named whether or not the flag came out: the fields here are exactly why it did not, and a
     // refusal whose sentence points at a list has to be able to print the list (`doc/adr/1257`).
     if let Ok(built) = &prepared.field_appearances {
@@ -672,6 +682,53 @@ fn configured(
     // comes out is still in the archive. A preservation that could not be composed refuses with
     // the composition's own reason rather than falling through to the loss — the operator asked
     // for the content kept, and losing it instead would be answering a question nobody put.
+    // **ISO 19005-4 Annex A.2, answered by a remedy the operator asked for at another site.** A
+    // PDF/A-4f file states an `/EmbeddedFiles` key, and a document holding nothing embedded is
+    // refused for that target with the sentence *attaching one would be adding content no source
+    // states*. A `preserve` by attachment files one — out of the document's own bytes — so the
+    // sentence is not true of this conversion and the requirement is met by its output
+    // (`doc/adr/1270`).
+    if id == FOUR_F_EMBEDDED_FILES
+        && prepared
+            .attached
+            .as_ref()
+            .is_ok_and(|attached| !attached.rows.is_empty())
+    {
+        return Some(Decision::Configured {
+            kind: RemedyKind::Preserve,
+            rewrite: Rewrite::PreservedAsAttachment,
+            warns: PRESERVED_AS_AN_ATTACHMENT,
+        });
+    }
+    // **The attachment is asked first, and for the page's own reason.** `doc/rfc/0007` section
+    // 4.6.1 makes the two mechanisms a choice rather than a fallback, so a row asking for the
+    // bytes kept as a file is answered by the file or refused with the attachment's own reason —
+    // never by a page nobody asked for. `original = "both"` asks for the two together, and then
+    // the page is what the sentence names, because the page is what a reader of the archive sees.
+    if plan
+        .preservations
+        .iter()
+        .any(|preservation| preservation.site == id && preservation.by_attachment)
+        && !plan
+            .preservations
+            .iter()
+            .any(|preservation| preservation.site == id && preservation.by_page)
+    {
+        return Some(match &prepared.attached {
+            Ok(attached) if attached.rows.iter().any(|row| row.site == id) => {
+                match decision::rewrite_for(id) {
+                    Some(rewrite) => Decision::Configured {
+                        kind: RemedyKind::Preserve,
+                        rewrite,
+                        warns: PRESERVED_AS_AN_ATTACHMENT,
+                    },
+                    None => Decision::Refused(Because::NotBuiltYet(NO_REWRITE_TO_PRESERVE_BESIDE)),
+                }
+            }
+            Ok(_) => Decision::Refused(Because::NotBuiltYet(NOTHING_TO_PRESERVE)),
+            Err(because) => Decision::Refused(*because),
+        });
+    }
     if plan
         .preservations
         .iter()
@@ -748,6 +805,9 @@ fn configured(
             DERIVATION_DID_NOT_ANSWER,
         )))
 }
+
+/// ISO 19005-4 Annex A.2's row: a PDF/A-4f file states an `/EmbeddedFiles` key.
+const FOUR_F_EMBEDDED_FILES: &str = "embedded-files/pdfa-4f-carries-embedded-files";
 
 /// Why a site whose declared tool was run and did not answer keeps its refusal.
 const DERIVATION_DID_NOT_ANSWER: &str = "this configuration answers this requirement by deriving      a new representation with a program it declares, the program was run, and what came back      did not answer it — it failed, it declined, or it produced something other than the media      type the tool promised. doc/rfc/0007 section 4.2 does not trust what comes back, so the      requirement keeps its refusal rather than being answered by a remedy nobody asked for; the      report's derived row says which of the three happened";
@@ -1004,6 +1064,15 @@ fn apply_the_decisions(
             .described_schemas
             .clone_from(&described.described);
     }
+    // `doc/adr/1269`: the dictionary is gone from the output, so the report is the only place a
+    // reader can see which of its entries the packet took and which value went with it.
+    if wanted.contains(&Rewrite::InformationMovedIntoThePacket)
+        && let Ok(information) = &prepared.information
+    {
+        conversion
+            .moved_information
+            .clone_from(&information.entries);
+    }
     let converted = convert(document, plan.target, &wanted, version, prepared, remedies)?;
     for decided in &mut conversion.decided {
         if let Some(rewrite) = decided.decision.rewrite() {
@@ -1110,6 +1179,11 @@ fn rewrites_wanted(
     // `Prepared` composes nothing it cannot record and removes nothing it cannot cut.
     if !conversion.preserved.is_empty() {
         wanted.insert(Rewrite::PreservedAsPage);
+    }
+    // And the attachment the same way: the file is a rewrite of the catalog rather than of the
+    // requirement the remedy answered, so the decision names the removal and this names the file.
+    if !conversion.attached.is_empty() {
+        wanted.insert(Rewrite::PreservedAsAttachment);
     }
     // And where a preservation relocated marks onto the producer's own page rather than appending
     // one for them, that page's `/Contents` and `/Resources` are edited: `doc/adr/1123`'s

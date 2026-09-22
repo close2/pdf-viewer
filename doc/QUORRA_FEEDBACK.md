@@ -5536,7 +5536,7 @@ this side's; the rest is inside your `Device::render`.
 
 **What this side has already taken off it.** The mesh page's `scene` was 8.22 ms on the step and is
 3.98 because this side now divides `MeshRaster`'s rows across its own pool (ADR 1259). The image
-page's 78.68 ms of `interp` is a five-megapixel JPEG decoded here, and it is this side's item.
+page's `interp` — 78.68 ms when the table was taken, 68.43 ms since ADR 1271 — is a five-megapixel JPEG decoded here, and it is this side's item.
 
 **Ask 1 — the CPU-lane encode of a page seen for the first time: 6.38 ms, 77% of one refresh.**
 That is the largest single stage of the commonest interaction there is, on the commonest kind of

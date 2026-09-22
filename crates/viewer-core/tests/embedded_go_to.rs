@@ -222,3 +222,73 @@ fn a_supplied_file_that_is_not_a_pdf_names_itself() {
         "the name and the reader's own reason, got {said:?}"
     );
 }
+
+/// Table 204's `/NewWindow true`, with a host that has a second place to put a document.
+///
+/// The entry states this case with a `should` where Table 203 states it with nothing, so an
+/// embedded go-to is the *stronger* of the two — and the same reserve answers both, because
+/// whether this program has a second view is a fact about the window and not about the clause.
+/// No file is asked for at all here: the target is inside the document already open.
+#[test]
+fn an_embedded_document_opens_beside_the_one_holding_it() {
+    const BESIDE: DocumentId = DocumentId(9);
+    let inner = plain(3);
+    let mut stream = format!(
+        "<< /Type /EmbeddedFile /Subtype /application#2Fpdf /Length {} >>\nstream\n",
+        inner.len()
+    )
+    .into_bytes();
+    stream.extend_from_slice(&inner);
+    stream.extend_from_slice(b"\nendstream");
+    let holding = assembled(&[
+        b"<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(child.pdf) 6 0 R] \
+          >> >> >>"
+            .to_vec(),
+        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>".to_vec(),
+        b"<< /Type /Annot /Subtype /Link /Rect [0 0 50 50] /A << /Type /Action /S /GoToE \
+          /D [2 /Fit] /NewWindow true /T << /R /C /N (child.pdf) >> >> >>"
+            .to_vec(),
+        stream,
+        b"<< /Type /Filespec /F (child.pdf) /UF (child.pdf) /EF << /F 5 0 R >> >>".to_vec(),
+    ]);
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: holding.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    viewer.handle(Command::Beside(Some(BESIDE))).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Activate(pdf_syntax::ObjectId::new(4, 0)))
+        .collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::NeedsFile { .. })),
+        "the target is inside the document already open, so no host is asked for anything"
+    );
+    let opened: Vec<(DocumentId, usize)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Opened { document, pages } => Some((*document, *pages)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        opened,
+        [(BESIDE, 3)],
+        "the embedded document opened under the name the host offered: {:?}",
+        notes(&events)
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("opens beside the document it was reached from")),
+        "{:?}",
+        notes(&events)
+    );
+}

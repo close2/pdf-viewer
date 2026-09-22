@@ -182,7 +182,7 @@ pub(crate) enum Swapchain {
 /// to be `swapchain validation failed`, four words that name no cause and suggest no action —
 /// and by construction there *is* a cause to name: raster reaches this state by asking wgpu for a
 /// texture and being refused, and the refusal that reaches a surface which has been configured
-/// once is very nearly always a *re*configure that failed. `Surface::configure` returns `()`, so
+/// once is very nearly always a *re*configure that failed. `wgpu::Surface::configure` returns `()`, so
 /// the only account of it is what the device told the handler, which is why `said` is here.
 pub(crate) fn swapchain(
     reason: raster_gpu::SurfaceProblem,
@@ -1701,7 +1701,7 @@ mod tests {
 
     use super::{GPU_COVERAGE_MAGNIFICATION, Swapchain, coverage_for, swapchain};
 
-    /// The device's words after a `Surface::configure` that failed, as wgpu formats them — the
+    /// The device's words after a `wgpu::Surface::configure` that failed, as wgpu formats them — the
     /// project owner's own launch, verbatim from their session.
     fn what_the_owner_saw() -> Uncaptured {
         Uncaptured {

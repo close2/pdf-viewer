@@ -34,6 +34,12 @@ remedy = "preserve"
 original = "attach"        # 4f holds the original packet as a file, which is tidier than a page
 fresh-packet = true
 
+# 4e holds a file of any type too (ISO 19005-4 Annex B), so it takes the same answer.
+[site."metadata/xmp-packets-well-formed".target."4e"]
+remedy = "preserve"
+original = "attach"
+fresh-packet = true
+
 # **The one of these that is built**, and the largest single refusal the corpus meets: a property
 # its own predefined schema does not define has to come out of the packet, and this keeps it. The
 # page is the same answer `original = "page"` asks for above, in the key the format states it in.

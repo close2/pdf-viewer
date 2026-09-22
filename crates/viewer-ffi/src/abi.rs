@@ -3559,6 +3559,45 @@ pub unsafe extern "C" fn quorra_separations(
     Status::Ok.code()
 }
 
+/// The name a document opened **beside** the one showing would be called by.
+///
+/// ISO 32000-2 Table 203's `/NewWindow` (§12.6.4.3's remote go-to) and Table 204's (§12.6.4.4's
+/// embedded one) each say a destination in another file may be opened in a window of its own, and
+/// each defers the absent case to "its preference". Whether *this caller* has a second place to
+/// put a document is a fact about the caller and about no file, so it arrives here.
+///
+/// `reserved` is false to empty the reserve, which is what every caller had before this entry
+/// point existed: a destination replaces the document it was reached from, and the difference is
+/// said out loud on a `QUORRA_EVENT_REPORTED`. `reserved` true holds `name` out for the next
+/// action that asks for a new window — **once**: the moment a document opens under it the reserve
+/// is empty again, so a caller offers a fresh name per tab. A name offered and not used opens
+/// nothing.
+///
+/// The name is the caller's, exactly as [`quorra_open`]'s is, and a caller learns which of the two
+/// happened from the document on the `QUORRA_EVENT_OPENED` that comes back
+/// ([`quorra_events_opened`]). Offering a name already open would make the action *replace* that
+/// document, which is [`quorra_open`]'s own rule; offer one nothing is open under.
+///
+/// **This takes no struct by value**, so [`crate::abi::QUORRA_ABI_VERSION`] does not move: an
+/// entry point *added* is one an old caller never calls.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_beside(
+    viewer: *mut Session,
+    reserved: bool,
+    name: u64,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.beside(reserved.then_some(name))));
+    Status::Ok.code()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]

@@ -75,8 +75,7 @@ use pdf_render::{BlendMode, Command, Overprint};
 
 use crate::colour::{Compositing, Half};
 
-use super::report::Unsupported;
-use super::{GraphicsState, Interpreter};
+use super::{GraphicsState, Interpreter, KnockoutKind};
 
 /// What ISO 32000-2 §11.7.4.4's first bullet asks of a combined fill and stroke.
 ///
@@ -217,19 +216,6 @@ impl Interpreter<'_> {
             // Nothing is owed and nothing is reported.
             return state.blend;
         }
-        if state.blend != BlendMode::Normal && !self.implicit_group_statable() {
-            self.note(Unsupported::Overprint {
-                detail: format!(
-                    "§11.7.4.3's implicit non-isolated, non-knockout group for an object \
-                     painted under the {:?} blend mode while overprinting is enabled cannot \
-                     be an element of the non-isolated knockout group around it (§11.4.6 \
-                     NOTE 6); the object is painted under that mode without the special \
-                     overprinting blend mode",
-                    state.blend
-                ),
-            });
-            return state.blend;
-        }
         self.list.note_overprinting();
         // Which of the raster's three channels this half carries, and therefore which of the
         // four tints decides each of them (`crate::colour::Half`).
@@ -237,27 +223,6 @@ impl Interpreter<'_> {
             Half::Chromatic => [tints[0] == 0.0, tints[1] == 0.0, tints[2] == 0.0],
             Half::Black => [tints[3] == 0.0; 3],
         }))
-    }
-
-    /// Whether this content's position lets §11.7.4's implicit group be stated at all.
-    ///
-    /// `Command::Group`'s `isolated` is `false` only where no enclosing group is a knockout
-    /// group, and §11.4.6's NOTE 6 is about this exact nesting:
-    ///
-    /// > When a non-isolated group is nested within a knockout group, the initial backdrop of
-    /// > the inner group is the same as that of the outer group; it is not the immediate
-    /// > backdrop of the inner group.
-    ///
-    /// A command seeded from the immediate backdrop cannot state that. **Where the outer
-    /// group's initial backdrop is transparent the two coincide**, and then §11.4.5's isolated
-    /// group *is* the clause's non-isolated one rather than a substitute for it: the backdrop
-    /// composited in and removed again is nothing either way (§11.4.4 NOTE 3). That is the
-    /// same reading [`Interpreter::transparent_initial_backdrop`] was built for, and it leaves
-    /// one position this tree cannot draw — a direct element of a *non-isolated* knockout
-    /// group — which is §11.4.6's restriction on what such an element may be rather than this
-    /// clause's, and is the restriction §11.7.4.4's ledger row already carries. ADR 1170.
-    fn implicit_group_statable(&self) -> bool {
-        !self.inside_knockout || self.transparent_initial_backdrop
     }
 
     /// §11.7.4.3's last paragraph, around the commands from `mark` on.
@@ -307,11 +272,16 @@ impl Interpreter<'_> {
             // NOTE 3's removal (`blend::remove_backdrop`); the two backends that cannot refuse
             // the whole list by name, because it overprints (ADR 1158).
             //
-            // Inside a knockout group with a transparent initial backdrop the clause's
-            // non-isolated group *is* §11.4.5's, exactly: see
-            // [`Interpreter::implicit_group_statable`], which is also what guarantees this
-            // command is never emitted anywhere else with `false`.
-            isolated: self.inside_knockout,
+            // §11.4.6's NOTE 6 decides the one position where that is not what is stated. This
+            // group is an element of whatever paints the object, so as a direct element of a
+            // knockout group it takes that group's initial backdrop: where that backdrop is
+            // transparent the clause's non-isolated group **is** §11.4.5's, exactly (§11.4.4
+            // NOTE 3, the backdrop composited in and removed again being nothing either way);
+            // where it is not, the enclosing knockout group hands each element a private clone
+            // of its initial backdrop (ADR 1256), which is what a command stating `false` is
+            // seeded from. So the flag says which backdrop the note gives this group rather
+            // than refusing the position. ADR 1170, ADR 1265.
+            isolated: self.enclosing_knockout == Some(KnockoutKind::Isolated),
             knockout: false,
             // Stated rather than asked: this group carries no clip of its own, and §8.5.4's
             // intersection at the blit is the only thing the flag decides. A round that gives
@@ -344,16 +314,11 @@ impl Interpreter<'_> {
     ///
     /// Everywhere else the group is built ([`Interpreter::first_bullet_group`]), with the
     /// parts painted at an alpha constant of 1.0 — which is the caller's to arrange, because
-    /// it happens before the two commands exist. The one case left is a pair that is a direct
-    /// element of a non-isolated knockout group, where no nested group can be stated
-    /// ([`Interpreter::implicit_group_statable`]); that is reported and the parts stay as they
-    /// are.
-    pub(super) fn combined_overprint(
-        &mut self,
-        state: &GraphicsState,
-        parts: [BlendMode; 2],
-        what: &'static str,
-    ) -> FirstBullet {
+    /// it happens before the two commands exist. A pair that is a direct element of a knockout
+    /// group is built there too: §11.4.6's NOTE 6 decides which backdrop that group's element
+    /// composites onto, and [`Interpreter::non_isolated_group`] states it rather than refusing
+    /// the position (ADR 1265).
+    pub(super) fn combined_overprint(state: &GraphicsState, parts: [BlendMode; 2]) -> FirstBullet {
         let special = parts
             .iter()
             .any(|blend| matches!(blend, BlendMode::Overprint(_)));
@@ -377,17 +342,6 @@ impl Interpreter<'_> {
             return FirstBullet::No;
         }
         if state.fill_alpha >= 1.0 && state.blend == BlendMode::Normal {
-            return FirstBullet::AsPainted;
-        }
-        if !self.implicit_group_statable() {
-            self.note(Unsupported::Overprint {
-                detail: format!(
-                    "§11.7.4.4's first bullet asks for {what} to be a non-isolated, \
-                     non-knockout group, which a direct element of the non-isolated knockout \
-                     group around it may not be (§11.4.6 NOTE 6); the parts are painted \
-                     directly instead"
-                ),
-            });
             return FirstBullet::AsPainted;
         }
         FirstBullet::Group

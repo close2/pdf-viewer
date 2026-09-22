@@ -262,7 +262,7 @@ pub struct PageView<'a> {
     /// not become one (ADR 0422), and it belongs here for the reason the reports do: the person
     /// for whom the picture is no answer is the one entitled to know the words are missing.
     ///
-    /// [`Default::default`] is a page whose every code was named and drawn, which is most of them.
+    /// [`std::default::Default::default`] is a page whose every code was named and drawn, which is most of them.
     pub readback: pdf_model::content::Shortfall,
 }
 

@@ -8,7 +8,7 @@
 //! **It is here because three hosts wanted the same function.** `viewer-gtk` and `viewer-qt` each
 //! wrote it in the six-hundred-and-sixth session, with a comment in one saying the other had it
 //! "deliberately"; `viewer-ui` would have been the third copy. Which key cycles is a toolkit's —
-//! a `gdk::Key`, a `Qt::Key`, a winit `Key::Character` — and *what the next arrangement is* is
+//! a `gdk::Key`, a `Qt::Key`, a `winit::keyboard::Key::Character` — and *what the next arrangement is* is
 //! not, which is this crate's whole test for what belongs in it (ADR 0246).
 
 use pdf_model::viewer_preferences::PageLayout;

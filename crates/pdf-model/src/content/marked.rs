@@ -197,6 +197,38 @@ impl Interpreter<'_> {
         self.draw(command);
     }
 
+    /// The one mark whose §11.6.4.2 shape §11.7.5.2's channel cannot state.
+    ///
+    /// The clause picks the topmost object at a point by its shape — "the topmost elementary
+    /// object in the entire page stack that has a nonzero object shape value ( f j) at that
+    /// point" — so a mark whose shape the channel cannot state may take a pixel that belongs to
+    /// something under it, or leave one it owns. Every mark states it except a stencil under an
+    /// `/SMask` of its own ([`pdf_render::SampleAlpha::Both`]), whose one alpha channel is
+    /// §11.6.4.2's shape multiplied by §11.6.4.3's opacity and cannot be separated again — the
+    /// same residue §11.3.7.2's knockout shape leaves (ADR 1218, ADR 1255).
+    ///
+    /// Asked at the one call site that already knows the mark is an image
+    /// ([`Interpreter::draw_image`]) rather than of every mark in [`Interpreter::draw_mark`],
+    /// which is hot enough that the discriminant test alone cost **0.12%** of an interpretation
+    /// there although the branch is never taken on a page of text: fifty interpretations of
+    /// ISO 32000-2's own page 101 under callgrind, one sitting, are 1 250 655 524 instructions
+    /// with no check at all, 1 252 185 325 with it in `draw_mark`, and **1 250 681 793** where it
+    /// is now — +0.002% (ADR 1266). Asked only while the channel is
+    /// **live**, which is the geometric over-approximation of what such an image can draw wrong:
+    /// with no mark on the page carrying a function every run maps nothing, so which run owns a
+    /// pixel changes no colour. It cannot under-report, since a point drawn wrong has a
+    /// transferred mark and this image on the page in that order.
+    pub(super) fn note_unstatable_shape(&mut self) {
+        self.note(Unsupported::TransferFunction {
+            detail: "§11.7.5.2 chooses the function at a point by the topmost object with a \
+                     nonzero shape there, and a stencil under an /SMask of its own carries \
+                     §11.6.4.2's shape multiplied by §11.6.4.3's opacity in one alpha channel — \
+                     so this image's shape in the channel is that product, and it occludes only \
+                     where its mask is non-zero"
+                .to_owned(),
+        });
+    }
+
     /// One [`pdf_render::TransferMap`] per distinct [`Transfer`] the page has stated.
     ///
     /// §10.5's functions are evaluated here, at every eight-bit input, so that neither backend
@@ -207,7 +239,10 @@ impl Interpreter<'_> {
     ///
     /// Memoised against the `Arc` the graphics state holds, because a page states a handful of
     /// transfers and paints thousands of marks under them.
-    fn transfer_map(&mut self, transfer: &Arc<Transfer>) -> Arc<pdf_render::TransferMap> {
+    pub(super) fn transfer_map(
+        &mut self,
+        transfer: &Arc<Transfer>,
+    ) -> Arc<pdf_render::TransferMap> {
         if let Some((_, map)) = self
             .transfer_maps
             .iter()

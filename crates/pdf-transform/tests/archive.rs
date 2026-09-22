@@ -101,6 +101,12 @@ struct Conforming {
     metadata: Packet,
     /// The header line, where a test wants a wrong one.
     header: Option<&'static str>,
+    /// §14.3.3's document information dictionary, written between its angle brackets.
+    ///
+    /// `None` is a trailer stating no `/Info` at all, which is what every other fixture wants:
+    /// ISO 19005-4 section 6.1.3 forbids the entry, so a fixture carrying one is testing that
+    /// rule rather than the rule it was written for.
+    info: Option<String>,
 }
 
 /// What the fixture's §14.3.2 metadata stream holds.
@@ -131,6 +137,7 @@ impl Default for Conforming {
             contents: None,
             header: None,
             metadata: Packet::Identification,
+            info: None,
         }
     }
 }
@@ -230,6 +237,11 @@ impl Conforming {
             bodies.push(object.clone().into_bytes());
         }
         bodies.extend(self.binary_objects.iter().cloned());
+        // Last, so that every fixture naming an object by number goes on naming the same one.
+        let info = self.info.as_ref().map(|entries| {
+            bodies.push(format!("<< {entries} >>").into_bytes());
+            bodies.len()
+        });
 
         let mut out: Vec<u8> = Vec::new();
         out.extend_from_slice(self.header.unwrap_or("%PDF-2.0").as_bytes());
@@ -252,9 +264,11 @@ impl Conforming {
         // file at the time it was originally created". Any two equal strings satisfy the clause for
         // a file created here; what matters to these tests is that the entry is present.
         let identifier = "1D3A4B5C6D7E8F90A1B2C3D4E5F60718";
+        let names_info = info.map_or_else(String::new, |at| format!("/Info {at} 0 R"));
         out.extend_from_slice(
             format!(
-                "trailer\n<< /Size {size} /Root 1 0 R /ID [<{identifier}> <{identifier}>] >>\n\
+                "trailer\n<< /Size {size} /Root 1 0 R {names_info} \
+                 /ID [<{identifier}> <{identifier}>] >>\n\
                  startxref\n{start}\n%%EOF\n"
             )
             .as_bytes(),
@@ -5224,6 +5238,99 @@ fn a_static_xfa_form_loses_its_packet_and_keeps_its_fields() {
 }
 
 #[test]
+fn an_xfa_resource_written_as_packets_is_kept_as_one_file_where_the_target_holds_one() {
+    // `doc/pdf-a-mitigations.md` section 7's addition: the XFA resource is XML, so a target that
+    // holds a file of any type can keep it as one rather than losing the form's definition
+    // (`doc/adr/1270`). Annex K says what the array form is — "[a] packet is a pair of a string
+    // and stream. The string contains the name of the XML element and the stream contains the
+    // complete text of this XML element" — so the resource is the streams end to end, the first
+    // opening the document element and the last closing it. That is the shape Annex K's own
+    // EXAMPLE 1 prints, and the one this fixture is built from.
+    let open = stream("/Length 34", b"<xdp:xdp xmlns:xdp=\"http://x/\">\n");
+    let template = stream("/Length 34", b"<template xmlns=\"http://t/\"/>\n");
+    let close = stream("/Length 11", b"</xdp:xdp>\n");
+    let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] \
+                  /XFA [(xdp:xdp) 7 0 R (template) 8 0 R (/xdp:xdp) 9 0 R] >>"
+            .to_owned(),
+        objects: vec![
+            field,
+            String::from_utf8(open).expect("ascii"),
+            String::from_utf8(template).expect("ascii"),
+            String::from_utf8(close).expect("ascii"),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::E);
+    let config = "[site.\"forms/no-xfa-key\"]\nremedy = \"preserve\"\nkeep-xfa = \"attach\"\n";
+    let plan = plan_from(config, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert_eq!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Configured {
+            kind: pdf_transform::archive::RemedyKind::Preserve,
+            rewrite: Rewrite::XfaRemoved,
+            warns: pdf_transform::archive::PRESERVED_AS_AN_ATTACHMENT,
+        },
+        "the operator's answer is what the conversion does about the requirement"
+    );
+    let output = output.expect("the preservation converts");
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output parses");
+    let catalog = document.catalog().expect("a catalog");
+    let form = document.get_key(&catalog, "AcroForm");
+    let form = form.as_dict().expect("the form is still there");
+    assert_eq!(
+        form.get("XFA"),
+        None,
+        "the resource is out of the dictionary"
+    );
+
+    let names = document.get_key(&catalog, "Names");
+    let names = names.as_dict().expect("the name dictionary");
+    let tree = document.get_key(names, "EmbeddedFiles");
+    let tree = tree.as_dict().expect("the EmbeddedFiles tree");
+    let entries = document.get_key(tree, "Names");
+    let entries = entries.as_array().expect("one Names node");
+    let specification = document.resolve(entries.get(1).expect("the value"));
+    let specification = specification.as_dict().expect("a file specification");
+    let files = document.get_key(specification, "EF");
+    let files = files.as_dict().expect("Table 43's EF");
+    let embedded = document.get_key(files, "F");
+    let embedded = embedded
+        .as_stream()
+        .expect("§7.11.4's embedded file stream");
+    let bytes = document
+        .decoded_stream_data(embedded)
+        .expect("the attachment decodes");
+    assert_eq!(
+        String::from_utf8_lossy(&bytes),
+        "<xdp:xdp xmlns:xdp=\"http://x/\">\n<template xmlns=\"http://t/\"/>\n</xdp:xdp>\n",
+        "the packets end to end, in the order the array states them"
+    );
+    assert_eq!(
+        document
+            .get_key(&embedded.dict, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"application/octet-stream".to_vec()),
+        "§14.13.2's own value for a media type the writer does not know"
+    );
+
+    let attached = &conversion(&report).attached;
+    assert_eq!(attached.len(), 1, "one file attached: {attached:?}");
+    assert_eq!(
+        attached.first().expect("the attachment").site,
+        "forms/no-xfa-key"
+    );
+}
+
+#[test]
 fn a_dynamic_xfa_form_is_refused_until_the_configuration_says_otherwise() {
     // §7.7.2's Table 29 makes `/NeedsRendering` the claim that "the document shall be regenerated
     // when the document is first opened", so the pages in the file are not what a reader of this
@@ -6170,6 +6277,126 @@ fn a_packet_this_tree_cannot_read_is_kept_on_a_page_when_the_configuration_asks(
 }
 
 #[test]
+fn a_packet_this_tree_cannot_read_is_kept_as_a_file_where_the_target_holds_one() {
+    // `doc/rfc/0007` section 4.6.1's other mechanism: ISO 19005-4 section 6.9 requires an
+    // embedded file to conform to a part of ISO 19005 and Annex A lifts that for PDF/A-4f, so at
+    // that target the producer's own packet stays in the archive as a file (`doc/adr/1270`).
+    let source = a_document_carrying(a_packet_that_will_not_parse(), String::new());
+    let target = Target::Four(Flavour::F);
+    let config = "[site.\"metadata/xmp-packets-well-formed\"]\nremedy = \"preserve\"\n\
+         original = \"attach\"\nfresh-packet = true\n";
+    let plan = plan_from(config, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert_eq!(
+        decision(&report, "metadata/xmp-packets-well-formed"),
+        Decision::Configured {
+            kind: pdf_transform::archive::RemedyKind::Preserve,
+            rewrite: Rewrite::FreshMetadataPacket,
+            warns: pdf_transform::archive::PRESERVED_AS_AN_ATTACHMENT,
+        },
+        "the operator's answer is what the conversion does about the requirement"
+    );
+    let output = output.expect("the preservation converts");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and the document that leaves the verb still conforms to the target"
+    );
+    assert_eq!(
+        page_contents(&output).len(),
+        1,
+        "no page was appended: the attachment is the other mechanism, not a fallback to this one"
+    );
+
+    // Proved on the copy: the output is re-opened and the file this conversion said it attached
+    // is read back out of §7.7.4's name tree.
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output parses");
+    let catalog = document.catalog().expect("a catalog");
+    let names = document.get_key(&catalog, "Names");
+    let names = names.as_dict().expect("the name dictionary");
+    let tree = document.get_key(names, "EmbeddedFiles");
+    let tree = tree.as_dict().expect("the EmbeddedFiles tree");
+    let entries = document.get_key(tree, "Names");
+    let entries = entries.as_array().expect("one Names node");
+    assert_eq!(entries.len(), 2, "one key and one value: {entries:?}");
+    let specification = document.resolve(entries.get(1).expect("the value"));
+    let specification = specification.as_dict().expect("a file specification");
+    // §7.11.3's Table 43, and ISO 19005-4 section 6.9's own two rows over it.
+    assert!(specification.get("F").is_some(), "Table 43's F");
+    assert!(specification.get("UF").is_some(), "Table 43's UF");
+    assert_eq!(
+        document
+            .get_key(specification, "AFRelationship")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Source".to_vec()),
+        "Table 43: Source is what this file specification is"
+    );
+    let files = document.get_key(specification, "EF");
+    let files = files.as_dict().expect("Table 43's EF");
+    let embedded = document.get_key(files, "F");
+    let embedded = embedded
+        .as_stream()
+        .expect("§7.11.4's embedded file stream");
+    assert_eq!(
+        document
+            .get_key(&embedded.dict, "Type")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"EmbeddedFile".to_vec()),
+        "Table 44's Type"
+    );
+    let bytes = document
+        .decoded_stream_data(embedded)
+        .expect("the attachment decodes");
+    assert_eq!(
+        bytes.as_ref(),
+        a_packet_that_will_not_parse().as_bytes(),
+        "the producer's own packet, byte for byte"
+    );
+    let params = document.get_key(&embedded.dict, "Params");
+    let params = params.as_dict().expect("Table 45's Params");
+    assert_eq!(
+        document.get_key(params, "Size").as_integer(),
+        Some(i64::try_from(bytes.len()).expect("a length")),
+        "Table 45's Size is the size of the uncompressed embedded file"
+    );
+    // §14.13.2: a file associated with the document as a whole is named in the catalog's AF.
+    let associated = document.get_key(&catalog, "AF");
+    let associated = associated.as_array().expect("§14.13.2's AF array");
+    assert_eq!(associated.len(), 1, "one associated file: {associated:?}");
+
+    let attached = &conversion(&report).attached;
+    assert_eq!(attached.len(), 1, "one file attached: {attached:?}");
+    let row = attached.first().expect("the attachment");
+    assert_eq!(row.site, "metadata/xmp-packets-well-formed");
+    assert_eq!(row.relationship, "Source");
+    assert!(
+        String::from_utf8_lossy(&output).contains(&row.name),
+        "and the name the report gives is the name the file is filed under"
+    );
+}
+
+#[test]
+fn keeping_a_packet_as_a_file_is_refused_where_the_target_will_not_hold_one() {
+    // ISO 19005-2 section 6.8 requires every embedded file to itself conform to a part of ISO
+    // 19005, and an XMP packet is not a PDF — so at a PDF/A-2 target the answer has nowhere to
+    // put the bytes, and the configuration is refused with the targets that take it named rather
+    // than quietly given the page the operator did not ask for (`doc/adr/1270`).
+    let target = Target::Two(Level::B);
+    let config = "[site.\"metadata/xmp-packets-well-formed\"]\nremedy = \"preserve\"\n\
+         original = \"attach\"\nfresh-packet = true\n";
+    let error = pdf_transform::archive::Configuration::read(config, target)
+        .expect_err("a target that holds no file unchanged refuses the answer");
+    let sentence = error.to_string();
+    assert!(
+        sentence.contains("PDF/A-4f") && sentence.contains("PDF/A-4e"),
+        "and the error names the targets that do hold one: {sentence}"
+    );
+}
+
+#[test]
 fn a_packet_that_is_two_rdf_elements_is_replaced_and_the_other_streams_are_not() {
     // ISO 16684-1 section 7.1 serialises one packet as one `rdf:RDF` element, and ISO 19005-2
     // section 6.6.2.1 is what makes that binding here. A packet stating two parses, so the
@@ -6326,6 +6553,242 @@ fn a_property_whose_value_type_the_packet_does_not_show_stops_the_run_unless_the
     );
     let described = &conversion(&report).described_schemas;
     assert_eq!(described.len(), 1, "one schema described: {described:?}");
+}
+
+/// §14.3.3's own EXAMPLE, built: the document information dictionary it prints, on a document
+/// whose packet says nothing about any of it.
+fn a_document_stating_information(entries: &str) -> Vec<u8> {
+    Conforming {
+        info: Some(entries.to_owned()),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn the_information_dictionary_moves_into_the_packet_and_the_trailer_loses_it() {
+    // ISO 19005-4 section 6.1.3 admits no `/Info` unless the catalog states a `/PieceInfo`, and
+    // then holds it to `/ModDate` alone. §14.3.3 deprecates the dictionary and Table 349's NOTEs
+    // name the XMP counterpart of every key, so the remedy is to write each value under the
+    // property its own NOTE names and drop the dictionary (`doc/adr/1269`). The entries and the
+    // creation date are §14.3.3's own EXAMPLE's.
+    let source = a_document_stating_information(
+        "/Title (Annual report 2014) /Author (John Doe) /Subject (Turnover) \
+         /Keywords (report annual) /Creator (My Word Processor v10.7) \
+         /Producer (My Word Processor PDF Exporter Module v2.1) \
+         /CreationDate (D:20140314124211+01'00) /ModDate (D:20140924212303+02'00) \
+         /Trapped /False",
+    );
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    for requirement in [
+        "file-structure/document-information-dictionary-needs-piece-info",
+        "file-structure/document-information-dictionary-holds-only-a-modification-date",
+    ] {
+        let decided = decision(&report, requirement);
+        let Decision::Stated {
+            rewrite,
+            reinterprets,
+        } = decided
+        else {
+            panic!("moved without anything to authorise: {decided:?}");
+        };
+        assert_eq!(rewrite, Rewrite::InformationMovedIntoThePacket);
+        assert!(
+            reinterprets.contains("Table 349"),
+            "and the operator is told where each value went: {reinterprets}"
+        );
+    }
+    let output = output.expect("every key has a counterpart, so nothing is lost");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output parses");
+    assert!(
+        document.trailer().get("Info").is_none(),
+        "the dictionary is gone, which is what ISO 19005-4 section 6.1.3 asks for"
+    );
+    let packet = document_packet(&output);
+    let xmp = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+    // Table 349's NOTEs 1 to 10, each key beside the property its own NOTE names.
+    assert_eq!(
+        xmp.text(pdf_model::xmp::DC, "title"),
+        Some("Annual report 2014")
+    );
+    assert_eq!(xmp.text(pdf_model::xmp::DC, "creator"), Some("John Doe"));
+    assert_eq!(
+        xmp.text(pdf_model::xmp::DC, "description"),
+        Some("Turnover")
+    );
+    assert_eq!(
+        xmp.text(pdf_model::xmp::PDF, "Keywords"),
+        Some("report annual")
+    );
+    assert_eq!(
+        xmp.text(pdf_model::xmp::XMP, "CreatorTool"),
+        Some("My Word Processor v10.7")
+    );
+    assert_eq!(
+        xmp.text(pdf_model::xmp::PDF, "Producer"),
+        Some("My Word Processor PDF Exporter Module v2.1")
+    );
+    // §7.9.4's grammar becomes ISO 16684-1's, naming the same instant. §14.3.3's EXAMPLE prints
+    // both spellings of these two dates side by side.
+    assert_eq!(
+        xmp.text(pdf_model::xmp::XMP, "CreateDate"),
+        Some("2014-03-14T12:42:11+01:00")
+    );
+    assert_eq!(
+        xmp.text(pdf_model::xmp::XMP, "ModifyDate"),
+        Some("2014-09-24T21:23:03+02:00")
+    );
+    assert_eq!(xmp.text(pdf_model::xmp::PDF, "Trapped"), Some("False"));
+
+    let moved = &conversion(&report).moved_information;
+    assert_eq!(moved.len(), 9, "one row per entry: {moved:?}");
+    assert!(
+        moved.iter().all(|entry| entry.property.is_some()),
+        "Table 349 names a counterpart for every one of its own keys: {moved:?}"
+    );
+}
+
+#[test]
+fn a_value_the_packet_already_states_is_left_as_its_producer_wrote_it() {
+    // §14.3.4: "a PDF processor should leave the inconsistent values unchanged". So a key the
+    // packet already answers keeps the packet's answer, and the dictionary's value is dropped
+    // rather than written over it.
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" ");
+    packet.push_str("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
+    packet.push_str("<pdfaid:part>4</pdfaid:part>\n<pdfaid:rev>2020</pdfaid:rev>\n");
+    packet.push_str("<pdf:Producer>What the packet says</pdf:Producer>\n");
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    let source = Conforming {
+        metadata: Packet::Stated(packet),
+        info: Some("/Producer (What the dictionary says) /Title (A title)".to_owned()),
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let output = output.expect("nothing stops the conversion");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let packet = document_packet(&output);
+    let xmp = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+    assert_eq!(
+        xmp.text(pdf_model::xmp::PDF, "Producer"),
+        Some("What the packet says"),
+        "the packet's own value stands"
+    );
+    assert_eq!(
+        xmp.text(pdf_model::xmp::DC, "title"),
+        Some("A title"),
+        "and the key the packet said nothing about is added, which is what §14.3.4 permits"
+    );
+    let moved = &conversion(&report).moved_information;
+    assert!(
+        moved
+            .iter()
+            .any(|entry| entry.key == "Producer" && entry.fate.contains("already states")),
+        "and the report says which value was dropped: {moved:?}"
+    );
+}
+
+#[test]
+fn a_key_table_349_names_nothing_for_stops_the_run_unless_the_operator_said() {
+    // Table 349's NOTEs are what name every key's XMP counterpart, so a key the table does not
+    // define has no property to go in. `unmapped = "discard"` is the operator's answer;
+    // `unmapped = "extension-schema"` is recognised and refused, because a container describes a
+    // schema a packet uses and putting this key into one would need a namespace URI no file
+    // states (`doc/adr/1269`).
+    let source = a_document_stating_information("/Title (A title) /Batch (4417)");
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(
+        &report,
+        "file-structure/document-information-dictionary-needs-piece-info",
+    );
+    let Decision::Refused(because) = decided else {
+        panic!("refused by name rather than half-moved: {decided:?}");
+    };
+    assert!(
+        because.sentence().contains("unmapped"),
+        "and the sentence names the operator's answer: {}",
+        because.sentence()
+    );
+
+    let config = "[site.\"file-structure/document-information-dictionary-needs-piece-info\"]\n\
+         remedy = \"preserve\"\nunmapped = \"discard\"\n\
+         [site.\"file-structure/document-information-dictionary-holds-only-a-modification-date\"]\n\
+         remedy = \"preserve\"\nunmapped = \"discard\"\n";
+    let plan = plan_from(config, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the operator's answer converts it");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        !String::from_utf8_lossy(&output).contains("4417"),
+        "the value went, which is what `discard` says it does"
+    );
+    let moved = &conversion(&report).moved_information;
+    assert!(
+        moved
+            .iter()
+            .any(|entry| entry.key == "Batch" && entry.property.is_none()),
+        "and the report names the key whose value left: {moved:?}"
+    );
+}
+
+#[test]
+fn the_modification_date_stays_in_a_dictionary_the_clause_keeps() {
+    // ISO 19005-4 section 6.1.3's own carve-out: a catalog stating a `/PieceInfo` keeps `/Info`,
+    // holding `/ModDate` and nothing else. §14.5 is why — a page-piece dictionary's
+    // `LastModified` is compared against exactly that date.
+    let source = Conforming {
+        catalog: "/PieceInfo << /Acme << /LastModified (D:20140924212303+02'00) \
+                  /Private (nothing) >> >>"
+            .to_owned(),
+        info: Some("/Title (A title) /ModDate (D:20140924212303+02'00)".to_owned()),
+        ..Conforming::default()
+    }
+    .build();
+    let target = Target::Four(Flavour::Plain);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let output = output.expect("nothing stops the conversion");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let document =
+        Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("the output parses");
+    let pdf_syntax::Object::Dictionary(info) = document.get_key(document.trailer(), "Info") else {
+        panic!("the dictionary the clause keeps is still there");
+    };
+    assert_eq!(
+        info.iter().count(),
+        1,
+        "holding ModDate and nothing else: {info:?}"
+    );
+    assert!(info.get("ModDate").is_some());
+    let packet = document_packet(&output);
+    let xmp = pdf_model::xmp::Xmp::parse(&packet).expect("the packet parses");
+    assert_eq!(
+        xmp.text(pdf_model::xmp::DC, "title"),
+        Some("A title"),
+        "and the entry the clause does not keep went into the packet"
+    );
+    let moved = &conversion(&report).moved_information;
+    assert!(
+        moved
+            .iter()
+            .any(|entry| entry.key == "ModDate" && entry.fate.contains("kept in the dictionary")),
+        "and the report says so: {moved:?}"
+    );
 }
 
 #[test]

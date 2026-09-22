@@ -211,7 +211,7 @@ ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · **built** (ADR 1187), by 
 
 ### `file-structure/document-information-dictionary-needs-piece-info`
 ### `file-structure/document-information-dictionary-holds-only-a-modification-date`
-ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · today `not-built-yet`
+ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · **built** (ADR 1269)
 
 - **Mitigation** — `preserve`: move what `/Info` holds into the XMP packet and delete the
   dictionary, which is the limits document's section 4.2 answer and §14.3.3's own direction of
@@ -221,9 +221,25 @@ ISO 19005-4 6.1.3 · PDF/A-4, 4f, 4e · today `not-built-yet`
 - **By target** — **kind difference, and it is the whole answer**: part 2 states no such rule, so a
   PDF/A-2 target carries `/Info` through untouched. This is the cleanest *retarget* answer in the
   catalogue: the document is not failing, the target is asking.
-- **From a configuration** — `remedy = "preserve"` plus `unmapped = "extension-schema" | "discard" |
-  "stop"`. The operator needs one fact: a reader's File → Properties panel changes where it reads
-  from. Nothing else is visible.
+- **From a configuration** — `remedy = "preserve"` plus `unmapped = "discard" | "stop"`. The
+  operator needs one fact: a reader's File → Properties panel changes where it reads from. Nothing
+  else is visible.
+- **Built** (ADR 1269). Each entry is written into the XMP packet under the property §14.3.3's
+  Table 349 NOTE names for its key, in the shape ISO 19005-2 6.6.2.3.1 makes that property's — a
+  `dc:title` written as a simple value would fail `metadata/properties-use-known-schemas` on the
+  converter's own output, and §14.3.3's EXAMPLE prints the two container shapes. `xmp::supplement`
+  is **additive by construction**, because §14.3.4 permits an addition only into a silence and says
+  of the other case that a processor "should leave the inconsistent values unchanged"; the report
+  names every entry and what became of it. Where the catalog states a `/PieceInfo` the dictionary
+  is kept holding `/ModDate` alone, which the clause's own carve-out is for and §14.5 is the reason
+  for — and then both sources are written, so a `/ModDate` the packet's `xmp:ModifyDate`
+  contradicts refuses the conversion rather than leaving §14.3.4's fourth `shall` broken.
+- **`unmapped = "extension-schema"` is recognised and refused**, and this entry offered it in
+  error. ISO 19005-2 6.6.2.3.2's container describes a schema *a packet uses*, and a `/Info` key is
+  in no schema: putting one into the packet needs a namespace URI first, and a namespace URI is the
+  property's identity rather than a label for it. Nothing in the file states one, and the de-facto
+  URI a large vendor uses is exactly what `CLAUDE.md` principle 5 forbids presenting as derived.
+  ADR 1269 section 5 is the argument; `--remedy-sites` names the answer.
 - **Departure** — **A**, confirmed: part 2 permits the dictionary. Narrowable by key name — *keep
   `/Title` and `/Author`, drop the rest* — which is the shape an archive with a catalogue index
   actually wants.
@@ -1481,8 +1497,12 @@ ISO 19005-2 6.4.2, ISO 19005-4 6.4.2 · all six · `forms/no-needs-rendering`
   document is regenerated when first opened, which is the dynamic case stated by the file.
   `dynamic = "stop"` is the default and refuses such a document by name. The honest limit is
   written down: a dynamic form whose producer wrote no `/NeedsRendering` is indistinguishable from
-  a static one. What is **not** built is the 4f attachment of the packet — `keep-xfa = "attach"` —
-  which needs the attachment machinery the packet site's `original = "attach"` needs.
+  a static one. **`keep-xfa = "attach"` is built too** (ADR 1270), on the same machinery the packet
+  site's `original = "attach"` uses: Annex K says what the array form of the resource is — a pair of
+  a string and a stream per packet, the first and last carrying the `xdp:xdp` begin and end tags —
+  so the streams end to end are the resource, and that is what is attached. An entry that is
+  neither shape, or one of whose streams will not decode, refuses by name: part of a resource is not
+  the resource.
 
 #### `signatures/signature-widgets-meet-the-annotation-rules`
 ISO 19005-2 6.4.3, ISO 19005-4 6.5.1 · all six · **built in session 957** (routed to the three
@@ -1589,7 +1609,7 @@ ISO 19005-4 6.6.3 · PDF/A-4, 4f, 4e · **built** (`discard`, ADR 1175)
 #### `metadata/xmp-packets-well-formed`
 #### `metadata/xmp-packets-state-one-rdf-element`
 #### `metadata/xmp-packets-meet-the-xmp-data-model`
-ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · today **`discard` built, `preserve` by page built**; `original = "attach"` not built
+ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · **built**: `discard`, `preserve` by page (ADR 1245) and `original = "attach"` (ADR 1270)
 
 - **Mitigation** — **`preserve`, and it is the owner's own example arriving exactly where it is most
   needed.** The converter writes into the producer's packet by span, so a packet it cannot parse has
@@ -1610,9 +1630,12 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · to
   other four skipping a stream it replaced because an edit by span has nothing left to write into.
   `--authorise metadata-packet` keeps nothing; `remedy = "preserve"` with `original = "page"` and
   `fresh-packet = true` lays the producer's own bytes out on an appended page, and the report names
-  every stream replaced with what its packet broke. **`original = "attach"` is not built**: keeping the
-  original as an embedded file is 4f's and 4e's mechanism and needs the attachment machinery, so a row
-  asking for it is named by `--remedy-sites` rather than silently taking the page.
+  every stream replaced with what its packet broke. **`original = "attach"` is built** (ADR 1270):
+  the producer's packet stays in the archive as an embedded file at 4f and 4e, filed in §7.7.4's
+  name tree with §14.13.3's catalog `/AF` beside it, Table 43's `/AFRelationship` `Source` on its
+  specification and §14.13.2's own `application/octet-stream` as its media type — the clause names
+  that value for a type the writer does not know, which is the case a site about bytes nobody could
+  read is always in. A row asking for it at one of the other four targets is an error naming both.
 - **From a configuration** — `remedy = "preserve"`, `original = "attach" | "page" | "both"`,
   `fresh-packet = true`. Two facts for the operator: *the archive's metadata is what this converter
   could read, not what the producer wrote*, and *the producer's packet is kept as text rather than

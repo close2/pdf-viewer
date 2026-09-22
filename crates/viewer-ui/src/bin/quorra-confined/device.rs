@@ -222,7 +222,7 @@ impl std::fmt::Debug for Device {
 ///
 /// The type exists for the abort the flagship's `Ungrounded` documents in full: wgpu answers an
 /// acquire that finds an unconfigured surface with a **panic** — the fatal branch is reachable
-/// on the first configure of a process and never again — and `Surface::configure` can fail
+/// on the first configure of a process and never again — and `wgpu::Surface::configure` can fail
 /// exactly when another thread submits beside it. [`Device::ask`] is what spawns the render
 /// thread, and a `Device` cannot exist before [`Ungrounded::ground`] has configured the surface
 /// with the queue provably empty; nothing is left to race.
@@ -626,7 +626,7 @@ mod tests {
     }
 
     /// A validation failure is a refusal, and it carries the device's own words where any were
-    /// left — the account `Surface::configure` gives nowhere else.
+    /// left — the account `wgpu::Surface::configure` gives nowhere else.
     #[test]
     fn a_validation_failure_refuses_with_the_devices_words() {
         let said = render_raster::Uncaptured {

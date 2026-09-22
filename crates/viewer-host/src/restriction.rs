@@ -290,6 +290,17 @@ impl Restrictions {
         self.document
     }
 
+    /// Puts back the departures of a document this window is bringing to the front.
+    ///
+    /// **The other half of [`Self::document`], and it exists because a window may hold more than
+    /// one document.** The *window's* levels are shared by every tab, and the departures are the
+    /// one thing in this type that belongs to a file: `viewer_core` already keeps them beside the
+    /// document they are about (ADR 1145), so a window switching tabs has to move its menu's ticks
+    /// to match rather than send anything. ADR 1264.
+    pub const fn depart(&mut self, departures: RestrictionOverride) {
+        self.document = departures;
+    }
+
     /// Whether the open document is being treated differently from the rest — what a window says
     /// out loud, for [`declined`]'s reason.
     #[must_use]

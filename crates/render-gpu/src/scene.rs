@@ -222,11 +222,11 @@ fn refuse_untranslatable_group(
 
 /// Empties the area an element is about to knock out (§11.4.6).
 ///
-/// # Why not `Compose::Copy`, which is the rule itself
+/// # Why not `peniko::Compose::Copy`, which is the rule itself
 ///
 /// Porter-Duff Source *is* what a knockout element does, and `render-cpu` says exactly that
 /// to `tiny-skia`. Vello cannot: a layer's compose runs over the layer's whole bounding box
-/// with the clip's coverage applied to the *source*, so `Compose::Copy` writes `area × src`
+/// with the clip's coverage applied to the *source*, so `peniko::Compose::Copy` writes `area × src`
 /// everywhere in the box — which erases the destination wherever the shape does not reach,
 /// out to the box's edge. Measured, not assumed: the first version of this differed from the
 /// CPU backend along a whole rectangle edge, one row outside the shape.
@@ -930,7 +930,7 @@ fn encode(
 /// the transparent initial backdrop a group is built on comes to `P' = (1 − f) × P + S` in
 /// premultiplied form — the backdrop scaled by one minus the shape, plus the object.
 ///
-/// Both operators are safe where Vello's layers are not: `Compose::Copy` writes the source
+/// Both operators are safe where Vello's layers are not: `peniko::Compose::Copy` writes the source
 /// over the layer's whole bounding box and so erases outside the shape (see [`knock_out`]),
 /// while `DestOut` leaves the destination exactly where the layer contributes nothing and
 /// `Plus` adds nothing there. The sum of the two draws is bounded by 1 at every pixel — the
@@ -1054,7 +1054,7 @@ fn device_rect(target: TargetSpec) -> kurbo::Rect {
 
 /// Multiplies the layer in progress by a soft mask's values.
 ///
-/// `Compose::DestIn` is "the parts of the destination that overlap with the source", which
+/// `peniko::Compose::DestIn` is "the parts of the destination that overlap with the source", which
 /// for a source of no colour and this much alpha is the destination scaled by the mask —
 /// §11.3.7.1's `α = f × q` with the mask as one of the two factors. The mask image is in
 /// device pixels and drawn under the identity, since it was rendered at exactly this target.

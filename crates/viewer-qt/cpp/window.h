@@ -221,7 +221,7 @@ public:
     /// drawn in different weights of the same platform colour. `highlights` is Annex O's, which
     /// says how the document was opened rather than what is being done to it now.
     void setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches, QVector<QtQuad> highlights,
-                   QVector<QtQuad> focus, qreal scale);
+                   QVector<QtQuad> focus, QVector<QPointF> measuring, qreal scale);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -231,6 +231,12 @@ private:
     QVector<QtQuad> matches_;
     QVector<QtQuad> highlights_;
     QVector<QtQuad> focus_;
+    /// ISO 32000-2 12.9's traced path — the points a person has put down while measuring.
+    ///
+    /// The rubber band. The clause states no state for a viewer to be in, so the points are the
+    /// host's and what they look like is this platform's; Query::Measure answers what they mean
+    /// and never sees a pixel of this. ADR 1264.
+    QVector<QPointF> measuring_;
     qreal scale_ = 1.0;
 };
 
@@ -316,6 +322,12 @@ private:
     void placeControls();
     /// Rebuilds the three trees.
     void rebuildPanels();
+    /// Brings the strip of open documents level with what the host holds.
+    ///
+    /// One tab per document, and the one view this window has moved into whichever is current.
+    /// The strip hides itself for a single document, so a window that opened one file looks
+    /// exactly as it did before tabs existed. ADR 1264.
+    void syncDocuments();
     /// Rebuilds ISO 32000-2 §12.5.6.14's popup windows, which happens when the answer changes.
     ///
     /// Rebuilt rather than moved, which is the opposite of `placeControls`' rule and right for the
@@ -432,6 +444,15 @@ private:
 
     rust::Box<Host> host_;
     QTabWidget* tabs_;
+    /// The strip of open documents, one tab apiece.
+    ///
+    /// A real `QTabWidget` rather than a row of buttons, because a tab strip is what this widget
+    /// *is* — keyboard traversal, the overflow arrows, the style's own spacing. What it wants and
+    /// this window cannot give it is a separate widget tree per page: there is one view here and
+    /// it holds whichever document is in front, so every page but the current one is an empty
+    /// `QWidget` and `split_` is moved into the page that becomes current. `viewer-gtk` does the
+    /// same thing with a `GtkNotebook`, which is what keeps the two hosts level. ADR 1264.
+    QTabWidget* documents_ = nullptr;
     /// One entry per `viewer_host::Tab`, in that list's own order, and **grown from the bridge
     /// rather than sized here**: the window asks `panel_label` until it runs out, so a panel added
     /// on the Rust side appears in this notebook without a line of C++ changing. §12.3.4's slot

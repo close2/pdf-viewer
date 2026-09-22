@@ -186,6 +186,16 @@ pub(super) const RESOLVED_ACTION: &str = "converted";
 /// The word is `converted`, like every other recorded action here.
 pub(super) const PRESERVED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when a file keeps content.
+///
+/// The other `preserve` mechanism's own entry, and the reason is `doc/rfc/0007` section 2.1's
+/// rather than a permission's: the bytes are in the archive under a §7.9.6 name nothing else in
+/// the document states, and a reader who has only the file is entitled to find that out from the
+/// file. **Not a condition of the remedy**, which is where it differs from the page: nothing is
+/// composed and nothing is invented, so there is no permission an unwritten record would void
+/// (`doc/adr/1270`). The word is `converted`, like every other recorded action here.
+pub(super) const ATTACHED_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it removes a source's encryption.
 ///
 /// `doc/pdf-a-mitigations.md` section 2's `preserve` beside the `discard`, and `doc/adr/1187` the
@@ -777,6 +787,19 @@ pub(super) struct Prepared {
     /// says otherwise, so nothing is composed, no font is loaded and no page is measured for a
     /// document that asked for none.
     pub(super) preserved: Result<Composed, Because>,
+    /// The producer's own bytes kept as embedded files, or why none can be.
+    ///
+    /// `doc/adr/1270`, and the field is `Err(NOT_ASKED_FOR)` for every conversion whose caller
+    /// named no attaching `preserve` — which is every conversion until an operator's
+    /// configuration says otherwise, so nothing is read and no object is numbered for a document
+    /// that asked for none.
+    pub(super) attached: Result<super::attach::Attached, Because>,
+    /// What §14.3.3's document information dictionary becomes, or why it cannot move.
+    ///
+    /// Prepared **after the five writers over a packet and before the packet itself**: what the
+    /// packet already states is what decides whether an entry may be written at all (§14.3.4),
+    /// and the properties this settles are supplemented into the packet the writer below composes.
+    pub(super) information: Result<Information, Because>,
     /// Whether this document's packet took the `xmpMM:History` entries this conversion has to
     /// record.
     ///
@@ -974,10 +997,23 @@ impl Prepared {
             intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
             &mut spare,
         );
+        let attached = the_attached_files(
+            plan,
+            document,
+            catalog.as_ref(),
+            &failed,
+            fresh.as_ref(),
+            xfa.as_ref().ok().copied(),
+            &mut spare,
+        );
         let preserved_history = preserved
             .as_ref()
             .ok()
             .and_then(|composed| preserve::preserved_history(&composed.carried));
+        let attached_history = attached
+            .as_ref()
+            .ok()
+            .and_then(|files| super::attach::attached_history(&files.rows));
         let PreparedFonts {
             substitutes,
             metrics,
@@ -990,6 +1026,39 @@ impl Prepared {
             metric_directions(&failed),
             survey.as_ref(),
         );
+        let edited = Edited {
+            fresh: fresh.as_ref().ok(),
+            headers: headers.as_ref().ok(),
+            cleaned: properties.as_ref().ok(),
+            respelled: respelled.as_ref().ok(),
+            amended: amended.as_ref().ok(),
+            described: described.as_ref().ok(),
+        };
+        // ISO 19005-4 section 6.1.3's two rows, read against the packet as the five writers
+        // above left it: §14.3.4 permits an addition only into a silence, so what the packet
+        // already says has to be the packet this conversion is actually going to write.
+        let information = asked(wanted(Rewrite::InformationMovedIntoThePacket), || {
+            prepare_information(
+                document,
+                catalog.as_ref(),
+                document_packet(document, catalog.as_ref(), edited).as_deref(),
+                // The operator's answer for a key Table 349 names nothing for, read the way the
+                // extension schema container reads `undeterminable`: a site the configuration
+                // says nothing about states `stop`, which refuses such a key by name.
+                plan.preservations
+                    .iter()
+                    .find(|preservation| {
+                        INFORMATION_REQUIREMENTS.contains(&preservation.site.as_str())
+                    })
+                    .map_or(super::config::Unmapped::Stop, |preservation| {
+                        preservation.unmapped
+                    }),
+            )
+        });
+        let supplements: Vec<xmp::Supplement<'static>> = information
+            .as_ref()
+            .map(|moved| moved.supplements.clone())
+            .unwrap_or_default();
         let now = xmp::instant(std::time::SystemTime::now());
         let metadata = the_packet(
             plan.target,
@@ -1006,18 +1075,13 @@ impl Prepared {
                 resolved: provenance.resolved,
                 protection: provenance.protection,
                 preserved: preserved_history.as_deref(),
+                attached: attached_history.as_deref(),
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
                 removals: &removals,
                 substituted: &font_history,
-                edited: Edited {
-                    fresh: fresh.as_ref().ok(),
-                    headers: headers.as_ref().ok(),
-                    cleaned: properties.as_ref().ok(),
-                    respelled: respelled.as_ref().ok(),
-                    amended: amended.as_ref().ok(),
-                    described: described.as_ref().ok(),
-                },
+                supplements: &supplements,
+                edited,
             },
         );
         let recorded_it = now.is_some() && metadata.is_ok();
@@ -1151,6 +1215,8 @@ impl Prepared {
             embedded_files,
             constructs_field_appearances: plan.forms.construct_appearances,
             preserved,
+            attached,
+            information,
             recorded_provenance,
         }
     }
@@ -1225,6 +1291,8 @@ impl Prepared {
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
+            Rewrite::InformationMovedIntoThePacket => self.information.as_ref().err().copied(),
+            Rewrite::PreservedAsAttachment => self.attached.as_ref().err().copied(),
             Rewrite::ForbiddenActionRemoved
             | Rewrite::AdditionalActionsRemoved
             | Rewrite::WidgetActionEntryRemoved => self.actions.as_ref().err().copied(),
@@ -1283,6 +1351,11 @@ impl Prepared {
         }
         if let Ok(composed) = &self.preserved {
             for (id, object) in &composed.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(attached) = &self.attached {
+            for (id, object) in &attached.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -3083,6 +3156,127 @@ fn the_preserved_pages(
     Ok(composed)
 }
 
+/// The files a `preserve` remedy attaches, or the reason it cannot.
+///
+/// `doc/adr/1270`. Two sites reach here and the bytes are the producer's at both: the XMP packet
+/// [`Rewrite::FreshMetadataPacket`] replaces, kept under ISO 19005-2 section 6.6.2.1's row with
+/// `original = "attach"`, and the XFA resource [`Rewrite::XfaRemoved`] takes out of the
+/// interactive form dictionary, kept under section 6.4.2's row with `keep-xfa = "attach"`.
+///
+/// **Nothing is attached that no failed requirement asked for**, which is `doc/adr/0947`'s first
+/// rule: a site the operator answered but this document passed keeps nothing, because there is
+/// nothing being taken away.
+fn the_attached_files(
+    plan: &ArchivePlan,
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    failed: &BTreeSet<&'static str>,
+    fresh: Result<&Fresh, &Because>,
+    xfa: Option<Site>,
+    spare: &mut Spare,
+) -> Result<super::attach::Attached, Because> {
+    let asked = |site: &'static str| {
+        plan.preservations
+            .iter()
+            .any(|preservation| preservation.site == site && preservation.by_attachment)
+            && failed.contains(site)
+    };
+    // One attachment per replaced stream, under the first of the three rows the operator answered
+    // and this document failed: one packet's bytes cannot be split between rows that all named
+    // the same stream. The same rule `the_preserved_pages` reads for the page.
+    let packet_site = PACKET_REQUIREMENTS.into_iter().find(|site| asked(site));
+    let packets: Vec<(ObjectId, std::sync::Arc<[u8]>)> = match packet_site {
+        Some(_) => {
+            // The replacement is what makes the file conform and the attachment is what keeps
+            // what it replaces, so a document whose packets cannot be replaced gets neither.
+            let fresh = fresh.map_err(|because| *because)?;
+            let mut out = Vec::new();
+            for at in fresh.packets.keys() {
+                let Object::Stream(stream) = document.get(*at) else {
+                    return Err(Because::NotBuiltYet(NOT_A_PACKET));
+                };
+                // A stream whose data will not decode has no bytes to keep, and the replacement
+                // still happens — the same give-up the appended page makes, for its reason.
+                let Some(bytes) = document.decoded_stream_data(&stream) else {
+                    continue;
+                };
+                out.push((*at, bytes));
+            }
+            out
+        }
+        None => Vec::new(),
+    };
+    let resource = if asked(XFA_REQUIREMENT) {
+        // The removal is what makes the file conform and the attachment is what keeps what it
+        // removes, so a document whose `/XFA` cannot be removed gets neither.
+        let site = xfa.ok_or(Because::NotBuiltYet(XFA_NOT_REMOVABLE))?;
+        let form = match site {
+            Site::InCatalog => {
+                catalog.and_then(|catalog| document.get_key(catalog, "AcroForm").as_dict().cloned())
+            }
+            Site::Object(at) => document.get(at).as_dict().cloned(),
+        };
+        let form = form.ok_or(Because::NotBuiltYet(XFA_NOT_REMOVABLE))?;
+        Some(
+            super::attach::xfa_resource(document, &form)
+                .ok_or(Because::NotBuiltYet(XFA_NOT_READABLE))?,
+        )
+    } else {
+        None
+    };
+    if packets.is_empty() && resource.is_none() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    let mut keeps: Vec<super::attach::Keeping<'_>> = Vec::new();
+    if let Some(site) = packet_site {
+        keeps.extend(packets.iter().map(|(at, bytes)| super::attach::Keeping {
+            site,
+            name: super::attach::filed_as("original-metadata", *at, "xmp"),
+            description: format!(
+                "the XMP metadata packet object {} {} held, as the producer wrote it",
+                at.number, at.generation
+            ),
+            bytes,
+        }));
+    }
+    if let Some(bytes) = resource.as_deref() {
+        keeps.push(super::attach::Keeping {
+            site: XFA_REQUIREMENT,
+            name: XFA_FILE_NAME.to_owned(),
+            description: "the XFA resource the interactive form dictionary held, as the producer \
+                          wrote it"
+                .to_owned(),
+            bytes,
+        });
+    }
+    super::attach::attach(document, catalog, &keeps, spare)
+}
+
+/// ISO 19005-2 section 6.4.2's row, whose attachment is the XFA resource.
+const XFA_REQUIREMENT: &str = "forms/no-xfa-key";
+
+/// The name the XFA resource is filed under.
+///
+/// Not [`super::attach::filed_as`]'s shape, because there is exactly one interactive form
+/// dictionary in a document (§7.7.2's Table 28 makes `/AcroForm` one entry) and therefore exactly
+/// one resource: a number would name an object the tree does not otherwise mention. The extension
+/// is the one §12.7.3's Table 224 names the format by — "whose format shall conform to the Data
+/// Package (XDP) Specification" — and is a convention rather than a declaration, which is why the
+/// media type says what it says.
+const XFA_FILE_NAME: &str = "original-xfa.xdp";
+
+/// Why an XFA resource this conversion cannot reach stops the attachment.
+const XFA_NOT_REMOVABLE: &str = "this configuration keeps the XFA resource as an embedded file, \
+     and the interactive form dictionary the catalog's AcroForm names is not one this conversion \
+     can reach — so there is no resource to keep and the removal beside it does not happen either";
+
+/// Why an XFA resource this conversion cannot read stops the attachment.
+const XFA_NOT_READABLE: &str = "this configuration keeps the XFA resource as an embedded file, \
+     and §12.7.3's Table 224 makes the entry a stream or an array of packets whose streams are \
+     the resource end to end. This document's XFA is neither shape, or one of its streams will \
+     not decode — so what could be attached is part of a resource rather than the resource, and \
+     the removal beside it does not happen either";
+
 /// What relocating a page's forbidden-annotation marks decided: the on-page edits and the fallbacks.
 ///
 /// `doc/adr/1123`. The marks that could be put back where §12.5.5 had them are in [`Self::rows`]
@@ -3580,6 +3774,8 @@ struct Recording<'a> {
     protection: Option<&'a str>,
     /// What an appended page preserved, where one was appended (`doc/adr/1014` section 5).
     preserved: Option<&'a str>,
+    /// What an attachment preserved, where anything was attached (`doc/adr/1270`).
+    attached: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
     ///
     /// A departed conversion that does not claim conformance still writes the packet, so the
@@ -3595,6 +3791,11 @@ struct Recording<'a> {
     removals: &'a str,
     /// The substitution's own recorded action, empty where no face was embedded.
     substituted: &'a str,
+    /// The properties §14.3.3's information dictionary adds to the packet, where it moves.
+    ///
+    /// Additive by construction: `pdf_model::xmp::supplement` writes only a property the packet
+    /// does not already state, which is the one addition §14.3.4 permits.
+    supplements: &'a [xmp::Supplement<'static>],
     /// What the writers before this one left in each packet, one of which may be the catalog's.
     edited: Edited<'a>,
 }
@@ -3649,6 +3850,28 @@ impl Edited<'_> {
             .or_else(|| self.headers.and_then(|headers| headers.packet(at).cloned()))
             .or_else(|| self.fresh.and_then(|fresh| fresh.packet(at).cloned()))
     }
+}
+
+/// The document's own packet as every writer before the caller left it, or as its producer wrote
+/// it where none of them wrote.
+///
+/// The same two sources [`prepare_metadata`] starts from, and asked in the same order: a reader
+/// of *what the packet already states* has to read the bytes this conversion is going to write,
+/// not the ones the file holds.
+fn document_packet(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    edited: Edited<'_>,
+) -> Option<Vec<u8>> {
+    let at = catalog?.get("Metadata").and_then(Object::as_reference)?;
+    let Object::Stream(stream) = document.get(at) else {
+        return None;
+    };
+    edited.packet(at).or_else(|| {
+        document
+            .decoded_stream_data(&stream)
+            .map(|bytes| bytes.to_vec())
+    })
 }
 
 /// The metadata stream this conversion writes, with every action it has to record in it.
@@ -3722,6 +3945,13 @@ fn the_packet(
                 when,
             });
         }
+        if let Some(attached) = recording.attached {
+            events.push(xmp::Event {
+                action: ATTACHED_ACTION,
+                parameters: attached,
+                when,
+            });
+        }
         if let Some(preserved) = recording.preserved {
             events.push(xmp::Event {
                 action: PRESERVED_ACTION,
@@ -3736,7 +3966,7 @@ fn the_packet(
     let Some(catalog) = catalog else {
         return Err(Because::NotBuiltYet(NO_CATALOG));
     };
-    if !recording.schema && events.is_empty() {
+    if !recording.schema && events.is_empty() && recording.supplements.is_empty() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     prepare_metadata(
@@ -3747,6 +3977,7 @@ fn the_packet(
         recording.schema,
         recording.omit_identification,
         &events,
+        recording.supplements,
         recording.edited,
     )
 }
@@ -3774,6 +4005,7 @@ fn prepare_metadata(
     schema_wanted: bool,
     omit_identification: bool,
     recorded: &[xmp::Event<'_>],
+    supplements: &[xmp::Supplement<'static>],
     edited: Edited<'_>,
 ) -> Result<Metadata, Because> {
     // `A59`: a departed conversion that does not claim conformance writes no `pdfaid:*` at all, so
@@ -3792,6 +4024,8 @@ fn prepare_metadata(
     // A recorded action is *appended*, so a packet may need editing for that alone — a document
     // whose identification schema is already right and whose `DeviceCMYK` is not.
     let record = |packet: Vec<u8>| {
+        let packet = xmp::supplement(&packet, supplements)
+            .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?;
         recorded.iter().try_fold(packet, |packet, event| {
             xmp::record(&packet, event).map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))
         })
@@ -3833,6 +4067,274 @@ fn prepare_metadata(
         written: Some(metadata_stream(&Dictionary::new(), &packet)),
         packet,
     })
+}
+
+/// What §14.3.3's document information dictionary becomes, and what the packet gains from it.
+///
+/// ISO 19005-4 section 6.1.3 admits `/Info` only beside a `/PieceInfo`, and then holding only a
+/// `/ModDate`. §14.3.3 says where the rest goes — the dictionary is deprecated "[f]or any other
+/// document level metadata" and Table 349's NOTEs name the XMP property each key pairs with — so
+/// the two rows are answered by moving the values and dropping the dictionary. `doc/adr/1269`.
+pub(super) struct Information {
+    /// The properties the document's packet gains, in Table 349's own key order.
+    ///
+    /// Additive: `pdf_model::xmp::supplement` writes only what the packet does not already state,
+    /// which is the only addition §14.3.4 permits.
+    pub(super) supplements: Vec<xmp::Supplement<'static>>,
+    /// What became of each entry, for the report.
+    pub(super) entries: Vec<MovedEntry>,
+    /// The `/ModDate` the output's own trailer still states, where the clause keeps it there.
+    ///
+    /// `None` is the ordinary case: the dictionary goes and `xmp:ModifyDate` carries the date.
+    /// `Some` is ISO 19005-4 section 6.1.3's own carve-out — a catalog stating a `/PieceInfo`
+    /// keeps the entry, because §14.5 makes it what a page-piece dictionary's `LastModified` is
+    /// compared against.
+    pub(super) kept_modification_date: Option<Object>,
+}
+
+/// One entry of the document information dictionary, and where it went.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovedEntry {
+    /// The key, as Table 349 spells it.
+    pub key: String,
+    /// The XMP property it was written to, where it was written to one.
+    pub property: Option<String>,
+    /// What happened to it, in one clause for a person.
+    pub fate: &'static str,
+}
+
+impl MovedEntry {
+    /// One entry as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        let mut fields = vec![
+            ("key".to_owned(), Value::text(self.key.clone())),
+            ("fate".to_owned(), Value::text(self.fate.to_owned())),
+        ];
+        if let Some(property) = &self.property {
+            fields.push(("property".to_owned(), Value::text(property.clone())));
+        }
+        Value::Object(fields)
+    }
+}
+
+/// The entry's value is now the packet's, under the property Table 349's NOTE names.
+const MOVED: &str = "written into the XMP packet";
+
+/// The packet already stated the property, so §14.3.4 leaves what it says alone.
+const ALREADY_STATED: &str = "the packet already states this property, which §14.3.4 leaves \
+     unchanged, so the dictionary's value is dropped";
+
+/// Table 349 names no counterpart, and the operator answered `unmapped = "discard"`.
+const DROPPED: &str = "Table 349 names no XMP property for this key and the configuration \
+     answers `unmapped = \"discard\"`, so the value leaves the document";
+
+/// The one entry the clause leaves in the dictionary.
+const KEPT: &str = "kept in the dictionary, which ISO 19005-4 section 6.1.3 admits beside the \
+     catalog's PieceInfo";
+
+/// §14.3.3's Table 349, key by key, with the XMP property its own NOTE names and the shape the
+/// XMP Specification's schema gives that property.
+///
+/// The property is the standard's: NOTE 1 names `dc:title` for `/Title`, NOTE 2 `dc:creator` for
+/// `/Author`, NOTE 3 `dc:description` for `/Subject`, NOTE 4 `pdf:Keywords`, NOTE 5
+/// `xmp:CreatorTool`, NOTE 6 `pdf:Producer`, NOTE 7 `xmp:CreateDate`, NOTE 8 `xmp:ModifyDate` and
+/// NOTE 10 `pdf:Trapped`. **The shape is not a choice either**: ISO 19005-2 section 6.6.2.3.1
+/// requires a property to use its predefined schema *as defined*, so a `dc:title` written as a
+/// simple value would fail `metadata/properties-use-known-schemas` on this converter's own
+/// output — which is what `pdf_archive`'s predefined-schema table records and what the fixture
+/// proves. §14.3.3's own EXAMPLE prints both container shapes.
+const TABLE_349: &[(&str, &str, &str, &str, xmp::Form)] = &[
+    ("Title", xmp::DC, "dc", "title", xmp::Form::Alternative),
+    ("Author", xmp::DC, "dc", "creator", xmp::Form::Ordered),
+    (
+        "Subject",
+        xmp::DC,
+        "dc",
+        "description",
+        xmp::Form::Alternative,
+    ),
+    ("Keywords", xmp::PDF, "pdf", "Keywords", xmp::Form::Simple),
+    ("Creator", xmp::XMP, "xmp", "CreatorTool", xmp::Form::Simple),
+    ("Producer", xmp::PDF, "pdf", "Producer", xmp::Form::Simple),
+    (
+        "CreationDate",
+        xmp::XMP,
+        "xmp",
+        "CreateDate",
+        xmp::Form::Simple,
+    ),
+    ("ModDate", xmp::XMP, "xmp", "ModifyDate", xmp::Form::Simple),
+    ("Trapped", xmp::PDF, "pdf", "Trapped", xmp::Form::Simple),
+];
+
+/// ISO 19005-4 section 6.1.3's two rows, whose `unmapped` answer is one answer for both.
+const INFORMATION_REQUIREMENTS: [&str; 2] = [
+    "file-structure/document-information-dictionary-needs-piece-info",
+    "file-structure/document-information-dictionary-holds-only-a-modification-date",
+];
+
+/// The two keys whose value §14.3.3 makes a date rather than a text string.
+const DATE_KEYS: [&str; 2] = ["CreationDate", "ModDate"];
+
+/// Why a `/Info` key with no XMP counterpart stops the conversion.
+const UNMAPPED_KEY_DECLINED: &str = "this document information dictionary states a key ISO \
+     32000-2 Table 349 does not define, and Table 349's NOTEs are what name every other key's XMP \
+     counterpart — so there is no property this value belongs in. The configuration's `unmapped` \
+     answer decides: `discard` drops the value and the report names the key, and `stop`, which is \
+     what a row saying nothing states, keeps this refusal";
+
+/// Why a date this converter cannot read stops the conversion.
+const INFORMATION_DATE_NOT_READABLE: &str = "this document information dictionary states a \
+     CreationDate or ModDate that is not §7.9.4's date, so there is no instant to write into the \
+     packet's own ISO 8601 spelling of one. Deciding what a malformed date meant is the repair \
+     doc/questions/A48 closes, and writing the text across unconverted would put a value in \
+     xmp:CreateDate that ISO 16684-1's grammar does not admit";
+
+/// Why a value that is not a string stops the conversion.
+const INFORMATION_VALUE_NOT_TEXT: &str = "§14.3.3 requires every document information dictionary \
+     entry other than CreationDate and ModDate to be a text string, and Table 349 makes Trapped a \
+     name; this dictionary states one that is neither, so there is no text to carry into the \
+     packet and this converter will not invent a spelling for it";
+
+/// Why a modification date the packet contradicts stops the conversion.
+const MODIFICATION_DATES_DISAGREE: &str = "the catalog states a PieceInfo, so ISO 19005-4 \
+     section 6.1.3 keeps this document's ModDate in the dictionary and the conversion writes both \
+     sources — and §14.3.4 requires that \"the data in the document information dictionary and \
+     the document level metadata stream -if both are written -are fully equivalent\". The \
+     packet's xmp:ModifyDate names another instant than the dictionary's ModDate, and choosing \
+     between them is deciding which of the producer's two statements was true";
+
+/// Moves §14.3.3's document information dictionary into the XMP packet.
+///
+/// **Nothing is decided about a value.** Each entry is written under the property Table 349's own
+/// NOTE names for its key, spelled the way ISO 16684-1 spells that property's shape; a date is
+/// converted between the two grammars §7.9.4 and ISO 16684-1 define and nothing else changes. The
+/// packet is supplemented rather than rewritten, so a property the producer already stated stands
+/// — §14.3.4's instruction, made structural by `pdf_model::xmp::supplement` having no way to
+/// overwrite.
+fn prepare_information(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    packet: Option<&[u8]>,
+    unmapped: super::config::Unmapped,
+) -> Result<Information, Because> {
+    let Some(catalog) = catalog else {
+        return Err(Because::NotBuiltYet(NO_CATALOG));
+    };
+    let Object::Dictionary(info) = document.get_key(document.trailer(), "Info") else {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    };
+    if unmapped == super::config::Unmapped::ExtensionSchema {
+        return Err(Because::NotBuiltYet(
+            super::config::UNMAPPED_NEEDS_A_NAMESPACE,
+        ));
+    }
+    // ISO 19005-4 section 6.1.3's carve-out, and §14.5 is its reason: a page-piece dictionary's
+    // `LastModified` is compared against this date, so a catalog holding private data keeps it.
+    let keeps = document.get_key(catalog, "PieceInfo").as_dict().is_some();
+    let stated = packet.and_then(|bytes| xmp::Xmp::parse(bytes).ok());
+    let mut supplements = Vec::new();
+    let mut entries = Vec::new();
+    let mut kept_modification_date = None;
+    let keys: Vec<String> = info
+        .iter()
+        .map(|(name, _)| String::from_utf8_lossy(name.as_bytes()).into_owned())
+        .collect();
+    for key in keys {
+        let value = document.get_key(&info, &key);
+        if matches!(value, Object::Null) {
+            continue;
+        }
+        let Some(&(_, namespace, prefix, local, form)) =
+            TABLE_349.iter().find(|(name, ..)| *name == key)
+        else {
+            if unmapped != super::config::Unmapped::Discard {
+                return Err(Because::Declined(UNMAPPED_KEY_DECLINED));
+            }
+            entries.push(MovedEntry {
+                key,
+                property: None,
+                fate: DROPPED,
+            });
+            continue;
+        };
+        let text = information_value(&value, &key)?;
+        let property = format!("{prefix}:{local}");
+        if key == "ModDate" && keeps {
+            // Both sources are written, so §14.3.4's fourth rule binds: they have to name the
+            // same instant, and this converter will not choose between two the producer stated.
+            if stated
+                .as_ref()
+                .and_then(|xmp| xmp.text(namespace, local))
+                .is_some_and(|already| already != text)
+            {
+                return Err(Because::NotBuiltYet(MODIFICATION_DATES_DISAGREE));
+            }
+            kept_modification_date = Some(value.clone());
+            entries.push(MovedEntry {
+                key,
+                property: Some(property),
+                fate: KEPT,
+            });
+            continue;
+        }
+        if stated
+            .as_ref()
+            .is_some_and(|xmp| xmp.value(namespace, local).is_some())
+        {
+            entries.push(MovedEntry {
+                key,
+                property: Some(property),
+                fate: ALREADY_STATED,
+            });
+            continue;
+        }
+        supplements.push(xmp::Supplement {
+            namespace,
+            prefix,
+            local,
+            value: text,
+            form,
+        });
+        entries.push(MovedEntry {
+            key,
+            property: Some(property),
+            fate: MOVED,
+        });
+    }
+    if entries.is_empty() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    Ok(Information {
+        supplements,
+        entries,
+        kept_modification_date,
+    })
+}
+
+/// One entry's value as the text the packet is to carry.
+///
+/// Three shapes, and each is Table 349's. A date becomes ISO 16684-1's spelling of the same
+/// instant; `/Trapped` is a name, whose three values Table 349 fixes; everything else is a
+/// §7.9.2.2 text string. Anything else refuses the document rather than guessing at a spelling.
+fn information_value(value: &Object, key: &str) -> Result<String, Because> {
+    if DATE_KEYS.contains(&key) {
+        let text = value
+            .as_string()
+            .ok_or(Because::NotBuiltYet(INFORMATION_VALUE_NOT_TEXT))?;
+        let spelled = std::str::from_utf8(text)
+            .ok()
+            .and_then(pdf_syntax::Date::parse)
+            .ok_or(Because::NotBuiltYet(INFORMATION_DATE_NOT_READABLE))?;
+        return Ok(xmp::spelled_date(&spelled));
+    }
+    if let Some(name) = value.as_name() {
+        return Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
+    }
+    let text = value
+        .as_string()
+        .ok_or(Because::NotBuiltYet(INFORMATION_VALUE_NOT_TEXT))?;
+    Ok(pdf_syntax::text_string::text_string(text))
 }
 
 /// One metadata stream, with the two entries §14.3.2's Table 347 requires of it.

@@ -370,6 +370,32 @@ entry points** — `quorra_popup_reply_count`, `quorra_popup_reply_object` and
 be able to *ask*. `QUORRA_ABI_VERSION` did not move: an entry point added is one an old caller never
 calls, and none of the three takes a struct by value. ADR 1090.
 
+**And the one-thousand-two-hundred-and-thirteenth added one `Command` and one entry point**, on the
+pattern `Command::Trust` set, and it is the value that had to exist before any window could hold a
+second document. Two tables say a destination in another file may be opened in a window of its own
+— §12.6.4.3's Table 203 and §12.6.4.4's Table 204 — and both defer the absent case to a preference
+this crate does not hold: whether this program *has* a second place to put a document is a fact
+about the window, and the name it would be called by can only come from a host, because
+`DocumentId` is the host's word. So `Command::Beside(Option<DocumentId>)` carries a name held in
+reserve, used only where an action states the entry and consumed the moment one is opened under it.
+**It is deliberately not a field on `Command::Supply`**, which is the shape this section prefers:
+§12.6.4.4's target is inside the document already open, so no file is ever asked for there and a
+design carried on a supply would answer the weaker of the two entries — Table 203 states the `true`
+case with nothing and Table 204 states it with a `should`. **Two consumers failed to compile**,
+`viewer-confined`'s wire (command kind 35) and `quorra`'s trace line;
+`QUORRA_EVENT_KIND_COUNT` stayed where it is because nothing here is an event, and the C ABI gained
+one entry point and no constants — `quorra_beside`. `QUORRA_ABI_VERSION` did not move, for the
+standing reason. **Every window gained a strip of tabs and two keys**: a `gtk4::Notebook`, a
+`QTabWidget` and a strip `viewer-ui` draws for itself, with Ctrl + Tab and Ctrl + W, and
+`viewer_host::Documents` as the bookkeeping the three share. ADRs 1263, 1264.
+
+**And it added nothing at all for §12.9's rubber band**, which is worth the sentence because ADR
+1191 wrote down that it was owed. The points have been the host's since that round and
+`Query::Measure` answers what they mean, so what three windows were missing was three pictures:
+the traced path drawn over the page in each window's own colour, with every press marked. No
+message, no shared code, and the colour is each platform's answer to a clause that states none.
+ADR 1264.
+
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

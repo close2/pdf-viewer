@@ -507,7 +507,9 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                         // The two sites this sweep names are both answered by an appended
                         // page, which is the mechanism it counts.
                         by_page: true,
+                        by_attachment: false,
                         discard_undeterminable: false,
+                        unmapped: pdf_transform::archive::Unmapped::Stop,
                     })
                     .collect(),
                 resolutions: Vec::new(),

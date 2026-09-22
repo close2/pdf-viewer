@@ -43,6 +43,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
@@ -91,6 +92,27 @@ constexpr double kScrollStep = 48.0;
 /// A choice, and the same one `viewer-gtk` makes: the clause states a rectangle and not one word
 /// about what a window looks like inside it.
 constexpr int kPopupPadding = 5;
+
+/// How large a mark one of ISO 32000-2 §12.9's traced points gets, in logical pixels.
+///
+/// A choice, and the same one `viewer-gtk` makes: the clause states the arithmetic over a path
+/// and not one word about what a person sees while they trace it. Small enough not to cover the
+/// thing being measured, large enough to find on a dense page.
+constexpr qreal kMeasuredPoint = 2.5;
+
+/// One page of the document strip: an empty holder, or one already holding the view.
+///
+/// Every page but the current one is empty; see `MainWindow::documents_` for why.
+static QWidget* newDocumentPage(QWidget* view)
+{
+    auto* holder = new QWidget;
+    auto* layout = new QVBoxLayout(holder);
+    layout->setContentsMargins(0, 0, 0, 0);
+    if (view != nullptr) {
+        layout->addWidget(view);
+    }
+    return holder;
+}
 
 /// Refuses a call into the host that arrives while another one is running.
 ///
@@ -563,19 +585,22 @@ ChromeOverlay::ChromeOverlay(QWidget* parent) : QWidget(parent)
 }
 
 void ChromeOverlay::setShapes(QVector<QtQuad> selection, QVector<QtQuad> matches,
-                              QVector<QtQuad> highlights, QVector<QtQuad> focus, qreal scale)
+                              QVector<QtQuad> highlights, QVector<QtQuad> focus,
+                              QVector<QPointF> measuring, qreal scale)
 {
     selection_ = std::move(selection);
     matches_ = std::move(matches);
     highlights_ = std::move(highlights);
     focus_ = std::move(focus);
+    measuring_ = std::move(measuring);
     scale_ = scale > 0.0 ? scale : 1.0;
     update();
 }
 
 void ChromeOverlay::paintEvent(QPaintEvent*)
 {
-    if (selection_.isEmpty() && matches_.isEmpty() && highlights_.isEmpty() && focus_.isEmpty()) {
+    if (selection_.isEmpty() && matches_.isEmpty() && highlights_.isEmpty() && focus_.isEmpty()
+        && measuring_.isEmpty()) {
         return;
     }
     QPainter painter(this);
@@ -621,6 +646,31 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
     painter.setBrush(selection);
     for (const QtQuad& quad : selection_) {
         painter.drawPath(pathOf(quad, scale_));
+    }
+
+    // ISO 32000-2 12.9's traced path itself — the rubber band. Solid and on top, because every
+    // other shape here is one the document or a search put on the page and this is the one a
+    // person is drawing. Each press is marked as well as joined: the path between two points is a
+    // straight line, so a third point put down on top of a second would otherwise show nothing.
+    // The size is a choice, and written down as one: the clause states the arithmetic over a path
+    // and not one word about what a person sees while they trace it. ADR 1264.
+    if (!measuring_.isEmpty()) {
+        QColor traced = accentOf(colours).colour;
+        traced.setAlphaF(0.85f);
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(QPen(traced, 1.5));
+        if (measuring_.size() > 1) {
+            QPainterPath path(measuring_.first() / scale_);
+            for (int index = 1; index < measuring_.size(); ++index) {
+                path.lineTo(measuring_[index] / scale_);
+            }
+            painter.drawPath(path);
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(traced);
+        for (const QPointF& point : measuring_) {
+            painter.drawEllipse(point / scale_, kMeasuredPoint, kMeasuredPoint);
+        }
     }
 
     // §12.5.1: an annotation with the input focus. What a focus ring looks like is the platform's,
@@ -921,7 +971,24 @@ MainWindow::MainWindow(rust::Box<Host> host)
     split_->addWidget(page_);
     split_->setStretchFactor(1, 1);
     split_->setSizes({380, 620});
-    setCentralWidget(split_);
+
+    // The strip of open documents. One tab until something opens a second — a /NewWindow true on
+    // ISO 32000-2 12.6.4.3's remote go-to — and the bar hides itself for a strip of one, so a
+    // window that opened one file is the window it was. ADR 1264.
+    documents_ = new QTabWidget;
+    documents_->setDocumentMode(true);
+    documents_->addTab(newDocumentPage(split_), QString());
+    documents_->tabBar()->setVisible(false);
+    connect(documents_, &QTabWidget::currentChanged, this, [this](int index) {
+        if (busy_ || index < 0) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->choose_document(static_cast<std::size_t>(index));
+        applyUpdates();
+    });
+    setCentralWidget(documents_);
+    syncDocuments();
 
     status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     statusBar()->addWidget(status_, 1);
@@ -1537,8 +1604,46 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
     applyUpdates();
 }
 
+void MainWindow::syncDocuments()
+{
+    const rust::Vec<rust::String> labels = host_->documents();
+    const int wanted = static_cast<int>(labels.size());
+    if (wanted == 0) {
+        return;
+    }
+    // The signal is this window's own bookkeeping from here on, not a person choosing a tab.
+    Busy guard(busy_);
+    while (documents_->count() < wanted) {
+        documents_->addTab(newDocumentPage(nullptr), QString());
+    }
+    const int focused = std::min(static_cast<int>(host_->focused_document()), wanted - 1);
+    // The view moves *before* any page is destroyed, because a page destroyed while holding it
+    // would take the splitter — and with it the panels and the page area — down with it.
+    if (auto* layout = qobject_cast<QVBoxLayout*>(documents_->widget(focused)->layout())) {
+        if (split_->parentWidget() != documents_->widget(focused)) {
+            layout->addWidget(split_);
+        }
+    }
+    while (documents_->count() > wanted) {
+        QWidget* spare = documents_->widget(documents_->count() - 1);
+        documents_->removeTab(documents_->count() - 1);
+        delete spare;
+    }
+    for (int index = 0; index < wanted; ++index) {
+        documents_->setTabText(index, text(labels[static_cast<std::size_t>(index)]));
+    }
+    documents_->setCurrentIndex(focused);
+    documents_->tabBar()->setVisible(wanted > 1);
+}
+
 void MainWindow::applyUpdates()
 {
+    // The last document was closed, so the window goes with it. Checked first, because everything
+    // below asks the host about a document that is no longer there. ADR 1264.
+    if (host_->closing_the_window()) {
+        close();
+        return;
+    }
     const QtUpdate update = host_->take_update();
     if (update.panels) {
         rebuildPanels();
@@ -1567,8 +1672,19 @@ void MainWindow::applyUpdates()
         for (const QtQuad& quad : host_->focus()) {
             focus.push_back(quad);
         }
+        // ISO 32000-2 12.9's traced path, as flat x, y pairs.
+        QVector<QPointF> measuring;
+        const rust::Vec<float> traced = host_->measuring();
+        for (std::size_t index = 0; index + 1 < traced.size(); index += 2) {
+            measuring.push_back(QPointF(static_cast<qreal>(traced[index]),
+                                        static_cast<qreal>(traced[index + 1])));
+        }
         page_->chrome()->setShapes(std::move(selection), std::move(matches), std::move(highlights),
-                                   std::move(focus), page_->devicePixelRatioF());
+                                   std::move(focus), std::move(measuring),
+                                   page_->devicePixelRatioF());
+    }
+    if (update.documents) {
+        syncDocuments();
     }
     if (update.popups) {
         rebuildPopups();

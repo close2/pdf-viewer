@@ -851,6 +851,21 @@ int32_t quorra_audience(quorra_viewer *viewer, const char *const *names, size_t 
  * re-interprets every page. */
 int32_t quorra_separations(quorra_viewer *viewer, bool simulate, quorra_events **events);
 
+/* The name a document opened *beside* the one showing would be called by.
+ *
+ * Table 203's /NewWindow (12.6.4.3's remote go-to) and Table 204's (12.6.4.4's embedded one) each
+ * say a destination in another file may be opened in a window of its own, and each defers the
+ * absent case to the processor's preference. Whether this caller has a second place to put a
+ * document is a fact about the caller and about no file.
+ *
+ * `reserved` false empties the reserve, which is what every caller had before this existed: the
+ * destination replaces the document it was reached from, said out loud on a QUORRA_EVENT_REPORTED.
+ * `reserved` true holds `name` out for the next action asking for a new window, ONCE — the moment
+ * a document opens under it the reserve is empty again, so offer a fresh name per tab. A name
+ * offered and not used opens nothing. The name is the caller's, as quorra_open's is, and which of
+ * the two happened is the document on the QUORRA_EVENT_OPENED that comes back. */
+int32_t quorra_beside(quorra_viewer *viewer, bool reserved, uint64_t name, quorra_events **events);
+
 /* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */
 /* ------------------------------------------------------------------------------------------- */

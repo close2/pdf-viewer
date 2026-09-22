@@ -844,6 +844,47 @@ pub enum Rewrite {
     /// neither: Table 31 requires it, so there is no default to fall back to and the
     /// requirement stays refused by name.
     PageBoundaryRemoved,
+    /// The document information dictionary's entries are written into the XMP packet, and the
+    /// dictionary goes.
+    ///
+    /// ISO 19005-4 section 6.1.3, whose two sentences leave `/Info` no entry but `/ModDate` and
+    /// admit even that only beside a `/PieceInfo`. §14.3.3 is why moving the values rather than
+    /// dropping them is the standard's own answer:
+    ///
+    /// > Earlier versions of the PDF file format used the document information dictionary to
+    /// > represent document level metadata. In PDF 2.0 such use is deprecated except for two
+    /// > entries, CreationDate and ModDate . For any other document level metadata, a metadata
+    /// > stream (see 14.3.2 "Metadata streams") should be used instead.
+    ///
+    /// and Table 349's NOTEs name the counterpart of each key one by one — `dc:title` for
+    /// `/Title`, `dc:creator` for `/Author`, `dc:description` for `/Subject`, `pdf:Keywords`,
+    /// `xmp:CreatorTool`, `pdf:Producer`, `xmp:CreateDate`, `xmp:ModifyDate` and `pdf:Trapped`.
+    /// So every property written is the one the standard pairs with the key, and every value is
+    /// the producer's own; [`super::prepare::Information`] is the whole construction.
+    ///
+    /// **Nothing overwrites what the packet already says.** §14.3.4 permits the addition only
+    /// into a silence — "a PDF processor may add the information to the other, as long as both
+    /// are fully equivalent" — and says of the other case that a processor "should leave the
+    /// inconsistent values unchanged". `pdf_model::xmp::supplement` is additive for exactly that
+    /// reason, and a dictionary value the packet contradicts is dropped rather than written.
+    ///
+    /// **The dictionary is kept where the clause keeps it**: a catalog stating a `/PieceInfo`
+    /// leaves `/Info` holding `/ModDate` and nothing else, because §14.5 makes that date what a
+    /// page-piece dictionary's `LastModified` is compared against.
+    InformationMovedIntoThePacket,
+    /// The producer's own bytes stay in the archive as an embedded file, filed in §7.7.4's
+    /// `/EmbeddedFiles` name tree and associated with the document by §14.13.3's catalog `/AF`.
+    ///
+    /// `doc/rfc/0007` section 4.6.1's other `preserve` mechanism, and the one the targets differ
+    /// about: ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9 require an embedded file to
+    /// conform to a part of ISO 19005, and Annex A lifts that for PDF/A-4f and Annex B for
+    /// PDF/A-4e — so bytes that are not a PDF stay inside the archive at those two targets and
+    /// nowhere else. [`super::attach`] is the construction and `doc/adr/1270` the argument.
+    ///
+    /// **Not a mark and not a page.** What the document gains is three objects and two entries in
+    /// its catalog; nothing on any page changes, and the bytes attached are the producer's,
+    /// carried across without being decoded, re-encoded or re-parsed.
+    PreservedAsAttachment,
 }
 
 impl Rewrite {
@@ -1129,6 +1170,14 @@ impl Rewrite {
                  19005-2 section 6.1.13 does not admit, so that ISO 32000-2 \u{a7}14.11.2.1's \
                  own default states that boundary instead"
             }
+            Self::InformationMovedIntoThePacket => {
+                "the document information dictionary's entries are written into the XMP packet, \
+                 each under the property Table 349's NOTE names for it, and the dictionary goes"
+            }
+            Self::PreservedAsAttachment => {
+                "the producer's own bytes stay in the archive as an embedded file, filed in the \
+                 EmbeddedFiles name tree and associated with the document by the catalog's AF"
+            }
         }
     }
 
@@ -1201,6 +1250,8 @@ impl Rewrite {
             Self::EncryptionRemoved => "encryption-removed",
             Self::ExternalDataEmbedded => "external-data-embedded",
             Self::PageBoundaryRemoved => "page-boundary-removed",
+            Self::InformationMovedIntoThePacket => "information-moved-into-the-packet",
+            Self::PreservedAsAttachment => "preserved-as-attachment",
         }
     }
 }
@@ -1275,6 +1326,7 @@ pub(super) fn convert(
         signatures: Some(&prepared.signatures),
         foreign_handlers: prepared.owed.foreign_handlers.as_ref().ok(),
         preserved: prepared.preserved.as_ref().ok(),
+        attached: prepared.attached.as_ref().ok(),
         actions: prepared.actions.as_ref().ok(),
         hexadecimal: prepared.hexadecimal.as_ref().ok(),
         external_data: prepared.external_data.as_ref().ok(),
@@ -1287,17 +1339,13 @@ pub(super) fn convert(
     let mapped = walk(&rewriter, &mut assembly, root, &mut replaced, &mut applied)
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     assembly.set_root(mapped);
-    // §14.3.3's document information dictionary is the trailer's second root: nothing in the
-    // catalog reaches it, so a walk from `/Root` alone would drop a document's title and author.
-    if let Some(info) = document
-        .trailer()
-        .get("Info")
-        .and_then(Object::as_reference)
-    {
-        let carried = walk(&rewriter, &mut assembly, info, &mut replaced, &mut applied)
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-        assembly.set_info(Some(carried));
-    }
+    the_information_dictionary(
+        &rewriter,
+        &mut assembly,
+        prepared,
+        &mut replaced,
+        &mut applied,
+    )?;
 
     for (id, value) in replaced {
         let Some(slot) = assembly.copied(0, id) else {
@@ -1322,6 +1370,51 @@ pub(super) fn convert(
         .map_err(|error| Refusal::Assembly(error.to_string()))?;
     count_what_has_no_place(wanted, prepared, &mut applied);
     Ok(Converted { bytes, applied })
+}
+
+/// §14.3.3's document information dictionary, carried into the output or left out of it.
+///
+/// The trailer's second root: nothing in the catalog reaches it, so a walk from `/Root` alone
+/// would drop a document's title and author. ISO 19005-4 section 6.1.3 is the other case — the
+/// values are in the packet by then, so what the trailer states is either nothing at all or the
+/// one entry the clause keeps beside a `/PieceInfo`. **Not walking the dictionary is what removes
+/// it**, and the objects only it reached go with it, which is the rule every removal in this verb
+/// follows (`doc/adr/1099`).
+fn the_information_dictionary(
+    rewriter: &Rewriter<'_>,
+    assembly: &mut Assembly<'_>,
+    prepared: &Prepared,
+    replaced: &mut Vec<(ObjectId, Object)>,
+    applied: &mut BTreeMap<Rewrite, usize>,
+) -> Result<(), Refusal> {
+    let Some(info) = rewriter
+        .document
+        .trailer()
+        .get("Info")
+        .and_then(Object::as_reference)
+    else {
+        return Ok(());
+    };
+    let Some(information) = prepared
+        .information
+        .as_ref()
+        .ok()
+        .filter(|_| rewriter.wants(Rewrite::InformationMovedIntoThePacket))
+    else {
+        let carried = walk(rewriter, assembly, info, replaced, applied)
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+        assembly.set_info(Some(carried));
+        return Ok(());
+    };
+    if let Some(date) = &information.kept_modification_date {
+        let mut kept = Dictionary::new();
+        kept.insert(Name::new(&b"ModDate"[..]), date.clone());
+        let placed = assembly
+            .add(Object::Dictionary(kept))
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+        assembly.set_info(Some(placed));
+    }
+    Ok(())
 }
 
 /// The rewrites there is no place to count, counted from what was prepared instead.
@@ -1378,6 +1471,16 @@ fn count_what_has_no_place(
         && let Ok(described) = &prepared.described
     {
         applied.insert(Rewrite::ExtensionSchemaDescribed, described.described.len());
+    }
+    // The entries rather than the dictionary: one `/Info` may hold eight of them, and a report
+    // saying "1 done" would be counting the object instead of what moved.
+    if wanted.contains(&Rewrite::InformationMovedIntoThePacket)
+        && let Ok(information) = &prepared.information
+    {
+        applied.insert(
+            Rewrite::InformationMovedIntoThePacket,
+            information.entries.len(),
+        );
     }
     // The three action rewrites, for the same reason once more: one edited object may be one
     // action removed or six, and a count of objects would tell an operator who authorised
@@ -2075,6 +2178,8 @@ struct Rewriter<'a> {
     remedies: &'a super::remedies::Remedies,
     /// The pages a `preserve` remedy composed, where any were composed.
     preserved: Option<&'a Composed>,
+    /// The files a `preserve` remedy attached, where any were attached.
+    attached: Option<&'a super::attach::Attached>,
     /// The entries the action clauses ask each object to restate, where any are asked.
     actions: Option<&'a super::actions::Removals>,
     /// The content streams whose hexadecimal strings state their final digit, where any do.
@@ -2187,6 +2292,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::AlternatePresentations);
             changed = true;
         }
+        changed |= self.file_in_the_name_dictionary(id, &mut out);
         if self.sites.pages.contains(&id)
             && self.wants(Rewrite::PresentationSteps)
             && out.remove("PresSteps").is_some()
@@ -3016,6 +3122,85 @@ impl Rewriter<'_> {
         sites.pages.contains_key(&id)
     }
 
+    /// Points the name dictionary's `/EmbeddedFiles` at the tree an attachment rewrote.
+    ///
+    /// §7.7.4 puts the tree in the name dictionary, and where this document states that
+    /// dictionary as an object of its own the entry is rewritten *there* rather than in the
+    /// catalog — which leaves every other name tree the producer wrote exactly where it was.
+    /// [`Self::file_the_attachments`] is the other shape.
+    fn file_in_the_name_dictionary(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if Some(id) != self.sites.names {
+            return false;
+        }
+        let Some(attached) = self.attachments() else {
+            return false;
+        };
+        out.insert(
+            Name::new(&b"EmbeddedFiles"[..]),
+            Object::Reference(attached.tree),
+        );
+        true
+    }
+
+    /// The attachments this conversion filed, where it filed any.
+    fn attachments(&self) -> Option<&super::attach::Attached> {
+        self.wants(Rewrite::PreservedAsAttachment)
+            .then_some(self.attached)
+            .flatten()
+    }
+
+    /// Files the attachments in the catalog: §7.7.4's name tree and §14.13.3's `/AF`.
+    ///
+    /// Two entries, and each is the clause's own. §7.7.4's Table 32 makes `/EmbeddedFiles` "[a]
+    /// name tree mapping name strings to file specifications for embedded file streams", which is
+    /// the tree [`super::attach`] wrote; where the document states the name dictionary as an
+    /// object of its own the entry goes there instead, and [`Self::rewrite_dictionary`] is where.
+    /// §14.13.3 is the second, and the catalog is where it puts a file associated with the
+    /// document as a whole:
+    ///
+    /// > One or more files may be associated with the PDF document as a whole by including a file
+    /// > specification dictionary (7.11.3, "File specification dictionaries") for each file as one
+    /// > of the members of the array value of the AF key in the document catalog (7.7.2, "Document
+    /// > catalog dictionary").
+    ///
+    /// **The producer's own array is added to rather than replaced**: a document already
+    /// associating files with itself goes on associating them, and `doc/adr/0947`'s rule is that
+    /// nothing changes which no failed requirement asked to change.
+    fn file_the_attachments(
+        &self,
+        catalog: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(attached) = self.attachments() else {
+            return false;
+        };
+        if self.sites.names.is_none() {
+            let mut names = self
+                .document
+                .get_key(catalog, "Names")
+                .as_dict()
+                .cloned()
+                .unwrap_or_default();
+            names.insert(
+                Name::new(&b"EmbeddedFiles"[..]),
+                Object::Reference(attached.tree),
+            );
+            catalog.insert(Name::new(&b"Names"[..]), Object::Dictionary(names));
+        }
+        let mut associated = self
+            .document
+            .get_key(catalog, "AF")
+            .as_array()
+            .map(<[Object]>::to_vec)
+            .unwrap_or_default();
+        for specification in &attached.associated {
+            associated.push(Object::Reference(*specification));
+            count(applied, Rewrite::PreservedAsAttachment);
+        }
+        catalog.insert(Name::new(&b"AF"[..]), Object::Array(associated));
+        true
+    }
+
     /// The catalog: §7.7.2's `/Requirements`, `/Version` and a direct `/Names`.
     /// §12.4.2's labels, where the catalog states the number tree inline rather than by reference.
     ///
@@ -3317,6 +3502,7 @@ impl Rewriter<'_> {
             changed = true;
         }
         changed |= self.state_the_labels_inline(catalog);
+        changed |= self.file_the_attachments(catalog, applied);
         if self.wants(Rewrite::CatalogVersion) && catalog.get("Version").is_some() {
             // ISO 19005-4 section 6.1.12 fixes the shape of this value; §7.7.2's Table 28 gives
             // the entry its meaning, "[t]he version of the PDF specification to which this
@@ -4069,13 +4255,14 @@ impl Rewriter<'_> {
 
     /// Whether the document's XMP packet is being written.
     ///
-    /// Six rewrites reach it and each for its own reason: the identification schema is the file's
-    /// claim about itself, the `/DefaultCMYK` is an action `doc/questions/A48` requires recorded
-    /// in `xmpMM:History`, a removed property is both an edit to the packet and
-    /// `doc/pdf-a-conversion-limits.md` section 4.2's entry beside it, and the replacement, the
-    /// amendment cut and the container are the three `doc/adr/1245` and `doc/adr/1246` added. Any
-    /// one alone is enough to make the packet the prepared one — which is what carries every edit
-    /// the others made, since [`super::prepare::Edited`] folds them in that order.
+    /// Seven rewrites reach it and each for its own reason: the identification schema is the
+    /// file's claim about itself, the `/DefaultCMYK` is an action `doc/questions/A48` requires
+    /// recorded in `xmpMM:History`, a removed property is both an edit to the packet and
+    /// `doc/pdf-a-conversion-limits.md` section 4.2's entry beside it, the replacement, the
+    /// amendment cut and the container are the three `doc/adr/1245` and `doc/adr/1246` added, and
+    /// the information dictionary's entries are supplemented into it (`doc/adr/1269`). Any one
+    /// alone is enough to make the packet the prepared one — which is what carries every edit the
+    /// others made, since [`super::prepare::Edited`] folds them in that order.
     fn wants_metadata(&self) -> bool {
         self.wants(Rewrite::IdentificationSchema)
             || self.wants(Rewrite::DefaultCmyk)
@@ -4083,6 +4270,7 @@ impl Rewriter<'_> {
             || self.wants(Rewrite::FreshMetadataPacket)
             || self.wants(Rewrite::AmendmentIdentifierRemoved)
             || self.wants(Rewrite::ExtensionSchemaDescribed)
+            || self.wants(Rewrite::InformationMovedIntoThePacket)
     }
 }
 

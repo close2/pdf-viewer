@@ -495,7 +495,7 @@ pub(crate) fn fill_rectangles(
 ///   holds under `½` for every `M`. Half a level of 255 is below what an eight-bit raster can
 ///   hold, so declining costs the page nothing it could show.
 /// - **A mark that is not anti-aliased**, whose coverage is 0 or 255 for the same reason.
-/// - **`BlendMode::Source`**, which is [`crate::carries_coverage_as_alpha`]'s exclusion and is
+/// - **`tiny_skia::BlendMode::Source`**, which is [`crate::carries_coverage_as_alpha`]'s exclusion and is
 ///   excluded here for its own half of that reason: this construction delivers the composed
 ///   coverage as the *mask* of a fully covered run, and `tiny-skia` applies a mask by scaling
 ///   the source where it applies a path's coverage by interpolating towards the destination.

@@ -145,10 +145,11 @@ use crate::timing::{FrameLog, Launch};
 /// ([`viewer_host::WindowAct::Notices`], ADR 0526).
 const NOTICE: &str = viewer_host::NOTICE;
 
-/// The one document this program opens.
+/// The document this program opens first.
 ///
-/// `viewer-core` keeps a set of them because §12.6.4.4's embedded go-to and a tabbed host both
-/// need one; this window shows one at a time, so it names one.
+/// The names after it are `viewer_host::Documents`', which hands out the next one whenever a
+/// second document is opened beside this one — a `/NewWindow true` on §12.6.4.3's remote go-to
+/// (ADRs 1263, 1264).
 const DOCUMENT: DocumentId = DocumentId(0);
 
 /// The decisions `viewer_host::policy` says are a host's, as a person typed them.
@@ -358,6 +359,15 @@ fn main() {
         // No viewport until the window exists. The core renders nothing into one with no
         // extent, which is exactly right: there is nothing to render into yet.
         viewer: Viewer::new(0, 0, 1.0),
+        // One document, and the strip draws nothing at all for one — the launch path opens
+        // exactly the one document it always has, under exactly the name it always had.
+        documents: viewer_host::Documents::new(
+            DOCUMENT,
+            viewer_host::documents::label(std::path::Path::new(&path)),
+        ),
+        reserved: None,
+        strip: viewer_ui::chrome::DocumentStrip::default(),
+        leaving: false,
         previews: viewer_host::panel::Previews::new(),
         title: path.to_string_lossy().into_owned(),
         path: PathBuf::from(&path),

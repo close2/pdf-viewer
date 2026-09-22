@@ -920,6 +920,15 @@ impl Session {
         self.handle(Command::Separations(simulate))
     }
 
+    /// A name held in reserve for a document opened beside the one showing.
+    ///
+    /// ISO 32000-2 Table 203's and Table 204's `/NewWindow true`, answered by the only party that
+    /// knows whether this caller has a second place to put a document. `None` empties the reserve,
+    /// under which a destination in another file replaces the one it was reached from. ADR 1263.
+    pub fn beside(&mut self, name: Option<u64>) -> Events {
+        self.handle(Command::Beside(name.map(DocumentId)))
+    }
+
     /// How many pages on the screen this viewer has anything to say about.
     ///
     /// **The entry point a C caller could not have deduced**, and it exists for

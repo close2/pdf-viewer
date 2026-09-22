@@ -138,10 +138,29 @@ pub fn rect_around(point: (f32, f32)) -> [f32; 4] {
 /// message-digest algorithm (defined in Internet RFC 1321) to the bytes of the embedded file
 /// stream" — and `/Size` its "size of the uncompressed embedded file, in bytes". `/Subtype` is
 /// Table 44's media type, written as the name §7.3.5 makes of it where the caller states one;
-/// the two dates are written only where `date` is given, because neither consumer has a clock
-/// of its own to state one with.
+/// the two dates are written only where `date` is given, because a consumer with no clock of its
+/// own cannot state one. [`embedded_file_stream_dated`] is the same stream for a caller that
+/// knows one date and not the other.
 #[must_use]
 pub fn embedded_file_stream(bytes: &[u8], media_type: Option<&str>, date: Option<Date>) -> Object {
+    embedded_file_stream_dated(bytes, media_type, date, date)
+}
+
+/// §7.11.4's embedded file stream with Table 45's two dates stated apart.
+///
+/// The same stream [`embedded_file_stream`] writes, for a caller that knows one of the dates and
+/// not the other. §14.13.2 is where that happens: it recommends a `/Params` holding at least a
+/// `/ModDate`, whose value it fixes as the source file's latest modification date, and says
+/// nothing at all about the creation date — which Table 45 makes "[t]he date and time when the
+/// embedded file was created" and which a caller carrying somebody else's bytes has no way to
+/// know.
+#[must_use]
+pub fn embedded_file_stream_dated(
+    bytes: &[u8],
+    media_type: Option<&str>,
+    created: Option<Date>,
+    modified: Option<Date>,
+) -> Object {
     let mut params = Dictionary::new();
     params.insert(
         Name::new(&b"Size"[..]),
@@ -151,10 +170,17 @@ pub fn embedded_file_stream(bytes: &[u8], media_type: Option<&str>, date: Option
         Name::new(&b"CheckSum"[..]),
         Object::String(<md5::Md5 as md5::Digest>::digest(bytes).to_vec().into()),
     );
-    if let Some(date) = date {
-        let spelled = Object::String(pdf_date(date).into_bytes().into());
-        params.insert(Name::new(&b"CreationDate"[..]), spelled.clone());
-        params.insert(Name::new(&b"ModDate"[..]), spelled);
+    if let Some(date) = created {
+        params.insert(
+            Name::new(&b"CreationDate"[..]),
+            Object::String(pdf_date(date).into_bytes().into()),
+        );
+    }
+    if let Some(date) = modified {
+        params.insert(
+            Name::new(&b"ModDate"[..]),
+            Object::String(pdf_date(date).into_bytes().into()),
+        );
     }
     let mut dict = Dictionary::new();
     dict.insert(

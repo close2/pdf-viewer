@@ -8,7 +8,7 @@
 //!
 //! # Why a readback rather than a layer
 //!
-//! Vello can express *part* of this natively: a layer composited with `Compose::DestIn`
+//! Vello can express *part* of this natively: a layer composited with `peniko::Compose::DestIn`
 //! takes the alpha of what is drawn inside it, which is §11.5.2, and
 //! `Scene::push_luminance_mask_layer` takes a luminance, which is nearly §11.5.3. Neither
 //! covers the clause:
@@ -66,7 +66,7 @@ impl SoftMaskRasters {
 ///
 /// The colour components are zero and the image is declared premultiplied, which is the
 /// consistent way to write "no colour, this much coverage": the only thing read from this
-/// image is its alpha, because it is drawn under `Compose::DestIn`, and a premultiplied
+/// image is its alpha, because it is drawn under `peniko::Compose::DestIn`, and a premultiplied
 /// black keeps that true whatever a sampler does with the other three channels on the way.
 fn image_of(values: &[u8], target: TargetSpec) -> peniko::ImageBrush {
     let mut data = Vec::with_capacity(values.len().saturating_mul(4));

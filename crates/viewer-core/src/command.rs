@@ -360,6 +360,38 @@ pub enum Command {
     /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
     /// fact about the *reader* rather than about any one file. ADR 1228.
     Separations(bool),
+    /// A name held in reserve for a document this program opens **beside** the one showing.
+    ///
+    /// **The eleventh host-supplied policy value, and the same shape as [`Self::Trust`],
+    /// [`Self::References`], [`Self::Audience`], [`Self::Clock`] and [`Self::Separations`] for
+    /// the same reason.** Two tables state that a destination in another file may be opened in a
+    /// window of its own, and both defer to a preference this crate does not hold. §12.6.4.3's
+    /// Table 203, for the remote go-to:
+    ///
+    /// > If this entry is absent, the interactive PDF processor should behave in accordance with
+    /// > its preference.
+    ///
+    /// §12.6.4.4's Table 204 says the same of its own entry in its own words, and states the
+    /// `true` case with a `should` where Table 203 states it with none.
+    ///
+    /// Whether this program *has* a second place to put a document is a fact about the window and
+    /// about no file: a host with tabs has one, a host confined to a single view (ADR 1190) does
+    /// not, and neither is deducible from the bytes. And the name it would be called by can only
+    /// come from out here, because [`DocumentId`] is the host's word — see its own documentation.
+    ///
+    /// **An offer rather than an instruction, and it is consumed.** The name is used only where an
+    /// action states `/NewWindow true`; the moment one is opened under it the reserve is empty
+    /// again, so a host that wants a third tab sends this again. That is deliberate: a name left
+    /// standing would have the second remote go-to open under the identity of the first, which
+    /// [`Self::Open`]'s own rule makes a *replacement* of the tab a person is reading.
+    ///
+    /// **Nothing changes for a host that never sends this**, which is every host that has one
+    /// view: `None` is the reserve empty, the destination replaces the document it was reached
+    /// from, and the difference is said out loud rather than passed over (trap 5).
+    ///
+    /// Sending it again replaces whatever was held, and [`Self::Close`] on the reserved name does
+    /// nothing, because nothing is open under it. ADR 1263.
+    Beside(Option<DocumentId>),
     /// The person's answer to [`crate::Event::Asking`].
     ///
     /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing

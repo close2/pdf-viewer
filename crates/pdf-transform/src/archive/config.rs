@@ -635,6 +635,56 @@ impl Original {
     }
 }
 
+/// What becomes of a `/Info` key ISO 32000-2 §14.3.3's Table 349 gives no XMP counterpart.
+///
+/// A key of the operator's choosing rather than a [`Kind`], because two of the three words are
+/// not remedy words at all: `doc/pdf-a-mitigations.md`'s entry offers a container over an
+/// invented namespace, dropping the value, and stopping, and only the last is a [`Kind`] spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unmapped {
+    /// The key's value is described in an extension schema container of this converter's writing.
+    ///
+    /// **Recognised and not carried out** — [`Configuration::unbuilt`] names it. ISO 19005-2
+    /// section 6.6.2.3.2's container describes a schema a *packet uses*, and a `/Info` key is in
+    /// no schema: putting one into the packet needs a namespace URI, which is the property's
+    /// identity rather than a label for it and which no file states. `doc/adr/1269` is the
+    /// reading and [`UNMAPPED_NEEDS_A_NAMESPACE`] is the sentence an operator is given.
+    ExtensionSchema,
+    /// The key's value leaves the document, and the report names it.
+    Discard,
+    /// The site keeps its refusal, naming the key.
+    Stop,
+}
+
+impl Unmapped {
+    /// The word a configuration names it by.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::ExtensionSchema => "extension-schema",
+            Self::Discard => "discard",
+            Self::Stop => "stop",
+        }
+    }
+
+    /// The answer a configuration's word names.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::ExtensionSchema, Self::Discard, Self::Stop]
+            .into_iter()
+            .find(|unmapped| unmapped.word() == word)
+    }
+}
+
+/// Why a custom `/Info` key cannot be kept in an extension schema container.
+pub(super) const UNMAPPED_NEEDS_A_NAMESPACE: &str = "ISO 19005-2 section 6.6.2.3.2's container \
+     describes an extension schema a packet uses, and a document information dictionary key is in \
+     no schema at all: writing one into the packet needs a namespace URI, and a namespace URI is \
+     the property's identity rather than a label for it. Nothing in the file states one, so this \
+     converter would be deciding what somebody else's key means (doc/adr/1269). The answers this \
+     version carries out are `unmapped = \"discard\"`, which drops the value and names it in the \
+     report, and `unmapped = \"stop\"`, which keeps the refusal";
+
 /// One `preserve` remedy this conversion carries out by appending pages.
 ///
 /// `doc/adr/1014`: a page composed solely of content the document already holds is on the near
@@ -651,6 +701,13 @@ pub struct Preservation {
     /// 19005-2 section 6.6.2.3.2's container keeps the properties *where they are*, by describing
     /// the schema they use. [`super::preserve`] never hears about such a row.
     pub by_page: bool,
+    /// Whether the content is kept as a file embedded in the document.
+    ///
+    /// `doc/rfc/0007` section 4.6.1's other mechanism, and the one the six targets differ about:
+    /// PDF/A-4f and PDF/A-4e hold a file that is not itself a conforming PDF and the other four
+    /// do not, so [`check_rows`] refuses the answer at those four rather than quietly giving a
+    /// page. [`super::attach`] is the construction.
+    pub by_attachment: bool,
     /// `undeterminable = "discard"` at the extension schema site.
     ///
     /// `doc/pdf-a-mitigations.md`'s entry: a container describes a property's value type, and a
@@ -658,6 +715,11 @@ pub struct Preservation {
     /// operator chooses between dropping the property so that the rest can be described and
     /// stopping the run, and `stop` is what a row states by saying nothing.
     pub discard_undeterminable: bool,
+    /// `unmapped` at the two ISO 19005-4 section 6.1.3 sites.
+    ///
+    /// What becomes of a `/Info` key §14.3.3's Table 349 names no XMP counterpart for. The
+    /// default is [`Unmapped::Stop`], which a row states by saying nothing.
+    pub unmapped: Unmapped,
 }
 
 /// The requirements a built `preserve` may answer by appending pages.
@@ -701,22 +763,58 @@ const PRESERVABLE_PACKETS: [&str; 3] = [
 /// section 4.2 makes describing them the default. What a row adds is `undeterminable`.
 const DESCRIBABLE: [&str; 1] = ["metadata/extension-schemas-embedded"];
 
+/// The two requirements a built `preserve` answers by moving `/Info` into the XMP packet.
+///
+/// ISO 19005-4 section 6.1.3's two sentences, which part 2 does not state. The remedy is the one
+/// §14.3.3 itself points at — the dictionary is deprecated and Table 349's NOTEs name an XMP
+/// counterpart for every one of its keys — so `preserve` here moves the values rather than
+/// keeping bytes anywhere: the key is `unmapped` rather than `placement`, because what a page or
+/// an attachment would hold is a value the packet now states. `doc/adr/1269`.
+const PRESERVABLE_INFORMATION: [&str; 2] = [
+    "file-structure/document-information-dictionary-needs-piece-info",
+    "file-structure/document-information-dictionary-holds-only-a-modification-date",
+];
+
+/// The one requirement a built `preserve` answers by attaching the resource it removes.
+///
+/// ISO 19005-2 section 6.4.2 and ISO 19005-4 section 6.4.2 forbid the `/XFA` key and offer
+/// nothing to put in its place; `doc/pdf-a-mitigations.md` section 7's addition is that the
+/// resource is XML, so a target holding a file unchanged can keep it as one. The key is
+/// `keep-xfa` rather than `placement` because the `/XFA` removal is a `discard` at the same site
+/// for an operator who does not want it kept. `doc/adr/1270`.
+const PRESERVABLE_XFA: [&str; 1] = ["forms/no-xfa-key"];
+
+/// Whether this target admits an embedded file that is not itself a conforming PDF.
+///
+/// Read off the requirement table rather than off a list of flavours, because the table already
+/// knows: [`DERIVABLE`]'s two rows are the ones that require an embedded file to conform — ISO
+/// 19005-2 section 6.8 and ISO 19005-4 section 6.9 — and Annex A lifts the second for PDF/A-4f
+/// while Annex B lifts it for PDF/A-4e. A target neither row binds is a target that holds any
+/// file at all, which is exactly the condition an attaching `preserve` needs.
+fn holds_a_file_unchanged(target: Target) -> bool {
+    !DERIVABLE.iter().any(|site| requirement_binds(site, target))
+}
+
+/// Why keeping a producer's own bytes as a file needs one of the two flavours that hold one.
+const ATTACHING_NEEDS_A_FLAVOUR: &str = "this target requires every embedded file to itself \
+     conform to a part of ISO 19005, and what this remedy would attach is the producer's own \
+     bytes rather than a PDF. PDF/A-4f and PDF/A-4e are the targets that hold a file of any type, \
+     and doc/pdf-a-conversion-limits.md section 9 is why this converter will not switch to one \
+     for you: choose `original = \"page\"` to keep the content in the document's body instead";
+
 /// Whether one row is a `preserve` at a packet site this version carries out.
 ///
 /// Two keys have to agree before it is: `fresh-packet` must be true, because a site left with no
-/// conforming packet is a site still refused, and `original` must put the packet on a page,
-/// because that is the mechanism this version has. `original = "attach"` alone is recognised and
-/// not carried out — [`Configuration::unbuilt`] names it — since attaching the original as a file
-/// is PDF/A-4f's and PDF/A-4e's mechanism and is not built.
+/// conforming packet is a site still refused, and `original` must say what becomes of the packet
+/// the fresh one replaces. Both of its mechanisms are built — the appended page (`doc/adr/1245`)
+/// and the embedded file (`doc/adr/1270`) — and `both` asks for the two together. Which targets
+/// admit the attachment is [`holds_a_file_unchanged`]'s question, asked by [`check_rows`] so that
+/// an answer a target cannot take is an error naming both rather than a quiet page.
 fn preserves_a_packet(row: &Row) -> bool {
     row.remedy == Kind::Preserve
         && PRESERVABLE_PACKETS.contains(&row.site.as_str())
         && row.fresh_packet
-        // A page and nothing else. `both` asks for the attachment as well, and half of an
-        // operator's instruction carried out is what `doc/rfc/0007` section 4.6 exists to stop.
-        && row
-            .original
-            .is_some_and(|original| original.pages_it() && !original.attaches_it())
+        && row.original.is_some()
 }
 
 /// Why a `preserve` row states no mechanism.
@@ -854,6 +952,10 @@ struct Row {
     media_types: Vec<(String, String)>,
     /// `unlisted` — what happens to a subject the supplied table does not name.
     unlisted: Kind,
+    /// `unmapped` — what happens to a `/Info` key Table 349 names no XMP counterpart for.
+    unmapped: Unmapped,
+    /// `keep-xfa` — whether the `/XFA` resource stays in the archive as an embedded file.
+    keep_xfa: Option<Placement>,
     /// `winner` — which of a colourant's disagreeing definitions the archive keeps.
     winner: Option<Winner>,
     /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
@@ -1019,6 +1121,18 @@ impl Configuration {
                 // saying the site stays refused would be false. What the row adds is
                 // `undeterminable`, which [`Configuration::preservations`] carries.
                 Kind::Preserve if DESCRIBABLE.contains(&row.site.as_str()) => true,
+                // ISO 19005-4 section 6.1.3's two rows: the move is built, and the one answer
+                // this version recognises and does not carry out is the container over a
+                // namespace no file states ([`UNMAPPED_NEEDS_A_NAMESPACE`]).
+                Kind::Preserve if PRESERVABLE_INFORMATION.contains(&row.site.as_str()) => {
+                    row.unmapped != Unmapped::ExtensionSchema
+                }
+                // ISO 19005-2 section 6.4.2's `/XFA`, kept as the XML it is where the target
+                // holds a file unchanged. A row that names no `keep-xfa` has asked for a
+                // `preserve` with no mechanism at all.
+                Kind::Preserve if PRESERVABLE_XFA.contains(&row.site.as_str()) => {
+                    row.keep_xfa == Some(Placement::Attach)
+                }
                 Kind::Preserve => match row.placement {
                     Some(Placement::Append) => PRESERVABLE_BY_PAGE.contains(&row.site.as_str()),
                     Some(Placement::Attach) => self.derivation(row).is_some(),
@@ -1155,11 +1269,29 @@ impl Configuration {
                     && PRESERVABLE_BY_PAGE.contains(&row.site.as_str()))
                     || preserves_a_packet(row)
                     || (row.remedy == Kind::Preserve && DESCRIBABLE.contains(&row.site.as_str()))
+                    || (row.remedy == Kind::Preserve
+                        && PRESERVABLE_INFORMATION.contains(&row.site.as_str()))
+                    || (row.remedy == Kind::Preserve
+                        && PRESERVABLE_XFA.contains(&row.site.as_str())
+                        && row.keep_xfa == Some(Placement::Attach))
             })
             .map(|row| Preservation {
                 site: row.site.clone(),
-                by_page: !DESCRIBABLE.contains(&row.site.as_str()),
+                by_page: match row.original {
+                    // The packet sites say which mechanism in `original`; every other built
+                    // `preserve` has one mechanism and says nothing about it here.
+                    Some(original) => original.pages_it(),
+                    None => {
+                        !DESCRIBABLE.contains(&row.site.as_str())
+                            && !PRESERVABLE_INFORMATION.contains(&row.site.as_str())
+                            && !PRESERVABLE_XFA.contains(&row.site.as_str())
+                    }
+                },
+                by_attachment: row.original.is_some_and(Original::attaches_it)
+                    || (PRESERVABLE_XFA.contains(&row.site.as_str())
+                        && row.keep_xfa == Some(Placement::Attach)),
                 discard_undeterminable: row.undeterminable == Kind::Discard,
+                unmapped: row.unmapped,
             })
             .collect()
     }
@@ -1286,6 +1418,24 @@ fn check_rows(
                     "remedy = \"preserve\" with placement = \"attach\" at the target {target}"
                 ),
                 why: ATTACHING_NEEDS_A_CONFORMING_FILE,
+            });
+        }
+        // **`doc/rfc/0007` section 4.6's error naming both, at the two sites whose attachment is
+        // the producer's own bytes rather than a derived PDF.** A target that requires every
+        // embedded file to conform has nowhere to put an XMP packet or an XFA resource, so the
+        // answer is refused with the targets that do take it named.
+        let attaches = (row.remedy == Kind::Preserve
+            && PRESERVABLE_PACKETS.contains(&row.site.as_str())
+            && row.original.is_some_and(Original::attaches_it))
+            || (row.remedy == Kind::Preserve
+                && PRESERVABLE_XFA.contains(&row.site.as_str())
+                && row.keep_xfa == Some(Placement::Attach));
+        if attaches && requirement_binds(&row.site, target) && !holds_a_file_unchanged(target) {
+            return Err(ConfigError::NotBuiltThatWay {
+                line: row.line,
+                site: row.site.clone(),
+                asked: format!("keeping the producer's own bytes as a file at the target {target}"),
+                why: ATTACHING_NEEDS_A_FLAVOUR,
             });
         }
         check_fetching_row(row, target)?;
@@ -1429,6 +1579,8 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .and_then(Value::as_text)
         .and_then(Kind::parse)
         .unwrap_or(Kind::Stop);
+    let keep_xfa = keeps_the_xfa(tbl, &site)?;
+    let unmapped = unmapped_key(tbl, &site)?;
     let media_types = tbl
         .get("media-types")
         .and_then(Value::as_map)
@@ -1457,9 +1609,45 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         undeterminable,
         media_types,
         unlisted,
+        unmapped,
+        keep_xfa,
         winner,
         line: tbl.line,
     })
+}
+
+/// `keep-xfa`, whose one word is `attach`.
+///
+/// The XFA resource is XML, so PDF/A-4f and PDF/A-4e can hold it as a file
+/// (`doc/pdf-a-mitigations.md` section 7). Laying it out on a page is not this key's answer — a
+/// template is not a document — so the other word [`Placement`] admits is refused by name rather
+/// than read as something this converter would then not do.
+fn keeps_the_xfa(tbl: &toml::Table, site: &str) -> Result<Option<Placement>, ConfigError> {
+    match tbl.get("keep-xfa").and_then(Value::as_text) {
+        None => Ok(None),
+        Some("attach") => Ok(Some(Placement::Attach)),
+        Some(_) => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "keep-xfa".to_owned(),
+            wanted: "the string \"attach\"",
+            found: "another word",
+        }),
+    }
+}
+
+/// `unmapped`, whose three words are [`Unmapped`]'s.
+fn unmapped_key(tbl: &toml::Table, site: &str) -> Result<Unmapped, ConfigError> {
+    match tbl.get("unmapped").and_then(Value::as_text) {
+        None => Ok(Unmapped::Stop),
+        Some(word) => Unmapped::parse(word).ok_or_else(|| ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "unmapped".to_owned(),
+            wanted: "one of \"extension-schema\", \"discard\" or \"stop\"",
+            found: "another word",
+        }),
+    }
 }
 
 /// One row as a built `supply`, where it is one.
@@ -2162,7 +2350,8 @@ on-failure = [\"preserve\", \"stop\"]
     /// answers*, and a profile stating the default first and the exception under it means the
     /// same thing as one written the other way round. A reader taking the first applicable row
     /// made the second dead text, which is how `doc/profiles/only-metadata-loss.toml` came to
-    /// ask for an attachment at PDF/A-4f and quietly get a page.
+    /// ask for an attachment at PDF/A-4f and quietly get a page. Both mechanisms are built now,
+    /// so what the test reads is which of the two the row asked for.
     #[test]
     fn a_target_qualified_row_wins_however_late_the_file_states_it() {
         let text = "\
@@ -2176,22 +2365,31 @@ remedy = \"preserve\"
 original = \"attach\"
 fresh-packet = true
 ";
+        // The mechanism each target gets is what says which row won: both are built
+        // (`doc/adr/1245`, `doc/adr/1270`), so a count of unbuilt answers would no longer
+        // discriminate between them.
         let two = Configuration::read(text, TWO_B).expect("reads");
-        assert!(
-            two.unbuilt(TWO_B).is_empty(),
-            "at PDF/A-2b the unqualified row answers, and the page is built"
+        assert!(two.unbuilt(TWO_B).is_empty());
+        let mechanism = |config: &Configuration, target| {
+            let rows = config.preservations(target);
+            assert_eq!(rows.len(), 1, "one preservation: {rows:?}");
+            let row = rows.first().expect("the preservation").clone();
+            (row.by_page, row.by_attachment)
+        };
+        assert_eq!(
+            mechanism(&two, TWO_B),
+            (true, false),
+            "at PDF/A-2b the unqualified row answers, and the page is what it asks for"
         );
 
         let target = Target::Four(Flavour::F);
         let four = Configuration::read(text, target).expect("reads");
+        assert!(four.unbuilt(target).is_empty());
         assert_eq!(
-            four.unbuilt(target)
-                .iter()
-                .map(|row| row.site.as_str())
-                .collect::<Vec<_>>(),
-            vec!["metadata/xmp-packets-well-formed"],
-            "at PDF/A-4f the qualified row answers, and keeping the original as an attachment is \
-             not built — so the operator is told rather than given the page they did not ask for"
+            mechanism(&four, target),
+            (false, true),
+            "at PDF/A-4f the qualified row answers, and the operator gets the attachment they \
+             asked for rather than the page they did not"
         );
     }
 

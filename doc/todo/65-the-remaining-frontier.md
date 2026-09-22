@@ -64,7 +64,11 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
   wants a plane per colourant. Overprint is not what is missing — §8.6.7 is implemented and
   §11.7.4.3's special blend mode draws §10.8.2's cyan-over-yellow example green on the four process
   planes — so what is missing is a plane for a **spot** ink, which reverts to the group's process
-  components as it is painted (§11.7.3). Table 275's requirement is still answered by
+  components as it is painted (§11.7.3). That plane is now designed and priced in `doc/todo/23`:
+  `ceil(S / 3)` rasters beside the chromatic and black halves, one run of the content stream per
+  plane, the colourants enumerated from the page's resources before the first mark lands — and 87
+  call sites across seven crates where "two rasters" is written into a type, which is why it is
+  several rounds rather than one. Table 275's requirement is still answered by
   `requirements::unmet` by name. §10.8.3 itself still requires nothing: its verb is a permission and
   its four steps are a `should` conditional on performing one.
 
@@ -162,13 +166,11 @@ pixels.
   composited under the containing page's group attributes instead of its own — which nothing on
   this disk can witness, because no document here states a reference XObject at all. §11.5.3
   carries its own second one: a blend mode inside a subtractive group of more than one component.
-- §11.3.4 — the choice of route into a one-component blending space (ADR 0790), which `doc/todo/23`
-  prices, and beside it a precision this row can now put a number on: the cube that carries the
-  conversion *into* a parent's three components is a 33³ sampled grid with **identity** input
-  curves, and against the exact conversion into a `CalRGB` with `/Gamma 2.2` that is 4.66 of 255
-  at its worst, where the same grid on a linear `CalRGB` is 0.09. Not a representability limit —
-  `ColourCube`'s three stages exist for exactly this and would make it exact — but a build with
-  `raster_golden` behind it (ADR 1254, `doc/todo/23`).
+  **Beside this bucket and not in it**: §11.3.4 is `departed`. Its one departure is the choice of
+  route into a one-component blending space (ADR 0790), which `doc/todo/23` still prices; the
+  precision that stood beside it here is closed, the cube into a parent's components being carried
+  as the device's decoding, a linear grid and the space's own encoding rather than as one sampled
+  grid (ADR 1267).
 - §10.7.4 — the sharing half of a path whose subpaths overlap, which the two fill rules answer
   differently. `doc/todo/11` prices it. The clip region that is the union of two fills is built:
   `render-cpu` composes it and the other two backends refuse it by name, with
@@ -178,15 +180,6 @@ pixels.
   it, averaging over the pixel area, and the clipping paragraph's own product — are documented
   choices §10.7.1's NOTE licenses, each measured against a closed form rather than argued; §10.7 is
   this row's aggregate.
-- §11.6.7 — a tiling pattern's cell painted inside a knockout group whose own initial backdrop is
-  not transparent, where §11.4.6's NOTE 6 gives the inner group the outer group's initial backdrop and
-  none of the three constructions can hand it over; the departure is named. Everywhere else the cell
-  gets the non-isolated group the clause names, under any blend mode at the mark (ADR 1243). A shading
-  pattern's implicit *knockout* group is unobservable rather than unbuilt: both of its elements are
-  opaque and painted Normal, so knockout and non-knockout coincide. A **tiling**
-  pattern's cell is evaluated once and its commands replicated, so each site keeps its own
-  compositing and NOTE 1 is satisfied in geometry at every blend mode rather than only at Normal.
-
   **Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `departed`. The patch travels
   to the backend and the fineness is derived there in device pixels (ADR 1217); the one branch left
   is a patch whose colours §8.7.4.4 requires be converted between its corners, which no corpus
@@ -256,11 +249,14 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §11.6.5.2 — a mask in a one-component space that is not the `DeviceGray` Table 143 requires, and a
-  `/Matte` whose parent space is neither `DeviceGray` nor `DeviceRGB`. The codec residue left this
-  bucket: a codec-carrying mask is decoded once per document into an eight-bit grey plane behind
-  `MaskCache`'s existing `ObjectId` key, bounded by `PREFER_DEVICE_SCALE_ABOVE` — the constant that
-  already sent the pair down that route — and refused above it as it was before (ADR 1232).
+- §11.6.5.2 — a `/Matte` on a parent whose raster is not on the grid its dictionary states, which is
+  a `JPXDecode` codestream decoded at one of its own reduced resolution levels (§7.4.9 NOTE 3,
+  ADR 0321): Table 143 pairs a `/Matte`'d mask with the parent's stated grid, and on a reduced
+  raster that pairing does not exist, so the pre-blending is named through the shortfall rather than
+  undone. The two residues this bucket named before are closed (ADR 1268) — a mask in a
+  one-component space Table 143 does not permit supplies its samples and reports the departure, and
+  the `/Matte` is undone in the image's own components before the colour conversion, in all three
+  domains a route holds them in — and the codec residue left before that (ADR 1232).
 
 Bucket 4's four rows are buildable by a normal round as well; what separates them is that each of
 those closes a *case* while a row here closes the row. The seven this bucket last named — §7.5.6,

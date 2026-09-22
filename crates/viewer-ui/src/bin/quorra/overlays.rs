@@ -58,6 +58,27 @@ const SELECTION: Color = Color {
     a: 1.0,
 };
 
+/// The colour ISO 32000-2 §12.9's traced path is drawn in.
+///
+/// A choice, and the only one available: the clause states the arithmetic over a path and not one
+/// word about what a person sees while they trace it. Red, because every other overlay this host
+/// draws is blue, yellow or green and a measurement is the one shape the *person* is making.
+const MEASURED: Color = Color {
+    r: 0.85,
+    g: 0.12,
+    b: 0.12,
+    a: 1.0,
+};
+
+/// How wide the traced path is, in device pixels.
+const MEASURED_WIDTH: f32 = 1.5;
+
+/// How large a mark one traced point gets, in device pixels.
+///
+/// Small enough not to cover the thing being measured, large enough to find on a dense page —
+/// the same choice the two native hosts make.
+const MEASURED_POINT: f32 = 2.5;
+
 /// The colour ISO 32000-2 Annex O's `highlight` rectangle is washed in.
 ///
 /// Table Annex O.4 says "[t]he nature of the highlighting is implementation-dependent" outright,
@@ -388,6 +409,89 @@ pub(crate) fn highlight_list(
     Some(list)
 }
 
+impl App {
+    /// §12.9's traced path — the rubber band a person draws while measuring.
+    ///
+    /// **Chrome and not a message.** The clause states no state for a viewer to be in, so the
+    /// points are this host's (`viewer_host::Measuring`) and what they look like is this host's
+    /// too; `viewer_core::Query::Measure` answers what they *mean* and never sees a pixel of it.
+    /// Over the page and under the sidebar, where a selection is drawn (ADR 1264).
+    ///
+    /// The points are in device pixels of the *page's* viewport, which begins where the panel
+    /// ends — the same one addition [`App::selection_list`] makes.
+    pub(crate) fn measuring_list(
+        &self,
+        edge: f32,
+        width: u32,
+        height: u32,
+    ) -> Option<pdf_render::DisplayList> {
+        let points = self.measuring.points();
+        if points.is_empty() {
+            return None;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let mut list = pdf_render::DisplayList::new(Size::new(width as f32, height as f32));
+        if points.len() > 1 {
+            let mut path = Path::new();
+            for (index, point) in points.iter().enumerate() {
+                let at = Point::new(point[0] + edge, point[1]);
+                path.push(if index == 0 {
+                    PathCommand::MoveTo(at)
+                } else {
+                    PathCommand::LineTo(at)
+                });
+            }
+            list.push(DrawCommand::Stroke {
+                path: Arc::new(path),
+                transform: Transform::IDENTITY,
+                stroke: pdf_render::Stroke {
+                    width: MEASURED_WIDTH,
+                    ..pdf_render::Stroke::default()
+                },
+                paint: Paint::Solid(MEASURED),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+        }
+        // Each press, marked: the path between two points is a straight line, so a third point
+        // put down on top of a second would otherwise show nothing at all.
+        let mut marks = Path::new();
+        for point in points {
+            let (x, y) = (point[0] + edge, point[1]);
+            marks.push(PathCommand::MoveTo(Point::new(x - MEASURED_POINT, y)));
+            marks.push(PathCommand::LineTo(Point::new(x, y - MEASURED_POINT)));
+            marks.push(PathCommand::LineTo(Point::new(x + MEASURED_POINT, y)));
+            marks.push(PathCommand::LineTo(Point::new(x, y + MEASURED_POINT)));
+            marks.push(PathCommand::Close);
+        }
+        list.push(DrawCommand::Fill {
+            path: Arc::new(marks),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(MEASURED),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        Some(list)
+    }
+
+    /// The strip of open documents, where this window has more than one.
+    ///
+    /// Across the whole width including the sidebar's, where the find bar is: a tab names a
+    /// *document* rather than anything about the page area. Nothing at all for one document, so a
+    /// window that opened one file is the window it was (ADR 1264).
+    pub(crate) fn documents_list(&self, width: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.strip.draw(chrome, width, scale)
+    }
+}
+
 /// The chrome drawn over a page, as display lists in the window's own pixels.
 ///
 /// Gathered once per frame and handed to the presenter beside the page, which is why they are
@@ -410,6 +514,9 @@ pub(crate) struct Overlays {
     focus: Option<pdf_render::DisplayList>,
     /// §12.7.4.3's caret, where the next character goes (ADR 0211).
     caret: Option<pdf_render::DisplayList>,
+    /// §12.9's traced path, over the page: it is the shape a *person* is drawing, and everything
+    /// under it is the document's.
+    measuring: Option<pdf_render::DisplayList>,
     /// §12.5.6.14's popup windows, which belong to the document and so are under the sidebar.
     popups: Option<pdf_render::DisplayList>,
     /// §12.7.5.4's options, where a choice field has been pressed. **Over the popups**: it is a
@@ -420,6 +527,9 @@ pub(crate) struct Overlays {
     panel: Option<pdf_render::DisplayList>,
     /// The find bar, over the sidebar and under the modal card.
     find: Option<pdf_render::DisplayList>,
+    /// The strip of open documents, beside the find bar and for its reason: both are bands of
+    /// this host's own chrome about the *document* rather than about the page area.
+    documents: Option<pdf_render::DisplayList>,
     /// `/NOTICE`, where it is shown. A modal card, so the sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
     /// `CLAUDE.md`'s four levels, over the notices card and under the two below it: it is the
@@ -449,10 +559,12 @@ impl Overlays {
             field_selection: app.field_selection_list(edge, width, height),
             focus: app.focus_list(edge, width, height),
             caret: app.caret_list(edge, width, height),
+            measuring: app.measuring_list(edge, width, height),
             popups: app.popup_list(edge, width, height),
             choices: app.choices_list(width, height),
             panel: app.panel_list(height),
             find: app.find_list(width),
+            documents: app.documents_list(width),
             about: app.about_list(width, height),
             menu: app.menu_list(width, height),
             question: app.question_list(width, height),
@@ -471,10 +583,12 @@ impl Overlays {
             self.field_selection.as_ref(),
             self.focus.as_ref(),
             self.caret.as_ref(),
+            self.measuring.as_ref(),
             self.popups.as_ref(),
             self.choices.as_ref(),
             self.panel.as_ref(),
             self.find.as_ref(),
+            self.documents.as_ref(),
             self.about.as_ref(),
             self.menu.as_ref(),
             self.question.as_ref(),
