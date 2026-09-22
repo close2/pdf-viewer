@@ -150,8 +150,8 @@ pub use form::Form;
 pub use kinds::{
     AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
     ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, LayoutKind, MarkupKind, NavigatorKind, NoteKind, OrderKind,
-    PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
+    FolderTextKind, InitialKind, LayoutKind, MarkupKind, MeasurePart, NavigatorKind, NoteKind,
+    OrderKind, PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
     PrintScalingKind, PurposeKind, RestrictKind, RestrictedKind, RowKind, ScopeKind, SelectKind,
     ShortfallKind, TextKind, ZoomKind,
 };

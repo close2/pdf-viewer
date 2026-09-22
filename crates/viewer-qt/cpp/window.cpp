@@ -1024,7 +1024,7 @@ void MainWindow::buildFindBar()
             return;
         }
         Busy guard(busy_);
-        host_->key(static_cast<unsigned int>(Qt::Key_Escape), false);
+        host_->key(static_cast<unsigned int>(Qt::Key_Escape), false, false);
         applyUpdates();
     });
     addAction(close);
@@ -1178,10 +1178,12 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
         return;
     }
     Busy guard(busy_);
-    // ISO 32000-2 §12.5.1's tab key needs a direction and no other row of `viewer_host::keys`
-    // looks at a modifier, so Shift is the whole of what crosses beside the key (ADR 0526).
+    // ISO 32000-2 §12.5.1's tab key needs a direction, which Shift supplies; Control selects the
+    // table of conventional bindings, and a Control the table does not bind means nothing rather
+    // than the unmodified row — so both cross and neither is decided here (ADR 1192).
     host_->key(static_cast<unsigned int>(event->key()),
-               (event->modifiers() & Qt::ShiftModifier) != 0);
+               (event->modifiers() & Qt::ShiftModifier) != 0,
+               (event->modifiers() & Qt::ControlModifier) != 0);
     applyUpdates();
 }
 

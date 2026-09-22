@@ -9,7 +9,7 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Area | Choice |
 |---|---|
 | Language | Rust |
-| Rasterizer | GPU first, for page one and every page after it; `tiny-skia` as the correctness oracle and as the fallback for a frame the device refuses — behind one trait |
+| Rasterizer | Three, behind one `Rasterizer` trait over one display list: **quorra** (`render-raster`) is what the window presents with, page one included; **`render-cpu`** is the correctness oracle — its own winding-integral scan converter (ADR 1082), with `tiny-skia` beneath it for path and stroke geometry, the shaders and the blitter — and the fallback for a frame the device refuses; **Vello on wgpu** (`render-gpu`) is the comparison backend, held against the oracle and presenting nothing. ADR 1201 |
 | Fonts | `skrifa` (+ Type1/Type3 handled in-tree) |
 | Windowing | `winit` |
 | Dialogs | `ashpd` (XDG desktop portal — native KDE dialogs, any toolkit) |

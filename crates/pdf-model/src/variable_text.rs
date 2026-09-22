@@ -211,8 +211,8 @@ pub(crate) enum Owed {
     /// drawn either way, which is ADR 0106's test for an entry a refusal may not take the whole
     /// annotation down with.
     ListBoxSelection,
-    /// §12.7.5.3's Table 231 bit 26: the field's value is a rich text string, and what is laid
-    /// out is the plain characters of Table 226's `/V`.
+    /// §12.7.5.3's Table 231 bit 26: the field's value is a rich text string, whose characters
+    /// are laid out and whose formatting is not applied.
     ///
     /// **A report beside a drawing rather than a refusal**, and the `shall` it departs from is
     /// §12.7.4.3's rather than the flag's own. Bit 26 writes two requirements at the *file* —
@@ -220,9 +220,13 @@ pub(crate) enum Owed {
     /// "shall specify the rich text string" — but the clause that lays a field out writes
     /// a third at the processor: "[f]or these fields, the following conventions are not used,
     /// and the entire annotation appearance shall be regenerated each time the value is
-    /// changed". The appearance it is asking for is XFA 3.3's, which `CLAUDE.md`'s closed
-    /// exclusion list names, so what this module can produce is the plain text and not the
-    /// formatting — and drawing that silently is the shortfall trap 5 exists against. ADR 1122.
+    /// changed". What replaces them is XFA 3.3's formatting model, which this tree does not
+    /// hold: a face, a size, a colour and an alignment stated in the markup and in Table 228's
+    /// `/DS` are read by nothing here. The **characters** are another matter and are drawn —
+    /// §12.7.5.3 makes "[t]he contents of this text string or stream" what the appearance is
+    /// constructed from, and the contents of a rich text string are its character data, taken by
+    /// the walk §12.5.6.6's `/RC` already goes through (ADRs 1122, 1197). Saying the rest out
+    /// loud is the shortfall trap 5 exists against.
     RichTextFormatting,
     /// The `/DA`'s `Tm` has a linear part this module cannot lay text along: one that sends the
     /// line's direction off both of the box's axes, or one with no inverse.
@@ -276,9 +280,9 @@ impl Owed {
                 format!("its value is longer than the {limit} characters laid out here")
             }
             Self::RichTextFormatting => "§12.7.5.3's RichText flag makes its value a rich text \
-                                         string, and the rich text of Table 228's /RV is XFA, \
-                                         which this program does not read: what is drawn is the \
-                                         plain characters of /V without its formatting"
+                                         string: its characters are drawn, and the formatting \
+                                         its markup, Table 228's /RV and Table 228's /DS state \
+                                         is XFA 3.3's and is not applied here"
                 .to_owned(),
             Self::TransformedTextMatrix => "its /DA sets a text matrix whose linear part turns \
                                             the line of text off both axes of the box it is laid \

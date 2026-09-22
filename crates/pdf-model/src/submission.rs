@@ -78,7 +78,7 @@ use std::sync::Arc;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
 
 use crate::action::{ResetTarget, SubmitForm};
-use crate::appearance::{FLAG_FILE_SELECT, FLAG_NO_EXPORT, Field, FieldKind};
+use crate::appearance::{FLAG_FILE_SELECT, FLAG_NO_EXPORT, FLAG_REQUIRED, Field, FieldKind};
 use crate::view::{ViewState, widgets_by_field_name, widgets_under};
 
 /// The request a submit-form action composes, ready for a host to send.
@@ -573,6 +573,23 @@ fn chosen(
         // are the same thing to this clause: "whose field dictionary does not contain a V
         // entry".
         let Some(value) = value else {
+            // §12.7.4.1's Table 227 bit 2, whose whole sentence is about this moment:
+            //
+            // > If set, the field shall have a value at the time it is exported by a submit-form
+            // > action (see 12.7.6.2, "Submit-form action").
+            //
+            // The export is happening and the condition does not hold, so the clause is broken
+            // by the file or by what a person has filled in, and this is the one place that can
+            // see it. It is named rather than refused: nothing in the clause tells a processor
+            // to abandon the submission, and a refusal a host cannot turn into a question is
+            // what `CLAUDE.md` principle 3 warns against — `viewer_host::policy::may_submit` is
+            // where a reader decides, and it decides better told (ADR 1198).
+            if field.flags & FLAG_REQUIRED != 0 {
+                owed.push(format!(
+                    "field {name}: Table 227 bit 2 makes it Required, so it shall have a value \
+                     at the time it is exported, and it has none"
+                ));
+            }
             if flags.include_no_value_fields() {
                 chosen.entries.push(Entry {
                     name: name.clone(),

@@ -195,7 +195,8 @@ one §2.1 makes.
     "preserve the absence, never fill it in" is doing all the work. It is allowed because an empty
     glyph preserves the absence. Anything that filled it would not be.
 - A `.notdef` on the page is usually the visible symptom of a missing font, so supplying the font
-  (`--font`) fixes both this and §2.1.
+  (`--font`) would fix both this and §2.1 — a supply this document describes and the command-line
+  program does not yet accept, which ADR 1200 section 4 records.
 
 ### 2.3 Streams whose data is outside the file
 
@@ -203,10 +204,19 @@ ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1: a stream dictionary sh
 or `/FDecodeParams`. ISO 19005-2 section 6.2.9.2 and ISO 19005-4 section 6.2.8.2 say the same of reference
 XObjects.
 
-- **Class: Refuse** for an external stream the page actually uses. The bytes are on somebody's
-  disk or server; fetching them is a network operation this program does not have and (principle
-  3) will not acquire, and a file assembled from an unverifiable fetch is not an archival object.
-  This is one of the two places where "cannot view it either" and "cannot archive it" agree.
+- **Class: Mechanical where somebody resolves the bytes, Refuse otherwise.** The conversion can
+  bring the data inside the file — §7.3.8.2's Table 5 is the whole construction — but it cannot
+  go and get it: `apply` opens no path, so the *caller* resolves and hands the bytes in the plan
+  (ADR 1199). `quorra-transform archive --resolve-external-data` reads a name that is one
+  §7.11.2.1 component beside the document itself and refuses everything else, §7.11.5's URL
+  included: fetching one is a network operation this program does not have and (principle 3) will
+  not acquire, and a file assembled from an unverifiable fetch is not an archival object. What is
+  left unresolved is still Refuse, and it is one of the two places where "cannot view it either"
+  and "cannot archive it" agree.
+- **A filter key with no `/F` is not an external stream at all.** Table 5 gives `/FFilter` and
+  `/FDecodeParms` meaning only through `/F`, so a stream stating one of them and naming no file
+  describes filters for data that is not there; removing the key changes nothing a reader
+  computes and needs nothing fetched.
 - **An external stream nothing draws is not a refusal.** ISO 19005-2 section 6.2.2 exempts a named
   resource that is present in a resources dictionary and never referenced from the content stream
   it belongs to — the standard's own words are that such a resource is not used for rendering and

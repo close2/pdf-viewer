@@ -92,6 +92,18 @@ pub(crate) struct App {
     /// interrupt that reaches it (ADR 0725), so this window warns about what it can also stop and
     /// says nothing about what it cannot. `--cpu` is the path with the interruptible thread.
     pub(crate) still_drawing: Option<String>,
+    /// §12.9's measuring: whether a press is a point, and the points put down so far.
+    ///
+    /// `viewer_host::Measuring` is shared with the two native windows — when a press is a point,
+    /// and what the answer says — and what is this host's is the press and the title bar
+    /// (ADR 1191).
+    pub(crate) measuring: viewer_host::Measuring,
+    /// What the title bar says about the path being measured, or nothing.
+    ///
+    /// Beside [`Self::still_drawing`] and for its reason: this window has no status band, so a
+    /// sentence a person is reading while they click goes where this host already puts what a
+    /// page could not draw.
+    pub(crate) measured: String,
     /// The renders `viewer-core` has asked for, one per page of Table 29's arrangement, in page
     /// order — kept so an expose can redraw them.
     ///
@@ -554,9 +566,15 @@ impl App {
     /// Appended by both of the places that write a title, because a warning erased by the next
     /// page turn would be a window offering a key it has stopped naming.
     fn said_about_the_drawing(&self) -> String {
-        self.still_drawing
+        let drawing = self
+            .still_drawing
             .as_ref()
-            .map_or_else(String::new, |said| format!(" — {said}"))
+            .map_or_else(String::new, |said| format!(" — {said}"));
+        if self.measured.is_empty() {
+            drawing
+        } else {
+            format!("{drawing} — {}", self.measured)
+        }
     }
 
     /// Tells the person about a frame that has outlasted `viewer_host::drawing::WARN`, and takes

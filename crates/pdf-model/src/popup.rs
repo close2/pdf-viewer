@@ -503,17 +503,52 @@ pub(crate) fn rich_text(document: &Document, dict: &Dictionary) -> Option<String
     if bytes.len() > MAX_RICH_TEXT {
         return None;
     }
-    let markup = pdf_syntax::text_string(&bytes);
-    let mut out = String::with_capacity(markup.len());
+    // A malformed packet keeps what was read: this is a window's text, and half a comment is
+    // better than none of it. The alternative — refusing — would take a popup away over a
+    // producer's stray ampersand.
+    let read = rich_text_characters(&pdf_syntax::text_string(&bytes));
+    let trimmed = read.text.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// The character data of a rich text string, and what the walk over its markup found.
+///
+/// The two callers want the same characters and disagree about a malformed packet, so the walk
+/// answers both questions and each decides for itself: [`rich_text`] keeps what it read, because
+/// half a comment is better than none, and [`crate::appearance::rich_text_value`] takes a
+/// field's value as markup only where the markup is whole, because a value that is not a rich
+/// text string is a value to draw as it stands (ADR 1197).
+pub(crate) struct RichTextCharacters {
+    /// The element content, with a newline where a paragraph or a line break closed.
+    pub(crate) text: String,
+    /// Whether every token of the markup parsed.
+    pub(crate) parsed_whole: bool,
+    /// How many elements the markup opened.
+    pub(crate) elements: usize,
+}
+
+/// Walks a rich text string's markup and takes its character data.
+///
+/// See [`rich_text`] for what is read and what is deliberately not; this is that walk, shared so
+/// that an annotation's `/RC` and a field's rich text value cannot come apart.
+pub(crate) fn rich_text_characters(markup: &str) -> RichTextCharacters {
+    let mut read = RichTextCharacters {
+        text: String::with_capacity(markup.len()),
+        parsed_whole: true,
+        elements: 0,
+    };
     let mut breaks = 0_usize;
-    for token in xmlparser::Tokenizer::from(markup.as_str()) {
-        // A malformed packet stops the walk and keeps what was read: this is a window's text, and
-        // half a comment is better than none of it. The alternative — refusing — would take a
-        // popup away over a producer's stray ampersand.
-        let Ok(token) = token else { break };
+    for token in xmlparser::Tokenizer::from(markup) {
+        let Ok(token) = token else {
+            read.parsed_whole = false;
+            break;
+        };
         match token {
             xmlparser::Token::Text { text } | xmlparser::Token::Cdata { text, .. } => {
-                crate::xmp::unescape(text.as_str(), &mut out);
+                crate::xmp::unescape(text.as_str(), &mut read.text);
+            }
+            xmlparser::Token::ElementStart { .. } => {
+                read.elements = read.elements.saturating_add(1);
             }
             xmlparser::Token::ElementEnd { end, .. } => {
                 let name = match end {
@@ -524,15 +559,14 @@ pub(crate) fn rich_text(document: &Document, dict: &Dictionary) -> Option<String
                 if name.eq_ignore_ascii_case("p") || name.eq_ignore_ascii_case("br") {
                     breaks = breaks.saturating_add(1);
                     if breaks <= MAX_RICH_TEXT_BREAKS {
-                        out.push('\n');
+                        read.text.push('\n');
                     }
                 }
             }
             _ => {}
         }
     }
-    let trimmed = out.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    read
 }
 
 /// The most `/RC` markup this module will parse, in bytes.

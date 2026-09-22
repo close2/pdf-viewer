@@ -246,15 +246,31 @@ ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · today `not-built-yet`
   external-stream case with the dependency moved from a disk to an algorithm.
 
 ### `file-structure/no-external-stream-data`
-ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · today `not-this-target`
+ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · **built in session 1181** (ADR 1199) for the
+bytes a caller can resolve; the tool route below is what is left
 
-- **Mitigation** — **`preserve`, and this is a mitigation the RFC's own text rules out too early.**
-  Today's sentence says fetching the data is *"a network operation this program does not have and
-  `CLAUDE.md` principle 3 will not acquire"* — true of the library, and beside the point once RFC
-  0007 section 4's external-tool API exists. A declared tool that resolves a file specification and
-  returns bytes puts the fetch in the operator's program, under their trust, bounded by `timeout`
-  and `output-limit`, and the converter then embeds what comes back. The result **loses nothing**:
-  the stream's data ends up where the clause wanted it all along.
+- **What was built.** The conversion embeds the bytes and removes the keys:
+  `ArchivePlan::external_data` carries what the caller resolved, §7.3.8.2's Table 5 is the whole
+  construction — the external file's bytes where the stream's own were, `/Filter` and
+  `/DecodeParms` taken from the `F`-prefixed pair, `/Length` restated, the forbidden keys gone —
+  and the decision is `Mechanical`. **A stream stating one of the filter keys and no `/F` needs
+  nothing from outside**: Table 5 gives those keys meaning only through `/F`, so a conforming
+  reader never consulted them and the removal alone answers the requirement.
+- **Who resolves, and the rule.** The caller, for `doc/questions/A54`'s reason and RFC 0002
+  section 9's: `apply` opens no path. A conversion names what it needs in
+  `Conversion::external_data`, exactly as it names tool invocations in `Report::requested`, and
+  `quorra-transform archive --resolve-external-data` reads a name that is a single path component
+  beside the document itself and nothing else (ADR 1155's rule, restated at the command-line
+  program). Every name refused is printed.
+- **Mitigation for what is left** — **`preserve` with `tool = "resolve-external"`.** §7.11.5's URL
+  is not a file name on any filesystem, and fetching one is a network operation this program does
+  not have and `CLAUDE.md` principle 3 will not acquire. A declared tool puts the fetch in the
+  operator's program, under their trust, bounded by `timeout` and `output-limit`, and the bytes
+  land in the same plan entry the switch fills. **That is the shape the corpus needs**: the
+  archive sweep counts, per target, how each such stream names its data, and when this was built
+  not one witness named a plain file — three state `/FS /URL` and three state `/FS` as a *string*,
+  which Table 43 makes no file system at all and leaves an `http:` locator to be read as a
+  §7.11.2 string of several components.
 - **By target** — none in kind. Every target wants the same bytes in the same place.
 - **From a configuration** — `remedy = "preserve"` with `tool = "resolve-external"`, and RFC 0007
   section 4.1's rule does real work here: the `/F` file specification is document-derived, so it
@@ -265,28 +281,15 @@ ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · today `not-this-target`
   refused one.
 - **Departure** — **C**, unchanged. A conforming-shaped file that still points off its own edge is
   exactly what the format exists to prevent. The mitigation is the answer here, not the departure.
-- **What stands between this and a build, read in session 1175 and not resolved.** The fetch has to
-  happen *somewhere*, and `apply` is not it: RFC 0002 section 9's determinism claim rests on `apply`
-  being a pure function of its inputs, and `doc/questions/A54` is the shape this project chose for
-  everything that needs the outside world — `apply` returns a request and the caller performs it. A
-  `supply` carrying a directory would put an `open` inside `apply` and cost that claim. Two shapes
-  are open and both keep it: the **caller resolves**, walking the validator's findings for the `/F`
-  strings, reading each under `viewer_host::policy::resolve_import`'s rule (one path component,
-  resolved against the document's own directory, ADR 1155) and handing the bytes in the plan the way
-  `--output-intent-profile` and `--font` already are; or the existing **two-pass tool request**
-  carries the fetch, which is this entry's `tool = "resolve-external"` and which section 4.5's
-  warning is written for. The first is smaller and needs no declared program; it needs the CLI to
-  open the document itself, which it already does. Whichever is taken, the removal is the same three
-  keys and it is stated here so the next round does not re-derive it: §7.3.8.2's Table 5 makes `/F`
-  the file holding the data and `/FFilter`/`/FDecodeParms` the filters applied to *it*, so embedding
-  is the bytes written into the stream, `/Filter` and `/DecodeParms` taken from the `F`-prefixed
-  pair, `/Length` restated, and all three `F` keys removed.
-- **And one thing the validator should be asked about first.** Both parts spell the third key
-  `FDecodeParams`, which names nothing in ISO 32000 — Table 5's key is `FDecodeParms` — and the
-  requirement's own NOTE 1 says what the list is for: *these keys are used to point to data external
-  to the file*. `crates/pdf-archive/src/table/file_structure.rs` checks the standard's literal
-  spelling, so a stream stating the key that actually carries external filter parameters is not
-  reported. Nothing in the corpus exhibits it, which is why it is a note rather than a change.
+- **The third key has two spellings and both are forbidden.** Both parts spell it `FDecodeParams`,
+  which names nothing in ISO 32000 — Table 5's is `FDecodeParms` — and the requirement's own NOTE 1
+  says the list is the keys that point at data external to the file. The rule forbids the
+  *presence* of names rather than the reaching of data, which is why it lists `FFilter`, a key as
+  inert without `/F` as the misspelling is without a meaning; so the key that actually carries an
+  external file's decode parameters is the one the sentence is about, and
+  `pdf_archive::table::EXTERNAL_DATA_KEYS` now holds both names. ADR 1199 section 2 is the
+  argument. Nothing in the corpus states either spelling without also stating `/F`, so the added
+  spelling moved no verdict.
 
 ### `file-structure/permissions-dictionary-keys`
 ### `file-structure/document-signature-states-no-digest`
@@ -400,8 +403,20 @@ All ten are stated at ISO 19005-2 6.1.13. What each adds beyond the shared answe
 - `implementation-limits/indirect-object-count` — **a real remedy, below**.
 - `implementation-limits/devicen-colourants` — nothing. Re-encoding the space changes what every
   tint means.
-- `implementation-limits/page-boundary-sizes` — nothing. Rescaling a page moves every mark on it,
-  and tiling one into several pages composes pages nobody produced.
+- `implementation-limits/page-boundary-sizes` — **not nothing, and this entry said so for a long
+  time.** Rescaling a page moves every mark on it and tiling one into several pages composes pages
+  nobody produced, both of which are true of the **media box** and of nothing else. §7.7.3.3's
+  Table 31 makes the other four boxes *optional*, and §14.11.2.1 gives each a default that is
+  another box in the same file — the crop box's is the media box, the bleed, trim and art boxes'
+  is the crop box — so removing an over-sized or under-sized optional entry is the page saying
+  itself the way Table 31 admits rather than an edit to what it says, and no mark moves. It is
+  **mechanical** where §14.11.2.1's own sentence has already collapsed the difference: a box whose
+  bounds extend outside the media box is treated by every processor "as its intersection with the
+  media box", so where that intersection is what the default gives, removing the entry changes
+  nothing a reader computes. It is a **`discard` with a stated cost** where the two differ — a box
+  under 3 units, or an over-sized one a narrower crop box stands behind — because a reader would
+  then show, clip or trim a different region. Where the failing box is the media box, *nothing*
+  stands. ADR 1200 section 1 has the predicate; not built.
 - `implementation-limits/character-identifiers` — nothing. A CID is the font's own numbering.
 - `implementation-limits/graphics-state-nesting` — nothing. The nesting *is* the content stream.
 - `implementation-limits/values-written-in-content-streams` — nothing, by construction: the subject
@@ -1003,12 +1018,20 @@ ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`
 #### `fonts/no-notdef-glyph-shown`
 ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all six · `the-fence`
 
-- **Mitigation** — **none**, and this is the RFC's font sentence in its proper place. The file
-  carries the program, so the mapping is the producer's and fixed; the only routes are taking the
-  code off the page (a mark removed) or drawing a glyph for it (a mark invented). One escape is not
-  a remedy but is worth repeating in the report: where the font is **not** embedded, the limits
-  document's section 4.9 substitution applies instead, and `--font` supplying the intended face
-  moves the document into that case.
+- **Mitigation** — **none**, re-read against both clauses in session 1181 and holding (ADR 1200
+  sections 2 and 3). This is the RFC's font sentence in its proper place: the file carries the
+  program, so the mapping is the producer's and fixed; the only routes are taking the code off the
+  page (a mark removed) or drawing a glyph for it (a mark invented). One escape is not a remedy but
+  is worth repeating in the report: where the font is **not** embedded, the limits document's
+  section 4.9 substitution applies instead, and `--font` supplying the intended face would move the
+  document into that case — **a flag this program does not yet accept**, which ADR 1200 section 4
+  records as a promise to keep rather than a sentence to delete.
+- **The two clauses are not the same shape, and only the remedy is shared.** Section 6.2.11.4.1's
+  NOTE 2 exempts a font referenced solely in §9.3.6's text rendering mode 3, because such a font is
+  not rendered; section 6.2.11.8 forbids a `.notdef` reference **regardless of text rendering
+  mode**, in as many words. So the second binds a population the first does not, and a reading that
+  carried the exemption across would under-report. The validator already holds each to its own
+  clause.
 - **By target** — none.
 - **From a configuration** — nothing beyond `--font`, which is `supply` in its oldest form.
 - **Departure** — **B**, and the reasoning is worth the space because it is easy to get wrong. This

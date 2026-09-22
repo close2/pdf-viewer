@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use viewer_core::{Command, Edit, Find, PointerAction};
+use viewer_core::{Answer, Command, Edit, Find, PointerAction, Query};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -40,6 +40,15 @@ impl App {
     /// screen reader's click cannot become a *different* click from a person's by drifting from
     /// it (ADR 0425).
     pub(crate) fn click_page(&mut self, at: (f32, f32), element: ElementState) {
+        // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing it
+        // takes away: the two gestures are the same gesture and a window cannot tell them apart
+        // from the pointer alone (ADR 1191).
+        if self.measuring.is_on() {
+            if element == ElementState::Pressed {
+                self.measure(at);
+            }
+            return;
+        }
         if element == ElementState::Pressed {
             // **§12.7.5.4's open list claims the press first**, which is the same ordering the
             // key handler applies to a modal card: a control drawn over the page is between the
@@ -73,6 +82,25 @@ impl App {
                 ElementState::Released => PointerAction::Released,
             },
         });
+    }
+
+    /// One more point of §12.9's measurement, and what the path comes to now.
+    ///
+    /// The points are this window's — a rubber band is chrome — and the arithmetic is the
+    /// document's, which is the split [`viewer_core::Query::Measure`] exists for: Table 267's
+    /// conversions and §12.9.2's formatting are a reading of the file, and no host holds either.
+    fn measure(&mut self, at: (f32, f32)) {
+        if !self.measuring.point(at) {
+            return;
+        }
+        let points = self.measuring.points().to_vec();
+        let traced = match self.viewer.query(Query::Measure(&points)) {
+            Answer::Measured(traced) => Some(traced),
+            _ => None,
+        };
+        self.measured = viewer_host::measuring::said(points.len(), traced.as_ref());
+        println!("note: {}", self.measured);
+        self.retitle();
     }
 }
 
@@ -364,8 +392,9 @@ impl ApplicationHandler for App {
             // Remembered rather than read at the wheel, because winit puts no modifier state in
             // the wheel's own event.
             WindowEvent::ModifiersChanged(modifiers) => {
-                self.control = modifiers.state().control_key();
-                self.shift = modifiers.state().shift_key();
+                let held = modifiers_held(modifiers.state());
+                self.control = held.ctrl;
+                self.shift = held.shift;
             }
 
             WindowEvent::RedrawRequested => self.redraw_requested(),
@@ -450,7 +479,11 @@ impl App {
             viewer_host::Mode::Reading
         };
         let waiting = self.waiting();
-        let Some(meaning) = viewer_host::meaning(stated, self.shift, mode, waiting) else {
+        let held = viewer_host::Modifiers {
+            shift: self.shift,
+            ctrl: self.control,
+        };
+        let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
             return;
         };
         match meaning {
@@ -508,6 +541,14 @@ impl App {
             viewer_host::WindowAct::Notices => {
                 self.about.toggle();
                 self.redraw();
+            }
+            // §12.9's measuring. No pixel of the page is different: what the mode changes is that
+            // a press is a point rather than the start of §12.4.2's selection.
+            viewer_host::WindowAct::Measure => {
+                let on = self.measuring.toggle();
+                self.measured = viewer_host::measuring::switched(on);
+                println!("note: {}", self.measured);
+                self.retitle();
             }
             // The rows are taken as the menu goes up, because what it says is a function of two
             // policies that change while the window is up (ADR 1145).
@@ -576,6 +617,22 @@ impl App {
     }
 }
 
+/// winit's modifier state as the two modifiers [`viewer_host::keys`] reads.
+///
+/// **A function rather than two lines in the event arm**, so that the one thing this host decides
+/// about a modifier can be tested without a window: a `ModifiersState` is a set of bits and
+/// nothing here calls winit. The other two hosts have the same seam.
+///
+/// Alt, the platform key and the rest are deliberately not folded into either: they belong to a
+/// window manager, and a host that passed one of them as Control would bind a key it was not
+/// given (ADR 1192).
+fn modifiers_held(state: winit::keyboard::ModifiersState) -> viewer_host::Modifiers {
+    viewer_host::Modifiers {
+        shift: state.shift_key(),
+        ctrl: state.control_key(),
+    }
+}
+
 /// winit's key as the one [`viewer_host::keys`] states a meaning for, or nothing.
 ///
 /// **This is the whole of what this host contributes to its key bindings**, which is the point of
@@ -622,6 +679,7 @@ fn character(text: &str) -> Option<viewer_host::Key> {
         'h' => Stated::H,
         'k' => Stated::K,
         'l' => Stated::L,
+        'm' => Stated::M,
         'o' => Stated::O,
         'p' => Stated::P,
         'r' => Stated::R,
@@ -642,7 +700,7 @@ fn character(text: &str) -> Option<viewer_host::Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::press;
+    use super::{modifiers_held, press};
     use winit::keyboard::{Key, NamedKey};
 
     /// Every key the shared table states has a `winit` key in this host.
@@ -664,6 +722,7 @@ mod tests {
                 Stated::H => Key::Character("h"),
                 Stated::K => Key::Character("k"),
                 Stated::L => Key::Character("l"),
+                Stated::M => Key::Character("m"),
                 Stated::O => Key::Character("o"),
                 Stated::P => Key::Character("p"),
                 Stated::R => Key::Character("r"),
@@ -696,6 +755,31 @@ mod tests {
                 "{stated:?} is stated by the table and this host does not produce it"
             );
         }
+    }
+
+    /// This host's whole contribution to what a modifier means, checked without a window.
+    ///
+    /// Three things, and each was wrong here before ADR 1192: Shift crosses, Control crosses, and
+    /// a modifier this program does not bind is folded into neither — which is what makes
+    /// `viewer_host::ctrl_meaning` answer nothing for a key a window manager is about to take.
+    #[test]
+    fn both_modifiers_the_table_reads_cross_and_no_others_do() {
+        use winit::keyboard::ModifiersState as Held;
+        assert_eq!(modifiers_held(Held::empty()), viewer_host::Modifiers::NONE);
+        assert_eq!(modifiers_held(Held::SHIFT), viewer_host::Modifiers::SHIFT);
+        assert_eq!(modifiers_held(Held::CONTROL), viewer_host::Modifiers::CTRL);
+        assert_eq!(
+            modifiers_held(Held::SHIFT | Held::CONTROL),
+            viewer_host::Modifiers {
+                shift: true,
+                ctrl: true
+            }
+        );
+        assert_eq!(
+            modifiers_held(Held::ALT | Held::SUPER),
+            viewer_host::Modifiers::NONE,
+            "a modifier this program does not bind is not passed off as one it does"
+        );
     }
 
     /// A shifted letter is the same key, because none of them means a second thing shifted.

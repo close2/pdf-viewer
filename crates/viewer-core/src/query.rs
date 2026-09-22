@@ -260,6 +260,29 @@ pub enum Query<'a> {
         /// Device pixels from the viewport's top-left corner, as [`Query::FieldAt`] takes.
         at: (f32, f32),
     },
+    /// §12.9's measurement: what a path a person traced across the page comes to.
+    ///
+    /// Viewport points, in the order they were put down. Two of them are the measurement §12.9.1
+    /// names — "one specifying the distance between two points" — and more of them are a path,
+    /// which Table 267 has number format arrays for: an area, an angle and a slope as well as a
+    /// length.
+    ///
+    /// **A question no host can answer for itself**, which is `doc/ui-boundary.md`'s test for a
+    /// new message, and it fails that test twice over. The points are in the viewport's device
+    /// pixels and §12.9's `/VP` is in default user space, so the mapping between them is the
+    /// arithmetic ADR 0118 keeps in one place; and what a unit of that space is *worth* is
+    /// Table 267's conversions and §12.9.2's five formatting steps, which are a reading of the
+    /// document. A host holds the gesture and neither half of the answer.
+    ///
+    /// **A query and not a command**, for this channel's own reason: a person dragging asks on
+    /// every pointer move, and the points are the host's own — a rubber band is chrome, drawn
+    /// where a selection highlight is drawn, and this crate keeps no state for one. Nothing here
+    /// changes anything, which is what [`crate::Viewer::query`] taking `&self` already says.
+    ///
+    /// [`Answer::None`] where the page states no viewport containing the first point — §12.9.1
+    /// chooses that one and no other — and where the path leaves the page it started on, because
+    /// a `/VP` is a *page's* array and a measuring system does not continue onto the next sheet.
+    Measure(&'a [[f32; 2]]),
     /// Whether anything has been edited since the document opened.
     Dirty,
     /// §14.3.3's document information dictionary, and §14.3.2's metadata stream beside it.
@@ -494,6 +517,13 @@ pub enum Answer<'a> {
         /// the decisions it takes where Table 156 stops (ADR 1168).
         order: Vec<String>,
     },
+    /// §12.9's measurement for the path asked about, formatted as the document states.
+    ///
+    /// Strings and not numbers, because §12.9 is explicit that a measure dictionary "shall
+    /// provide information for formatting the resulting values into textual form for
+    /// presentation in a graphical user interface" — so the formatting is the *document's* and a
+    /// host that computed its own would be showing a person units the producer did not choose.
+    Measured(pdf_model::measurement::Traced),
     /// §12.4.2's label for the page asked about, or [`Answer::None`] where it states none.
     Label(String),
     /// §12.3.4's thumbnail for the page asked about, decoded.

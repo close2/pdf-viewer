@@ -286,6 +286,40 @@ standing reason: no struct crosses by value. **Every host gained a word**, `--re
 is the first piece of `doc/todo/38`'s interface and is a command line rather than the menu that
 entry still wants. ADR 1144.
 
+**And the one-thousand-one-hundred-and-seventy-seventh added one `Query`, one `Answer` and no
+`Command`** — the smallest shape a clause has needed since the vocabulary was frozen, and the
+reason it is that small is §12.9's own position. `Query::Measure(&[[f32; 2]])` takes the path a
+person traced in viewport pixels and `Answer::Measured` hands back
+`pdf_model::measurement::Traced`: the viewport's name, the drawing's scale ratio, and the strings
+§12.9.2's algorithm produced from Table 267's `/D`, `/A`, `/T` and `/S`, with what §12.10 states
+about a geospatial viewport beside them. **This section's test is met twice over.** The points are
+in the viewport's device pixels and §12.9's `/VP` is in default user space, so the mapping between
+them is the arithmetic ADR 0118 keeps in one place; and what a unit of that space is *worth* is
+Table 267's conversions and five formatting steps, which are a reading of the document. A host
+holds neither half. **What is deliberately not here is a `Command`**: §12.9 states no state at all
+for a viewer to be in, so the mode is chrome and the points are the host's — a rubber band is drawn
+where a selection highlight is drawn — and `viewer_core` keeps nothing between two presses. That
+half is `viewer_host::Measuring`, beside `Presenting` and `Clock` and for their reason: when a
+press is a point, and what the answer says, are one decision, and a `GtkLabel` against a
+`QStatusBar` against a title bar is what a toolkit is. Two consumers failed to compile —
+`viewer-confined`'s wire (query kind 34, answer kind 35, the first `Reply` variant boxed for its
+size) and `viewer-ffi`'s `every_query_reaches_the_abi` — `QUORRA_EVENT_KIND_COUNT` stayed where it
+is because none of this is an event, and the C ABI gained one entry point and seven constants:
+`quorra_measure`, with a `part` selector rather than seven symbols, because six quantities and a
+sentence over one path would be six chances to be handed a string from a different reading of it.
+`QUORRA_ABI_VERSION` did not move, for the standing reason. **Every window gained the gesture**:
+`m` puts it into the mode, a press puts a point down, and the answer goes where that window already
+puts a sentence. ADR 1191.
+
+**And the same round gave the key table a Control**, which is not a vocabulary change at all and is
+here because it changes what every window does on a keypress: `viewer_host::keys::meaning` took a
+`shift` and nothing else, so all three hosts discarded Control before asking and Ctrl + P entered
+§12.4.4's presentation while Ctrl + C copied by coincidence. `Modifiers` carries both, each host
+translates its toolkit's modifier state at a seam a test can reach without a display, and
+`ctrl_meaning` is a table of its own holding the four operations this program already performs —
+§7.5.6's save, §14.8.2.5's copy, RFC 0004's print job and the find bar. A Control this program does
+not bind now means **nothing** rather than the unmodified row. ADR 1192.
+
 **The thousand-and-seventy-sixth added one field and no message**, and it is the shape `RenderRequest::ink`
 set: `PopupWindow::replies` carries §12.5.6.2's threaded comments, because Table 172 makes *not*
 displaying replies "individually but together in the form of threaded comments" a `shall` on the

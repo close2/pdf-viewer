@@ -128,6 +128,10 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_printed_reports",
             "quorra_printed_report",
         ],
+        // One, and the `part` argument is why: §12.9 has six quantities and a sentence, and
+        // seven symbols answering one question would be six chances for a caller to be handed a
+        // string from a different reading of the same path.
+        Query::Measure(_) => &["quorra_measure"],
         Query::Readback => &[
             "quorra_readback_pages",
             "quorra_readback_page",
@@ -177,6 +181,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::AccessibilityTree,
         Query::Reports,
         Query::Readback,
+        Query::Measure(&[]),
     ]
 }
 

@@ -1099,6 +1099,57 @@ impl TextKind {
 // division is the module comment's and is not restated on each.
 // ---------------------------------------------------------------------------------------------
 
+/// Which part of §12.9's measurement `quorra_measure` answers with.
+///
+/// **A selector rather than seven entry points**, and the reason is the one thing a caller must
+/// not be able to do: §12.9 has six quantities and a sentence over the *same* path, and seven
+/// symbols would be six chances to be handed a string from a different reading of it.
+///
+/// [`Self::Sentence`] is the whole thing worded, and it is the only form §12.10's geospatial
+/// reading crosses in, because every part of that reading is a statement about the map rather
+/// than a quantity a unit can be put on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum MeasurePart {
+    /// The whole measurement, worded as a window says it.
+    Sentence = 0,
+    /// Table 265's `/Name`, "[a] descriptive text string or title of the viewport".
+    Viewport = 1,
+    /// Table 267's `/R`, "[a] text string expressing the scale ratio of the drawing".
+    Ratio = 2,
+    /// The path's length, formatted through Table 267's `/D`.
+    Length = 3,
+    /// The area it encloses, formatted through `/A`.
+    Area = 4,
+    /// The angle at its last vertex, formatted through `/T`.
+    Angle = 5,
+    /// The slope of its last leg, formatted through `/S`.
+    Slope = 6,
+}
+
+impl MeasurePart {
+    /// The part for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Sentence,
+            1 => Self::Viewport,
+            2 => Self::Ratio,
+            3 => Self::Length,
+            4 => Self::Area,
+            5 => Self::Angle,
+            6 => Self::Slope,
+            _ => return None,
+        })
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+}
+
 /// Table 29's `/PageMode`: "how the document shall be displayed when opened".
 ///
 /// Answered by `quorra_opening` beside [`LayoutKind`], because §7.7.2 states the two entries

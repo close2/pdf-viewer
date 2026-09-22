@@ -5,8 +5,9 @@ three-hundred-and-thirty-eighth session (ADR 0197), the baseline's guard and the
 both closed in the four-hundred-and-third (ADR 0240), **the composite `/DA` font closed in the
 five-hundred-and-second** (ADR 0337), **the list box itself drew in the
 five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it, and
-**§7.3.5's font name closed in the six-hundred-and-seventeenth** (ADR 0453). What is left is one
-refusal that belongs to another item, and the reasoning behind five closed ones.
+**§7.3.5's font name closed in the six-hundred-and-seventeenth** (ADR 0453), and **the rich text
+`CLAUDE.md` was read as excluding turned out not to be excluded** (ADR 1197). What is left is one
+refusal that belongs to another item, and the reasoning behind six closed ones.
 Priority: 22
 Corpus: 1 document
 Clauses: §12.7.4.3, §12.7.5.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
@@ -108,7 +109,22 @@ than the bounded walk visits, and §9.7.5.1's writing mode 1 — the clause make
 baseline and the list box, so the fixtures are pairs differing in one entry and the corpus is
 silent about all of it.
 
-`/DS` and `/RV` are XFA, which `CLAUDE.md` excludes.
+## ~~`/DS` and `/RV` are XFA, which `CLAUDE.md` excludes~~ — **read again in ADR 1197**
+
+Two sentences of one line, both wrong, and the lesson is the one principle 5 states about a claim
+that a clause hands something over: **the exclusion was never re-read against the clause that
+names it.** `CLAUDE.md` excludes XFA on §K.1's permission, and that permission is about
+schema-driven page generation; Table 228's entries are AcroForm entries whose *format* the
+standard describes by reference, which is not the same act. And this tree already read the
+identical construct — Table 172's and Table 177's `/RC` carry the same words and
+`popup::rich_text` has taken their character data since ADR 0224 — so one construct named the same
+way in three tables was being read in two and declared out of scope in the third.
+
+What follows is narrow and is in §12.7.4.3's row: a rich text value's **characters** are drawn,
+because §12.7.5.3 makes "[t]he contents of this text string or stream" what the appearance is
+built from; its **formatting** is not, because that is XFA 3.3's and this tree does not hold it,
+and that half stays ADR 1122's reported departure with its condition widened to Table 228's `/DS`
+— 411 widgets state one against 60 stating an `/RV`, which `examples/field_flag_census` counts.
 
 ## ~~§12.7.5.4's list box~~ — **drawn in the five-hundred-and-seventy-first session**
 

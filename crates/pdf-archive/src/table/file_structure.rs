@@ -311,7 +311,8 @@ pub(super) static REQUIREMENTS: &[Requirement] = &[
     Requirement {
         id: "file-structure/no-external-stream-data",
         asks: "A stream dictionary shall not contain the F, FFilter or FDecodeParams keys, \
-               which would put its data outside the file.",
+               which would put its data outside the file — nor FDecodeParms, which is the key \
+               ISO 32000 gives that third name to.",
         clauses: Clauses::both("6.1.7.1", "6.1.6.1"),
         applies: Applies::Always,
         check: Check::Implemented(no_external_stream_data),
@@ -873,9 +874,20 @@ fn crypt_filter_is_identity(exam: &Examination<'_>, findings: &mut Findings) {
 }
 
 /// ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1.
+///
+/// **Four key names for three keys, and the fourth is the part's own misprint.** Both parts
+/// forbid the *presence* of the keys they list, and the third name they list is spelled
+/// `FDecodeParams`, which names nothing in ISO 32000: \u{a7}7.3.8.2's Table 5 spells it
+/// `FDecodeParms`, and both parts' section 5.1 makes the base standard what a conforming file is
+/// read against. So a stream stating `FDecodeParms` is stating the key the part means — the one
+/// carrying the decode parameters for data outside the file — and its presence is what the
+/// requirement forbids, on the requirement's own NOTE saying the listed keys point at external
+/// data. A stream stating the part's literal spelling is reported as well, because the part
+/// forbids that name as it is written; Table 5 gives it no meaning, so its only cost is its
+/// presence, which is the thing this rule is about. `doc/adr/1199`.
 fn no_external_stream_data(exam: &Examination<'_>, findings: &mut Findings) {
     for_each_stream(exam, |id, stream| {
-        for key in ["F", "FFilter", "FDecodeParams"] {
+        for key in EXTERNAL_DATA_KEYS {
             if stream.dict.get(key).is_some() {
                 findings.record(
                     Where::object(id).named(key),
@@ -885,6 +897,13 @@ fn no_external_stream_data(exam: &Examination<'_>, findings: &mut Findings) {
         }
     });
 }
+
+/// The stream dictionary keys ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid.
+///
+/// Public because a converter's answer to the requirement has to act at exactly the keys the
+/// requirement is failed on, and a second list there would be a second reading of one sentence.
+/// [`no_external_stream_data`] is where the fourth name comes from.
+pub const EXTERNAL_DATA_KEYS: [&str; 4] = ["F", "FFilter", "FDecodeParms", "FDecodeParams"];
 
 /// ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1.
 ///

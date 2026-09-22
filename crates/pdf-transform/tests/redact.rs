@@ -9,8 +9,10 @@
 #![expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
-    reason = "test code: a fixture that cannot be built must fail loudly, and its byte offsets \
-              are small integers a panic on overflow would only make louder"
+    clippy::cast_precision_loss,
+    reason = "test code: a fixture that cannot be built must fail loudly, its byte offsets are \
+              small integers a panic on overflow would only make louder, and a raster coordinate \
+              on a 200-unit page is far inside f32's exact range"
 )]
 
 use std::fmt::Write as _;
@@ -22,8 +24,8 @@ use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::redact::RedactPlan;
 use pdf_transform::{
-    Budget, Declined, Departure, MemorySinks, Origin, Plan, Policy, Protect, Refusal, Secret,
-    Source, apply, apply_protected,
+    Budget, Departure, MemorySinks, Origin, Plan, Policy, Protect, Refusal, Secret, Source, apply,
+    apply_protected,
 };
 
 mod support;
@@ -225,30 +227,303 @@ fn an_overlay_is_a_reported_departure_not_a_drawn_mark() {
 
 /// A page whose region also holds a painted path is refused by name — the content and the
 /// annotation are left as the file wrote them, never cut wrong (trap 5).
+/// Every mark the display list carries, as its extent in the display list's own space.
+///
+/// A redaction's proof is that no mark survives whose extent meets the region, so the walk has to
+/// see *every* command — a group's elements as much as a page-level fill, since a group draws
+/// what its elements draw. Clips are not applied: a mark clipped away would read here as a mark,
+/// which is the safe direction for a test asserting that nothing is left.
+fn mark_extents(commands: &[pdf_render::Command]) -> Vec<pdf_render::geom::Rect> {
+    let mut out = Vec::new();
+    for command in commands {
+        match command {
+            pdf_render::Command::Fill {
+                path, transform, ..
+            }
+            | pdf_render::Command::Stroke {
+                path, transform, ..
+            } => out.extend(path.bounds(*transform)),
+            pdf_render::Command::Image { transform, .. } => {
+                // §8.9.5.2 places an image in the unit square of user space; its extent is that
+                // square under the placing transform.
+                out.push(pdf_render::geom::Rect::from_corners(
+                    transform.apply(pdf_render::geom::Point::new(0.0, 0.0)),
+                    transform.apply(pdf_render::geom::Point::new(1.0, 1.0)),
+                ));
+            }
+            pdf_render::Command::Group { commands, .. } => {
+                out.extend(mark_extents(commands));
+            }
+            pdf_render::Command::Shaped { object, .. } => {
+                out.extend(mark_extents(std::slice::from_ref(object)));
+            }
+            // The enum is non-exhaustive; a command this walk does not know is a mark it cannot
+            // measure, so it is reported as covering everything and the caller's assertion fails
+            // — never as nothing, which would make a new command read as a clean region.
+            _ => out.push(pdf_render::geom::Rect::from_corners(
+                pdf_render::geom::Point::new(f32::MIN, f32::MIN),
+                pdf_render::geom::Point::new(f32::MAX, f32::MAX),
+            )),
+        }
+    }
+    out
+}
+
+/// Asserts that no mark in the output's first page reaches into the user-space region.
+///
+/// The region is mapped through `base_transform` into the display list's own space, which is the
+/// space the marks are in — `doc/traps` 12a: the display list's space is not the page's, and the
+/// flip lives in that one function.
+fn no_mark_meets(bytes: &[u8], region: [f32; 4]) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let base = pdf_model::content::base_transform(&page);
+    let corners = [
+        base.apply(pdf_render::geom::Point::new(region[0], region[1])),
+        base.apply(pdf_render::geom::Point::new(region[2], region[3])),
+    ];
+    let quad = pdf_render::geom::Rect::from_corners(corners[0], corners[1]);
+    let list = pdf_model::interpret(&document, &page).display_list;
+    for extent in mark_extents(list.commands()) {
+        assert!(
+            extent.intersection(quad).is_none(),
+            "a mark at {extent:?} still reaches the redacted region {quad:?}"
+        );
+    }
+}
+
+/// A painted path partly under the region keeps the part outside it and loses the part inside:
+/// §12.5.6.23 asks for the content to be *removed*, so the geometry that described the removed
+/// marks is gone from the content stream rather than covered or clipped.
 #[test]
-fn a_painted_path_in_the_region_refuses_the_page() {
-    let content = "20 40 100 20 re f\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
+fn a_painted_path_is_cut_to_the_region_s_complement() {
+    // A black bar from x = 20 to x = 120 at y = 40..60; the region takes everything from x = 60.
+    let content = "0 0 0 rg 20 40 100 20 re f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+
+    assert!(
+        report.refused.is_empty(),
+        "the path is cut, not refused: {:?}",
+        report.refused
+    );
+    let Some(Origin::Redacted { paths, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("a redacted origin");
+    };
+    assert_eq!(paths, 1, "one painted path was cut");
+    assert!(
+        !contains(&out, b"20 40 100 20 re"),
+        "the rectangle that described the removed marks is gone from the file"
+    );
+    no_mark_meets(&out, [60.0, 30.0, 140.0, 80.0]);
+
+    // What survives is the bar's left end, and it is still painted.
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let extents = mark_extents(
+        pdf_model::interpret(&document, &page)
+            .display_list
+            .commands(),
+    );
+    assert_eq!(extents.len(), 1, "one surviving mark: {extents:?}");
+    let base = pdf_model::content::base_transform(&page);
+    let expected = pdf_render::geom::Rect::from_corners(
+        base.apply(pdf_render::geom::Point::new(20.0, 40.0)),
+        base.apply(pdf_render::geom::Point::new(60.0, 60.0)),
+    );
+    let survivor = extents[0];
+    assert!(
+        (survivor.min.x - expected.min.x).abs() < 0.05
+            && (survivor.max.x - expected.max.x).abs() < 0.05
+            && (survivor.min.y - expected.min.y).abs() < 0.05
+            && (survivor.max.y - expected.max.y).abs() < 0.05,
+        "the survivor is the bar's left end: {survivor:?} vs {expected:?}"
+    );
+}
+
+/// The pixels a page draws, at 150 dpi through the correctness-oracle backend.
+fn pixels(bytes: &[u8]) -> pdf_render::Raster {
+    support::oracle(bytes, 0)
+}
+
+/// The cut proved in pixels rather than in operators: outside the region the redacted page is
+/// identical to the original, and inside it nothing is drawn.
+///
+/// The comparison skips a one-pixel band around the region, because the cut deliberately reaches
+/// [`REGION_PAD`]'s hundredth of a point past the quad so that writing the new vertices back and
+/// reading them as §7.3.3 reals cannot leave a sliver of the removed marks alive. A boundary
+/// pixel therefore carries a fraction of a percent less coverage, which is the safe direction and
+/// not a difference the comparison is about.
+#[test]
+fn the_cut_page_is_pixel_identical_outside_the_region_and_empty_inside_it() {
+    let content = "0 0 0 rg 20 40 100 20 re f\n0 0 1 rg 20 150 30 10 re f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let before = pixels(&bytes);
+    let after = pixels(&out);
+    assert_eq!((before.width, before.height), (after.width, after.height));
+    assert_eq!(before.format, after.format);
+
+    // The region in the raster's own space: 150 dpi over 72 units to the inch, and y measured
+    // down from the top of a 200-unit page (trap 12a).
+    let scale = 150.0_f32 / 72.0;
+    let left = 60.0 * scale;
+    let right = 140.0 * scale;
+    let top = (200.0 - 80.0) * scale;
+    let bottom = (200.0 - 30.0) * scale;
+
+    let stride = before.width as usize * 4;
+    let mut inside = 0usize;
+    let mut marked = false;
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let at = y as usize * stride + x as usize * 4;
+            let (fx, fy) = (x as f32, y as f32);
+            // A one-pixel band either side of the boundary is skipped: the cut reaches a
+            // hundredth of a point past the quad by construction (`paths::REGION_PAD`), and a
+            // boundary pixel's coverage is a rasteriser's business rather than this test's.
+            let well_inside =
+                fx > left + 1.0 && fx < right - 1.0 && fy > top + 1.0 && fy < bottom - 1.0;
+            let well_outside =
+                fx < left - 1.0 || fx > right + 1.0 || fy < top - 1.0 || fy > bottom + 1.0;
+            if well_inside {
+                inside += 1;
+                marked |= before.data[at] != 0xFF;
+                // Nothing is drawn there: the oracle's page starts white and stays white.
+                assert_eq!(
+                    &after.data[at..at + 3],
+                    &[0xFF, 0xFF, 0xFF],
+                    "a pixel at ({x}, {y}) inside the region is still marked"
+                );
+            } else if well_outside {
+                assert_eq!(
+                    &after.data[at..at + 4],
+                    &before.data[at..at + 4],
+                    "a pixel at ({x}, {y}) outside the region changed"
+                );
+            }
+        }
+    }
+    assert!(inside > 1000, "the region covers a real part of the page");
+    // And the comparison could have failed: the original does mark the region.
+    assert!(
+        marked,
+        "the original page marks the region, so the test can fail"
+    );
+}
+
+/// A painted path wholly inside the region loses every one of its marks, and the painting
+/// operator goes with the geometry — an empty path painted is not what the producer wrote.
+#[test]
+fn a_painted_path_inside_the_region_is_deleted_entirely() {
+    let content = "0 0 0 rg 20 40 30 10 re f\n0 0 0 rg 20 150 30 10 re f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [10 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !contains(&out, b"20 40 30 10 re"),
+        "the deleted path's geometry is gone"
+    );
+    assert!(
+        contains(&out, b"20 150 30 10 re"),
+        "the path clear of the region crosses the output byte for byte"
+    );
+    no_mark_meets(&out, [10.0, 30.0, 140.0, 80.0]);
+}
+
+/// A painted path nowhere near the region is left exactly as the producer wrote it.
+#[test]
+fn a_painted_path_clear_of_the_region_is_byte_identical() {
+    let content = "0 0 0 rg 20 150 30 10 re f\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
     let bytes = build(
         content,
         &["<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] >>"],
     );
     let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(!contains(&out, b"SECRET"), "the text under the region went");
+    assert!(
+        contains(&out, b"20 150 30 10 re f"),
+        "the path's own bytes are untouched"
+    );
+    let Some(Origin::Redacted { paths, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("a redacted origin");
+    };
+    assert_eq!(paths, 0, "nothing was cut");
+}
 
-    let refused: Vec<&Declined> = report.refused.iter().collect();
-    assert_eq!(
-        refused.len(),
-        1,
-        "the page is declined: {:?}",
-        report.refused
+/// A stroked path meeting the region is refused by name: §8.5.3.2's marks are the *outline* of
+/// the path, so cutting the path would place caps and joins the producer never wrote.
+#[test]
+fn a_stroked_path_in_the_region_refuses_the_page() {
+    let content = "0 0 0 RG 2 w 20 50 m 120 50 l S";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
     );
-    assert_eq!(refused[0].page, Some(1));
+    let (report, out) = redact(&bytes);
+    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
     assert!(
-        contains(&out, b"SECRET"),
-        "a refused page keeps its content, so nothing was cut wrong"
+        report.refused[0].detail.contains("§8.5.3.2"),
+        "the refusal names the clause: {}",
+        report.refused[0].detail
     );
     assert!(
-        contains(&out, b"/Redact"),
-        "and keeps its unapplied redaction annotation"
+        contains(&out, b"20 50 m 120 50 l S"),
+        "a refused page keeps its content"
+    );
+}
+
+/// A path with a Bézier segment meeting the region is refused by name: the crossing parameter is
+/// a root this build does not solve, and flattening the curve would approximate the producer's
+/// geometry rather than cut it.
+#[test]
+fn a_curved_path_in_the_region_refuses_the_page() {
+    let content = "0 0 0 rg 20 40 m 60 90 100 90 120 40 c h f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, _out) = redact(&bytes);
+    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
+    assert!(
+        report.refused[0].detail.contains("§8.5.2.2"),
+        "the refusal names the clause: {}",
+        report.refused[0].detail
+    );
+}
+
+/// A path that is also §8.5.4's clipping boundary is refused: cutting its geometry would move
+/// the boundary every mark after the painting operator is held to, which is content the
+/// annotation did not identify.
+#[test]
+fn a_clipping_path_in_the_region_refuses_the_page() {
+    let content = "0 0 0 rg 20 40 100 20 re W f\n0 0 1 rg 0 0 200 200 re f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, _out) = redact(&bytes);
+    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
+    assert!(
+        report.refused[0].detail.contains("§8.5.4"),
+        "the refusal names the clause: {}",
+        report.refused[0].detail
     );
 }
 
@@ -429,8 +704,16 @@ fn image_object(filter: &str, data: &[u8]) -> Vec<u8> {
 
 /// The output's one image `XObject` decoded back to its packed samples.
 fn read_back_samples(bytes: &[u8]) -> Vec<u8> {
+    read_back_samples_on(bytes, 0).0
+}
+
+/// The same, on the given page, also answering which object the page's `/Im1` names — the second
+/// half of what a shared image's copy has to prove.
+fn read_back_samples_on(bytes: &[u8], index: usize) -> (Vec<u8>, Option<pdf_syntax::ObjectId>) {
     let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let page = pdf_model::Pages::new(&document)
+        .get(index)
+        .expect("the page");
     let xobjects = document.get_key(&page.resources, "XObject");
     let entry = xobjects
         .as_dict()
@@ -441,11 +724,12 @@ fn read_back_samples(bytes: &[u8]) -> Vec<u8> {
     let stream = image.as_stream().expect("the image is a stream");
     // Re-interpret the page too: the destroyed image must not stop it drawing (it renders).
     let _ = pdf_model::interpret(&document, &page);
-    document
+    let samples = document
         .image_stream(stream)
         .expect("the image decodes to samples")
         .data
-        .to_vec()
+        .to_vec();
+    (samples, entry.as_reference())
 }
 
 /// The calibration trap 13 asks for on the image case (§12.5.6.23, "that portion of the image
@@ -985,10 +1269,12 @@ fn decode_fixture_rgba(bytes: &[u8]) -> Vec<u8> {
     .to_vec()
 }
 
-/// A shared image — placed on a second page as well — is refused rather than cleared, because
-/// overwriting its samples would destroy the other page's picture (the single-referrer guard).
+/// A shared image is **copied** for the redacted page, not replaced: §12.5.6.23 asks for the
+/// content the annotation identified to be removed, and the marks the *other* page's placement
+/// draws are content it did not identify. So the redacted page gets its own image object with the
+/// region's samples destroyed, and the original keeps the picture the unredacted page draws.
 #[test]
-fn a_shared_image_is_refused_rather_than_cleared() {
+fn a_shared_image_is_copied_for_the_redacted_page() {
     let samples = distinct_samples();
     let encoded = flate_encode(&samples, 6).expect("the fixture image deflates");
     let objects = vec![
@@ -1011,22 +1297,343 @@ fn a_shared_image_is_refused_rather_than_cleared() {
     let bytes = assemble_bytes(&objects);
 
     let (report, out) = redact(&bytes);
-    let refused = report
-        .refused
-        .iter()
-        .find(|declined| declined.page == Some(1))
-        .expect("the shared-image page is refused");
     assert!(
-        refused.detail.contains("shared"),
-        "the refusal says the image is shared: {}",
-        refused.detail
+        report.refused.is_empty(),
+        "the shared image is copied, not refused: {:?}",
+        report.refused
     );
-    // The image is left whole: the other page's picture is intact.
-    let out_samples = read_back_samples(&out);
+
+    let (redacted, redacted_id) = read_back_samples_on(&out, 0);
+    let (untouched, untouched_id) = read_back_samples_on(&out, 1);
+    assert_ne!(
+        redacted_id, untouched_id,
+        "the two pages name two objects, so neither placement decides the other's picture"
+    );
     assert_eq!(
-        out_samples,
+        untouched,
         distinct_samples(),
-        "the shared image is untouched"
+        "the unredacted page's picture is exactly the producer's"
+    );
+    for row in 0..8 {
+        for column in 0..8 {
+            let at = row * 8 + column;
+            if column < 4 {
+                assert_eq!(redacted[at], 0, "sample {at} is inside the region");
+            } else {
+                assert_eq!(
+                    redacted[at], untouched[at],
+                    "sample {at} is outside the region"
+                );
+            }
+        }
+    }
+}
+
+/// A fixture whose pages each draw the one form `XObject`, which holds all of the text.
+///
+/// `pages` is how many pages name the form — one for a form the redacted page owns, two for a
+/// form it shares. Page one carries the redaction; the form's own `/Resources` names the font, so
+/// its names resolve in its own dictionary rather than the page's (§8.10.2 Table 93).
+fn form_fixture(form_content: &str, pages: usize, annotation: &str) -> Vec<u8> {
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        String::new(), // the page tree, filled once the page numbers are known
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 \
+             5 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>"
+        ),
+        "<< /Length 12 >>\nstream\n/Fm1 Do\nendstream".to_owned(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 7 0 \
+             R >> >> /Length {} >>\nstream\n{form_content}\nendstream",
+            form_content.len() + 1
+        ),
+        annotation.to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+    ];
+    let mut kids = String::from("3 0 R");
+    if pages > 1 {
+        let number = objects.len() + 1;
+        let _ = write!(kids, " {number} 0 R");
+        objects.push(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 \
+             5 0 R >> >> /Contents 4 0 R >>"
+                .to_owned(),
+        );
+    }
+    objects[1] = format!("<< /Type /Pages /Kids [{kids}] /Count {pages} >>");
+    assemble(&objects)
+}
+
+/// The form object the given page's `/Fm1` names, and its decoded content.
+fn form_of(bytes: &[u8], index: usize) -> (pdf_syntax::ObjectId, Vec<u8>) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document)
+        .get(index)
+        .expect("the page");
+    let xobjects = document.get_key(&page.resources, "XObject");
+    let entry = xobjects
+        .as_dict()
+        .and_then(|dict| dict.get("Fm1"))
+        .cloned()
+        .expect("/Fm1 in the resources");
+    let id = entry
+        .as_reference()
+        .expect("the form is an indirect object");
+    let object = document.resolve(&entry);
+    let stream = object.as_stream().expect("the form is a stream");
+    let data = document
+        .decoded_stream_data(stream)
+        .expect("the form decodes");
+    (id, data.to_vec())
+}
+
+/// A form `XObject` the redacted page owns is **entered**, and the marks it draws under the
+/// region are removed from its own content stream — §8.10.1 makes a form "a self-contained
+/// description of any sequence of graphics objects", so that is where those marks are described.
+#[test]
+fn a_form_the_page_owns_has_its_own_content_redacted() {
+    let inner = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
+    let bytes = form_fixture(
+        inner,
+        1,
+        "<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] \
+         /QuadPoints [10 66 130 66 10 40 130 40] >>",
+    );
+    assert!(contains(&bytes, b"SECRET"), "the fixture holds the secret");
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !contains(&out, b"SECRET"),
+        "the text the form drew under the region is gone from the file"
+    );
+    assert!(
+        contains(&out, b"KEEP"),
+        "the text the form drew outside it stayed"
+    );
+    assert_eq!(page_text(&out).trim(), "KEEP");
+    no_mark_meets(&out, [10.0, 40.0, 130.0, 66.0]);
+    let Some(Origin::Redacted { glyphs, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("a redacted origin");
+    };
+    assert_eq!(glyphs, 6, "the six codes of SECRET");
+}
+
+/// A form two pages draw is **copied** for the redacted page: the marks the other page's
+/// placement draws are content the annotation did not identify, so the original keeps them.
+#[test]
+fn a_shared_form_is_copied_for_the_redacted_page() {
+    let inner = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
+    let bytes = form_fixture(
+        inner,
+        2,
+        "<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] \
+         /QuadPoints [10 66 130 66 10 40 130 40] >>",
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let (redacted_id, redacted) = form_of(&out, 0);
+    let (shared_id, shared) = form_of(&out, 1);
+    assert_ne!(
+        redacted_id, shared_id,
+        "the redacted page names a form of its own"
+    );
+    assert!(
+        !contains(&redacted, b"SECRET"),
+        "the redacted page's form lost the marks under the region"
+    );
+    assert!(
+        contains(&shared, b"SECRET"),
+        "the other page's form is exactly the producer's"
+    );
+    assert_eq!(
+        shared.strip_suffix(b"\n").unwrap_or(&shared),
+        inner.as_bytes(),
+        "byte for byte"
+    );
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&document);
+    let second = pages.get(1).expect("page two");
+    assert!(
+        pdf_model::interpret(&document, &second)
+            .text
+            .contains("SECRET"),
+        "and it still draws what it drew"
+    );
+}
+
+/// A painted path inside a form is cut in the **form's** own space: §8.10.1's step b) puts the
+/// form's `/Matrix` in front of the transform at the `Do`, so where the region falls in the
+/// form's coordinates is decided by both.
+#[test]
+fn a_path_inside_a_form_is_cut_in_the_form_s_own_space() {
+    // The form's matrix moves it 100 units right, so its bar at form x 0..100 lands on page x
+    // 100..200; the region takes the page from x = 150, which is form x = 50.
+    let inner = "0 0 0 rg 0 40 100 20 re f";
+    let objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 5 0 \
+         R >> >> /Contents 4 0 R /Annots [6 0 R] >>"
+            .to_owned(),
+        "<< /Length 12 >>\nstream\n/Fm1 Do\nendstream".to_owned(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Matrix [1 0 0 1 100 0] \
+             /Length {} >>\nstream\n{inner}\nendstream",
+            inner.len() + 1
+        ),
+        "<< /Type /Annot /Subtype /Redact /Rect [150 30 200 80] >>".to_owned(),
+    ];
+    let bytes = assemble(&objects);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let Some(Origin::Redacted { paths, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("a redacted origin");
+    };
+    assert_eq!(paths, 1, "the form's path was cut");
+
+    let (_id, content) = form_of(&out, 0);
+    assert!(
+        !contains(&content, b"0 40 100 20 re"),
+        "the rectangle that described the removed marks is gone"
+    );
+    let text = String::from_utf8_lossy(&content);
+    assert!(
+        text.contains("49.99") || text.contains("50 "),
+        "the cut is at the form's x = 50, not the page's: {text}"
+    );
+    no_mark_meets(&out, [150.0, 30.0, 200.0, 80.0]);
+}
+
+/// A form nested inside a **shared** form is copied too, and the outer copy names the inner one.
+///
+/// The inner form is referenced exactly once, so counting references alone would call it the
+/// redacted page's and replace it — and the other page, which reaches it through the shared outer
+/// form, would have lost content the annotation never identified. Reachability through a shared
+/// form is what decides ownership, and every copy's slot is taken before any of them is built, so
+/// the outer copy can name the inner one (ADR 1196).
+#[test]
+fn a_form_nested_in_a_shared_form_is_copied_with_it() {
+    let inner = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET\nBT /F1 12 Tf 20 50 Td (SECRET) Tj ET";
+    let objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R 8 0 R] /Count 2 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 5 0 \
+         R >> >> /Contents 4 0 R /Annots [6 0 R] >>"
+            .to_owned(),
+        "<< /Length 12 >>\nstream\n/Fm1 Do\nendstream".to_owned(),
+        // The outer form: shared by both pages, and drawing the inner one.
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /XObject << /Fm2 9 0 \
+         R >> >> /Length 12 >>\nstream\n/Fm2 Do\nendstream"
+            .to_owned(),
+        "<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] \
+         /QuadPoints [10 66 130 66 10 40 130 40] >>"
+            .to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 5 0 \
+         R >> >> /Contents 4 0 R >>"
+            .to_owned(),
+        // The inner form: referenced once, from the outer form's resources.
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 7 0 \
+             R >> >> /Length {} >>\nstream\n{inner}\nendstream",
+            inner.len() + 1
+        ),
+    ];
+    let bytes = assemble(&objects);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let pages = pdf_model::Pages::new(&document);
+    let first = pages.get(0).expect("page one");
+    let second = pages.get(1).expect("page two");
+    assert!(
+        !pdf_model::interpret(&document, &first)
+            .text
+            .contains("SECRET"),
+        "the redacted page draws nothing of the removed text"
+    );
+    assert!(
+        pdf_model::interpret(&document, &second)
+            .text
+            .contains("SECRET"),
+        "the other page, reaching the inner form through the shared outer one, is untouched"
+    );
+    assert_eq!(
+        pdf_model::interpret(&document, &first).text.trim(),
+        "KEEP",
+        "and the redacted page still draws what the region did not cover"
+    );
+    let (outer_one, _) = form_of(&out, 0);
+    let (outer_two, _) = form_of(&out, 1);
+    assert_ne!(
+        outer_one, outer_two,
+        "the outer form was copied for the page"
+    );
+}
+
+/// A page whose text lives inside a form the region does not reach is applied, not refused: the
+/// interpreter runs a form's content inline, so a walk that did not enter the form would disagree
+/// with the placed-code count that calibrates it.
+#[test]
+fn text_inside_a_form_clear_of_the_region_does_not_refuse_the_page() {
+    let inner = "BT /F1 12 Tf 20 150 Td (KEEP) Tj ET";
+    let bytes = form_fixture(
+        inner,
+        1,
+        "<< /Type /Annot /Subtype /Redact /Rect [10 20 130 40] >>",
+    );
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the form's codes are counted: {:?}",
+        report.refused
+    );
+    assert_eq!(page_text(&out).trim(), "KEEP");
+    assert!(
+        contains(&out, inner.as_bytes()),
+        "the form's bytes are untouched"
+    );
+}
+
+/// A form that draws itself is refused by name rather than walked for ever.
+#[test]
+fn a_form_that_draws_itself_is_refused_by_name() {
+    let inner = "BT /F1 12 Tf 20 50 Td (SECRET) Tj ET\n/Fm1 Do";
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fm1 5 0 \
+         R >> >> /Contents 4 0 R /Annots [6 0 R] >>"
+            .to_owned(),
+        "<< /Length 12 >>\nstream\n/Fm1 Do\nendstream".to_owned(),
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] /Resources << /Font << /F1 7 0 \
+             R >> /XObject << /Fm1 5 0 R >> >> /Length {} >>\nstream\n{inner}\nendstream",
+            inner.len() + 1
+        ),
+        "<< /Type /Annot /Subtype /Redact /Rect [10 40 130 66] >>".to_owned(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+    ];
+    objects.truncate(7);
+    let bytes = assemble(&objects);
+    let (report, out) = redact(&bytes);
+    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
+    assert!(
+        report.refused[0].detail.contains("draws itself"),
+        "the refusal names the recursion: {}",
+        report.refused[0].detail
+    );
+    assert!(
+        contains(&out, b"SECRET"),
+        "a refused page keeps its content"
     );
 }
 

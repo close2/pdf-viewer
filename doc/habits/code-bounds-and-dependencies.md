@@ -254,3 +254,18 @@ emission-site discipline sees the third. When a flag decides what a backend does
 settle it against what the list holds, once, where the list is finished — `noninvertible_marks`'s
 shape — and gate the walk on the cheap over-approximation so the default path pays one branch
 (ADR 1181).
+
+## A reference count is not an ownership proof
+
+An object referenced exactly once can still belong to two pages, because the container that names
+it may be shared: a form nested in a shared form is reached from every page that draws the outer
+one. Redaction's `Walk::owns` asked the count alone and would have replaced a stranger's content
+silently; it now asks what reaches the container as well (ADR 1196). Any code deciding "this object
+is mine to overwrite" from a count owes that second question.
+
+## An absent input and an empty output are different facts
+
+§12.9.2's `format` answers an optional array that is absent with `""`, correctly at its own level;
+composed into a measurement it showed a slope of nothing beside the word *slope*. When a reader
+composes several optional clause-derived strings into one answer, only the absence of the input
+belongs in the answer (ADR 1191).

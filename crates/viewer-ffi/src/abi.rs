@@ -4250,6 +4250,54 @@ pub unsafe extern "C" fn quorra_page_label(
     }
 }
 
+/// §12.9's measurement of a path a person traced across the page.
+///
+/// `points` is `count` pairs of device pixels of the viewport, in the order they were put down,
+/// and `part` chooses what comes back: `0` is the whole sentence — the only form §12.10's
+/// geospatial reading crosses in, because every part of that reading is a statement about the map
+/// rather than a quantity — and `1` to `6` are the viewport's name, the drawing's scale ratio, and
+/// the strings §12.9.2's algorithm produced from Table 267's `/D`, `/A`, `/T` and `/S`.
+///
+/// `QUORRA_NO_ANSWER` where the page states no viewport containing the first point, where the path
+/// leaves the page it started on, and where the document states nothing for the part asked for.
+///
+/// # Safety
+///
+/// See the module documentation. `points` must name `count` pairs of `float` or be null with a
+/// `count` of zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_measure(
+    viewer: *const Session,
+    points: *const f32,
+    count: usize,
+    part: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if points.is_null() && count != 0 {
+        return Status::NullArgument.code();
+    }
+    let Some(pairs) = count.checked_mul(2) else {
+        return Status::OutOfRange.code();
+    };
+    let path: Vec<[f32; 2]> = if count == 0 {
+        Vec::new()
+    } else {
+        core::slice::from_raw_parts(points, pairs)
+            .chunks_exact(2)
+            .map(|pair| [pair[0], pair[1]])
+            .collect()
+    };
+    match viewer.measure(&path, part) {
+        Ok(said) => copy_out(&said, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
 /// §12.3.4's thumbnail for one page, decoded, as a handle the caller frees.
 ///
 /// **One page at a time and no list-valued form of this call exists**, which is `CLAUDE.md`

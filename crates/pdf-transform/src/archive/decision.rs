@@ -1077,6 +1077,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
     // `doc/pdf-a-conversion-limits.md` section 4.9 makes embedding a face the default rather than
     // a refusal, `doc/questions/A47` settled it, and the condition A47 attaches — refuse rather
     // than guess where no shipped face covers the characters — is `super::fonts`' own gate.
+    // ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1: no stream's data outside the
+    // file. The bytes are the caller's to resolve and reach this verb in the plan
+    // (`doc/adr/1199`), so the rewrite's feasibility is a question about what was handed over —
+    // which is what `Prepared::obstacle` asks, and why a document nobody resolved anything for
+    // keeps a refusal naming the switch that would.
+    Remedy {
+        requirement: "file-structure/no-external-stream-data",
+        answer: Answer::Mechanical(Rewrite::ExternalDataEmbedded),
+    },
     Remedy {
         requirement: "fonts/font-programs-embedded",
         answer: Answer::Stated(
@@ -1529,12 +1538,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "implementation-limits/values-written-in-content-streams",
         Because::NotThisTarget(IMPLEMENTATION_LIMITS),
     ),
-    // ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1:
-    // `doc/pdf-a-conversion-limits.md` section 2.3's standing case.
-    (
-        "file-structure/no-external-stream-data",
-        Because::NotThisTarget(EXTERNAL_STREAM_DATA),
-    ),
     // The rules a content stream's own bytes fail, which this verb carries byte for byte.
     (
         "graphics/inline-image-interpolation-is-off",
@@ -1915,19 +1918,6 @@ const IMPLEMENTATION_LIMITS: &str = "ISO 19005-2 section 6.1.13 sets a hard limi
      — its section 6.1 runs to 6.1.12 — so a large-format drawing, a deeply nested content \
      stream or a 40-colourant DeviceN space can be PDF/A-4 and cannot be PDF/A-2. Ask for \
      PDF/A-4";
-
-/// Why a stream whose bytes live outside the file is refused.
-///
-/// `doc/pdf-a-conversion-limits.md` section 2.3, and one of the two places where "cannot view
-/// it either" and "cannot archive it" agree.
-const EXTERNAL_STREAM_DATA: &str = "a stream in this file states F, FFilter or FDecodeParams, \
-     which puts its data on somebody else's disk or server. Fetching it is a network operation \
-     this program does not have and CLAUDE.md principle 3 will not acquire, and a file assembled \
-     from an unverifiable fetch is not an archival object. Both parts forbid the keys, so no \
-     other target helps; what does is obtaining the referenced data and having the producer \
-     embed it. Where nothing draws the stream, ISO 19005-2 section 6.2.2's exemption for a named \
-     resource the content stream never references would free it, and this tree does not yet \
-     state that exemption — doc/todo/62";
 
 /// Why a rule a content stream's own bytes fail is not repaired.
 const CONTENT_STREAM_IS_THE_PRODUCERS: &str = "this requirement is failed by bytes inside a \

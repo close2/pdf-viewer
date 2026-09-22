@@ -1150,6 +1150,40 @@ impl Session {
         }
     }
 
+    /// §12.9's measurement of a traced path, as one of its parts or as the whole sentence.
+    ///
+    /// `part` is `0` for the sentence `viewer_host::measuring::said` composes — which is the only
+    /// form §12.10's reading crosses in, because every part of that reading is a *statement*
+    /// about the map rather than a quantity — and `1` to `6` for Table 265's `/Name`, Table 267's
+    /// `/R`, and the strings §12.9.2's algorithm produced from `/D`, `/A`, `/T` and `/S`.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, where no viewport's `/BBox` contains
+    /// the first point — §12.9.1 chooses "the viewport of the first point" and no other — where
+    /// the path leaves the page it started on, and where the part asked for is one the document
+    /// states nothing for. [`Status::OutOfRange`] for a `part` this build does not define.
+    pub fn measure(&self, points: &[[f32; 2]], part: u32) -> Result<String, Status> {
+        let Answer::Measured(traced) = self.viewer.query(Query::Measure(points)) else {
+            return Err(Status::NoAnswer);
+        };
+        let Some(part) = crate::MeasurePart::from_code(part) else {
+            return Err(Status::OutOfRange);
+        };
+        let part = match part {
+            crate::MeasurePart::Sentence => {
+                return Ok(viewer_host::measuring::said(points.len(), Some(&traced)));
+            }
+            crate::MeasurePart::Viewport => traced.viewport,
+            crate::MeasurePart::Ratio => traced.ratio,
+            crate::MeasurePart::Length => traced.length,
+            crate::MeasurePart::Area => traced.area,
+            crate::MeasurePart::Angle => traced.angle,
+            crate::MeasurePart::Slope => traced.slope,
+        };
+        part.ok_or(Status::NoAnswer)
+    }
+
     /// §12.3.4's thumbnail for one page, decoded.
     ///
     /// # Errors

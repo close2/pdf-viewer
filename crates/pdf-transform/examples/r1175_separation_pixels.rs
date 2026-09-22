@@ -44,6 +44,7 @@ fn convert(bytes: &[u8], target: Target, winner: &str) -> Option<Vec<u8>> {
             supplies: config.supplies(target),
             preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
+            external_data: std::collections::BTreeMap::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,

@@ -339,6 +339,57 @@ fn about(raster: &pdf_render::Raster, x: u32, y: u32, expected: [u8; 3]) -> bool
         && blue.abs_diff(expected[2]) < 24
 }
 
+/// A sixteen-bit colour key separates two samples the eight-bit raster cannot, because the
+/// test is on the samples and the raster is downstream of it.
+///
+/// §8.9.6.4 bounds its integers by the depth the samples arrive in — "[e]ach integer shall be
+/// in the range 0 to 2 BitsPerComponent  - 1, representing colour values before decoding with
+/// the Decode array" — and `unpack` applies them there, before any conversion. So the domain
+/// the producer wrote its range in survives to the comparison whatever the raster holds
+/// afterwards, and this fixture is the measurement of that: the second and third samples are
+/// `0x8000` and `0x8001`, one unit apart in sixteen bits and **the same byte** in eight, with
+/// a range naming the first of them alone.
+///
+/// The two assertions therefore say different things. The masked pair says the comparison ran
+/// at sixteen bits: at eight, `0x8000` and `0x8001` are one value and the range would have
+/// taken both cells or neither. The unmasked pair is the eight-bit raster's own cost, measured
+/// rather than assumed — the same two samples come out as one colour, so the precision this
+/// clause needs is precisely the precision the raster does not carry, and the reason the
+/// `JPXDecode` arm of this clause stays owed (ADR 1121) is that there the scaling happens in
+/// the decoder, before `unpack` ever sees a sample.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.9.6.4 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn a_sixteen_bit_colour_key_separates_samples_the_eight_bit_raster_cannot() {
+    // 0x0000, 0x8000, 0x8001, 0xFFFF — a four-step grey ramp, most significant byte first.
+    let samples: &[u8] = &[0x00, 0x00, 0x80, 0x00, 0x80, 0x01, 0xFF, 0xFF];
+    let dict = "/Width 4 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 16";
+
+    let masked = render(page_with_image(
+        &format!("{dict} /Mask [32768 32768]"),
+        samples,
+        &[],
+    ));
+    assert!(
+        cut_out(&masked, 15, 20),
+        "the sample the range names is not painted"
+    );
+    assert!(
+        !cut_out(&masked, 25, 20),
+        "the sample one unit above it is painted, which eight bits could not have told apart"
+    );
+
+    let plain = render(page_with_image(dict, samples, &[]));
+    let [second, ..] = pixel(&plain, 15, 20);
+    let [third, ..] = pixel(&plain, 25, 20);
+    assert_eq!(
+        second, third,
+        "and the raster holds one colour for both, which is what eight bits cost"
+    );
+}
+
 /// The one sample value [`JPX_ONE_COMPONENT`] carries, in every pixel.
 const JPX_SAMPLE: u8 = 200;
 

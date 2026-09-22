@@ -161,8 +161,14 @@ const FLAGS: &[Flag] = &[
     },
 ];
 
-/// How far §12.7.4.1's `/Parent` chain is followed, matching `appearance.rs`'s own bound.
+/// How far §12.7.4.1's `/Parent` chain is followed here, which is this census's own bound.
+///
+/// Deliberately *not* `appearance::MAX_FIELD_ANCESTRY`: a census whose inheritance walk moved
+/// with the bound it is measuring could not say what the bound costs.
 const MAX_ANCESTRY: usize = 32;
+
+/// How far [`parent_links`] walks, which is further so that the bound above can be measured.
+const CENSUS_MAX_ANCESTRY: usize = 1024;
 
 #[expect(
     clippy::too_many_lines,
@@ -192,6 +198,17 @@ fn main() {
     let mut rich_text = 0_usize;
     let mut rich_text_with_rv = 0_usize;
     let mut rich_text_regenerated: Vec<String> = Vec::new();
+    // The third thing that puts formatting in the file, and the one that decides what characters
+    // are drawn: a `/V` that is itself markup, which is what bit 26's first sentence says the
+    // value is (ADR 1197). Counted beside `/DS`, the default style string of the same table.
+    let mut rich_text_markup_value = 0_usize;
+    let mut rich_text_with_ds = 0_usize;
+    // §12.7.4.1's departure, priced: the clause forbids bounding the range of inheritance and
+    // `appearance::MAX_FIELD_ANCESTRY` bounds it anyway, so what the bound costs is how close a
+    // real field's `/Parent` chain comes to it. This is the measurement that chose the number
+    // (ADR 1198), and it is re-run rather than quoted when the number is questioned.
+    let mut deepest_chain = 0_usize;
+    let mut at_or_past_the_bound: Vec<String> = Vec::new();
     // Table 231 bit 25's own population. The flag is counted above; what a layout needs beside it
     // is `/MaxLen`, which the bit's own condition requires ("[m]ay be set only if the MaxLen entry
     // is present"), and whether the `/DA` states a `Tm` for the cells to be written under.
@@ -226,6 +243,13 @@ fn main() {
                     continue;
                 };
                 widgets = widgets.saturating_add(1);
+                let links = parent_links(&document, widget);
+                if links > deepest_chain {
+                    deepest_chain = links;
+                }
+                if links >= MAX_ANCESTRY {
+                    at_or_past_the_bound.push(format!("{name} {field}"));
+                }
                 let flags = inherited_flags(&document, widget);
                 let field_type = inherited_type(&document, widget);
                 for flag in FLAGS {
@@ -263,6 +287,15 @@ fn main() {
                 }
                 if field_type.as_deref() == Some("Tx") && flags & (1 << 25) != 0 {
                     rich_text = rich_text.saturating_add(1);
+                    if inherited(&document, widget, "DS").is_some() {
+                        rich_text_with_ds = rich_text_with_ds.saturating_add(1);
+                    }
+                    if let Some(value) = inherited(&document, widget, "V")
+                        && let pdf_syntax::Object::String(bytes) = document.resolve(&value)
+                        && is_markup(&pdf_syntax::text_string(&bytes))
+                    {
+                        rich_text_markup_value = rich_text_markup_value.saturating_add(1);
+                    }
                     if inherited(&document, widget, "RV").is_some() {
                         rich_text_with_rv = rich_text_with_rv.saturating_add(1);
                         if need_appearances {
@@ -317,9 +350,20 @@ fn main() {
          text:\n  \
          RichText set:              {rich_text:>3} widget(s)\n  \
          …and stating Table 228's /RV: {rich_text_with_rv:>3} widget(s)\n  \
+         …and stating Table 228's /DS: {rich_text_with_ds:>3} widget(s)\n  \
+         …whose /V is itself markup:   {rich_text_markup_value:>3} widget(s)\n  \
          …in a /NeedAppearances document: {:>3} widget(s){}",
         rich_text_regenerated.len(),
         witnesses(&rich_text_regenerated),
+    );
+
+    println!(
+        "\n§12.7.4.1's bound, priced — how deep a field's /Parent chain actually goes, against \
+         the bound ADR 1198 chose from it:\n  \
+         deepest chain seen:        {deepest_chain:>3} link(s)\n  \
+         at or past 32 links:       {:>3} widget(s){}",
+        at_or_past_the_bound.len(),
+        witnesses(&at_or_past_the_bound),
     );
 
     println!(
@@ -406,6 +450,40 @@ fn inherited(document: &Document, widget: &Dictionary, key: &str) -> Option<pdf_
         current = parent.clone();
     }
     None
+}
+
+/// How many `/Parent` links a widget's field chain has, up to a bound well past this tree's own.
+///
+/// Walked further than `appearance::MAX_FIELD_ANCESTRY` on purpose: a census that stopped where
+/// the departure stops could not say whether any field reaches it. A cycle is what the outer
+/// bound is for, and a chain that hits it is counted as hitting it.
+fn parent_links(document: &Document, widget: &Dictionary) -> usize {
+    let mut current = widget.clone();
+    for links in 0..CENSUS_MAX_ANCESTRY {
+        let parent = document.get_key(&current, "Parent");
+        let Some(parent) = parent.as_dict() else {
+            return links;
+        };
+        current = parent.clone();
+    }
+    CENSUS_MAX_ANCESTRY
+}
+
+/// Whether a value is the rich text string Table 231 bit 26 declares it to be.
+///
+/// The same test `pdf_model::appearance::rich_text_value` applies before it draws the character
+/// data rather than the markup: every token parses and at least one element opens. A value that
+/// fails it is plain characters under a flag the file set anyway, and this count is what says
+/// how many of each there are (ADR 1197).
+fn is_markup(value: &str) -> bool {
+    let mut elements = 0_usize;
+    for token in xmlparser::Tokenizer::from(value) {
+        let Ok(token) = token else { return false };
+        if matches!(token, xmlparser::Token::ElementStart { .. }) {
+            elements = elements.saturating_add(1);
+        }
+    }
+    elements > 0
 }
 
 /// Table 226's `/FT`, taken from the nearest ancestor that states one (§12.7.4.1).

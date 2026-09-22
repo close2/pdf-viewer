@@ -675,6 +675,12 @@ pub(super) struct Prepared {
     /// because a reader of this struct should be able to see which of its parts are the two
     /// constructions this verb was built around and which are the lossless rewrites it grew.
     pub(super) owed: Owed,
+    /// The streams whose data is brought inside the file, or why none can be.
+    ///
+    /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1, answered out of the bytes
+    /// the caller resolved ([`ArchivePlan::external_data`]) and, where a stream states the
+    /// filter keys without a `/F`, out of the file's own (`doc/adr/1199`).
+    pub(super) external_data: Result<super::external::Embedded, Because>,
     /// The content streams whose hexadecimal strings gain the final digit, or why none can.
     ///
     /// ISO 19005-2 section 6.1.6 and ISO 19005-4 section 6.1.5, inside a content stream: the
@@ -918,6 +924,12 @@ impl Prepared {
             .any(wanted),
             || super::actions::prepare(document, plan.target, &failed),
         );
+        // The streams whose data the source keeps outside the file, answered out of what the
+        // caller resolved and, for a stream stating the filter keys without a `/F`, out of the
+        // file's own bytes (`doc/adr/1199`).
+        let external_data = asked(wanted(Rewrite::ExternalDataEmbedded), || {
+            super::external::embed(document, input, &plan.external_data)
+        });
         let already = Already {
             packet_headers: headers,
             survey: survey.as_ref(),
@@ -936,6 +948,7 @@ impl Prepared {
             signatures: signatures_if_rewritten(document, input),
             owed: Owed::of(plan, document, input, &mut spare, &failed, already),
             hexadecimal,
+            external_data,
             actions,
             forbidden_annotations,
             preserved,
@@ -988,6 +1001,7 @@ impl Prepared {
                 self.forbidden_annotations.as_ref().err().copied()
             }
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
+            Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::ForbiddenActionRemoved
             | Rewrite::AdditionalActionsRemoved
             | Rewrite::WidgetActionEntryRemoved => self.actions.as_ref().err().copied(),

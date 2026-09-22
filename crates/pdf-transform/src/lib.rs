@@ -1020,7 +1020,7 @@ pub enum Origin {
     ///
     /// ISO 32000-2 §12.5.6.23, `doc/questions/A64`. The counts are the summary parallel to
     /// [`Origin::Optimized`]'s [`optimize::Savings`]: how many annotations were applied and how
-    /// many glyphs the removal deleted. The per-page departure — content removed, overlay not
+    /// many glyphs, painted paths and images the removal reached. The per-page departure — content removed, overlay not
     /// composed — is [`Report::departures`], because it exists for a page whose output carries no
     /// distinct origin of its own.
     Redacted {
@@ -1034,6 +1034,9 @@ pub enum Origin {
         glyphs: usize,
         /// How many image `XObject`s had samples destroyed within the region (§12.5.6.23).
         images: usize,
+        /// How many painted paths (§8.5) were cut to the region's complement, their marks under
+        /// the region removed from the content stream rather than covered.
+        paths: usize,
     },
     /// One document converted to a part and level of ISO 19005 — `archive`'s output.
     ///
@@ -1340,6 +1343,7 @@ impl Origin {
                 annotations,
                 glyphs,
                 images,
+                paths,
             } => vec![
                 ("kind".to_owned(), Value::text("redacted")),
                 ("source".to_owned(), Value::count(*source)),
@@ -1347,6 +1351,7 @@ impl Origin {
                 ("annotations".to_owned(), Value::count(*annotations)),
                 ("glyphs".to_owned(), Value::count(*glyphs)),
                 ("images".to_owned(), Value::count(*images)),
+                ("paths".to_owned(), Value::count(*paths)),
             ],
             // Every other origin is answered by `to_json`, which is the only caller.
             Self::Page { .. }

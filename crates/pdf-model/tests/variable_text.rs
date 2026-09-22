@@ -3281,7 +3281,7 @@ fn a_da_whose_text_matrix_leaves_both_axes_is_still_reported() {
     );
 }
 
-/// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws it plain.
+/// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws its characters.
 ///
 /// The `shall` the picture departs from is §12.7.4.3's, addressed to a processor rather than to
 /// the file:
@@ -3289,12 +3289,14 @@ fn a_da_whose_text_matrix_leaves_both_axes_is_still_reported() {
 /// > For these fields, the following conventions are not used, and the entire annotation
 /// > appearance shall be regenerated each time the value is changed.
 ///
-/// The appearance it asks for is XFA 3.3's and `CLAUDE.md` excludes XFA, so the plain characters
-/// of Table 226's `/V` are what can be laid out — and saying so is the whole of what this tree
-/// can do about it (ADR 1122). Three fixtures differing in one entry each, because the condition
-/// is what a report is worth (trap 11): the flag *and* Table 228's `/RV`, since bit 26's second
-/// sentence is what puts formatting in the file and a field with no `/RV` has none to lose.
-/// Reporting on the flag alone would fire on 252 crawled widgets instead of 33
+/// What replaces those conventions is XFA 3.3's formatting model, which this tree does not hold,
+/// so a face, a size, a colour and an alignment stated in the markup are not applied — and
+/// saying so is what this tree can do about it (ADRs 1122, 1197). The characters are another
+/// matter and are drawn, which the fixtures below pin. The report's condition is the formatting
+/// the *file* states rather than the flag, because a condition is what a report is worth (trap
+/// 11): here Table 228's `/RV`, since bit 26's second sentence is what puts formatting in the
+/// file, and a field with neither entry nor markup in its value has none to lose. Reporting on
+/// the flag alone would fire on 252 crawled widgets instead of 33
 /// (`examples/field_flag_census`).
 #[test]
 fn a_rich_text_fields_formatting_is_reported_and_its_plain_value_is_drawn() {
@@ -3367,4 +3369,245 @@ fn a_rich_text_fields_flag_and_rv_are_found_up_the_parent_chain() {
     ));
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(reports[0].contains("RichText"), "{reports:?}");
+}
+
+/// A rich text value is drawn as the characters it encloses, not as the markup that encloses
+/// them.
+///
+/// Two sentences decide it and neither is about formatting. Table 231 bit 26 says what such a
+/// value *is* — "the value of this field shall be a rich text string" — and §12.7.5.3 says what
+/// a processor does with it:
+///
+/// > The contents of this text string or stream shall be used to construct an appearance stream
+/// > for displaying the field
+///
+/// The contents of a rich text string are its character data. Before ADR 1197 the whole of the
+/// markup went to the layout, so a conforming PDF 2.0 field drew its own angle brackets across
+/// the page; the walk that takes the characters is the one §12.5.6.6's `/RC` already used.
+///
+/// The fixture is a *picture* and its control differs in one thing: the same two characters
+/// written plain. A field that laid out its markup inks far wider than one that laid out `Hi`,
+/// so the two ink spans agreeing is the assertion — and each of the two ways to get this wrong
+/// (drawing the markup, dropping the characters) fails it.
+#[test]
+fn a_rich_text_values_markup_is_drawn_as_the_characters_it_encloses() {
+    let field = |value: &str| {
+        pdf_with_appearance(
+            "/NeedAppearances true",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+                 /Ff 33554432 /T (field) /V {value} /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>"
+            ),
+            "/Tx BMC EMC",
+        )
+    };
+    let (reports, markup) = draw(field(
+        "(<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>Hi</p></body>)",
+    ));
+    let (_, plain) = draw(field("(Hi)"));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("RichText"),
+        "the formatting is still not applied, and the report says so: {reports:?}"
+    );
+    assert_eq!(
+        ink_span(&markup),
+        ink_span(&plain),
+        "the rich text value must draw the characters its markup encloses"
+    );
+}
+
+/// A value the flag calls rich text and the parser cannot is drawn as it stands.
+///
+/// Bit 26's `shall` binds the *file*, and a file that sets the flag over plain characters — the
+/// shape a producer writes when it keeps the flat text beside the markup — has still stated the
+/// characters the field shows. Reading a LESS-THAN SIGN in such a value as the start of an
+/// element would lose everything after it, which is ADR 0111's rule in this clause's terms: a
+/// malformed declaration may not erase what the clause states. The control is the same value
+/// under a clear flag, and the two must ink identically.
+#[test]
+fn a_rich_text_value_that_is_not_markup_is_drawn_as_it_stands() {
+    let field = |flags: &str| {
+        pdf_with_appearance(
+            "/NeedAppearances true",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx {flags} \
+                 /T (field) /V (a < b) /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>"
+            ),
+            "/Tx BMC EMC",
+        )
+    };
+    let (reports, flagged) = draw(field("/Ff 33554432"));
+    let (_, unflagged) = draw(field(""));
+    assert!(
+        reports.is_empty(),
+        "a value that is not a rich text string states no formatting to lose: {reports:?}"
+    );
+    assert_eq!(
+        ink_span(&flagged),
+        ink_span(&unflagged),
+        "the value is not markup, so the flag may not change what is drawn"
+    );
+}
+
+/// A value that *is* markup under a clear flag is drawn as it stands, for the same reason.
+///
+/// The control the test above needs from the other side: bit 26 is what makes a value a rich
+/// text string, so a field that does not set it has a value of plain characters however those
+/// characters look. A reader that sniffed the markup instead of reading the flag would draw this
+/// field's `<p>Hi</p>` as `Hi` and would be reading a producer's text as a producer's instruction.
+#[test]
+fn markup_in_a_value_whose_rich_text_flag_is_clear_is_drawn_as_it_stands() {
+    let field = |flags: &str| {
+        pdf_with_appearance(
+            "/NeedAppearances true",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 40 300 70] /F 4 /FT /Tx {flags} \
+                 /T (field) /V (<p>Hi</p>) /AP << /N 6 0 R >> /DA (/Helv 8 Tf 0 g) >>"
+            ),
+            "/Tx BMC EMC",
+        )
+    };
+    let (_, clear) = draw(field(""));
+    let (_, set) = draw(field("/Ff 33554432"));
+    let width = |raster: &pdf_render::Raster| {
+        let (start, end) = ink_span(raster);
+        end.saturating_sub(start)
+    };
+    assert!(
+        width(&clear) > width(&set),
+        "with the flag clear the markup is the value's own characters and is wider than the \
+         two characters it encloses: {} against {}",
+        width(&clear),
+        width(&set)
+    );
+}
+
+/// Table 228's `/DS` is formatting the file states, so it fires the report on its own.
+///
+/// The entry is a "default style string" for the rich text this clause hands to XFA 3.3, so a
+/// field stating one has style this program does not apply whether or not it also states an
+/// `/RV`. The condition is what the file says it loses, which is trap 11's rule; the control is
+/// the same field with neither entry, which owes nothing and is pinned above.
+#[test]
+fn a_rich_text_fields_default_style_string_is_reported_on_its_own() {
+    let (reports, _) = draw(pdf_with_appearance(
+        "/NeedAppearances true",
+        "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx /Ff 33554432 \
+         /T (field) /V (Hi) /DS (font-size:12pt) /AP << /N 6 0 R >> /DA (/Helv 12 Tf 0 g) >>",
+        "/Tx BMC EMC",
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(reports[0].contains("RichText"), "{reports:?}");
+}
+
+/// §12.7.4.1's bound is reported rather than read as "this field states nothing".
+///
+/// > An interactive PDF processor shall not limit the range of inheritance for field dictionaries
+///
+/// The clause forbids the bound and principle 3's budget requires one, so the bound is a decided
+/// departure and what makes it honest is that reaching it is named: a widget whose `/Parent`
+/// chain runs past `appearance::MAX_FIELD_ANCESTRY` refuses, saying the chain is longer than
+/// this crate follows, instead of drawing the empty field a silent bound would produce. The
+/// number is 256 because 32 was refusing real documents (ADR 1198), so the fixture is built one
+/// link past it rather than written out.
+#[test]
+fn a_parent_chain_past_the_bound_is_named_rather_than_read_as_no_value() {
+    let mut extra = String::new();
+    // 8 is the field that states everything; 9 upwards are the links between it and the widget,
+    // one more than the bound so that the walk cannot reach object 8.
+    let _ = write!(
+        extra,
+        "8 0 obj\n<< /FT /Tx /T (deep) /V (Hi) /DA (/Helv 12 Tf 0 g) >>\nendobj\n"
+    );
+    let links = 257;
+    for object in 0..links {
+        let parent = 8 + object;
+        let _ = write!(
+            extra,
+            "{} 0 obj\n<< /Parent {parent} 0 R >>\nendobj\n",
+            parent + 1
+        );
+    }
+    let (reports, _) = draw(pdf_with_objects(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent {} 0 R >>",
+            8 + links
+        ),
+        &extra,
+    ));
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert!(
+        reports[0].contains("/Parent chain"),
+        "the bound names itself: {reports:?}"
+    );
+}
+
+/// The control: one link inside the bound resolves, so the bound is what the test above measured.
+///
+/// Two fixtures differing in one `/Parent` link, which is the only way to tell a bound from a
+/// walk that never worked (trap 8).
+#[test]
+fn a_parent_chain_inside_the_bound_is_read_to_its_end() {
+    let mut extra =
+        String::from("8 0 obj\n<< /FT /Tx /T (deep) /V (Hi) /DA (/Helv 12 Tf 0 g) >>\nendobj\n");
+    let links = 254;
+    for object in 0..links {
+        let parent = 8 + object;
+        let _ = write!(
+            extra,
+            "{} 0 obj\n<< /Parent {parent} 0 R >>\nendobj\n",
+            parent + 1
+        );
+    }
+    let (reports, raster) = draw(pdf_with_objects(
+        &format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /Parent {} 0 R >>",
+            8 + links
+        ),
+        &extra,
+    ));
+    assert!(reports.is_empty(), "{reports:?}");
+    assert!(
+        !inked_columns(&raster).is_empty(),
+        "the value two hundred and fifty-five links up is still the field's"
+    );
+}
+
+/// §12.7.5.4's own EXAMPLE, encoded so that the clause's example is what is tested (habit 39).
+///
+/// The standard prints it as `<</FT /Ch /Ff … /T (Body Color) /V (Blue) /Opt [(Red) (My
+/// favourite color) (Blue)] >>`, with the flags elided — so the fixture is the example twice,
+/// once in each form the elided bit chooses between. As a **list box** every option is drawn,
+/// in the array's own order, and which of them `/V` names is reported and not marked. As a
+/// **combo box** what is drawn is the value, which the clause makes "a text string representing
+/// the selected item, as given in the field dictionary's Opt array".
+///
+/// The example is a better fixture than an invented one for a reason the names carry: its value
+/// is the *third* option and its second option is the longest, so a reader drawing the first
+/// option, or indexing `/Opt` by something other than the value, gets a different answer here
+/// and the same answer on a list of equal-length labels.
+#[test]
+fn the_clauses_own_choice_field_example_draws_both_ways() {
+    let example = "/T (Body Color) /V (Blue) /Opt [(Red) (My favourite color) (Blue)]";
+
+    let (reports, text) = read_back(choice_field(example));
+    assert_eq!(
+        text.replace('\n', " ").trim(),
+        "Red My favourite color Blue",
+        "a list box draws every option of the example's /Opt, in its own order"
+    );
+    assert!(
+        reports.iter().any(|report| report.contains("selects")),
+        "and says which of them /V names is not marked: {reports:?}"
+    );
+
+    // Bit 18 is the combo flag, which is 1 << 17.
+    let (reports, text) = read_back(choice_field(&format!("{example} /Ff 131072")));
+    assert_eq!(
+        text.replace('\n', " ").trim(),
+        "Blue",
+        "a combo box draws the value, which is the example's third option"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
 }

@@ -329,6 +329,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             supplies: Vec::new(),
             preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
+            external_data: std::collections::BTreeMap::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -1738,6 +1739,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             supplies: Vec::new(),
             preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
+            external_data: std::collections::BTreeMap::new(),
         }),
         &[Source::new(source)],
         &sinks,
@@ -2199,6 +2201,7 @@ fn convert_with_profile(
             supplies: Vec::new(),
             preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
+            external_data: std::collections::BTreeMap::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -2442,6 +2445,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             supplies: Vec::new(),
             preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
+            external_data: std::collections::BTreeMap::new(),
         }),
         &[Source::new(source)],
         &sinks,
@@ -4419,6 +4423,269 @@ fn a_permissions_key_the_standard_does_not_define_is_removed_losing_nothing() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// External stream data — ISO 19005-2 section 6.1.7.1, ISO 19005-4 section 6.1.6.1, and
+// ISO 32000-2 §7.3.8.2's Table 5 for what the keys mean. `doc/adr/1199`.
+// ---------------------------------------------------------------------------------------------
+
+/// A document whose one form `XObject` keeps its data in another file.
+///
+/// Object 6 is the stream, named in the page's resources so the conversion carries it. `entries`
+/// is written into its dictionary, which is how each test below states exactly which of Table 5's
+/// `F`-prefixed keys the producer wrote.
+fn a_document_whose_stream_points_outside_it(entries: &str, data: &[u8]) -> Vec<u8> {
+    let outside = stream(
+        &format!(
+            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> {entries} \
+             /Length {}",
+            data.len()
+        ),
+        data,
+    );
+    Conforming {
+        resources: "/XObject << /Fm0 6 0 R >>".to_owned(),
+        objects: vec![String::from_utf8(outside).expect("ascii")],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// Converts with bytes the caller resolved for one object.
+fn convert_with_external_data(
+    bytes: &[u8],
+    at: ObjectId,
+    data: &[u8],
+) -> (Report, Option<Vec<u8>>) {
+    let mut plan = plan_from("", Target::Four(Flavour::Plain));
+    plan.external_data
+        .insert(at, std::sync::Arc::from(data.to_vec()));
+    convert_with_plan(bytes, &plan)
+}
+
+#[test]
+fn a_stream_naming_a_file_is_refused_until_somebody_resolves_it() {
+    // Both parts forbid the key, and nothing in the document supplies what it points at:
+    // `apply` opens no path (`doc/questions/A54`), so a conversion handed nothing refuses and
+    // the sentence names the switch that would resolve it.
+    let source = a_document_whose_stream_points_outside_it("/F (logo.dat)", b"");
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "the data is still outside the file");
+    let Decision::Refused(because) = decision(&report, "file-structure/no-external-stream-data")
+    else {
+        panic!("nothing resolved, so nothing is embedded");
+    };
+    assert!(
+        because.sentence().contains("--resolve-external-data"),
+        "the refusal names what would answer it: {}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn a_resolved_file_becomes_the_streams_own_data() {
+    // Table 5: "If this entry is present, the bytes between stream and endstream shall be
+    // ignored" — so the external file's bytes go where the stream's own were, `/Length` is
+    // restated over them, and the three keys that pointed off the file's edge are gone.
+    let source = a_document_whose_stream_points_outside_it("/F (logo.dat)", b"");
+    let data = b"% the file this stream pointed at\n";
+    let at = ObjectId {
+        number: 6,
+        generation: 0,
+    };
+    let (report, output) = convert_with_external_data(&source, at, data);
+    assert_eq!(
+        decision(&report, "file-structure/no-external-stream-data"),
+        Decision::Mechanical(Rewrite::ExternalDataEmbedded)
+    );
+    let output = output.expect("the bytes were handed over, so it converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        written.contains("% the file this stream pointed at"),
+        "the resolved file's bytes are in the output"
+    );
+    assert!(
+        !written.contains("/F (logo.dat)"),
+        "the key that pointed outside the file is gone"
+    );
+}
+
+#[test]
+fn the_external_filter_becomes_the_streams_filter() {
+    // Table 5 makes `/FFilter` and `/FDecodeParms` the filter and the parameters applied to the
+    // *external file's* data, so once that data is the stream's they are what `/Filter` and
+    // `/DecodeParms` have to say — and the producer's own pair described bytes a reader was
+    // already ignoring.
+    let source = a_document_whose_stream_points_outside_it(
+        "/F (logo.dat) /FFilter /FlateDecode /FDecodeParms << /Predictor 1 >>",
+        b"",
+    );
+    let data = pdf_syntax::serialize::flate_encode(b"% the file this stream pointed at\n", 9)
+        .expect("the sample encodes");
+    let at = ObjectId {
+        number: 6,
+        generation: 0,
+    };
+    let (report, output) = convert_with_external_data(&source, at, &data);
+    assert_eq!(
+        decision(&report, "file-structure/no-external-stream-data"),
+        Decision::Mechanical(Rewrite::ExternalDataEmbedded)
+    );
+    let output = output.expect("the bytes were handed over, so it converts");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(
+        written.contains("/Filter /FlateDecode") || written.contains("/Filter/FlateDecode"),
+        "the external file's filter is now the stream's"
+    );
+    assert!(
+        !written.contains("FFilter") && !written.contains("FDecodeParms"),
+        "neither F-prefixed key survives"
+    );
+}
+
+#[test]
+fn a_filter_key_with_no_file_is_removed_and_nothing_else_changes() {
+    // Table 5 gives `/FFilter` meaning only through `/F`: with no external file named, it states
+    // filters for data that is not there and no conforming reader consults it. So the requirement
+    // is answered out of the file's own bytes, with nothing to resolve and no switch to ask for.
+    let source =
+        a_document_whose_stream_points_outside_it("/FFilter /FlateDecode", b"% the producer's\n");
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "file-structure/no-external-stream-data"),
+        Decision::Mechanical(Rewrite::ExternalDataEmbedded)
+    );
+    let output = output.expect("nothing had to be fetched");
+    assert_eq!(
+        holds(&output, Target::Four(Flavour::Plain)).verdict(),
+        Verdict::Conforms
+    );
+    let written = String::from_utf8_lossy(&output).into_owned();
+    assert!(!written.contains("FFilter"), "the orphan key is gone");
+    assert!(
+        written.contains("% the producer's"),
+        "every byte the stream held still stands"
+    );
+}
+
+#[test]
+fn the_third_key_is_reported_under_the_spelling_iso_32000_gives_it() {
+    // ISO 19005 spells the key `FDecodeParams`, which names nothing in ISO 32000; Table 5's is
+    // `FDecodeParms`. Both parts forbid the *presence* of the keys they list, so the one that
+    // actually carries an external file's decode parameters is the one the sentence is about —
+    // and a file stating it fails the requirement (`doc/adr/1199`).
+    let source = a_document_whose_stream_points_outside_it(
+        "/FDecodeParms << /Predictor 1 >>",
+        b"% the producer's\n",
+    );
+    let report = holds(&source, Target::Four(Flavour::Plain));
+    assert!(
+        report
+            .failures()
+            .any(|judgement| judgement.id == "file-structure/no-external-stream-data"),
+        "Table 5's spelling is forbidden too"
+    );
+}
+
+#[test]
+fn a_url_is_named_as_a_url_rather_than_as_a_file_name() {
+    // §7.11.5: where a file specification dictionary's `/FS` is `URL`, its `/F` is a locator
+    // rather than a file specification string. A caller reads that off the report and does not
+    // apply a rule about path components to it.
+    let specification =
+        "<< /Type /Filespec /FS /URL /F (http://example.invalid/logo.dat) >>".to_owned();
+    let outside = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> /F 7 0 R /Length 0",
+        b"",
+    );
+    let source = Conforming {
+        resources: "/XObject << /Fm0 6 0 R >>".to_owned(),
+        objects: vec![String::from_utf8(outside).expect("ascii"), specification],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "nobody resolved anything");
+    let named = &conversion(&report).external_data;
+    assert_eq!(named.len(), 1, "one stream keeps its data elsewhere");
+    assert_eq!(
+        named[0].data,
+        pdf_transform::archive::ExternalData::AtUrl("http://example.invalid/logo.dat".to_owned()),
+        "the report says it is a URL, not a name beside the document"
+    );
+}
+
+#[test]
+fn the_command_line_program_reads_a_file_beside_the_document_and_refuses_everything_else() {
+    // The two-pass shape end to end: a first pass names what it needs, `quorra-transform` reads
+    // what `doc/adr/1155`'s rule permits, and the second pass writes the file. The same run shows
+    // the rule refusing a specification of more than one component, because both streams are in
+    // one document and only one of them is resolvable.
+    let scratch = Scratch::make("external");
+    let outside = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> /F (logo.dat) \
+         /Length 0",
+        b"",
+    );
+    let elsewhere = stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << >> \
+         /F (../secrets/logo.dat) /Length 0",
+        b"",
+    );
+    let source = Conforming {
+        resources: "/XObject << /Fm0 6 0 R /Fm1 7 0 R >>".to_owned(),
+        objects: vec![
+            String::from_utf8(outside).expect("ascii"),
+            String::from_utf8(elsewhere).expect("ascii"),
+        ],
+        ..Conforming::default()
+    }
+    .build();
+    let at = scratch.0.join("in.pdf");
+    std::fs::write(&at, &source).expect("the source");
+    std::fs::write(
+        scratch.0.join("logo.dat"),
+        b"% the file this stream pointed at\n",
+    )
+    .expect("the file the document names");
+    let out = scratch.0.join("out.pdf");
+
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_quorra-transform"))
+        .args([
+            "archive",
+            at.to_str().expect("utf-8"),
+            "--to",
+            "4",
+            "--resolve-external-data",
+            "-o",
+            out.to_str().expect("utf-8"),
+        ])
+        .output()
+        .expect("the program runs");
+    let said = String::from_utf8_lossy(&run.stderr).into_owned();
+    // One stream is resolvable and one is not, so the requirement stays refused and no file is
+    // written — which is the whole preparation's rule: a half-embedded document still fails.
+    assert!(
+        said.contains("takes the 34 byte(s)"),
+        "the file beside the document is read: {said}"
+    );
+    assert!(
+        said.contains("component(s)"),
+        "the specification reaching out of the directory is refused by the rule: {said}"
+    );
+    assert!(
+        !out.exists(),
+        "one stream unresolved, so nothing is written"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
 // Departures — `doc/rfc/0007` section 4.7, the owner's XML-attachment case (`A60`).
 //
 // A PDF/A-2b document is conforming in every respect but one: it carries an XML embedded file,
@@ -4478,6 +4745,7 @@ fn convert_with_departure(
             supplies: Vec::new(),
             preservations: Vec::new(),
             tool_outputs: ToolOutputs::new(),
+            external_data: std::collections::BTreeMap::new(),
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -4714,6 +4982,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         supplies: config.supplies(target),
         preservations: config.preservations(target),
         tool_outputs: ToolOutputs::new(),
+        external_data: std::collections::BTreeMap::new(),
     }
 }
 

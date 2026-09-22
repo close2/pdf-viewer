@@ -136,6 +136,7 @@ mod actions;
 mod census;
 mod config;
 mod decision;
+mod external;
 mod fonts;
 mod hexadecimal;
 mod jpeg2000;
@@ -156,6 +157,7 @@ use std::io::Write as _;
 
 use pdf_archive::{Outcome, Target, Verdict};
 use pdf_model::Pages;
+use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Version};
 
 use crate::pattern::{Fill, Pattern};
@@ -178,6 +180,8 @@ pub use report::{
 };
 pub use rewrite::Rewrite;
 pub use signatures::{Reached, SourceSignature};
+
+pub use external::{ExternalData, ExternalStream, external_stream_data};
 
 use decision::decide;
 use prepare::{
@@ -269,6 +273,17 @@ pub struct ArchivePlan {
     /// preserves nothing, which is every conversion until an operator's file says otherwise, and
     /// a site named here whose requirement the document meets is inert — there is nothing to keep.
     pub preservations: Vec<Preservation>,
+    /// The bytes of each stream whose data the source keeps outside its own file.
+    ///
+    /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid the keys that put a
+    /// stream's data somewhere else, and nothing in the document supplies what they point at —
+    /// so the conversion can only embed bytes somebody else resolved. **The caller resolves
+    /// them**, for `doc/questions/A54`'s reason and RFC 0002 section 9's: [`crate::apply`] opens
+    /// no path and starts no process, so what reaches it is data, exactly as
+    /// [`Self::profile`] is. `external` is the reading a caller decides from, and
+    /// `doc/adr/1199` is where the resolution's own rule lives. Empty for every conversion whose
+    /// caller resolved nothing, which is every conversion that did not ask.
+    pub external_data: BTreeMap<ObjectId, std::sync::Arc<[u8]>>,
     /// What the caller's executor got back from the programs the derivations name.
     ///
     /// **`doc/questions/A54`'s second half.** The first pass over a document whose configuration
@@ -485,6 +500,10 @@ fn decide_every_failure(
         appearances: Vec::new(),
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
+        // What this file keeps outside itself, named whether or not anything was resolved: the
+        // caller reads it to know what to resolve, exactly as it reads `Report::requested` to
+        // know what to run (`doc/adr/1199`).
+        external_data: external_stream_data(document, input),
         substituted: Vec::new(),
         restated: Vec::new(),
         signatures: None,

@@ -272,6 +272,11 @@ pub struct Host {
     /// `QWidget::showFullScreen` and which widget each of Table 147's three flags names — and
     /// that half is in `cpp/window.cpp`, because the widgets are.
     presenting: viewer_host::Presenting,
+    /// §12.9's measuring: whether a press on the page is a point, and the points so far.
+    ///
+    /// `viewer_host::Measuring` is shared with the other two windows — when a press is a point,
+    /// and what the answer says — and what is Qt's is the press and the status bar (ADR 1191).
+    measuring: viewer_host::Measuring,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
     /// §14.7's tree on AT-SPI, brought up after the first frame and never before it (ADR 0623).
@@ -426,6 +431,7 @@ impl Host {
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
             presenting: viewer_host::Presenting::default(),
+            measuring: viewer_host::Measuring::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             clipboard: String::new(),
         })
@@ -467,7 +473,7 @@ impl Host {
     /// two hosts about the arrow keys, about `f` and about Escape; what is left is
     /// [`keys::stated`] turning a number into a [`viewer_host::Key`] and [`Host::window_act`]
     /// doing the half of the answer that is a widget's rather than a message.
-    pub(crate) fn key(&mut self, code: u32, shift: bool) {
+    pub(crate) fn key(&mut self, code: u32, shift: bool, ctrl: bool) {
         let Some(stated) = keys::stated(code) else {
             return;
         };
@@ -477,9 +483,11 @@ impl Host {
             viewer_host::Mode::Reading
         };
         let waiting = self.waiting();
-        let Some(meaning) =
-            viewer_host::meaning(stated, shift || keys::shifted_by_name(code), mode, waiting)
-        else {
+        let held = viewer_host::Modifiers {
+            shift: shift || keys::shifted_by_name(code),
+            ctrl,
+        };
+        let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
             return;
         };
         match meaning {
@@ -541,6 +549,12 @@ impl Host {
             viewer_host::WindowAct::Panel => {
                 self.panel_shown = !self.panel_shown;
                 self.update.window = true;
+            }
+            // §12.9's measuring. No pixel of the page is different: what the mode changes is
+            // that a press is a point rather than the start of §12.4.2's selection.
+            viewer_host::WindowAct::Measure => {
+                let on = self.measuring.toggle();
+                self.say(&viewer_host::measuring::switched(on));
             }
             viewer_host::WindowAct::Notices => self.update.notices = true,
             viewer_host::WindowAct::Restrictions => self.update.menu = true,
@@ -904,6 +918,23 @@ impl Host {
             .unwrap_or(-1)
     }
 
+    /// One more point of §12.9's measurement, and what the path comes to now.
+    ///
+    /// The points are this window's — a rubber band is chrome — and the arithmetic is the
+    /// document's, which is the split `viewer_core::Query::Measure` exists for: Table 267's
+    /// conversions and §12.9.2's formatting are a reading of the file, and no host holds either.
+    fn measure(&mut self, at: (f32, f32)) {
+        if !self.measuring.point(at) {
+            return;
+        }
+        let points = self.measuring.points().to_vec();
+        let traced = match self.viewer.query(Query::Measure(&points)) {
+            Answer::Measured(traced) => Some(traced),
+            _ => None,
+        };
+        self.say(&viewer_host::measuring::said(points.len(), traced.as_ref()));
+    }
+
     /// The wheel turned, already in the device pixels the boundary speaks.
     ///
     /// The conversion from Qt's notches is C++'s, beside the event that states them; what is here
@@ -928,6 +959,15 @@ impl Host {
                 return;
             }
         };
+        // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing
+        // it takes away: the two gestures are the same gesture and a window cannot tell them
+        // apart from the pointer alone (ADR 1191).
+        if self.measuring.is_on() {
+            if matches!(action, PointerAction::Pressed) {
+                self.measure((x, y));
+            }
+            return;
+        }
         self.dispatch(Command::Pointer { at: (x, y), action });
         // §12.5.6.5's activation region, asked at pointer speed — which is what makes
         // `Query::LinkAt` a query rather than a command. The clause states no cursor at all, so
@@ -2908,8 +2948,8 @@ mod tests {
         // `a` selects the page and `h` is §12.5.6.10's highlight, which is an annotation and is
         // what this document's `/P` withholds.
         let mut host = opened_under(&path, viewer_core::RestrictionLevel::On);
-        host.key(0x41, false);
-        host.key(0x48, false);
+        host.key(0x41, false, false);
+        host.key(0x48, false, false);
         let said = host.status();
         assert!(
             said.contains(viewer_host::IGNORE_RESTRICTIONS),
@@ -2917,14 +2957,44 @@ mod tests {
         );
 
         let mut host = opened_under(&path, viewer_core::RestrictionLevel::Off);
-        host.key(0x41, false);
-        host.key(0x48, false);
+        host.key(0x41, false, false);
+        host.key(0x48, false, false);
         let said = host.status();
         assert!(
             !said.contains(viewer_host::IGNORE_RESTRICTIONS),
             "the reader said not to obey it, so nothing is refused: {said}"
         );
         assert!(host.dirty, "and the annotation is in the edit log: {said}");
+    }
+
+    /// A Control this program does not bind does **nothing**, and the unbound row is untouched.
+    ///
+    /// This host's seam is `Host::key`, which C++ calls with `Qt::ShiftModifier` and
+    /// `Qt::ControlModifier` already read — so what is checked here is the whole of what crosses:
+    /// the same letter, with and without Control, one of which marks up §12.4.2's selection and
+    /// one of which is a press addressed to something else. Before ADR 1192 the window discarded
+    /// the modifier and both did the same thing.
+    ///
+    /// `issue17215.pdf` with the restrictions turned off, so that the only thing deciding the
+    /// outcome is the modifier.
+    #[test]
+    fn a_control_this_program_does_not_bind_leaves_the_document_alone() {
+        let Some(path) = corpus("issue17215.pdf") else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let mut host = opened_under(&path, viewer_core::RestrictionLevel::Off);
+        host.key(0x41, false, false);
+        host.key(0x48, false, true);
+        assert!(
+            !host.dirty,
+            "Ctrl and `h` is not a binding this program has, so nothing was annotated"
+        );
+        host.key(0x48, false, false);
+        assert!(
+            host.dirty,
+            "and the unmodified key still means §12.5.6.10's highlight"
+        );
     }
 
     /// §12.7.5.4: what a `QListWidget` in `ExtendedSelection` has to say, and where it goes.

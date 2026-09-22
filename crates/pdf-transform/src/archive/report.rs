@@ -447,6 +447,16 @@ pub struct Conversion {
     /// page, the subtype and whether it drew anything — and where `remedy = "preserve"` answered
     /// the site, [`Self::preserved`] says which appended page the marks went to instead.
     pub removed_annotations: Vec<RemovedAnnotation>,
+    /// Every stream whose data this file keeps outside itself, with what its `/F` names.
+    ///
+    /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid the keys that put a
+    /// stream's data elsewhere, and nothing in the document supplies what they point at — so this
+    /// list is what a caller has to resolve before the conversion can embed anything, and what it
+    /// resolved goes back in [`super::ArchivePlan::external_data`]. **The same shape as a tool
+    /// request** (`doc/questions/A54`): a pass says what it needs, the caller performs the act,
+    /// and the next pass is a pure function of what came back. Empty for every document whose
+    /// streams keep their own bytes (`doc/adr/1199`).
+    pub external_data: Vec<super::ExternalStream>,
     /// Every action, and every action-holding entry, this conversion removed.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 3.3's condition on the loss it classes *Ask*: an
@@ -522,6 +532,10 @@ impl Conversion {
     }
 
     /// The report as RFC 0002 section 4.5's JSON.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one entry per field of the report, in the order the rendered form states them.                   The entries that need a shape of their own are functions; what is left is a                   flat list, and splitting a flat list into two would put a reader of the schema                   in two places to read one object"
+    )]
     #[must_use]
     pub fn to_json(&self) -> Value {
         Value::Object(vec![
@@ -569,6 +583,10 @@ impl Conversion {
                         .map(RemovedAnnotation::to_json)
                         .collect(),
                 ),
+            ),
+            (
+                "external_stream_data".to_owned(),
+                Value::Array(self.external_data.iter().map(external_to_json).collect()),
             ),
             (
                 "removed_actions".to_owned(),
@@ -1117,6 +1135,24 @@ fn removed_to_json(property: &MisusedProperty) -> Value {
         ("local".to_owned(), Value::text(property.name.local.clone())),
         ("stated".to_owned(), Value::text(property.stated.clone())),
         ("because".to_owned(), Value::text(property.because.clone())),
+    ])
+}
+
+/// One stream whose data is outside the file: where it is, and where the file says the bytes are.
+fn external_to_json(stream: &super::ExternalStream) -> Value {
+    let (form, names) = match &stream.data {
+        super::ExternalData::Named { shown, .. } => ("file-specification", shown.clone()),
+        super::ExternalData::AtUrl(url) => ("url", url.clone()),
+        super::ExternalData::NoneNamed => ("no-file-named", String::new()),
+        super::ExternalData::Unreadable => ("unreadable", String::new()),
+    };
+    Value::Object(vec![
+        (
+            "object".to_owned(),
+            Value::text(format!("{} {}", stream.at.number, stream.at.generation)),
+        ),
+        ("form".to_owned(), Value::text(form.to_owned())),
+        ("names".to_owned(), Value::text(names)),
     ])
 }
 

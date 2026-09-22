@@ -1169,3 +1169,45 @@ fn the_coordinates_are_two_parts_in_a_multipart_body() {
         "{body:?}"
     );
 }
+
+/// §12.7.4.1's Table 227 bit 2 is about one moment, and this is the moment.
+///
+/// > If set, the field shall have a value at the time it is exported by a submit-form action
+/// > (see 12.7.6.2, "Submit-form action").
+///
+/// The export is where the condition can be checked at all, so this is where it is checked: a
+/// `Required` field with no value is named in what a host is handed, and a field with the flag
+/// clear is not. Three fields differing in the two things the sentence joins — the flag and a
+/// value — because a report keyed on either alone would name the wrong one (trap 11). Nothing is
+/// refused: the clause tells a processor no such thing, and `viewer_host::policy::may_submit` is
+/// where a reader decides (ADR 1198).
+#[test]
+fn a_required_field_with_no_value_is_named_when_the_form_is_exported() {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
+         << /Fields [5 0 R 6 0 R 7 0 R] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> \
+         /Annots [5 0 R 6 0 R 7 0 R] >>\nendobj\n\
+         4 0 obj\n<< >>\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Tx \
+         /T (wanted) /Ff 2 /DA (/Helv 12 Tf 0 g) >>\nendobj\n\
+         6 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 80 180 110] /F 4 /FT /Tx \
+         /T (spare) /DA (/Helv 12 Tf 0 g) >>\nendobj\n\
+         7 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 120 180 150] /F 4 /FT /Tx \
+         /T (filled) /Ff 2 /V (here) /DA (/Helv 12 Tf 0 g) >>\nendobj\n";
+    let document =
+        Document::open(pdf_syntax::FileBytes::from(assembled(body))).expect("the fixture parses");
+    let view = ViewState::of(&document);
+    let submission =
+        compose(&document, &view, &action(0, ""), None).expect("the composition succeeds");
+    let named: Vec<&String> = submission
+        .owed
+        .iter()
+        .filter(|owed| owed.contains("bit 2"))
+        .collect();
+    assert_eq!(named.len(), 1, "{:?}", submission.owed);
+    assert!(
+        named[0].contains("wanted"),
+        "the flag with no value is the one named: {named:?}"
+    );
+}

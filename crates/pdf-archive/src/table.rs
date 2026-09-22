@@ -59,6 +59,9 @@ pub(crate) fn states_name(document: &Document, dict: &Dictionary, key: &str, nam
 
 mod document_level;
 pub(crate) mod file_structure;
+
+pub use file_structure::EXTERNAL_DATA_KEYS;
+
 pub(crate) mod fonts;
 pub(crate) mod graphics;
 pub(crate) mod interaction;

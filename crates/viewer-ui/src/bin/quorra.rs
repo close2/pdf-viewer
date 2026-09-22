@@ -359,6 +359,8 @@ fn main() {
             .map(std::path::Path::to_path_buf),
         caption: String::new(),
         still_drawing: None,
+        measuring: viewer_host::Measuring::default(),
+        measured: String::new(),
         requests: Vec::new(),
         unacknowledged: Vec::new(),
         presented: None,

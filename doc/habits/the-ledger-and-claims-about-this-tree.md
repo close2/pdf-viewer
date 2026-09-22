@@ -318,3 +318,9 @@ with an analytic area for every diagonal; the number survived inside a row citin
 neighbours, forty-seven times too large, until it was re-taken (ADR 1189). `tools/state.sh
 departures` catches an argument whose ADR may have expired; nothing catches a number whose
 instrument was swapped except the sentence beside it saying which instrument that was.
+
+**A blocker written as a conjunction is two blockers wearing one note, and retiring the first
+obliges a reclassification.** §12.9 and §12.10 sat in `doc/todo/65`'s host-UI bucket on one
+sentence — nothing takes the two points, and projection needs a registry; building the drag left
+the geospatial rows correctly `partial` and wrongly bucketed. When a note's reason is a conjunction,
+the bucket is the first conjunct, and a round that retires it moves the row (ADR 1191).

@@ -108,7 +108,12 @@ activation (ADR 0191) — **in all three windows**, where two
 of them drew nothing of it at all: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
 what goes in it (ADR 0613); a **cursor changes over §12.5.6.5's activation region** in all three,
-which no clause states and which is therefore recorded as this program's convention; a person can **add an annotation** — §12.5.6.10's four markups over what is
+which no clause states and which is therefore recorded as this program's convention; a person can
+**measure a drawing** — §12.9's viewports, with the path traced in the window and the arithmetic and
+§12.9.2's five formatting steps the document's, so a length, an area, an angle and a slope come back
+in the units and the labels the producer chose rather than in any this program invented; a geospatial
+viewport says which system the map is in and states outright that §12.10 defines no position between
+its registration points (ADR 1191); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
@@ -464,10 +469,17 @@ writes a **new** file, never §7.5.6's update, in which the bytes are gone: a te
 cut by the placed quad's own advance with no font metrics, held to the interpreter's code count;
 an image XObject's samples zeroed in the region, an inline image spliced in the content stream, a
 DCT or CCITT image decoded in the confined codec, cleared and re-encoded Flate, a JBIG2 image at
-its own one bit. It refuses rather than cuts wrong — a Type 3 font, a composite font not
-`Identity-H`, `sh`, a soft mask over the region, a shared image, a painted path or form, a JPX
-image — each with its sentence, and the overlay text and fill it does not compose (A65's fence),
-said as a departure in the report (ADRs 1124, 1126, 1132, 1133, 1143).
+its own one bit; a **painted path cut** to the region's complement — the region's four edge lines
+tile the plane into nine cells and the difference is the union of the eight outer clips, so the
+coordinates that described the removed marks are gone rather than clipped, with a margin that
+proves §7.3.3's single precision cannot round the cut edge back inside; and a **form entered**, its
+own content stream edited under §8.10.1's `/Matrix`. An object another page also draws is **copied**
+for the redacted page rather than replaced, because the other placement's marks are content the
+annotation did not identify. It refuses rather than cuts wrong — a Type 3 font, a composite font not
+`Identity-H`, `sh`, a soft mask over the region, a stroked, curved or clipping path, a JPX image, an
+image stating `/Alternates` — each with its sentence, and the overlay text and fill it does not
+compose (A65's fence), said as a departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195,
+1196).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

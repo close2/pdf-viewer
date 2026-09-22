@@ -223,3 +223,18 @@ fixture stating two `Separation` arrays while its content draws through one is a
 second is an unreferenced named resource and outside the requirement's population. When a fixture
 plants a resource for a rule to bite on, its content stream references every copy it plants — and a
 new fixture whose requirement does not fail is the first thing to suspect (ADR 1188).
+
+## A gate takes the whole ladder an ADR measured, and prints the population it holds
+
+`stroke_width.rs` held axis-aligned rules only, at eight times the recorded worst, so ADR 1082's
+forty-seven-fold improvement on diagonals went unreported for 108 sessions and ADR 0848's stale
+0.1802 stayed in a ledger row as "the worst this device produces". When an ADR measures a ladder,
+the gate holds every rung of it, its tolerance is the measurement plus a stated slack, and it prints
+the population so a reader can see which half is under it (ADRs 1189, 1201).
+
+## A resource bound the clause forbids is measured against the population it bounds
+
+`MAX_FIELD_ANCESTRY = 32` carried the reason "a depth no legitimate form approaches" and sat exactly
+on the deepest producer-written chain on the disk, refusing 25 real widgets at its own value. The
+instrument that measures a bound walks past it — the census now goes to 1024 — or it cannot see the
+far side (ADR 1198).

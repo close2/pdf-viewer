@@ -50,12 +50,15 @@
     reason = "a command-line tool whose entire output is a report"
 )]
 
+use std::collections::BTreeMap;
 use std::io::{BufRead as _, IsTerminal as _, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pdf_model::icc::Identification;
-use pdf_transform::archive::{ArchivePlan, Authorisations, Configuration, Loss, sites};
+use pdf_transform::archive::{
+    ArchivePlan, Authorisations, Configuration, ExternalData, Loss, sites,
+};
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::executor::execute;
 use pdf_transform::images::ImagesPlan;
@@ -271,6 +274,7 @@ const KNOWN: &[&str] = &[
     "--remedy-sites",
     "--claim-conformance",
     "--depart-from-the-standard",
+    "--resolve-external-data",
     "--password-fd",
     "--encrypt-owner-fd",
     "--encrypt-user-fd",
@@ -437,6 +441,18 @@ fn run() -> Result<Exit, Failure> {
         // the invocations as data, this program runs them through the one shared executor, puts
         // the results in the plan and applies again. The caller *is* our own converter program.
         if report.requested.is_empty() {
+            // **The same two-pass shape, for the one other thing `apply` will not do itself.**
+            // A conversion whose source keeps a stream's data outside the file needs those bytes
+            // handed to it, and `apply` opens no path (`doc/questions/A54`, RFC 0002 section 9).
+            // So a pass names the streams, this program resolves what its own rule permits, and
+            // the next pass is a pure function of what came back (`doc/adr/1199`).
+            if resolve_the_external_data(&arguments, &report, &mut plan) {
+                passes = passes.saturating_add(1);
+                if passes > MOST_TOOL_PASSES {
+                    break report;
+                }
+                continue;
+            }
             break report;
         }
         passes = passes.saturating_add(1);
@@ -520,6 +536,142 @@ fn carry_out_the_requests(report: &Report, plan: &mut Plan) -> Result<bool, Fail
         new = true;
     }
     Ok(new)
+}
+
+/// Reads the files a source's streams name, where the operator asked for it.
+///
+/// **The second thing `apply` will not do for itself, in the same shape as the first.**
+/// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 forbid a stream the keys that put
+/// its data outside the file; nothing in the document supplies those bytes, and `apply` opens no
+/// path (`doc/questions/A54`, RFC 0002 section 9). So a pass names the streams and this program —
+/// the caller — reads what its own rule permits.
+///
+/// **The rule is `doc/adr/1155`'s, and it is narrow on purpose**: a name a document wrote is
+/// resolved as a single path component against the directory the document itself is in, and
+/// nowhere else. `../`, an absolute path and a drive-relative one are all refused by the same
+/// check, and \u{a7}7.11.5's URL is refused because it is not a file name at all — fetching one
+/// would be a network operation this program does not have and `CLAUDE.md` principle 3 will not
+/// acquire. Every refusal is said out loud rather than leaving a user with a conversion that
+/// quietly did nothing.
+///
+/// `false` where nothing new was resolved, which stops the loop rather than repeating a pass that
+/// would ask for the same thing again. **No error of its own**: every refusal here is one name a
+/// document wrote, said out loud and passed over, because a document that points at a file this
+/// machine will not hand over is a document to refuse by requirement rather than a command line to
+/// reject.
+fn resolve_the_external_data(arguments: &Arguments, report: &Report, plan: &mut Plan) -> bool {
+    if !arguments.switch("--resolve-external-data") {
+        return false;
+    }
+    let Plan::Archive(archive) = plan else {
+        // No other verb reads a stream's file specification, and a verb that did would name its
+        // own field: what a plan needs is returned by the plan that needs it.
+        return false;
+    };
+    let Some(conversion) = &report.archive else {
+        return false;
+    };
+    let source = arguments.positional.first().map(|spec| input_spec(spec).0);
+    let directory = source.as_deref().and_then(Path::parent);
+    let mut resolved = false;
+    for stream in &conversion.external_data {
+        if archive.external_data.contains_key(&stream.at) {
+            continue;
+        }
+        let named = match &stream.data {
+            ExternalData::Named {
+                shown,
+                components,
+                absolute,
+            } => (shown, components, *absolute),
+            ExternalData::AtUrl(url) => {
+                eprintln!(
+                    "--resolve-external-data: object {} names {url}, which is a URL rather than \
+                     a file beside the document; this program performs no network request",
+                    stream.at.number
+                );
+                continue;
+            }
+            // Nothing to read: the stream states the filter keys and no file, so the conversion
+            // answers it out of the file's own bytes.
+            ExternalData::NoneNamed | ExternalData::Unreadable => continue,
+        };
+        let path = match beside_the_document(directory, named.1, named.2) {
+            Ok(path) => path,
+            Err(refusal) => {
+                eprintln!(
+                    "--resolve-external-data: object {} names {}: {refusal}",
+                    stream.at.number, named.0
+                );
+                continue;
+            }
+        };
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                eprintln!(
+                    "--resolve-external-data: object {} takes the {} byte(s) of {}",
+                    stream.at.number,
+                    bytes.len(),
+                    path.display()
+                );
+                archive.external_data.insert(stream.at, Arc::from(bytes));
+                resolved = true;
+            }
+            Err(error) => eprintln!(
+                "--resolve-external-data: object {}: cannot read {}: {error}",
+                stream.at.number,
+                path.display()
+            ),
+        }
+    }
+    resolved
+}
+
+/// `doc/adr/1155`'s rule: one path component, against the directory the document is in.
+///
+/// Restated here rather than taken from `viewer_host::policy`, and the reason is a layer rather
+/// than a preference: this crate is a batch job over documents no window has open, and it names
+/// no part of the viewer's vocabulary. What the two share is the *rule*, which is two sentences
+/// and is stated in both places with the ADR that decided it.
+///
+/// **The components are \u{a7}7.11.2.1's rather than this platform's**, because the clause makes
+/// SOLIDUS "a generic component separator that shall be mapped to the appropriate
+/// platform-specific separator": a name the standard reads as three components is three
+/// components on a system whose own separator is something else, and splitting it here would ask
+/// the wrong question. `pdf_model::file_spec::FileSpec` did the splitting; what is left is to
+/// insist there was exactly one, that it is neither the directory itself nor its parent, and that
+/// it is a name this system can spell.
+fn beside_the_document(
+    directory: Option<&Path>,
+    components: &[Vec<u8>],
+    absolute: bool,
+) -> Result<PathBuf, String> {
+    let directory = directory.ok_or_else(|| {
+        "the document is not in a known directory, so there is nothing to resolve against"
+            .to_owned()
+    })?;
+    if absolute {
+        return Err(
+            "this is an absolute file specification, and only a plain file name beside \
+                    the document is read"
+                .to_owned(),
+        );
+    }
+    let [single] = components else {
+        return Err(format!(
+            "this file specification has {} component(s), and only a plain file name beside the \
+             document is read",
+            components.len()
+        ));
+    };
+    let single = std::str::from_utf8(single)
+        .map_err(|_| "this file name is not text this system can spell".to_owned())?;
+    if single.is_empty() || single == "." || single == ".." {
+        return Err(format!(
+            "{single:?} is not a plain file name beside the document"
+        ));
+    }
+    Ok(directory.join(single))
 }
 
 /// The plan the verb and its flags describe.
@@ -674,6 +826,9 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         supplies: read.supplies,
         preservations: read.preservations,
         tool_outputs: pdf_transform::tool::ToolOutputs::new(),
+        // Empty until a pass says which streams keep their data outside the file; `run` resolves
+        // what `--resolve-external-data` allows it to and applies again (`doc/adr/1199`).
+        external_data: BTreeMap::new(),
     })
 }
 
@@ -1744,6 +1899,16 @@ archive:
                            or restated to the widths the file states; no glyph moves either way.
                            Batch archiving wants the default; a curator checking one document
                            may want the flag
+  --resolve-external-data  a stream whose dictionary states F keeps its data in another file, and
+                           both parts of ISO 19005 forbid that outright. With this flag the bytes
+                           are read and written into the stream, its Filter and DecodeParms taken
+                           from the FFilter and FDecodeParms that described them, so the archive
+                           holds what the producer pointed at. Only a plain file name beside the
+                           document itself is read — never ../, never an absolute path, and never
+                           a URL, which would be a network request this program does not make.
+                           Each name refused is printed. A stream stating the filter keys and no
+                           F names no file at all: those keys describe filters for a file that is
+                           not there, no reader consults them, and they are removed with no flag
   --remedy-sites           print every refusal site this target binds, with the remedy each one
                            admits, and stop. The list is generated from the same table the
                            converter decides from, so a site cannot exist undocumented and a

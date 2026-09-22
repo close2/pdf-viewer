@@ -44,6 +44,12 @@ const PAGE: f32 = 100.0;
 /// The stroked line's length, in PDF units.
 const LENGTH: f32 = 80.0;
 
+/// The turned rule's extent along each axis, in PDF units.
+///
+/// Its device length is therefore `DIAGONAL * scale * sqrt(2)`, which is what a thickness
+/// measured as ink-over-length divides by.
+const DIAGONAL: f32 = 70.0;
+
 /// A horizontal black line across the middle of the page, stroked with `stroke`.
 ///
 /// Horizontal and at a half-integer y so that at scale 1.0 the line covers one row of pixels
@@ -63,6 +69,36 @@ fn line_at(y: f32, stroke: Stroke) -> DisplayList {
     let mut path = Path::new();
     path.push(PathCommand::MoveTo(Point::new(10.0, y)));
     path.push(PathCommand::LineTo(Point::new(10.0 + LENGTH, y)));
+    list.push(Command::Stroke {
+        path: Arc::new(path),
+        transform: Transform::IDENTITY,
+        stroke,
+        paint: Paint::Solid(Color::BLACK),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    list
+}
+
+/// A 45° line, its two ends both shifted in `y` by `shift`, stroked with `stroke`.
+///
+/// A turned rule is a different population from a horizontal one, not a variation on it: an
+/// axis-aligned rule's two long edges run along pixel rows, while a turned rule's cross every
+/// column it passes, so the two go through different halves of the scan converter (ADR 1082).
+///
+/// Shifting both ends by the same `shift` slides the rule along its own normal without turning
+/// it, and a shift of one *device* pixel in `y` carries the pixel grid onto itself — so eight
+/// shifts an eighth of a device pixel apart are one whole period of the placement variable, the
+/// same period `line_at`'s caller walks.
+fn diagonal_at(shift: f32, stroke: Stroke) -> DisplayList {
+    let mut list = DisplayList::new(Size::new(PAGE, PAGE));
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(10.0, 10.0 + shift)));
+    path.push(PathCommand::LineTo(Point::new(
+        10.0 + DIAGONAL,
+        10.0 + DIAGONAL + shift,
+    )));
     list.push(Command::Stroke {
         path: Arc::new(path),
         transform: Transform::IDENTITY,
@@ -222,21 +258,23 @@ fn the_substituted_width_matches_the_rasterisers_hairline() {
 /// Eight placements an eighth of a device pixel apart is a whole period of the only variable
 /// the requirement is about. Two scales, for the reason the module comment gives.
 ///
-/// The tight bound is a tenth of the clause's and is what makes this discriminating rather than
-/// vacuous. Measured in the nine-hundred-and-third session, the worst departure over all six
-/// ladders is **0.0059 of a device pixel** — one and a half levels of 255 — so `MEASURED` is
-/// eight times what the backend holds and a tenth of what the clause allows; at 0.005 this test
-/// fails, which is how it was checked against something rather than against nothing (trap 13).
-/// The reference that grid-fits instead — `poppler`, which snaps both edges to whole pixels and
-/// so draws a 0.6-pixel rule as one whole one — reads 0.4 here and would fail it while staying
-/// inside the clause's own bound. ADR 0848 has the ladder for all five renderers.
+/// The tight bound is what makes this discriminating rather than vacuous, and it is a ratchet:
+/// the test prints the worst deviation this ladder produces and `MEASURED` is that worst
+/// doubled, for the slack the turned rung's comment states. The reference that grid-fits
+/// instead — `poppler`, which snaps both edges to whole pixels and so draws a 0.6-pixel rule as
+/// one whole one — reads 0.4 here and would fail it while staying inside the clause's own
+/// bound. ADR 0848 has the ladder for all five renderers, ADR 1189 the re-measurement this
+/// number is taken from.
 #[test]
 fn stroke_adjustment_holds_the_thickness_within_half_a_pixel_at_every_placement() {
     /// The clause's own bound, in device pixels of thickness.
     const CLAUSE: f64 = 0.5;
-    /// What this backend actually holds, rounded up an order of magnitude from the measurement.
-    const MEASURED: f64 = 0.05;
+    /// What this backend holds on axis-aligned rules: the worst this ladder measures, doubled.
+    const MEASURED: f64 = 0.016;
 
+    let mut population = 0_u32;
+    let mut worst = 0.0_f64;
+    let mut worst_rung = String::new();
     for scale in [1.0_f32, 2.0] {
         for width in [0.6_f32, 1.0, 2.5] {
             let mut thicknesses = Vec::new();
@@ -259,18 +297,146 @@ fn stroke_adjustment_holds_the_thickness_within_half_a_pixel_at_every_placement(
             // module comment warns about, met from the other side.
             let requested = f64::from(width * scale);
             for (eighth, got) in thicknesses.iter().enumerate() {
+                population += 1;
+                let off = (got - requested).abs();
                 assert!(
-                    (got - requested).abs() <= CLAUSE,
+                    off <= CLAUSE,
                     "scale {scale}, width {width}, placement {eighth}/8: thickness {got} is more \
                      than half a device pixel from the requested {requested}"
                 );
                 assert!(
-                    (got - requested).abs() <= MEASURED,
+                    off <= MEASURED,
                     "scale {scale}, width {width}, placement {eighth}/8: thickness {got} against \
-                     the requested {requested}, outside what this backend held when ADR 0848 \
-                     measured it"
+                     the requested {requested} is {off} out, past the {MEASURED} this backend \
+                     held when ADR 1189 measured it"
+                );
+                if off > worst {
+                    worst = off;
+                    worst_rung = format!("scale {scale}, width {width}, {eighth}/8");
+                }
+            }
+        }
+    }
+    println!(
+        "axis-aligned rungs: {population} measured (2 scales x 3 widths x 8 placements), worst \
+         {worst:.4} device px of thickness at {worst_rung}, against {MEASURED} held and {CLAUSE} \
+         allowed by ISO 32000-2 10.7.5"
+    );
+}
+
+/// §10.7.5's first requirement on a *turned* rung: a 45° rule's thickness stays within a
+/// fraction of a device pixel of the requested width wherever it falls on the grid, with `/SA`
+/// enabled and with it absent.
+///
+/// > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
+/// > automatically be adjusted as necessary to produce lines of uniform thickness. The
+/// > thickness shall be as near as possible to the requested line width -no more than half a
+/// > pixel different.
+///
+/// # Why a turned rung is a separate population
+///
+/// The rung above is axis-aligned, and an axis-aligned rectangle goes to a closed form that
+/// never enters the scan converter (ADR 0476, ADR 0226). A 45° rule does, and it is the shape
+/// the analytic area integral of ADR 1082 was written for. The two measure different code, so a
+/// ladder of horizontal rules says nothing about a turned one — which is how a 47-fold
+/// improvement on turned rules went unreported: the gate held only the half that had not moved.
+///
+/// # Both sides of the parameter
+///
+/// Every width here is above §10.7.5's half a device pixel, so the clause's *substitution* has
+/// no antecedent and `/SA true` must draw exactly what a document that sets nothing draws. That
+/// is asserted rung for rung rather than assumed, because a promotion that fired where the
+/// clause does not ask for one would otherwise pass this test as an improvement in uniformity.
+///
+/// # Where the tolerance comes from
+///
+/// `MEASURED` is a ratchet, so it is the measurement plus a stated slack rather than a round
+/// number: the worst deviation this ladder produces is printed by the test itself, and the
+/// constant is that worst rounded up to twice it. Twice is the slack, and what it buys is the
+/// two things that legitimately move a coverage measurement without a defect: a different
+/// rounding of the page's device size at a scale this ladder does not run, and the
+/// last-bit differences an `f32` accumulation may shift. It is not slack for a change of
+/// algorithm — one of those is meant to fail this and be re-measured. The clause's own bound is
+/// asserted alongside it so that a reader can see which of the two is the standard's.
+#[test]
+fn stroke_thickness_holds_on_a_turned_rung_at_every_placement() {
+    /// The clause's own bound, in device pixels of thickness.
+    const CLAUSE: f64 = 0.5;
+    /// What this backend holds on turned rungs: the worst this ladder measures, doubled.
+    const MEASURED: f64 = 0.008;
+    /// How far the two settings of `/SA` may differ, every width here being above half a pixel.
+    ///
+    /// `Stroke::device_width` returns the requested width unchanged in both cases, so the two
+    /// rasters are in fact identical and the measured difference is zero. The bound is what
+    /// makes the assertion discriminating rather than exact: a promotion that fired where the
+    /// clause states no antecedent would move a 0.6-pixel rule to 1.0, which this catches by
+    /// nearly three orders of magnitude.
+    const AGREEMENT: f64 = 0.0005;
+
+    let mut population = 0_u32;
+    let mut worst = 0.0_f64;
+    let mut worst_rung = String::new();
+    for scale in [1.0_f32, 2.0] {
+        let length = f64::from(DIAGONAL) * f64::from(scale) * f64::from(std::f32::consts::SQRT_2);
+        for requested in [0.6_f64, 1.0, 3.0] {
+            // The width is stated in *device* pixels and applied in the path's own space, so
+            // it is a reciprocal of the scale — trap 2's argument, met from the other side, as
+            // the module comment describes.
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "test code: three literal widths of one decimal digit"
+            )]
+            let width = (requested / f64::from(scale)) as f32;
+            let thickness = |adjust: bool| -> Vec<f64> {
+                (0_u8..8)
+                    .map(|eighth| {
+                        let shift = f32::from(eighth) / (8.0 * scale);
+                        let list = diagonal_at(
+                            shift,
+                            Stroke {
+                                width,
+                                adjust,
+                                ..Stroke::default()
+                            },
+                        );
+                        ink_at(&list, scale) / length
+                    })
+                    .collect()
+            };
+            let plain = thickness(false);
+            let adjusted = thickness(true);
+            for (eighth, (got, also)) in plain.iter().zip(adjusted.iter()).enumerate() {
+                for (state, measured) in [("absent", got), ("/SA true", also)] {
+                    population += 1;
+                    let off = (measured - requested).abs();
+                    assert!(
+                        off <= CLAUSE,
+                        "scale {scale}, {requested} device px, {state}, placement {eighth}/8: \
+                         thickness {measured} is more than half a device pixel from the request"
+                    );
+                    assert!(
+                        off <= MEASURED,
+                        "scale {scale}, {requested} device px, {state}, placement {eighth}/8: \
+                         thickness {measured} against the requested {requested} is {off} out, \
+                         past the {MEASURED} this backend held when ADR 1189 measured it"
+                    );
+                    if off > worst {
+                        worst = off;
+                        worst_rung =
+                            format!("scale {scale}, {requested} device px, {state}, {eighth}/8");
+                    }
+                }
+                assert!(
+                    (got - also).abs() <= AGREEMENT,
+                    "scale {scale}, {requested} device px, placement {eighth}/8: /SA changed a \
+                     width already above half a device pixel, {got} against {also}"
                 );
             }
         }
     }
+    println!(
+        "turned rungs: {population} measured (2 scales x 3 widths x 2 /SA settings x 8 \
+         placements), worst {worst:.4} device px of thickness at {worst_rung}, against \
+         {MEASURED} held and {CLAUSE} allowed by ISO 32000-2 10.7.5"
+    );
 }

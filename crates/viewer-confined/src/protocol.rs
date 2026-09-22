@@ -2762,6 +2762,9 @@ mod query_kind {
     // holds the document and therefore the interpretation; the window process holds the printer
     // (ADR 1180).
     pub(super) const PRINT_PAGE: u8 = 33;
+    // §12.9's measurement of a traced path. It crosses because the worker holds the document and
+    // therefore the page's `/VP`, while the window process holds the pointer (ADR 1191).
+    pub(super) const MEASURE: u8 = 34;
 }
 
 /// Encodes one question.
@@ -2890,6 +2893,12 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         Query::AccessibilityTree => {
             writer.u8(k::ACCESSIBILITY_TREE);
         }
+        Query::Measure(points) => {
+            writer.u8(k::MEASURE).usize(points.len());
+            for [x, y] in points {
+                writer.point((*x, *y));
+            }
+        }
     }
     Ok(writer.finish())
 }
@@ -2904,6 +2913,11 @@ pub(crate) enum OwnedQuery {
     Plain(PlainQuery),
     /// [`Query::Find`], with the string it searches for.
     Find(String),
+    /// [`Query::Measure`], with the path it measures.
+    ///
+    /// Owned for [`Self::Find`]'s reason: the slice a host passes is the host's own gesture, and
+    /// on this side of the pipe the points arrived in the message.
+    Measure(Vec<[f32; 2]>),
 }
 
 /// Every carried question except [`Query::Find`].
@@ -2996,6 +3010,7 @@ impl OwnedQuery {
                 PlainQuery::Fields => Query::Fields,
                 PlainQuery::AccessibilityTree => Query::AccessibilityTree,
             },
+            Self::Measure(points) => Query::Measure(points),
         }
     }
 }
@@ -3059,6 +3074,10 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::POPUPS => OwnedQuery::Plain(PlainQuery::Popups),
         k::FIELDS => OwnedQuery::Plain(PlainQuery::Fields),
         k::ACCESSIBILITY_TREE => OwnedQuery::Plain(PlainQuery::AccessibilityTree),
+        k::MEASURE => OwnedQuery::Measure(reader.list("a measured path", |reader| {
+            let (x, y) = reader.point("a measured point")?;
+            Ok([x, y])
+        })?),
         value => {
             return Err(ProtocolError::Unrecognised {
                 what,
@@ -3116,6 +3135,9 @@ mod answer_kind {
     pub(super) const VIEW: u8 = 33;
     // One page of a print operation, as marks and a target — `query_kind::PRINT_PAGE`'s answer.
     pub(super) const PRINT_PAGE: u8 = 34;
+    // §12.9's formatted measurement, since the one-thousand-one-hundred-and-seventy-seventh
+    // session: strings Table 267's arrays produced and §12.10's reading beside them (ADR 1191).
+    pub(super) const MEASURED: u8 = 35;
 }
 
 /// Encodes one answer.
@@ -3409,6 +3431,10 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
             }
             writer.bytes(&bytes).strings(&page.reports);
         }
+        Answer::Measured(traced) => {
+            writer.u8(k::MEASURED);
+            encode_traced(&mut writer, traced);
+        }
         Answer::Popups(popups) => {
             writer.u8(k::POPUPS);
             panels::encode_popups(&mut writer, popups);
@@ -3595,6 +3621,134 @@ fn decode_list_payload(
 ///
 /// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
 /// or bytes are left over.
+/// §12.9's measurement, written out.
+///
+/// Every field is a string §12.9.2's algorithm produced or one Table 265 states for a person,
+/// so the encoding is the six options and §12.10's reading — no numbers cross, because the
+/// clause's answer is text.
+fn encode_traced(writer: &mut Writer, traced: &pdf_model::measurement::Traced) {
+    writer
+        .option_str(traced.viewport.as_deref())
+        .option_str(traced.ratio.as_deref())
+        .option_str(traced.length.as_deref())
+        .option_str(traced.area.as_deref())
+        .option_str(traced.angle.as_deref())
+        .option_str(traced.slope.as_deref());
+    match &traced.geospatial {
+        Some(geospatial) => {
+            writer.u8(1);
+            encode_coordinate_system(writer, geospatial.system.as_ref());
+            encode_coordinate_system(writer, geospatial.display_system.as_ref());
+            match &geospatial.units {
+                Some([linear, area, angular]) => {
+                    writer.u8(1).str(linear).str(area).str(angular);
+                }
+                None => {
+                    writer.u8(0);
+                }
+            }
+            writer
+                .usize(geospatial.registration)
+                .bool(geospatial.within_bounds)
+                .bool(geospatial.matrix_applies);
+        }
+        None => {
+            writer.u8(0);
+        }
+    }
+}
+
+/// Tables 270 and 271's two entries, and which of the two tables this is.
+fn encode_coordinate_system(
+    writer: &mut Writer,
+    system: Option<&pdf_model::measurement::CoordinateSystem>,
+) {
+    match system {
+        Some(system) => {
+            writer
+                .u8(1)
+                .bool(system.projected)
+                .option_i64(system.epsg)
+                .option_str(system.wkt.as_deref());
+        }
+        None => {
+            writer.u8(0);
+        }
+    }
+}
+
+/// [`encode_traced`]'s inverse.
+fn decode_traced(reader: &mut Reader<'_>) -> Result<pdf_model::measurement::Traced, ProtocolError> {
+    let viewport = reader.option_string("a measured viewport's name")?;
+    let ratio = reader.option_string("a measured viewport's scale ratio")?;
+    let length = reader.option_string("a measured length")?;
+    let area = reader.option_string("a measured area")?;
+    let angle = reader.option_string("a measured angle")?;
+    let slope = reader.option_string("a measured slope")?;
+    let geospatial = match reader.u8("whether a measurement is geospatial")? {
+        0 => None,
+        1 => {
+            let system = decode_coordinate_system(reader)?;
+            let display_system = decode_coordinate_system(reader)?;
+            let units = match reader.u8("whether a geospatial measure states display units")? {
+                0 => None,
+                1 => Some([
+                    reader.string("a linear display unit")?,
+                    reader.string("an area display unit")?,
+                    reader.string("an angular display unit")?,
+                ]),
+                other => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a geospatial measure's display units",
+                        value: u32::from(other),
+                    });
+                }
+            };
+            Some(pdf_model::measurement::Geographic {
+                system,
+                display_system,
+                units,
+                registration: reader.usize("how many points register a map")?,
+                within_bounds: reader.bool("whether a path is inside the neatline")?,
+                matrix_applies: reader.bool("whether /PCSM applies")?,
+            })
+        }
+        other => {
+            return Err(ProtocolError::Unrecognised {
+                what: "whether a measurement is geospatial",
+                value: u32::from(other),
+            });
+        }
+    };
+    Ok(pdf_model::measurement::Traced {
+        viewport,
+        ratio,
+        length,
+        area,
+        angle,
+        slope,
+        geospatial,
+    })
+}
+
+/// [`encode_coordinate_system`]'s inverse.
+fn decode_coordinate_system(
+    reader: &mut Reader<'_>,
+) -> Result<Option<pdf_model::measurement::CoordinateSystem>, ProtocolError> {
+    match reader.u8("whether a coordinate system is stated")? {
+        0 => Ok(None),
+        1 => Ok(Some(pdf_model::measurement::CoordinateSystem {
+            projected: reader.bool("whether a coordinate system is projected")?,
+            epsg: reader.option_i64("an EPSG reference code")?,
+            wkt: reader.option_string("a Well Known Text description")?,
+        })),
+        other => Err(ProtocolError::Unrecognised {
+            what: "whether a coordinate system is stated",
+            value: u32::from(other),
+        }),
+    }
+}
+
 pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
     decode_answer_reusing(bytes, &mut HeldLists::default())
 }
@@ -3618,6 +3772,7 @@ pub(crate) fn decode_answer_reusing(
     let what = "an answer";
     let answer = match reader.u8(what)? {
         k::NONE => Reply::None,
+        k::MEASURED => Reply::Measured(Box::new(decode_traced(&mut reader)?)),
         k::COUNT => Reply::Count(reader.usize("a page count")?),
         k::VIEW => Reply::View(decode_viewing(&mut reader)?),
         k::PAGE => Reply::Page {
@@ -4520,6 +4675,7 @@ mod tests {
             Query::Articles,
             Query::Thumbnail(7),
             Query::PrintPage(7),
+            Query::Measure(&[[3.0, 4.0], [11.0, 12.0], [1.0, 2.0]]),
             Query::Properties,
             Query::Opening,
             Query::Preferences,
@@ -4529,7 +4685,7 @@ mod tests {
             Query::Readback,
             Query::View,
         ];
-        assert_eq!(carried.len(), 33, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 34, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

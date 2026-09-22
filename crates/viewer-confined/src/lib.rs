@@ -649,6 +649,15 @@ pub enum Reply {
         /// What could not be drawn on it, already worded.
         reports: Vec<String>,
     },
+    /// §12.9's measurement of a traced path, formatted as the document states.
+    ///
+    /// Carried as `pdf_model::measurement::Traced` itself rather than as an owned copy of it,
+    /// for [`Self::View`]'s reason: the answer is already owned — strings §12.9.2's algorithm
+    /// produced, and what §12.10 states about a geospatial viewport beside them (ADR 1191).
+    ///
+    /// Boxed because seven optional strings and §12.10's reading are four times the next largest
+    /// variant, and every reply this worker sends would otherwise be that size.
+    Measured(Box<pdf_model::measurement::Traced>),
 }
 
 /// One of §7.11.4's embedded files, as a panel lists them.

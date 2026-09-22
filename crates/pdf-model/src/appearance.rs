@@ -153,10 +153,16 @@ use crate::view::FieldValue;
 /// may hold none of them itself. **The clause forbids this bound** — "An interactive PDF
 /// processor shall not limit the range of inheritance for field dictionaries" — and it exists
 /// anyway, because a `/Parent` chain in a hostile file can be a cycle and principle 3's budgets
-/// outrank a depth no legitimate form comes near. Reaching it is reported rather than treated as
-/// "no value", so the departure cannot hide: a bound that is silent is the defect, not the
-/// bound.
-pub(crate) const MAX_FIELD_ANCESTRY: usize = 32;
+/// outrank an unbounded walk. Reaching it is reported rather than treated as "no value", so the
+/// departure cannot hide: a bound that is silent is the defect, not the bound.
+///
+/// **The number is chosen so that it decides nothing about a legitimate file**, which is what a
+/// resource budget owes a departure the clause forbids. The deepest `/Parent` chain any document
+/// on this disk states is 32 links — `examples/field_flag_census` prints it, with the widgets
+/// that reach it — so 32 was the one value at which the bound refused real fields instead of
+/// cycles, and this is eight times the measurement. A cycle costs 256 dictionary lookups once
+/// per field and is still refused by name (ADR 1198).
+pub(crate) const MAX_FIELD_ANCESTRY: usize = 256;
 
 /// The default border width §12.5.4 states: "If neither the Border nor the BS entry is present,
 /// the border shall be drawn as a solid line with a width of 1 point."
@@ -3300,7 +3306,31 @@ fn field_text(
         .map_err(Refusal::Text)
 }
 
-/// Whether this layout is about to draw §12.7.5.3's rich text as plain characters.
+/// §12.7.5.3's Table 231 bit 26: the characters a rich text value states, or `None`.
+///
+/// The bit says what such a value is — "the value of this field shall be a rich text string" —
+/// and §12.7.5.3 says what a processor does with it: "[t]he contents of this text string or
+/// stream shall be used to construct an appearance stream for displaying the field". The
+/// *contents* of a rich text string are its character data; its markup is the formatting, which
+/// is a separate question from what characters the field shows. So a value declared to be a rich
+/// text string is walked for its characters rather than drawn as the angle brackets a producer
+/// wrote (ADR 1197), by the same walk §12.5.6.6's `/RC` already goes through
+/// ([`crate::popup::rich_text_characters`]) — one construct named the same way in two tables
+/// cannot be read two ways here.
+///
+/// `None` where the value is not a rich text string after all: nothing parsed as an element, or
+/// a token did not parse. Bit 26 binds the *file*, and a file that sets the flag over plain
+/// characters is one whose characters are still what the field shows — ADR 0111's rule that a
+/// malformed declaration may not erase what the clause states.
+fn rich_text_value(value: &str) -> Option<String> {
+    let read = crate::popup::rich_text_characters(value);
+    if !read.parsed_whole || read.elements == 0 {
+        return None;
+    }
+    Some(read.text.trim().to_owned())
+}
+
+/// Whether this layout is about to draw §12.7.5.3's rich text without its formatting.
 ///
 /// Table 231 bit 26 makes a text field's value "a rich text string", and §12.7.4.3 says what a
 /// processor owes such a field:
@@ -3309,28 +3339,37 @@ fn field_text(
 /// > appearance shall be regenerated each time the value is changed.
 ///
 /// The conventions that sentence sets aside are this module's whole construction, and what
-/// replaces them is XFA 3.3's — which `CLAUDE.md`'s closed exclusion list names, so the
-/// formatting cannot be laid out here and the plain characters of Table 226's `/V` are what is
-/// drawn. That is a departure and it is said out loud rather than drawn in silence (ADR 1122).
+/// replaces them is XFA 3.3's. The **characters** of the value are drawn, by
+/// [`rich_text_value`]; the **formatting** — a face, a size, a colour, an alignment — is stated
+/// in a specification this tree does not hold, and is not applied. That is a departure and it is
+/// said out loud rather than drawn in silence (ADRs 1122, 1197).
 ///
-/// **The condition is Table 228's `/RV` and not the flag alone**, which is trap 11's rule about
-/// what a report fires on. Bit 26's second sentence — "[i]f the field has a value, the RV entry
-/// of the field dictionary … shall specify the rich text string" — is what puts formatting in
-/// the file; a field setting the flag and stating no `/RV` has none to lose, so the plain `/V`
-/// is everything its producer wrote and drawing it owes nothing. The two populations differ by
-/// an order of magnitude and `examples/field_flag_census` counts both.
+/// **The condition is the formatting the file states and not the flag alone**, which is trap
+/// 11's rule about what a report fires on: a field setting the flag over plain characters, with
+/// neither entry and no markup in its value, has no formatting to lose and drawing it owes
+/// nothing. Three things put formatting in the file, and any of them fires the report — Table
+/// 228's `/RV`, which bit 26's second sentence makes "specify the rich text string"; Table 228's
+/// `/DS`, the default style string; and a `/V` that is itself markup, which is what bit 26's
+/// first sentence says it is. `examples/field_flag_census` counts each.
 ///
-/// The entry is looked up over the field's own `/Parent` chain and not past it: Table 228 marks
-/// `/DA` and `/Q` inheritable and `/RV` not, so the walk is for a merged widget whose entries
-/// sit on the field dictionary above it rather than for §12.7.4.1's inheritance.
+/// The two entries are looked up over the field's own `/Parent` chain and not past it: Table 228
+/// marks `/DA` and `/Q` inheritable and neither of these, so the walk is for a merged widget
+/// whose entries sit on the field dictionary above it rather than for §12.7.4.1's inheritance.
 fn rich_text_unformatted(document: &Document, field: &Field) -> bool {
     if field.kind != Some(FieldKind::Text) || field.flags & FLAG_RICH_TEXT == 0 {
         return false;
     }
+    if field.ancestry.iter().any(|source| {
+        !matches!(document.get_key(source, "RV"), Object::Null)
+            || !matches!(document.get_key(source, "DS"), Object::Null)
+    }) {
+        return true;
+    }
     field
-        .ancestry
-        .iter()
-        .any(|source| !matches!(document.get_key(source, "RV"), Object::Null))
+        .value
+        .as_ref()
+        .and_then(|value| variable_text::value_text(document, value))
+        .is_some_and(|text| rich_text_value(&text).is_some())
 }
 
 /// Where the caret sits inside the text of an annotation, in **default user space**.
@@ -3636,13 +3675,23 @@ pub(crate) fn field_text_value(
 /// reported nothing, which is trap 5's silence inside a feature otherwise built.
 ///
 /// Every other field type still reads a dictionary as no value at all, because for them it is.
+///
+/// **And one flag decides what those characters are.** Table 231 bit 26 makes the value "a rich
+/// text string", whose contents are its character data; [`rich_text_value`] takes them, so the
+/// markup a producer wrote is not laid out as the field's text.
 fn text_field_text(document: &Document, field: &Field, value: &Object) -> Option<String> {
     if field.flags & FLAG_FILE_SELECT != 0
         && let Object::Dictionary(dict) = document.resolve(value)
     {
         return crate::file_spec::FileSpec::from_dictionary(document, &dict).display_name();
     }
-    variable_text::value_text(document, value)
+    let text = variable_text::value_text(document, value)?;
+    if field.flags & FLAG_RICH_TEXT != 0
+        && let Some(characters) = rich_text_value(&text)
+    {
+        return Some(characters);
+    }
+    Some(text)
 }
 
 /// How much of a value one widget will take, where §12.7.5.3's Table 231 bit 24 binds.

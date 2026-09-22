@@ -181,3 +181,18 @@ reading in this project goes through them:
   cited §7.9.6 for "by unsigned character code" for as long as the module existed, and ISO 32000-2
   prints that phrase nowhere. `grep` the phrase in `doc/md/` before putting it in quotation marks;
   it costs a second.
+
+**A clause that hands the processor freedom may still name where the algorithm is written down —
+follow the cross-reference before recording a silence.** §8.6.6.5's note said for many sessions that
+combining an NChannel space's colourants is "the blending the standard leaves to the processor";
+NOTE 3's own last sentence points at clause 10.8, where §10.8.3 states the algorithm in four steps.
+The disposition survived (the algorithm's condition is unmet on this device) but the claim "the
+standard states none" was wrong, and one cross-reference would have caught it (ADR 1193).
+
+**An exclusion is a claim about the standard and decays like any other.** `/DS` and `/RV` were
+recorded in two rows, a todo and two ADRs as "XFA rich text, excluded by principle 5"; §K.1's
+permission is about schema-driven page generation, not about an entry whose format the standard
+describes by pointing at XFA, and this tree already read the identical construct in Table 172's and
+Table 177's `/RC`. Before believing a row that hands something to an exclusion, check what the
+excluding clause actually permits, and grep the entry's own words across the tree for the same
+construct read elsewhere (ADR 1197).

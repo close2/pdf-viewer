@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Decision, Loss, PLACEMENT_ON_PAGE, Preservation,
+    ArchivePlan, Authorisations, Decision, ExternalData, Loss, PLACEMENT_ON_PAGE, Preservation,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
@@ -146,6 +146,15 @@ struct Tally {
     /// `CLAUDE.md`'s rule about derived facts is why this is printed by the sweep rather than
     /// written down anywhere.
     refusals: BTreeMap<&'static str, usize>,
+    /// How each stream that keeps its data outside the file says where those bytes are.
+    ///
+    /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 are answered by embedding the
+    /// bytes, and who may resolve them depends on which form \u{a7}7.11 the producer used: a
+    /// name beside the document is a file this program reads under `doc/adr/1155`'s rule, and
+    /// \u{a7}7.11.5's URL is a fetch it does not perform. **Counted rather than written down**,
+    /// because which form the world's files use is the fact that decides whether the built
+    /// resolution reaches any of them (`doc/adr/1199`).
+    external: BTreeMap<&'static str, usize>,
 }
 
 /// Every glyph advance a document's font dictionaries state, in one comparable list.
@@ -182,6 +191,50 @@ fn every_stated_width(document: &Document) -> Vec<String> {
     stated
 }
 
+impl Tally {
+    /// Counts how each of one conversion's external streams named its data.
+    fn note_external(&mut self, report: &pdf_transform::Report) {
+        let Some(conversion) = &report.archive else {
+            return;
+        };
+        for stream in &conversion.external_data {
+            let seen = self.external.entry(how_it_names(&stream.data)).or_default();
+            *seen = seen.saturating_add(1);
+        }
+    }
+}
+
+/// How one stream says where its data is, in the words the census counts.
+fn how_it_names(data: &ExternalData) -> &'static str {
+    match data {
+        ExternalData::Named {
+            components,
+            absolute,
+            ..
+        } if a_plain_name(components, *absolute) => {
+            "a plain file name, which this program's own rule would read"
+        }
+        ExternalData::Named { .. } => {
+            "a file specification of more than one component, or an absolute one"
+        }
+        ExternalData::AtUrl(_) => "a URL",
+        ExternalData::NoneNamed => "no file at all, so the keys alone go",
+        ExternalData::Unreadable => "a file specification this reader cannot read",
+    }
+}
+
+/// `doc/adr/1155`'s rule, as a caller of this library applies it.
+///
+/// One path component and nothing else, so `../secrets`, `/etc/passwd` and a drive-relative name
+/// are refused by the same check. The census asks it because *which form the world's producers
+/// used* is what decides whether the built resolution reaches any of them; the rule itself is the
+/// caller's, which is why it is stated at a caller rather than inside the conversion.
+fn a_plain_name(components: &[Vec<u8>], absolute: bool) -> bool {
+    !absolute
+        && matches!(components, [single]
+            if !single.is_empty() && single != b"." && single != b"..")
+}
+
 /// Converts every corpus document under `part` to `target` and states the three properties.
 fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) -> Tally {
     let mut tally = Tally::default();
@@ -212,6 +265,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 supplies: Vec::new(),
                 preservations: Vec::new(),
                 tool_outputs: ToolOutputs::new(),
+                external_data: BTreeMap::new(),
             }),
             &[Source::new(bytes)],
             &sinks,
@@ -287,6 +341,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 }
             }
         }
+        tally.note_external(&report);
     }
     tally
 }
@@ -329,6 +384,9 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
         ranked.sort_by_key(|(id, count)| (std::cmp::Reverse(**count), **id));
         for (id, count) in ranked.iter().take(MOST_REFUSED) {
             println!("    {count:>4} refused on {id}");
+        }
+        for (form, count) in &tally.external {
+            println!("    {count:>4} stream(s) keep their data outside the file, named as {form}");
         }
         converted = converted.saturating_add(tally.converted);
     }
@@ -390,6 +448,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                     })
                     .collect(),
                 tool_outputs: ToolOutputs::new(),
+                external_data: BTreeMap::new(),
             }),
             &[Source::new(bytes)],
             &sinks,
@@ -517,6 +576,7 @@ fn separation_sweep(root: &Path, part: &str, target: Target, winner: &str) -> Ag
                 supplies: config.supplies(target),
                 preservations: Vec::new(),
                 tool_outputs: ToolOutputs::new(),
+                external_data: BTreeMap::new(),
             }),
             &[Source::new(bytes)],
             &sinks,

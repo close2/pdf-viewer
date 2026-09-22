@@ -348,6 +348,12 @@ pub struct Host {
     /// is obeying is `viewer_host::Presenting`, shared with the other two hosts; what is GTK's is
     /// `GtkWindow::fullscreen` and which widget each of Table 147's three flags names.
     presenting: viewer_host::Presenting,
+    /// §12.9's measuring: whether a press on the page is a point, and the points so far.
+    ///
+    /// What is shared with the other two windows is `viewer_host::Measuring` — when a press is a
+    /// point, and what the answer says — and what is GTK's is the press and the status label
+    /// (ADR 1191).
+    measuring: viewer_host::Measuring,
     /// §12.4.4.1's clock, while a presentation is running.
     ///
     /// **`None` is a window with no timer armed at all**, rather than a timer that wakes to find
@@ -511,6 +517,7 @@ impl Host {
                 // Table 147's and Table 29's own defaults, replaced by what the catalog states
                 // the moment the document opens.
                 presenting: viewer_host::Presenting::default(),
+                measuring: viewer_host::Measuring::default(),
                 clock: None,
                 armed: None,
                 arming: None,
@@ -2304,7 +2311,7 @@ impl Host {
     /// and it disagreed with the other two about the arrow keys, about `f` and about Escape; what
     /// is left here is [`key_pressed`] turning a `gdk::Key` into a [`viewer_host::Key`] and
     /// [`Host::window_act`] doing the half of the table that is a widget's rather than a message.
-    fn key(&mut self, key: gtk4::gdk::Key, shift: bool) {
+    fn key(&mut self, key: gtk4::gdk::Key, held: viewer_host::Modifiers) {
         let Some(stated) = key_pressed(key) else {
             return;
         };
@@ -2314,7 +2321,7 @@ impl Host {
             viewer_host::Mode::Reading
         };
         let waiting = self.waiting();
-        let Some(meaning) = viewer_host::meaning(stated, shift, mode, waiting) else {
+        let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
             return;
         };
         match meaning {
@@ -2365,6 +2372,12 @@ impl Host {
             viewer_host::WindowAct::Panel => {
                 self.panel_wanted = !self.panel_wanted;
                 self.apply_chrome();
+            }
+            // §12.9's measuring. Nothing is drawn differently: what the mode changes is that a
+            // press on the page is a point rather than the start of §12.4.2's selection.
+            viewer_host::WindowAct::Measure => {
+                let on = self.measuring.toggle();
+                self.say(&viewer_host::measuring::switched(on));
             }
             viewer_host::WindowAct::Notices => self.show_notices(),
             viewer_host::WindowAct::Restrictions => self.ui.menu.popup(),
@@ -2672,8 +2685,34 @@ impl Host {
             reason = "a pointer position inside a window is far inside f32's exact integer range"
         )]
         let at = ((x * scale) as f32, (y * scale) as f32);
+        // §12.9's mode takes the press before §12.4.2's selection does, which is the one thing it
+        // takes away: the two gestures are the same gesture and a window cannot tell them apart
+        // from the pointer alone (ADR 1191).
+        if self.measuring.is_on() {
+            if matches!(action, PointerAction::Pressed) {
+                self.measure(at);
+            }
+            return;
+        }
         self.dispatch(Command::Pointer { at, action });
         self.show_whether_it_is_a_link(at);
+    }
+
+    /// One more point of §12.9's measurement, and what the path comes to now.
+    ///
+    /// The points are this window's — a rubber band is chrome — and the arithmetic is the
+    /// document's, which is the split `viewer_core::Query::Measure` exists for: Table 267's
+    /// conversions and §12.9.2's formatting are a reading of the file, and no host holds either.
+    fn measure(&mut self, at: (f32, f32)) {
+        if !self.measuring.point(at) {
+            return;
+        }
+        let points = self.measuring.points().to_vec();
+        let traced = match self.viewer.query(Query::Measure(&points)) {
+            Answer::Measured(traced) => Some(traced),
+            _ => None,
+        };
+        self.say(&viewer_host::measuring::said(points.len(), traced.as_ref()));
     }
 
     /// §12.5.6.5's activation region under the pointer, as this platform's cursor.
@@ -3386,11 +3425,11 @@ fn listen(
 
     let keys = gtk4::EventControllerKey::new();
     let listener = me.clone();
-    // The modifier state is read because §12.5.1's tab key needs a direction and Shift is the
-    // only thing that separates the two; no other row of `viewer_host::keys` looks at it.
+    // Both modifiers the table reads: Shift for §12.5.1's tab key, and Control for the four
+    // conventional bindings — a Control this program does not bind means nothing rather than the
+    // unmodified row, which is why it has to cross rather than being dropped here (ADR 1192).
     keys.connect_key_pressed(move |_, key, _, held| {
-        let shift = held.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-        with(&listener, |host| host.key(key, shift));
+        with(&listener, |host| host.key(key, modifiers(held)));
         glib::Propagation::Proceed
     });
     window.add_controller(keys);
@@ -3705,6 +3744,7 @@ fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
         Gdk::h | Gdk::H => Stated::H,
         Gdk::k | Gdk::K => Stated::K,
         Gdk::l | Gdk::L => Stated::L,
+        Gdk::m | Gdk::M => Stated::M,
         Gdk::o | Gdk::O => Stated::O,
         Gdk::p | Gdk::P => Stated::P,
         Gdk::r | Gdk::R => Stated::R,
@@ -3734,6 +3774,22 @@ fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
     })
 }
 
+/// GDK's modifier state as the two modifiers [`viewer_host::keys`] reads.
+///
+/// **A function rather than two lines in the controller's closure**, so that the one thing this
+/// host decides about a modifier can be tested without a display: a `gdk::ModifierType` is a set
+/// of bits and nothing here calls into GTK. The other two hosts have the same seam.
+///
+/// Alt, Meta and the platform key are deliberately not folded into either: they belong to a
+/// window manager and to GTK's own accelerators, and a host that passed one of them as Control
+/// would bind a key it was not given (ADR 1192).
+fn modifiers(held: gtk4::gdk::ModifierType) -> viewer_host::Modifiers {
+    viewer_host::Modifiers {
+        shift: held.contains(gtk4::gdk::ModifierType::SHIFT_MASK),
+        ctrl: held.contains(gtk4::gdk::ModifierType::CONTROL_MASK),
+    }
+}
+
 /// Which of this notebook's pages one of [`Tab`]'s panels is.
 ///
 /// **Exhaustive over [`Tab`] on purpose, and it is a second statement rather than a wrapper around
@@ -3754,9 +3810,34 @@ const fn notebook_page(tab: Tab) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::key_pressed;
+    use super::{key_pressed, modifiers};
     use gtk4::gdk::Key as Gdk;
     use viewer_host::Tab;
+
+    /// This host's whole contribution to what a modifier means, checked without a display.
+    ///
+    /// Three things, and each was wrong here before ADR 1192: Shift crosses, Control crosses,
+    /// and a modifier this program does not bind is folded into neither. The last is what makes
+    /// `viewer_host::ctrl_meaning` answer nothing for an Alt a window manager is about to take.
+    #[test]
+    fn both_modifiers_the_table_reads_cross_and_no_others_do() {
+        use gtk4::gdk::ModifierType as Held;
+        assert_eq!(modifiers(Held::empty()), viewer_host::Modifiers::NONE);
+        assert_eq!(modifiers(Held::SHIFT_MASK), viewer_host::Modifiers::SHIFT);
+        assert_eq!(modifiers(Held::CONTROL_MASK), viewer_host::Modifiers::CTRL);
+        assert_eq!(
+            modifiers(Held::SHIFT_MASK | Held::CONTROL_MASK),
+            viewer_host::Modifiers {
+                shift: true,
+                ctrl: true
+            }
+        );
+        assert_eq!(
+            modifiers(Held::ALT_MASK | Held::SUPER_MASK | Held::META_MASK),
+            viewer_host::Modifiers::NONE,
+            "a modifier this program does not bind is not passed off as one it does"
+        );
+    }
 
     /// Every key the shared table states has a `gdk::Key` in this host.
     ///
@@ -3779,6 +3860,7 @@ mod tests {
                 Stated::H => Gdk::h,
                 Stated::K => Gdk::k,
                 Stated::L => Gdk::l,
+                Stated::M => Gdk::m,
                 Stated::O => Gdk::o,
                 Stated::P => Gdk::p,
                 Stated::R => Gdk::r,

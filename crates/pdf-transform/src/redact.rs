@@ -39,7 +39,9 @@
 //! with `FlateDecode` and written as a new stream, so the cleared samples are gone from the
 //! decoded image rather than covered. Samples outside every region are byte-identical to the
 //! original decode. Because clearing an image object modifies bytes every placement of it shares,
-//! a shared image is refused (below) rather than cleared where it would alter another placement.
+//! an image another page also draws is **copied for the redacted page** rather than replaced: the
+//! marks that other placement draws are content the annotation did not identify, and the copy is
+//! what the redacted page's resources name (ADR 1196).
 //!
 //! An image behind a **codec** — `DCTDecode` (§7.4.8), `CCITTFaxDecode` (§7.4.6) or `JBIG2Decode`
 //! (§7.4.7) — cannot be zeroed in its packed grid, because its bytes are the codec's input rather
@@ -83,16 +85,50 @@
 //!   comes back at a reduced resolution level (§7.4.9 NOTE 3), so the raster is not the image's
 //!   grid and a redaction that silently changed the image's resolution cannot be proven to have
 //!   replaced the full-resolution content the region maps into. An image whose colour space this
-//!   build cannot count the components of, or whose declared grid its sample data does not fill, or
-//!   a **shared** image the guard cannot prove exclusive to the redacted page (clearing it would
-//!   alter another placement), is refused the same way;
+//!   build cannot count the components of, or whose declared grid its sample data does not fill,
+//!   is refused the same way;
 //! - an **inline image** (§8.9.7) encoded by a codec, or whose colour space resolves to a
 //!   resource object an inline image cannot carry, or whose declared grid its data does not fill
 //!   — the same three limits as an image `XObject`, at the splice above rather than at a `Do`;
-//! - a **painted path** or a **form** (§8.5) — removing only the portion of a vector mark within
-//!   the region needs geometric path subtraction, and deleting the whole painting operator would
-//!   destroy content the annotation did not identify (its bbox reaches outside the region), which
-//!   is the opposite failure from the one the clause forbids.
+//! - a **painted path** whose marks the cut cannot take exactly: a stroke (§8.5.3.2's marks are
+//!   the path's *outline*, so cutting the path would place caps and joins the producer never
+//!   wrote), a path with a §8.5.2.2 Bézier segment (the crossing parameter is a root this build
+//!   does not solve, and flattening it would approximate the producer's geometry), a path that is
+//!   also §8.5.4's clipping boundary (cutting it would move the boundary every later mark is held
+//!   to), one whose path object another operator interrupted, and one whose surviving coordinates
+//!   are too large for [`paths::Cut::margin_holds`] to prove the cut edge cannot round into the
+//!   region;
+//! - a **form `XObject`** (§8.10) whose content does not decode, one that draws itself, or one
+//!   the page's resources name directly rather than by reference, so no object can be replaced.
+//!
+//! # Cutting a painted path (§8.5, §12.5.6.23)
+//!
+//! A glyph's unit of removal is its code and an image's is its sample; a painted path has neither,
+//! so its removal is **geometric**. The path's subpaths are cut to the complement of the region
+//! and the surviving geometry is written back as fresh §8.5.2 construction operators, so the
+//! coordinates that described the removed marks are gone from the file — a clip would have left
+//! them, which is the failure the clause names for an image when it forbids a mask. A path wholly
+//! inside the region loses its painting operator with its geometry; one clear of the region keeps
+//! its own bytes. [`paths`] is the construction, its exactness argument, and the margin that makes
+//! the rounding at the cut edge a proof rather than a hope. ADR 1195.
+//!
+//! # Entering a form (§8.10)
+//!
+//! A form `XObject` is "a self-contained description of any sequence of graphics objects", so the
+//! marks it draws under the region are described in *its* stream and the walk enters it — always,
+//! not only when it meets the region, because the interpreter runs a form's content inline and the
+//! placed-code count this walk is calibrated against therefore includes the form's codes. §8.10.1's
+//! step b) puts the form's `/Matrix` in front of the transform at the `Do`, and Table 93's
+//! `/Resources` is what its names resolve in, the page's where it states none (ADR 0255).
+//!
+//! # A shared object is copied, never replaced (ADR 1196)
+//!
+//! An object drawn on the redacted page **and** somewhere else carries marks the annotation did
+//! not identify, so destroying them would remove content nobody asked for. The removal is written
+//! into a copy the redacted page's own `/Resources` names; the original stays exactly as the
+//! producer wrote it. Everything on the path to that copy — the `/XObject` subdictionary, a
+//! nested form's `/Resources` — is copied with it, and everything that reaches nothing replaced is
+//! still shared.
 //!
 //! # What is a documented departure (A64/A65's fence)
 //!
@@ -100,6 +136,8 @@
 //! removal, and composing them is composing content the document did not hold — the far side of
 //! `CLAUDE.md`'s authoring line. So the removal happens and the overlay is not drawn, reported
 //! as a per-page [`crate::Departure`] from §12.5.6.23's full application semantics.
+
+mod paths;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -179,10 +217,11 @@ pub(crate) fn run(
 
     let pages = Pages::new(document);
     let mut applied: Vec<AppliedPage> = Vec::new();
-    let mut clears: Vec<ImageClear> = Vec::new();
+    let mut cleared_images = 0usize;
     let mut annotations = 0usize;
     let mut glyphs = 0usize;
     let mut inline_images = 0usize;
+    let mut cut_paths = 0usize;
     let mut departures: Vec<usize> = Vec::new();
 
     for index in 0..pages.len() {
@@ -198,10 +237,14 @@ pub(crate) fn run(
         }
         match plan_page(document, &page, &regions, &counts) {
             Ok(edit) => {
+                // §12.5.6.23: destroy the image data. Grouped and cleared per page, so a shared
+                // image's destroyed samples belong to this page's copy alone.
+                let images = clear_images(document, edit.clears)?;
                 annotations = annotations.saturating_add(regions.len());
                 glyphs = glyphs.saturating_add(edit.removed);
                 inline_images = inline_images.saturating_add(edit.inline_images);
-                clears.extend(edit.clears);
+                cut_paths = cut_paths.saturating_add(edit.paths);
+                cleared_images = cleared_images.saturating_add(images.len());
                 if regions.iter().any(|region| region.has_overlay) {
                     departures.push(index.saturating_add(1));
                 }
@@ -209,6 +252,9 @@ pub(crate) fn run(
                     page_id,
                     placed: page_id,
                     content: edit.content,
+                    resources: page.resources.clone(),
+                    images,
+                    forms: edit.forms,
                 });
             }
             Err(skip) => report.refused.push(Declined {
@@ -220,22 +266,11 @@ pub(crate) fn run(
         }
     }
 
-    // §12.5.6.23: destroy the image data. The single-referrer guard has already refused any
-    // shared image, so each cleared object belongs to one page.
-    let cleared_images = clear_images(document, clears)?;
     // §12.5.6.23's destroyed images are the image XObjects cleared as new streams and the inline
     // images spliced in the content stream — both had their region samples set to the constant.
-    let images = cleared_images.len().saturating_add(inline_images);
+    let images = cleared_images.saturating_add(inline_images);
 
-    let written = write_document(
-        document,
-        root,
-        &mut applied,
-        &cleared_images,
-        plan,
-        sinks,
-        protect,
-    )?;
+    let written = write_document(document, root, &mut applied, plan, sinks, protect)?;
     if written.dangling {
         report.warnings.push(Warning {
             source: plan.source,
@@ -255,6 +290,7 @@ pub(crate) fn run(
             annotations,
             glyphs,
             images,
+            paths: cut_paths,
         },
     });
     for page in departures {
@@ -273,8 +309,11 @@ pub(crate) fn run(
 /// One image `XObject` whose samples the removal destroyed: its object, the re-encoded
 /// `FlateDecode` bytes, and how the writer must describe them.
 struct ClearedImage {
-    /// The object whose stream is replaced.
+    /// The object whose stream is replaced, or copied where it is shared.
     id: ObjectId,
+    /// Whether the replacement is a copy this page alone draws (§12.5.6.23 and the sharing rule
+    /// in [`Walk::exclusively_owned`]).
+    private: bool,
     /// The cleared samples, re-encoded `FlateDecode`.
     encoded: Vec<u8>,
     /// `Some(layout)` when the image was decoded from a codec and re-expressed as a fresh raster,
@@ -286,11 +325,13 @@ struct ClearedImage {
     codec: Option<ImageLayout>,
 }
 
-/// Groups the pages' image clears by object and destroys each image's samples once.
+/// Groups **one page's** image clears by object and destroys each image's samples once.
 ///
 /// A page may draw one image twice, so the placements of one object are unioned into a single
-/// cleared stream (§12.5.6.23). The single-referrer guard ([`Walk::exclusively_owned`]) has
-/// already refused any image a second page shares, so this cannot destroy another page's picture.
+/// cleared stream (§12.5.6.23). The grouping is per page rather than per document because a
+/// shared image's destroyed samples are this page's alone: two pages redacting the same object
+/// get a copy each, cleared under their own placements, and the original keeps the picture every
+/// unredacted placement draws.
 fn clear_images(
     document: &Document,
     clears: Vec<ImageClear>,
@@ -312,7 +353,13 @@ fn clear_images(
             cleared_image_samples(document, stream, &placements).map_err(|detail| {
                 Refusal::Assembly(format!("§12.5.6.23: image object {}: {detail}", id.number))
             })?;
-        cleared.push(ClearedImage { id, encoded, codec });
+        let private = placements.iter().any(|clear| clear.private);
+        cleared.push(ClearedImage {
+            id,
+            private,
+            encoded,
+            codec,
+        });
     }
     Ok(cleared)
 }
@@ -323,6 +370,13 @@ struct AppliedPage {
     page_id: ObjectId,
     placed: ObjectId,
     content: Vec<u8>,
+    /// The resource dictionary in effect for the page, after §7.7.3.4's inheritance — what a
+    /// private replacement is written into where the page's own entry is shared.
+    resources: Dictionary,
+    /// The images whose samples this page's removal destroyed.
+    images: Vec<ClearedImage>,
+    /// The forms whose content this page's removal edited.
+    forms: Vec<FormEdit>,
 }
 
 /// One `/Redact` annotation's region and whether it states an overlay appearance.
@@ -434,6 +488,10 @@ struct PageEdit {
     /// How many inline images (§8.9.7) this page spliced — each had its region samples
     /// destroyed in the content stream, so each counts among the report's destroyed images.
     inline_images: usize,
+    /// How many painted paths (§8.5) this page cut to the region's complement.
+    paths: usize,
+    /// The form `XObject`s whose own content streams the removal edited (§8.10).
+    forms: Vec<FormEdit>,
 }
 
 /// One image `XObject` placement the removal clears: which object, the transform that placed its
@@ -450,12 +508,32 @@ struct ImageClear {
     /// The sample grid and packing, read once at planning time so the clearing needs no
     /// resources: width, height, colour components, and bits per component (§8.9.5).
     layout: ImageLayout,
+    /// Whether the image object is shared, so the destroyed samples must be written as a copy
+    /// this page alone draws and the original left holding the picture another placement shows.
+    private: bool,
     /// The decoded samples when the source image was behind a `DCTDecode` or `CCITTFaxDecode`
     /// codec: opaque 8-bit `DeviceRGB` from [`pdf_model::image::decode`], laid out as `layout`
     /// describes (3 components, 8 bits). `None` for a codec-free image, whose packed samples are
     /// read from the stream at clearing time. Held here because a codec's bytes are not samples,
     /// so the destruction cannot address the packed grid the source stream carries.
     decoded: Option<Arc<[u8]>>,
+}
+
+/// One form `XObject` (§8.10) whose own content stream the removal edited.
+///
+/// A form's marks are described inside its own stream, so removing the marks it draws under the
+/// region is an edit of *that* stream rather than of the page's. Whether the edited stream
+/// replaces the form or becomes a copy this page alone draws is decided by whether the form is
+/// the page's own: see [`Walk::exclusively_owned`].
+#[derive(Clone)]
+struct FormEdit {
+    /// The form object the page's resources name.
+    id: ObjectId,
+    /// Its content stream with the region's marks removed.
+    content: Vec<u8>,
+    /// Whether the form is shared, so the edited stream must be a copy placed for this page and
+    /// the original left holding the marks the other pages' placements draw.
+    private: bool,
 }
 
 /// An image's sample layout: enough of §8.9.5 to address one packed sample.
@@ -539,11 +617,133 @@ enum ArrayElement {
     Str(Vec<u8>),
 }
 
+/// A path object under construction (§8.2): §8.5.2's construction operators accumulate here until
+/// a painting operator decides what becomes of it.
+struct PathObject {
+    /// The closed subpaths, in the content stream's own user space.
+    subpaths: Vec<paths::SubPath>,
+    /// The subpath still being built, flushed into `subpaths` by `h`, `re`, a fresh `m`, or the
+    /// painting operator.
+    current: paths::SubPath,
+    /// Every point named so far, in the display list's space — the box the region is tested
+    /// against. A curve contributes its control points, which contain the curve, so the box
+    /// over-approximates and never misses a region.
+    bbox: Option<[f32; 4]>,
+    /// Whether §8.5.2.2's `c`, `v` or `y` contributed: a segment this build does not cut.
+    curved: bool,
+    /// Whether §8.5.4's `W` or `W*` made this path the clipping boundary as well as a mark.
+    clips: bool,
+    /// Whether an operator that is not path construction ran while the path was open, so the
+    /// byte range between the first operand and the painting operator is not the path's alone.
+    interrupted: bool,
+    /// Where the path's first operand starts, which is where a cut's replacement begins.
+    start: usize,
+    /// The transform in force when the path was begun; `interrupted` is what proves it is still
+    /// the one in force at the painting operator.
+    ctm: Transform,
+}
+
+impl PathObject {
+    fn new(start: usize, ctm: Transform) -> Self {
+        Self {
+            subpaths: Vec::new(),
+            current: Vec::new(),
+            bbox: None,
+            curved: false,
+            clips: false,
+            interrupted: false,
+            start,
+            ctm,
+        }
+    }
+
+    /// Adds one user-space point to the subpath under construction and to the device-space box.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a content-stream path coordinate is far inside f32"
+    )]
+    fn push(&mut self, x: f64, y: f64) {
+        self.current.push((x, y));
+        let point = self.ctm.apply(Point::new(x as f32, y as f32));
+        let bbox = self
+            .bbox
+            .get_or_insert([point.x, point.y, point.x, point.y]);
+        bbox[0] = bbox[0].min(point.x);
+        bbox[1] = bbox[1].min(point.y);
+        bbox[2] = bbox[2].max(point.x);
+        bbox[3] = bbox[3].max(point.y);
+    }
+
+    /// Closes the subpath under construction, if it has one, and starts a fresh one. A fill
+    /// closes every subpath implicitly (§8.5.3.1), so a subpath the producer left open and one
+    /// it closed with `h` are the same region and are flushed the same way.
+    fn flush(&mut self) {
+        if !self.current.is_empty() {
+            self.subpaths.push(std::mem::take(&mut self.current));
+        }
+    }
+}
+
+/// The per-stream state [`Walk::run_form`] sets aside while it walks a form's own content.
+///
+/// The graphics state a form inherits is everything but its own transform and its own resources
+/// (§8.10.1), so the text state and the region are not here: they carry into the form unchanged.
+/// The edits are here because each belongs to the byte string it indexes, and a form's stream is
+/// not the page's.
+struct Frame {
+    edits: Vec<(usize, usize, Vec<u8>)>,
+    resources: Dictionary,
+    ctm: Transform,
+    ctm_stack: Vec<Transform>,
+    path: Option<PathObject>,
+}
+
+/// Whether an operator belongs inside a path object (§8.2): §8.5.2's construction operators,
+/// §8.5.4's clip operators, and the painting operators that end one.
+fn is_path_operator(keyword: &[u8]) -> bool {
+    matches!(
+        keyword,
+        b"m" | b"l"
+            | b"c"
+            | b"v"
+            | b"y"
+            | b"re"
+            | b"h"
+            | b"W"
+            | b"W*"
+            | b"f"
+            | b"F"
+            | b"f*"
+            | b"S"
+            | b"s"
+            | b"B"
+            | b"B*"
+            | b"b"
+            | b"b*"
+            | b"n"
+    )
+}
+
+/// The transform as the double-precision mapping [`paths`] takes its decisions in.
+fn mapping(transform: Transform) -> paths::Mapping {
+    paths::Mapping {
+        a: f64::from(transform.a),
+        b: f64::from(transform.b),
+        c: f64::from(transform.c),
+        d: f64::from(transform.d),
+        e: f64::from(transform.e),
+        f: f64::from(transform.f),
+    }
+}
+
 /// The content-stream walk: it enumerates codes in the interpreter's order, tests each placed
 /// quadrilateral against the region, and edits the bytes.
 struct Walk<'a> {
     document: &'a Document,
     page: &'a Page,
+    /// The resource dictionary the stream now running resolves its names in — the page's, or a
+    /// form's own where it states one (§7.8.3, §8.10.1, ADR 0255).
+    resources: Dictionary,
     /// One quadrilateral per code the interpreter placed, in content order — copied out of the
     /// interpretation because the walk indexes them and nothing else keeps them alive.
     quads: Vec<[f32; 8]>,
@@ -556,7 +756,8 @@ struct Walk<'a> {
     char_spacing: f32,
     word_spacing: f32,
     width: Option<CodeWidth>,
-    path: Option<[f32; 4]>,
+    /// The path object under construction (§8.5.2), or `None` between path objects.
+    path: Option<PathObject>,
     code_index: usize,
     removed: usize,
     edits: Vec<(usize, usize, Vec<u8>)>,
@@ -567,6 +768,17 @@ struct Walk<'a> {
     clears: Vec<ImageClear>,
     /// How many inline images this page has spliced (§8.9.7), for the destroyed-image count.
     inline_cleared: usize,
+    /// How many painted paths this page cut against the region (§8.5, §12.5.6.23).
+    paths_cut: usize,
+    /// The form `XObject`s whose own content the removal edited.
+    form_edits: Vec<FormEdit>,
+    /// The forms whose content streams are on this walk's stack, so a form that draws itself is
+    /// refused rather than followed for ever.
+    forms_open: Vec<ObjectId>,
+    /// How many forms on that stack are shared. An object reached only through a form another
+    /// page also draws is that page's too, whatever its own reference count says, so nothing
+    /// inside one may be replaced in place.
+    inside_shared: usize,
 }
 
 impl<'a> Walk<'a> {
@@ -580,6 +792,7 @@ impl<'a> Walk<'a> {
         Self {
             document,
             page,
+            resources: page.resources.clone(),
             quads: interpretation
                 .text_layer
                 .iter()
@@ -601,11 +814,37 @@ impl<'a> Walk<'a> {
             counts,
             clears: Vec::new(),
             inline_cleared: 0,
+            paths_cut: 0,
+            form_edits: Vec::new(),
+            forms_open: Vec::new(),
+            inside_shared: 0,
         }
     }
 
-    /// Walks the whole content stream, returning the edited bytes or a refusal by name.
+    /// Walks the page's content stream, returning the edited bytes or a refusal by name.
     fn run(mut self, content: &[u8]) -> Result<PageEdit, String> {
+        self.run_stream(content)?;
+        if self.code_index != self.quads.len() {
+            return Err(format!(
+                "the content walk found {} code(s) where the interpreter placed {}; the page is \
+                 refused rather than cut against a walk the interpreter does not confirm",
+                self.code_index,
+                self.quads.len()
+            ));
+        }
+        Ok(PageEdit {
+            content: apply_edits(content, self.edits),
+            removed: self.removed,
+            clears: self.clears,
+            inline_images: self.inline_cleared,
+            paths: self.paths_cut,
+            forms: self.form_edits,
+        })
+    }
+
+    /// Walks one content stream — the page's, or a form's under [`Walk::run_form`] — leaving its
+    /// edits in `self.edits`.
+    fn run_stream(&mut self, content: &[u8]) -> Result<(), String> {
         let mut lexer = Lexer::at(content, 0);
         let mut operands: Vec<(Operand, usize)> = Vec::new();
         loop {
@@ -643,20 +882,7 @@ impl<'a> Walk<'a> {
                 }
             }
         }
-        if self.code_index != self.quads.len() {
-            return Err(format!(
-                "the content walk found {} code(s) where the interpreter placed {}; the page is \
-                 refused rather than cut against a walk the interpreter does not confirm",
-                self.code_index,
-                self.quads.len()
-            ));
-        }
-        Ok(PageEdit {
-            content: apply_edits(content, self.edits),
-            removed: self.removed,
-            clears: self.clears,
-            inline_images: self.inline_cleared,
-        })
+        Ok(())
     }
 
     /// Dispatches one operator against the operands scanned before it.
@@ -666,6 +892,11 @@ impl<'a> Walk<'a> {
         keyword_start: usize,
         operands: &[(Operand, usize)],
     ) -> Result<(), String> {
+        if !is_path_operator(keyword)
+            && let Some(path) = self.path.as_mut()
+        {
+            path.interrupted = true;
+        }
         match keyword {
             b"q" => self.ctm_stack.push(self.ctm),
             b"Q" => {
@@ -701,10 +932,18 @@ impl<'a> Walk<'a> {
             b"Tj" | b"'" => self.show_one(operands, keyword, keyword_start)?,
             b"\"" => self.show_quote(operands)?,
             b"TJ" => self.show_array(operands, keyword_start)?,
-            b"m" | b"l" | b"c" | b"v" | b"y" => self.extend_path(&plain_numbers(operands)),
-            b"re" => self.extend_rectangle(&plain_numbers(operands)),
+            b"m" => self.begin_subpath(operands),
+            b"l" => self.extend_subpath(operands),
+            b"c" | b"v" | b"y" => self.curve_subpath(operands),
+            b"re" => self.add_rectangle(operands),
+            b"h" => self.close_subpath(),
+            b"W" | b"W*" => {
+                if let Some(path) = self.path.as_mut() {
+                    path.clips = true;
+                }
+            }
             b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"B*" | b"b" | b"b*" => {
-                self.paint_path(keyword)?;
+                self.paint_path(keyword, keyword_start)?;
             }
             b"n" => self.path = None,
             b"Do" => self.do_xobject(operands)?,
@@ -744,7 +983,7 @@ impl<'a> Walk<'a> {
 
     /// The code-byte width of the named font, or a refusal for a font the walk will not cut.
     fn code_width(&self, name: &[u8]) -> Result<CodeWidth, String> {
-        let fonts = self.document.get_key(&self.page.resources, "Font");
+        let fonts = self.document.get_key(&self.resources, "Font");
         let font = fonts
             .as_dict()
             .and_then(|fonts| fonts.get_by_name(&Name::new(name)))
@@ -1033,52 +1272,183 @@ impl<'a> Walk<'a> {
         (axis.a * axis.a + axis.b * axis.b).sqrt()
     }
 
-    fn extend_path(&mut self, numbers: &[f64]) {
-        for pair in numbers.chunks_exact(2) {
-            self.add_point(pair[0], pair[1]);
-        }
-    }
-
-    fn extend_rectangle(&mut self, numbers: &[f64]) {
-        if let [x, y, w, h] = numbers {
-            self.add_point(*x, *y);
-            self.add_point(*x + *w, *y);
-            self.add_point(*x + *w, *y + *h);
-            self.add_point(*x, *y + *h);
-        }
-    }
-
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "a content-stream path coordinate is far inside f32"
-    )]
-    fn add_point(&mut self, x: f64, y: f64) {
-        let point = self.ctm.apply(Point::new(x as f32, y as f32));
-        let bbox = self
-            .path
-            .get_or_insert([point.x, point.y, point.x, point.y]);
-        bbox[0] = bbox[0].min(point.x);
-        bbox[1] = bbox[1].min(point.y);
-        bbox[2] = bbox[2].max(point.x);
-        bbox[3] = bbox[3].max(point.y);
-    }
-
-    /// A painted path that meets the region is refused: removing only the portion of a vector
-    /// mark within the region needs geometric path subtraction this build does not do, and
-    /// dropping the whole painting operator would destroy content outside the region (the path's
-    /// bbox reaches past it) — the opposite failure from the one §12.5.6.23 forbids.
-    fn paint_path(&mut self, keyword: &[u8]) -> Result<(), String> {
-        let bbox = self.path.take();
-        if let Some(bbox) = bbox
-            && self.regions.iter().any(|region| overlaps(*region, bbox))
+    /// `m` (§8.5.2.1): begins a new subpath at the given point.
+    fn begin_subpath(&mut self, operands: &[(Operand, usize)]) {
+        self.open_path(operands);
+        let numbers = plain_numbers(operands);
+        if let Some(path) = self.path.as_mut()
+            && let [x, y] = numbers.as_slice()
         {
-            return Err(format!(
-                "§8.5: a painted path ({}) meets the region; removing only its portion within the \
-                 region needs geometric subtraction this build does not do; the page is refused",
-                String::from_utf8_lossy(keyword)
-            ));
+            path.flush();
+            path.push(*x, *y);
         }
+    }
+
+    /// `l` (§8.5.2.1): appends a straight segment to the subpath under construction.
+    fn extend_subpath(&mut self, operands: &[(Operand, usize)]) {
+        self.open_path(operands);
+        let numbers = plain_numbers(operands);
+        if let Some(path) = self.path.as_mut()
+            && let [x, y] = numbers.as_slice()
+        {
+            path.push(*x, *y);
+        }
+    }
+
+    /// `c`, `v`, `y` (§8.5.2.2): a cubic Bézier. Every operand is taken as a point so the
+    /// device-space box covers the curve's control polygon, which contains the curve — an
+    /// over-approximation, so a curve near the region is never missed — and the path is marked
+    /// curved, which refuses it where it meets the region.
+    fn curve_subpath(&mut self, operands: &[(Operand, usize)]) {
+        self.open_path(operands);
+        let numbers = plain_numbers(operands);
+        if let Some(path) = self.path.as_mut() {
+            path.curved = true;
+            for pair in numbers.chunks_exact(2) {
+                path.push(pair[0], pair[1]);
+            }
+        }
+    }
+
+    /// `re` (§8.5.2.1): a complete rectangular subpath, which closes itself.
+    fn add_rectangle(&mut self, operands: &[(Operand, usize)]) {
+        self.open_path(operands);
+        let numbers = plain_numbers(operands);
+        if let Some(path) = self.path.as_mut()
+            && let [x, y, w, h] = numbers.as_slice()
+        {
+            path.flush();
+            path.push(*x, *y);
+            path.push(*x + *w, *y);
+            path.push(*x + *w, *y + *h);
+            path.push(*x, *y + *h);
+            path.flush();
+        }
+    }
+
+    /// `h` (§8.5.2.1): closes the subpath under construction.
+    fn close_subpath(&mut self) {
+        if let Some(path) = self.path.as_mut() {
+            path.flush();
+        }
+    }
+
+    /// Opens a path object if none is open, remembering where its first operand starts — the
+    /// offset a cut's replacement bytes begin at.
+    fn open_path(&mut self, operands: &[(Operand, usize)]) {
+        if self.path.is_none() {
+            let start = operands.first().map_or(0, |(_, at)| *at);
+            self.path = Some(PathObject::new(start, self.ctm));
+        }
+    }
+
+    /// A painted path that meets the region has the region's share of its marks **cut out**
+    /// (§12.5.6.23: the content is removed, not covered), or the page is refused by name where
+    /// the cut cannot be taken exactly (trap 5, principle 1).
+    ///
+    /// The surviving geometry replaces the whole path object — its construction operators and
+    /// its painting operator — so the coordinates that described the removed marks are gone from
+    /// the file rather than clipped away. [`paths`] is the construction and its exactness
+    /// argument; what is decided here is which paths it may be applied to.
+    fn paint_path(&mut self, keyword: &[u8], keyword_start: usize) -> Result<(), String> {
+        let Some(mut path) = self.path.take() else {
+            return Ok(());
+        };
+        path.flush();
+        let Some(bbox) = path.bbox else {
+            return Ok(());
+        };
+        if !self.regions.iter().any(|region| overlaps(*region, bbox)) {
+            // The path is nowhere near a redaction: its bytes cross the output untouched.
+            return Ok(());
+        }
+        let fill = match keyword {
+            b"f" | b"F" => "f",
+            b"f*" => "f*",
+            other => {
+                return Err(format!(
+                    "§8.5.3.2: a stroked path ({}) meets the region; a stroke's marks are the \
+                     outline of the path, so cutting the path would place caps and joins the \
+                     producer did not write; the page is refused rather than draw a mark the \
+                     file does not state",
+                    String::from_utf8_lossy(other)
+                ));
+            }
+        };
+        if path.curved {
+            return Err(
+                "§8.5.2.2: a path with a cubic Bézier segment meets the region; cutting a curve \
+                 at the region's edge needs the crossing parameter, which this build does not \
+                 solve, and flattening it would approximate the producer's geometry; the page is \
+                 refused"
+                    .to_owned(),
+            );
+        }
+        if path.clips {
+            return Err(
+                "§8.5.4: the path meeting the region is also the clipping path (W or W*), which \
+                 bounds every mark after the painting operator; cutting its geometry would move \
+                 that boundary and change content the annotation did not identify; the page is \
+                 refused"
+                    .to_owned(),
+            );
+        }
+        if path.interrupted {
+            return Err(
+                "§8.2: an operator that is not path construction ran inside the path object \
+                 meeting the region, so the bytes the cut would replace are not the path's \
+                 alone; the page is refused"
+                    .to_owned(),
+            );
+        }
+        if path.ctm.determinant() == 0.0 {
+            return Err(
+                "§8.3.4: the transform in force where a painted path meets the region is \
+                 singular, so the path has no area in device space to cut; the page is refused"
+                    .to_owned(),
+            );
+        }
+        let cut = paths::subtract(&path.subpaths, &self.region_bounds(), mapping(path.ctm))
+            .ok_or_else(|| {
+                "§12.5.6.23: cutting a painted path against these regions exceeds this build's \
+                 bound on the surviving pieces; the page is refused rather than truncated"
+                    .to_owned()
+            })?;
+        if !cut.margin_holds() {
+            return Err(
+                "§7.3.3: a coordinate of the cut path is large enough that writing it back and \
+                 reading it as a single-precision real could move the cut edge inside the \
+                 region; the page is refused rather than leave a sliver of the removed marks"
+                    .to_owned(),
+            );
+        }
+        let mut replacement = String::new();
+        if !cut.polygons.is_empty() {
+            paths::write_polygons(&mut replacement, &cut.polygons);
+            replacement.push_str(fill);
+        }
+        self.paths_cut = self.paths_cut.saturating_add(1);
+        self.edits.push((
+            path.start,
+            keyword_start.saturating_add(keyword.len()),
+            replacement.into_bytes(),
+        ));
         Ok(())
+    }
+
+    /// The region boxes as double-precision numbers, which the cut's decisions are taken in.
+    fn region_bounds(&self) -> Vec<[f64; 4]> {
+        self.regions
+            .iter()
+            .map(|region| {
+                [
+                    f64::from(region[0]),
+                    f64::from(region[1]),
+                    f64::from(region[2]),
+                    f64::from(region[3]),
+                ]
+            })
+            .collect()
     }
 
     /// `Do`: an image that meets the region is cleared (§12.5.6.23); a form or an image the
@@ -1090,7 +1460,7 @@ impl<'a> Walk<'a> {
         }) else {
             return Ok(());
         };
-        let xobjects = self.document.get_key(&self.page.resources, "XObject");
+        let xobjects = self.document.get_key(&self.resources, "XObject");
         let Some(entry) = xobjects
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name.as_slice())))
@@ -1129,22 +1499,7 @@ impl<'a> Walk<'a> {
                 self.clears.push(clear);
                 Ok(())
             }
-            b"Form" => {
-                let bbox = match numbers(self.document, dict, "BBox") {
-                    Some(values) if values.len() >= 4 => self.transformed_box(&values),
-                    _ => self.unit_square(),
-                };
-                if self.regions.iter().any(|region| overlaps(*region, bbox)) {
-                    return Err(
-                        "§8.5: a form XObject meets the region; removing only the portion of its \
-                         marks within the region needs geometric subtraction this build does not \
-                         do, and dropping the whole form would destroy content outside the \
-                         region; the page is refused"
-                            .to_owned(),
-                    );
-                }
-                Ok(())
-            }
+            b"Form" => self.run_form(&name, &entry, &object),
             _ => {
                 if self
                     .regions
@@ -1160,6 +1515,117 @@ impl<'a> Walk<'a> {
                 Ok(())
             }
         }
+    }
+
+    /// `Do` on a form `XObject` (§8.10): the walk **enters** the form's own content stream.
+    ///
+    /// A form is "a self-contained description of any sequence of graphics objects" (§8.10.1), so
+    /// the marks it draws under the region are described in *its* stream and removing them is an
+    /// edit of that stream. Entering it is not optional even for a form the region misses: the
+    /// interpreter runs a form's content inline, so every code it shows is in the placed
+    /// quadrilaterals this walk is held to, and a walk that skipped the form would disagree with
+    /// the interpreter's count and refuse every page whose text is inside one.
+    ///
+    /// §8.10.1's step b) concatenates the form's `/Matrix` with the CTM before its content runs,
+    /// and Table 93's `/Resources` is what its names resolve in — the page's dictionary where it
+    /// states none, which is the direction §7.8.3's NOTE 3 gives and the reading ADR 0255 fixed.
+    /// The graphics state is otherwise inherited, so the text state a `Tf` outside the form set
+    /// is still in force inside it.
+    ///
+    /// Refused by name: a form whose content does not decode, and a form that draws itself
+    /// (§8.10.1 states no recursion, and a walk that followed one would not end).
+    fn run_form(&mut self, name: &[u8], entry: &Object, object: &Object) -> Result<(), String> {
+        let shown = String::from_utf8_lossy(name);
+        let Some(stream) = object.as_stream() else {
+            return Err(format!(
+                "the content draws the form /{shown}, which is not a stream; the page is refused"
+            ));
+        };
+        let form_id = entry.as_reference();
+        if let Some(id) = form_id
+            && self.forms_open.contains(&id)
+        {
+            return Err(format!(
+                "§8.10.1: the form /{shown} draws itself; the page is refused rather than walked \
+                 for ever"
+            ));
+        }
+        if self.forms_open.len() >= MAX_DEPTH {
+            return Err(format!(
+                "§8.10.1: forms are nested deeper than this removal walks at /{shown}; the page \
+                 is refused"
+            ));
+        }
+        let Some(data) = self.document.decoded_stream_data(stream) else {
+            return Err(format!(
+                "§8.10.1: the form /{shown} did not decode, so what it draws under the region \
+                 cannot be read; the page is refused"
+            ));
+        };
+
+        let matrix = numbers(self.document, &stream.dict, "Matrix")
+            .and_then(|values| {
+                matrix(
+                    &values
+                        .iter()
+                        .map(|value| f64::from(*value))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .unwrap_or(Transform::IDENTITY);
+        let resources = self
+            .document
+            .get_key(&stream.dict, "Resources")
+            .as_dict()
+            .cloned()
+            .unwrap_or_else(|| self.page.resources.clone());
+
+        let inner_ctm = matrix.then(self.ctm);
+        let saved = Frame {
+            edits: std::mem::take(&mut self.edits),
+            resources: std::mem::replace(&mut self.resources, resources),
+            ctm: std::mem::replace(&mut self.ctm, inner_ctm),
+            ctm_stack: std::mem::take(&mut self.ctm_stack),
+            path: self.path.take(),
+        };
+        let shared = !form_id.is_some_and(|id| self.owns(id));
+        if let Some(id) = form_id {
+            self.forms_open.push(id);
+        }
+        if shared {
+            self.inside_shared = self.inside_shared.saturating_add(1);
+        }
+        let walked = self.run_stream(&data);
+        if shared {
+            self.inside_shared = self.inside_shared.saturating_sub(1);
+        }
+        if form_id.is_some() {
+            self.forms_open.pop();
+        }
+        let edits = std::mem::replace(&mut self.edits, saved.edits);
+        self.resources = saved.resources;
+        self.ctm = saved.ctm;
+        self.ctm_stack = saved.ctm_stack;
+        self.path = saved.path;
+        walked?;
+
+        if edits.is_empty() {
+            // Nothing of this form falls under the region: its stream crosses the output byte
+            // for byte, and so does the `Do` that draws it.
+            return Ok(());
+        }
+        let Some(id) = form_id else {
+            return Err(format!(
+                "§12.5.6.23: the form /{shown} draws marks under the region but is a direct \
+                 object this removal cannot replace; the page is refused"
+            ));
+        };
+        self.form_edits.push(FormEdit {
+            id,
+            content: apply_edits(&data, edits),
+            private: !self.owns(id),
+        });
+        Ok(())
     }
 
     /// Plans clearing an image `XObject` that meets the region (§12.5.6.23), or refuses by name.
@@ -1182,13 +1648,6 @@ impl<'a> Walk<'a> {
                  removal can replace; the page is refused"
             ));
         };
-        if !self.exclusively_owned(image_id) {
-            return Err(format!(
-                "§12.5.6.23: the image /{shown} is shared, so overwriting its samples would \
-                 destroy content in another placement; the page is refused rather than reach past \
-                 the region"
-            ));
-        }
         let Some(stream) = object.as_stream() else {
             return Err(format!(
                 "the image /{shown} is not a stream; the page is refused"
@@ -1232,6 +1691,7 @@ impl<'a> Walk<'a> {
             ctm: self.ctm,
             regions: self.regions.clone(),
             layout,
+            private: !self.owns(image_id),
             decoded: None,
         })
     }
@@ -1278,7 +1738,7 @@ impl<'a> Walk<'a> {
         let Flattened { image, shortfall } = pdf_model::image::decode(
             self.document,
             stream,
-            &self.page.resources,
+            &self.resources,
             Color::BLACK,
             &Conversion::device(),
         )
@@ -1322,6 +1782,7 @@ impl<'a> Walk<'a> {
             ctm: self.ctm,
             regions: self.regions.clone(),
             layout,
+            private: !self.owns(image_id),
             decoded: Some(Arc::from(samples.as_slice())),
         })
     }
@@ -1340,7 +1801,7 @@ impl<'a> Walk<'a> {
             (1, 1)
         } else {
             let space = self.document.get_key(dict, "ColorSpace");
-            let components = ColourSpace::parse(self.document, &space, &self.page.resources)
+            let components = ColourSpace::parse(self.document, &space, &self.resources)
                 .map(|resolved| resolved.components())
                 .filter(|components| *components > 0)
                 .ok_or_else(|| {
@@ -1368,9 +1829,18 @@ impl<'a> Walk<'a> {
         })
     }
 
-    /// Whether an image object is safe to overwrite in place: referenced exactly once in the
-    /// document, and reached by a resource path this page does not share, so its samples are the
-    /// redacted page's alone. A shared image is refused rather than cleared (trap 5).
+    /// Whether the redacted page owns an object outright, so the removal may replace it rather
+    /// than copy it: the reference test below, **and** no shared form between the page and it —
+    /// an object reached only through a form another page draws is that page's too, however few
+    /// references name it (ADR 1196).
+    fn owns(&self, id: ObjectId) -> bool {
+        self.inside_shared == 0 && self.exclusively_owned(id)
+    }
+
+    /// Whether an object is safe to overwrite in place: referenced exactly once in the
+    /// document, and reached by a resource path this page does not share, so its marks are the
+    /// redacted page's alone, so the removal may replace it. An object this cannot prove is the
+    /// page's is copied for the page instead ([`private_copies`], ADR 1196).
     fn exclusively_owned(&self, image_id: ObjectId) -> bool {
         if self.counts.get(&image_id.number).copied() != Some(1) {
             return false;
@@ -1404,7 +1874,7 @@ impl<'a> Walk<'a> {
         }) else {
             return Ok(());
         };
-        let states = self.document.get_key(&self.page.resources, "ExtGState");
+        let states = self.document.get_key(&self.resources, "ExtGState");
         let state = states
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name.as_slice())))
@@ -1446,7 +1916,7 @@ impl<'a> Walk<'a> {
             self.document,
             content,
             lexer.position(),
-            &self.page.resources,
+            &self.resources,
             true,
         );
         lexer.seek(scan.resume);
@@ -2123,6 +2593,14 @@ struct Written {
     dangling: bool,
 }
 
+/// An object the redacted page owns outright, whose replacement takes its slot in the output.
+enum Owned<'a> {
+    /// An image `XObject` whose samples the removal destroyed.
+    Image(&'a ClearedImage),
+    /// A form `XObject` whose own content the removal edited.
+    Form(&'a FormEdit),
+}
+
 /// Assembles the redacted document and serialises it.
 ///
 /// Every non-redacted page and its content stream crosses byte for byte (a copied slot); a
@@ -2135,7 +2613,6 @@ fn write_document(
     document: &Document,
     root: ObjectId,
     applied: &mut [AppliedPage],
-    cleared_images: &[ClearedImage],
     plan: &RedactPlan,
     sinks: &dyn Sinks,
     protect: Option<&Protect>,
@@ -2146,17 +2623,55 @@ fn write_document(
             .replace(0, page.page_id)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
-    // A cleared image is replaced the same way a redacted page is: its slot is reserved before
-    // the closure walk, so `copy_closure` short-circuits on it and the original samples are
-    // reached from nowhere and never copied — which is what makes the destruction a destruction
-    // rather than the file still holding the pixels behind a new object.
-    let mut placed_images: Vec<(ObjectId, &ClearedImage)> =
-        Vec::with_capacity(cleared_images.len());
-    for image in cleared_images {
-        let placed = assembly
-            .replace(0, image.id)
+    // An object the redacted page **owns** is replaced the same way the page is: its slot is
+    // reserved before the closure walk, so `copy_closure` short-circuits on it and the original
+    // samples or marks are reached from nowhere and never copied — which is what makes the
+    // destruction a destruction rather than the file still holding what was removed behind a new
+    // object. A **shared** object cannot be replaced, because another page's placement draws it
+    // and that placement's marks are content the annotation did not identify; it is copied for
+    // this page instead, below.
+    // Two kinds of replacement, and the difference is whether the redacted page owns the object.
+    //
+    // An object it **owns** takes the original's slot: reserved before the closure walk, so
+    // `copy_closure` short-circuits on it and the original samples or marks are reached from
+    // nowhere and never copied — which is what makes the destruction a destruction rather than
+    // the file still holding what was removed behind a new object. An object another page also
+    // draws is **copied** instead, into a slot of its own, because that page's placement draws
+    // marks the annotation did not identify (ADR 1196).
+    //
+    // Every slot is taken before any object is built, so a copy's own resources can name the
+    // page's other copies: a form holding a nested shared form is the case that needs it, and
+    // building in one pass would have left the nested copy reachable from nothing while the page
+    // went on drawing the original.
+    let mut replacements: Vec<(ObjectId, Owned<'_>, usize)> = Vec::new();
+    let mut private: Vec<HashMap<ObjectId, ObjectId>> = Vec::with_capacity(applied.len());
+    for (index, page) in applied.iter().enumerate() {
+        let mut copies = HashMap::new();
+        for image in &page.images {
+            let slot = if image.private {
+                assembly.reserve()
+            } else {
+                assembly.replace(0, image.id)
+            }
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
-        placed_images.push((placed, image));
+            if image.private {
+                copies.insert(image.id, slot);
+            }
+            replacements.push((slot, Owned::Image(image), index));
+        }
+        for form in &page.forms {
+            let slot = if form.private {
+                assembly.reserve()
+            } else {
+                assembly.replace(0, form.id)
+            }
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+            if form.private {
+                copies.insert(form.id, slot);
+            }
+            replacements.push((slot, Owned::Form(form), index));
+        }
+        private.push(copies);
     }
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
@@ -2173,15 +2688,20 @@ fn write_document(
         assembly.set_info(Some(carried));
     }
 
-    for page in applied.iter() {
-        let object = build_page(&mut assembly, document, page)?;
+    for (index, page) in applied.iter().enumerate() {
+        let copies = private.get(index).cloned().unwrap_or_default();
+        let object = build_page(&mut assembly, document, page, &copies)?;
         assembly
             .place(page.placed, object)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
 
-    for (placed, image) in placed_images {
-        let object = build_cleared_image(&mut assembly, document, image)?;
+    for (placed, source, index) in replacements {
+        let copies = private.get(index).cloned().unwrap_or_default();
+        let object = match source {
+            Owned::Image(image) => build_cleared_image(&mut assembly, document, image, &copies)?,
+            Owned::Form(form) => build_form(&mut assembly, document, form, &copies)?,
+        };
         assembly
             .place(placed, object)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
@@ -2224,10 +2744,15 @@ fn write_document(
 
 /// Builds a replaced page dictionary: the edited content, the surviving annotations, and every
 /// other entry with its references carried into the output's numbering.
+///
+/// Where the removal had to copy an object rather than replace it — a form or an image another
+/// page's placement also draws — the page is also given a `/Resources` of its own, so that the
+/// copies are what *this* page resolves its names to and every other page keeps the original.
 fn build_page(
     assembly: &mut Assembly<'_>,
     document: &Document,
     page: &AppliedPage,
+    private: &HashMap<ObjectId, ObjectId>,
 ) -> Result<Object, Refusal> {
     let mut length = Dictionary::new();
     length.insert(
@@ -2254,16 +2779,193 @@ fn build_page(
     let surviving = surviving_annotations(assembly, document, source);
     let mut dict = Dictionary::new();
     for (key, value) in source.iter() {
-        if key.as_bytes() == b"Contents" || key.as_bytes() == b"Annots" {
+        let skipped = matches!(key.as_bytes(), b"Contents" | b"Annots")
+            || (key.as_bytes() == b"Resources" && !private.is_empty());
+        if skipped {
             continue;
         }
         dict.insert(key.clone(), carry(assembly, document, value, 0));
     }
     dict.insert(Name::new(&b"Contents"[..]), Object::Reference(content_id));
+    if !private.is_empty() {
+        // §7.7.3.3 lets a page state its own `/Resources`, and §7.7.3.4's inheritance is what
+        // `Page::resources` has already resolved — so writing the effective dictionary here is
+        // the same resources the producer's page had, with the copied objects substituted.
+        let resources = privatise(
+            assembly,
+            document,
+            &Object::Dictionary(page.resources.clone()),
+            private,
+            0,
+        );
+        dict.insert(Name::new(&b"Resources"[..]), resources);
+    }
     if let Some(annots) = surviving {
         dict.insert(Name::new(&b"Annots"[..]), annots);
     }
     Ok(Object::Dictionary(dict))
+}
+
+/// Carries a value into the output, copying every object on the path to a privately replaced one.
+///
+/// A dictionary that *reaches* a replaced object is itself shared — the page's `/XObject`
+/// subdictionary is the usual one, a nested form's `/Resources` the next — so carrying it by
+/// reference would point every other page at the copy. It is rebuilt instead, and everything that
+/// reaches nothing replaced is carried by reference and shared as before, so the copying stops
+/// where it stops mattering.
+fn privatise(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    value: &Object,
+    private: &HashMap<ObjectId, ObjectId>,
+    depth: usize,
+) -> Object {
+    if depth >= MAX_DEPTH {
+        return Object::Null;
+    }
+    let next = depth.saturating_add(1);
+    match value {
+        Object::Reference(id) => {
+            if let Some(placed) = private.get(id) {
+                return Object::Reference(*placed);
+            }
+            if !reaches(document, *id, private, &mut Vec::new(), 0) {
+                return carry(assembly, document, value, depth);
+            }
+            let object = document.get(*id);
+            let copy = privatise(assembly, document, &object, private, next);
+            match assembly.add(copy) {
+                Ok(placed) => Object::Reference(placed),
+                Err(_) => Object::Null,
+            }
+        }
+        Object::Array(items) => Object::Array(
+            items
+                .iter()
+                .map(|item| privatise(assembly, document, item, private, next))
+                .collect(),
+        ),
+        Object::Dictionary(dict) => {
+            let mut out = Dictionary::new();
+            for (key, entry) in dict.iter() {
+                out.insert(
+                    key.clone(),
+                    privatise(assembly, document, entry, private, next),
+                );
+            }
+            Object::Dictionary(out)
+        }
+        Object::Stream(stream) => {
+            let mut out = Dictionary::new();
+            for (key, entry) in stream.dict.iter() {
+                out.insert(
+                    key.clone(),
+                    privatise(assembly, document, entry, private, next),
+                );
+            }
+            Object::Stream(Arc::new(Stream {
+                dict: out,
+                data: Arc::clone(&stream.data),
+                decryption_failed: stream.decryption_failed,
+            }))
+        }
+        other => other.clone(),
+    }
+}
+
+/// Whether any object privately replaced for this page is reachable from `id`.
+///
+/// `seen` is the chain of objects already on this descent, which is what makes a `/Parent` or any
+/// other cycle terminate: an object already being visited answers nothing new.
+fn reaches(
+    document: &Document,
+    id: ObjectId,
+    private: &HashMap<ObjectId, ObjectId>,
+    seen: &mut Vec<ObjectId>,
+    depth: usize,
+) -> bool {
+    if private.contains_key(&id) {
+        return true;
+    }
+    if depth >= MAX_DEPTH || seen.contains(&id) {
+        return false;
+    }
+    seen.push(id);
+    let object = document.get(id);
+    let found = reaches_in(document, &object, private, seen, depth.saturating_add(1));
+    seen.pop();
+    found
+}
+
+/// The same question asked of a value rather than an object.
+fn reaches_in(
+    document: &Document,
+    value: &Object,
+    private: &HashMap<ObjectId, ObjectId>,
+    seen: &mut Vec<ObjectId>,
+    depth: usize,
+) -> bool {
+    if depth >= MAX_DEPTH {
+        return false;
+    }
+    let next = depth.saturating_add(1);
+    match value {
+        Object::Reference(id) => reaches(document, *id, private, seen, next),
+        Object::Array(items) => items
+            .iter()
+            .any(|item| reaches_in(document, item, private, seen, next)),
+        Object::Dictionary(dict) => dict
+            .iter()
+            .any(|(_key, entry)| reaches_in(document, entry, private, seen, next)),
+        Object::Stream(stream) => stream
+            .dict
+            .iter()
+            .any(|(_key, entry)| reaches_in(document, entry, private, seen, next)),
+        _ => false,
+    }
+}
+
+/// Builds a form `XObject`'s replacement stream: its own content with the region's marks cut out,
+/// under the dictionary the producer wrote (§8.10.2 Table 93) with only the encoding restated.
+///
+/// Every other entry — `/BBox`, `/Matrix`, `/Resources`, `/Group` — describes the form and still
+/// does: what changed is the marks its content draws, not the space it draws them in.
+fn build_form(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    form: &FormEdit,
+    private: &HashMap<ObjectId, ObjectId>,
+) -> Result<Object, Refusal> {
+    let object = document.get(form.id);
+    let source = object.as_stream().ok_or_else(|| {
+        Refusal::Assembly(format!(
+            "form object {} is not a stream where its marks must be removed",
+            form.id.number
+        ))
+    })?;
+    let mut dict = Dictionary::new();
+    for (key, value) in source.dict.iter() {
+        match key.as_bytes() {
+            // The producer's encoding is dropped and §7.3.8.2's `/Length` restated: the content
+            // written here is the decoded stream with the region's marks cut out of it.
+            b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
+            _ => {
+                dict.insert(
+                    key.clone(),
+                    privatise(assembly, document, value, private, 0),
+                );
+            }
+        }
+    }
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(form.content.len()).unwrap_or(i64::MAX)),
+    );
+    Ok(Object::Stream(Arc::new(Stream {
+        dict,
+        data: Arc::from(form.content.as_slice()),
+        decryption_failed: false,
+    })))
 }
 
 /// Builds a cleared image's replacement stream: the destroyed samples re-encoded as `FlateDecode`,
@@ -2281,6 +2983,7 @@ fn build_cleared_image(
     assembly: &mut Assembly<'_>,
     document: &Document,
     image: &ClearedImage,
+    private: &HashMap<ObjectId, ObjectId>,
 ) -> Result<Object, Refusal> {
     let mut dict = Dictionary::new();
     if let Some(layout) = image.codec {
@@ -2331,7 +3034,10 @@ fn build_cleared_image(
                 // unchanged, because the samples are still on the grid it describes.
                 b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
                 _ => {
-                    dict.insert(key.clone(), carry(assembly, document, value, 0));
+                    dict.insert(
+                        key.clone(),
+                        privatise(assembly, document, value, private, 0),
+                    );
                 }
             }
         }

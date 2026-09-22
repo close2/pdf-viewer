@@ -920,8 +920,10 @@ fn read_field(
     // §12.7.6.4's hazard: the bytes may come only from a directory a person supplied, which no
     // part of this crate has. `/A` and `/AA` are actions, and an action read out of an FDF file
     // resolves its own references *there* while this tree reads a widget's from the target
-    // document at the moment it is activated. `/RV` is XFA rich text, on `CLAUDE.md`'s closed
-    // exclusion list. ADR 1186.
+    // document at the moment it is activated. `/RV` is a rich text string, whose formatting no
+    // part of this tree applies — §12.7.4.3's own departure, reported on the field it is drawn
+    // for rather than here — so importing it would change nothing a reader sees. ADRs 1186,
+    // 1197.
     for (key, why) in [
         (
             "AP",
@@ -931,7 +933,10 @@ fn read_field(
             "APRef",
             "/APRef: appearances in PDF files this reader has no filesystem to open",
         ),
-        ("RV", "/RV: XFA rich text, excluded"),
+        (
+            "RV",
+            "/RV: a rich text string whose XFA 3.3 formatting §12.7.4.3 does not apply here",
+        ),
         ("A", "/A: an action to perform when the widget is activated"),
         ("AA", "/AA: §12.6.3's trigger events"),
     ] {
@@ -1315,7 +1320,10 @@ mod tests {
         assert_eq!(data.annotations.len(), 1);
         assert_eq!(data.annotations[0].page, Some(3));
         assert_eq!(data.annotations[0].subtype.as_deref(), Some("Text"));
-        assert_eq!(data.fields[0].owed, ["/RV: XFA rich text, excluded"]);
+        assert_eq!(
+            data.fields[0].owed,
+            ["/RV: a rich text string whose XFA 3.3 formatting §12.7.4.3 does not apply here"]
+        );
         // Named one by one rather than counted: an assertion on a length would accept any five
         // sentences, including five of the wrong ones (trap 27).
         assert_eq!(

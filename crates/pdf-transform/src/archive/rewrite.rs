@@ -640,6 +640,18 @@ pub enum Rewrite {
     /// to read — and with it Table 22's permission flags stop being asserted, which is the loss
     /// [`super::Loss::Encryption`] names and `doc/adr/1187` argues.
     EncryptionRemoved,
+    /// A stream whose data the source kept outside the file carries it inside, and the keys that
+    /// put it outside are gone.
+    ///
+    /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1, and the construction is
+    /// \u{a7}7.3.8.2's Table 5 read straight: the external file's bytes go where the stream's own
+    /// were — the table having said a reader ignores those while `/F` stands — `/Filter` and
+    /// `/DecodeParms` become the `F`-prefixed pair that described the data now written,
+    /// `/Length` is restated, and the forbidden keys are removed. Where a stream states one of
+    /// the filter keys and no `/F`, nothing is fetched and nothing changes but the removal:
+    /// Table 5 gives those keys meaning only through `/F`, so a conforming reader never consulted
+    /// them (`doc/adr/1199`).
+    ExternalDataEmbedded,
 }
 
 impl Rewrite {
@@ -853,6 +865,12 @@ impl Rewrite {
                 "every Separation array naming one colourant states the definition of it the \
                  configuration chose, which is one the file already stated"
             }
+            Self::ExternalDataEmbedded => {
+                "a stream whose data this file kept outside itself carries that data inside it, \
+                 filtered as the F-prefixed entries said it was, and the keys that pointed off \
+                 the file's edge are gone - or, where those keys described an external file the \
+                 stream never named, the keys alone are gone and every byte stands"
+            }
             Self::EncryptionRemoved => {
                 "the document's encryption is not carried into the output, which no longer needs \
                  a password to read"
@@ -921,6 +939,7 @@ impl Rewrite {
             Self::HexadecimalDigitCompleted => "hexadecimal-digit-completed",
             Self::SeparationAgreed => "separation-agreed",
             Self::EncryptionRemoved => "encryption-removed",
+            Self::ExternalDataEmbedded => "external-data-embedded",
         }
     }
 }
@@ -987,6 +1006,7 @@ pub(super) fn convert(
         preserved: prepared.preserved.as_ref().ok(),
         actions: prepared.actions.as_ref().ok(),
         hexadecimal: prepared.hexadecimal.as_ref().ok(),
+        external_data: prepared.external_data.as_ref().ok(),
     };
     let mut applied = BTreeMap::new();
 
@@ -1748,6 +1768,8 @@ struct Rewriter<'a> {
     actions: Option<&'a super::actions::Removals>,
     /// The content streams whose hexadecimal strings state their final digit, where any do.
     hexadecimal: Option<&'a super::hexadecimal::Completed>,
+    /// The streams whose data comes inside the file, where any do.
+    external_data: Option<&'a super::external::Embedded>,
 }
 
 impl Rewriter<'_> {
@@ -2933,6 +2955,10 @@ impl Rewriter<'_> {
     }
 
     /// A stream object: the `XObject` rules, and the filter chain.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one branch per rewrite that replaces a whole stream, each with the two or                   three sentences saying why its bytes and its dictionary change together, and                   the branches are tried in an order a reader has to be able to see. Splitting                   them across functions would hide that order behind calls"
+    )]
     fn rewrite_stream(
         &self,
         id: ObjectId,
@@ -2955,6 +2981,15 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::DerivedEmbeddedFile);
             return Rewritten::Changed(derived.clone());
+        }
+        // The stream whose data was outside the file: its bytes, its `/Filter`, its
+        // `/DecodeParms` and its `/Length` all change together, so a whole stream crosses rather
+        // than a dictionary edit. `super::external`'s construction is Table 5 read straight.
+        if self.wants(Rewrite::ExternalDataEmbedded)
+            && let Some(embedded) = self.external_data.and_then(|external| external.at.get(&id))
+        {
+            count(applied, Rewrite::ExternalDataEmbedded);
+            return Rewritten::Changed(embedded.clone());
         }
         // The same shape, for the same reason: the repaired bytes, their `/Filter` and their
         // `/Length` change together, so what crosses is a stream rather than a dictionary edit.

@@ -1157,6 +1157,58 @@ fn an_nchannel_spot_component_keeps_the_tint_transform() {
     assert_eq!(devicen_fill(&space, "1 0"), (255, 0, 0));
 }
 
+/// A stated `/Colorants` dictionary is not the route a spot component takes here, and this is
+/// what that costs.
+///
+/// ISO 32000-2 §8.6.6.5 asks an `NChannel` space's components to be evaluated one at a time —
+/// "[f]or NChannel colour spaces, the components shall be evaluated individually; that is, only
+/// the ones not present on the output device shall use the alternate colour space of that
+/// component" — and Table 70 requires the dictionary that says what a spot component's own
+/// alternate space is: for each entry "the value shall be an array defining a Separation colour
+/// space for that colourant". What the clause never states is how the components so evaluated
+/// are combined, so this tree keeps the tint transform, which is the route the clause's earlier
+/// paragraph requires of a display and the one Table 70 says describes "the appearance of its
+/// colourants in combination". ADR 1193.
+///
+/// The fixture makes the two routes as far apart as eight bits allow. `/Spot1` alone is blue by
+/// its own `Separation`, `/Spot2` alone is green by its; the space's tint transform paints red
+/// whatever it is given. A full tint of `/Spot1` draws red here — 255 levels from the blue its
+/// `/Colorants` entry states in two channels — which is the departure's price, and this
+/// assertion is what a round that builds the per-component route has to change on purpose.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.6.6.5 and Table 70 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn a_spot_components_own_separation_is_stated_and_not_taken() {
+    let program = "{ pop pop 1 0 0 }";
+    let space = format!(
+        "5 0 obj\n[/DeviceN [/Spot1 /Spot2] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] \
+         /Spot2 [/Separation /Spot2 /DeviceRGB 10 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >>\nendobj\n\
+         10 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 1 0] /N 1 >>\nendobj\n",
+        program.len().saturating_add(1)
+    );
+    assert_eq!(
+        devicen_fill(&space, "1 0"),
+        (255, 0, 0),
+        "the space reverted through its own tint transform"
+    );
+    // The control the price is measured against: the same `Separation` array, selected on its
+    // own, is the blue the entry states. So the dictionary is readable and its colour is
+    // reachable; what is not built is combining it with the other component's.
+    let alone = centre_colour(pdf_with(
+        &space,
+        "/ColorSpace << /One [/Separation /Spot1 /DeviceRGB 9 0 R] >>",
+        "/One cs 1 scn 0 0 20 20 re f",
+    ));
+    assert_eq!(alone, (0, 0, 255), "`/Spot1` alone is blue");
+}
+
 /// Table 70's `/Subtype` decides it, and `DeviceN` means the tint transform.
 ///
 /// ISO 32000-2 §8.6.6.5:

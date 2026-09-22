@@ -15,9 +15,11 @@
 //!
 //! §12.9 states no marks. A measure dictionary is *input to a user interface*: the clause says a
 //! measure dictionary "shall provide information for formatting the resulting values into
-//! textual form for presentation in a graphical user interface". So this module reads the data
-//! and implements the one thing the clause states as an algorithm — §12.9.2's formatting — and
-//! `viewer-ui`, which has no measuring tool, calls neither.
+//! textual form for presentation in a graphical user interface". So this module reads the data,
+//! implements the one thing the clause states as an algorithm — §12.9.2's formatting — and hands
+//! the strings to whoever has a person in front of them. [`Viewports::traced`] is that hand-off
+//! and `viewer_core::Query::Measure` carries it; no pixel of a page changes either way
+//! (ADR 1191).
 //!
 //! # The rule that would be got wrong by intuition
 //!
@@ -42,7 +44,9 @@
 //! that did not exist. [`Viewports::distance`] carries it out: it needs two points and a page
 //! and no user interface at all, and Table 267's `/D` cell is what makes it more than a
 //! hypotenuse — each axis is converted by its own array's first factor *before* the distance
-//! function is applied. What still wants a tool is where the two points come from.
+//! function is applied. [`Viewports::traced`] is the same rule over a whole path a person traced,
+//! because *such as* makes two points the clause's example of a measurement involving several
+//! viewports rather than its definition.
 //!
 //! # §12.9.2's algorithm, and its own worked example
 //!
@@ -126,6 +130,33 @@ impl Viewport {
     pub fn contains(&self, (x, y): (f32, f32)) -> bool {
         let [x0, y0, x1, y1] = self.bbox;
         x >= x0.min(x1) && x <= x0.max(x1) && y >= y0.min(y1) && y <= y0.max(y1)
+    }
+
+    /// Where a point in default user space falls in this viewport's **unit square**.
+    ///
+    /// §12.10 states two of its arrays in that square rather than on the page: `/LPTS` holds
+    /// "points in a 2D unit square" and says which square — "[t]he unit square is mapped to the
+    /// rectangular bounds of the `Viewport`, image `XObject`, or forms `XObject` that contains
+    /// the measure dictionary" — and `/Bounds`'s numbers "are expressed relative to a unit
+    /// square that describes the `BBox` associated with a `Viewport`". So this is the one leg of
+    /// a georeference that needs nothing outside the file, and it is a division.
+    ///
+    /// **The corners are used as stated and not normalised**, which is [`Self::bbox`]'s own
+    /// reason: Table 265 makes their order "determine the orientation of the measuring
+    /// coordinate system (that is, the direction of the positive x and y axes) in this
+    /// viewport", so a file stating them the other way round has said its axes run the other
+    /// way, and a point outside the rectangle lands outside the square on the same side it
+    /// lies on.
+    ///
+    /// `None` for a rectangle with no extent along an axis, which states no square to map into.
+    #[must_use]
+    pub fn unit_square(&self, (x, y): (f32, f32)) -> Option<[f64; 2]> {
+        let [x0, y0, x1, y1] = self.bbox.map(f64::from);
+        let (width, height) = (x1 - x0, y1 - y0);
+        if width == 0.0 || height == 0.0 {
+            return None;
+        }
+        Some([(f64::from(x) - x0) / width, (f64::from(y) - y0) / height])
     }
 }
 
@@ -211,6 +242,175 @@ impl Viewports {
         self.at(from)
             .and_then(|viewport| viewport.measure.as_ref())
             .and_then(|measure| measure.distance(from, to))
+    }
+
+    /// What a path a person traced across the page comes to, in the document's own units.
+    ///
+    /// **§12.9.1's second selection sentence decides the viewport and nothing else does**:
+    ///
+    /// > Any measurement that potentially involves multiple viewports, such as one specifying
+    /// > the distance between two points, shall use the information specified in the viewport of
+    /// > the first point.
+    ///
+    /// So the whole path is measured in the first point's viewport even where it leaves that
+    /// rectangle, which is the clause choosing one answer over two rather than this reader
+    /// choosing convenience. The points are in default user space, which is where Table 265
+    /// states a `/BBox`.
+    ///
+    /// # Which quantity each number is, and why all of them come back together
+    ///
+    /// Table 267 gives a rectilinear measure a separate number format array for each quantity —
+    /// `/D` for distance, `/A` for area, `/T` for angles, `/S` for slope — and says nothing
+    /// about which of them a *gesture* is asking for. A file that states `/A` and no `/D` has
+    /// said areas are what its drawing is measured in; one that states both has said a person
+    /// may want either. So every quantity the points support and the file formats is answered,
+    /// and which to show is the question a user interface is for. It is the same decision
+    /// [`Measured`] already takes for an annotation's own geometry, and for the same sentence.
+    ///
+    /// The angle is taken at the **last vertex** of the path, between the legs that meet there,
+    /// and the slope is the **last leg**'s: a person tracing a path is asking about the piece
+    /// they have just drawn, and every earlier one was answered while they drew it.
+    ///
+    /// `None` where no viewport's `/BBox` contains the first point — the page states no units
+    /// there — and for an empty path. A viewport with no `/Measure` answers a [`Traced`] whose
+    /// quantities are all absent and whose name is the one Table 265 states, which is the file
+    /// saying it has a region and no scale for it.
+    #[must_use]
+    pub fn traced(&self, points: &[[f32; 2]]) -> Option<Traced> {
+        let first = *points.first()?;
+        let viewport = self.at((first[0], first[1]))?;
+        let measure = viewport.measure.as_ref();
+        // The last three points and the last two, taken as windows rather than by index: a path
+        // shorter than either has no such leg, and `windows` is the expression of that.
+        let vertex = points.windows(3).next_back();
+        let leg = points.windows(2).next_back();
+        Some(Traced {
+            viewport: viewport.name.clone(),
+            ratio: measure
+                .and_then(Measure::rectilinear)
+                .map(|scale| scale.ratio.clone())
+                .filter(|ratio| !ratio.is_empty()),
+            length: stated(measure.and_then(|measure| measure.length(points))),
+            area: stated(measure.and_then(|measure| measure.area(points))),
+            angle: stated(
+                measure
+                    .zip(vertex)
+                    .and_then(|(measure, at)| measure.angle(at[1], at[0], at[2])),
+            ),
+            slope: stated(
+                measure
+                    .zip(leg)
+                    .and_then(|(measure, leg)| measure.slope(leg[0], leg[1])),
+            ),
+            geospatial: measure
+                .and_then(|measure| match measure {
+                    Measure::Geospatial(geospatial) => Some(geospatial),
+                    Measure::Rectilinear(_) | Measure::Other(_) => None,
+                })
+                .map(|geospatial| Geographic::of(viewport, geospatial, points)),
+        })
+    }
+}
+
+/// A formatted quantity the file actually stated, or nothing.
+///
+/// **The empty string is not a measurement**, and the distinction is Table 267's: each of its
+/// four number format arrays is *(Optional)*, so a measure dictionary stating no `/S` has said
+/// nothing about how a slope should be displayed — while [`format`] answers an absent array with
+/// the empty string, because that is what §12.9.2's algorithm produces when it has no unit to
+/// walk. The two are different answers and only one of them belongs in a user interface: a window
+/// showing a blank beside the word *slope* would be claiming the document has a gradient of
+/// nothing.
+fn stated(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.is_empty())
+}
+
+/// What a traced path comes to in a viewport's own measuring system.
+///
+/// Every field is either a string §12.9.2's algorithm produced or a string the file states for a
+/// person to read; nothing here is a number, because §12.9 is explicit that a measure dictionary
+/// "shall provide information for formatting the resulting values into textual form for
+/// presentation in a graphical user interface". A host shows what it has room for.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Traced {
+    /// Table 265's `/Name`, "[a] descriptive text string or title of the viewport, intended for
+    /// use in a user interface" — which is this.
+    pub viewport: Option<String>,
+    /// Table 267's `/R`, "[a] text string expressing the scale ratio of the drawing", such as
+    /// `1/4 in = 1 ft`. Stated by the producer for a person and passed through unparsed.
+    pub ratio: Option<String>,
+    /// The path's total length, formatted by `/D`.
+    pub length: Option<String>,
+    /// The area it encloses, formatted by `/A`. Absent for fewer than three points.
+    pub area: Option<String>,
+    /// The angle at its last vertex, formatted by `/T`. Absent for fewer than three points.
+    pub angle: Option<String>,
+    /// The slope of its last leg, formatted by `/S`. Absent for a single point and for a
+    /// vertical leg.
+    pub slope: Option<String>,
+    /// What §12.10 states about the path, where the viewport's measure is a geospatial one.
+    pub geospatial: Option<Geographic>,
+}
+
+impl Traced {
+    /// Whether the viewport stated no quantity at all for this path.
+    ///
+    /// True for a viewport with no `/Measure`, and for one whose measuring system describes none
+    /// of the quantities these points support — a `/Y` with no `/CYX` over two points, say,
+    /// which Table 267 refuses a distance for by name.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.length.is_none() && self.area.is_none() && self.angle.is_none() && self.slope.is_none()
+    }
+}
+
+/// What §12.10 states about a traced path in a geospatial viewport.
+///
+/// # The half that is the file's and the half that is a registry's
+///
+/// Everything here is read out of the document. What is **not** here is a latitude, and the
+/// reason is the clause rather than the work: §12.10 states the correspondence between the
+/// object's unit square and the earth — `/GPTS` against `/LPTS`, point for point — and states no
+/// function between the registration points. Turning an arbitrary position into a coordinate
+/// means choosing one, and where `/GCS` is projected it means the EPSG registry and ISO 19162's
+/// grammar as well, both of which §12.10.3 names as texts outside this standard. So a position
+/// this reader cannot derive is absent rather than guessed, and what a host says instead is what
+/// the file does state: which system the map is in, how many points register it, and whether the
+/// place a person is pointing at is one the document's own neatline covers.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Geographic {
+    /// `/GCS`, the system the map's coordinates are in. Table 269 requires it.
+    pub system: Option<CoordinateSystem>,
+    /// `/DCS`, the system Table 269 says "shall be used for the display of position values".
+    pub display_system: Option<CoordinateSystem>,
+    /// `/PDU`'s three preferred display units: linear, area, angular, in that order.
+    pub units: Option<[String; 3]>,
+    /// How many `/GPTS`–`/LPTS` pairs register the object to the earth.
+    pub registration: usize,
+    /// Whether every point of the path is inside `/Bounds` — the region "for which geospatial
+    /// transformations are valid".
+    pub within_bounds: bool,
+    /// Whether `/PCSM` is the transformation Table 269 would have applied here, which needs a
+    /// projected `/GCS` beside the matrix ([`Geospatial::matrix_has_priority`]).
+    pub matrix_applies: bool,
+}
+
+impl Geographic {
+    /// Reads what §12.10 states about these points, in this viewport.
+    fn of(viewport: &Viewport, geospatial: &Geospatial, points: &[[f32; 2]]) -> Self {
+        Self {
+            system: geospatial.coordinate_system.clone(),
+            display_system: geospatial.display_system.clone(),
+            units: geospatial.display_units.clone(),
+            registration: geospatial.registration().len(),
+            within_bounds: !points.is_empty()
+                && points.iter().all(|point| {
+                    viewport
+                        .unit_square((point[0], point[1]))
+                        .is_some_and(|local| geospatial.within_bounds(local))
+                }),
+            matrix_applies: geospatial.matrix_has_priority(),
+        }
     }
 }
 
@@ -330,6 +530,90 @@ impl Measure {
         Some(format(twice.abs() / 2.0, &scale.area))
     }
 
+    /// The angle at `at` between the rays to `from` and to `to`, in the units this measure
+    /// states.
+    ///
+    /// **The initial value is degrees, which §12.9.2 states outright**: step a) says the entry
+    /// referencing a number format array "determines the meaning of the initial measurement
+    /// value" and gives this very entry as its example — "the `T` entry specifies degrees". So
+    /// the angle is taken in degrees and [`format`] applies Table 267's `/T`, whose first
+    /// element "shall specify the conversion to the largest angle unit from degrees".
+    ///
+    /// **The angle is taken in the measuring system and not on the page**, which is the other
+    /// half of that cell: "[t]he scale factor from `CYX` (if present) shall be used to convert
+    /// from default user space to the appropriate units before applying the angle function".
+    /// [`Rectilinear::axes`] is the pair of factors that conversion comes to — where `/Y` is
+    /// absent both are `/X`'s and cancel, so the angle is the page's own; where `/Y` is present
+    /// the ratio between them is what `/CYX` supplies, and a drawing whose axes carry different
+    /// units has angles that are not the page's.
+    ///
+    /// `None` where [`Rectilinear::axes`] states no conversion — which includes Table 267's own
+    /// refusal for a `/Y` with no `/CYX`, and that refusal covers this quantity by name: `/CYX`
+    /// "shall be used for calculations (distance, area, and angle) where the units are be
+    /// equivalent; if not specified, these calculations may not be performed". `None` also where
+    /// either ray has no length, because two coincident points name no direction.
+    ///
+    /// The answer is the non-reflex angle, in `[0, 180]`. The standard gives `/T` no sign and no
+    /// orientation, so a quantity a unit can be put on is what is measured; which of the two
+    /// angles at a vertex a person meant is a question no clause answers.
+    #[must_use]
+    pub fn angle(&self, at: [f32; 2], from: [f32; 2], to: [f32; 2]) -> Option<String> {
+        let scale = self.rectilinear()?;
+        let (along_x, along_y) = scale.axes()?;
+        let ray = |point: [f32; 2]| {
+            (
+                f64::from(point[0] - at[0]) * along_x,
+                f64::from(point[1] - at[1]) * along_y,
+            )
+        };
+        let (first, second) = (ray(from), ray(to));
+        let (first_length, second_length) = (first.0.hypot(first.1), second.0.hypot(second.1));
+        if first_length == 0.0 || second_length == 0.0 {
+            return None;
+        }
+        // `atan2` of the cross and the dot products rather than `acos` of the normalised dot:
+        // the two agree, and this one keeps its precision for the small angles where the dot
+        // product is within a rounding of the product of the lengths.
+        let cross = first.0.mul_add(second.1, -(first.1 * second.0));
+        let dot = first.0.mul_add(second.0, first.1 * second.1);
+        Some(format(cross.abs().atan2(dot).to_degrees(), &scale.angle))
+    }
+
+    /// The slope of the line from `from` to `to`, in the units this measure states.
+    ///
+    /// Table 267's `/S`: its first element "shall specify the conversion to the largest slope
+    /// unit from units represented by the first element in `Y` divided by the first element in
+    /// `X`". So the value [`format`] is given is a change along y in the y array's largest units
+    /// over a change along x in the x array's largest units, and the label the file puts on it
+    /// is a label on that ratio.
+    ///
+    /// **`/CYX` takes no part, and that is Table 267 saying so rather than an omission.** The
+    /// `/S` cell names all three factors together, and the `/CYX` cell then separates them: that
+    /// entry "shall be used for calculations (distance, area, and angle) where the units are be
+    /// equivalent", and "[o]ther calculations (change in x , change in y , and slope) shall not
+    /// require this value". A slope is a ratio *between* the two axes' own units and never a
+    /// length in one of them, so the entry that makes the two commensurable has nothing to do —
+    /// which is why [`Self::slope`] answers on a drawing where [`Self::distance`] refuses, and
+    /// why a plot of temperature against time, the clause's own example of such a drawing, has a
+    /// gradient and no distance.
+    ///
+    /// `None` where `/X` states no number format, and for a vertical line: a change of nothing
+    /// along x has no ratio, and the standard states no slope for one. A caller is told that
+    /// rather than handed an infinity with a unit on it.
+    #[must_use]
+    pub fn slope(&self, from: [f32; 2], to: [f32; 2]) -> Option<String> {
+        let scale = self.rectilinear()?;
+        let (along_x, along_y) = scale.gradient_axes()?;
+        let (dx, dy) = (
+            f64::from(to[0] - from[0]) * along_x,
+            f64::from(to[1] - from[1]) * along_y,
+        );
+        if dx == 0.0 {
+            return None;
+        }
+        Some(format(dy / dx, &scale.slope))
+    }
+
     /// The rectilinear entries, where that is the subtype this measure states.
     ///
     /// `GEO` and any subtype later than this standard answer `None`: §12.10's coordinates are an
@@ -395,6 +679,25 @@ impl Rectilinear {
             None => Some((along_x, along_x)),
             Some(first) => Some((along_x, first.conversion * self.cyx?)),
         }
+    }
+
+    /// The two factors a **slope** is taken with, which are [`Self::axes`]'s without `/CYX`.
+    ///
+    /// Table 267 puts slope on the other side of its own division: `/CYX` "shall be used for
+    /// calculations (distance, area, and angle) where the units are be equivalent", and
+    /// "[o]ther calculations (change in x , change in y , and slope) shall not require this
+    /// value". So a gradient is a `/Y` unit over an `/X` unit, and the entry that would make the
+    /// two commensurable is the one thing that must not be applied to it — which also means a
+    /// drawing stating `/Y` and no `/CYX` has a slope where it has no distance.
+    ///
+    /// `None` where `/X` states no number format, which is [`Self::axes`]'s condition too: with
+    /// no conversion along x there is nothing to divide by.
+    fn gradient_axes(&self) -> Option<(f64, f64)> {
+        let along_x = self.x.first()?.conversion;
+        Some((
+            along_x,
+            self.y.first().map_or(along_x, |first| first.conversion),
+        ))
     }
 }
 
@@ -743,6 +1046,49 @@ impl Geospatial {
             x * xy + y * yy + z * zy + ty,
             x * xz + y * yz + z * zz + tz,
         ])
+    }
+
+    /// Whether a point of the object's unit square lies inside `/Bounds`.
+    ///
+    /// Table 269 gives that entry one job: its points "describe the bounds of an area for which
+    /// geospatial transformations are valid", and "[f]or maps, this bounding polygon is known as
+    /// a neatline". So this is the question a measuring tool asks before it says anything about
+    /// where a point is on the earth — outside the neatline the file has said its own
+    /// registration does not apply, and an answer taken there would be a coordinate the document
+    /// disclaims.
+    ///
+    /// The absent entry is the whole unit square, which [`Self::bounds`] has already applied, so
+    /// a file stating no neatline answers `true` everywhere inside its viewport.
+    ///
+    /// The test is the even-odd crossing count, which is planar geometry rather than a reading
+    /// of anything: the clause names a polygon and says nothing about how a polygon contains a
+    /// point, because there is one answer for a simple one. NOTE 1 says the polygon "need not be
+    /// explicitly closed by repeating the first point values as a final point", so the leg back
+    /// to the first point is walked here rather than expected in the array.
+    ///
+    /// Fewer than three points enclose nothing and answer `false`.
+    #[must_use]
+    pub fn within_bounds(&self, [u, v]: [f64; 2]) -> bool {
+        if self.bounds.len() < 3 {
+            return false;
+        }
+        let mut inside = false;
+        let Some(&last) = self.bounds.last() else {
+            return false;
+        };
+        let mut previous = last;
+        for point in &self.bounds {
+            let [x0, y0] = previous;
+            let [x1, y1] = *point;
+            // A ray cast along +u: an edge counts when it straddles this point's v, and the
+            // crossing is to the right of it. The half-open comparison on v is what keeps a
+            // vertex from being counted twice.
+            if (y1 > v) != (y0 > v) && u < (x0 - x1) * (v - y1) / (y0 - y1) + x1 {
+                inside = !inside;
+            }
+            previous = *point;
+        }
+        inside
     }
 }
 
@@ -1641,6 +1987,252 @@ mod tests {
             geographic.projected_position([1.0, 1.0, 1.0]),
             None,
             "Table 269: a geographic /GCS makes the matrix one that should be ignored"
+        );
+    }
+
+    /// Table 267's `/S` against its `/CYX`: a slope is answered where a distance is refused.
+    ///
+    /// The `/CYX` cell states both halves. It "shall be used for calculations (distance, area,
+    /// and angle) where the units are be equivalent; if not specified, these calculations may
+    /// not be performed (which would be the case in situations such as x representing time and y
+    /// representing temperature)" — and then "[o]ther calculations (change in x , change in y ,
+    /// and slope) shall not require this value". So the clause's own example of a drawing with
+    /// no `/CYX`, a plot of temperature against time, has a gradient and no length, and a reader
+    /// that took `/CYX` for every quantity would refuse the one measurement such a plot is for.
+    #[test]
+    fn a_slope_is_measured_where_the_axes_have_no_conversion_between_them() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 612 792] /Name (Plot) /Measure 5 0 R >>",
+            "<< /Type /Measure /Subtype /RL /R (1 in = 1 h) \
+             /X [<< /U (h) /C 2 >>] /Y [<< /U (C) /C 3 >>] \
+             /D [<< /U (h) /C 1 >>] \
+             /S [<< /U (C/h) /C 1 /D 1000 >>] >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+        let measure = viewports.viewports[0]
+            .measure
+            .as_ref()
+            .expect("a measure dictionary");
+
+        assert_eq!(
+            measure.distance((0.0, 0.0), (10.0, 10.0)),
+            None,
+            "Table 267: with /Y and no /CYX these calculations may not be performed"
+        );
+        // Ten user-space units along each axis is 20 hours and 30 degrees, so the gradient is
+        // 1.5 degrees per hour — the y array's largest unit over the x array's largest, which is
+        // what `/S`'s own cell says its first element converts from.
+        assert_eq!(
+            measure.slope([0.0, 0.0], [10.0, 10.0]),
+            Some("1.5 C/h".to_owned()),
+            "a slope is a ratio between the axes' units and never a length in one of them"
+        );
+        assert_eq!(
+            measure.slope([0.0, 0.0], [0.0, 10.0]),
+            None,
+            "a vertical leg has no ratio, and the standard states no slope for one"
+        );
+    }
+
+    /// Table 267's `/T`, whose first element converts "to the largest angle unit from degrees".
+    ///
+    /// §12.9.2 step a) is what fixes the initial value — it gives this very entry as its example,
+    /// "the `T` entry specifies degrees" — so the conversion in the array is applied to a number
+    /// of degrees and a reader working in radians would be out by a factor of 57.
+    #[test]
+    fn an_angle_is_taken_in_degrees_and_converted_by_the_arrays_first_element() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 612 792] /Name (Plan) /Measure 5 0 R >>",
+            "<< /Type /Measure /Subtype /RL /X [<< /U (m) /C 1 >>] \
+             /T [<< /U (min) /C 60 /D 100 >>] >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+        let measure = viewports.viewports[0]
+            .measure
+            .as_ref()
+            .expect("a measure dictionary");
+
+        // A right angle is 90 degrees, which this file's array turns into 5400 arcminutes. A
+        // reader that measured in radians would answer with a hundredth of that.
+        assert_eq!(
+            measure.angle([0.0, 0.0], [1.0, 0.0], [0.0, 1.0]),
+            Some("5,400 min".to_owned())
+        );
+        // The non-reflex angle either way round: `/T` carries no sign, so the two rays name one
+        // quantity and not two.
+        assert_eq!(
+            measure.angle([0.0, 0.0], [0.0, 1.0], [1.0, 0.0]),
+            Some("5,400 min".to_owned())
+        );
+        assert_eq!(
+            measure.angle([0.0, 0.0], [1.0, 0.0], [-1.0, 0.0]),
+            Some("10,800 min".to_owned()),
+            "a straight line is two right angles and not none"
+        );
+        assert_eq!(
+            measure.angle([0.0, 0.0], [0.0, 0.0], [1.0, 0.0]),
+            None,
+            "two coincident points name no direction"
+        );
+    }
+
+    /// §12.10.2's `/Bounds`, which says where a geospatial reading applies at all.
+    ///
+    /// The entry's points "describe the bounds of an area for which geospatial transformations
+    /// are valid", and its absence is the whole unit square rather than nothing — Table 269
+    /// states that default outright, "[0.0 0.0 0.0 1.0 1.0 1.0 1.0 0.0]".
+    #[test]
+    fn a_neatline_says_where_a_geospatial_reading_applies() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R 6 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 100 100] /Name (Map) /Measure 5 0 R >>",
+            "<< /Type /Measure /Subtype /GEO /Bounds [0 0 0 0.5 0.5 0.5 0.5 0] \
+             /GCS << /Type /GEOGCS /EPSG 4326 >> /PDU [/M /SQM /DEG] \
+             /GPTS [51.0 0.0 51.0 1.0 52.0 1.0 52.0 0.0] \
+             /LPTS [0 0 0 1 1 1 1 0] >>",
+            "<< /Type /Viewport /BBox [0 0 100 100] /Name (Whole) /Measure 7 0 R >>",
+            "<< /Type /Measure /Subtype /GEO /GCS << /Type /GEOGCS /EPSG 4326 >> \
+             /GPTS [51.0 0.0] /LPTS [0 0] >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+        let Some(Measure::Geospatial(quarter)) = &viewports.viewports[0].measure else {
+            panic!("a geospatial measure");
+        };
+        assert!(quarter.within_bounds([0.25, 0.25]));
+        assert!(!quarter.within_bounds([0.75, 0.75]));
+        let Some(Measure::Geospatial(whole)) = &viewports.viewports[1].measure else {
+            panic!("a geospatial measure");
+        };
+        assert!(
+            whole.within_bounds([0.75, 0.75]),
+            "Table 269's default /Bounds is the whole unit square, so no neatline is not no area"
+        );
+
+        // A viewport's `/BBox` is what the unit square is mapped onto, which is the one leg of a
+        // georeference the file states without any registry.
+        assert_eq!(
+            viewports.viewports[0].unit_square((25.0, 75.0)),
+            Some([0.25, 0.75])
+        );
+    }
+
+    /// §12.9.1: a path is measured in the viewport of its **first** point.
+    ///
+    /// > Any measurement that potentially involves multiple viewports, such as one specifying
+    /// > the distance between two points, shall use the information specified in the viewport of
+    /// > the first point.
+    ///
+    /// The page below states two viewports at two scales, laid out so that a path can start in
+    /// either and end in the other, and the two answers differ by the ratio of the scales. A
+    /// reader taking the last point's viewport, or the smaller one, gets the other number.
+    #[test]
+    fn a_traced_path_is_measured_in_the_viewport_of_its_first_point() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R 6 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 100 100] /Name (Plan) /Measure 5 0 R >>",
+            "<< /Type /Measure /Subtype /RL /R (1 = 1 m) /X [<< /U (m) /C 1 >>] \
+             /D [<< /U (m) /C 1 /D 100 >>] /A [<< /U (sqm) /C 1 /D 100 >>] \
+             /T [<< /U (deg) /C 1 /D 100 >>] /S [<< /U (m/m) /C 1 /D 100 >>] >>",
+            "<< /Type /Viewport /BBox [100 0 200 100] /Name (Inset) /Measure 7 0 R >>",
+            "<< /Type /Measure /Subtype /RL /X [<< /U (m) /C 10 >>] \
+             /D [<< /U (m) /C 1 /D 100 >>] >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+
+        let from_plan = viewports
+            .traced(&[[10.0, 0.0], [110.0, 0.0]])
+            .expect("the first point is in the plan");
+        assert_eq!(from_plan.viewport.as_deref(), Some("Plan"));
+        assert_eq!(from_plan.ratio.as_deref(), Some("1 = 1 m"));
+        assert_eq!(from_plan.length.as_deref(), Some("100 m"));
+
+        let from_inset = viewports
+            .traced(&[[110.0, 0.0], [10.0, 0.0]])
+            .expect("the first point is in the inset");
+        assert_eq!(from_inset.viewport.as_deref(), Some("Inset"));
+        assert_eq!(
+            from_inset.length.as_deref(),
+            Some("1,000 m"),
+            "the same hundred units, measured at the scale the first point's viewport states"
+        );
+
+        // Three points: the area they enclose, the angle where the legs meet and the last leg's
+        // slope, each from its own array of Table 267's four.
+        let corner = viewports
+            .traced(&[[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]])
+            .expect("a path in the plan");
+        assert_eq!(corner.area.as_deref(), Some("50 sqm"));
+        assert_eq!(corner.angle.as_deref(), Some("90 deg"));
+        assert_eq!(corner.slope.as_deref(), None, "the last leg is vertical");
+        assert!(!corner.is_empty());
+
+        assert_eq!(
+            viewports.traced(&[[400.0, 400.0]]),
+            None,
+            "no viewport's /BBox contains the point, so the page states no units there"
+        );
+        assert_eq!(viewports.traced(&[]), None);
+    }
+
+    /// §12.10 reported rather than guessed: what a geospatial viewport states about a path.
+    ///
+    /// The row this fixture is about is the one thing a host can honestly show for a map: the
+    /// system by name, how many points register it, and whether the place being pointed at is
+    /// inside the document's own neatline. A latitude is absent because §12.10 states the
+    /// correspondence at the registration points and no function between them.
+    #[test]
+    fn a_geospatial_viewport_reports_its_system_and_says_no_coordinate() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 100 100] /Name (Map) /Measure 5 0 R >>",
+            "<< /Type /Measure /Subtype /GEO \
+             /GCS << /Type /PROJCS /EPSG 32631 >> /DCS << /Type /GEOGCS /EPSG 4326 >> \
+             /PDU [/M /SQM /DEG] \
+             /GPTS [51.0 0.0 51.0 1.0 52.0 1.0 52.0 0.0] /LPTS [0 0 0 1 1 1 1 0] \
+             /PCSM [1 0 0 0 1 0 0 0 1 0 0 0] >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+        let traced = viewports
+            .traced(&[[10.0, 10.0], [90.0, 90.0]])
+            .expect("a path in the map");
+
+        assert_eq!(traced.length, None, "§12.10's distances are an ellipsoid's");
+        assert!(traced.is_empty());
+        let geospatial = traced.geospatial.expect("a geospatial reading");
+        let system = geospatial.system.expect("Table 269 requires a /GCS");
+        assert!(system.projected, "Table 271's PROJCS");
+        assert_eq!(system.epsg, Some(32631));
+        assert_eq!(
+            geospatial.display_system.and_then(|display| display.epsg),
+            Some(4326),
+            "Table 269's /DCS is the system position values are displayed in"
+        );
+        assert_eq!(
+            geospatial.units,
+            Some(["M".to_owned(), "SQM".to_owned(), "DEG".to_owned()])
+        );
+        assert_eq!(geospatial.registration, 4);
+        assert!(geospatial.within_bounds, "no /Bounds is the whole square");
+        assert!(
+            geospatial.matrix_applies,
+            "Table 269: /PCSM has priority over GPTS where /GCS is projected"
         );
     }
 

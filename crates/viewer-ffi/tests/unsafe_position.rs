@@ -214,8 +214,13 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // trap 5's channel for a page that goes to the printer with something missing. A seventh
     // event kind number, `QUORRA_EVENT_PRINTING`, joins them, so `QUORRA_EVENT_KIND_COUNT` moves
     // to 22 and `QUORRA_ABI_VERSION` does not move for the standing reason (ADR 1180).
-    assert_eq!(no_mangle, 198, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 184, "182 `unsafe` entry points and two helpers");
+    // **And one for measuring**: `quorra_measure` is §12.9's whole answer over a traced path,
+    // with a `part` selector rather than seven symbols — six quantities and a sentence over one
+    // path, and seven entry points would be six chances to be handed a string from a different
+    // reading of it. The `QUORRA_MEASURE_*` numbers join it as constants, which an old caller
+    // never passes, so `QUORRA_ABI_VERSION` stays where it is (ADR 1191).
+    assert_eq!(no_mangle, 199, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 185, "183 `unsafe` entry points and two helpers");
 }
 
 #[test]

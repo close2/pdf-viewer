@@ -1101,6 +1101,23 @@ int32_t quorra_articles_read(const quorra_viewer *viewer, quorra_panel **panel);
 int32_t quorra_page_label(const quorra_viewer *viewer, size_t page, char *out, size_t cap,
                         size_t *needed);
 
+/* ISO 32000-2 §12.9's measurement of a path a person traced. `points` is `count` pairs of device
+ * pixels of the viewport, in the order they were put down. `part` chooses what comes back:
+ * QUORRA_MEASURE_SENTENCE is the whole thing, and is the only form §12.10's geospatial reading
+ * crosses in, because every part of that reading is a STATEMENT about the map rather than a
+ * quantity. QUORRA_NO_ANSWER where no viewport's /BBox contains the first point — §12.9.1 chooses
+ * "the viewport of the first point" and no other — where the path leaves the page it started on,
+ * and where the document states nothing for the part asked for. */
+#define QUORRA_MEASURE_SENTENCE 0u
+#define QUORRA_MEASURE_VIEWPORT 1u
+#define QUORRA_MEASURE_RATIO    2u
+#define QUORRA_MEASURE_LENGTH   3u
+#define QUORRA_MEASURE_AREA     4u
+#define QUORRA_MEASURE_ANGLE    5u
+#define QUORRA_MEASURE_SLOPE    6u
+int32_t quorra_measure(const quorra_viewer *viewer, const float *points, size_t count,
+                        uint32_t part, char *out, size_t cap, size_t *needed);
+
 /* §12.3.4's miniature for one page. QUORRA_NO_ANSWER for a page with no /Thumb and for one this
  * reader could not decode. `permitted` is a word of QUORRA_THUMBNAIL_* bits, zero for a conformant
  * one; `format` is QUORRA_FORMAT_RGBA8. Size `into` from `bytes`. */

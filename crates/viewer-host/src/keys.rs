@@ -103,10 +103,21 @@
 //! those never reaches this table, and which widget has the focus is not something a shared value
 //! can know. What this module states is what a press means **once it has reached the page**.
 //!
-//! Modifiers, for the same reason, are all but absent: [`meaning`] takes a `shift` because §12.5.1's
-//! tab key needs a direction and winit reports one key for both, and it takes nothing else. A
-//! Control held down changes no row here — by the time a press reaches the page, the widget that
-//! would have wanted Ctrl + C has already had it.
+//! **Modifiers are [`Modifiers`], and there are two of them.** `shift` is §12.5.1's tab key, which needs
+//! a direction that winit reports one key for. `ctrl` is the conventional binding for an operation
+//! a person already knows the key for, and it is here because of what its absence did: the table
+//! never saw a Control at all, so every host discarded it before asking, and Ctrl + P entered
+//! §12.4.4's presentation while Ctrl + C copied by coincidence. Both are wrong in the same way —
+//! a key that means the unmodified thing is a key that ignores what the person held down.
+//!
+//! **Control selects a table of its own** ([`ctrl_meaning`]), and a key with no row in it means
+//! *nothing*. That is the half worth stating: a modifier this program does not bind is a modifier
+//! whose press belongs to something else — a window manager, a toolkit accelerator, a shortcut a
+//! desktop added — and answering it with the unmodified binding is a window acting on a keystroke
+//! that was not addressed to it. ADR 1192.
+//!
+//! What the chrome takes first is unchanged and is still each host's: by the time a press reaches
+//! the page, the widget that wanted Ctrl + C has already had it.
 
 use pdf_model::view::Markup;
 use viewer_core::{Command, Edit, FocusMove, PageTarget, Selection, Zoom};
@@ -136,6 +147,8 @@ pub enum Key {
     K,
     /// The letter `l` — Table 29's next arrangement.
     L,
+    /// The letter `m` — §12.9's measuring.
+    M,
     /// The letter `o` — the panel of trees.
     O,
     /// The letter `p` — §12.4.4's presentation.
@@ -202,6 +215,7 @@ impl Key {
         Self::H,
         Self::K,
         Self::L,
+        Self::M,
         Self::O,
         Self::P,
         Self::R,
@@ -228,6 +242,42 @@ impl Key {
         Self::PageUp,
         Self::PageDown,
     ];
+}
+
+/// Which modifier keys were down when the press arrived.
+///
+/// **A value rather than two `bool` parameters**, for the reason [`Mode`] and [`Waiting`] give
+/// one row below: `meaning(key, true, false, …)` at a call site has said nothing about which of
+/// them is which, and the two do entirely different things — `shift` chooses between two rows of
+/// the same table, `ctrl` chooses a different table.
+///
+/// A modifier this program does not name is not here at all: Alt, Meta and the platform key
+/// belong to a window manager and to a toolkit's accelerators, and a host that folded one of them
+/// into `ctrl` would bind a key it was not given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Modifiers {
+    /// Shift, which §12.5.1's tab key needs a direction from.
+    pub shift: bool,
+    /// Control, which selects [`ctrl_meaning`]'s table instead of the unmodified one.
+    pub ctrl: bool,
+}
+
+impl Modifiers {
+    /// Nothing held down, which is what most presses are.
+    pub const NONE: Self = Self {
+        shift: false,
+        ctrl: false,
+    };
+    /// Shift alone.
+    pub const SHIFT: Self = Self {
+        shift: true,
+        ctrl: false,
+    };
+    /// Control alone.
+    pub const CTRL: Self = Self {
+        shift: false,
+        ctrl: true,
+    };
 }
 
 /// Whether §12.4.4's presentation is running, which two rows of the table depend on.
@@ -303,6 +353,15 @@ pub enum WindowAct {
     FitControls,
     /// Arm §12.5.6.6's free-text drag: the next drag on the page draws the annotation's rectangle.
     FreeText,
+    /// Start or stop §12.9's measuring: while it is on, presses on the page put down points.
+    ///
+    /// **A window act rather than a [`Command`]**, and it is the clearest case in this half of
+    /// the table: §12.9 states no state at all for a viewer to be in. What it states is the
+    /// arithmetic and the formatting, which [`viewer_core::Query::Measure`] answers from the
+    /// points a host has collected — so the mode is chrome, the points are the host's, and the
+    /// only thing that crosses the boundary is the question. [`crate::measuring`] is the state
+    /// and the sentence; a window supplies the presses and somewhere to show the answer.
+    Measure,
     /// Stop drawing the page the window has just said is taking a long time
     /// ([`crate::drawing::Drawing::abandon`]).
     ///
@@ -367,17 +426,22 @@ pub const STRIKE_OUT: [f32; 3] = [0.85, 0.15, 0.15];
 
 /// What a press means, or nothing for a key this program does not bind.
 ///
-/// `shift` answers §12.5.1's tab key and nothing else — see the module documentation for why no
-/// other modifier appears. `mode` answers §12.4.4.2's arrow keys and Table 29's chrome, and
+/// [`Modifiers::ctrl`] chooses the table: with Control down the answer is [`ctrl_meaning`]'s and a key
+/// that has no row there means nothing at all. Without it, [`Modifiers::shift`] answers §12.5.1's tab
+/// key and the print job, `mode` answers §12.4.4.2's arrow keys and Table 29's chrome, and
 /// `waiting` answers the third of Escape's three rows.
 ///
 /// **A host calls this only for a press that reached the page.** A field being typed into, an open
 /// find bar and a modal card each take the keyboard first, and which of them has it is the host's
 /// own question.
 #[must_use]
-pub fn meaning(key: Key, shift: bool, mode: Mode, waiting: Waiting) -> Option<Meaning> {
+pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Option<Meaning> {
     let presenting = matches!(mode, Mode::Presenting);
     let warned = matches!(waiting, Waiting::Warned);
+    if held.ctrl {
+        return ctrl_meaning(key, mode);
+    }
+    let shift = held.shift;
     Some(match key {
         // §12.5.1: "Interactive PDF processors may permit the user to navigate through the
         // annotations on a page by using the keyboard (in particular, the tab key)." The only key
@@ -446,6 +510,10 @@ pub fn meaning(key: Key, shift: bool, mode: Mode, waiting: Waiting) -> Option<Me
         Key::P => Meaning::Window(WindowAct::Present),
         Key::L => Meaning::Window(WindowAct::NextLayout),
         Key::T => Meaning::Window(WindowAct::FreeText),
+        // §12.9's measuring, on the letter it is named after and on no modifier: the clause
+        // names no key, and the three letters a measurement could be called after — `m`, `d` for
+        // a distance, `u` for units — leave only this one that nothing else binds.
+        Key::M => Meaning::Window(WindowAct::Measure),
         // Table 29's `FullScreen` shows "no menu bar, window controls, or any other window
         // visible", so the three keys that ask for chrome ask for nothing while one is running.
         Key::F | Key::Slash | Key::O | Key::Question | Key::R if presenting => return None,
@@ -458,9 +526,51 @@ pub fn meaning(key: Key, shift: bool, mode: Mode, waiting: Waiting) -> Option<Me
     })
 }
 
+/// What a press with Control held down means, which is a table of its own.
+///
+/// # Why these four and no others
+///
+/// Every row here is an operation this program **already performs**, given the key a person
+/// pressing Control expects it on. Nothing was invented to fill the table: there is no Ctrl + O,
+/// because no window in this tree opens a second document — each is given a file on its command
+/// line — and a binding for a verb that does not exist would be a key that appears to do nothing.
+///
+/// Two of the four already had an unmodified key and keep it. `s` is still §7.5.6's save and `c`
+/// is still §14.8.2.5's copy, because a table three windows agree about is not improved by taking
+/// a binding away from the people using it; what Control adds is the key everything else on the
+/// desktop uses for the same job.
+///
+/// **Shift is not read here**, so Ctrl + Shift + P prints. A person holding a third key down has
+/// not asked for a fifth meaning, and the shifted rows of the unmodified table are about
+/// *direction* — §12.5.1's tab — which none of these four has.
+///
+/// # And a key with no row means nothing
+///
+/// This function answers `None` rather than falling through to [`meaning`]'s table, and that is
+/// the change ADR 1192 is about. A Control this program does not bind is a press addressed to
+/// something else, and a window that answered Ctrl + T by arming §12.5.6.6's drag would be acting
+/// on a keystroke aimed past it.
+///
+/// Table 29's `FullScreen` shows "no menu bar, window controls, or any other window visible", so
+/// the find bar's row is taken away while a presentation is running, exactly as its unmodified
+/// key is.
+#[must_use]
+pub fn ctrl_meaning(key: Key, mode: Mode) -> Option<Meaning> {
+    Some(match key {
+        Key::C => Meaning::Window(WindowAct::Copy),
+        Key::S => Meaning::Send(Command::Save),
+        // §7.6.4.2's bit 3 is asked by the message this act sends once the window knows what
+        // sheet the person chose; the key names the job (ADR 1180).
+        Key::P => Meaning::Window(WindowAct::Print),
+        Key::F if matches!(mode, Mode::Presenting) => return None,
+        Key::F => Meaning::Window(WindowAct::Find),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Key, Meaning, Mode, Waiting, WindowAct, meaning};
+    use super::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, meaning};
     use viewer_core::{Command, PageTarget, Selection};
 
     /// [`Key::ALL`] is the list three hosts are held to, so it has to be the whole enumeration.
@@ -479,6 +589,7 @@ mod tests {
                 | Key::H
                 | Key::K
                 | Key::L
+                | Key::M
                 | Key::O
                 | Key::P
                 | Key::R
@@ -513,7 +624,7 @@ mod tests {
         }
         assert_eq!(
             seen.len(),
-            31,
+            32,
             "the list is the enumeration, and no shorter"
         );
     }
@@ -526,7 +637,7 @@ mod tests {
     fn no_key_this_program_names_is_bound_to_nothing() {
         for key in Key::ALL {
             assert!(
-                meaning(*key, false, Mode::Reading, Waiting::Nothing).is_some(),
+                meaning(*key, Modifiers::NONE, Mode::Reading, Waiting::Nothing).is_some(),
                 "{key:?} reaches the page and means nothing"
             );
         }
@@ -539,26 +650,31 @@ mod tests {
     #[test]
     fn the_arrows_move_the_view_while_reading_and_navigate_while_presenting() {
         assert!(matches!(
-            meaning(Key::Down, false, Mode::Reading, Waiting::Nothing),
+            meaning(Key::Down, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::ScrollBy(by))) if by > 0.0
         ));
         assert!(matches!(
-            meaning(Key::Up, false, Mode::Reading, Waiting::Nothing),
+            meaning(Key::Up, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::ScrollBy(by))) if by < 0.0
         ));
         assert!(matches!(
-            meaning(Key::Down, false, Mode::Presenting, Waiting::Nothing),
+            meaning(
+                Key::Down,
+                Modifiers::NONE,
+                Mode::Presenting,
+                Waiting::Nothing
+            ),
             Some(Meaning::Send(Command::GoTo(PageTarget::Next)))
         ));
         assert!(matches!(
-            meaning(Key::Up, false, Mode::Presenting, Waiting::Nothing),
+            meaning(Key::Up, Modifiers::NONE, Mode::Presenting, Waiting::Nothing),
             Some(Meaning::Send(Command::GoTo(PageTarget::Previous)))
         ));
         // And the other four move between pages either way, so nothing is unreachable.
         for key in [Key::Right, Key::PageDown, Key::Space] {
             for mode in [Mode::Reading, Mode::Presenting] {
                 assert!(matches!(
-                    meaning(key, false, mode, Waiting::Nothing),
+                    meaning(key, Modifiers::NONE, mode, Waiting::Nothing),
                     Some(Meaning::Send(Command::GoTo(PageTarget::Next)))
                 ));
             }
@@ -573,11 +689,21 @@ mod tests {
     #[test]
     fn escape_leaves_full_screen_first_and_never_leaves_the_program() {
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Presenting, Waiting::Nothing),
+            meaning(
+                Key::Escape,
+                Modifiers::NONE,
+                Mode::Presenting,
+                Waiting::Nothing
+            ),
             Some(Meaning::Window(WindowAct::LeaveFullScreen))
         ));
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Reading, Waiting::Nothing),
+            meaning(
+                Key::Escape,
+                Modifiers::NONE,
+                Mode::Reading,
+                Waiting::Nothing
+            ),
             Some(Meaning::Send(Command::Select(Selection::None)))
         ));
     }
@@ -592,15 +718,25 @@ mod tests {
     #[test]
     fn escape_stops_a_draw_only_while_the_window_is_saying_that_it_can() {
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Reading, Waiting::Warned),
+            meaning(Key::Escape, Modifiers::NONE, Mode::Reading, Waiting::Warned),
             Some(Meaning::Window(WindowAct::AbortDrawing))
         ));
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Reading, Waiting::Nothing),
+            meaning(
+                Key::Escape,
+                Modifiers::NONE,
+                Mode::Reading,
+                Waiting::Nothing
+            ),
             Some(Meaning::Send(Command::Select(Selection::None)))
         ));
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Presenting, Waiting::Warned),
+            meaning(
+                Key::Escape,
+                Modifiers::NONE,
+                Mode::Presenting,
+                Waiting::Warned
+            ),
             Some(Meaning::Window(WindowAct::LeaveFullScreen))
         ));
     }
@@ -618,8 +754,14 @@ mod tests {
             }
             for mode in [Mode::Reading, Mode::Presenting] {
                 assert_eq!(
-                    format!("{:?}", meaning(*key, false, mode, Waiting::Nothing)),
-                    format!("{:?}", meaning(*key, false, mode, Waiting::Warned)),
+                    format!(
+                        "{:?}",
+                        meaning(*key, Modifiers::NONE, mode, Waiting::Nothing)
+                    ),
+                    format!(
+                        "{:?}",
+                        meaning(*key, Modifiers::NONE, mode, Waiting::Warned)
+                    ),
                     "{key:?} means a second thing while a draw is being warned about"
                 );
             }
@@ -631,14 +773,99 @@ mod tests {
     fn a_presentation_shows_no_find_bar_no_panel_and_no_card() {
         for key in [Key::F, Key::Slash, Key::O, Key::Question] {
             assert!(
-                meaning(key, false, Mode::Presenting, Waiting::Nothing).is_none(),
+                meaning(key, Modifiers::NONE, Mode::Presenting, Waiting::Nothing).is_none(),
                 "{key:?} asks for chrome that Table 29's FullScreen forbids"
             );
             assert!(
-                meaning(key, false, Mode::Reading, Waiting::Nothing).is_some(),
+                meaning(key, Modifiers::NONE, Mode::Reading, Waiting::Nothing).is_some(),
                 "{key:?} still means something in a window that has chrome"
             );
         }
+    }
+
+    /// Control binds the four operations this program has, on the keys a desktop uses for them.
+    ///
+    /// Each of the four is an operation that already existed with no conventional key reaching
+    /// it: §7.5.6's save, §14.8.2.5's copy, the print job ADR 1180 built and the find bar. What
+    /// makes this a test rather than a list is the pairing with the one below it — these four
+    /// mean something and every other key means nothing, which is the whole of ADR 1192's rule.
+    #[test]
+    fn control_binds_the_operations_this_program_already_performs() {
+        assert!(matches!(
+            meaning(Key::C, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Copy))
+        ));
+        assert!(matches!(
+            meaning(Key::S, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Send(Command::Save))
+        ));
+        assert!(matches!(
+            meaning(Key::P, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Print))
+        ));
+        assert!(matches!(
+            meaning(Key::F, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Find))
+        ));
+        // Shift is not read with Control, so a third key held down asks for no fifth meaning.
+        assert!(matches!(
+            meaning(
+                Key::P,
+                Modifiers {
+                    shift: true,
+                    ctrl: true
+                },
+                Mode::Reading,
+                Waiting::Nothing
+            ),
+            Some(Meaning::Window(WindowAct::Print))
+        ));
+        // Table 29's `FullScreen` shows "no menu bar, window controls, or any other window
+        // visible", so the find bar's row goes with its unmodified key.
+        assert!(meaning(Key::F, Modifiers::CTRL, Mode::Presenting, Waiting::Nothing).is_none());
+    }
+
+    /// A Control this program does not bind means **nothing**, and never the unmodified row.
+    ///
+    /// The defect this is written against: all three hosts discarded Control before asking, so
+    /// Ctrl + P entered §12.4.4's presentation and Ctrl + X armed whatever bare `x` meant. A
+    /// press with a modifier this program has no row for is addressed to something else — a
+    /// window manager, a toolkit accelerator — and answering it is a window acting on a
+    /// keystroke aimed past it. ADR 1192.
+    #[test]
+    fn a_control_this_table_does_not_bind_falls_through_to_nothing() {
+        for key in Key::ALL {
+            if matches!(key, Key::C | Key::S | Key::P | Key::F) {
+                continue;
+            }
+            for mode in [Mode::Reading, Mode::Presenting] {
+                for waiting in [Waiting::Nothing, Waiting::Warned] {
+                    assert!(
+                        meaning(*key, Modifiers::CTRL, mode, waiting).is_none(),
+                        "{key:?} with Control means the unmodified thing"
+                    );
+                }
+            }
+        }
+    }
+
+    /// §12.9's measuring is a key of its own, and pressing it changes nothing about the page.
+    ///
+    /// The mode is a [`WindowAct`] because §12.9 states no state for a viewer to be in: the
+    /// clause is arithmetic and formatting, and where the two points come from is a gesture.
+    #[test]
+    fn the_measuring_key_names_a_mode_and_sends_no_message() {
+        assert!(matches!(
+            meaning(Key::M, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Measure))
+        ));
+        assert!(
+            matches!(
+                meaning(Key::M, Modifiers::NONE, Mode::Presenting, Waiting::Nothing),
+                Some(Meaning::Window(WindowAct::Measure))
+            ),
+            "a measurement is not chrome Table 29 forbids: nothing appears over the page"
+        );
     }
 
     /// Shift changes two rows, and the pair is named here so that a third cannot arrive quietly.
@@ -651,23 +878,23 @@ mod tests {
     #[test]
     fn shift_separates_the_two_directions_of_the_tab_key_and_the_print_job_from_the_presentation() {
         assert!(matches!(
-            meaning(Key::Tab, false, Mode::Reading, Waiting::Nothing),
+            meaning(Key::Tab, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
                 viewer_core::FocusMove::Next
             )))
         ));
         assert!(matches!(
-            meaning(Key::Tab, true, Mode::Reading, Waiting::Nothing),
+            meaning(Key::Tab, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
                 viewer_core::FocusMove::Previous
             )))
         ));
         assert!(matches!(
-            meaning(Key::P, false, Mode::Reading, Waiting::Nothing),
+            meaning(Key::P, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Present))
         ));
         assert!(matches!(
-            meaning(Key::P, true, Mode::Reading, Waiting::Nothing),
+            meaning(Key::P, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Print))
         ));
         for key in Key::ALL {
@@ -676,8 +903,14 @@ mod tests {
             }
             for mode in [Mode::Reading, Mode::Presenting] {
                 assert_eq!(
-                    format!("{:?}", meaning(*key, false, mode, Waiting::Nothing)),
-                    format!("{:?}", meaning(*key, true, mode, Waiting::Nothing)),
+                    format!(
+                        "{:?}",
+                        meaning(*key, Modifiers::NONE, mode, Waiting::Nothing)
+                    ),
+                    format!(
+                        "{:?}",
+                        meaning(*key, Modifiers::SHIFT, mode, Waiting::Nothing)
+                    ),
                     "{key:?} means a second thing when shifted, which this table does not state"
                 );
             }

@@ -121,6 +121,7 @@ pub mod fit;
 pub mod form;
 pub mod geometry;
 pub mod keys;
+pub mod measuring;
 pub mod modification;
 pub mod panel;
 pub mod password;
@@ -140,7 +141,8 @@ pub use drawing::{DrawRequest, Drawing, Finished};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};
 pub use geometry::{bounds, covers};
-pub use keys::{Key, Meaning, Mode, Waiting, WindowAct, meaning};
+pub use keys::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, meaning};
+pub use measuring::Measuring;
 pub use panel::{
     Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,
     attachment_rows, collection_rows, layer_rows, outline_rows, page_entry, property_rows, stamp,

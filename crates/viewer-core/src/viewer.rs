@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_model::action::Trigger;
+use pdf_model::measurement;
 use pdf_model::optional_content::{ListMode, OptionalContent, Presented};
 use pdf_model::view::Pointer;
 use pdf_render::{DisplayList, Point, Rect, TargetSpec, Transform};
@@ -391,6 +392,9 @@ impl Viewer {
                     annotation,
                     text,
                 }),
+            Query::Measure(points) => self
+                .measured(open, points)
+                .map_or(Answer::None, Answer::Measured),
             Query::Dirty => Answer::Dirty(open.dirty()),
             Query::Properties => Answer::Properties {
                 information: pdf_model::metadata::Information::read(&open.document),
@@ -2775,6 +2779,31 @@ impl Viewer {
         let (page, (x, y)) = self.page_point(open, at)?;
         let object = open.placed_page(page)?;
         Some((page, pdf_model::content::user_space_at(object, x, y)?))
+    }
+
+    /// §12.9's measurement of a traced path, in the units the page states for it.
+    ///
+    /// Every point is carried into default user space, which is where Table 265 states a
+    /// viewport's `/BBox`, and `pdf_model::measurement::Viewports::traced` applies §12.9.1's own
+    /// selection rule to the first of them.
+    ///
+    /// **A path that leaves its page is refused rather than folded onto one.** `/VP` is an entry
+    /// in a *page* dictionary, so two pages of Table 29's continuous arrangement state two
+    /// unrelated arrays and a path across the join has no viewport the clause would choose. The
+    /// alternative — measuring the part that stayed — would answer a shorter path than the one a
+    /// person drew, with nothing on the screen saying so.
+    fn measured(&self, open: &Open, points: &[[f32; 2]]) -> Option<measurement::Traced> {
+        let mut page = None;
+        let mut user = Vec::with_capacity(points.len());
+        for point in points {
+            let (index, (x, y)) = self.user_space(open, (point[0], point[1]))?;
+            if *page.get_or_insert(index) != index {
+                return None;
+            }
+            user.push([x, y]);
+        }
+        let object = open.placed_page(page?)?;
+        measurement::Viewports::read(&open.document, &object.dict).traced(&user)
     }
 
     /// Resolves a zoom command into the magnification it lands on.

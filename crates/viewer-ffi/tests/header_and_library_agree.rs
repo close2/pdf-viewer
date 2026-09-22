@@ -27,9 +27,10 @@ use std::path::Path;
 use viewer_ffi::{
     AcceptKind, AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind,
     ControlKind, DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, InitialKind, MarkupKind, NavigatorKind, NoteKind, OrderKind, PageModeKind,
-    PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind,
-    PurposeKind, RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, Status, TextKind,
+    FolderTextKind, InitialKind, MarkupKind, MeasurePart, NavigatorKind, NoteKind, OrderKind,
+    PageModeKind, PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind,
+    PrintScalingKind, PurposeKind, RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind,
+    Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -131,7 +132,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        198,
+        199,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -548,6 +549,17 @@ fn the_field_flags(expected: &mut BTreeMap<String, i64>) {
               for: a second statement of every number, made independently"
 )]
 fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
+    for (name, part) in [
+        ("QUORRA_MEASURE_SENTENCE", MeasurePart::Sentence),
+        ("QUORRA_MEASURE_VIEWPORT", MeasurePart::Viewport),
+        ("QUORRA_MEASURE_RATIO", MeasurePart::Ratio),
+        ("QUORRA_MEASURE_LENGTH", MeasurePart::Length),
+        ("QUORRA_MEASURE_AREA", MeasurePart::Area),
+        ("QUORRA_MEASURE_ANGLE", MeasurePart::Angle),
+        ("QUORRA_MEASURE_SLOPE", MeasurePart::Slope),
+    ] {
+        expected.insert(name.to_owned(), i64::from(part.code()));
+    }
     for (name, kind) in [
         ("QUORRA_PAGE_MODE_USE_NONE", PageModeKind::UseNone),
         ("QUORRA_PAGE_MODE_USE_OUTLINES", PageModeKind::UseOutlines),

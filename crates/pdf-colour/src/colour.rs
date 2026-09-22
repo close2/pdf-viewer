@@ -4263,7 +4263,7 @@ mod tests {
 
     use pdf_render::Color;
 
-    use super::{ColourSpace, GreyRoute, InkScale, Rendering};
+    use super::{ColourSpace, GreyRoute, InkScale, Rendering, Tints};
 
     /// The assumed press's grid, for the tests that search against it directly.
     fn assumed() -> pdf_render::BlendingSpace {
@@ -4656,6 +4656,96 @@ mod tests {
         );
         assert_eq!(ink(1.0, 1.0, 1.0, 1.0), 2.0, "registration black");
         assert_eq!(grey(1.0, 1.0, 1.0, 1.0), 0.0, "clamped by the clause's min");
+    }
+
+    /// An `NChannel` space's process components are the group's own, with no function between.
+    ///
+    /// §8.6.6.5 requires the components of such a space to be taken apart — "[f]or NChannel
+    /// colour spaces, the components shall be evaluated individually; that is, only the ones
+    /// not present on the output device shall use the alternate colour space of that
+    /// component" — and says what a process component's value then is: "[t]he values
+    /// associated with the process components shall be stored in their natural form … since
+    /// they shall be interpreted directly as process values by consumers making use of the
+    /// process dictionary." Inside a page or group §11.4.7 composites in four components, the
+    /// process space *is* what is being composited in, so "directly" is literal: the tints
+    /// reach [`Compositing::Subtractive`]'s four components unconverted, and a component the
+    /// `names` array omits is §8.6.4.4's "complete absence of a process colourant". ADR 1103
+    /// built the route; ADR 1193 is why it stops where it does.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §8.6.6.5 and §8.6.4.4 verbatim, and a quotation is not \
+                  marked up"
+    )]
+    #[test]
+    fn an_nchannel_process_space_is_the_four_components_a_cmyk_group_composites() {
+        let press = super::assumed_press();
+        let all_four = ColourSpace::Separation {
+            inputs: 4,
+            alternate: Box::new(ColourSpace::Cmyk),
+            tints: Tints::Process(vec![Some(0), Some(1), Some(2), Some(3)]),
+        };
+        assert_eq!(
+            all_four.to_cmyk(&[0.1, 0.2, 0.3, 0.4], Rendering::compensating(), &press),
+            [0.1, 0.2, 0.3, 0.4],
+            "the tints are the group's components, in Table 71's order"
+        );
+
+        // `/Cyan` and `/Black` named, `/Magenta` and `/Yellow` left out, which §8.6.6.5 admits
+        // for a CMYK process space alone.
+        let subset = ColourSpace::Separation {
+            inputs: 2,
+            alternate: Box::new(ColourSpace::Cmyk),
+            tints: Tints::Process(vec![Some(0), None, None, Some(1)]),
+        };
+        assert_eq!(
+            subset.to_cmyk(&[0.6, 0.9], Rendering::compensating(), &press),
+            [0.6, 0.0, 0.0, 0.9],
+            "an unnamed process component is absent rather than invented"
+        );
+    }
+
+    /// §10.4.2.1's ranking, priced where §10.4.2.3 states a conversion this tree departs from.
+    ///
+    /// The clause is explicit — "the CMYK colour value equivalent to a specific gray level
+    /// shall be" cyan, magenta and yellow at 0.0 with `black = 1.0 − grey` — and §10.4.2.1
+    /// ranks that whole family below §10.3's route for a processor that follows profiles,
+    /// which is the branch this tree is on. A grey painted into a `DeviceCMYK` group is
+    /// therefore separated by [`super::rgb_to_ink`]'s search against the press instead, and
+    /// this test is that decision's price rather than a check of it (ADR 1194).
+    ///
+    /// Two numbers, and they measure different things. The **components** are far apart: a
+    /// tenth-grey carries 0.60 of cyan here where the clause states 0.0, and every grey but
+    /// black and white carries chromatic ink the clause puts at zero — which is what §11.3.4's
+    /// per-component blending inside such a group reads. The **pixel** is not apart at all:
+    /// [`super::rgb_to_ink`] is a right inverse of the press's cube (ADR 0263), so an opaque
+    /// grey mark composited in ink and converted back out is the grey the file stated, to
+    /// inside one level of an eight-bit channel.
+    #[test]
+    fn a_grey_is_separated_by_the_press_rather_than_by_the_clauses_nominal_black() {
+        let press = super::assumed_press();
+        let mut worst_component = 0.0f32;
+        let mut worst_pixel = 0.0f32;
+        for step in 0..=20u8 {
+            let level = f32::from(step) / 20.0;
+            let ours = ColourSpace::Gray.to_cmyk(&[level], Rendering::compensating(), &press);
+            // §10.4.2.3: "cyan = 0.0 magenta = 0.0 yellow = 0.0 black = 1.0 - grey".
+            let clause = [0.0, 0.0, 0.0, 1.0 - level];
+            for (ink, stated) in ours.iter().zip(clause) {
+                worst_component = worst_component.max((ink - stated).abs());
+            }
+            let back = ColourSpace::Cmyk.to_rgb(&ours);
+            for channel in [back.r, back.g, back.b] {
+                worst_pixel = worst_pixel.max((channel - level).abs());
+            }
+        }
+        assert!(
+            worst_component > 0.5,
+            "the two separations of a grey differ by {worst_component} in a component"
+        );
+        assert!(
+            worst_pixel < 1.0 / 255.0,
+            "and the pixel is the grey the file stated, worst {worst_pixel}"
+        );
     }
 
     /// A grey and an RGB colour weigh the same ink whichever device space states them.

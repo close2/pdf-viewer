@@ -413,12 +413,13 @@ pub mod ffi {
 
         /// The viewport changed size, in device pixels, at `scale` device pixels per logical one.
         fn resized(self: &mut Host, width: u32, height: u32, scale: f32);
-        /// A key was pressed, as `Qt::Key`, with Shift's state beside it.
+        /// A key was pressed, as `Qt::Key`, with the two modifiers the table reads beside it.
         ///
-        /// The modifier crosses because §12.5.1's tab key needs a direction and no other row of
-        /// `viewer_host::keys` looks at one. Qt also reports Shift and Tab together as
-        /// `Qt::Key_Backtab`, which this side folds back in.
-        fn key(self: &mut Host, code: u32, shift: bool);
+        /// Shift crosses because §12.5.1's tab key needs a direction; Qt also reports Shift and
+        /// Tab together as `Qt::Key_Backtab`, which this side folds back in. Control crosses
+        /// because a Control this program does not bind has to mean *nothing* rather than the
+        /// unmodified row, which a window discarding it before asking cannot do (ADR 1192).
+        fn key(self: &mut Host, code: u32, shift: bool, ctrl: bool);
         /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
         /// The wheel turned, in device pixels of the viewport.

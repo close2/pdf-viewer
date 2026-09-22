@@ -31,7 +31,7 @@ exclusion, a deprecation, or a case the standard leaves undefined.
 `CLAUDE.md` principle 3 gives a document's restrictions four levels (`off`/`on`/ask/warn) whose
 interface is now in scope to build (the earlier "none is to be built now" deferral was lifted by
 the owner on 2026-09-16); the same surface covers printing, a collection's alternate
-presentations, and dragging a measurement. These rows
+presentations. These rows
 are not a gap in the reading — each one's core is already in place, waiting only on the surface and
 the operation it drives. **What builds them:** the host work of `doc/todo/30`–`38` and RFC 0004's
 print path.
@@ -49,8 +49,9 @@ print path.
 - §12.6.4.6 (`reported`) — a launch action the sandbox withholds by design; deliberate, kept named.
 - §12.7.5.3, §12.7.6.2 — a file-select control's file *contents*, and a submit that needs a
   network.
-- §12.9, §12.9.1, §12.10, §12.10.2 — measurement and geospatial: nothing takes the two points a
-  person would drag between (projection also needs an external registry — see bucket 2).
+- §12.7.8.3.3 — an FDF template page whose Table 253 `/F` puts it in another file. A host question
+  since ADR 1186 rather than an impossibility: `viewer_host::read_import` answers a file a document
+  named from a directory a person supplied (ADR 1155), and `pdf-model` has no filesystem by design.
 - §10.8.3 (`reported`) — separation simulation, whose condition is a user's request this viewer has
   no control for.
 
@@ -60,6 +61,11 @@ The reading is done; what is missing is a reviewed package on this tree's line, 
 project does not hold. **What would unblock them:** an upstream release (re-measurable, not
 permanent) or an owner decision to acquire a specification.
 
+- §12.10, §12.10.2 — a geospatial viewport's **projection**. Everything the file states is read and
+  a person can now trace a path in one: which system the map is in, how many `/GPTS`–`/LPTS` pairs
+  register it, whether §12.10.2's `/Bounds` neatline covers the point. Turning a projected
+  coordinate into a latitude needs the EPSG registry or an ISO 19162 string, and §12.10.3 names both
+  as texts outside this standard.
 - §12.8.1, §12.8.3.1, §12.8.3.3, §12.8.3.3.1 — brainpoolP512r1 and Ed448 (ISO/TS 32002): named at
   runtime by the certificate's own identifier; no reviewed arithmetic package on the `digest` line
   is out of pre-release (ADR 1063).
@@ -115,20 +121,23 @@ The feature draws; the residue is a case the first build did not reach. **What w
 a normal round extending the existing code. Membership is re-derived from the live ledger: the three
 rows the section below records as having moved here are named here now, which they were not.
 
-- §12.5.6.23 — redaction of a painted path or form, and codec-encoded or shared images
-  (`doc/todo/64`, ADR 1124).
-- §8.6.6.5 — a DeviceN `/NChannel` space's per-component reversion through each colourant's own
-  Separation, and its `/Colorants` dictionary — the spot case the display cannot combine without a
-  colourant it lacks.
-- §12.7.4.3 — variable text whose `/DA` matrix rotates, skews or mirrors, off the one axis this
-  layout lays text along (`doc/todo/22`).
-- §8.9.6.4 — colour key masking for samples that are not eight unsigned bits per component: the range
-  test is applied wherever the samples the comparison sees are still in the domain the file wrote its
-  integers in, and the residue is this tree's eight-bit image pipeline rather than a gap in the
-  reading (ADR 1121).
+- §12.5.6.23 — redaction of a stroked, curved or clipping path, a `JPXDecode` image, an image
+  stating `/Alternates`, a codec image carrying transparency, and an inline image behind a codec
+  (`doc/todo/64`, ADRs 1124, 1195, 1196).
+- §12.7.4.3 — variable text whose `/DA` matrix turns the line off *both* of the box's axes, or
+  whose linear part has no inverse. A scale, a mirror, a half turn, a quarter turn and a shear are
+  all laid out (ADRs 1114, 1130); what is left is the turn by something that is not a multiple of
+  90°, for which no length the box states is the room the line has (`doc/todo/22`).
+- §8.9.6.4 — colour key masking on a `JPXDecode` image whose components are not eight unsigned bits.
+  The range test runs in the domain the file wrote its integers in wherever `unpack` sees the
+  samples — measured on a sixteen-bit ramp whose two middle samples are one unit apart in sixteen
+  bits and one byte in eight — so the residue is the decoder's eight-bit hand-off alone, not the
+  raster downstream of it (ADR 1121, ADR 1193's sibling measurement in `image_masks.rs`).
 - §12.7.8.3.2 — Table 249's `/AP`, `/APRef`, `/A` and `/AA`, named by the importer and not applied.
   The clause's replacing sentence is stated indicatively and covers every entry of the table, so
-  each is a requirement unmet; `/RV` alone is the XFA exclusion (ADR 0907). They divide by *where
+  each is a requirement unmet, `/RV` among them since ADR 1197 took the exclusion off it — what it
+  would carry is formatting §12.7.4.3 does not apply, so importing it changes nothing a reader sees.
+  They divide by *where
   the value lives* rather than by difficulty: `/AP`'s streams are objects of the FDF file, which is
   §12.7.8.3.4's open second-`Document` question; `/APRef` names an external PDF file, which is
   §12.7.6.4's hazard and a host question first; `/A` and `/AA` carry references from one object
@@ -194,17 +203,17 @@ into their notes rather than here. The membership below is what survived.
 - §12.6.4.9, §12.6.4.10 (`reported`) — Sound and Movie: clause 13 multimedia, excluded by principle 5.
 - §12.5.6.11, §12.5.6.12 (`reported`) — a caret's `/Sy` symbol and a rubber stamp's `/IT`, whose
   artwork the standard states nowhere (`doc/todo/26`); every corpus instance carries an appearance.
-- §10.7, §10.4.2.3 — scan-conversion departures §10.7.1's NOTE licenses, and a grey-to-CMYK
-  conversion §10.4.2.1 ranks below the ICC route this tree takes. (The second is a *departure*
-  rather than a formula nothing calls — `colour::rgb_to_cmyk` evaluates it as the nominal
-  separation — and is the one candidate for `departed` a round with an ADR to write could take.)
+- §10.7 — scan-conversion departures §10.7.1's NOTE licenses. (§10.4.2.3 stood beside it until its
+  grey-to-CMYK direction was argued and priced: it is `departed` on §10.4.2.1's ranking, ADR 1194.)
 - §9.8.3.3 — an FD class descriptor: the reader's half is done; enforcement is a validator's job the
   reader does not own.
-- §12.7.4.1 — a field-inheritance bound the clause forbids, kept at 32 because principle 3's resource
-  budgets outrank a depth no legitimate form approaches; reaching it is reported.
-- §12.5.6.2, §12.7.8.3.3 — XFA-formatted `/RC`, and the `/Rename` branch whose alternative would
-  write fields onto an immutable document. (`/ExData` is disposed of by Table 173 stating no entries
-  for `MarkupGeo`, not by a scope claim: geospatial is §12.10's and is in scope.)
+- §12.7.4.1 (`departed`) — a field-inheritance bound the clause forbids, kept because principle 3's
+  resource budgets answer a `/Parent` cycle; reaching it is reported. The number was chosen from a
+  measurement rather than asserted, after 32 was found to be refusing real fields (ADR 1198).
+- §12.5.6.2, §12.7.8.3.3 — a markup annotation's `/ExData`, and the `/Rename` branch whose
+  alternative would write fields onto an immutable document. (`/ExData` is disposed of by Table 173
+  stating no entries for `MarkupGeo`, not by a scope claim: geospatial is §12.10's and is in scope.
+  §12.7.8.3.3 keeps a debt of its own beside that branch, Table 253's `/F`, which is in bucket 1.)
 - §12.7.5.4 — a choice field's selection: the clause states no appearance for it, so the page shows
   the list and reports which item `/V` names.
 - §12.11, §12.11.3 — the weighting of one document's requirements "against other documents in the
@@ -216,8 +225,15 @@ into their notes rather than here. The membership below is what survived.
 
 ### What left this bucket, and where it went
 
-Four claims decayed when the rows were re-read against their clauses. Each row's note carries the
+Five claims decayed when the rows were re-read against their clauses. Each row's note carries the
 reading; this is only where they went.
+
+- **§12.9, §12.9.1, §12.10, §12.10.2** — carried here as *nothing takes the two points a person
+  would drag between*. Something does: `viewer_core::Query::Measure` takes a traced path in viewport
+  pixels and answers with the strings the document's own number format arrays produced, the mode and
+  the wording are `viewer_host::Measuring`, and the key `m` reaches all three windows. §12.9 and
+  §12.9.1 are `implemented`; §12.10 and §12.10.2 keep the projection alone → **bucket 2,
+  external-dependency-blocked** (ADR 1191).
 
 - **§12.7.8.3.1** — `/EmbeddedFDFs` was carried here as *deprecated in PDF 2.0*. Table 246's cell
   states no deprecation, only Table 247's `/EncryptionRevision` does, and Errata Collection 3's
@@ -230,8 +246,8 @@ reading; this is only where they went.
   external-dependency-blocked**.
 - **§12.7.8.3.2** — carried here as an FDF branch that would write onto an immutable document. The
   row's own note has said since ADR 0907 that the unapplied `/AP`, `/APRef`, `/IF`, `/A` and `/AA`
-  are requirements of the clause's replacing sentence unmet; only `/RV` is the XFA exclusion →
-  **bucket 4, feature depth**.
+  are requirements of the clause's replacing sentence unmet; `/RV` was called the XFA exclusion and
+  is not one either (ADR 1197) → **bucket 4, feature depth**.
 - **§8.9.6.4** — carried here as a bit depth Table 87 leaves undefined. The same table says the
   depth *is* determined by the processor while decoding, and ADR 1121 settled that the residue is
   this tree's eight-bit raster → **bucket 4, feature depth**.
@@ -243,7 +259,53 @@ bucket 2 did.
 Two rows kept their place and lost their stated reason, which is the same decay one step short of a
 move: §12.5.6.2's `/ExData` (a scope claim `CLAUDE.md` does not support, replaced by Table 173's own
 sentence) and §12.11.3 (a residue quoted across a join, half of which needs no second document and
-is performed). **§10.4.2.3 is the one candidate for a status this sweep could not take**: the
-clause defines the grey-to-CMYK conversion outright, `colour::rgb_to_cmyk` evaluates exactly it for
-a grey, and the residue is a departure of §10.4.2.5's shape on §10.4.2.1's ranking — which is a
-decision, and a decision needs a round that can write the ADR.
+is performed). **§10.4.2.3 was the one candidate for a status this sweep could not take**, and ADR 1194 took it:
+the clause defines the grey-to-CMYK conversion outright, `colour::rgb_to_cmyk` evaluates exactly it
+for a grey, and the residue is a departure of §10.4.2.5's shape on §10.4.2.1's ranking — a decision,
+which is why it needed a round that could write the ADR rather than a sweep.
+
+### Expired premises — a decision whose factual ground the tree has since removed
+
+A seventh shape, and it is not a bucket of ledger rows: these are *decisions* whose stated premise
+was a fact about this tree, and the fact has changed. Each was re-tested against the code it names
+rather than against its own words (ADR 1201's method), and what stands here is the build the expired
+premise no longer blocks. A round takes one of these the way it takes a ledger row; the ADR that
+recorded the premise is a record and stays as written.
+
+- **ADR 0803 section 1 — Table 22 bit 12.** `viewer-host`'s `printing` module states an
+  output-resolution algorithm with a documented floor (`MIN_DPI`), and the GTK host runs a print
+  dialogue whose print-to-file destination is bit 12's own subject. A round asks
+  `Operation::PrintFaithfully` beside `Operation::Print` in the print path, so a document with bit 3
+  set and bit 12 clear is drawn at the floor and refused the faithful destination by name.
+- **ADR 0821 — the merged `/Info`.** Its second ground, that synthesising one would be authoring
+  metadata this program does not author, is gone: `update::Edit::SetInformation` writes Table 349's
+  nine keys through `pdf-vfs`'s verbs. A round gives `merge`'s `Plan` the same stated-entries path,
+  validated against `INFORMATION_KEYS`. (The `/Info` decision is ADR 0821 section 9, not section 4;
+  section 4's outline splice holds.)
+- **ADR 1012 — the converter's inert verbs.** `executor::execute`, `archive/preserve.rs` and
+  `archive/remedies.rs` carry out `derive`, `supply` and `preserve`; the attachment writer the ADR
+  waited on predates it. What is left is one item: `Qualifier::Shape` still parses and is discarded
+  in `archive/config.rs`, so a round makes it select a remedy in `decision.rs`.
+- **ADR 1057 section 4 — `/FixedPrint`'s printing half.** §12.5.6.22 is `implemented` and a print
+  path exists (ADR 1180), so the wait is over; what remains is narrower than the ADR's sentence — a
+  round gives `target_media` a non-identity placement from `Sheet` so tiling and n-up are placed
+  under §12.5.6.22's two post-EXAMPLE bullets.
+- **ADR 1069 — the black-generation departure.** Its screen ground is retired by name (ADR 1173,
+  `CLAUDE.md`'s clause-10 amendment) and the group is the device the overprint rule addresses
+  (ADR 1157). A round evaluates a stated `/BG`, `/BG2`, `/UCR` or `/UCR2` as the black-generation
+  step of `pdf_colour::rgb_to_ink` under `Compositing::Subtractive`, turning
+  `note_black_generation_departure` into an applied conversion.
+- **ADR 1107 — the second element run's population.** §11.4.4's note still says no first page states
+  a non-isolated group under a mode — 0 of 1477 — counted on *file*-stated groups, while
+  `overprint::non_isolated_group` (ADR 1170) synthesises exactly that command for §11.7.4.3's
+  implicit group. A round re-counts the population on the interpreter's condition and re-prices the
+  second run on the first corpus page that reaches it.
+- **ADR 1113 — the per-pixel shape channel's cost.** `pdf_render::transfer_channel` is that
+  machinery, built for §11.7.5.2 (ADR 1125), and the population it called zero is thirteen
+  documents. A round puts §11.4.6's knockout shape on the same construction — one run-numbered
+  per-pixel channel resolved in both backends — in place of `Command::Shaped`'s raster per element,
+  with `viewer-confined`'s protocol answering it the way it already answers the transfer channel.
+- **ADR 0660 — #307's `shall not` as a writer's.** This tree writes §7.9.6 name trees in four
+  places (`merge::merge_name_trees`, `attachments`, `split`, `attachment::filing`), so the erratum
+  binds it as producer. A round asserts no emitted `/Names` key is `Object::Null` where the trees
+  are written, and joins the two halves of §7.9.6's note.
