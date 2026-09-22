@@ -407,6 +407,15 @@ pub(crate) struct App {
     /// the standard describes the annotation and says nothing about how a person comes to make
     /// one.
     pub(crate) drawing: Option<Drawing>,
+    /// Whether §8.11.4.5's print operation is running, which is what this window shows while it is.
+    ///
+    /// **This host prints by showing, and RFC 0004 names what it would take not to.** There is no
+    /// toolkit here and therefore no toolkit print dialogue; the RFC's recommendation for this
+    /// window is a panel of its own and a job submitted over IPP, which is a dependency ADR 1180
+    /// prices and defers. What this window can do meanwhile is the RFC's own preview — Table 167's
+    /// bit 3 applied to the annotations, §8.11.4.5's `Print` event to the layers, §12.5.6.22's
+    /// watermarks against the sheet — and the same key ends it.
+    pub(crate) printing: bool,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:

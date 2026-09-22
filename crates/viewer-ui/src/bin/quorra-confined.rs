@@ -555,6 +555,18 @@ impl Host {
                 self.heading = format!("{} — {pages} page(s)", self.name());
                 self.retitle();
             }
+            // This window sends no `Command::Print`, so the grant never arrives — and it is
+            // answered all the same, in the direction that says so, for the reason the two
+            // levels below are: an operation added to this window later may not behave like
+            // another one in silence. What the arm would mean if it did arrive is RFC 0004 §6's
+            // preview: the worker interprets for paper and this window shows what it sends
+            // (ADR 1180).
+            Event::Printing { pages, .. } => {
+                eprintln!(
+                    "note: the confined viewer granted a print operation over {pages} page(s), \
+                     which this window never asked for"
+                );
+            }
             Event::OpenFailed { reason, .. } => {
                 // The worker survives an open it refused; only this document is over.
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));

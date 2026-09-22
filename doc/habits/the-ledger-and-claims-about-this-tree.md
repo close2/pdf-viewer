@@ -311,3 +311,10 @@ reason as the current one, which is the defect `CLAUDE.md`'s comment rule names 
 entry the standard gained: all three of the table's PDF 2.0 additions were missing from it, and one
 of them had been read for two hundred sessions. The cheap instrument is the table's own key column
 in `doc/md/` (ADR 1172).
+
+**A ledger note that states a measured number names the code path it was measured on.** ADR 0848's
+worst stroke thickness of 0.1802 was measured on `tiny-skia`'s supersampler, which ADR 1082 replaced
+with an analytic area for every diagonal; the number survived inside a row citing ADR 1082's
+neighbours, forty-seven times too large, until it was re-taken (ADR 1189). `tools/state.sh
+departures` catches an argument whose ADR may have expired; nothing catches a number whose
+instrument was swapped except the sentence beside it saying which instrument that was.

@@ -974,6 +974,47 @@ mod tests {
         assert_eq!(source.relationship, super::Relationship::Source);
     }
 
+    /// §14.13.4: a file associated with a *page*, read from the page dictionary the clause names.
+    ///
+    /// > One or more files may be associated with any PDF page by including a file specification
+    /// > dictionary (7.11.3, "File specification dictionaries") for each file as one of the
+    /// > members of the array value of the AF key in the appropriate page dictionary (7.7.3.3,
+    /// > "Page objects"). The relationship that the associated files have to the page is supplied
+    /// > by the AFRelationship key in each file specification dictionary.
+    ///
+    /// The document's own `/AF` is on the catalog and a *different* file, so this cannot pass by
+    /// reading the wrong carrier: `attachments` returns the catalog's and this returns the page's.
+    /// No corpus document states a page `/AF`, so the fixture is written here (trap 8), and the
+    /// consumer that puts it in front of a person is `viewer-core`'s `attachments_in_view`
+    /// (ADR 1186).
+    #[test]
+    fn a_file_associated_with_a_page_is_read_from_the_page_dictionary() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AF [6 0 R] >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /AF [4 0 R] >>",
+            "<< /Type /Filespec /F (figure.csv) /AFRelationship /Data /EF << /F 5 0 R >> >>",
+            "<< /Type /EmbeddedFile /Subtype /text#2Fcsv /Length 3 >>\nstream\ncsv\nendstream",
+            "<< /Type /Filespec /F (manuscript.odt) /AFRelationship /Source /EF << /F 7 0 R >> >>",
+            "<< /Type /EmbeddedFile /Length 3 >>\nstream\nodt\nendstream",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("the one page");
+        let files = super::associated(&doc, &page.dict);
+        let [figure] = files.as_slice() else {
+            panic!("one associated file on the page, got {files:?}");
+        };
+        assert_eq!(figure.name, "figure.csv");
+        assert_eq!(figure.relationship, super::Relationship::Data);
+        assert_eq!(
+            attachments(&doc)
+                .into_iter()
+                .map(|file| file.name)
+                .collect::<Vec<_>>(),
+            ["manuscript.odt"],
+            "§14.13.3's catalog array is the document's, and is not the page's"
+        );
+    }
+
     /// §14.13.8: a file associated with a `DPart` reaches the list a panel shows.
     ///
     /// > One or more files may be associated with any DPart (see 14.12, "Document parts"). To

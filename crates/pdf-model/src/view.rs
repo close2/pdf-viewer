@@ -152,6 +152,25 @@ pub struct ViewState {
     /// [`Purpose::View`] until an operation says otherwise, which is what every caller that says
     /// nothing gets. ADR 1173.
     purpose: Purpose,
+    /// §12.5.6.22's target media — the sheet the output is going onto, where whoever is
+    /// producing it knows its dimensions.
+    ///
+    /// The fifth thing in this struct that is a property of the *host* rather than of the
+    /// document, and it is here for `magnification`'s reason: Table 194 measures `/H` and `/V`
+    /// "as a percentage of the width of the target media (or if unknown, the width of the page's
+    /// MediaBox )", and rule 1 makes this state the only channel by which anything outside the
+    /// file may decide a mark.
+    ///
+    /// `None` is the clause's own other branch rather than a default: Table 193 says that "[i]f
+    /// the dimensions of the target media are not known at the time of drawing, drawing shall be
+    /// done relative to the dimensions specified by the page's MediaBox entry", which is what
+    /// every caller that states nothing gets and what §12.5.6.22 requires of a screen outright.
+    /// In default user space units, the same as the media box it stands in for. ADR 1179.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "verbatim quotations: Table 193 and Table 194 spell MediaBox without backticks"
+    )]
+    paper: Option<[f32; 4]>,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -564,12 +583,16 @@ pub struct Imported {
     pub refused: Vec<String>,
 }
 
-/// Everything this state says about one annotation, gathered in one walk.
+/// Everything this state contributes to one annotation's decision, gathered in one walk.
 ///
-/// A struct rather than five arguments because the five are asked together, once per annotation
-/// per page, and because four of them default to "the file's own answer" — which is what
-/// [`Default`] here means and what every annotation in a document nothing has interacted with
-/// gets.
+/// A struct rather than a list of arguments because they are asked together, once per annotation
+/// per page, and because each defaults to "the file's own answer" — which is what [`Default`]
+/// here means and what every annotation in a document nothing has interacted with gets, drawn
+/// for a reader looking at the screen.
+///
+/// Two of them are facts about the *output* rather than about the annotation, and they are here
+/// because §12.5.3 and §12.5.6.22 make them this annotation's own questions; see `purpose` and
+/// `paper`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct AnnotationView<'a> {
     /// §12.6.4.11: `Some(true)` where a hide action hid this annotation, `Some(false)` where one
@@ -586,6 +609,12 @@ pub struct AnnotationView<'a> {
     /// two modifying entries are defined *against* the flags the document states, which only the
     /// reader of that dictionary has.
     pub flags: Option<crate::forms_data::FlagChange>,
+    /// §12.7.8's `/IF`, where an FDF file stated an icon fit dictionary for this field.
+    ///
+    /// `None` is *this state has nothing to say*, so Table 192's own `/IF` in the widget's `/MK`
+    /// stands. Table 249 and Table 192 name the same Table 250 dictionary, so an imported one
+    /// replaces the widget's under §12.7.8.3.2's replacing sentence. ADR 1186.
+    pub icon_fit: Option<&'a Dictionary>,
     /// What a person retyped into §12.5.6.6's annotation, where they retyped one.
     ///
     /// `None` is *this state has nothing to say*, so Table 166's `/Contents` and Table 177's `/RC`
@@ -598,6 +627,21 @@ pub struct AnnotationView<'a> {
     /// stored `/AP` describing text the annotation no longer has is set aside by
     /// [`crate::annotation::decide`] where this is `Some`.
     pub contents: Option<&'a str>,
+    /// What the output being produced is for — [`ViewState::purpose`].
+    ///
+    /// **A fact about the output rather than about this annotation, and it is here because
+    /// §12.5.3 makes it one of this annotation's own questions**: Table 167's bit 3 decides
+    /// whether an annotation is printed and its bit 6 decides whether one is rendered on a
+    /// screen, so which of the two rows applies cannot be read out of the annotation dictionary
+    /// at all. [`crate::annotation::displayed`] is where the table's two readings are.
+    pub purpose: Purpose,
+    /// §12.5.6.22's target media — [`ViewState::paper`].
+    ///
+    /// Carried for the reason `purpose` is: Table 194's `/H` and `/V` are percentages of the
+    /// target media's dimensions, and no dictionary in the file states what sheet an operation
+    /// chose. Read only under [`Purpose::Print`]; `None` is Table 193's *not known*, under which
+    /// the page's own media box stands in.
+    pub paper: Option<[f32; 4]>,
 }
 
 /// Which of Table 170's appearances an annotation shows.
@@ -720,6 +764,7 @@ impl ViewState {
             widget_appearances: WidgetAppearances::default(),
             audience: Audience::NONE,
             purpose: Purpose::View,
+            paper: None,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),
@@ -842,6 +887,38 @@ impl ViewState {
         self.reapply_usage()
     }
 
+    /// §12.5.6.22's target media, as the operation producing the output knows it.
+    ///
+    /// Table 193 makes the dimensions of that media the thing a fixed print watermark is placed
+    /// against, and states what to do without them:
+    ///
+    /// > If the dimensions of the target media are not known at the time of drawing, drawing
+    /// > shall be done relative to the dimensions specified by the page's MediaBox entry
+    ///
+    /// So `None` is *not known*, which is every caller that renders for a screen — §12.5.6.22
+    /// requires that one by name, "[w]hen displaying a watermark annotation on-screen,
+    /// interactive PDF processors shall use the dimensions of the media box ... so that the
+    /// scroll and zoom behaviour is the same as for other annotations" — and `Some` is a sheet
+    /// somebody chose, in default user space units.
+    ///
+    /// **Stated beside [`Self::set_purpose`] and read only under [`Purpose::Print`]**, because
+    /// the sentence the substitution comes from is about a printed page: a paper size stated
+    /// while the purpose is still [`Purpose::View`] would move a mark on the screen that
+    /// §12.5.6.22's on-screen sentence fixes to the media box. ADR 1179.
+    ///
+    /// Returns nothing to redraw by itself: the caller that states a paper size is the caller
+    /// that is about to ask for the pages, and a change of purpose supersedes the ink already
+    /// produced whatever this says.
+    pub fn set_paper(&mut self, paper: Option<[f32; 4]>) {
+        self.paper = paper;
+    }
+
+    /// §12.5.6.22's target media, or `None` where nobody has stated one; see [`Self::set_paper`].
+    #[must_use]
+    pub fn paper(&self) -> Option<[f32; 4]> {
+        self.paper
+    }
+
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
     ///
     /// The entry is "[t]he date and time when the annotation was most recently modified", and
@@ -958,6 +1035,8 @@ impl ViewState {
     #[must_use]
     pub fn annotation(&self, annotation: ObjectId) -> AnnotationView<'_> {
         AnnotationView {
+            purpose: self.purpose,
+            paper: self.paper,
             hidden_by_action: self.annotation_hidden(annotation),
             appearance: self.appearance_for(annotation),
             value: if let Some(edit) = self.edited.get(&annotation) {
@@ -975,7 +1054,31 @@ impl ViewState {
             flags: self.imported.get(&annotation).and_then(|import| {
                 (!import.annotation_flags.is_unchanged()).then_some(import.annotation_flags)
             }),
+            icon_fit: self
+                .imported
+                .get(&annotation)
+                .and_then(|import| import.icon_fit.as_ref()),
             contents: self.retyped.get(&annotation).map(String::as_str),
+        }
+    }
+
+    /// [`Self::annotation`] for an annotation that may have no object number of its own.
+    ///
+    /// A direct annotation dictionary in a page's `/Annots` array has no identity a person could
+    /// have interacted with, so every per-annotation answer is the file's — but
+    /// [`AnnotationView::purpose`] and [`AnnotationView::paper`] are facts about the *output*,
+    /// and an annotation the file wrote inline is printed on the same sheet as the ones beside
+    /// it. Taking [`AnnotationView::default`] for it would have decided §12.5.3's bit 3 by the
+    /// screen's row on exactly those annotations. ADR 1179.
+    #[must_use]
+    pub fn annotation_of(&self, annotation: Option<ObjectId>) -> AnnotationView<'_> {
+        match annotation {
+            Some(id) => self.annotation(id),
+            None => AnnotationView {
+                purpose: self.purpose,
+                paper: self.paper,
+                ..AnnotationView::default()
+            },
         }
     }
 
@@ -2390,11 +2493,19 @@ impl ViewState {
         widgets: &BTreeMap<String, Vec<ObjectId>>,
         outcome: &mut Imported,
     ) {
-        if data.pages.is_empty() {
+        // Table 246's `/EmbeddedFDFs` are files, so their pages are pages this import adds:
+        // `FormsData::files` is the nesting in the order an import applies it, outermost first
+        // (ADR 1185).
+        let pages: Vec<&crate::forms_data::FdfPage> = data
+            .files()
+            .into_iter()
+            .flat_map(|file| &file.pages)
+            .collect();
+        if pages.is_empty() {
             return;
         }
         let named = crate::named_page::NamedPages::read(document);
-        for page in &data.pages {
+        for page in pages {
             for template in &page.templates {
                 let reference = &template.reference;
                 if let Some(file) = &reference.file {

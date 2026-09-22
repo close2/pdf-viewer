@@ -194,6 +194,9 @@ impl Events {
                     "page content order"
                 }
             ),
+            Event::Printing { pages, .. } => {
+                format!("printing, over {pages} page(s), until quorra_print_finish")
+            }
             Event::AttachmentsChanged { document } => format!(
                 "document {}'s embedded files changed; read the panel again",
                 document.0
@@ -305,7 +308,8 @@ impl Events {
             | Event::Warned { document, .. }
             | Event::AttachmentsChanged { document }
             | Event::Submit { document, .. }
-            | Event::Copied { document, .. } => document.0,
+            | Event::Copied { document, .. }
+            | Event::Printing { document, .. } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })

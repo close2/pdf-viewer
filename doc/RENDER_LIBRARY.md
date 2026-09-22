@@ -96,7 +96,7 @@ Concretely, the four things a general vector API usually lacks and we need:
 
 - a fill whose compositing is **Porter-Duff Source modulated by coverage**, and **Destination-Out and Plus** beside it for the elements whose shape that modulation cannot read (§4.1);
 - a soft mask that is a *rendered group* reduced by a stated rule, not an alpha texture (§4.2);
-- all sixteen of ISO 32000-2 §11.3.5's blend modes, the four non-separable ones included (§4.3);
+- all sixteen of ISO 32000-2 §11.3.5's blend modes, the four non-separable ones included, and §11.7.4.3's special overprinting mode, which is destination-over in the channels it keeps and source-over in the rest (`doc/QUORRA_FEEDBACK.md` section 49; ADR 1182) (§4.3);
 - a group that composites onto **transparency** and is then painted once (§4.4).
 
 ---

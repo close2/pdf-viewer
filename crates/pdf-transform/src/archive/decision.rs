@@ -141,11 +141,35 @@ pub enum Loss {
     /// Not mechanical, for `doc/pdf-a-conversion-limits.md` section 3.3's reason: it classes this
     /// *Ask*, and every removal is named in the report before it goes.
     InteractiveBehaviour,
+    /// section 3.5: the document's encryption, and with it Table 22's permission flags.
+    ///
+    /// ISO 19005-2 section 6.1.3 and ISO 19005-4 section 6.1.3 forbid an `/Encrypt` key in the
+    /// trailer outright, and sections 6.1.7.2 and 6.1.6.2 forbid a `Crypt` filter naming anything
+    /// but `Identity`. Neither offers a conforming file any way to stay encrypted, so the one
+    /// rewrite that meets them writes the document out with no encryption at all —
+    /// [`Rewrite::EncryptionRemoved`].
+    ///
+    /// **No mark moves and no value changes.** §7.6.2 makes encryption a property of the file:
+    /// every string and every stream this conversion carries was decrypted when the source was
+    /// opened, so the output holds exactly what the source held. What is lost is the *file's*
+    /// requirement of a key.
+    ///
+    /// **What goes with it is a statement, and the statement is kept.** §7.6.4.2's Table 22 flags
+    /// say what the producer asserted a reader may do — print it, copy from it, change it — and an
+    /// unencrypted file asserts none of them. Enforcement cannot survive; the assertion can, so
+    /// every flag the source stated is written into the report and into the output's own
+    /// `xmpMM:History` before it goes. `doc/adr/1187` is the argument, and it is
+    /// `doc/pdf-a-mitigations.md` section 2's `preserve` beside the `discard`.
+    ///
+    /// Not mechanical, however invisible on the page: `doc/pdf-a-conversion-limits.md` section 3.5
+    /// classes it *Ask* and never a default, because the archived copy becomes readable by anybody
+    /// holding it.
+    Encryption,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
@@ -153,6 +177,7 @@ impl Loss {
         Self::SignatureAssertion,
         Self::ForbiddenAnnotation,
         Self::InteractiveBehaviour,
+        Self::Encryption,
     ];
 
     /// The word a caller authorises it by.
@@ -166,6 +191,7 @@ impl Loss {
             Self::SignatureAssertion => "signature-assertion",
             Self::ForbiddenAnnotation => "forbidden-annotation",
             Self::InteractiveBehaviour => "interactive-behaviour",
+            Self::Encryption => "encryption",
         }
     }
 
@@ -212,6 +238,15 @@ impl Loss {
                  removed one are kept and take its place; no mark on any page moves, and the \
                  report names every action that went"
             }
+            Self::Encryption => {
+                "the document's encryption is not carried into the output, so the archived copy \
+                 is readable by anybody holding it and no password opens or withholds it. \
+                 Nothing in the document changes \u{2014} every string and every stream was \
+                 decrypted when the source was opened \u{2014} but ISO 32000-2 \u{a7}7.6.4.2's \
+                 Table 22 permission flags stop being asserted with it, so a producer's \"no \
+                 printing\" or \"no extraction\" is no longer in the file. The report names every \
+                 flag the source stated, and the output's own xmpMM:History records them"
+            }
         }
     }
 
@@ -249,6 +284,8 @@ pub struct Authorisations {
     pub forbidden_annotation: bool,
     /// Whether [`Loss::InteractiveBehaviour`] was authorised.
     pub interactive_behaviour: bool,
+    /// Whether [`Loss::Encryption`] was authorised.
+    pub encryption: bool,
 }
 
 impl Authorisations {
@@ -263,6 +300,7 @@ impl Authorisations {
             Loss::SignatureAssertion => self.signature_assertion,
             Loss::ForbiddenAnnotation => self.forbidden_annotation,
             Loss::InteractiveBehaviour => self.interactive_behaviour,
+            Loss::Encryption => self.encryption,
         }
     }
 
@@ -276,6 +314,7 @@ impl Authorisations {
             Loss::SignatureAssertion => self.signature_assertion = true,
             Loss::ForbiddenAnnotation => self.forbidden_annotation = true,
             Loss::InteractiveBehaviour => self.interactive_behaviour = true,
+            Loss::Encryption => self.encryption = true,
         }
     }
 }
@@ -714,6 +753,20 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "file-structure/document-signature-states-no-digest",
         answer: Answer::Loses(Loss::SignatureAssertion, Rewrite::SignatureValueRemoved),
+    },
+    // ISO 19005-2 section 6.1.3 and ISO 19005-4 section 6.1.3 forbid the trailer's `/Encrypt`;
+    // sections 6.1.7.2 and 6.1.6.2 forbid a `Crypt` filter naming anything but `Identity`. One
+    // act answers both, because §7.6.2 makes encryption a property of the file: the objects this
+    // conversion carries were decrypted when the source was opened, and the output is written
+    // from them with no encryption dictionary. `doc/pdf-a-conversion-limits.md` section 3.5 makes
+    // it an *Ask* — what the file stops carrying is Table 22's permission flags.
+    Remedy {
+        requirement: "file-structure/no-encryption",
+        answer: Answer::Loses(Loss::Encryption, Rewrite::EncryptionRemoved),
+    },
+    Remedy {
+        requirement: "file-structure/crypt-filter-is-identity",
+        answer: Answer::Loses(Loss::Encryption, Rewrite::EncryptionRemoved),
     },
     // ISO 19005-2 Annex B.1: a signature whose range does not cover the file it was made over.
     // Only the signer could redo the range and the digest as one act (ADR 1003), and no output
@@ -1577,16 +1630,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "annotations/appearance-dictionary-holds-only-normal",
         Because::NotBuiltYet(EXTRA_APPEARANCE_STATES_NOT_BUILT),
     ),
-    // ISO 19005-2 section 6.1.3 and section 6.1.7.2, ISO 19005-4 section 6.1.3 and section
-    // 6.1.6.2: `doc/pdf-a-conversion-limits.md` section 3.5.
-    (
-        "file-structure/no-encryption",
-        Because::NotBuiltYet(ENCRYPTION_REMOVAL_NOT_BUILT),
-    ),
-    (
-        "file-structure/crypt-filter-is-identity",
-        Because::NotBuiltYet(ENCRYPTION_REMOVAL_NOT_BUILT),
-    ),
     // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary.
     (
         "file-structure/document-information-dictionary-holds-only-a-modification-date",
@@ -2006,15 +2049,6 @@ const NOTHING_UNDERLYING_FAILED: &str = "this requirement asks other rules of th
      annotation the interactive form names and no page's Annots array holds. This conversion \
      rewrites annotations the pages reach, and one reachable only through the field tree is not \
      among them";
-
-/// Why encryption is not removed.
-const ENCRYPTION_REMOVAL_NOT_BUILT: &str = "both parts forbid an Encrypt key in the trailer \
-     outright, and with it a Crypt filter whose name is not Identity. Removing encryption is \
-     mechanically small and doc/pdf-a-conversion-limits.md section 3.5 makes it an Ask and never \
-     a default: the archived copy becomes readable by anyone holding it, and Table 22's \
-     permission flags stop being asserted with it. The authorisation word and the \
-     decrypt-then-write path are not built, and a document whose password is not to hand cannot \
-     be read at all (section 2.4)";
 
 /// Why `/Info` is not reconciled with the XMP packet.
 const INFO_DICTIONARY_NOT_RECONCILED: &str = "ISO 19005-4 section 6.1.3 leaves a document \

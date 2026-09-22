@@ -252,30 +252,28 @@ section_confined() {
 }
 
 # The mitigation catalogue's own gap, which `doc/todo/66` names as an instrument gap rather than
-# leaving as a number in prose. `--remedy-sites` prints one line per refusal site a target binds
-# and one line per remedy that site admits, and the item's done condition — that a shipped profile
-# produces no `does not carry out yet` note — is reached exactly when no site is left saying its
-# catalogued remedy is not built.
+# leaving as a number in prose. The item's done condition has two halves — no site left saying its
+# catalogued remedy is not built, and no shipped profile left producing a `does not carry out yet`
+# note — and `--remedy-sites` now prints a total for each of them, so this section filters two
+# sentences the program wrote rather than counting its lines. The header's rule is kept exactly:
+# nothing here adds anything up.
 #
-# **`grep -c` here is a total this file computes, which is the one thing the header above forbids
-# — and the forbidden shape is a sum carried *beside* a gate's figure, going stale while the
-# figure stays current.** This one is computed from the same run it summarises and cannot be
-# stale, and it counts the program's own lines rather than adding up numbers the program printed.
-# It is still the weaker form: the trap's own answer is *if you need a total, print it*, and the
-# place to print it is `--remedy-sites` itself, which today prints one line per site and no total.
-# `doc/todo/66` carries that as the next move; until then the count lives here rather than
-# nowhere. The other half of the item's instrument is already in `section_archive` below, which
-# keeps the corpus walk's per-target conversion counts.
+# **The profile half needs no corpus, and that is the finding rather than a shortcut.** The note it
+# counts comes from `Configuration::unbuilt`, which reads the answers a profile gives and asks
+# which of them have code behind them; both are properties of the profile and the target, so a
+# conversion prints the same notes whatever document it is handed. Walking a corpus for them would
+# have counted the corpus. The corpus half of `doc/todo/66` is `section_archive` below, which keeps
+# the walk's per-target conversion counts — a different question, and that one does need the walk.
 #
-# Cheap — a table lookup per target, no corpus and no document — so it is in `quick`, and
-# `section_archive` calls it so that a run of that section alone prints the whole item.
+# Cheap — a table lookup per target and per profile, no corpus and no document — so it is in
+# `quick`, and `section_archive` calls it so that a run of that section alone prints the whole item.
 section_remedies() {
     heading "the mitigation catalogue's gap, per PDF/A target" \
-        "quorra-transform archive --remedy-sites --to <target>"
+        "quorra-transform archive --remedy-sites --to <target> [--config <profile>]"
     # The targets come from the program rather than from a list here, so that a target added to
     # `pdf_archive::Target::ALL` is counted without this script being edited: `--to ""` is refused
     # with a sentence naming every one of them.
-    local target listing code sites unbuilt targets
+    local target listing code trailer targets profile answered name
     targets=$(cargo run -q -p pdf-transform --bin quorra-transform -- \
         archive --remedy-sites --to '' 2>&1 |
         sed -n 's/^error: --to .*: the targets are //p' | tr -d ',')
@@ -294,10 +292,35 @@ section_remedies() {
             status=$code
             continue
         fi
-        sites=$(printf '%s\n' "$listing" | grep -cE '^  [a-z]')
-        unbuilt=$(printf '%s\n' "$listing" | grep -c 'not built yet')
-        printf '  %-3s %4s site(s), %4s with the catalogued remedy not built yet\n' \
-            "$target" "$sites" "$unbuilt"
+        trailer=$(printf '%s\n' "$listing" |
+            sed -n 's/^\([0-9]* of [0-9]*\) sites not built yet\..*/\1/p')
+        if [ -z "$trailer" ]; then
+            printf '  \xe2\x9c\x97 --remedy-sites --to %s printed no total; its trailer has moved\n' "$target"
+            status=1
+            continue
+        fi
+        printf '  %-3s %s sites with the catalogued remedy not built yet\n' "$target" "$trailer"
+    done
+    # The profiles come from the directory rather than from a list here, for the same reason the
+    # targets come from the program: a profile added to `doc/profiles/` is asked about without this
+    # script being edited. A profile a target refuses to read is data, not a broken instrument —
+    # the remedy words a target admits are its own — so it is printed and does not fail the run.
+    heading "what a shipped profile answers that this version does not carry out" \
+        "quorra-transform archive --remedy-sites --to <target> --config doc/profiles/<profile>.toml"
+    for profile in doc/profiles/*.toml; do
+        name=$(basename "$profile" .toml)
+        for target in $targets; do
+            listing=$(cargo run -q -p pdf-transform --bin quorra-transform -- \
+                archive --remedy-sites --to "$target" --config "$profile" 2>&1)
+            answered=$(printf '%s\n' "$listing" |
+                sed -n 's/^\([0-9]* of [0-9]*\) sites answered with a remedy not carried out yet.*/\1/p')
+            if [ -z "$answered" ]; then
+                printf '  %-22s %-3s refused: %s\n' "$name" "$target" \
+                    "$(printf '%s\n' "$listing" | sed -n 's/^error: //p' | head -1)"
+                continue
+            fi
+            printf '  %-22s %-3s %s answers not carried out yet\n' "$name" "$target" "$answered"
+        done
     done
 }
 

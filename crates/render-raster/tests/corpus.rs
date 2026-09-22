@@ -397,8 +397,9 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// carried the document's own mode instead and nothing here had to refuse. The page left this
 /// list in the four-hundred-and-thirty-ninth and is back on it, which is the second time a name
 /// has arrived because the oracle learned to state something this vocabulary cannot.
-/// `doc/QUORRA_FEEDBACK.md` section 17's population is where the ask for a seventeenth mode
-/// belongs.
+/// `doc/QUORRA_FEEDBACK.md` section 49 is the ask, and ADR 1182 is what it turned out to be: the
+/// mode is Porter-Duff destination-over in the channels it keeps and source-over in the rest, so
+/// what this vocabulary is short of is one compositing operator rather than a blend function.
 const REFUSED_BEFORE_THE_SCENE: [&str; 5] = [
     "bug1721218_reduced.pdf",
     "issue12798_page1_reduced.pdf",

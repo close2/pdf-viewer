@@ -1109,6 +1109,132 @@ pub unsafe extern "C" fn quorra_frame_copy(
     }
 }
 
+/// Draws one page of the print operation `quorra_print` began, and says how large it is.
+///
+/// **The first half of C's two-call idiom, and the drawing is on this side of it**: the answer to
+/// `viewer_core::Query::PrintPage` is a display list, which is not a thing to put in a header, so
+/// the library rasterises it with the processor backend — the same backend that is this project's
+/// correctness oracle, which is the whole argument for rendering the printed page here rather than
+/// handing the file to a spooler. The pixels wait until `quorra_print_page_copy` takes them, and
+/// one page waits at a time.
+///
+/// `*width`, `*height` and `*bytes` are filled where they are not null. The layout is
+/// `QUORRA_FORMAT_RGBA8`, as every raster in this ABI is.
+///
+/// `QUORRA_NO_ANSWER` where no print operation is running — `quorra_print` is where §7.6.4.2's
+/// bit 3 is asked, and nothing prints without it — or where the document has no such page.
+/// `QUORRA_RENDER_REFUSED` where the page's marks will not go onto a raster at the job's
+/// resolution; `quorra_printed_report` says why in both of those cases where anything was said.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_print_page(
+    viewer: *mut Session,
+    page: usize,
+    width: *mut u32,
+    height: *mut u32,
+    bytes: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_mut() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.print_page(page) {
+        Ok((drawn_width, drawn_height, drawn_bytes)) => {
+            if let Some(width) = width.as_mut() {
+                *width = drawn_width;
+            }
+            if let Some(height) = height.as_mut() {
+                *height = drawn_height;
+            }
+            if let Some(bytes) = bytes.as_mut() {
+                *bytes = drawn_bytes;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Copies the page `quorra_print_page` drew into a buffer the caller owns.
+///
+/// One copy, which is what tier 1 costs everywhere in this project. Size the buffer from that
+/// call's `bytes`; anything shorter answers `QUORRA_BUFFER_TOO_SMALL` and writes nothing.
+/// `QUORRA_NO_ANSWER` where no page has been drawn, or where the page drawn is a different one.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for `cap` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_print_page_copy(
+    viewer: *const Session,
+    page: usize,
+    into: *mut u8,
+    cap: usize,
+    written: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    let room = core::slice::from_raw_parts_mut(into, cap);
+    match viewer.print_page_copy(page, room) {
+        Ok(bytes) => {
+            if let Some(written) = written.as_mut() {
+                *written = bytes;
+            }
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many things could not be drawn on the page `quorra_print_page` drew.
+///
+/// Trap 5's channel for a printed page: a page that goes to the printer with something missing
+/// says so, rather than coming out short in silence. Zero where nothing was owed, and zero where
+/// no page has been drawn.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_printed_reports(
+    viewer: *const Session,
+    count: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(count)) = (viewer.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *count = viewer.printed_reports().len();
+    Status::Ok.code()
+}
+
+/// One of those sentences, by index, as UTF-8 with a trailing NUL.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_printed_report(
+    viewer: *const Session,
+    index: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(report) = viewer.printed_reports().get(index) else {
+        return Status::OutOfRange.code();
+    };
+    copy_out(report, out, cap, needed)
+}
+
 // ---------------------------------------------------------------------------------------------
 // §12.3.3's outline, flattened. A tree is the one shape a C ABI cannot hand over as itself.
 // ---------------------------------------------------------------------------------------------
@@ -2990,6 +3116,79 @@ pub unsafe extern "C" fn quorra_copy(viewer: *mut Session, events: *mut *mut Eve
         return Status::NullArgument.code();
     };
     *events = Box::into_raw(Box::new(viewer.copy()));
+    Status::Ok.code()
+}
+
+/// A person asked to print: §7.6.4.2's bit 3, asked as an operation.
+///
+/// **The beginning of §8.11.4.5's print operation, and it has to have an end** — that clause's
+/// `Print` usage applications "persist only for the duration of the print operation; then all
+/// groups shall revert to their prior states", which is `quorra_print_finish`. Between the two,
+/// every page this document interprets is interpreted for paper: §12.5.3's Table 167 bit 3
+/// decides which annotations are drawn, §8.11.4.5's `Print` event decides which layers are, and
+/// §12.5.6.22's watermarks are placed against the sheet rather than against the media box.
+///
+/// `media` is the sheet in default user space units, lower-left corner first — the origin
+/// §12.5.6.22 measures Table 194's percentages from — and `scale` is pixels per unit at the
+/// printer's resolution, so 300 dpi is `300.0 / 72.0`. A sheet whose numbers are not finite, or a
+/// scale that is not a positive finite number, is refused here rather than one page at a time.
+///
+/// The grant arrives as a `QUORRA_EVENT_PRINTING`. Under `QUORRA_RESTRICT_ON` with the bit
+/// withheld a `QUORRA_EVENT_REFUSED` arrives instead; under `QUORRA_RESTRICT_ASK` a
+/// `QUORRA_EVENT_ASKING` does, and the operation begins after a `quorra_answer` of `true`.
+///
+/// **What this ABI does not offer is the pages themselves.** `viewer_core::Query::PrintPage`
+/// answers with a display list, which has no C representation in this library, so a caller here
+/// prints what it can already see: the window's own pages, which are interpreted for paper for as
+/// long as the operation stands. ADR 1180 says what a page accessor would need.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_print(
+    viewer: *mut Session,
+    media: *const f32,
+    scale: f32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    if media.is_null() {
+        return Status::NullArgument.code();
+    }
+    let media: [f32; 4] = std::array::from_fn(|corner| *media.add(corner));
+    if !scale.is_finite() || scale <= 0.0 || !media.iter().all(|corner| corner.is_finite()) {
+        return Status::OutOfRange.code();
+    }
+    *events = Box::into_raw(Box::new(viewer.print(viewer_core::Printing::Start(
+        viewer_core::Sheet {
+            media: Some(media),
+            scale,
+        },
+    ))));
+    Status::Ok.code()
+}
+
+/// The end of the print operation `quorra_print` began — §8.11.4.5's revert.
+///
+/// Sent whether the job finished or the person cancelled: the clause's sentence is about the
+/// duration of the operation and says nothing about how it ended. Harmless where none is running,
+/// and it asks nothing — a reader allowed to start is not asked again for permission to stop.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_print_finish(
+    viewer: *mut Session,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.print(viewer_core::Printing::Finish)));
     Status::Ok.code()
 }
 

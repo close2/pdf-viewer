@@ -440,6 +440,58 @@ pub enum Supplied {
         /// Extension (with its full stop) to media type, in the order the file wrote them.
         by_extension: Vec<(String, String)>,
     },
+    /// `graphics/separations-of-one-name-agree`: which definition of an ink the archive means.
+    ///
+    /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4 require every `Separation`
+    /// array naming one colourant to state the same alternate space and the same tint transform,
+    /// and a file that states two has said which ink it means twice over in two different ways.
+    /// Nothing in the file says which its producer meant; ISO 32000-2 §8.6.6.4 makes the pair what
+    /// an additive device paints the tint through, so the two genuinely differ on a screen.
+    ///
+    /// **What the operator supplies is a choice among the document's own definitions, not a
+    /// definition.** A tint transform is a §7.10 function and no configuration file can hold one;
+    /// what an operator does know is which of the two their house ink book means. So every value
+    /// that reaches the output is the producer's own bytes, and what the operator contributed is
+    /// which of them survives.
+    SeparationWinner(Winner),
+}
+
+/// Which of a colourant's disagreeing definitions the archive keeps.
+///
+/// Two, and neither is a default: a site absent from the configuration stops, as every site does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Winner {
+    /// The first definition in the document's own object order.
+    ///
+    /// The same one the validator reports the others *against*, which is why it is the word an
+    /// operator reaching for "leave the file's first answer alone" wants.
+    First,
+    /// The definition the most `Separation` arrays in the file state.
+    ///
+    /// **Counted by definitions, not by marks.** A colourant defined once in a resource dictionary
+    /// ten pages use and twice in two pages nobody draws on loses under this word, and an operator
+    /// has to know that: the file says how many times each definition is *written*, and nothing in
+    /// it says how much of the page each one paints. Ties go to the first in object order.
+    MostUsed,
+}
+
+impl Winner {
+    /// The word a configuration names it by.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::First => "first",
+            Self::MostUsed => "most-used",
+        }
+    }
+
+    /// The winner a configuration's word names.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::First, Self::MostUsed]
+            .into_iter()
+            .find(|winner| winner.word() == word)
+    }
 }
 
 /// One `supply` remedy the configuration named.
@@ -576,7 +628,10 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
 /// entry calls "a good test of the owner's question" and says passes cleanly: the operator needs to
 /// know what their own attachments are, types nothing about any individual document, and can read
 /// the cost in one line — *the archive asserts these media types on our authority*.
-const SUPPLIABLE: [&str; 1] = ["embedded-files/associated-file-media-type"];
+const SUPPLIABLE: [&str; 2] = [
+    "embedded-files/associated-file-media-type",
+    "graphics/separations-of-one-name-agree",
+];
 
 /// One remedy configuration, read from a file and validated against a target.
 ///
@@ -615,6 +670,8 @@ struct Row {
     media_types: Vec<(String, String)>,
     /// `unlisted` — what happens to a subject the supplied table does not name.
     unlisted: Kind,
+    /// `winner` — which of a colourant's disagreeing definitions the archive keeps.
+    winner: Option<Winner>,
     /// The 1-based line its header sits on, for an error a person can find.
     line: usize,
 }
@@ -930,8 +987,11 @@ fn check_rows(
                 why: ONLY_STOP_WHEN_A_PAGE_CANNOT_BE_COMPOSED,
             });
         }
+        // `unlisted` is the media-type table's key: it says what happens to an attachment the
+        // operator's table does not name. The separation site supplies no table — it supplies a
+        // choice among the document's own definitions — so it has no unlisted subject.
         if row.remedy == Kind::Supply
-            && SUPPLIABLE.contains(&row.site.as_str())
+            && row.site == "embedded-files/associated-file-media-type"
             && row.unlisted != Kind::Stop
         {
             return Err(ConfigError::NotBuiltThatWay {
@@ -1022,6 +1082,16 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .and_then(Value::as_map)
         .map(<[(String, String)]>::to_vec)
         .unwrap_or_default();
+    let winner = match tbl.get("winner").and_then(Value::as_text) {
+        Some(word) => Some(Winner::parse(word).ok_or_else(|| ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.clone(),
+            key: "winner".to_owned(),
+            wanted: "either \"first\" or \"most-used\"",
+            found: "another word",
+        })?),
+        None => None,
+    };
     Ok(Row {
         site,
         remedy,
@@ -1030,6 +1100,7 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         placement,
         media_types,
         unlisted,
+        winner,
         line: tbl.line,
     })
 }
@@ -1044,14 +1115,16 @@ fn supplied(row: &Row) -> Option<Supply> {
     if row.remedy != Kind::Supply || !SUPPLIABLE.contains(&row.site.as_str()) {
         return None;
     }
-    if row.media_types.is_empty() {
-        return None;
-    }
-    Some(Supply {
-        site: row.site.clone(),
-        fact: Supplied::MediaTypes {
+    let fact = match row.site.as_str() {
+        "graphics/separations-of-one-name-agree" => Supplied::SeparationWinner(row.winner?),
+        _ if row.media_types.is_empty() => return None,
+        _ => Supplied::MediaTypes {
             by_extension: row.media_types.clone(),
         },
+    };
+    Some(Supply {
+        site: row.site.clone(),
+        fact,
     })
 }
 
@@ -1576,15 +1649,22 @@ remedy = \"discard\"
 
     #[test]
     fn a_discard_at_an_unbuilt_site_authorises_nothing_and_is_named() {
+        // A site whose catalogued mitigation is *none* rather than one nobody has written yet: an
+        // embedded program that does not define a glyph the page shows can only be answered by
+        // taking the code off the page or drawing a glyph for it, and `doc/adr/0816`'s fence puts
+        // both on the far side. So the example cannot go stale the way a not-built-yet one does.
         let text = "\
-[site.\"file-structure/no-encryption\"]
+[site.\"fonts/embedded-programs-define-every-glyph-shown\"]
 remedy = \"discard\"
 ";
         let config = Configuration::read(text, TWO_B).expect("it reads");
         assert_eq!(config.authorisations(TWO_B), Authorisations::default());
         let unbuilt = config.unbuilt(TWO_B);
         assert_eq!(unbuilt.len(), 1);
-        assert_eq!(unbuilt[0].site, "file-structure/no-encryption");
+        assert_eq!(
+            unbuilt[0].site,
+            "fonts/embedded-programs-define-every-glyph-shown"
+        );
     }
 
     #[test]

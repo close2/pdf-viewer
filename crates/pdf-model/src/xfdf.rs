@@ -364,6 +364,9 @@ impl Reader {
             flags: FlagChange::Unchanged,
             annotation_flags: FlagChange::Unchanged,
             options: None,
+            // The same section, and the same sentence: an icon fit dictionary is not a value, so
+            // XFDF states no element for one.
+            icon_fit: None,
             owed: Vec::new(),
         });
         Some(index)
@@ -396,8 +399,9 @@ impl Reader {
             source: self.source,
             identifier,
             fields: self.fields,
-            // Section 5.4.1: there is no XFDF equivalent for the Status, Encoding, Target or
-            // Pages keys, so their absence here is that sentence rather than a gap.
+            // Section 5.4.1: there is no XFDF equivalent for the Status, Encoding, Target,
+            // Pages or EmbeddedFDFs keys, so their absence here is that sentence rather than a
+            // gap — the format states no element carrying another XFDF file inside one.
             status: None,
             // Section 5.5.2 makes the file UTF-8, so its values arrive as characters rather than
             // as bytes in some registered character set. `Unicode` is the entry that says so.
@@ -405,6 +409,7 @@ impl Reader {
             annotations: Vec::new(),
             pages: Vec::new(),
             target: None,
+            embedded: Vec::new(),
             owed: self.owed,
         }
     }

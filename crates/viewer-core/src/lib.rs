@@ -106,8 +106,9 @@ pub mod transition;
 pub use accessibility::{AccessibilityNode, Character, TableCell, TextLine, places};
 pub use command::{
     AttachHome, Command, Edit, Find, FindDirection, FocusMove, PageTarget, PointerAction,
-    PresentationMode, Purpose, ReferenceFiles, Rendered, RestrictionLevel, RestrictionOverride,
-    RestrictionPolicy, RestrictionScope, Selection, TrustPolicy, Viewing, Zoom,
+    PresentationMode, Printing, Purpose, ReferenceFiles, Rendered, RestrictionLevel,
+    RestrictionOverride, RestrictionPolicy, RestrictionScope, Selection, Sheet, TrustPolicy,
+    Viewing, Zoom,
 };
 pub use event::{Event, Extraction, Found, RenderRequest};
 /// What [`Edit::SetField`] puts into a field: §12.7.5.3's characters, §12.7.5.4's chosen options,
@@ -119,7 +120,7 @@ pub use event::{Event, Extraction, Found, RenderRequest};
 pub use pdf_model::view::Entered;
 pub use query::{
     Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PageReadback, PageReports,
-    PageStructure, PopupWindow, Query, Selected,
+    PageStructure, PopupWindow, PrintPage, Query, Selected,
 };
 pub use readback::ReadbackCache;
 pub use secret::Secret;

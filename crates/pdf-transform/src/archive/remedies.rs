@@ -42,8 +42,10 @@ use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 
 use crate::tool::{Tool, ToolOutcome, ToolOutputs, ToolRequest, ToolResult};
 
-use super::config::{Derivation, Supplied, Supply, specification_name};
+use super::config::{Derivation, Supplied, Supply, Winner, specification_name};
 use super::report::{Derived, DerivedOutcome, SuppliedFact};
+use super::rewrite::Rewrite;
+use super::sites::{SeparationUse, separation_uses};
 
 /// The sentence `doc/questions/A55` requires a derived document's report to carry.
 ///
@@ -77,8 +79,10 @@ pub(super) struct Remedies {
     pub(super) derive_sites: BTreeSet<&'static str>,
     /// The `/Subtype` the operator supplied for each embedded file stream.
     pub(super) supplied: BTreeMap<ObjectId, String>,
-    /// The requirements a supplied fact answered at every place they failed.
-    pub(super) supply_sites: BTreeSet<&'static str>,
+    /// The definition every `Separation` array naming one colourant is to agree on.
+    pub(super) separations: BTreeMap<Vec<u8>, (Object, Object)>,
+    /// The requirements a supplied fact answered, each with the rewrite that carries it out.
+    pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
     pub(super) derived_report: Vec<Derived>,
     /// What the operator stated, beside the requirement it answered.
@@ -93,7 +97,8 @@ impl Remedies {
             derived: BTreeMap::new(),
             derive_sites: BTreeSet::new(),
             supplied: BTreeMap::new(),
-            supply_sites: BTreeSet::new(),
+            separations: BTreeMap::new(),
+            supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
         }
@@ -247,7 +252,13 @@ impl Remedies {
         else {
             return;
         };
-        let Supplied::MediaTypes { by_extension } = &supply.fact;
+        let by_extension = match &supply.fact {
+            Supplied::MediaTypes { by_extension } => by_extension,
+            Supplied::SeparationWinner(winner) => {
+                self.agree_on_one_definition(document, judgement.id, *winner);
+                return;
+            }
+        };
         let streams = embedded_streams(document, judgement);
         if streams.is_empty() {
             return;
@@ -272,9 +283,118 @@ impl Remedies {
             });
         }
         if answered {
-            self.supply_sites.insert(judgement.id);
+            self.supply_sites
+                .insert(judgement.id, Rewrite::SuppliedMediaType);
         }
     }
+
+    /// `graphics/separations-of-one-name-agree`, answered by the operator's choice of definition.
+    ///
+    /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4 require every `Separation`
+    /// array naming one colourant to state the same alternate space and the same tint transform.
+    /// A file that states two has defined one ink twice, and ISO 32000-2 §8.6.6.4 makes the
+    /// difference real on a screen: an additive device "never applies a process colourant
+    /// directly; it always reverts to the alternate colour space", so the tint the page paints is
+    /// whatever the transform in force says it is.
+    ///
+    /// **Which definition is right is not in the file**, which is why this is a `supply` and never
+    /// a default. What the operator states is *which of the document's own definitions* the
+    /// archive means; every byte written below is the producer's.
+    fn agree_on_one_definition(&mut self, document: &Document, site: &'static str, winner: Winner) {
+        let uses = separation_uses(document);
+        let mut agreed: BTreeMap<Vec<u8>, (Object, Object)> = BTreeMap::new();
+        for colourant in uses
+            .iter()
+            .map(|use_| use_.colourant.clone())
+            .collect::<BTreeSet<Vec<u8>>>()
+        {
+            let of_this_ink: Vec<&SeparationUse> = uses
+                .iter()
+                .filter(|use_| use_.colourant == colourant)
+                .collect();
+            // One definition, or several that are all the same object by the reading the
+            // requirement is failed on: nothing disagrees, so nothing is written.
+            let Some(first) = of_this_ink.first() else {
+                continue;
+            };
+            if of_this_ink
+                .iter()
+                .all(|use_| same_definition(document, first, use_))
+            {
+                continue;
+            }
+            let chosen = match winner {
+                Winner::First => first,
+                Winner::MostUsed => most_used(document, &of_this_ink),
+            };
+            agreed.insert(
+                colourant.clone(),
+                (chosen.alternate.clone(), chosen.transform.clone()),
+            );
+            self.supplied_report.push(SuppliedFact {
+                site,
+                subject: format!(
+                    "the colourant {} is defined {} time(s) in this file, in {} different ways",
+                    String::from_utf8_lossy(&colourant),
+                    of_this_ink.len(),
+                    distinct(document, &of_this_ink),
+                ),
+                value: format!(
+                    "the {} of them, which every Separation array naming it now states",
+                    winner.word()
+                ),
+            });
+        }
+        if agreed.is_empty() {
+            // Every colourant agrees with itself, so the failure is at something this reading of
+            // §8.6.6.4's array shape did not reach — an array inside a stream this program cannot
+            // decode, or one past the depth bound. The requirement keeps its own refusal.
+            return;
+        }
+        self.separations = agreed;
+        self.supply_sites.insert(site, Rewrite::SeparationAgreed);
+    }
+}
+
+/// Whether two uses of one colourant define it the same way.
+fn same_definition(document: &Document, left: &SeparationUse, right: &SeparationUse) -> bool {
+    pdf_archive::same_parameter(document, &left.alternate, &right.alternate)
+        && pdf_archive::same_parameter(document, &left.transform, &right.transform)
+}
+
+/// How many distinct definitions one colourant has, by the requirement's own reading of sameness.
+fn distinct(document: &Document, uses: &[&SeparationUse]) -> usize {
+    let mut seen: Vec<&SeparationUse> = Vec::new();
+    for use_ in uses {
+        if !seen
+            .iter()
+            .any(|held| same_definition(document, held, use_))
+        {
+            seen.push(use_);
+        }
+    }
+    seen.len()
+}
+
+/// The definition the most `Separation` arrays state, ties going to the first in object order.
+///
+/// **Counted by definitions written, not by marks painted**, which is what
+/// [`Winner::MostUsed`] documents and what an operator has to know: the file says how many times
+/// each definition appears and says nothing about how much of any page each one covers.
+fn most_used<'a>(document: &Document, uses: &[&'a SeparationUse]) -> &'a SeparationUse {
+    let mut best: Option<(&'a SeparationUse, usize)> = None;
+    for candidate in uses {
+        let count = uses
+            .iter()
+            .filter(|other| same_definition(document, candidate, other))
+            .count();
+        if best.is_none_or(|(_, held)| count > held) {
+            best = Some((candidate, count));
+        }
+    }
+    // `uses` is never empty at the one call site, which checked `first()` before choosing; the
+    // fallback keeps that a local fact rather than a panic waiting for a second caller.
+    best.map_or(uses[0], |(chosen, _)| chosen)
 }
 
 /// Every embedded file stream one judgement's findings name, with the file's own name.

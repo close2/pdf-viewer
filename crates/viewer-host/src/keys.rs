@@ -285,6 +285,16 @@ pub enum WindowAct {
     Notices,
     /// Start §12.4.4's presentation, or stop the one that is running ([`crate::presentation`]).
     Present,
+    /// Ask to print: open this window's print dialogue.
+    ///
+    /// **A window act rather than a [`Command`], and the split is the sharpest example in this
+    /// table of why this half exists.** §7.6.4.2's bit 3 *is* a message —
+    /// [`viewer_core::Command::Print`] asks the policy and puts the document into print intent —
+    /// but nothing on that boundary can open a dialogue, and `GtkPrintOperation` against a
+    /// `QPrinter` against a panel this program draws is what a print system is. So the key names
+    /// the job and the window sends the message once it knows what sheet the person chose
+    /// (ADR 1180).
+    Print,
     /// Leave full screen, which is what Escape means while one is running.
     LeaveFullScreen,
     /// Move on to the next of Table 29's six arrangements ([`crate::arrangement`]).
@@ -425,6 +435,14 @@ pub fn meaning(key: Key, shift: bool, mode: Mode, waiting: Waiting) -> Option<Me
             colour: STRIKE_OUT,
         })),
         Key::C => Meaning::Window(WindowAct::Copy),
+        // **Shift and P rather than Control and P, and it is a choice this table had already
+        // made.** The standard names no key for printing at all, and the module documentation
+        // above states why no modifier but Shift reaches here: by the time a press has got past
+        // the chrome, the widget that would have wanted Control has had it. `P` unshifted is
+        // §12.4.4's presentation and has been since this table existed, so the one key a person
+        // expects is the one already spoken for — which leaves Shift, the modifier this table
+        // does read, on the letter the job is named after. ADR 1180.
+        Key::P if shift => Meaning::Window(WindowAct::Print),
         Key::P => Meaning::Window(WindowAct::Present),
         Key::L => Meaning::Window(WindowAct::NextLayout),
         Key::T => Meaning::Window(WindowAct::FreeText),
@@ -623,9 +641,15 @@ mod tests {
         }
     }
 
-    /// §12.5.1's tab key is the one row Shift changes, and the only one.
+    /// Shift changes two rows, and the pair is named here so that a third cannot arrive quietly.
+    ///
+    /// §12.5.1's tab key is the first: the clause gives it a direction and winit reports one key
+    /// for both, so the modifier is the only thing separating them. The second is `P`, where the
+    /// letter a print job is named after was already §12.4.4's presentation — the argument is at
+    /// the binding and in ADR 1180. Every other key means one thing, and the loop below is what
+    /// keeps that true: a row that started reading Shift without saying so fails here.
     #[test]
-    fn shift_separates_the_two_directions_of_the_tab_key_and_moves_nothing_else() {
+    fn shift_separates_the_two_directions_of_the_tab_key_and_the_print_job_from_the_presentation() {
         assert!(matches!(
             meaning(Key::Tab, false, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
@@ -638,8 +662,16 @@ mod tests {
                 viewer_core::FocusMove::Previous
             )))
         ));
+        assert!(matches!(
+            meaning(Key::P, false, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Present))
+        ));
+        assert!(matches!(
+            meaning(Key::P, true, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Print))
+        ));
         for key in Key::ALL {
-            if matches!(key, Key::Tab) {
+            if matches!(key, Key::Tab | Key::P) {
                 continue;
             }
             for mode in [Mode::Reading, Mode::Presenting] {

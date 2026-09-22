@@ -131,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        192,
+        198,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -238,6 +238,9 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         // `quorra_copy` granted: §7.6.4.2 bit 5's operation, written here in the same commit as
         // the `#define` for the reason the paragraph above records (ADR 1144).
         ("QUORRA_EVENT_COPIED", EventKind::Copied),
+        // `quorra_print` granted: §7.6.4.2 bit 3's operation, written here in the same commit as
+        // the `#define` for the reason the paragraph above records (ADR 1180).
+        ("QUORRA_EVENT_PRINTING", EventKind::Printing),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

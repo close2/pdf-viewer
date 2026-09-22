@@ -224,6 +224,16 @@ pub(crate) struct Open {
     /// a second question while the first stands is a person who moved on. `Command::Answer` takes
     /// it, and a `no` drops it without a word.
     pub(crate) asking: Option<Held>,
+    /// The sheet of a print operation that has been granted, or nothing.
+    ///
+    /// **`Some` is §8.11.4.5's "duration of the print operation"**, and the two things that end
+    /// it are `crate::Printing::Finish` and the document closing. While it stands,
+    /// [`Self::view`]'s purpose is `Purpose::Print` and its paper is this sheet, so every page
+    /// of this document — the ones a printer asks for and the ones on the screen — is interpreted
+    /// for paper. `crate::Query::PrintPage` answers nothing without it, which is what keeps
+    /// §7.6.4.2's bit 3 a question `crate::Command::Print` asked rather than one a readback
+    /// walked around. ADR 1180.
+    pub(crate) printing: Option<crate::Sheet>,
     /// What this document departs from the window's restriction levels in.
     ///
     /// **The scope a viewer-wide policy could not express** (ADR 1145): a reader who wants to be
@@ -675,6 +685,12 @@ pub(crate) enum Held {
         /// The fragment identifier `crate::Command::Open` carried, if it carried one.
         fragment: Option<String>,
     },
+    /// A print operation, with the sheet it was asked about — `crate::Command::Print`.
+    ///
+    /// The sheet is held for [`Self::Copy`]'s reason: under `crate::RestrictionLevel::Ask` the
+    /// answer arrives after the person has read the question, and what goes ahead on a `yes` is
+    /// the job they were asked about rather than whatever a dialogue says now.
+    Print(crate::Sheet),
     /// A copy, with the text already taken in both of §14.8.2.5's orders — `crate::Command::Copy`.
     Copy {
         /// §14.8.2.5's logical content order, where the structure tree reached the whole
@@ -815,6 +831,7 @@ impl Open {
             importing: None,
             resuming: None,
             asking: None,
+            printing: None,
             restrictions: crate::RestrictionOverride::NONE,
             log: Vec::new(),
             cursor: 0,

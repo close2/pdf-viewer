@@ -51,7 +51,7 @@
 )]
 
 use std::io::{BufRead as _, IsTerminal as _, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pdf_model::icc::Identification;
@@ -793,7 +793,16 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
         sites.len()
     );
     let mut takes_a_tool = 0_usize;
+    let mut not_built = 0_usize;
     for site in &sites {
+        // The gap is a property of the site rather than of the sentence printed for it: a site
+        // whose catalogued remedy has no code behind it is one with no built `discard`, no tool to
+        // derive from and no fact to supply. Counting the predicate rather than the words means the
+        // trailer cannot disagree with the listing when a sentence is reworded (`doc/todo/66`).
+        let built = site.built_discard.is_some() || site.takes_a_tool || site.takes_a_supplied_fact;
+        if !built {
+            not_built = not_built.saturating_add(1);
+        }
         let mut remedy = match site.built_discard {
             Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
             None if site.takes_a_tool => {
@@ -802,10 +811,19 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
                  departable (doc/rfc/0007 section 4.7)"
                     .to_owned()
             }
+            // One word, two facts: what the operator supplies differs per site, so the line
+            // names the key that site actually reads rather than one key for both.
             None if site.takes_a_supplied_fact => {
-                "supply, with `media-types = { \".ext\" = \"type/subtype\" }` — the operator states \
-                 what their own attachments are, reported and recorded as theirs"
-                    .to_owned()
+                if site.requirement == "graphics/separations-of-one-name-agree" {
+                    "supply, with `winner = \"first\"` or `winner = \"most-used\"` — the operator \
+                     states which of the file's own definitions of an ink the archive means, \
+                     reported and recorded as theirs (doc/adr/1188)"
+                        .to_owned()
+                } else {
+                    "supply, with `media-types = { \".ext\" = \"type/subtype\" }` — the operator \
+                     states what their own attachments are, reported and recorded as theirs"
+                        .to_owned()
+                }
             }
             None if site.departable => {
                 "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
@@ -844,6 +862,52 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             pdf_transform::archive::UNTRUSTED_INPUT_WARNING
         );
     }
+    // **The program prints its own total**, which is what `doc/todo/66` asks for: a count taken
+    // beside a program's output goes stale the moment the program's words change, and this one is
+    // computed from the same walk it summarises.
+    println!("\n{not_built} of {} sites not built yet.", sites.len());
+    if let Some(path) = arguments.value(&["--config"]) {
+        print_unbuilt_answers(Path::new(path), target, sites.len())?;
+    }
+    Ok(())
+}
+
+/// The second half of `doc/todo/66`'s done condition: what a profile answers and this version does
+/// not carry out.
+///
+/// **It needs no document, and that is the finding rather than a shortcut.**
+/// `Configuration::unbuilt` is a function of the profile and the target alone — it reads the
+/// answers the file gives and asks which of them have code behind them — so a conversion prints
+/// the same notes for every document it is handed. Counting them over a corpus would count the
+/// corpus. `doc/todo/66`.
+fn print_unbuilt_answers(
+    path: &Path,
+    target: pdf_archive::Target,
+    bound: usize,
+) -> Result<(), Failure> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| Failure::Unreadable(path.to_path_buf(), error))?;
+    let config = Configuration::read(&text, target)
+        .map_err(|error| Failure::Usage(format!("--config {}: {error}", path.display())))?;
+    let named = config.name.clone().unwrap_or_else(|| {
+        path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        )
+    });
+    let unbuilt = config.unbuilt(target);
+    println!();
+    for answer in &unbuilt {
+        println!(
+            "  {:?} is answered with `{}`, which this version does not carry out yet",
+            answer.site,
+            answer.remedy.word()
+        );
+    }
+    println!(
+        "\n{} of {bound} sites answered with a remedy not carried out yet, for {named} at {target}.",
+        unbuilt.len()
+    );
     Ok(())
 }
 
@@ -1646,6 +1710,12 @@ archive:
                            the report naming each and whether it drew anything — answer the site
                            with a preserve remedy in a --config file and its normal appearance
                            is kept on a page appended to the document instead;
+                           encryption writes the document out with no encryption, which both
+                           parts forbid outright: nothing in the document changes, every string
+                           and stream having been decrypted when the source was opened, but the
+                           archived copy is readable by anybody holding it and ISO 32000-2
+                           §7.6.4.2's Table 22 permission flags stop being asserted — the report
+                           and the output's own xmpMM:History name every flag the source stated;
                            signature-assertion lets a signed document be rewritten at all — a
                            signature covers the bytes of one file and a conversion moves every
                            one of them, so each signature field loses its value and keeps its
@@ -1678,7 +1748,11 @@ archive:
                            admits, and stop. The list is generated from the same table the
                            converter decides from, so a site cannot exist undocumented and a
                            configuration naming one that does not exist is an error rather than
-                           an ignored line
+                           an ignored line. It ends with its own total, 'N of M sites not built
+                           yet'; add --config <file> and it also names every answer that profile
+                           gives which this version does not carry out, with a second total. That
+                           second question needs no document: what a profile asks for and what
+                           has code behind it are both properties of the profile and the target
   --config <file>          a remedy configuration: a refusal answered in advance, per site, so a
                            queue does not stop for a person (doc/rfc/0007). A site absent from
                            the file behaves exactly as without it, so installing one changes no
@@ -1698,7 +1772,7 @@ archive:
                            same is written into the file's own xmpMM:History.
                            A `supply` site states a fact the document does not — an attachment's
                            media type — which is recorded as the operator's in both places too.
-                           doc/profiles/ ships five configurations; derive-attachments.toml is the
+                           doc/profiles/ ships six configurations; derive-attachments.toml is the
                            worked example of a tool
   --depart-from-the-standard
                            required before a configuration's departure is carried out: a departure

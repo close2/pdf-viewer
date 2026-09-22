@@ -62,6 +62,7 @@ pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::fonts::type3_encoding;
+pub use crate::table::graphics::same_parameter;
 pub use crate::table::interaction::{
     ActionHolder, ActionSite, AdditionalActions, ForbiddenSubtype, MissingAppearance,
     action_admitted, action_entry_admitted, action_sites, additional_actions_admitted,

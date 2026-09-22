@@ -246,6 +246,17 @@ answers in two places"
             // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is the
             // question this window puts, on a card of its own (ADR 1145).
             Event::Warned { notes, .. } => println!("note: {}", viewer_host::warned(&notes)),
+            // The grant. What this window then does is show it: §12.5.3's bit 3, §8.11.4.5's
+            // `Print` event and §12.5.6.22's sheet are already in force on every page it draws,
+            // which is RFC 0004 §6's preview. The spool is ADR 1180's deferral and is named here
+            // rather than left as a key that appears to do nothing.
+            Event::Printing { pages, .. } => {
+                self.printing = true;
+                println!(
+                    "note: showing what would print, over {pages} page(s) — this window has no \
+                     printer of its own yet (ADR 1180); press the key again to stop"
+                );
+            }
             Event::Copied {
                 logical,
                 page_order,

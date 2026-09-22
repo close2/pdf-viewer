@@ -1635,6 +1635,15 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
     // than in `interpreted` so that `replace` — which rebuilds the list from a checkpoint
     // under the same compositing — states it again.
     let mut list = interpreter.list;
+    // §11.7.4.3's special overprinting blend mode, asked of the finished list for the reason
+    // `noninvertible_marks` is asked of it above: `Interpreter::overprint_blend` answers once
+    // per painting operator and per part, before the operator knows whether that part marks
+    // the page, and a group that gives up its own colour space runs its content again with
+    // what the first run drew thrown away. Both leave a chosen mode behind with no command
+    // under it, and a backend that refuses the list by name would then refuse a page for a
+    // mark that is not on it. One walk over what is actually here settles it, and it is taken
+    // only where the mode was chosen. ADR 1181.
+    list.settle_overprinting();
     // §11.7.5.2's channel, where any mark on the page carried a function. `None` on every page
     // that states none, which is what leaves those pages rasterising exactly as before.
     if let Some(channel) = interpreter.transfers.finish() {

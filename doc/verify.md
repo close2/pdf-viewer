@@ -375,7 +375,11 @@ cargo run --profile gates -p pdf-model --example overprint_ink_group_census -- @
   # `blend()` is `BlendMode::Overprint`, the non-Normal group §11.7.4.3 builds around one, and
   # `Unsupported::Overprint` — so a change to the rule moves the number and not the predicate.
   # A document no object of which carries Table 58's `/OP` or `/op` is not interpreted at all,
-  # which is what makes it affordable over the crawl
+  # which is what makes it affordable over the crawl. Since ADR 1182 it also counts the *shape*
+  # of each mark's kept set — all three channels, none, or a proper subset — because the mode is
+  # Porter-Duff destination-over where it keeps a channel and source-over where it does not, so
+  # the first two shapes are one operator a scene vocabulary may already have and the third is a
+  # per-channel choice. Its verdict-without-a-mark column is its own self-check and is zero
 cargo run --release -p pdf-model --example press_census -- <dir>/*.pdf    # one process per archive
   # which press §11.4.7 gives a page and whether `crate::icc` can evaluate the profile behind it —
   # its `A2B` out, and since ADR 0796 the `B2A` §8.6.5.5 requires of a blending-space profile,

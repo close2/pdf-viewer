@@ -266,6 +266,29 @@ pub enum Event {
         /// [`crate::Query::Selection`] answers with and what a host falls back to.
         page_order: String,
     },
+    /// [`crate::Command::Print`] went ahead: the document is interpreted for paper until
+    /// [`crate::Printing::Finish`].
+    ///
+    /// **The grant, and an event rather than an answer for [`Self::Copied`]'s reason**: §7.6.4.2's
+    /// bit 3 restricts printing, so the operation has to be refusable, askable and warnable, and
+    /// only an event arrives after a person has answered a question. At
+    /// [`crate::RestrictionLevel::On`] with the bit withheld this does not arrive and
+    /// [`Self::Refused`] does; at `Ask` it arrives only after [`crate::Command::Answer`] says to
+    /// proceed.
+    ///
+    /// From here until [`crate::Printing::Finish`], §8.11.4.5's `Print` usage applications are in
+    /// force, Table 167's bit 3 decides which annotations are drawn, and §12.5.6.22's watermarks
+    /// are placed against the sheet — on the pages [`crate::Query::PrintPage`] hands out *and* on
+    /// the ones already on the screen, which is what makes the window a preview of its own output.
+    Printing {
+        /// Which document.
+        document: DocumentId,
+        /// How many pages it has, so that a dialogue can offer a range without a second query.
+        ///
+        /// The same number [`crate::Query::PageCount`] answers, sent because a print dialogue
+        /// needs it at exactly this moment and §12.2's `/PrintPageRange` is stated against it.
+        pages: usize,
+    },
     /// §7.11.4's list of embedded files is not what [`crate::Query::Attachments`] last answered:
     /// a file was attached or detached, or an undo or a redo crossed such an edit. Ask again.
     ///

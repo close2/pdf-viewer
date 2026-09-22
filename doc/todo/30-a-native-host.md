@@ -251,6 +251,24 @@ that **seven consumers have never asked for a new message**, and that claim is o
 consumers are actually made to carry what is added. A feature living in one host is a message nobody
 has tested.
 
+**The rule's subjects are the three hosts that hold the viewer in process, and `quorra-confined` is
+not a fourth of them** (ADR 1190). It holds no `Viewer`, no document bytes and no parser — the
+viewer is in another process — so a feature that lands in `quorra` and not there measures nothing,
+and a message that lands there and nowhere else is the confined boundary being tested rather than
+the rule being broken. What that window owes is decided by the operation instead: **a host owes the
+control for an operation exactly when it can perform that operation.** Today it performs none of
+the six a restriction decides, supplies no files and follows no links, so it owes nothing and the
+three gaps a reader notices are each answered — no `--restrictions=` because there is nothing to
+decide, `Event::Asking` refused out loud because nobody could answer (ADR 0814), `--links=` pinned
+to `refuse` because there is no dialogue and no click handling (ADR 1155). What arrives with each
+future feature, in the feature's own round:
+
+- **selection or copy** → `--restrictions=` with that row, and the ask dialogue on the modal
+  machinery ADR 0718 already loads lazily;
+- **click handling** → `--links=` with a real `Ask` arm, replacing the pin;
+- **anything that writes a file** → the save question. The confinement is no excuse here: the
+  *worker* has no filesystem, but the host holds one by design and opens the document itself.
+
 ~~**`/PageLayout` is the first item**~~ **Taken in the six-hundred-and-sixth, and it did demand new
 vocabulary — one `Command` and one `Answer`'s shape** (ADR 0441). All six of Table 29's values are
 arranged by `viewer_core::layout`; `Command::Layout(PageLayout)` is the fourth policy value, because

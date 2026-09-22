@@ -688,6 +688,7 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -826,6 +827,7 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -891,6 +893,7 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3308,6 +3311,7 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3672,9 +3676,11 @@ fn destination_profiles(document: &Document) -> Vec<ObjectId> {
 /// entry derivable rather than a choice.
 fn a_devicen_over(separately: bool) -> Vec<u8> {
     // A one-input, one-output sampled function over two samples: §7.10.2's `/Size`, `/Domain`,
-    // `/Range` and `/BitsPerSample`, with the samples as two bytes.
-    let tint = "<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8 \
-                /Length 2 >>";
+    // `/Range` and `/BitsPerSample`, with the samples as two bytes. `stream` writes the angle
+    // brackets, so the entries are given without them — a dictionary inside a dictionary is not
+    // a stream dictionary, and §7.10.2's function would not be readable at all.
+    let tint = "/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8 \
+                /Length 2";
     let gray = "[/CalGray << /WhitePoint [0.9505 1.0 1.089] >>]";
     let separation = format!("[/Separation /Spot {gray} 8 0 R]");
     let devicen = format!("[/DeviceN [/Spot /Black] {gray} 8 0 R]");
@@ -3884,6 +3890,7 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3922,6 +3929,7 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3958,6 +3966,7 @@ fn two_specifications_marked_best_stay_refused() {
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -3987,6 +3996,7 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4265,6 +4275,7 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
         signature_assertion: true,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4362,6 +4373,7 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
         signature_assertion: true,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5227,6 +5239,7 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         signature_assertion: false,
         forbidden_annotation: false,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -5711,6 +5724,7 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         signature_assertion: false,
         forbidden_annotation: true,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6017,6 +6031,7 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         signature_assertion: false,
         forbidden_annotation: true,
         interactive_behaviour: false,
+        encryption: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6039,6 +6054,7 @@ fn every_loss() -> Authorisations {
         signature_assertion: true,
         forbidden_annotation: true,
         interactive_behaviour: false,
+        encryption: false,
     }
 }
 
@@ -6184,6 +6200,7 @@ fn an_appearance_drawn_as_far_as_its_entries_reach_is_refused_as_partial() {
 fn behaviour_authorised() -> Authorisations {
     Authorisations {
         interactive_behaviour: true,
+        encryption: false,
         ..Authorisations::default()
     }
 }
@@ -6447,4 +6464,185 @@ fn a_content_streams_odd_hexadecimal_string_gains_the_digit_the_base_standard_as
         "the digit §7.3.4.3 assumed is now written down: {}",
         String::from_utf8_lossy(&data)
     );
+}
+
+// --------------------------------------------------------------------------------------------
+// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4: two definitions of one ink.
+//
+// The `supply` `doc/pdf-a-mitigations.md` section 4.2 calls the model case, built in `doc/adr/1188`.
+// ISO 32000-2 §8.6.6.4 is why it cannot be mechanical: on an additive device a `Separation` "never
+// applies a process colourant directly; it always reverts to the alternate colour space", so the
+// two definitions paint the tint two different colours and nothing in the file says which its
+// producer meant.
+// --------------------------------------------------------------------------------------------
+
+/// A fixture defining one spot colourant twice, with two different sampled tint transforms.
+///
+/// `second_uses` decides how many of the file's `Separation` arrays state the *second* definition,
+/// which is what separates `winner = "first"` from `winner = "most-used"`.
+fn a_colourant_defined_twice(second_uses: usize) -> Vec<u8> {
+    let tint = "/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8 \
+                /Length 2";
+    let gray = "[/CalGray << /WhitePoint [0.9505 1.0 1.089] >>]";
+    // Objects 6 and up are `objects`, and the two function streams follow them as
+    // `binary_objects` — so with one array plus `second_uses` of the other the functions sit at
+    // 6 + 1 + second_uses and the one after it.
+    let first_function = second_uses.saturating_add(7);
+    let second_function = first_function.saturating_add(1);
+    let mut objects = vec![format!("[/Separation /Spot {gray} {first_function} 0 R]")];
+    let mut spaces = "/CS0 6 0 R".to_owned();
+    for index in 0..second_uses {
+        objects.push(format!("[/Separation /Spot {gray} {second_function} 0 R]"));
+        let _ = write!(
+            spaces,
+            " /CS{} {} 0 R",
+            index.saturating_add(1),
+            index.saturating_add(7)
+        );
+    }
+    // Every space the fixture states is drawn through, because ISO 19005-2 section 6.2.2 puts a
+    // named resource nothing references outside the requirement's population altogether — a
+    // fixture whose second definition nothing draws with would be testing the exemption.
+    let mut content = String::new();
+    for index in 0..=second_uses {
+        let _ = writeln!(content, "/CS{index} cs 0 sc");
+    }
+    Conforming {
+        resources: format!("/ColorSpace << {spaces} >>"),
+        objects,
+        binary_objects: vec![stream(tint, &[0x00, 0xff]), stream(tint, &[0xff, 0x00])],
+        contents: Some((format!("/Length {}", content.len()), content.into_bytes())),
+        ..Conforming::default()
+    }
+    .build()
+}
+
+/// The configuration answering the separation site with one of the two words.
+fn a_separation_configuration(winner: &str) -> String {
+    format!(
+        "[site.\"graphics/separations-of-one-name-agree\"]\nremedy = \"supply\"\n\
+         winner = \"{winner}\"\n"
+    )
+}
+
+#[test]
+fn a_colourant_defined_two_ways_is_refused_by_name_until_somebody_chooses() {
+    // The default, and `doc/rfc/0007` section 1's rule: a site absent from the configuration stops.
+    let (report, output) = to_part_four(&a_colourant_defined_twice(1));
+    assert!(
+        matches!(
+            decision(&report, "graphics/separations-of-one-name-agree"),
+            Decision::Refused(_)
+        ),
+        "nothing in the file says which definition its producer meant"
+    );
+    assert!(output.is_none(), "and a refusal writes no file");
+}
+
+#[test]
+fn the_first_definition_wins_where_the_configuration_says_so_and_the_report_names_it() {
+    let target = Target::Four(Flavour::Plain);
+    let plan = plan_from(&a_separation_configuration("first"), target);
+    let (report, output) = convert_with_plan(&a_colourant_defined_twice(1), &plan);
+    let decided = decision(&report, "graphics/separations-of-one-name-agree");
+    let Decision::Configured { kind, rewrite, .. } = decided else {
+        panic!("the operator's configuration answered it: {decided:?}");
+    };
+    assert_eq!(kind, pdf_transform::archive::RemedyKind::Supply);
+    assert_eq!(rewrite, Rewrite::SeparationAgreed);
+
+    let output = output.expect("the document converts");
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+
+    // The one definition left in the file is the producer's own first one: its samples are 00 ff,
+    // and the loser's ff 00 is referred to by nothing.
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    assert_eq!(the_tint_samples(&document), vec![vec![0x00, 0xff]]);
+
+    let conversion = report.archive.as_ref().expect("a conversion report");
+    assert_eq!(conversion.supplied.len(), 1, "one colourant was decided");
+    assert!(
+        conversion.supplied[0].subject.contains("Spot"),
+        "the report names the ink: {:?}",
+        conversion.supplied[0]
+    );
+    assert!(
+        conversion.supplied[0].value.contains("first"),
+        "and which of its definitions won: {:?}",
+        conversion.supplied[0]
+    );
+}
+
+#[test]
+fn most_used_keeps_the_definition_the_file_states_oftenest_rather_than_the_earliest() {
+    // The two words have to be able to disagree, or one of them is decoration: this file states
+    // the second definition twice and the first once, so `most-used` keeps what `first` would drop.
+    let target = Target::Four(Flavour::Plain);
+    let plan = plan_from(&a_separation_configuration("most-used"), target);
+    let (report, output) = convert_with_plan(&a_colourant_defined_twice(2), &plan);
+    let output = output.expect("the document converts");
+    let held = holds(&output, target);
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    assert_eq!(the_tint_samples(&document), vec![vec![0xff, 0x00]]);
+    let conversion = report.archive.as_ref().expect("a conversion report");
+    assert!(
+        conversion.supplied[0].value.contains("most-used"),
+        "{:?}",
+        conversion.supplied[0]
+    );
+}
+
+#[test]
+fn a_supply_that_names_no_winner_leaves_the_requirement_refused() {
+    // `Configuration::unbuilt`'s reading, and the same one an empty `media-types` table gets: an
+    // operator who has not yet stated the fact has stated no fact, so the site keeps its refusal
+    // rather than making the profile unloadable.
+    let target = Target::Four(Flavour::Plain);
+    let text = "[site.\"graphics/separations-of-one-name-agree\"]\nremedy = \"supply\"\n";
+    let plan = plan_from(text, target);
+    let (report, output) = convert_with_plan(&a_colourant_defined_twice(1), &plan);
+    assert!(output.is_none(), "no file is written");
+    assert!(matches!(
+        decision(&report, "graphics/separations-of-one-name-agree"),
+        Decision::Refused(_)
+    ));
+}
+
+/// Every distinct sampled tint transform the document's `Separation` arrays reach.
+///
+/// The samples rather than the object numbers, because the conversion renumbers everything: what
+/// is being asserted is *which definition* survived, and a function stream's own bytes are what
+/// says which one it is.
+fn the_tint_samples(document: &Document) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId::new(number, 0));
+        let Some(items) = object.as_array() else {
+            continue;
+        };
+        let is_separation = items
+            .first()
+            .map(|entry| document.resolve(entry))
+            .and_then(|entry| entry.as_name().map(|name| name.as_bytes() == b"Separation"))
+            .unwrap_or(false);
+        if !is_separation {
+            continue;
+        }
+        let Some(transform) = items.get(3).map(|entry| document.resolve(entry)) else {
+            continue;
+        };
+        let Some(stream) = transform.as_stream() else {
+            continue;
+        };
+        let Some(bytes) = document.decoded_stream_data(stream) else {
+            continue;
+        };
+        let bytes = bytes.to_vec();
+        if !out.contains(&bytes) {
+            out.push(bytes);
+        }
+    }
+    out
 }

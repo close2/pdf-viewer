@@ -216,6 +216,33 @@ pub enum Command {
     /// behave as if this bit was set to 1" — and [`crate::Query::Accessibility`] is therefore a
     /// query still, gated by nothing.
     Copy,
+    /// A person asked to print: §7.6.4.2's bit 3, asked as an operation, and then the intent
+    /// the pages are interpreted under.
+    ///
+    /// **A command for [`Self::Copy`]'s reason** — Table 22's bit 3 is "[p]rint the document", so
+    /// printing has to be refusable, askable and warnable at the four levels `CLAUDE.md` names,
+    /// and a [`crate::Query`] can raise no event and so can carry none of them.
+    ///
+    /// **And a *mode* rather than a single message, because two clauses require the intent to be
+    /// held and then let go.** §8.11.4.5 states the duration outright:
+    ///
+    /// > When a document is printed by an interactive PDF processor, usage application
+    /// > dictionaries with an event type Print shall be applied over the current states of
+    /// > optional content groups. These changes shall persist only for the duration of the print
+    /// > operation; then all groups shall revert to their prior states.
+    ///
+    /// So a print operation has a beginning and an end, and [`Printing::Finish`] is the end the
+    /// clause requires. §12.5.3's Table 167 asks the same of the annotations — bit 3 decides the
+    /// printed page and bit 6 the screen — and §12.5.6.22 of a watermark's media.
+    ///
+    /// **What the window shows while it is held is the printed page**, which is RFC 0004's
+    /// preview and costs nothing extra: the intent is stated on the document's own view state, so
+    /// every page on the screen is re-interpreted under it and what a reader sees is what
+    /// [`crate::Query::PrintPage`] will hand the printer.
+    ///
+    /// The pages themselves are pulled one at a time by [`crate::Query::PrintPage`], which
+    /// answers nothing until this has been granted. ADR 1180.
+    Print(Printing),
     /// §12.8.1's third question: whom this reader believes, and what it will accept not knowing.
     ///
     /// **The sixth host-supplied policy value, and the one ADR 1039 named and left unbuilt.** That
@@ -1310,6 +1337,75 @@ pub enum PageTarget {
     /// Clamped rather than wrapping: paging past the end and landing back at page one is
     /// disorienting, and the end of a document is information worth feeling.
     Relative(isize),
+}
+
+/// The two ends of §8.11.4.5's print operation — [`Command::Print`].
+///
+/// Two messages rather than one because the clause states a duration rather than an instant: the
+/// `Print` usage application dictionaries' changes "shall persist only for the duration of the
+/// print operation; then all groups shall revert to their prior states". A single message could
+/// say when to apply them and never when to take them back.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Printing {
+    /// Ask §7.6.4.2's bit 3, and on a yes interpret this document's pages for paper.
+    ///
+    /// Answered by [`crate::Event::Printing`] where it goes ahead, and by
+    /// [`crate::Event::Refused`], [`crate::Event::Asking`] or [`crate::Event::Warned`] where the
+    /// document asserts something and this reader's level says to notice it.
+    Start(Sheet),
+    /// The person chose a different sheet in the dialogue the grant opened.
+    ///
+    /// **Asks nothing.** §7.6.4.2's bit 3 was asked by [`Self::Start`], and a different paper is
+    /// not a second operation — a print dialogue that asked a person for permission again because
+    /// they changed the tray would be asking about something the bit does not distinguish. Does
+    /// nothing where no operation is running, which is what makes it safe for a dialogue that can
+    /// be opened before the grant arrives.
+    ///
+    /// It exists because the two are known at different moments: the policy has to be asked
+    /// before a dialogue appears, and the paper is what the dialogue is for.
+    Paper(Sheet),
+    /// The operation is over: §8.11.4.5's groups revert and the pages go back to the screen's
+    /// reading of Table 167.
+    ///
+    /// Sent whether the job finished or the person cancelled — the clause's sentence is about the
+    /// duration of the operation and says nothing about how it ended — and harmless where no job
+    /// is running.
+    Finish,
+}
+
+/// The paper a print operation is going onto.
+///
+/// **§12.5.6.22's target media, and the printer's resolution, which are the two things about a
+/// print job that change what is drawn.** Everything else a print dialogue offers — copies,
+/// collation, duplex, which tray — changes how many sheets come out and in what order, and no
+/// clause makes any of it a question about the page's marks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sheet {
+    /// The media rectangle in default user space units, positioned where the page sits on it.
+    ///
+    /// Table 194 measures `/H` and `/V` as percentages "of the width of the target media", and
+    /// §12.5.6.22 translates "the origin of the media (e.g., printed page) to the origin of the
+    /// default user space" — so this is a rectangle rather than a width and a height, and its
+    /// lower-left corner is that origin. A host that prints a page at its own size onto a larger
+    /// sheet states where the page's corner landed on it.
+    ///
+    /// **`None` is Table 193's own other branch and not a missing value**: "[i]f the dimensions of
+    /// the target media are not known at the time of drawing, drawing shall be done relative to
+    /// the dimensions specified by the page's MediaBox entry". A window that shows what would
+    /// print without having a printer is exactly in that position, and saying so is a truer answer
+    /// than a sheet size it invented.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "verbatim quotation: Table 193 spells MediaBox without backticks"
+    )]
+    pub media: Option<[f32; 4]>,
+    /// Pixels per default user space unit at the printer's resolution — 300 dpi is 300/72.
+    ///
+    /// A scale rather than a dots-per-inch figure for [`Zoom::Scale`]'s reason: this crate
+    /// rasterises in pixels per unit and a second unit on the boundary is a second place to
+    /// divide by 72. `viewer_host::printing::scale` is where a host turns what its print system
+    /// reported into this number, clamped to a stated budget.
+    pub scale: f32,
 }
 
 /// How large the page is drawn.

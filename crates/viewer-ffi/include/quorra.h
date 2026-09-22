@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define QUORRA_EVENT_KIND_COUNT 21u
+#define QUORRA_EVENT_KIND_COUNT 22u
 
 /* What an entry point returns. `QUORRA_OK` is zero; everything else is a refusal. */
 #define QUORRA_OK                 0
@@ -100,6 +100,12 @@ extern "C" {
 /* quorra_copy went ahead: §7.6.4.2 bit 5's operation, granted. quorra_event_copied gives the text
  * and says which of §14.8.2.5's two orders it is in. */
 #define QUORRA_EVENT_COPIED            20u
+
+/* quorra_print went ahead: §7.6.4.2 bit 3's operation, granted. Every page of the document is
+ * interpreted for paper until quorra_print_finish — §12.5.3's Table 167 bit 3 decides which
+ * annotations are drawn, §8.11.4.5's Print event which layers are, and §12.5.6.22's watermarks
+ * go against the sheet. `quorra_events_describe` gives the page count. */
+#define QUORRA_EVENT_PRINTING          21u
 
 /* §12.5.5's three situations, of which a press is two. What `quorra_pointer` takes. */
 #define QUORRA_POINTER_MOVED     0u
@@ -722,6 +728,28 @@ int32_t quorra_restrict_document_operation(quorra_viewer *viewer, uint32_t opera
 /* A person pressed copy: §7.6.4.2 bit 5, asked as an operation and not as a readback. The text
  * arrives as a QUORRA_EVENT_COPIED; nothing selected sends nothing. */
 int32_t quorra_copy(quorra_viewer *viewer, quorra_events **events);
+/* A person asked to print: §7.6.4.2 bit 3, asked as an operation. `media` is the sheet in default
+ * user space units, four floats, lower-left corner first; `scale` is pixels per unit at the
+ * printer's resolution, so 300 dpi is 300.0f/72.0f. The grant arrives as a QUORRA_EVENT_PRINTING.
+ * QUORRA_NUMBER_OUT_OF_RANGE where a corner or the scale is not a finite positive number. */
+int32_t quorra_print(quorra_viewer *viewer, const float *media, float scale,
+                       quorra_events **events);
+/* The end of that operation — §8.11.4.5's "then all groups shall revert to their prior states".
+ * Sent whether the job finished or the person cancelled; harmless where none is running. */
+int32_t quorra_print_finish(quorra_viewer *viewer, quorra_events **events);
+/* Draws one page of that operation with the processor rasteriser and says how large it is.
+ * QUORRA_FORMAT_RGBA8, as every raster here is. QUORRA_NO_ANSWER where no print operation is
+ * running or the document has no such page; QUORRA_RENDER_REFUSED where the page's marks will not
+ * go onto a raster at the job's resolution. One page is held at a time. */
+int32_t quorra_print_page(quorra_viewer *viewer, size_t page, uint32_t *width, uint32_t *height,
+                       size_t *bytes);
+/* Copies that page into a buffer the caller owns. Size it from quorra_print_page's `bytes`. */
+int32_t quorra_print_page_copy(const quorra_viewer *viewer, size_t page, uint8_t *into, size_t cap,
+                       size_t *written);
+/* How many things could not be drawn on the page quorra_print_page drew, and each sentence. */
+int32_t quorra_printed_reports(const quorra_viewer *viewer, size_t *count);
+int32_t quorra_printed_report(const quorra_viewer *viewer, size_t index, char *out, size_t cap,
+                       size_t *needed);
 /* A QUORRA_EVENT_COPIED's text, with *logical set to whether it is §14.8.2.5's logical content
  * order rather than page content order. */
 int32_t quorra_event_copied(const quorra_events *events, size_t index, bool *logical, char *out,

@@ -295,9 +295,12 @@ language = ""
 only-when = "malformed"
 
 [site."graphics/separations-of-one-name-agree"]
-remedy = "supply"          # NOT-YET-IN-FORMAT
-colourants = { }           # name the definition that wins, per ink; empty stops
-unlisted = "stop"
+remedy = "supply"
+winner = "first"           # or "most-used"; which of the file's OWN definitions of an ink wins
+# Keeping everything is not available here and the clause is why: one colourant defined two ways
+# has to end up defined one way, so a definition goes whatever is chosen. `first` is the most
+# conservative reading of this profile's purpose — the producer's own first statement of the ink
+# stands, and every byte written is theirs (ADR 1188).
 
 [site."fonts/embedded-cmap-states-its-own-write-mode"]
 remedy = "supply"          # NOT-YET-IN-FORMAT

@@ -16,13 +16,17 @@
 //! - **Marks under the mode**: every command whose `blend()` is `BlendMode::Overprint`, over
 //!   both halves of §11.4.7's page pair, inside every group, inside every `Shaped` command's
 //!   object and inside every §11.6.5.1 soft-mask group's elements.
-//! - **The verdict with no mark**, which is this example's own check and is printed because it
-//!   is not zero. The flag is set where `content::overprint` *computes* the mode, and the
-//!   caller decides afterwards whether the object marks the page at all — `path.rs` asks for
-//!   the fill's mode and the stroke's before it asks whether either part marks — so a page can
-//!   carry the verdict with no command under it. It matters beyond this census: `render-raster`
-//!   and `render-gpu` refuse a whole page by name on that flag, so such a page is refused for a
+//! - **The verdict with no mark**, which is this example's own check. `DisplayList::overprints`
+//!   is settled against the commands the finished list holds (ADR 1181), so this column is zero
+//!   and a page in it is a command shape this walk does not reach or a route into the list the
+//!   settling does not follow. It matters beyond this census: `render-raster` and `render-gpu`
+//!   refuse a whole page by name on that flag, so a page in this column would be refused for a
 //!   mark that is not on it.
+//! - **The shape of the kept set**, which is what a scene vocabulary would have to express. The
+//!   mode is Porter-Duff destination-over in the channels it keeps and source-over in the rest
+//!   (ADR 1182), so a mark whose set is all three channels or none of them is one existing
+//!   compositing operator and a mark whose set is a proper subset is a per-channel choice
+//!   between two. Counted apart, because the two are different asks.
 //! - **Under a non-Normal blend mode**: §11.7.4.3's last paragraph builds a non-isolated,
 //!   non-knockout group around such an object and composites it under the mode in the
 //!   graphics state, so that group — non-Normal blend, an overprinting command directly
@@ -76,6 +80,12 @@ struct Page {
     marks_under_non_normal: usize,
     /// Every non-Normal blend mode one of those groups composites under, by name.
     modes: BTreeMap<String, usize>,
+    /// Marks whose kept set is all three channels of this raster, which is destination-over.
+    marks_kept_all: usize,
+    /// Marks whose kept set is empty, which is source-over — the same arithmetic as Normal.
+    marks_kept_none: usize,
+    /// Marks whose kept set is a proper subset, which is a per-channel choice between the two.
+    marks_kept_mixed: usize,
     /// How many `Unsupported::Overprint` reports §11.7.4.3's knockout case produced.
     refused_knockout: usize,
     /// How many §11.7.4.4's first bullet produced.
@@ -120,6 +130,16 @@ struct Says {
     marks: usize,
     /// Marks inside one of §11.7.4.3's implicit groups.
     marks_under_non_normal: usize,
+    /// Marks whose kept set is all three channels of the raster they are drawn in.
+    marks_kept_all: usize,
+    /// Marks whose kept set is empty.
+    marks_kept_none: usize,
+    /// Marks whose kept set is a proper subset of the three.
+    marks_kept_mixed: usize,
+    /// Pages painting under the mode with no mark whose kept set is a proper subset.
+    pages_uniform_only: usize,
+    /// Documents all of whose overprinting pages are in that column.
+    documents_uniform_only: usize,
     /// Every non-Normal blend mode such a group composites under, by name.
     modes: BTreeMap<String, usize>,
     /// The two report sentences, counted apart.
@@ -159,6 +179,15 @@ impl Says {
         self.marks_under_non_normal = self
             .marks_under_non_normal
             .saturating_add(other.marks_under_non_normal);
+        self.marks_kept_all = self.marks_kept_all.saturating_add(other.marks_kept_all);
+        self.marks_kept_none = self.marks_kept_none.saturating_add(other.marks_kept_none);
+        self.marks_kept_mixed = self.marks_kept_mixed.saturating_add(other.marks_kept_mixed);
+        self.pages_uniform_only = self
+            .pages_uniform_only
+            .saturating_add(other.pages_uniform_only);
+        self.documents_uniform_only = self
+            .documents_uniform_only
+            .saturating_add(other.documents_uniform_only);
         for (mode, count) in other.modes {
             let slot = self.modes.entry(mode).or_default();
             *slot = slot.saturating_add(count);
@@ -203,8 +232,16 @@ fn walk(commands: &[Command], inside_non_normal: Option<&BlendMode>, page: &mut 
             walk(std::slice::from_ref(object), inside_non_normal, page);
             continue;
         }
-        if matches!(command.blend(), BlendMode::Overprint(_)) {
+        if let BlendMode::Overprint(overprint) = command.blend() {
             page.marks = page.marks.saturating_add(1);
+            // Which of the three channels this mark leaves to the backdrop, which is the whole
+            // of what a scene vocabulary would have to carry: all three is destination-over,
+            // none is source-over, and anything between is a per-channel choice (ADR 1182).
+            match overprint.kept().iter().filter(|channel| **channel).count() {
+                3 => page.marks_kept_all = page.marks_kept_all.saturating_add(1),
+                0 => page.marks_kept_none = page.marks_kept_none.saturating_add(1),
+                _ => page.marks_kept_mixed = page.marks_kept_mixed.saturating_add(1),
+            }
             if let Some(outer) = inside_non_normal {
                 page.marks_under_non_normal = page.marks_under_non_normal.saturating_add(1);
                 let slot = page.modes.entry(format!("{outer:?}")).or_default();
@@ -321,6 +358,12 @@ fn examine(path: &str) -> Says {
         says.marks_under_non_normal = says
             .marks_under_non_normal
             .saturating_add(found.marks_under_non_normal);
+        says.marks_kept_all = says.marks_kept_all.saturating_add(found.marks_kept_all);
+        says.marks_kept_none = says.marks_kept_none.saturating_add(found.marks_kept_none);
+        says.marks_kept_mixed = says.marks_kept_mixed.saturating_add(found.marks_kept_mixed);
+        says.pages_uniform_only = says
+            .pages_uniform_only
+            .saturating_add(usize::from(found.marks > 0 && found.marks_kept_mixed == 0));
         for (mode, count) in found.modes {
             let slot = says.modes.entry(mode).or_default();
             *slot = slot.saturating_add(count);
@@ -342,6 +385,7 @@ fn examine(path: &str) -> Says {
     if !reached.is_empty() {
         says.documents_overprinting = 1;
         says.documents_under_non_normal = usize::from(says.pages_under_non_normal > 0);
+        says.documents_uniform_only = usize::from(says.marks_kept_mixed == 0);
         says.witnesses
             .push(format!("{name}: {}", reached.join("; ")));
     }
@@ -407,6 +451,16 @@ fn main() {
     for (mode, count) in &says.modes {
         println!("      {count:>6}  under {mode}");
     }
+    println!(
+        "  of those mark(s), {} keep all three channels (destination-over), {} keep none \
+         (source-over), {} keep a proper subset (a per-channel choice); {} page(s) and {} \
+         document(s) state no proper subset at all",
+        says.marks_kept_all,
+        says.marks_kept_none,
+        says.marks_kept_mixed,
+        says.pages_uniform_only,
+        says.documents_uniform_only
+    );
     println!(
         "  {} page(s) carry an Unsupported::Overprint: {} for \u{a7}11.7.4.3's knockout case, {} \
          for \u{a7}11.7.4.4's first bullet",

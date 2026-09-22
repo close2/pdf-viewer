@@ -47,10 +47,26 @@
 //! if an `Ff` entry is present". [`FlagChange`] is that arithmetic, once, for both the field
 //! flags and the widget's annotation flags.
 //!
-//! Table 246's `/Pages` is *not* on that list as of the hundred-and-first session: §12.7.8.3.3's
-//! templates name pages this document already holds, under §12.7.7's `/Templates` name tree, so
-//! adding one costs a name lookup and no page content at all. [`crate::view::ViewState`] holds
-//! the result and a viewer shows them after the document's own pages.
+//! Table 246's `/Pages` is *not* on that list: §12.7.8.3.3's templates name pages this document
+//! already holds, under §12.7.7's `/Templates` name tree, so adding one costs a name lookup and
+//! no page content at all. [`crate::view::ViewState`] holds the result and a viewer shows them
+//! after the document's own pages.
+//!
+//! # An FDF file may carry FDF files, and each of them is a file
+//!
+//! Table 246's `/EmbeddedFDFs` is "[a]n array of file specifications … representing other FDF
+//! files embedded within this one", an ordinary PDF 1.4 entry with no deprecation marker of any
+//! kind. Each element is §7.11's specification over §7.11.4's embedded file stream, and what
+//! comes out of the stream is an FDF file — so it is decoded and read by [`FormsData::read`],
+//! whole, with its own `/Encoding` and its own `/Status`. [`FormsData::files`] is the nesting in
+//! the order an import applies it and [`match_to_document`] is where that order becomes the
+//! import.
+//!
+//! What ISO 32000-2 deprecates is the *encrypted* form — Table 247's `/EncryptionRevision`, whose
+//! revision 1 is a 40-bit RC4 key derived from a padded user-supplied password — and an embedded
+//! FDF stating that entry is refused by name on [`FormsData::owed`]. The prose above Table 247
+//! is ambiguous about which of the two the deprecation governs; Errata Collection 3 Issue #173
+//! settles it as the encryption's, and `doc/errata-read.md` records the strike. ADR 1185.
 //!
 //! # What is read and not applied, and why each
 //!
@@ -66,15 +82,16 @@
 //!   interpreter — a real design question rather than an oversight. [`FdfAnnotation`] is what
 //!   the file says; nothing draws it yet.
 //! - **`/JavaScript`** (Table 248) is on `CLAUDE.md`'s closed exclusion list.
-//! - **`/EmbeddedFDFs`** is FDF files inside this one, which §7.11.4 reads as attachments and
-//!   which would need this module to recurse into an encryption scheme (Table 247) that ISO
-//!   32000-2 deprecates in the same paragraph that defines it.
 //! - **`/Differences`** is the target document's own incremental updates, carried for a server;
 //!   applying it would mean *writing* the target file, which principle 5 puts outside this
 //!   project.
-//! - **`/RV`**, **`/AP`**, **`/APRef`** and **`/IF`** on a field: XFA rich text (excluded), a
-//!   push-button's appearance streams living in the FDF file, appearances in *other* PDF files,
-//!   and the icon fit dictionary that would place them.
+//! - **`/RV`**, **`/AP`**, **`/APRef`**, **`/A`** and **`/AA`** on a field: XFA rich text
+//!   (excluded), a push-button's appearance streams living in the FDF file, appearances in
+//!   *other* PDF files, and two entries of actions whose own references resolve in the FDF file
+//!   rather than in the document they would be installed on. `read_field` argues each. Table
+//!   249's `/IF` is **not** among them: an icon fit dictionary states names, numbers and a
+//!   boolean and nothing else, so it crosses to the target document whole and replaces Table
+//!   192's `/IF` on the widget (ADR 1186).
 //!
 //! # No corpus document exercises any of this
 //!
@@ -106,6 +123,28 @@ pub(crate) const MAX_ANNOTATIONS: usize = 4096;
 /// A file adding more pages than this to a document is not composing a form.
 const MAX_PAGES: usize = 4096;
 
+/// Most FDF files read out of Table 246's `/EmbeddedFDFs`, counted over the whole nesting.
+///
+/// The standard states no number here and nothing it requires a reader to carry states one
+/// either (trap 38), so this is a bound on *work* and says so: an FDF file that carries more
+/// than this many other FDF files inside it has stopped describing one form's data.
+const MAX_EMBEDDED_FILES: usize = 64;
+
+/// How deep `/EmbeddedFDFs` is followed.
+///
+/// An embedded FDF is §7.11.4's stream *inside* the file that names it, so each level is strictly
+/// contained in the one above and a cycle cannot be written the way a `/Kids` cycle can. What a
+/// file can still write is a nesting whose decoded size grows at every level, which is why the
+/// depth is bounded as well as the bytes.
+const MAX_EMBEDDED_DEPTH: usize = 8;
+
+/// Most bytes decoded out of embedded FDF streams, counted over the whole nesting.
+///
+/// The budget is shared across the nesting rather than applied per stream, because what a
+/// decompression bomb costs is the total and not any one of its parts (`CLAUDE.md` principle 3).
+/// Sixteen mebibytes is far past any form's field data and far short of what exhausts a reader.
+const MAX_EMBEDDED_BYTES: usize = 16 * 1024 * 1024;
+
 /// Why an FDF file could not be read at all.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FormsDataError {
@@ -133,10 +172,11 @@ pub struct FormsData {
     /// > conforms to the version specified in the header.
     ///
     /// So the answer is the later of the two, and [`Self::version`] alone is the entry rather
-    /// than the meaning — a distinction that cost this row a session, because the sentence
-    /// stating it carries no modal verb and a sweep reading verbs cannot see it (ADR 0919).
-    /// §7.7.2's `/Version` against §7.5.2's header is the identical construction one clause
-    /// family over, and `Document::version` is where this tree already did it.
+    /// than the meaning — a distinction that carries no modal verb and that a sweep reading verbs
+    /// cannot see (ADR 0919). §7.7.2's `/Version` against §7.5.2's header is the identical
+    /// construction one clause family over, so this **is** [`pdf_syntax::Document::version`]
+    /// rather than a second copy of its arithmetic: one rule, one place, and an FDF written as
+    /// §7.5.6's chain of updates reaches the version the last revision reached (ADR 1171).
     ///
     /// `None` where the file states neither, which is a file that never said.
     pub conforms_to: Option<pdf_syntax::Version>,
@@ -175,6 +215,22 @@ pub struct FormsData {
     /// Table 246's `/Target`, "[t]he name of a browser frame in which the underlying PDF
     /// document shall be opened".
     pub target: Option<String>,
+    /// Table 246's `/EmbeddedFDFs`, each read as the FDF file it is, in the array's order.
+    ///
+    /// §12.7.8.3.1's Table 246 states the entry:
+    ///
+    /// > ( Optional; PDF 1.4 ) An array of file specifications (see 7.11, "File specifications")
+    /// > representing other FDF files embedded within this one (7.11.4, "Embedded file streams").
+    ///
+    /// An FDF file rather than a payload, so it is read by [`FormsData::read`] like any other and
+    /// arrives here whole — its own `/Encoding`, its own `/Status`, its own fields. That matters
+    /// for more than tidiness: `/Encoding` is stated per file and decides how *that* file's field
+    /// names and values become characters, so an embedded FDF decoded under the outer file's
+    /// entry would be read in the wrong character set.
+    ///
+    /// [`Self::files`] is this file and everything under it in the order an import applies them,
+    /// and [`match_to_document`] is where that order becomes the import. ADR 1185.
+    pub embedded: Vec<FormsData>,
     /// What this file states and this program does not act on, each by name.
     ///
     /// Not errors and not silences: a file may carry all of them and still import its values
@@ -255,6 +311,14 @@ pub struct FdfField {
     /// two-element array consisting of a text string … and a default appearance string"; the
     /// first element of the pair is the option either way, which is what this holds.
     pub options: Option<Vec<String>>,
+    /// Table 249's `/IF`, "[a]n icon fit dictionary … specifying how to display a button field's
+    /// icon within the annotation rectangle of its widget annotation".
+    ///
+    /// Held as the dictionary the file states, because Table 250's four entries are names,
+    /// numbers and a boolean — nothing in it reaches an object of the FDF file, so the dictionary
+    /// carries across to the target document whole. That is what separates this entry from the
+    /// other four Table 249 states beside it, and [`FdfField::owed`] names those. ADR 1186.
+    pub icon_fit: Option<Dictionary>,
     /// What this field states and this program does not apply, by entry name.
     pub owed: Vec<&'static str>,
 }
@@ -404,6 +468,18 @@ impl FormsData {
     /// [`FormsDataError::NotFormsData`] where that dictionary has no `/FDF` — which is how a PDF
     /// handed to this function identifies itself as one.
     pub fn read(document: &Document) -> Result<Self, FormsDataError> {
+        Self::read_within(document, &mut Budget::new(), 0)
+    }
+
+    /// The same, under the budget Table 246's `/EmbeddedFDFs` nesting is read within.
+    ///
+    /// `depth` is how many `/EmbeddedFDFs` arrays were followed to reach this file, so the
+    /// outermost is 0. The budget is one object for the whole nesting — see [`Budget`].
+    fn read_within(
+        document: &Document,
+        budget: &mut Budget,
+        depth: usize,
+    ) -> Result<Self, FormsDataError> {
         let catalog = document.catalog().map_err(|_| FormsDataError::NoCatalog)?;
         let Some(fdf) = document.get_key(&catalog, "FDF").as_dict().cloned() else {
             return Err(FormsDataError::NotFormsData);
@@ -456,12 +532,12 @@ impl FormsData {
         let source = crate::file_spec::FileSpec::parse(document, &document.get_key(&fdf, "F"));
 
         let annotations = read_annotations(document, &document.get_key(&fdf, "Annots"));
+        let embedded = read_embedded(document, &fdf, budget, depth, &mut owed);
         for (key, why) in [
             (
                 "JavaScript",
                 "/JavaScript: document-level scripts, excluded",
             ),
-            ("EmbeddedFDFs", "/EmbeddedFDFs: FDF files inside this one"),
             (
                 "Differences",
                 "/Differences: the target document's own incremental updates",
@@ -485,13 +561,7 @@ impl FormsData {
         let stated = stated.as_name();
         Ok(Self {
             version: stated.map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
-            conforms_to: match (
-                document.header_version(),
-                stated.and_then(|name| pdf_syntax::Version::parse(name.as_bytes())),
-            ) {
-                (Some(header), Some(entry)) => Some(header.max(entry)),
-                (header, entry) => header.or(entry),
-            },
+            conforms_to: document.version(),
             source: source
                 .as_ref()
                 .and_then(crate::file_spec::FileSpec::display_name),
@@ -508,8 +578,43 @@ impl FormsData {
                 .get_key(&fdf, "Target")
                 .as_string()
                 .map(pdf_syntax::text_string),
+            embedded,
             owed,
         })
+    }
+
+    /// This file and every file embedded in it, in the order an import applies them.
+    ///
+    /// Outermost first, then each of Table 246's `/EmbeddedFDFs` in the array's own order and
+    /// everything under it — which is what "in turn" means for a nesting, and what
+    /// [`match_to_document`] walks. A later file's statement about a widget is the later
+    /// statement, exactly as a second import of a second file would be.
+    #[must_use]
+    pub fn files(&self) -> Vec<&Self> {
+        let mut out = Vec::new();
+        self.collect_files(&mut out);
+        out
+    }
+
+    /// [`Self::files`]'s walk, which is pre-order and nothing else.
+    fn collect_files<'a>(&'a self, into: &mut Vec<&'a Self>) {
+        into.push(self);
+        for embedded in &self.embedded {
+            embedded.collect_files(into);
+        }
+    }
+
+    /// Every `/Status` this file and its embedded files state, in [`Self::files`]'s order.
+    ///
+    /// Table 246 makes the entry "[a] status string that shall be displayed", and an embedded FDF
+    /// is an FDF — so a status inside one is a message to the person at the screen on the same
+    /// sentence's authority, and a caller that displayed only the outermost would have dropped it.
+    #[must_use]
+    pub fn statuses(&self) -> Vec<&str> {
+        self.files()
+            .into_iter()
+            .filter_map(|file| file.status.as_deref())
+            .collect()
     }
 
     /// Whether this file names the document it belongs to, and agrees with it.
@@ -528,6 +633,167 @@ impl FormsData {
         let theirs = target.trailer().get("ID")?.as_array()?;
         let first = theirs.first()?.as_string()?;
         Some(mine[0] == first)
+    }
+}
+
+/// What a whole `/EmbeddedFDFs` nesting is allowed to cost, in files and in decoded bytes.
+///
+/// One object for the whole nesting rather than one per level: a file that embeds two FDFs each
+/// embedding two more has written four decodes, and a per-level bound would let it write as many
+/// as it liked. `CLAUDE.md` principle 3 — "[m]emory safety is not enough" — is why the bytes are
+/// counted at all, since every one of them is a decode this reader performs on the file's say-so.
+struct Budget {
+    /// How many more FDF files may be read out of embedded streams.
+    files: usize,
+    /// How many more decoded bytes may be taken out of embedded streams.
+    bytes: usize,
+}
+
+impl Budget {
+    /// A whole nesting's allowance, as [`MAX_EMBEDDED_FILES`] and [`MAX_EMBEDDED_BYTES`] state it.
+    const fn new() -> Self {
+        Self {
+            files: MAX_EMBEDDED_FILES,
+            bytes: MAX_EMBEDDED_BYTES,
+        }
+    }
+}
+
+/// Table 246's `/EmbeddedFDFs`, read as the FDF files the entry says they are.
+///
+/// §12.7.8.3.1's Table 246:
+///
+/// > ( Optional; PDF 1.4 ) An array of file specifications (see 7.11, "File specifications")
+/// > representing other FDF files embedded within this one (7.11.4, "Embedded file streams").
+///
+/// Three readings are stacked and each is the cell's own: §7.11's file specification, §7.11.4's
+/// embedded file stream under its `/EF`, and §12.7.8's FDF file in the bytes that come out. So
+/// each element is decoded and then handed to [`FormsData::read_within`], which is the same
+/// function that read the file naming it — an embedded FDF is a file, not a fragment.
+///
+/// **The entry is not deprecated and this reader owes it.** Table 246's cell carries no
+/// deprecation marker; what ISO 32000-2 deprecates is the *encrypted* form, which Table 247
+/// states as "(Required if the FDF file is encrypted; deprecated in PDF 2.0)" and which the
+/// paragraph above that table leaves ambiguous. Errata Collection 3 Issue #173 rewrites that
+/// opening so the participle governs FDF file encryption, and `doc/errata-read.md` records it.
+/// ADR 1185.
+///
+/// **An encrypted embedded FDF is refused by name**, which is the whole of what stays unbuilt
+/// here: Table 247's revision 1 is a 40-bit RC4 key derived from a padded user-supplied password,
+/// and this program has neither the password nor a reason to carry a deprecated key derivation.
+/// The refusal is on `owed`, so a person is told which file went unread rather than shown a form
+/// silently missing its values (trap 5).
+fn read_embedded(
+    document: &Document,
+    fdf: &Dictionary,
+    budget: &mut Budget,
+    depth: usize,
+    owed: &mut Vec<&'static str>,
+) -> Vec<FormsData> {
+    let entry = document.get_key(fdf, "EmbeddedFDFs");
+    let Some(items) = entry.as_array() else {
+        return Vec::new();
+    };
+    if depth >= MAX_EMBEDDED_DEPTH {
+        push_once(
+            owed,
+            "/EmbeddedFDFs: a nesting deeper than this reader follows",
+        );
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for item in items {
+        if budget.files == 0 {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: more embedded files than this reader reads",
+            );
+            break;
+        }
+        let resolved = document.resolve(item);
+        let Some(specification) = resolved.as_dict() else {
+            continue;
+        };
+        // §7.11.4.2's `/EF`, whose keys are the same five §7.11.4.1 gives a file specification and
+        // which `crate::attachment::read` takes in the same order: the Unicode name first,
+        // because Table 43 ranks `/UF` above `/F`.
+        let files = document.get_key(specification, "EF");
+        let Some(files) = files.as_dict() else {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: a file specification naming a file outside this one",
+            );
+            continue;
+        };
+        let Some(stream) = ["UF", "F", "DOS", "Mac", "Unix"]
+            .into_iter()
+            .find_map(|key| document.get_key(files, key).as_stream().cloned())
+        else {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: an /EF dictionary carrying no embedded file stream",
+            );
+            continue;
+        };
+        if !document
+            .get_key(&stream.dict, "EncryptionRevision")
+            .is_null()
+        {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: an encrypted FDF, whose Table 247 key derivation is deprecated",
+            );
+            continue;
+        }
+        let Some(bytes) = document.decoded_stream_data(&stream) else {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: an embedded file stream this reader could not decode",
+            );
+            continue;
+        };
+        if bytes.len() > budget.bytes {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: more embedded bytes than this reader decodes",
+            );
+            break;
+        }
+        budget.bytes = budget.bytes.saturating_sub(bytes.len());
+        budget.files = budget.files.saturating_sub(1);
+        let Ok(inner) = Document::open(bytes.to_vec()) else {
+            push_once(
+                owed,
+                "/EmbeddedFDFs: an embedded file this reader could not open",
+            );
+            continue;
+        };
+        match FormsData::read_within(&inner, budget, depth.saturating_add(1)) {
+            Ok(data) => {
+                // The embedded file's own refusals are the outer file's to report, because the
+                // one list a caller prints is this one — `viewer_core` puts every entry of it in
+                // front of a person, and a refusal held one level down would be a silence.
+                for why in &data.owed {
+                    push_once(owed, why);
+                }
+                out.push(data);
+            }
+            Err(_) => push_once(
+                owed,
+                "/EmbeddedFDFs: an embedded file that is not forms data",
+            ),
+        }
+    }
+    out
+}
+
+/// Adds a reason to `owed` unless it is already there.
+///
+/// A nesting can reach the same refusal at every level, and a person reading a status line is
+/// owed the sentence once rather than once per file.
+fn push_once(owed: &mut Vec<&'static str>, why: &'static str) {
+    if !owed.contains(&why) {
+        owed.push(why);
     }
 }
 
@@ -644,13 +910,27 @@ fn read_field(
         Object::Null => None,
         other => Some(other.clone()),
     };
+    // The four entries of Table 249 that state something of *another file*, each named rather
+    // than skipped. `/AP` is "[a]n appearance dictionary specifying the appearance of a
+    // push-button field", whose `/N`, `/R` and `/D` "shall all be streams" — streams that are
+    // objects of the FDF file, so drawing one is a second document's objects reaching the
+    // interpreter, which is the design question `/Annots` states at file scope. `/APRef` is
+    // "[a] dictionary holding references to external PDF files containing the pages to use for
+    // the appearances of a push-button field", which is a file a *document* named and therefore
+    // §12.7.6.4's hazard: the bytes may come only from a directory a person supplied, which no
+    // part of this crate has. `/A` and `/AA` are actions, and an action read out of an FDF file
+    // resolves its own references *there* while this tree reads a widget's from the target
+    // document at the moment it is activated. `/RV` is XFA rich text, on `CLAUDE.md`'s closed
+    // exclusion list. ADR 1186.
     for (key, why) in [
         (
             "AP",
-            "/AP: a push-button's appearance streams, in this file",
+            "/AP: a push-button's appearance streams, which are objects of the FDF file",
         ),
-        ("APRef", "/APRef: appearances in other PDF files"),
-        ("IF", "/IF: an icon fit dictionary, which places those"),
+        (
+            "APRef",
+            "/APRef: appearances in PDF files this reader has no filesystem to open",
+        ),
         ("RV", "/RV: XFA rich text, excluded"),
         ("A", "/A: an action to perform when the widget is activated"),
         ("AA", "/AA: §12.6.3's trigger events"),
@@ -665,6 +945,7 @@ fn read_field(
         flags: FlagChange::read(document, field, "Ff", "SetFf", "ClrFf"),
         annotation_flags: FlagChange::read(document, field, "F", "SetF", "ClrF"),
         options: options(document, field, encoding),
+        icon_fit: document.get_key(field, "IF").as_dict().cloned(),
         owed,
     }
 }
@@ -791,6 +1072,14 @@ pub struct Import {
     pub annotation_flags: FlagChange,
     /// `/Ff`, `/SetFf` and `/ClrFf` over Table 227's field flags.
     pub field_flags: FlagChange,
+    /// Table 249's `/IF`, which replaces Table 192's `/IF` in the widget's `/MK`.
+    ///
+    /// Both entries name the same Table 250 icon fit dictionary — the table is printed under
+    /// §12.7.8.3.2 and §12.5.6.19's Table 192 points at it — so importing one is §12.7.8.3.2's
+    /// replacing sentence applied to "the corresponding entrie[s] in the field with the same
+    /// fully qualified name in the target document", and the icon it fits is the widget's own
+    /// `/MK /I`. ADR 1186.
+    pub icon_fit: Option<Dictionary>,
 }
 
 /// Pairs an FDF file's fields with a target document's widgets, by fully qualified name.
@@ -799,12 +1088,25 @@ pub struct Import {
 /// A field the target document does not have is *not* an error and not silently dropped: it is
 /// returned as its own list, because a file naming fields a form has not got is either the wrong
 /// FDF for this document or a form that has changed, and a caller should be able to say which.
+///
+/// **Table 246's `/EmbeddedFDFs` are matched here too**, in [`FormsData::files`]'s order: this
+/// file's fields first, then each embedded file's, and the pairs come back in that order so that
+/// a caller applying them in turn leaves the later file's statement about a widget standing.
+/// That is what importing a nesting *is* — each embedded file is an FDF, and the clause's
+/// replacing sentence is about a field rather than about a file. ADR 1185.
 #[must_use]
 pub fn match_to_document(
     data: &FormsData,
     widgets: &std::collections::BTreeMap<String, Vec<ObjectId>>,
 ) -> (Vec<(ObjectId, Import)>, Vec<String>) {
-    match_fields(&data.fields, widgets)
+    let mut matched = Vec::new();
+    let mut unmatched = Vec::new();
+    for file in data.files() {
+        let (found, missing) = match_fields(&file.fields, widgets);
+        matched.extend(found);
+        unmatched.extend(missing);
+    }
+    (matched, unmatched)
 }
 
 /// The same pairing over one list of fields, which §12.7.8 states in two places.
@@ -831,6 +1133,7 @@ pub fn match_fields(
                     value: field.value.clone(),
                     annotation_flags: field.annotation_flags,
                     field_flags: field.flags,
+                    icon_fit: field.icon_fit.clone(),
                 },
             ));
         }
@@ -1013,12 +1316,17 @@ mod tests {
         assert_eq!(data.annotations[0].page, Some(3));
         assert_eq!(data.annotations[0].subtype.as_deref(), Some("Text"));
         assert_eq!(data.fields[0].owed, ["/RV: XFA rich text, excluded"]);
+        // Named one by one rather than counted: an assertion on a length would accept any five
+        // sentences, including five of the wrong ones (trap 27).
         assert_eq!(
-            data.owed.len(),
-            5,
-            "the Table 246 contradiction, /JavaScript, /EmbeddedFDFs, /Differences \
-             and /Annots: {:?}",
-            data.owed
+            data.owed,
+            [
+                "/Fields and /Pages are both present, which Table 246 forbids",
+                "/EmbeddedFDFs: a file specification naming a file outside this one",
+                "/JavaScript: document-level scripts, excluded",
+                "/Differences: the target document's own incremental updates",
+                "/Annots: annotations belonging to no document, read and not drawn",
+            ]
         );
     }
 
@@ -1068,9 +1376,278 @@ mod tests {
     /// *indirect* child is what makes one writable.
     #[test]
     fn a_kids_cycle_terminates() {
-        let document = fdf("1 0 obj\n<< /FDF << /Fields [ 2 0 R ] >> >>\nendobj\n\
+        let document = fdf("1 0 obj\n<< /FDF << /Fields [ 2 0 R ] >>\n>>\nendobj\n\
              2 0 obj\n<< /T (a) /Kids [ 2 0 R ] >>\nendobj");
         let data = FormsData::read(&document).expect("an FDF catalog");
         assert_eq!(data.fields.len(), MAX_FIELD_DEPTH);
+    }
+
+    /// The same, from object bodies numbered from 1, **with** the cross-reference table §12.7.8.1
+    /// makes optional.
+    ///
+    /// The table is here rather than in [`fdf`] because an embedded FDF is a stream whose bytes
+    /// are themselves a file: they contain `obj` and `endobj`, so a document recovered by
+    /// scanning would find the inner file's objects inside the outer file's stream. A real file
+    /// carrying one states a table for the same reason.
+    fn fdf_objects(bodies: &[String]) -> Document {
+        Document::open(fdf_bytes(bodies).into_bytes())
+            .expect("an FDF file is opened by the PDF reader")
+    }
+
+    /// The bytes [`fdf_objects`] opens, which an embedded file stream carries verbatim.
+    fn fdf_bytes(bodies: &[String]) -> String {
+        use std::fmt::Write as _;
+
+        let mut out = String::from("%FDF-1.2\n");
+        let mut offsets = Vec::new();
+        for (index, body) in bodies.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let section_at = out.len();
+        let _ = write!(
+            out,
+            "xref\n0 {}\n0000000000 65535 f \n",
+            bodies.len().saturating_add(1)
+        );
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{section_at}\n%%EOF\n",
+            bodies.len().saturating_add(1)
+        );
+        out
+    }
+
+    /// One whole FDF file, as the body of the embedded file stream that carries it.
+    ///
+    /// §7.11.4's stream is written uncompressed with a direct `/Length`, which §12.7.8.1 requires
+    /// an FDF to do everywhere: "the length of a stream shall be specified by a direct object".
+    fn embedded_body(file: &str) -> String {
+        format!(
+            "<< /Type /EmbeddedFile /Length {} >>\nstream\n{file}\nendstream",
+            file.len()
+        )
+    }
+
+    /// Table 246's `/EmbeddedFDFs` is "[a]n array of file specifications … representing other FDF
+    /// files embedded within this one", with no deprecation marker on the cell — so each element
+    /// is §7.11.4's embedded file stream carrying an FDF this reader reads like any other.
+    ///
+    /// Two of them, because one would not show the order: [`FormsData::files`] is the outer file
+    /// and then the array's elements in the array's own order, which is what
+    /// [`match_to_document`] applies "in turn".
+    #[test]
+    fn two_embedded_fdfs_are_read_as_the_files_they_are() {
+        let document = fdf_objects(&[
+            "<< /FDF << /Fields [ << /T (outer) /V (from the outer file) >> ]\n\
+                /EmbeddedFDFs [ << /Type /Filespec /F (first.fdf) /EF << /F 2 0 R >> >>\n\
+                                << /Type /Filespec /F (second.fdf) /EF << /F 3 0 R >> >> ] >>\n>>"
+                .to_owned(),
+            embedded_body(&fdf_bytes(&[
+                "<< /FDF << /Fields [ << /T (inner) /V (first) >> ] /Status (one) >>\n>>"
+                    .to_owned(),
+            ])),
+            embedded_body(&fdf_bytes(&[
+                "<< /FDF << /Fields [ << /T (inner) /V (second) >> ] >>\n>>".to_owned(),
+            ])),
+        ]);
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert_eq!(data.embedded.len(), 2, "both elements of the array");
+        assert_eq!(
+            data.files().len(),
+            3,
+            "this file and the two inside it, outermost first"
+        );
+        assert_eq!(
+            data.embedded[0]
+                .fields
+                .first()
+                .and_then(|field| field.value.as_ref())
+                .and_then(Object::as_string),
+            Some(b"first".as_slice())
+        );
+        assert_eq!(
+            data.statuses(),
+            ["one"],
+            "Table 246 makes a /Status one that \"shall be displayed\", in whichever file states it"
+        );
+        assert!(
+            data.owed.is_empty(),
+            "nothing about an ordinary embedded FDF goes unapplied: {:?}",
+            data.owed
+        );
+
+        // The order the pairs come back in is the order an import applies them, so the *second*
+        // embedded file is the later statement about a widget both of them name.
+        let widgets = std::collections::BTreeMap::from([
+            ("outer".to_owned(), vec![ObjectId::new(10, 0)]),
+            ("inner".to_owned(), vec![ObjectId::new(11, 0)]),
+        ]);
+        let (matched, unmatched) = match_to_document(&data, &widgets);
+        assert!(unmatched.is_empty(), "{unmatched:?}");
+        let values: Vec<_> = matched
+            .iter()
+            .map(|(id, import)| {
+                (
+                    id.number,
+                    import
+                        .value
+                        .as_ref()
+                        .and_then(Object::as_string)
+                        .map(<[u8]>::to_vec),
+                )
+            })
+            .collect();
+        assert_eq!(
+            values,
+            [
+                (10, Some(b"from the outer file".to_vec())),
+                (11, Some(b"first".to_vec())),
+                (11, Some(b"second".to_vec())),
+            ]
+        );
+    }
+
+    /// Table 247's `/EncryptionRevision` is "(Required if the FDF file is encrypted; deprecated in
+    /// PDF 2.0)", and revision 1's 40-bit RC4 key is derived from a password this program has not
+    /// got — so such a file is refused **by name** rather than read as plaintext (trap 5).
+    #[test]
+    fn an_encrypted_embedded_fdf_is_refused_by_name() {
+        let document = fdf_objects(&[
+            "<< /FDF << /EmbeddedFDFs [ << /Type /Filespec /F (secret.fdf) \
+                /EF << /F 2 0 R >> >> ] >>\n>>"
+                .to_owned(),
+            "<< /Type /EmbeddedFile /EncryptionRevision 1 /Length 13 >>\nstream\nnot plaintext\nendstream"
+                .to_owned(),
+        ]);
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert!(data.embedded.is_empty());
+        assert_eq!(
+            data.owed,
+            ["/EmbeddedFDFs: an encrypted FDF, whose Table 247 key derivation is deprecated"]
+        );
+    }
+
+    /// A specification naming a file *outside* this one states no bytes to read, and an `/EF`
+    /// with no stream states none either. Both are named rather than dropped.
+    #[test]
+    fn an_embedded_fdf_this_reader_cannot_reach_is_named() {
+        let document = fdf("1 0 obj\n<< /FDF << /EmbeddedFDFs [ (elsewhere.fdf) \
+             << /Type /Filespec /F (outside.fdf) >> ] >>\n>>\nendobj");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert!(data.embedded.is_empty());
+        assert_eq!(
+            data.owed,
+            ["/EmbeddedFDFs: a file specification naming a file outside this one"],
+            "the string form of §7.11.1's specification carries no /EF either, and is not a \
+             second sentence"
+        );
+    }
+
+    /// `CLAUDE.md` principle 3: the bound is on the nesting as a whole, and reaching it is
+    /// reported rather than fatal.
+    #[test]
+    fn the_nesting_is_bounded_and_says_so() {
+        // Each level embeds the one below it, so the nesting is built inside out.
+        let mut inner =
+            fdf_bytes(&["<< /FDF << /Fields [ << /T (deepest) /V (bottom) >> ] >>\n>>".to_owned()]);
+        for _ in 0..=MAX_EMBEDDED_DEPTH {
+            inner = fdf_bytes(&[
+                "<< /FDF << /EmbeddedFDFs [ << /Type /Filespec /EF << /F 2 0 R >> >> ] >>\n>>"
+                    .to_owned(),
+                embedded_body(&inner),
+            ]);
+        }
+        let document = Document::open(inner.into_bytes()).expect("an FDF file");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        let deep = data.files().len();
+        assert_eq!(
+            deep,
+            MAX_EMBEDDED_DEPTH + 1,
+            "the outermost file and one per level followed"
+        );
+        assert!(
+            data.owed
+                .contains(&"/EmbeddedFDFs: a nesting deeper than this reader follows"),
+            "{:?}",
+            data.owed
+        );
+    }
+
+    /// Table 249's `/IF` names the same Table 250 dictionary Table 192's `/IF` does, so importing
+    /// one replaces the widget's under §12.7.8.3.2's replacing sentence.
+    #[test]
+    fn an_imported_icon_fit_is_carried_to_the_widget() {
+        let document = fdf(
+            "1 0 obj\n<< /FDF << /Fields [ << /T (logo) /IF << /SW /N /S /A >> >> ] >>\n>>\nendobj",
+        );
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        let fit = data.fields[0]
+            .icon_fit
+            .as_ref()
+            .expect("Table 249's /IF is read");
+        assert_eq!(
+            fit.get("SW")
+                .and_then(Object::as_name)
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"N".to_vec())
+        );
+        assert!(
+            !data.fields[0].owed.iter().any(|why| why.starts_with("/IF")),
+            "the entry is applied, so it is not owed: {:?}",
+            data.fields[0].owed
+        );
+
+        let widgets =
+            std::collections::BTreeMap::from([("logo".to_owned(), vec![ObjectId::new(7, 0)])]);
+        let (matched, _) = match_to_document(&data, &widgets);
+        assert_eq!(
+            matched[0]
+                .1
+                .icon_fit
+                .as_ref()
+                .and_then(|fit| fit.get("S"))
+                .and_then(Object::as_name)
+                .map(|name| name.as_bytes().to_vec()),
+            Some(b"A".to_vec())
+        );
+    }
+
+    /// Table 245's `/Version` is ranked against the header by one rule, and that rule is
+    /// [`pdf_syntax::Document::version`] — so an FDF written as §7.5.6's chain of updates reports
+    /// the version the *last* revision reached rather than the newest catalog's entry (ADR 1171).
+    #[test]
+    fn a_multiply_updated_file_conforms_to_the_version_the_chain_reached() {
+        use std::fmt::Write as _;
+
+        let mut out = String::from("%FDF-1.2\n");
+        let mut previous: Option<usize> = None;
+        // Two revisions: the first states /Version 1.6, the second rewrites the catalog and
+        // leaves the entry out. Reading the newest catalog alone would answer 1.2.
+        for catalog in ["/Version /1.6 ", ""] {
+            let catalog_at = out.len();
+            let _ = write!(out, "1 0 obj\n<< /FDF << >> {catalog}>>\nendobj\n");
+            let section_at = out.len();
+            let _ = write!(
+                out,
+                "xref\n1 1\n{catalog_at:010} 00000 n \ntrailer\n<< /Root 1 0 R /Size 2"
+            );
+            if let Some(previous) = previous {
+                let _ = write!(out, " /Prev {previous}");
+            }
+            let _ = write!(out, " >>\nstartxref\n{section_at}\n%%EOF\n");
+            previous = Some(section_at);
+        }
+        let document = Document::open(out.into_bytes()).expect("an FDF file");
+        let data = FormsData::read(&document).expect("an FDF catalog");
+        assert_eq!(data.version, None, "the newest catalog states no entry");
+        assert_eq!(
+            data.conforms_to,
+            Some(pdf_syntax::Version { major: 1, minor: 6 }),
+            "the version a revision reached is not reduced by a later revision's silence"
+        );
     }
 }

@@ -629,6 +629,26 @@ pub enum Reply {
     Fields(Vec<viewer_core::FormField>),
     /// §14.7's structure for the page being shown, in §14.8.2.5's logical order, parent-first.
     Accessibility(Vec<Structured>),
+    /// One page of a print operation, interpreted for paper in the confined process.
+    ///
+    /// **The marks rather than the pixels, and that is the confinement's own arrangement read
+    /// once more**: the process that interprets a hostile document is not the process that holds
+    /// a device (see [`Payload::List`]), and it is not the process that holds a printer either.
+    /// The worker interprets under §12.5.3's and §8.11.4.5's print reading and this side
+    /// rasterises what came back and hands it to the print system.
+    ///
+    /// `target` is `None` where the confined process refused the resolution for this page, with
+    /// the reason among the `reports` — see [`viewer_core::PrintPage`]. ADR 1180.
+    PrintPage {
+        /// Which page, zero-based.
+        page: usize,
+        /// Its marks, resolution-independent.
+        list: Arc<DisplayList>,
+        /// The raster to draw them onto at the job's resolution, where one could be made.
+        target: Option<pdf_render::TargetSpec>,
+        /// What could not be drawn on it, already worded.
+        reports: Vec<String>,
+    },
 }
 
 /// One of §7.11.4's embedded files, as a panel lists them.

@@ -8318,11 +8318,12 @@ const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
 /// default is the answer for files that follow the rules; the codestream's own declaration is
 /// the only evidence there is for a file that does not.
 ///
-/// **What was wrong until the two-hundred-and-thirty-fourth session is that nothing said so.**
-/// §7.4.8's ledger row recorded one half of this departure — `issue12841_reduced.pdf`, where the
-/// dictionary says `/ColorTransform 0` and we transform anyway — and was silent about the other,
-/// which is the same decision seen from the other side: **on a `DCTDecode` image this tree lets
-/// the codestream decide, not the dictionary, in both directions.** One policy, stated once now.
+/// **This is the whole of the departure and it is the clause's third case alone.** Table 13 ranks
+/// Adobe's `APP14` segment above the filter's `/DecodeParms` entry above the default, and this
+/// tree obeys the first two: a marker stating 0 or 1 over three components is honoured whatever
+/// the identifiers say, and so is the entry (ADR 1183). The identifiers decide only where the
+/// ranking ends without an answer, which is this page and no other, and
+/// `tests/colour_transform.rs` holds it as a fixture as well as a name here.
 const AMBIGUOUS_JPEG_COMPONENT_IDS: [&str; 1] = ["issue11931.pdf page 1"];
 
 /// Ambiguous, and the page exists at all because §7.7.3.2's tree was rebuilt from Table 31.

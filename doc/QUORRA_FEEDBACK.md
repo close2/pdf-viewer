@@ -5369,17 +5369,47 @@ the zero test to be made on "the tint value defined within the PDF file, before 
 a device tint value", so a shader cannot re-derive it from the channel it was handed and this
 side carries the answer on the command instead.
 
-**The ask is one variant carrying three bits**: a mode whose blend function takes each of the
-three channels from the backdrop or from the source, as a `[bool; 3]` the scene states. Nothing
-else in the vocabulary changes — it is separable, it composites under §11.3.3 like any other
-mode, and it only ever appears on a page already compositing in four components, which is the
-pair §17 answered.
+**The ask is smaller than a blend mode, and it is two operators you already have.** Substituting
+the bullet's two values of `B` into §11.3.6's formula collapses it, in the premultiplied form
+`cr = (1 − αs)·cb + (1 − αb)·cs + αs·αb·B(Cb, Cs)`:
 
-**What it costs today.** `render-raster` refuses a list that carries the mode by name, before the
-scene is built, and the frame falls back to the CPU backend. That is one page of the pdf.js
-corpus — `issue12798_page1_reduced.pdf`, a Dutch public-health poster whose `DeviceCMYK` page
-group states `/OP true /op true /OPM 1` and paints black ink over a magenta band under
-`/BM /Multiply`. It is a page this side and yours agreed on to 0.076 of 255 as recently as the
-four-hundred-and-thirty-ninth session, and it is off the cross-backend comparison until the mode
-exists. `crates/render-raster/tests/overprint_refusal.rs` holds the refusal against a scene built
-by hand, so it moves the day the vocabulary does.
+- a **kept** component has `B = Cb`, giving `cb + (1 − αb)·cs` — Porter-Duff **destination-over**;
+- every other component has `B = Cs`, giving `cs + (1 − αs)·cb` — Porter-Duff **source-over**,
+  which is what every ordinary mark already takes.
+
+The union alpha is the same either way. So the mode is **one `Compose` chosen per channel**: a
+mark states three bits, and each channel composites destination-over where its bit is set and
+source-over where it is not. `Compose` already has `SrcOver`; what is missing is `DestOver` and
+the per-channel choice. The identity is held on this side by
+`render-cpu::blend::the_special_mode_is_destination_over_in_the_channels_it_keeps`, against the
+oracle's own compositing function.
+
+**And the cheap half of that ask is nearly all of it, measured.** A mark whose three bits are all
+set is destination-over whole, and one whose bits are all clear is source-over whole — both
+expressible with nothing but `Compose::DestOver` added to the four operators
+`raster_scene::Compose` has. Over the 65 944 crawled documents, of 27 435 261 marks under the
+mode **13 772 602 keep all three channels, 13 650 173 keep none, and 12 486 keep a proper subset**
+— 0.046%. Per page it is starker, because a page reaches the mode in both halves of §11.4.7's pair
+at once: **9734 of 9863 pages and 1711 of 1788 documents state no proper subset at all.** So
+**`Compose::DestOver` on its own is 95.7% of the documents this refusal costs**, and the
+per-channel choice is 77 documents and 129 pages. If only one of the two is affordable, that is
+the one worth having.
+
+The `DestOut` + `Plus` pair cannot stand in for destination-over: that pair is
+`P' = (1 − f)·P + S` and what is wanted is `P + (1 − αb)·S`, whose missing factor is the
+destination's own alpha per pixel and is not a value a scene can carry.
+`crates/pdf-model/examples/overprint_ink_group_census` is where those counts come from. Nothing else in the vocabulary
+changes, and the mode only ever appears on a page already compositing in four components, which
+is the pair §17 answered.
+
+**What it costs, now that it is counted rather than guessed.** `render-raster` refuses a list that
+carries the mode by name, before the scene is built, and the frame falls back to the CPU backend.
+Over 65 944 crawled documents that is **1788 documents and 9863 pages — 2.7% of the documents
+that open** (ADRs 1178, 1181), which makes it the largest by-name coverage loss this side's use of
+your renderer carries. The witness to look at is one page of the pdf.js corpus,
+`issue12798_page1_reduced.pdf`, a Dutch public-health poster whose `DeviceCMYK` page group states
+`/OP true /op true /OPM 1` and paints black ink over a magenta band under `/BM /Multiply`. It is a
+page this side and yours agreed on to 0.076 of 255 as recently as the four-hundred-and-thirty-ninth
+session, and it is off the cross-backend comparison until the mode exists.
+`crates/render-raster/tests/overprint_refusal.rs` holds the refusal against a scene built by hand,
+so it moves the day the vocabulary does.

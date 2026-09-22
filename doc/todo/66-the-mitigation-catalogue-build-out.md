@@ -26,17 +26,19 @@ The second prints, for each answer the profile gives at a site without code behi
 > note: the configuration answers "<site>" with `discard`, which this version does not carry out
 > yet; that site stays refused with the sentence it names
 
-**The item is done when a shipped profile produces no such note at any target.** Count them rather
-than reading a number here: the first command's `not built yet` lines per target, and the second's
-`does not carry out yet` notes over the veraPDF corpus, are what `tools/state.sh archive` should
-grow to print (an instrument gap of its own).
+**The item is done when a shipped profile produces no such note at any target.** Both halves of
+that condition are now instruments rather than numbers in this file. `--remedy-sites` prints its own
+two totals — `N of M sites not built yet`, and, given `--config <file>`, every answer that profile
+gives which this version does not carry out and `N of M sites answered with a remedy not carried out
+yet` — and `tools/state.sh remedies` filters those two sentences per target and per shipped profile.
+It runs in `quick`; `section_archive` calls it, so one section prints both halves.
 
-`tools/state.sh remedies` prints the first command's `not built yet` count per target and runs in
-`quick`; `section_archive` calls it, so one section prints both halves. The second command's
-`does not carry out yet` notes are still uncounted — they come from the `--config` reader rather
-than from the corpus walk — and the cheapest way to close that half is for `--remedy-sites` to
-print its own `N of M sites not built yet` trailer, which `state.sh` can then filter instead of
-count.
+**The profile half needs no corpus, which is a property of the question rather than a shortcut.**
+The note comes from `Configuration::unbuilt`, which reads the answers a profile gives and asks which
+of them have code behind them; both are properties of the profile and the target, so a conversion
+prints the same notes whatever document it is handed, and walking a corpus for them would count the
+corpus. The corpus question is a different one and is `section_archive`'s: how many documents
+convert, by default and with everything authorised, and which sites refuse most.
 
 ## What each family needs, so that a round can take one
 
@@ -56,8 +58,19 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   owes a tagged document (ADRs 1025, 1163). The extension-schema container site is the top refusal
   at 2b.
 - **File structure and encryption** (`file-structure/no-encryption`, `crypt-filter-is-identity`,
-  `permissions-dictionary-keys`): decrypt on the way out — RFC 0006 section 5.4 calls it the
-  easiest requirement — with the producer's permissions kept as a statement (catalogue item 5).
+  `permissions-dictionary-keys`): **built** — `Loss::Encryption`, the word `encryption`, with
+  `crates/pdf-transform/src/archive/protection.rs` carrying the producer's Table 22 flags into the
+  report and the output's own `xmpMM:History` (catalogue item 5, ADR 1187). The third row was
+  already `Mechanical` (ADR 1007).
+- **Colour** (`graphics/separations-of-one-name-agree`): **built** as a `supply` —
+  `winner = "first" | "most-used"` names which of the file's own definitions of an ink the archive
+  keeps, so every byte written is the producer's (ADR 1188). What is left in this family is
+  `no-overprint-mode-one-under-icc-cmyk`'s `discard`.
+- **External stream data** (`file-structure/no-external-stream-data`): **not built**, and the
+  catalogue entry now says what stands between it and a build — the fetch cannot live inside `apply`
+  without costing RFC 0002 section 9's determinism claim, so either the caller resolves the `/F`
+  names under ADR 1155's rule and hands the bytes in the plan, or the `A54` two-pass tool request
+  carries it. The key removal itself is written down there.
 - **Graphics state keys** (`graphics/no-transfer-function-*`, `no-halftone-*`,
   `second-transfer-function-is-default`, `rendering-intent-*`): a key removed from an `ExtGState`
   or a halftone dictionary, each a `discard`; at 4f the sampled function may be attached.
@@ -68,7 +81,11 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   can hold, and the media-type `supply` already built.
 - **Fonts, implementation limits, content-stream marks**: the catalogue's *none* — leave them,
   and say so; ADR 0816's fence is the reason, and ADR 1124's content-stream splice is the
-  precedent to cite if a later round argues the fence should move.
+  precedent to cite if a later round argues the fence should move. One of them has a narrower
+  reading since session 1175: `fonts/cid-system-info-agrees-with-the-cmap` keeps its *none* for the
+  file whose CMap and font genuinely belong to different collections, and the catalogue entry now
+  names the buildable part — correcting a `/CIDSystemInfo` **from the program it describes**, which
+  §9.7.4.2 makes a copy — with the two readers it needs.
 
 What every site needs alike: the answer carried out at rewrite, the report naming what left and
 where it went, a fixture per site in `crates/pdf-transform/tests/archive.rs`, the output validated

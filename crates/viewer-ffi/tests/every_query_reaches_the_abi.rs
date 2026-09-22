@@ -120,6 +120,14 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_reported_page",
             "quorra_report",
         ],
+        // Four, because a printed page is C's two-call idiom plus trap 5's channel: the size,
+        // the pixels, and the sentences saying what the page went out without.
+        Query::PrintPage(_) => &[
+            "quorra_print_page",
+            "quorra_print_page_copy",
+            "quorra_printed_reports",
+            "quorra_printed_report",
+        ],
         Query::Readback => &[
             "quorra_readback_pages",
             "quorra_readback_page",
@@ -147,6 +155,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::Articles,
         Query::PageLabel(0),
         Query::Thumbnail(0),
+        Query::PrintPage(0),
         Query::LinkAt(at),
         Query::FieldAt(at),
         Query::Fields,

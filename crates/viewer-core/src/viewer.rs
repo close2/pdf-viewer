@@ -10,7 +10,7 @@ use pdf_render::{DisplayList, Point, Rect, TargetSpec, Transform};
 use pdf_syntax::{FileBytes, ObjectId, SyntaxError};
 
 use crate::command::{
-    Command, Find, FindDirection, PageTarget, PointerAction, Purpose, Rendered,
+    Command, Find, FindDirection, PageTarget, PointerAction, Printing, Purpose, Rendered,
     Selection as CommandSelection, Viewing, Zoom,
 };
 use crate::event::{Event, Extraction, Found, RenderRequest};
@@ -326,7 +326,7 @@ impl Viewer {
             // The log's view rather than the file's, since the eight-hundred-and-eighty-fifth
             // session: a file attached this sitting is in the list before anything is saved, and
             // one detached is out of it. `ViewState::attachments` says which home the list is.
-            Query::Attachments => Answer::Attachments(open.view.attachments(&open.document)),
+            Query::Attachments => Answer::Attachments(attachments_in_view(open)),
             // Read here rather than held on `Open`: see `Query::Articles`. Two of the 974 corpus
             // documents state a `/Threads` entry at all, one of them an empty array and one a
             // null, so a list built at launch would be empty 999 times in a thousand.
@@ -342,6 +342,14 @@ impl Viewer {
                 .and_then(|page| pdf_model::thumbnail::read(&open.document, &page.dict))
                 .and_then(Result::ok)
                 .map_or(Answer::None, Answer::Thumbnail),
+            // §7.6.4.2's bit 3 was asked by `Command::Print`, so this answers only inside the
+            // grant that command made: no job, no page. The interpretation is fresh and not kept
+            // — a print job asks for each page once, and a thousand-page document's lists would
+            // otherwise sit in this crate for as long as the document is open.
+            Query::PrintPage(index) => open
+                .printing
+                .and_then(|sheet| print_page(open, index, sheet))
+                .map_or(Answer::None, |page| Answer::PrintPage(Box::new(page))),
             Query::LinkAt(at) => Answer::Link(
                 self.user_space(open, at)
                     .and_then(|(page, (x, y))| interact::link_at(open, page, x, y))
@@ -532,6 +540,7 @@ impl Viewer {
                 }
             },
             Command::Copy => self.copy(events),
+            Command::Print(printing) => self.print(printing, events),
             // A document's report is a function of the file *and* of whom this reader believes, so
             // the wording already produced is no longer the wording this policy would produce.
             // `Open::about` is a `OnceCell` over exactly that function (ADR 1044), and forgetting
@@ -1552,7 +1561,121 @@ impl Viewer {
                 logical,
                 page_order,
             }),
+            // Nothing to commit here either: a print operation changes no document. What the
+            // `yes` releases is the intent, applied to the sheet the question named.
+            crate::open::Held::Print(sheet) => Self::begin_printing(document, open, sheet, events),
         }
+    }
+
+    /// [`Command::Print`]: §7.6.4.2's bit 3 asked as an operation, and the intent if it is granted.
+    ///
+    /// The two ends of §8.11.4.5's print operation. [`Printing::Start`] asks the policy and, on a
+    /// yes, puts the focused document into print intent; [`Printing::Finish`] takes it back out,
+    /// which is the clause's own requirement that the changes "persist only for the duration of
+    /// the print operation". Finishing asks nothing: a reader who is allowed to start is not asked
+    /// again for permission to stop, and a `Finish` with no job running is a host tidying up.
+    fn print(&mut self, printing: Printing, events: &mut Vec<Event>) {
+        use pdf_model::restriction::Operation;
+
+        let Some(id) = self.focused else { return };
+        let sheet = match printing {
+            Printing::Start(sheet) => sheet,
+            // A sheet the person chose after the grant. §12.5.6.22's media is the only thing it
+            // changes, so the pages that already carry a watermark against the old one are
+            // superseded and nothing else is.
+            Printing::Paper(sheet) => {
+                let Some(open) = self.documents.get_mut(&id) else {
+                    return;
+                };
+                if open.printing.is_none() {
+                    return;
+                }
+                open.printing = Some(sheet);
+                open.view.set_paper(sheet.media);
+                open.stale();
+                events.push(damage(self.viewport));
+                return;
+            }
+            Printing::Finish => {
+                let Some(open) = self.documents.get_mut(&id) else {
+                    return;
+                };
+                Self::end_printing(open);
+                events.push(damage(self.viewport));
+                return;
+            }
+        };
+        match self.standing(id, Operation::Print, None, None) {
+            Standing::Refuse(refused) => events.push(refused),
+            Standing::Proceed => {
+                let Some(open) = self.documents.get_mut(&id) else {
+                    return;
+                };
+                Self::begin_printing(id, open, sheet, events);
+            }
+            Standing::Warn(notes) => {
+                let Some(open) = self.documents.get_mut(&id) else {
+                    return;
+                };
+                Self::begin_printing(id, open, sheet, events);
+                events.push(Event::Warned {
+                    document: id,
+                    operation: Operation::Print,
+                    notes,
+                });
+            }
+            Standing::Ask(notes) => {
+                let Some(open) = self.documents.get_mut(&id) else {
+                    return;
+                };
+                open.asking = Some(crate::open::Held::Print(sheet));
+                events.push(Event::Asking {
+                    document: id,
+                    operation: Operation::Print,
+                    notes,
+                });
+            }
+        }
+        events.push(damage(self.viewport));
+    }
+
+    /// Puts one document into print intent, and says so.
+    ///
+    /// Three statements about the *output* rather than about the document, which is why they go
+    /// through `ViewState` and nowhere else (`CLAUDE.md`'s rule 1): §8.11.4.5's event, which
+    /// re-applies the `Print` usage application dictionaries over the states the reader has
+    /// chosen; §12.5.6.22's target media; and, through the first of those, §12.5.3's device.
+    /// Every page already interpreted was interpreted for a screen, so all of them are superseded
+    /// — which is what `Open::stale` means and why a print operation redraws the window.
+    fn begin_printing(
+        id: DocumentId,
+        open: &mut Open,
+        sheet: crate::Sheet,
+        events: &mut Vec<Event>,
+    ) {
+        open.printing = Some(sheet);
+        open.view
+            .set_purpose(pdf_model::optional_content::Purpose::Print);
+        open.view.set_paper(sheet.media);
+        open.stale();
+        events.push(Event::Printing {
+            document: id,
+            pages: open.page_count,
+        });
+    }
+
+    /// Takes it back out — §8.11.4.5's "then all groups shall revert to their prior states".
+    ///
+    /// Idempotent, because a host that sends [`Printing::Finish`] twice, or once with no job
+    /// running, has said nothing wrong.
+    fn end_printing(open: &mut Open) {
+        if open.printing.take().is_none() {
+            return;
+        }
+        open.view
+            .set_purpose(pdf_model::optional_content::Purpose::View);
+        open.view.set_paper(None);
+        open.stale();
     }
 
     /// [`Command::Copy`]: §7.6.4.2's bit 5 asked as an operation, and the text if it is granted.
@@ -3650,6 +3773,43 @@ fn commit(id: DocumentId, open: &mut Open, done: crate::open::Done, events: &mut
     }
 }
 
+/// One page of a print operation, interpreted for the sheet and targeted at the printer.
+///
+/// `None` for a page index the document has not got, and for a page whose marks will not fit the
+/// target at the job's resolution — [`pdf_render::TargetSpec::for_page`]'s own refusal, which is
+/// the same bound every frame is drawn under. A refusal here is silent in this crate and loud in
+/// the host: a print job that got no page for page seven says so where the job is, and a report
+/// invented here would fire on a condition no clause states (trap 11).
+///
+/// The view state is the document's own, which [`Viewer::begin_printing`] has already put into
+/// print intent — so this function states nothing about §12.5.3 or §8.11.4.5 and could not: the
+/// whole of the print reading is in `pdf_model`, asked of a state that says what the output is
+/// for.
+fn print_page(open: &Open, index: usize, sheet: crate::Sheet) -> Option<crate::PrintPage> {
+    let read = crate::open::interpret(open, index)?;
+    let list = Arc::new(read.interpretation.display_list);
+    let mut reports = read.reports;
+    let target = match TargetSpec::for_page(&list, sheet.scale, MAX_PIXELS) {
+        Ok(target) => Some(target),
+        // Trap 5: a page this crate will not rasterise at the printer's resolution is said out
+        // loud rather than handed back as an empty sheet. The sentence is the backend's own,
+        // which already names the budget and what was asked of it.
+        Err(refusal) => {
+            reports.push(format!(
+                "page {} will not print: {refusal}",
+                index.saturating_add(1)
+            ));
+            None
+        }
+    };
+    Some(crate::PrintPage {
+        page: index,
+        list,
+        target,
+        reports,
+    })
+}
+
 /// The whole viewport, which is what changes when a frame arrives or a page scrolls.
 ///
 /// A tighter rectangle is available for a scroll — everything but the exposed strip is a
@@ -3918,6 +4078,49 @@ fn exhibit(id: DocumentId, open: &mut Open, annotation: ObjectId, events: &mut V
         hand_over(id, Extraction::Asked, &open.document, &file, None, events);
     }
     toggled
+}
+
+/// What the attachments panel lists: the document's files, and §14.13.4's files of the page in
+/// view.
+///
+/// §14.13.4 states the second population and states it of a *page*:
+///
+/// > One or more files may be associated with any PDF page by including a file specification
+/// > dictionary (7.11.3, "File specification dictionaries") for each file as one of the members
+/// > of the array value of the AF key in the appropriate page dictionary (7.7.3.3, "Page
+/// > objects"). The relationship that the associated files have to the page is supplied by the
+/// > AFRelationship key in each file specification dictionary.
+///
+/// **The page in view rather than every page, and that is principle 2 rather than a shortcut.**
+/// A panel listing every page's associated files has to walk the whole page tree, which is what
+/// `CLAUDE.md` forbids on the launch path and what every host would pay for, since each of them
+/// asks [`Query::Attachments`] when a document opens — the same measurement ADR 0295 took for
+/// §12.5.6.15's annotations, 78 to 123 ms cold over ISO 32000-2's 1023 pages. The page the reader
+/// is on is a page this crate has already built, so the entry costs one dictionary lookup, and
+/// the panel follows the reader exactly as `attached_files` follows the pointer.
+///
+/// `pdf_model::attachment::associated` had no caller anywhere in this tree that handed it a page
+/// dictionary, which is the shape §14.13.3's catalog `/AF` and §12.5.6.15's `/FS` were both in
+/// before a consumer reached them: a reading that exists, a row that calls it implemented, and a
+/// payload no panel could list. ADR 1186.
+///
+/// One payload named twice is one file, deduplicated by the stream's identity as
+/// `attachment::attachments` and [`attached_files`] both do it.
+fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Attachment> {
+    let mut out = open.view.attachments(&open.document);
+    let Some(page) = open.page(open.page_index) else {
+        return out;
+    };
+    for file in pdf_model::attachment::associated(&open.document, &page.dict) {
+        if out
+            .iter()
+            .any(|seen| Arc::ptr_eq(&seen.stream, &file.stream))
+        {
+            continue;
+        }
+        out.push(file);
+    }
+    out
 }
 
 /// The files the annotation under the click carries: §12.5.6.15's, and §14.13.9's.

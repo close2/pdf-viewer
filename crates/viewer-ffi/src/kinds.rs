@@ -89,6 +89,9 @@ pub enum EventKind {
     /// [`viewer_core::Event::Copied`] — `quorra_copy` went ahead. `quorra_events_copied` hands over
     /// the text.
     Copied = 20,
+    /// [`viewer_core::Event::Printing`] — `quorra_print` went ahead and this document is
+    /// interpreted for paper until `quorra_print_finish`.
+    Printing = 21,
 }
 
 impl EventKind {
@@ -97,7 +100,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 21;
+    pub const COUNT: u32 = 22;
 
     /// Which kind an event is.
     ///
@@ -128,6 +131,7 @@ impl EventKind {
             Event::AttachmentsChanged { .. } => Self::AttachmentsChanged,
             Event::Submit { .. } => Self::Submit,
             Event::Copied { .. } => Self::Copied,
+            Event::Printing { .. } => Self::Printing,
         }
     }
 
@@ -160,6 +164,7 @@ impl EventKind {
             Self::AttachmentsChanged => "AttachmentsChanged\0",
             Self::Submit => "Submit\0",
             Self::Copied => "Copied\0",
+            Self::Printing => "Printing\0",
         }
     }
 
@@ -192,6 +197,7 @@ impl EventKind {
             18 => Self::AttachmentsChanged,
             19 => Self::Submit,
             20 => Self::Copied,
+            21 => Self::Printing,
             _ => return None,
         })
     }

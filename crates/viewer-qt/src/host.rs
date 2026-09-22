@@ -28,7 +28,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, PresentationMode, Query, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Printing, Query, Viewer, Zoom,
 };
 use viewer_host::ControlFit;
 use viewer_host::arrangement::next_layout;
@@ -213,6 +213,15 @@ pub struct Host {
     /// clause allows one and the person asked for one, so leaving full screen puts back what the
     /// reader had. `o` is the key, in all three hosts since ADR 0526.
     panel_shown: bool,
+    /// Whether §8.11.4.5's print operation is running, which is what this window shows while it is.
+    ///
+    /// **This host prints by showing**, and the reason is written down rather than left as a gap:
+    /// `cxx-qt-lib` binds no `QtPrintSupport` type, so a `QPrinter` here means hand-written bridge
+    /// code and a second dependency, which ADR 1180 prices and defers. What the window can do
+    /// without either is RFC 0004 §6's preview — Table 167's bit 3 applied to the annotations,
+    /// §8.11.4.5's `Print` event to the layers, §12.5.6.22's watermarks against the sheet — and
+    /// that is the whole of what this flag is: the same key starts it and ends it.
+    printing: bool,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
     asking: viewer_host::Asking,
     /// Whether the open document still owes what it says about *itself*.
@@ -386,6 +395,7 @@ impl Host {
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
+            printing: false,
             asking: viewer_host::Asking::new(),
             report_due: viewer_host::report::Due::default(),
             question: None,
@@ -499,6 +509,19 @@ impl Host {
     /// one hand-written `unsafe` token. So showing a find bar, a panel or a card of notices is a
     /// [`QtUpdate`](crate::bridge::ffi::QtUpdate) field the window reads back — the shape `window`
     /// has had since ADR 0470 and `clipboard` since ADR 0519.
+    /// The grant, on a window whose printing is a picture of what would print.
+    ///
+    /// §12.5.3's bit 3, §8.11.4.5's `Print` event and §12.5.6.22's sheet are already in force on
+    /// every page this window draws, which is RFC 0004 §6's preview. The spool is ADR 1180's
+    /// deferral and is named here rather than left as a key that appears to do nothing.
+    fn showing_what_would_print(&mut self, pages: usize) {
+        self.printing = true;
+        self.say(&format!(
+            "showing what would print, over {pages} page(s) — this window has no printer of its \
+             own yet (ADR 1180); press the key again to stop"
+        ));
+    }
+
     fn window_act(&mut self, act: viewer_host::WindowAct) {
         match act {
             // Qt places widgets in logical pixels and `Command::Scroll` speaks device ones, which
@@ -554,6 +577,21 @@ impl Host {
                 "this host cannot draw a §12.5.6.6 free text annotation yet — the drag mode and \
                  its editor are viewer-ui's alone (doc/todo/30)",
             ),
+            // §7.6.4.2's bit 3, asked as an operation, and then RFC 0004 §6's preview — which
+            // is what this host has and says so. The same key ends it, because a window that
+            // could enter print intent and not leave it would have taken §8.11.4.5's revert away
+            // from the person who asked for the operation (ADR 1180).
+            viewer_host::WindowAct::Print => {
+                if self.printing {
+                    self.dispatch(Command::Print(Printing::Finish));
+                    self.printing = false;
+                    self.say("the printed page is no longer what this window shows");
+                } else {
+                    self.dispatch(Command::Print(Printing::Start(
+                        viewer_host::printing::unknown_sheet(None),
+                    )));
+                }
+            }
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
         }
     }
@@ -2152,6 +2190,7 @@ impl Host {
             // the words are `viewer_host::restriction`'s and the dialogue is C++'s, because Rust
             // does not call a Qt object (ADR 1145).
             Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
+            Event::Printing { pages, .. } => self.showing_what_would_print(pages),
             Event::Copied {
                 logical,
                 page_order,

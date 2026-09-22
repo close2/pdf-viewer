@@ -52,6 +52,23 @@ pub struct Session {
     /// opened. A caller that could not see that would be composing its next override on top of the
     /// last document's (ADR 1145).
     departures: viewer_core::RestrictionOverride,
+    /// The last page a print operation asked for, rasterised — see [`Session::print_page`].
+    ///
+    /// Held for the reason a frame is: C's two-call idiom asks for the size and then for the
+    /// pixels, and a page rasterised twice at the printer's resolution is the whole page's cost
+    /// paid twice. One at a time, because a print job draws a page, spools it and moves on.
+    printed: Option<PrintedPage>,
+}
+
+/// One printed page, rasterised and waiting for the caller's buffer.
+#[derive(Debug)]
+struct PrintedPage {
+    /// Which page, zero-based.
+    page: usize,
+    /// Its pixels at the job's resolution.
+    raster: Raster,
+    /// What could not be drawn on it, already worded.
+    reports: Vec<String>,
 }
 
 impl Session {
@@ -66,6 +83,7 @@ impl Session {
             viewer: Viewer::new(width, height, scale),
             restrictions: viewer_core::RestrictionPolicy::default(),
             departures: viewer_core::RestrictionOverride::NONE,
+            printed: None,
         }
     }
 
@@ -340,6 +358,71 @@ impl Session {
         };
         room.copy_from_slice(data);
         Ok(data.len())
+    }
+
+    /// One page of the print operation `Session::print` began, rasterised on the processor.
+    ///
+    /// **The rasteriser is here for [`rasterise`]'s reason**: `viewer_core::Query::PrintPage`
+    /// answers with a display list, which is clauses 8 and 9 in a data structure and not a thing
+    /// to put in a header, and what a C caller wants from a printed page is pixels. It is the CPU
+    /// backend rather than a device because that backend is this project's correctness oracle,
+    /// which is RFC 0004's whole argument for rendering the printed page ourselves.
+    ///
+    /// The pixels wait here until [`Session::print_page_copy`] takes them.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no print operation is running or the document has no such page,
+    /// and [`Status::RenderRefused`] where this page's marks will not go onto a raster at the
+    /// job's resolution — the reason is among the page's reports either way.
+    pub fn print_page(&mut self, page: usize) -> Result<(u32, u32, usize), Status> {
+        let Answer::PrintPage(printed) = self.viewer.query(Query::PrintPage(page)) else {
+            return Err(Status::NoAnswer);
+        };
+        let (target, reports) = (printed.target, printed.reports);
+        let Some(target) = target else {
+            self.printed = None;
+            return Err(Status::RenderRefused);
+        };
+        let raster = CpuRasterizer::new()
+            .rasterize(&printed.list, target)
+            .map_err(|_| Status::RenderRefused)?;
+        let size = (raster.width, raster.height, raster.data.len());
+        self.printed = Some(PrintedPage {
+            page,
+            raster,
+            reports,
+        });
+        Ok(size)
+    }
+
+    /// Copies the page [`Session::print_page`] drew into a buffer the caller owns.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no page has been drawn or the one drawn is a different page, and
+    /// [`Status::BufferTooSmall`] where `into` is shorter than that call said.
+    pub fn print_page_copy(&self, page: usize, into: &mut [u8]) -> Result<usize, Status> {
+        let Some(printed) = self.printed.as_ref().filter(|held| held.page == page) else {
+            return Err(Status::NoAnswer);
+        };
+        let data = &printed.raster.data;
+        let Some(room) = into.get_mut(..data.len()) else {
+            return Err(Status::BufferTooSmall);
+        };
+        room.copy_from_slice(data);
+        Ok(data.len())
+    }
+
+    /// What could not be drawn on the page [`Session::print_page`] drew, one sentence apiece.
+    ///
+    /// Trap 5's channel for a printed page: a page that goes to the printer with something
+    /// missing says so, rather than coming out short in silence.
+    #[must_use]
+    pub fn printed_reports(&self) -> &[String] {
+        self.printed
+            .as_ref()
+            .map_or(&[] as &[String], |printed| &printed.reports)
     }
 
     /// §12.3.3's outline, flattened into rows with a depth on each.
@@ -793,6 +876,12 @@ impl Session {
     #[must_use]
     pub fn copy(&mut self) -> Events {
         self.handle(Command::Copy)
+    }
+
+    /// §7.6.4.2's bit 3 asked as an operation, and the print intent if it is granted.
+    #[must_use]
+    pub fn print(&mut self, printing: viewer_core::Printing) -> Events {
+        self.handle(Command::Print(printing))
     }
 
     /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.

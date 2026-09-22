@@ -218,6 +218,40 @@ fn a_colour_with_no_zero_component_asks_for_nothing() {
     assert!(!dense.display_list.overprints());
 }
 
+/// The verdict is a command under the mode, not a graphics state that would have chosen one.
+///
+/// §8.6.7 gives stroking and non-stroking operations an overprint parameter each, so
+/// `Interpreter::overprint_blend` is asked twice per painting operator — before the operator
+/// says which of the two parts marks the page. Here the non-stroking colour `0.9 0 0 0` has
+/// three zero tints and the stroking colour `0.9 0.1 0.2 0.3` has none, and the operator is
+/// `S`: the mode is chosen for a fill that never happens and no command on the page carries
+/// it. Two backends refuse a whole page on this flag, so a page in this shape would lose its
+/// backend for a mark that is not on it (ADR 1181).
+///
+/// The second half is what makes the first discriminate: the same two colours under `f`, where
+/// the fill *is* painted, must carry the verdict.
+#[test]
+fn a_mode_chosen_for_a_part_that_never_paints_is_not_the_verdict() {
+    let resources = "/ExtGState << /GS << /OP true /op true /OPM 1 >> >>";
+    let colours = "/GS gs 0.9 0 0 0 k 0.9 0.1 0.2 0.3 K";
+    let stroked = interpret(cmyk_page(
+        resources,
+        &format!("0 0 0 1 k 0 0 40 40 re f {colours} 4 w 10 10 20 20 re S"),
+    ));
+    assert!(
+        !stroked.display_list.overprints(),
+        "no command carries the mode, so the page does not"
+    );
+    let filled = interpret(cmyk_page(
+        resources,
+        &format!("0 0 0 1 k 0 0 40 40 re f {colours} 10 10 20 20 re f"),
+    ));
+    assert!(
+        filled.display_list.overprints(),
+        "the same colours under an operator that fills do carry it"
+    );
+}
+
 /// §8.6.7 excludes images and shadings, and Table 146's first row excludes a sampled image.
 ///
 /// The clause's sentence is that non-zero overprint mode shall not apply to the painting of

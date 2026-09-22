@@ -36,18 +36,14 @@ are not a gap in the reading — each one's core is already in place, waiting on
 the operation it drives. **What builds them:** the host work of `doc/todo/30`–`38` and RFC 0004's
 print path.
 
-- §6.3.2.1, §7.6.4.1 — Table 22's printing, assembling and copying gated by an operation this
-  program does not have; copying needs a host that says *this is a copy* (`doc/todo/38`).
-- §8.11.4.5 — the `Print` event, built and waiting on a caller: `Purpose::Print` is what RFC 0004's
-  section 4 calls print intent, and nothing but a print path is owed. The `Export` event has its
-  caller already (`quorra-transform render`, the one operation meeting both of the clause's
-  conditions), so only half of this row's entry is still frontier (ADR 1173, ADR 1174).
-- §12.2, §12.5.6.22 — the print half of the viewer preferences and the watermark's tiling / n-up,
-  each conditioned on a print dialogue; RFC 0004.
+- §6.3.2.1, §7.6.4.1 — Table 22's assembling, and bit 12's faithful printing, each gated by an
+  operation this program does not have. Bit 3 left this bucket in session 1171: `Command::Print` is
+  the verb and `restriction::asserted` is asked for it like every other (`doc/todo/38`).
+- §12.2 — `/PrintArea` and `/PrintClip`, which need the `Page::print_box` that row names, and
+  `/PrintScaling`'s second sentence, which needs a print path that scales a page onto a sheet. The
+  five dialogue entries are handed to one since session 1171 (ADR 1180).
 - §12.3.5, §12.3.5.1 — a collection's `/View` tile mode, `/Sort`, `/Colors`, `/Split`: surfaces one
   panel does not offer as alternatives.
-- §12.5.3 — the Print flag and Locked, whose operating condition is a verb that moves or deletes an
-  annotation (`doc/todo/33`), and a document restriction that must stay an *ask* (`doc/todo/38`).
 - §12.6.4.15 — animating a transition outside a presentation.
 - §12.6.4.3 (`reported`) — a remote go-to that needs a host filesystem to reach another file.
 - §12.6.4.6 (`reported`) — a launch action the sandbox withholds by design; deliberate, kept named.
@@ -69,10 +65,13 @@ permanent) or an owner decision to acquire a specification.
   is out of pre-release (ADR 1063).
 - §7.4.6 — CCITTFaxDecode's `/DamagedRowsBeforeError` concealment: `hayro-ccitt` exposes neither a
   failure's bit position nor a resume, so the search-and-substitute is a change to the shared
-  decoder.
+  decoder. Re-checked at the crate's head, which is also its latest release; the ledger row says what
+  was looked at.
 - §7.4.9 — thirteen JPEG 2000 codestreams decode one level off the reference software, held by name
-  so an upstream release fails the build; the baseline-feature check needs ISO/IEC 15444-2, which the
-  owner decided not to buy (`doc/questions/A51`).
+  so an upstream release fails the build; and whether every baseline enumerated colour space is
+  *supported* — the clause's one sentence here addressed to a processor — cannot be measured against
+  a set ISO/IEC 15444-2 defines and the owner decided not to buy (`doc/questions/A51`). Checking the
+  restriction on a file is not a reader's job and is no longer counted as debt (ADR 1184).
 - §8.9.6.2 — smoothing a low-resolution stencil's edges needs premultiplication moved into quorra's
   upload or sampler (`doc/QUORRA_FEEDBACK.md` section 39).
 - §8.6.5.9 — black point compensation's ON half defers to ISO 18619, which this tree does not hold
@@ -127,12 +126,14 @@ rows the section below records as having moved here are named here now, which th
   test is applied wherever the samples the comparison sees are still in the domain the file wrote its
   integers in, and the residue is this tree's eight-bit image pipeline rather than a gap in the
   reading (ADR 1121).
-- §12.7.8.3.1 — Table 246's `/EmbeddedFDFs`, an ordinary PDF 1.4 array of FDF files inside an FDF
-  file. Only its *encrypted* form is deprecated in PDF 2.0, which Errata Collection 3's Issue #173
-  makes plain, so the import is owed rather than excused (ADR 0907).
-- §12.7.8.3.2 — Table 249's `/AP`, `/APRef`, `/IF`, `/A` and `/AA`, named by the importer and not
-  applied. The clause's replacing sentence is stated indicatively and covers every entry of the
-  table, so each is a requirement unmet; `/RV` alone is the XFA exclusion (ADR 0907).
+- §12.7.8.3.2 — Table 249's `/AP`, `/APRef`, `/A` and `/AA`, named by the importer and not applied.
+  The clause's replacing sentence is stated indicatively and covers every entry of the table, so
+  each is a requirement unmet; `/RV` alone is the XFA exclusion (ADR 0907). They divide by *where
+  the value lives* rather than by difficulty: `/AP`'s streams are objects of the FDF file, which is
+  §12.7.8.3.4's open second-`Document` question; `/APRef` names an external PDF file, which is
+  §12.7.6.4's hazard and a host question first; `/A` and `/AA` carry references from one object
+  space into another (ADR 1186). Table 249's `/IF` left this list when it was applied — an icon fit
+  dictionary states names, numbers and a boolean and nothing else, so it crosses whole.
 
 ### 5. Answered, awaiting a real trigger — the public-key security handler
 
@@ -166,13 +167,6 @@ updates (ADR 1171) and §7.7.3.3's Table 31 entries, each of which hands its mea
 whose own row had already disposed of it (ADR 1172). A round looking for the next of these
 re-derives the bucket: `tools/state.sh ledger` prints the `partial` rows, and one is in this bucket
 when its note names no missing surface, no unheld package and no cross-round architecture.
-
-**And one small thing a normal round can take.** §7.4.8 is `partial` for one entry: Table 13's
-`/ColorTransform` is not read, so the clause's second case — no Adobe APP14 marker, the entry written
-in `/DecodeParms` — gets the clause's own default in its place. `colour_transform_census` prices it
-at nothing: 158 images over 17 crawled documents are in that case and every one states the value the
-codestream already gives, and the 974 have none at all (ADR 1177). What is owed is `decode_jpeg`
-reading the entry, and the census is the test that it changed no page.
 
 ### Aggregate rows — no debt of their own; they move when a child does
 
@@ -228,7 +222,8 @@ reading; this is only where they went.
 - **§12.7.8.3.1** — `/EmbeddedFDFs` was carried here as *deprecated in PDF 2.0*. Table 246's cell
   states no deprecation, only Table 247's `/EncryptionRevision` does, and Errata Collection 3's
   Issue #173 rewrites the ambiguous prose so that the deprecation is FDF *encryption*'s. The entry
-  is an ordinary PDF 1.4 array and its import is owed → **bucket 4, feature depth**.
+  is an ordinary PDF 1.4 array, its import is built, and the row is `departed` on the one thing
+  that stays refused — Table 247's 40-bit RC4 key derivation (ADR 1185).
 - **§12.8.3.4.4** — carried here as needing a signature policy no file carries. ETSI EN 319 122-1
   clause 5.2.10 defines the attribute that carries the policy document inside the signature; what
   is missing is the specification that defines the policy's syntax → **bucket 2,

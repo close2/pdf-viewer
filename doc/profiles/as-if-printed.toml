@@ -133,6 +133,14 @@ on-missing-password = "stop"
 [site."file-structure/crypt-filter-is-identity"]
 remedy = "discard"
 
+# One ink defined two ways. On the device this profile is named for the choice is immaterial:
+# ISO 32000-2 8.6.6.4 has a subtractive device that has the colourant ignore the alternate space
+# and the tint transform altogether. So `first` keeps the producer's own first statement of the
+# ink, and what changes is only what a screen shows (ADR 1188).
+[site."graphics/separations-of-one-name-agree"]
+remedy = "supply"
+winner = "first"
+
 [site."file-structure/permissions-dictionary-keys"]
 remedy = "discard"
 

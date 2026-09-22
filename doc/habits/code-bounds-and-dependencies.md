@@ -244,3 +244,13 @@ requirements the caller departed from; only the rewriter's own gate keeps a depa
 edits from being applied. Anything that produces a batch of edits therefore tags each with the
 rewrite that asked for it (`actions.rs`'s `Edit::by()`) rather than gating the batch as a whole —
 a batch without it silently carries out a departed row (ADR 1175).
+
+## A flag set where a decision is made outlives the decision
+
+`DisplayList::overprints()` was set where §11.7.4.3's mode was chosen, and three shapes put the
+verdict on pages with no such mark: a part that never paints, a text mode or hidden layer that
+marks nothing, and a whole run of content interpreted and then discarded by a re-run. No
+emission-site discipline sees the third. When a flag decides what a backend does with a list,
+settle it against what the list holds, once, where the list is finished — `noninvertible_marks`'s
+shape — and gate the walk on the cheap over-approximation so the default path pays one branch
+(ADR 1181).

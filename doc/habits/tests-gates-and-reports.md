@@ -207,3 +207,19 @@ which gates a change actually needs.
   recorded and the sentence beside it had named the fix correctly the whole time.
 - **A ratio has two ends, and this file has quoted the wrong one.** Quote the absolute number you
   control.
+
+## A hand-built fixture whose stream content is itself a file needs a cross-reference table
+
+`Document::open` recovers a table-less file by scanning for `obj`, so an FDF, PDF or portfolio
+embedded inside a fixture's stream is found as the *outer* file's objects and the reader returns a
+plausible, wrong document; the test then fails on a count with no hint why. Three embedded-FDF
+fixtures failed that way and cost forty minutes (ADR 1185). The moment a fixture carries another
+file in a stream, write the xref.
+
+## A fixture that plants a resource the page never draws through tests the exemption, not the rule
+
+ISO 19005-2 section 6.2.2 binds only resources the content stream references, so a `tests/archive.rs`
+fixture stating two `Separation` arrays while its content draws through one is a silent pass: the
+second is an unreferenced named resource and outside the requirement's population. When a fixture
+plants a resource for a rule to bite on, its content stream references every copy it plants — and a
+new fixture whose requirement does not fail is the first thing to suspect (ADR 1188).

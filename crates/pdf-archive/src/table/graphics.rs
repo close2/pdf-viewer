@@ -2312,6 +2312,20 @@ fn process_components(document: &Document, attributes: &Dictionary) -> Vec<Vec<u
         .collect()
 }
 
+/// Whether two `Separation` parameters are the same, by the reading this table fails a file on.
+///
+/// `graphics/separations-of-one-name-agree` is failed where two arrays naming one colourant state
+/// alternate spaces or tint transforms that are not the same, and "the same" is the whole of what
+/// the requirement turns on: indirection does not count, and neither does the compression a
+/// producer applied to a function stream. A converter picking one definition for a colourant has
+/// to group the file's definitions by *this* notion of sameness, or it would write a file that
+/// still fails the rule it was answering — which is why the reading is exported rather than made
+/// twice.
+#[must_use]
+pub fn same_parameter(document: &Document, left: &Object, right: &Object) -> bool {
+    equivalent(document, left, right, 0)
+}
+
 /// Whether two objects are the same PDF object once indirection and compression are set aside.
 ///
 /// Numbers compare by value, so a producer writing `0` where another wrote `0.0` is not a

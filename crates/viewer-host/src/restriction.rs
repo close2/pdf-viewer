@@ -69,11 +69,11 @@ pub const INHERIT: &str = "use the window's level";
 
 /// What a window says beside an operation it has no verb for.
 ///
-/// §7.6.4.2's Table 22 states eight positions and this program's windows perform five of them;
-/// printing and assembling are `pdf-transform`'s verbs. The level is settable anyway, because a
-/// policy with a hole in it would have to grow a message to fill it and because the day a window
-/// gains a print path the level is already the reader's (ADR 1144) — and it says so out loud
-/// rather than looking like a switch that does nothing.
+/// §7.6.4.2's Table 22 states eight positions and this program's windows perform six of them;
+/// assembling is `pdf-transform`'s verb. The level is settable anyway, because a policy with a
+/// hole in it would have to grow a message to fill it and because the day a window gains the verb
+/// the level is already the reader's (ADR 1144) — and it says so out loud rather than looking like
+/// a switch that does nothing.
 pub const INERT: &str = "no verb in this window yet";
 
 /// What a window says when a document asks for §12.2's `/HideMenubar` and this menu stays.
@@ -404,9 +404,10 @@ impl Restrictions {
 
 /// [`INERT`] where no window performs this operation, and nothing where one does.
 ///
-/// Four of §7.6.4.2's eight positions reach a gesture in this program's windows: copying is
-/// `Command::Copy`, annotating and filling in are edits, and modifying is what §7.11.4's attach
-/// and detach are. Printing and assembling are `pdf-transform`'s verbs and no window has one.
+/// Five of §7.6.4.2's eight positions reach a gesture in this program's windows: copying is
+/// `Command::Copy`, annotating and filling in are edits, modifying is what §7.11.4's attach and
+/// detach are, and printing is `Command::Print` behind [`crate::WindowAct::Print`] (ADR 1180).
+/// Assembling is `pdf-transform`'s verb and no window has one.
 ///
 /// §12.11.6's processing is not one of the table's positions at all and every window performs it,
 /// because opening a document is the first thing any of them does (ADR 1167).
@@ -417,8 +418,9 @@ pub const fn inert(operation: Operation) -> &'static str {
         | Operation::Annotate
         | Operation::FillInForm
         | Operation::Modify
+        | Operation::Print
         | Operation::Process => "",
-        Operation::Print | Operation::Assemble => INERT,
+        Operation::Assemble => INERT,
     }
 }
 
@@ -608,15 +610,7 @@ mod tests {
             })
             .collect();
         // Twice over, because the list has both scopes in it.
-        assert_eq!(
-            inert,
-            [
-                Operation::Print,
-                Operation::Assemble,
-                Operation::Print,
-                Operation::Assemble
-            ]
-        );
+        assert_eq!(inert, [Operation::Assemble, Operation::Assemble]);
     }
 
     /// §12.2's `/HideMenubar` is answered in words, and the words name the clause and the rule.

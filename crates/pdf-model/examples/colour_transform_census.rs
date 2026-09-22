@@ -17,9 +17,10 @@
 //! > This option shall be ignored if the image has one or two colour components.
 //!
 //! So the *only* images the entry decides are those with three or four components, no Adobe
-//! APP14 marker, and the entry written. This tree does not read the entry (ADR 0036): the
-//! codestream decides, in both directions. That decision was priced over the 974 curated
-//! documents and has never been asked of the crawl, which is what this census asks.
+//! APP14 marker, and the entry written. This tree reads the entry in that case (ADR 1183),
+//! after the marker and before the clause's default; this census measures how large that case is
+//! over the crawl and how many of its images the entry would move against the codestream's own
+//! reading, which is the price ADR 1177 asked for.
 //!
 //! # What is counted, and what the classification is derived from
 //!
@@ -88,9 +89,9 @@ impl Codestream {
         }
     }
 
-    /// Whether this tree transforms this codestream's samples out of a luminance-chrominance
-    /// space, which is what `image::decode_jpeg` gets from `zune-jpeg` for a frame carrying no
-    /// APP14 marker.
+    /// Whether the codestream alone asks for a transform out of a luminance-chrominance space —
+    /// the clause's third case, no marker and no entry, which is what `image::decode_jpeg` falls
+    /// back to (ADR 1183) for a frame carrying no APP14 marker.
     ///
     /// Three components are `YCbCr` unless the identifiers spell `RGB`; four are `CMYK`, which
     /// is no transform at all. A count of one or two never reaches here — Table 13's own

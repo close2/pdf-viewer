@@ -674,6 +674,76 @@ mod tests {
         );
     }
 
+    /// ISO 32000-2 §11.7.4.3's mode, substituted into §11.3.6's formula, is Porter-Duff
+    /// destination-over in the channels it keeps and source-over in the rest.
+    ///
+    /// The derivation is two substitutions into the premultiplied form [`super::composite`]
+    /// computes, `cr = (1 − αs)·cb + (1 − αb)·cs + αs·αb·B(Cb, Cs)` with `αr = αb + αs − αb·αs`
+    /// (the straight `cb` and `cs` there each scaled by their own alpha):
+    ///
+    /// - a **kept** channel has `B = Cb`, so `cr = αb·Cb·[(1 − αs) + αs] + (1 − αb)·αs·Cs`,
+    ///   which is `cb + (1 − αb)·cs` — Porter-Duff destination-over;
+    /// - a channel it does not keep has `B = Cs`, so `cr = (1 − αs)·cb + αs·Cs·[(1 − αb) + αb]`,
+    ///   which is `cs + (1 − αs)·cb` — Porter-Duff source-over, the arithmetic of Normal.
+    ///
+    /// The alpha is one union either way. It is worth a test of its own rather than a comment
+    /// because it says what a scene vocabulary would have to carry to draw this mode: two
+    /// compositing operators it is likely to have already, chosen per channel (ADR 1182). The
+    /// inputs are calibrated — the two formulas are asserted to differ by more than eight-bit
+    /// rounding on this pixel — so a mode that answered either one whole would fail.
+    #[test]
+    fn the_special_mode_is_destination_over_in_the_channels_it_keeps() {
+        let destination = [40_u8, 60, 80, 128];
+        let source = [60_u8, 20, 30, 64];
+        let kept = [true, false, true];
+
+        let mut surface = tiny_skia::Pixmap::new(1, 1).expect("a one-pixel pixmap");
+        let mut layer = tiny_skia::Pixmap::new(1, 1).expect("a one-pixel pixmap");
+        set(&mut surface, destination);
+        set(&mut layer, source);
+        super::composite(
+            &mut surface.as_mut(),
+            &layer,
+            Computed::Overprint(pdf_render::Overprint::new(kept)),
+        );
+        let drawn = surface.pixels()[0];
+        let actual = [drawn.red(), drawn.green(), drawn.blue()];
+
+        let alpha_b = f32::from(destination[3]) / 255.0;
+        let alpha_s = f32::from(source[3]) / 255.0;
+        // Both in premultiplied eight-bit units, which is what the surface holds.
+        let destination_over = |index: usize| {
+            f32::from(destination[index]) + (1.0 - alpha_b) * f32::from(source[index])
+        };
+        let source_over = |index: usize| {
+            f32::from(source[index]) + (1.0 - alpha_s) * f32::from(destination[index])
+        };
+        for index in 0..3 {
+            let (expected, other) = if kept[index] {
+                (destination_over(index), source_over(index))
+            } else {
+                (source_over(index), destination_over(index))
+            };
+            assert!(
+                (expected - other).abs() > 1.0,
+                "channel {index} does not discriminate the two operators"
+            );
+            let difference = f32::from(actual[index]) - expected;
+            assert!(
+                difference.abs() <= 1.0,
+                "channel {index}: composited {} where the operator gives {expected}",
+                actual[index]
+            );
+        }
+    }
+
+    /// Writes one premultiplied eight-bit pixel into a one-pixel pixmap.
+    fn set(pixmap: &mut tiny_skia::Pixmap, rgba: [u8; 4]) {
+        let pixel = tiny_skia::PremultipliedColorU8::from_rgba(rgba[0], rgba[1], rgba[2], rgba[3])
+            .expect("each channel is at most the alpha beside it");
+        pixmap.pixels_mut()[0] = pixel;
+    }
+
     /// The modes this backend computes are recognised and the twelve it hands over are not.
     #[test]
     fn the_computed_modes_are_the_five_this_backend_owns() {

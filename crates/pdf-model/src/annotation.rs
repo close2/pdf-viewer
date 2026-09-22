@@ -43,6 +43,8 @@ use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
 
+use crate::optional_content::Purpose;
+
 /// What an appearance's content is: a stream the file stored, or one this crate wrote.
 #[derive(Debug, Clone)]
 pub(crate) enum Content {
@@ -407,6 +409,9 @@ const STANDARD_SUBTYPES: [&[u8]; 28] = [
 const FLAG_INVISIBLE: i64 = 1;
 /// `/F` bit 2: render nothing, whatever the subtype.
 const FLAG_HIDDEN: i64 = 1 << 1;
+/// `/F` bit 3: print the annotation, unless bit 2 is also set. Read only under
+/// `crate::optional_content::Purpose::Print`, which is the only situation the row is about.
+const FLAG_PRINT: i64 = 1 << 2;
 /// `/F` bit 6: render nothing *on screen*. A viewer is a screen.
 const FLAG_NO_VIEW: i64 = 1 << 5;
 /// `/F` bit 7: respond to nothing. About interaction alone, and ignored for a widget.
@@ -590,8 +595,50 @@ fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
 /// **Unreachable before the two-hundred-and-fifty-third session**, and not because of this
 /// clause: `viewer-core` took the annotation under the pointer from the *link* one, so no
 /// annotation that was not a link ever left [`Appearance::Normal`].
-/// §12.5.3's two flags that say "not on this screen": `Hidden`, and `NoView` as read by
-/// [`no_view`].
+/// Whether §12.5.3's flags let this annotation reach the output being produced.
+///
+/// **Table 167 states two different answers and the output decides which**, so this function
+/// does too: bit 6 is "do not render the annotation on the screen" and bit 3 is "print the
+/// annotation when the page is printed", and neither row can be read without knowing which of
+/// the two devices is being drawn for. [`crate::view::AnnotationView::purpose`] is that input,
+/// and `CLAUDE.md`'s rule 1 is why it arrives rather than being inferred.
+///
+/// # On a screen
+///
+/// Two flags say "not on this screen": `Hidden`, and `NoView` as read by [`no_view`].
+///
+/// # On paper
+///
+/// `Hidden` suppresses the annotation here too, and the table says so twice over — the bit's own
+/// row is unconditional, "regardless of its annotation type or whether an annotation handler is
+/// available", and bit 3 repeats it as an exception to itself:
+///
+/// > If set, print the annotation when the page is printed unless the Hidden flag is also set.
+/// > If clear, never print the annotation, regardless of whether it is rendered on the screen.
+/// > If the annotation does not contain any appearance streams this flag shall be ignored.
+///
+/// So the printed page's rule is bit 3's three sentences and nothing else, and `NoView` is
+/// deliberately not consulted: its own row states the consequence of that in as many words —
+/// "[t]he annotation may be printed (depending on the setting of the Print flag) but should be
+/// considered hidden for purposes of on-screen display and user interaction". Bit 9,
+/// `ToggleNoView`, goes with it: it inverts `NoView` "for annotation selection and mouse
+/// hovering", which is a sentence about a pointer that no printed page has.
+///
+/// The third sentence is the one that decides the population. An annotation stating no `/F` at
+/// all has bit 3 clear, and 316 383 of the crawl's annotations state the bit — so reading the
+/// first two sentences alone would print nothing from a document whose producer never wrote an
+/// `/F`. [`contains_appearance_streams`] is that sentence's condition, asked of the annotation
+/// dictionary rather than of the state it is showing: an `/AP` whose `/N` is a state
+/// subdictionary contains appearance streams whichever one `/AS` selects. Where it holds, the
+/// flag is ignored — which is to say the annotation is printed, on the appearance this crate
+/// constructs for it.
+///
+/// # Anywhere else
+///
+/// [`Purpose::Export`] takes the screen's reading, and that is a decision rather than a
+/// fallthrough: Table 167 names two devices and an export is neither, so there is no third row
+/// to apply. Reading bit 3 for it would let a document decide what a raster written to a file
+/// contains on the strength of a sentence about paper. ADR 1179.
 ///
 /// **One statement of it rather than two**, which is why it is a function: `crate::popup` asks
 /// the same question of a subtype [`decided`] answers `Nothing` for before it gets this far, and
@@ -602,8 +649,50 @@ pub(crate) fn displayed(
     view: crate::view::AnnotationView<'_>,
 ) -> bool {
     let flags = stated_flags(document, annotation, view);
-    !((flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false))
-        || no_view(flags, view.appearance))
+    // §12.6.4.11's hide action "hides or shows one or more annotations on the screen by setting
+    // or clearing their Hidden flags", so it is the same bit on both devices: an action that
+    // cleared it beats what the file wrote, wherever the page is going.
+    if flags & FLAG_HIDDEN != 0 && view.hidden_by_action != Some(false) {
+        return false;
+    }
+    match view.purpose {
+        Purpose::Print => {
+            flags & FLAG_PRINT != 0 || !contains_appearance_streams(document, annotation)
+        }
+        Purpose::View | Purpose::Export => !no_view(flags, view.appearance),
+    }
+}
+
+/// Whether Table 167's bit 3 applies to this annotation at all.
+///
+/// §12.5.3, Table 167, bit 3's third sentence:
+///
+/// > If the annotation does not contain any appearance streams this flag shall be ignored.
+///
+/// *Contain* is a question about the annotation dictionary, not about the state it is showing:
+/// Table 170 makes `/N`, `/R` and `/D` "a single appearance stream or an appearance
+/// subdictionary", so an annotation whose `/AS` selects nothing still contains the streams the
+/// subdictionary holds. Anything that is not a stream anywhere under `/AP` is an annotation the
+/// sentence is written for — including an `/AP` that is not a dictionary, and one that is empty.
+///
+/// The walk is one level deep because Table 170 is: an appearance subdictionary's values are
+/// streams, and a dictionary nested inside one is not an appearance the clause defines.
+fn contains_appearance_streams(document: &Document, annotation: &Dictionary) -> bool {
+    let appearances = document.get_key(annotation, "AP");
+    let Some(appearances) = appearances.as_dict() else {
+        return false;
+    };
+    ["N", "R", "D"].iter().any(|key| {
+        let entry = appearances.get(key).cloned().unwrap_or(Object::Null);
+        match document.resolve(&entry) {
+            resolved if resolved.as_stream().is_some() => true,
+            resolved => resolved.as_dict().is_some_and(|states| {
+                states
+                    .iter()
+                    .any(|(_, state)| document.resolve(state).as_stream().is_some())
+            }),
+        }
+    })
 }
 
 /// The annotation's `/F`, with whatever §12.7.8 or §12.6.4.11 has said about it applied.
@@ -863,7 +952,12 @@ pub(crate) fn decide(
     view: crate::view::AnnotationView<'_>,
     geometry: ViewGeometry,
 ) -> Decision {
-    let mut decision = decided(document, annotation, view, geometry.media_box);
+    let mut decision = decided(
+        document,
+        annotation,
+        view,
+        target_media(view, geometry.media_box),
+    );
     // §12.5.3's two view-dependent flags, applied once and to the whole annotation. Read here
     // rather than inside each construction because the clause's own sentence is about the
     // annotation rather than about its appearance, and because the fixed point it pivots about
@@ -875,6 +969,46 @@ pub(crate) fn decide(
         *adjust = geometry.adjustment(flags, rectangle(document, annotation, "Rect"));
     }
     decision
+}
+
+/// §12.5.6.22's target media: the sheet where one is known, and the page's media box otherwise.
+///
+/// Table 193 states both branches and which is which:
+///
+/// > If the dimensions of the target media are not known at the time of drawing, drawing shall be
+/// > done relative to the dimensions specified by the page's MediaBox entry
+///
+/// and §12.5.6.22 puts a screen in the second branch by name — "[w]hen displaying a watermark
+/// annotation on-screen, interactive PDF processors shall use the dimensions of the media box ...
+/// so that the scroll and zoom behaviour is the same as for other annotations". So the media box
+/// is not a fallback this crate chose; it is what the clause requires of every caller that is not
+/// printing, and of a caller that is printing onto a sheet whose size nobody stated.
+///
+/// # What the substitution is, and what it is not
+///
+/// It is the clause's dimensions and nothing else. The sentence after the two bullets —
+///
+/// > given a matrix B that maps a scaled and rotated page into the default user space, a new
+/// > matrix shall be computed that cancels out B and translates the origin of the media (e.g.,
+/// > printed page) to the origin of the default user space
+///
+/// — is a cancellation whose first two terms are the identity for every caller this program has:
+/// a page is placed on the sheet at its own size and its own orientation, so B scales nothing and
+/// rotates nothing, and what is left is the translation between two origins. That is why the
+/// paper arrives as a *rectangle in default user space* rather than as a width and a height: its
+/// corner is the media origin the sentence names, and the arithmetic in [`fixed_print`] measures
+/// Table 194's percentages from it exactly as it measures them from the media box's corner.
+///
+/// **The two bullets after the EXAMPLE are the cases where B stops being the identity** — page
+/// tiling and n-up printing, each of which the clause gives its own placement rule — and neither
+/// is a thing this program offers. Whoever adds a scale mode or an n-up composition owes this
+/// function the rest of that sentence; until then there is no operating condition for it.
+/// ADR 1179.
+fn target_media(view: crate::view::AnnotationView<'_>, media_box: [f32; 4]) -> [f32; 4] {
+    match (view.purpose, view.paper) {
+        (Purpose::Print, Some(paper)) => paper,
+        _ => media_box,
+    }
 }
 
 /// [`decide`] without §12.5.3's view-dependent flags, which it applies to whatever this returns.

@@ -611,6 +611,35 @@ pub enum Rewrite {
     /// [`super::hexadecimal`] the reading; the sibling row about a byte that is not a digit stays
     /// refused, because §7.3.4.3 gives that byte no value to transcribe.
     HexadecimalDigitCompleted,
+    /// Every `Separation` array naming one colourant states the one definition of it the
+    /// operator's configuration chose.
+    ///
+    /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4 require the agreement; nothing
+    /// in the file says which of two definitions its producer meant, so the choice is a `supply`
+    /// and never a default (`doc/rfc/0007` section 2, `doc/adr/1188`).
+    ///
+    /// **What is written is the document's own bytes.** The alternate space and tint transform
+    /// this rewrite puts into the losing arrays are the ones a winning array already stated, so
+    /// nothing is invented — what changes is that marks drawn through a losing definition are
+    /// painted through the winning one. §8.6.6.4 makes that a real change on a screen, where a
+    /// `Separation` "never applies a process colourant directly; it always reverts to the
+    /// alternate colour space".
+    SeparationAgreed,
+    /// The document's encryption is not carried into the output.
+    ///
+    /// ISO 19005-2 section 6.1.3 and ISO 19005-4 section 6.1.3 forbid an `/Encrypt` key in the
+    /// trailer, and sections 6.1.7.2 and 6.1.6.2 forbid a `Crypt` filter naming anything but
+    /// `Identity`. Both are answered by the same act, because §7.6.2 makes encryption a property
+    /// of the *file* rather than of anything in the object graph: the strings and stream data
+    /// every object here holds were decrypted when the source was opened, and the output is
+    /// serialized from those objects with no encryption dictionary and no document identifier
+    /// derived from one.
+    ///
+    /// **Nothing in the document changes, and that is the point**: not a mark, not a string, not
+    /// a byte of any stream's decoded data. What changes is the *file*, which stops needing a key
+    /// to read — and with it Table 22's permission flags stop being asserted, which is the loss
+    /// [`super::Loss::Encryption`] names and `doc/adr/1187` argues.
+    EncryptionRemoved,
 }
 
 impl Rewrite {
@@ -820,6 +849,14 @@ impl Rewrite {
                 "a widget annotation's or field dictionary's /A entry is removed, with the \
                  action chain behind it"
             }
+            Self::SeparationAgreed => {
+                "every Separation array naming one colourant states the definition of it the \
+                 configuration chose, which is one the file already stated"
+            }
+            Self::EncryptionRemoved => {
+                "the document's encryption is not carried into the output, which no longer needs \
+                 a password to read"
+            }
             Self::HexadecimalDigitCompleted => {
                 "a content stream's hexadecimal string states the final digit ISO 32000-2 \
                  \u{a7}7.3.4.3 already assumed, so the string reads the same and the file says so"
@@ -882,6 +919,8 @@ impl Rewrite {
             Self::AdditionalActionsRemoved => "additional-actions-removed",
             Self::WidgetActionEntryRemoved => "widget-action-entry-removed",
             Self::HexadecimalDigitCompleted => "hexadecimal-digit-completed",
+            Self::SeparationAgreed => "separation-agreed",
+            Self::EncryptionRemoved => "encryption-removed",
         }
     }
 }
@@ -1009,6 +1048,7 @@ fn count_what_has_no_place(
         Rewrite::WholeFileRewritten,
         Rewrite::OutputIntent,
         Rewrite::IdentificationSchema,
+        Rewrite::EncryptionRemoved,
     ] {
         if wanted.contains(&whole) {
             applied.insert(whole, 1);
@@ -1725,37 +1765,47 @@ impl Rewriter<'_> {
                     Rewritten::Changed(Object::Dictionary(dict))
                 }),
             Object::Stream(stream) => self.rewrite_stream(id, stream, applied),
-            // A colour space array written as its own object, which is the shape
-            // `Rewrite::SpotColorantEntry` reaches and the only rewrite that reaches one: every
-            // other rewrite in this table writes a dictionary entry.
+            // A colour space array written as its own object, which is the shape two rewrites
+            // reach — `Rewrite::SpotColorantEntry` and `Rewrite::SeparationAgreed` — and the only
+            // shape either of them does: every other rewrite in this table writes a dictionary
+            // entry.
             Object::Array(_) => self.rewrite_array(id, value, applied),
             _ => Rewritten::Carried,
         }
     }
 
-    /// An object that is an array: ISO 19005 section 6.2.4.4's `/Colorants` entry, and nothing
-    /// else.
+    /// An object that is an array: both of ISO 19005 section 6.2.4.4's array rewrites, and
+    /// nothing else.
     fn rewrite_array(
         &self,
         id: ObjectId,
         value: &Object,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> Rewritten {
-        if !self.wants(Rewrite::SpotColorantEntry) {
-            return Rewritten::Carried;
-        }
-        let Some(entries) = self.colorants.and_then(|written| written.at.get(&id)) else {
-            return Rewritten::Carried;
-        };
         let mut out = value.clone();
-        let placed = sites::place_colorants_in(self.document, &mut out, entries);
-        if placed.is_empty() {
-            return Rewritten::Carried;
+        let mut changed = false;
+        if self.wants(Rewrite::SpotColorantEntry)
+            && let Some(entries) = self.colorants.and_then(|written| written.at.get(&id))
+        {
+            let placed = sites::place_colorants_in(self.document, &mut out, entries);
+            for _ in 0..placed.len() {
+                count(applied, Rewrite::SpotColorantEntry);
+            }
+            changed |= !placed.is_empty();
         }
-        for _ in 0..placed.len() {
-            count(applied, Rewrite::SpotColorantEntry);
+        if self.wants(Rewrite::SeparationAgreed) && !self.remedies.separations.is_empty() {
+            let reached =
+                sites::agree_separations_in(self.document, &mut out, &self.remedies.separations);
+            for _ in 0..reached.len() {
+                count(applied, Rewrite::SeparationAgreed);
+            }
+            changed |= !reached.is_empty();
         }
-        Rewritten::Changed(out)
+        if changed {
+            Rewritten::Changed(out)
+        } else {
+            Rewritten::Carried
+        }
     }
 
     /// A dictionary object, rewritten where its position asks for it.
@@ -1918,7 +1968,31 @@ impl Rewriter<'_> {
         changed |= self.restate_truetype_encoding(id, out, applied);
         changed |= self.share_destination_profile(id, out, applied);
         changed |= self.write_colorants(id, out, applied);
+        changed |= self.agree_separations(out, applied);
         changed
+    }
+
+    /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4, inside whatever object holds
+    /// the `Separation` array.
+    ///
+    /// Descended rather than edited at the top level, for [`Self::write_colorants`]' reason: a
+    /// colour space written in a page's resource dictionary is reported at the page. Unlike that
+    /// one this reaches **every** object rather than the ones a finding named, and it has to: the
+    /// arrays that need rewriting are the ones that *disagree* with the chosen definition, and a
+    /// finding names only the later array of each disagreeing pair.
+    fn agree_separations(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::SeparationAgreed) || self.remedies.separations.is_empty() {
+            return false;
+        }
+        let reached = sites::agree_separations(self.document, out, &self.remedies.separations, 0);
+        for _ in 0..reached.len() {
+            count(applied, Rewrite::SeparationAgreed);
+        }
+        !reached.is_empty()
     }
 
     /// ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section 6.2.4.4, inside the object the

@@ -206,8 +206,16 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // `QUORRA_RESTRICTED_PROCESS`, for §12.11.6's processing (ADR 1167) — a constant rather than
     // an entry point, and one an old caller never passes, so `QUORRA_ABI_VERSION` stays where it
     // is for the standing reason.
-    assert_eq!(no_mangle, 192, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 178, "176 `unsafe` entry points and two helpers");
+    // **And six for printing**: `quorra_print` and `quorra_print_finish` are the two ends of
+    // §8.11.4.5's print operation, which that clause makes a duration rather than an instant;
+    // `quorra_print_page` and `quorra_print_page_copy` are C's two-call idiom over a page drawn
+    // for paper, because `Query::PrintPage` answers with a display list and a display list is not
+    // a thing to put in a header; and `quorra_printed_reports` and `quorra_printed_report` are
+    // trap 5's channel for a page that goes to the printer with something missing. A seventh
+    // event kind number, `QUORRA_EVENT_PRINTING`, joins them, so `QUORRA_EVENT_KIND_COUNT` moves
+    // to 22 and `QUORRA_ABI_VERSION` does not move for the standing reason (ADR 1180).
+    assert_eq!(no_mangle, 198, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 184, "182 `unsafe` entry points and two helpers");
 }
 
 #[test]

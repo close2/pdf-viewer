@@ -549,8 +549,10 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
             .notes
             .push("import-data: this file's identifier names a different document".to_owned());
     }
-    // Table 246's `/Status` is "a status string that shall be displayed".
-    if let Some(status) = &data.status {
+    // Table 246's `/Status` is "a status string that shall be displayed", and an embedded FDF is
+    // an FDF — so `FormsData::statuses` gives this file's and every embedded file's, in the order
+    // an import applies them (ADR 1185).
+    for status in data.statuses() {
         outcome
             .notes
             .push(format!("import-data: status — {status}"));
@@ -564,7 +566,12 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
     let applied = open.view.import(&open.document, &data);
     outcome.notes.push(format!(
         "import-data: {} field(s) from {}, into {} widget(s)",
-        data.fields.len(),
+        // Every file the import applied, which Table 246's `/EmbeddedFDFs` can make more than
+        // one (ADR 1185).
+        data.files()
+            .iter()
+            .map(|file| file.fields.len())
+            .sum::<usize>(),
         import.file,
         applied.widgets
     ));

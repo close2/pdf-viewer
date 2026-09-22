@@ -169,8 +169,15 @@ says which*, the operator often knows, once, for their whole archive.
 ## 2. File structure and encryption
 
 ### `file-structure/no-encryption`
-ISO 19005-2 6.1.3, ISO 19005-4 6.1.3 · all six · today `not-built-yet`
+ISO 19005-2 6.1.3, ISO 19005-4 6.1.3 · all six · **built** (ADR 1187): `Loss::Encryption`, the word
+`encryption`, with the permission statement below
 
+- **What was built.** §7.6.2 makes encryption a property of the *file*, so the objects this
+  conversion carries were already decrypted when the source was opened and the output's own trailer
+  holds no `/Encrypt`: the act was being performed and nobody had named it. What the build adds is
+  the *decision* — section 3.5's Ask, so nothing is lost in silence — and the `preserve` below,
+  which is now the report's line per document and an `xmpMM:History` entry naming every Table 22
+  flag the source withheld.
 - **Mitigation** — `discard`, and **a `preserve` nobody had written down beside it**. Decrypting and
   dropping `/Encrypt` is the limits document's section 3.5 Ask and stays that. What the limits
   document's section 3.5 treats as lost with it is Table 22's `/P` flags — *"no printing", "no
@@ -194,7 +201,7 @@ ISO 19005-2 6.1.3, ISO 19005-4 6.1.3 · all six · today `not-built-yet`
   still a file whose readability depends on an algorithm surviving.
 
 ### `file-structure/crypt-filter-is-identity`
-ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · today `not-built-yet`
+ISO 19005-2 6.1.7.2, ISO 19005-4 6.1.6.2 · all six · **built** (ADR 1187), by the row above
 
 - **Mitigation** — as above; it is the per-stream half of the same act and has no separate answer.
 - **By target** — none.
@@ -258,6 +265,28 @@ ISO 19005-2 6.1.7.1, ISO 19005-4 6.1.6.1 · all six · today `not-this-target`
   refused one.
 - **Departure** — **C**, unchanged. A conforming-shaped file that still points off its own edge is
   exactly what the format exists to prevent. The mitigation is the answer here, not the departure.
+- **What stands between this and a build, read in session 1175 and not resolved.** The fetch has to
+  happen *somewhere*, and `apply` is not it: RFC 0002 section 9's determinism claim rests on `apply`
+  being a pure function of its inputs, and `doc/questions/A54` is the shape this project chose for
+  everything that needs the outside world — `apply` returns a request and the caller performs it. A
+  `supply` carrying a directory would put an `open` inside `apply` and cost that claim. Two shapes
+  are open and both keep it: the **caller resolves**, walking the validator's findings for the `/F`
+  strings, reading each under `viewer_host::policy::resolve_import`'s rule (one path component,
+  resolved against the document's own directory, ADR 1155) and handing the bytes in the plan the way
+  `--output-intent-profile` and `--font` already are; or the existing **two-pass tool request**
+  carries the fetch, which is this entry's `tool = "resolve-external"` and which section 4.5's
+  warning is written for. The first is smaller and needs no declared program; it needs the CLI to
+  open the document itself, which it already does. Whichever is taken, the removal is the same three
+  keys and it is stated here so the next round does not re-derive it: §7.3.8.2's Table 5 makes `/F`
+  the file holding the data and `/FFilter`/`/FDecodeParms` the filters applied to *it*, so embedding
+  is the bytes written into the stream, `/Filter` and `/DecodeParms` taken from the `F`-prefixed
+  pair, `/Length` restated, and all three `F` keys removed.
+- **And one thing the validator should be asked about first.** Both parts spell the third key
+  `FDecodeParams`, which names nothing in ISO 32000 — Table 5's key is `FDecodeParms` — and the
+  requirement's own NOTE 1 says what the list is for: *these keys are used to point to data external
+  to the file*. `crates/pdf-archive/src/table/file_structure.rs` checks the standard's literal
+  spelling, so a stream stating the key that actually carries external filter parameters is not
+  reported. Nothing in the corpus exhibits it, which is why it is a note rather than a change.
 
 ### `file-structure/permissions-dictionary-keys`
 ### `file-structure/document-signature-states-no-digest`
@@ -586,8 +615,21 @@ ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · **partly built in session
   ink alone; a file without it renders the same in composite.
 
 #### `graphics/separations-of-one-name-agree`
-ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · today `not-built-yet`
+ISO 19005-2 6.2.4.4, ISO 19005-4 6.2.4.4 · all six · **built** (ADR 1188): `remedy = "supply"` with
+`winner = "first" | "most-used"`
 
+- **What was built, and where this entry was wrong.** The explicit table this entry proposed —
+  `colourants = { "PANTONE 293 C" = "…" }` — cannot be built honestly: a tint transform is a §7.10
+  function, in general a sampled stream or a calculator program, and no configuration file holds
+  one. So what the operator supplies is **which of the document's own definitions wins**, and every
+  byte written is the producer's. `winner = "first"` keeps the definition the validator reports the
+  others against; `winner = "most-used"` keeps the one the most arrays state, counted by
+  *definitions written* rather than by marks painted, ties going to the first.
+- **What it costs, measured.** On the four corpus witnesses the conversion moves pixels where the
+  losing definition drew: worst tile 39.62 and a maximum channel difference of 242 on
+  `6-2-4-4-t03-fail-a`. So `stop` staying the default is the answer rather than caution. The two
+  words agree on every witness, because each states each definition once and `most-used` then ties
+  — a fact about the corpus, not about the requirement.
 - **Mitigation** — `supply` (section 0.2), and this is the model case. Two `Separation` arrays name
   the same ink and define it differently; nothing in the file says which its producer meant, and the
   two may genuinely render differently. The converter cannot choose and an operator often can — a
@@ -922,9 +964,32 @@ ISO 19005-2 6.2.11.3.2, ISO 19005-4 6.2.10.3.2 · all six · **part 2 half built
 #### `fonts/cid-system-info-agrees-with-the-cmap`
 ISO 19005-2 6.2.11.3.1, ISO 19005-4 6.2.10.3.1 · all six · today `the-fence`
 
-- **Mitigation** — **none.** The CIDFont's registry, ordering and supplement say which collection
-  its CIDs are numbered in, and the CMap's say the same of the codes it produces; making them agree
-  relabels every CID in the font, and nothing in the file says which of the two its producer meant.
+- **Mitigation** — **none**, and session 1175 read the clauses against that verdict rather than
+  taking it. It holds, and one sentence of it was too strong.
+  - **The clause is symmetric where it is about Registry and Ordering** — both parts say "the
+    corresponding Registry and Ordering strings in **both** CIDSystemInfo dictionaries shall be
+    identical" — so the file does not say which side to move, exactly as this entry said.
+  - **And directional where it is about Supplement**: the CIDFont's shall be at least the CMap's.
+    That half has an arithmetic answer and it is the wrong one. §9.7.3's Table 114 says a supplement
+    "shall not be used in determining compatibility" and that supplements only *add* CIDs, so
+    raising the number costs no glyph — and it asserts that the font program holds the CIDs of the
+    higher supplement, which is the thing the clause exists to guarantee and which this converter
+    cannot make true. `doc/questions/A48`: never fill in an absence.
+  - **What is too strong is "nothing in the file says which its producer meant".** Often something
+    does. §9.7.4.2 makes the CIDFont dictionary's entry a *copy* — "[t]he CIDFont program identifies
+    the character collection by a CIDSystemInfo dictionary, which should be copied into the PDF
+    CIDFont dictionary" — so a CID-keyed CFF program's own `ROS` is the document's deeper statement
+    about the same fact, and an embedded CMap **program** states its own `/CIDSystemInfo` beside its
+    stream dictionary's. Correcting a dictionary from the program it describes derives nothing: it
+    is the file's own content, and it is the same move ADR 1176 made for a hexadecimal digit.
+  - **So the buildable remedy is "correct a dictionary from its program", not "make one match the
+    other"**, and it answers only the files where exactly one dictionary disagrees with its own
+    program. Where both are faithful copies and the programs genuinely differ, the file uses a CMap
+    of one collection with a font of another and no rewrite fixes it without relabelling glyphs —
+    which is where this entry's *none* stands unchanged. Not built: it needs a CFF Top DICT `ROS`
+    reader and an embedded CMap program's `/CIDSystemInfo`, neither of which this converter has.
+- **What this entry used to say about making them agree** — that it relabels every CID — remains
+  the reason a `supply` naming a collection is withheld.
 - **By target** — none.
 - **From a configuration** — `supply` is conceivable — an operator naming the collection they know
   their producer used — but it is the one `supply` that cannot be checked against anything, and a

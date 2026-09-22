@@ -107,6 +107,22 @@ pub enum Query<'a> {
     /// would decode a thousand images to draw eight. The panel knows which eight it is showing;
     /// this crate does not, and a host that scrolls one keeps what it has already asked for.
     Thumbnail(usize),
+    /// One page of the document, interpreted for paper — the pages of a print operation.
+    ///
+    /// Zero-based, and [`Answer::None`] for a page that is not there **and for every page while no
+    /// print operation is running**: [`crate::Command::Print`] is where §7.6.4.2's bit 3 is asked,
+    /// and a readback that produced the printed page without it would be the refusal this
+    /// vocabulary exists to keep askable.
+    ///
+    /// **A query rather than a render request, because a printed page is not a frame.** The
+    /// [`crate::Event::NeedsRender`] loop draws what the reader is looking at: one page at the
+    /// viewport's own magnification, superseded the moment they scroll. A print job asks for
+    /// pages the reader is not looking at, at a resolution the printer chose, and needs them all;
+    /// nothing about that is the window's picture. What comes back is the page's display list and
+    /// the target to rasterise it onto, which is exactly what `viewer_host::Drawing` already takes.
+    ///
+    /// Nothing is cached: a print job asks for each page once. ADR 1180.
+    PrintPage(usize),
     /// Whether activating at this viewport point would follow a §12.5.6.5 link.
     ///
     /// What a host needs to choose a cursor, which it does on every pointer move — so this is a
@@ -491,6 +507,11 @@ pub enum Answer<'a> {
     /// stated and is not `Image`. The image is drawn either way — the file is wrong and the
     /// picture is still what the file says — and a host with somewhere to put a note can say so.
     Thumbnail(pdf_model::thumbnail::Thumbnail),
+    /// One page of a print operation — [`Query::PrintPage`].
+    ///
+    /// Boxed because it is the largest thing in this enumeration by a long way and every other
+    /// answer would otherwise carry its size.
+    PrintPage(Box<PrintPage>),
     /// Whether a link is under the point asked about.
     Link(bool),
     /// What is selected.
@@ -682,6 +703,40 @@ pub struct PageStructure {
     /// producer free to state no structure, and a reader that invented a reading order for one
     /// would be presenting a guess where a person is entitled to the author's answer.
     pub nodes: Vec<crate::AccessibilityNode>,
+}
+
+/// One page of a print operation: its marks, and where to put them on the sheet.
+///
+/// **What this crate hands a printer, and nothing about a printer is in it.** The display list is
+/// the page interpreted under the print intent [`crate::Command::Print`] put the document into —
+/// §12.5.3's bit 3 applied to the annotations, §8.11.4.5's `Print` event applied to the layers,
+/// §12.5.6.22's watermarks against the sheet — and the target is that list at the resolution the
+/// job stated. A host rasterises the pair exactly as it rasterises a frame, and hands the pixels
+/// to whatever its platform calls a print context.
+///
+/// **The marks are the document's and only the document's.** `CLAUDE.md`'s authoring exclusion is
+/// why this carries a display list rather than a page a host composes: nothing here invents a
+/// mark, and a page number, a watermark or a header printed onto the sheet would be this program
+/// writing content no producer stated.
+#[derive(Debug, Clone)]
+pub struct PrintPage {
+    /// Which page, zero-based.
+    pub page: usize,
+    /// Its marks, resolution-independent.
+    pub list: std::sync::Arc<pdf_render::DisplayList>,
+    /// The raster to draw them onto, at the job's resolution.
+    ///
+    /// `None` where this page's marks would need more pixels than `crate::MAX_PIXELS` allows at
+    /// that resolution, or where they round to none — [`pdf_render::TargetSpec::for_page`]'s own
+    /// refusals, the same bound every frame is drawn under. The reason is in `reports` rather
+    /// than swallowed, so a job that cannot print page seven says which page and why.
+    pub target: Option<pdf_render::TargetSpec>,
+    /// What could not be drawn on it, already worded — the same sentences
+    /// [`crate::Event::Reported`] carries for a page on the screen.
+    ///
+    /// A page that prints with something missing says so here rather than silently, which is
+    /// trap 5's rule wherever a page is produced.
+    pub reports: Vec<String>,
 }
 
 /// Where the page sits on the screen, and how large.

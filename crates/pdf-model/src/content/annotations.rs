@@ -131,8 +131,12 @@ impl Interpreter<'_> {
         // Everything the view state says about this annotation, in one call: whether a hide
         // action named it, which of §12.5.5's three appearances the pointer asks for, and —
         // for a widget — where its value comes from, which §12.7.6.3's reset and §12.7.8's
-        // import each change and which decides what §12.7.4.3 lays out.
-        let view = id.map(|id| self.view.annotation(id)).unwrap_or_default();
+        // import each change and which decides what §12.7.4.3 lays out. The object number is
+        // handed over rather than unwrapped because two of the answers are about the *output*
+        // rather than about this annotation — §12.5.3's device and §12.5.6.22's media — and a
+        // direct annotation dictionary is drawn onto the same one as the annotations beside it
+        // (ADR 1179).
+        let view = self.view.annotation_of(id);
         if view.hidden_by_action == Some(true) {
             return;
         }

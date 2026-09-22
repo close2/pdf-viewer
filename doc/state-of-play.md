@@ -59,7 +59,9 @@ everything a document says *about itself*: §14.7's logical structure, §14.8's
 tagged-PDF vocabulary, §7.11.4's embedded files, §14.13's associated files in **both** of
 §14.13.2's forms — the embedded one listed, and the one that lives outside the document named
 out loud when it opens, since following it is refused and naming it never needed a filesystem
-(ADR 0918) — §12.2's viewer
+(ADR 0918), with §14.13.4's files of the page a reader is *on* listed beside the document's own,
+which is where the clause puts them and as far as a panel may reach without walking the page tree
+at launch (ADR 1186) — §12.2's viewer
 preferences, §12.11's requirements, §7.12's extensions and §14.3.2's XMP.
 
 It is **used**, which is a separate claim from the one above — and
@@ -85,7 +87,10 @@ not key is still spoken by asking §14.7.5.3's `/OBJR` (ADR 1151);
 thousand pages of interpretation is not something the launch path may block for, with the readback
 kept under a per-document bound so that searching the same document twice does not cost twice
 (ADRs 0250, 0256); **a form's data can arrive and leave as a file**: §12.7.7's FDF and §12.7.8's XFDF both read into
-the same fully qualified names a field carries, so an import means one thing whichever format came —
+the same fully qualified names a field carries, so an import means one thing whichever format came,
+and an FDF carrying Table 246's `/EmbeddedFDFs` carries FDF *files*, each read as one and applied
+in the array's order, with only the encrypted form refused because only that is deprecated
+(ADR 1185) —
 XFDF against ISO 19444-1, which ISO 32000-2 names and defines nowhere, with an `<annots>` element
 **counted and said out loud rather than read**, because the grammar that would let it create an
 annotation is in sections of that standard this tree does not hold (ADR 1108); a person can **fill
@@ -134,6 +139,21 @@ all three,
 worded once in `viewer_host::restriction`; §12.2's `/HideMenubar` is read, answered in words and
 deliberately not obeyed over that menu, because a file that could hide the reader's levels would be
 taking away the control over itself (ADR 1145).
+
+**A page goes to paper, and what a printed page shows is not what a screen shows.** §7.6.4.2's
+Table 22 bit 3 is asked as an operation at those same four levels, and the grant puts the document
+into print intent: §12.5.3's Table 167 bit 3 decides which annotations are drawn — "[i]f clear,
+never print the annotation, regardless of whether it is rendered on the screen", with `NoView` not
+consulted at all because its own row says the annotation may be printed anyway — §8.11.4.5's
+`Print` usage applications run over the reader's own layer switches for the duration and revert
+after, and §12.5.6.22's fixed print watermarks are placed against the sheet rather than against the
+media box. The window shows the same thing while the operation stands, so what a reader sees is
+what would print. `quorra-gtk` spools it through `GtkPrintOperation`, painting the page the
+processor backend drew — the same backend the oracle certifies — into the print context; the other
+two windows show it and say they have no printer, because `cxx-qt-lib` binds no `QtPrintSupport`
+type and the winit host has no toolkit dialogue at all (ADRs 1179, 1180). The resolution is the
+printer's, clamped to 150–600 dots per inch with 300 where none is reported, and §12.2's half of
+Table 147 — scaling, duplex, tray, page range, copies — is what the dialogue opens on.
 
 **And what a document may ask this machine to do is the reader's to set too, at the same four
 levels running the other way.** §12.6.4.8's link is opened by the host and by nothing inside the
@@ -246,10 +266,15 @@ pass.
   a file, open a socket or start a program. **Every `Query` crosses**, including the eleven a
   panel is made of and §12.7's whole form — which is the thing that lets a confined host build
   native controls rather than take a form as pixels — and a hostile document's draw is stoppable,
-  because a cancel a hostile document can decline is not one. **A window uses it** — `quorra-confined`, deliberately the smallest complete
-  host on the boundary, both payload arms on its screen, Escape ending the worker and the
-  in-flight draw together (ADR 0713), §7.6.4.1's prompt with the password crossing into the
-  confinement as `Command::Open`'s `Secret` (ADR 0718), **and the graphics device drawing its
+  because a cancel a hostile document can decline is not one. **A window uses it** — `quorra-confined`, the one host on that
+  boundary and not a fourth toolkit: it holds no `Viewer`, no document bytes and no parser, which is
+  why `doc/todo/30`'s level-hosts rule does not reach it and why what it owes is decided by the
+  operation it can perform rather than by its size (ADR 1190). Both payload arms are on its screen,
+  Escape ends the worker and the
+  in-flight draw together (ADR 0713), §7.6.4.1's prompt puts the password across into the
+  confinement as `Command::Open`'s `Secret` (ADR 0718), `Query::View` and `Command::View` restore
+  exactly the view the worker produced when one dies — two messages no established window uses
+  (ADR 0737) — **and the graphics device draws its
   pages** (ADR 0725) — the marks as they crossed and the worker's rasters
   wrapped as one-image lists, on a render thread of the window's own, with the interruptible CPU
   thread kept for the frames the device refuses and `--cpu` the window with no device; the same
@@ -416,8 +441,20 @@ a content stream**: §7.3.4.3 states the value of a hexadecimal string with an o
 converter writes the final digit the clause already assumed and the string reads the same — the one
 repair whose result the standard itself states, with the sibling rule about a byte that is not a
 digit still refused because the clause gives it no value to transcribe (ADR 1176).
+**An encryption does not cross into an archive, and what it claimed does.** Both parts forbid the
+trailer's `/Encrypt` outright, and §7.6.2 makes encryption a property of the file, so the objects the
+conversion carries are already decrypted and the output needs no key — an *Ask*, never a default,
+because §7.6.4.2's Table 22 flags stop being asserted with it. Every flag the source withheld is
+named in the report and written into the output's own `xmpMM:History`: the enforcement cannot
+survive and the statement can (ADR 1187). **And one ink defined twice is decided by whoever owns the
+archive.** ISO 19005 requires every `Separation` array naming one colourant to state the same
+alternate space and tint transform, and §8.6.6.4 makes those what an additive device paints the tint
+through — so the operator names which of the file's *own* definitions wins, by object order or by how
+many arrays state it, and every byte the rewrite writes is the producer's (ADR 1188).
 A refusal is a question answered in advance: a configuration names each refusal site and its
-remedy, `--remedy-sites` prints every site a target binds with what this version carries out, and
+remedy, `--remedy-sites` prints every site a target binds with what this version carries out and its
+own total of what is not built yet — and, given a profile, the answers that profile gives which this
+version does not carry out and a total of those — and
 six shipped profiles under `doc/profiles/` answer them for a purpose each (RFC 0007, ADR 1012).
 **It is `quorra-transform archive` and a library verb; no window reaches it.**
 
@@ -586,8 +623,8 @@ asking the filesystem anything. The wire under the two *confined* workers — `p
 all three of this tree's workers — is one crate, `confined-transport`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
 (one as consumed by nothing, saying why), the six operations — a field filled, an
-annotation added, a page rendered, a file extracted, a file written in, a document assembled out
-of another's pages — each read their bit at
+annotation added, a page printed or rendered, a file extracted, a file written in, a document
+assembled out of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides — and §12.7.5.5's Table 236 `/P`,
 the permission a signed signature field's lock states over the document, whose several instances
 compose as the minimum its own words make them (ADR 1156) — and the four levels are one type

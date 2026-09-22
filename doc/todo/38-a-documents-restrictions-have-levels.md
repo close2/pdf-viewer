@@ -7,8 +7,9 @@ windows and the prompt the *ask* level needs are built** (ADR 0212, session 373;
 session 1155). **The owner lifted the no-interface deferral on 2026-09-16.** §12.11.6's requirements processing
 joined the six as a seventh operation in session 1165 (ADR 1167), which is the first one that is
 not a verb a person presses: what its level decides is whether a document is opened at all. What is
-left is the *attach and detach gestures*, which wait on the owner's HTML mockups, and the operations
-`Print` and `Assemble`, which await verbs this program does not have.
+left is the *attach and detach gestures*, which wait on the owner's HTML mockups, and `Assemble`,
+which awaits a verb this program does not have. `Print` has one since session 1171 (ADR 1180):
+`Command::Print` is the operation and `viewer_host::WindowAct::Print` is the key that sends it.
 
 **A second policy with the same four levels sits beside this one and is not part of it**, because
 the direction is the other one: `viewer_host::Links` is what this machine does when §12.6.4.8's
@@ -174,9 +175,10 @@ were two.
 copying** and **1 901 withhold copying or annotating**. Bit 5 was consulted by `pdf-transform` and
 by nothing a person could press.
 
-**`Print` and `Assemble` are entries with no verb behind them in this crate**, deliberately: a
-policy with a hole in it would have to grow a message to fill it, and the day a window gains a print
-path the level is already the reader's to set.
+**`Assemble` is an entry with no verb behind it in this crate**, deliberately: a policy with a hole
+in it would have to grow a message to fill it, and the day a window gains the verb the level is
+already the reader's to set. That is what happened to `Print`: the level was settable before there
+was anything to set it about, and when `Command::Print` arrived it was already the reader's.
 
 ## What the one-thousand-one-hundred-and-fifty-fifth session built
 
@@ -255,10 +257,10 @@ screen still takes the bar — that sentence is the reader asking rather than th
   operation (`Command::Extract`) that no document restricts today. The level exists now; what is
   missing is `Operation` reaching that path at all.
 - **Assembling and faithful printing** (Table 22 bits 11 and 12) are named in `restriction::Bit`
-  and consumed by nothing, each saying why; bit 3 is consumed since session 872, by
-  `pdf-transform`'s page render. `Operation` gets an arm for 11 the day `split`, `merge` or
-  `pages` exist (`doc/todo/57`), and for 12 only if this tree chooses the "implementation-
-  dependent algorithm" the row leaves to the processor.
+  and consumed by nothing, each saying why; bit 3 is consumed by `pdf-transform`'s page render and,
+  since session 1171, by a window's own `Command::Print`. `Operation` gets an arm for 11 the day
+  `split`, `merge` or `pages` exist (`doc/todo/57`), and for 12 only if this tree chooses the
+  "implementation-dependent algorithm" the row leaves to the processor.
 
 ## What not to do
 

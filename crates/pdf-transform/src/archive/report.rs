@@ -498,6 +498,14 @@ pub struct Conversion {
     /// remedy whose site this document failed. Where it is not empty the report names the page and
     /// what it carries, and the same is recorded in the file's own `xmpMM:History`.
     pub preserved: Vec<Preserved>,
+    /// What the source's encryption asserted about its reader, where the source carried one.
+    ///
+    /// **`doc/pdf-a-mitigations.md` section 2's `preserve` beside the `discard`**, and
+    /// `doc/adr/1187`'s condition on the loss: no conforming output can be encrypted, so none can
+    /// enforce ISO 32000-2 §7.6.4.2's Table 22 flags — what the producer claimed about printing,
+    /// extraction and modification would otherwise leave the archive without a trace. `None` for a
+    /// source that carried no `/Encrypt`, which is nearly every document.
+    pub protection: Option<crate::archive::SourceProtection>,
 }
 
 impl Conversion {
@@ -610,6 +618,10 @@ impl Conversion {
                 "preserved".to_owned(),
                 Value::Array(self.preserved.iter().map(Preserved::to_json).collect()),
             ),
+            (
+                "protection".to_owned(),
+                protection_json(self.protection.as_ref()),
+            ),
         ])
     }
 
@@ -685,6 +697,14 @@ impl Conversion {
                 let _ = writeln!(out, "      its copyright tag says: {copyright}");
             }
         }
+        if let Some(protection) = &self.protection {
+            let _ = writeln!(
+                out,
+                "  {} \u{2014} {}",
+                crate::archive::PERMISSIONS_NO_LONGER_ASSERTED,
+                protection.sentence()
+            );
+        }
         if let Some(recorded) = &self.recorded {
             let _ = writeln!(
                 out,
@@ -736,6 +756,26 @@ impl Conversion {
         }
         out
     }
+}
+
+/// What the source's encryption asserted, as `doc/rfc/0002` section 4.5's JSON.
+///
+/// `null` where the source carried none, which is nearly every document.
+fn protection_json(protection: Option<&crate::archive::SourceProtection>) -> Value {
+    protection.map_or(Value::Null, |protection| {
+        Value::Object(vec![
+            ("handler".to_owned(), Value::text(&protection.handler)),
+            (
+                "revision".to_owned(),
+                Value::text(protection.revision.to_string()),
+            ),
+            (
+                "withheld".to_owned(),
+                Value::Array(protection.withheld().into_iter().map(Value::text).collect()),
+            ),
+            ("says".to_owned(), Value::text(protection.sentence())),
+        ])
+    })
 }
 
 impl Conversion {

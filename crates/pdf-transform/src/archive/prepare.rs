@@ -178,6 +178,14 @@ pub(super) const SUPPLIED_ACTION: &str = "converted";
 /// The word is `converted`, like every other recorded action here.
 pub(super) const PRESERVED_ACTION: &str = "converted";
 
+/// The action this conversion records in `xmpMM:History` when it removes a source's encryption.
+///
+/// `doc/pdf-a-mitigations.md` section 2's `preserve` beside the `discard`, and `doc/adr/1187` the
+/// argument: an unencrypted archive cannot enforce §7.6.4.2's Table 22 flags, so what the producer
+/// asserted about its reader goes into the file itself before the enforcement goes. The word is
+/// `converted`, like every other recorded action here.
+pub(super) const DECRYPTED_ACTION: &str = "converted";
+
 /// The action this conversion records in `xmpMM:History` when it embeds a substitute face.
 ///
 /// ISO 19005-2 section 6.6.6's NOTE 1 and ISO 19005-4 section 6.7.5's NOTE both give font
@@ -718,6 +726,8 @@ pub(super) struct Provenance<'a> {
     pub(super) derived: Option<&'a str>,
     /// The facts the operator supplied (`doc/rfc/0007` section 5b.1).
     pub(super) supplied: Option<&'a str>,
+    /// What the source's encryption asserted, where one was removed (`doc/adr/1187`).
+    pub(super) protection: Option<&'a str>,
 }
 
 impl Prepared {
@@ -844,6 +854,7 @@ impl Prepared {
                 departure: provenance.departure,
                 derived: provenance.derived,
                 supplied: provenance.supplied,
+                protection: provenance.protection,
                 preserved: preserved_history.as_deref(),
                 when: now.as_deref(),
                 default_cmyk: default_cmyk.is_ok(),
@@ -2503,6 +2514,8 @@ struct Recording<'a> {
     derived: Option<&'a str>,
     /// What the operator stated that the document does not (`doc/rfc/0007` section 5b.1).
     supplied: Option<&'a str>,
+    /// What the removed encryption asserted about the reader (`doc/adr/1187`).
+    protection: Option<&'a str>,
     /// What an appended page preserved, where one was appended (`doc/adr/1014` section 5).
     preserved: Option<&'a str>,
     /// Whether the identification schema's properties are deliberately omitted (`A59`).
@@ -2608,6 +2621,13 @@ fn the_packet(
             events.push(xmp::Event {
                 action: SUPPLIED_ACTION,
                 parameters: supplied,
+                when,
+            });
+        }
+        if let Some(protection) = recording.protection {
+            events.push(xmp::Event {
+                action: DECRYPTED_ACTION,
+                parameters: protection,
                 when,
             });
         }

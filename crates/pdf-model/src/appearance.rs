@@ -2723,7 +2723,7 @@ fn push_button_icon(
         });
     };
 
-    let fit = IconFit::read(document, characteristics);
+    let fit = IconFit::read(document, characteristics, view.icon_fit);
     // `/FB`: "the button appearance shall be scaled to fit fully within the bounds of the
     // annotation without taking into consideration the line width of the border" — so the
     // target is `/Rect` itself rather than `/Rect` inset by §12.5.4's border.
@@ -2854,9 +2854,18 @@ impl IconFit {
     };
 
     /// Table 192's `/IF`, with Table 250's default for every entry the dictionary omits.
-    fn read(document: &Document, characteristics: &Dictionary) -> Self {
+    ///
+    /// `imported` is Table 249's `/IF` where an FDF file stated one for this field, and it wins:
+    /// §12.7.8.3.2's "importing a field causes the values of the entries in the FDF field
+    /// dictionary to replace those of the corresponding entries in the field with the same fully
+    /// qualified name in the target document", and these two tables name one dictionary. ADR 1186.
+    fn read(
+        document: &Document,
+        characteristics: &Dictionary,
+        imported: Option<&Dictionary>,
+    ) -> Self {
         let entry = document.get_key(characteristics, "IF");
-        let Some(fit) = entry.as_dict() else {
+        let Some(fit) = imported.or_else(|| entry.as_dict()) else {
             return Self::DEFAULT;
         };
         let when = match document.get_key(fit, "SW") {

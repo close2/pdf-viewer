@@ -141,6 +141,7 @@ mod hexadecimal;
 mod jpeg2000;
 mod prepare;
 mod preserve;
+mod protection;
 mod remedies;
 mod report;
 mod rewrite;
@@ -165,11 +166,12 @@ pub use actions::RemovedAction;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
     ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Placement,
-    Preservation, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, sites,
+    Preservation, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Winner, sites,
 };
 pub use decision::{Authorisations, Because, Decision, Loss, answered, refused_by_name};
 pub use fonts::{MetricRoute, RestatedFont, SubstitutedFont};
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
+pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use report::{
     Achieved, Conversion, Decided, Departed, DepartureOutcome, Derived, DerivedOutcome, NotChecked,
     Preserved, SetIn, SignatureDecision, SuppliedFact,
@@ -333,10 +335,16 @@ pub(crate) fn run(
     report.requested.clone_from(&remedies.pending);
     let derived_history = remedies::derived_history(&remedies.derived_report);
     let supplied_history = remedies::supplied_history(&remedies.supplied_report);
+    // `doc/adr/1187`: what the source's encryption asserted, read before the conversion writes a
+    // file that cannot assert it. Read whether or not the requirement is failing, because a
+    // document the target does not admit encrypted is the only one whose statement is going.
+    let protection = SourceProtection::of(document);
+    let protection_history = protection.as_ref().map(SourceProtection::history);
     let provenance = Provenance {
         departure: departure_history.as_deref(),
         derived: derived_history.as_deref(),
         supplied: supplied_history.as_deref(),
+        protection: protection_history.as_deref(),
     };
     // `A59`: a departed conversion omits the PDF/A identification by default, so the output does not
     // claim what it has not earned. `--claim-conformance` is the second, separate switch that keeps
@@ -484,6 +492,7 @@ fn decide_every_failure(
         derived: remedies.derived_report.clone(),
         supplied: remedies.supplied_report.clone(),
         preserved: Vec::new(),
+        protection: SourceProtection::of(document),
     };
     let prepared = Prepared::of(plan, document, input, omit_identification, provenance);
     let mut version = None;
@@ -597,14 +606,13 @@ fn configured(
             Rewrite::DerivedEmbeddedFile,
             DERIVED_NOT_ORIGINAL,
         ))
-    } else if remedies.supply_sites.contains(id) {
-        Some((
-            RemedyKind::Supply,
-            Rewrite::SuppliedMediaType,
-            SUPPLIED_BY_THE_OPERATOR,
-        ))
     } else {
-        None
+        // The rewrite is the site's rather than the kind's: `supply` writes an embedded file's
+        // media type at one site and a colourant's agreed definition at another.
+        remedies
+            .supply_sites
+            .get(id)
+            .map(|rewrite| (RemedyKind::Supply, *rewrite, SUPPLIED_BY_THE_OPERATOR))
     };
     if let Some((kind, rewrite, warns)) = kind {
         if !prepared.recorded_provenance {

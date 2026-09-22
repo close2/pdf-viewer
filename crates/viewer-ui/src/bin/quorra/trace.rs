@@ -270,6 +270,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
     match command {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
+        Command::Print(printing) => describe_printing(*printing),
         // Every operation's level, because a policy where five are `Off` and one is `Ask` is not
         // legible from one of the six (ADR 1144).
         // And which scope it is about, because *for this document* and *for this window* are two
@@ -369,6 +370,26 @@ pub(crate) fn describe_command(command: &Command) -> String {
     }
 }
 
+/// One line naming which end of §8.11.4.5's print operation a message is.
+///
+/// The sheet and the resolution, because those are what a print job changes about a *page*;
+/// everything else a dialogue offers changes how many sheets come out and in what order.
+fn describe_printing(printing: viewer_core::Printing) -> String {
+    let (end, sheet) = match printing {
+        viewer_core::Printing::Start(sheet) => ("start", sheet),
+        viewer_core::Printing::Paper(sheet) => ("paper", sheet),
+        viewer_core::Printing::Finish => return "print finish".to_owned(),
+    };
+    format!(
+        "print {end} on {} at {:.1} px/pt",
+        sheet.media.map_or_else(
+            || "the page's own media box".to_owned(),
+            |media| format!("{media:?}")
+        ),
+        sheet.scale
+    )
+}
+
 /// One line naming an event, for `--trace`.
 pub(crate) fn describe_event(event: &Event) -> String {
     match event {
@@ -376,6 +397,7 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::OpenFailed { reason, .. } => format!("open failed: {reason}"),
         Event::PasswordRequired { .. } => "a password is required".to_owned(),
         Event::Closed(_) => "closed".to_owned(),
+        Event::Printing { pages, .. } => format!("printing, {pages} page(s)"),
         Event::PageChanged { index, of, .. } => format!("page {} of {of}", index.saturating_add(1)),
         Event::NeedsRender(request) => format!(
             "needs render: page {}, {}x{}, {} command(s), {:?}",

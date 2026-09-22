@@ -1388,3 +1388,189 @@ fn place_in_devicen(
     attributes.insert(Name::new(&b"Colorants"[..]), Object::Dictionary(colorants));
     true
 }
+
+/// One `Separation` colour space array the document states, read as ISO 32000-2 §8.6.6.4 shapes it.
+///
+/// > It shall be a four-element array whose first element shall be the colour space family name
+/// > Separation .
+///
+/// The two elements kept here are the ones ISO 19005-2 section 6.2.4.4 and ISO 19005-4 section
+/// 6.2.4.4 require every array of one colourant to agree about.
+#[derive(Debug, Clone)]
+pub(super) struct SeparationUse {
+    /// The colourant name, element 1, which is what the requirement groups by.
+    pub(super) colourant: Vec<u8>,
+    /// Element 2, the `alternateSpace`, exactly as the file wrote it.
+    pub(super) alternate: Object,
+    /// Element 3, the `tintTransform`, exactly as the file wrote it.
+    pub(super) transform: Object,
+}
+
+/// Every `Separation` array the file's cross-referenced objects state, in object order.
+///
+/// **The whole file rather than the validator's findings, and that is the one place in this module
+/// where it has to be.** A finding names the *later* array of a disagreeing pair; choosing which
+/// definition an archive keeps is a choice among all of them, so a population of the findings alone
+/// would be a choice among the losers. What is read here is §8.6.6.4's array shape and nothing of
+/// ISO 19005 — which requirement failed, and where, stays `pdf_archive`'s.
+pub(super) fn separation_uses(document: &Document) -> Vec<SeparationUse> {
+    let mut found = Vec::new();
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId::new(number, 0));
+        collect_separation_uses(document, &object, 0, &mut found);
+    }
+    found
+}
+
+/// One object's contribution to [`separation_uses`].
+fn collect_separation_uses(
+    document: &Document,
+    object: &Object,
+    depth: usize,
+    found: &mut Vec<SeparationUse>,
+) {
+    if depth >= MAX_ENTRY_DEPTH {
+        return;
+    }
+    let deeper = depth.saturating_add(1);
+    match object {
+        Object::Array(items) => {
+            if let Some(use_) = as_separation_use(document, items) {
+                found.push(use_);
+            }
+            for item in items {
+                collect_separation_uses(document, item, deeper, found);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_, value) in dict.iter() {
+                collect_separation_uses(document, value, deeper, found);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, value) in stream.dict.iter() {
+                collect_separation_uses(document, value, deeper, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// An array read as §8.6.6.4's four-element `Separation`, or `None` where it is not one.
+fn as_separation_use(document: &Document, items: &[Object]) -> Option<SeparationUse> {
+    let colourant = separation_colourant(document, items)?;
+    Some(SeparationUse {
+        colourant,
+        alternate: items.get(2)?.clone(),
+        transform: items.get(3)?.clone(),
+    })
+}
+
+/// Writes the agreed definition into every `Separation` array inside `dict` whose colourant is
+/// named, and answers which colourants were reached.
+///
+/// The descent is [`place_colorants`]', and for the same reason: a colour space written inside a
+/// page's resource dictionary is reported at the page, so the object is descended rather than
+/// edited at its top level. References are not followed — an array written as its own object is
+/// reached as that object, by [`agree_separations_in`].
+pub(super) fn agree_separations(
+    document: &Document,
+    dict: &mut Dictionary,
+    agreed: &BTreeMap<Vec<u8>, (Object, Object)>,
+    depth: usize,
+) -> BTreeSet<Vec<u8>> {
+    let mut reached = BTreeSet::new();
+    if depth >= MAX_ENTRY_DEPTH {
+        return reached;
+    }
+    let deeper = depth.saturating_add(1);
+    let inside: Vec<(Name, Object)> = dict
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    for (key, value) in inside {
+        let mut held = value;
+        if agree_in_value(document, &mut held, agreed, deeper, &mut reached) {
+            dict.insert(key, held);
+        }
+    }
+    reached
+}
+
+/// The same, for an object that is the `Separation` array itself.
+pub(super) fn agree_separations_in(
+    document: &Document,
+    value: &mut Object,
+    agreed: &BTreeMap<Vec<u8>, (Object, Object)>,
+) -> BTreeSet<Vec<u8>> {
+    let mut reached = BTreeSet::new();
+    agree_in_value(document, value, agreed, 0, &mut reached);
+    reached
+}
+
+/// One value, and whether agreeing changed it.
+fn agree_in_value(
+    document: &Document,
+    value: &mut Object,
+    agreed: &BTreeMap<Vec<u8>, (Object, Object)>,
+    depth: usize,
+    reached: &mut BTreeSet<Vec<u8>>,
+) -> bool {
+    match value {
+        Object::Dictionary(dict) => {
+            let inner = agree_separations(document, dict, agreed, depth);
+            let changed = !inner.is_empty();
+            reached.extend(inner);
+            changed
+        }
+        Object::Array(items) => {
+            if depth >= MAX_ENTRY_DEPTH {
+                return false;
+            }
+            let mut changed = agree_one_separation(document, items, agreed, reached);
+            for item in items {
+                changed |= agree_in_value(document, item, agreed, depth.saturating_add(1), reached);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+/// One array, given the definition its colourant's uses are to agree on.
+///
+/// Elements 2 and 3 are replaced together, because §8.6.6.4 makes them one statement: the
+/// tintTransform "shall be called with the tint value and shall return the corresponding colour
+/// component values", and "the number of components and the interpretation of their values shall
+/// depend on the alternate colour space" — so a transform written beside another space is a
+/// function whose output nothing reads.
+fn agree_one_separation(
+    document: &Document,
+    items: &mut [Object],
+    agreed: &BTreeMap<Vec<u8>, (Object, Object)>,
+    reached: &mut BTreeSet<Vec<u8>>,
+) -> bool {
+    let Some(colourant) = separation_colourant(document, items) else {
+        return false;
+    };
+    let Some((alternate, transform)) = agreed.get(&colourant) else {
+        return false;
+    };
+    let mut changed = false;
+    if let Some(slot) = items.get_mut(2)
+        && !pdf_archive::same_parameter(document, slot, alternate)
+    {
+        *slot = alternate.clone();
+        changed = true;
+    }
+    if let Some(slot) = items.get_mut(3)
+        && !pdf_archive::same_parameter(document, slot, transform)
+    {
+        *slot = transform.clone();
+        changed = true;
+    }
+    if changed {
+        reached.insert(colourant);
+    }
+    changed
+}

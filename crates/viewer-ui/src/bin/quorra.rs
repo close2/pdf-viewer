@@ -413,6 +413,7 @@ fn main() {
         // needed to show page one, so the session is not asked for one until somebody copies.
         platform_clipboard: viewer_ui::clipboard::Clipboard::new(),
         drawing: None,
+        printing: false,
         pages: viewer_host::Miniatures::new(),
         page_count: 0,
         information: pdf_model::metadata::Information::default(),

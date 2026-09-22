@@ -1038,6 +1038,11 @@ mod command_kind {
     // document and therefore writes §7.5.6's update, and only the host has a clock at all
     // (ADR 1160).
     pub(super) const CLOCK: u8 = 32;
+    // §7.6.4.2's bit 3 asked as an operation, and the sheet the pages go onto. It crosses for
+    // `COPY`'s reason — the confined worker holds the document and therefore the policy, and a
+    // query could not be asked, held or refused — and because the interpretation the whole print
+    // path rests on is the worker's (ADR 1180).
+    pub(super) const PRINT: u8 = 33;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1405,6 +1410,33 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 }
             }
         }
+        // Table 194's percentages are of the media's dimensions and the scale is pixels per unit,
+        // so all five numbers are the sender's and none is derived on this side.
+        Command::Print(printing) => {
+            let (tag, sheet) = match printing {
+                viewer_core::Printing::Start(sheet) => (1, Some(sheet)),
+                viewer_core::Printing::Paper(sheet) => (2, Some(sheet)),
+                viewer_core::Printing::Finish => (0, None),
+            };
+            writer.u8(k::PRINT).u8(tag);
+            if let Some(sheet) = sheet {
+                // Table 193's "not known" crosses as its own byte rather than as a rectangle of
+                // no extent, because the two are different answers: one says the media box
+                // stands in, and the other would place a watermark at a percentage of nothing.
+                match sheet.media {
+                    Some(media) => {
+                        writer.u8(1);
+                        for corner in media {
+                            writer.f32(corner);
+                        }
+                    }
+                    None => {
+                        writer.u8(0);
+                    }
+                }
+                writer.f32(sheet.scale);
+            }
+        }
         Command::RenderReady { .. } => {
             return Err(Uncarried {
                 message: "Command::RenderReady",
@@ -1580,6 +1612,54 @@ pub(crate) fn decode_command_holding(
                 second,
                 offset: zoned.then_some(offset),
             }))
+        }
+        k::PRINT => {
+            let tag = reader.u8("which end of a print operation")?;
+            if tag == 0 {
+                Command::Print(viewer_core::Printing::Finish)
+            } else {
+                let media = match reader.u8("whether the target media is known")? {
+                    0 => None,
+                    1 => {
+                        let mut media = [0.0_f32; 4];
+                        for corner in &mut media {
+                            *corner = reader.f32("a sheet's corner")?;
+                        }
+                        Some(media)
+                    }
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "whether the target media is known",
+                            value: u32::from(value),
+                        });
+                    }
+                };
+                let scale = reader.f32("a print resolution")?;
+                // A scale that is not a finite positive number is a target nobody could
+                // rasterise, and the worker is the untrusted side of a wire whose sender it does
+                // not choose. `TargetSpec::for_page` would refuse it too, one page at a time and
+                // as though the document were at fault.
+                if !scale.is_finite()
+                    || scale <= 0.0
+                    || !media.iter().flatten().all(|corner| corner.is_finite())
+                {
+                    return Err(ProtocolError::Unbuildable {
+                        what: "a print sheet",
+                        why: "a corner or a resolution that is not a finite number",
+                    });
+                }
+                let sheet = viewer_core::Sheet { media, scale };
+                match tag {
+                    1 => Command::Print(viewer_core::Printing::Start(sheet)),
+                    2 => Command::Print(viewer_core::Printing::Paper(sheet)),
+                    value => {
+                        return Err(ProtocolError::Unrecognised {
+                            what: "which end of a print operation",
+                            value: u32::from(value),
+                        });
+                    }
+                }
+            }
         }
         k::RESTRICT => {
             let scope = reader.u8("a restriction scope")?;
@@ -2076,6 +2156,10 @@ mod event_kind {
     pub(super) const SUBMIT: u8 = 19;
     /// `Command::Copy` granted, with §14.8.2.5's two orders of the text. ADR 1144.
     pub(super) const COPIED: u8 = 20;
+    // The grant `PRINT` asked for: this document is interpreted for paper until the operation
+    // ends. It crosses because the window process is the one with a printer and the worker is
+    // the one with the document (ADR 1180).
+    pub(super) const PRINTING: u8 = 21;
 }
 
 /// Encodes one event.
@@ -2242,6 +2326,9 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .document(*document)
                 .option_str(logical.as_deref())
                 .str(page_order);
+        }
+        Event::Printing { document, pages } => {
+            writer.u8(k::PRINTING).document(*document).usize(*pages);
         }
         Event::Refused {
             document,
@@ -2448,6 +2535,10 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             document: reader.document(what)?,
             logical: reader.option_string("§14.8.2.5's logical content order")?,
             page_order: reader.string("the selected text")?,
+        },
+        k::PRINTING => Event::Printing {
+            document: reader.document(what)?,
+            pages: reader.usize("how many pages a print operation has")?,
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
@@ -2667,6 +2758,10 @@ mod query_kind {
     // Where the reader is looking, since the eight-hundred-and-fifth session: the question a host
     // holds per frame so that a worker's death costs the reader nothing but the wait. ADR 0737.
     pub(super) const VIEW: u8 = 32;
+    // One page of a print operation, at the printer's resolution. It crosses because the worker
+    // holds the document and therefore the interpretation; the window process holds the printer
+    // (ADR 1180).
+    pub(super) const PRINT_PAGE: u8 = 33;
 }
 
 /// Encodes one question.
@@ -2774,6 +2869,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         Query::Thumbnail(index) => {
             writer.u8(k::THUMBNAIL).usize(index);
         }
+        Query::PrintPage(index) => {
+            writer.u8(k::PRINT_PAGE).usize(index);
+        }
         Query::Properties => {
             writer.u8(k::PROPERTIES);
         }
@@ -2848,6 +2946,7 @@ pub(crate) enum PlainQuery {
     Collection,
     Articles,
     Thumbnail(usize),
+    PrintPage(usize),
     Properties,
     Opening,
     Preferences,
@@ -2889,6 +2988,7 @@ impl OwnedQuery {
                 PlainQuery::Collection => Query::Collection,
                 PlainQuery::Articles => Query::Articles,
                 PlainQuery::Thumbnail(index) => Query::Thumbnail(index),
+                PlainQuery::PrintPage(index) => Query::PrintPage(index),
                 PlainQuery::Properties => Query::Properties,
                 PlainQuery::Opening => Query::Opening,
                 PlainQuery::Preferences => Query::Preferences,
@@ -2952,6 +3052,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         k::COLLECTION => OwnedQuery::Plain(PlainQuery::Collection),
         k::ARTICLES => OwnedQuery::Plain(PlainQuery::Articles),
         k::THUMBNAIL => OwnedQuery::Plain(PlainQuery::Thumbnail(reader.usize("a page index")?)),
+        k::PRINT_PAGE => OwnedQuery::Plain(PlainQuery::PrintPage(reader.usize("a page index")?)),
         k::PROPERTIES => OwnedQuery::Plain(PlainQuery::Properties),
         k::OPENING => OwnedQuery::Plain(PlainQuery::Opening),
         k::PREFERENCES => OwnedQuery::Plain(PlainQuery::Preferences),
@@ -3013,6 +3114,8 @@ mod answer_kind {
     pub(super) const READBACK: u8 = 32;
     // Where the reader is looking, since the eight-hundred-and-fifth session. ADR 0737.
     pub(super) const VIEW: u8 = 33;
+    // One page of a print operation, as marks and a target — `query_kind::PRINT_PAGE`'s answer.
+    pub(super) const PRINT_PAGE: u8 = 34;
 }
 
 /// Encodes one answer.
@@ -3280,6 +3383,31 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
         Answer::Thumbnail(thumbnail) => {
             writer.u8(k::THUMBNAIL);
             panels::encode_thumbnail(&mut writer, thumbnail);
+        }
+        // The list is encoded whole rather than through `Marks`: that store exists to keep a
+        // *frame* from crossing twice while a reader scrolls, and a print job asks for each page
+        // once. A refused target crosses as its absence, with the worker's own sentence among
+        // the reports — see `viewer_core::PrintPage`.
+        Answer::PrintPage(page) => {
+            let bytes = display_list::encode(&page.list).map_err(|_| Uncarried {
+                message: "Answer::PrintPage",
+                reason: "the page's marks are one of the four `display_list::Uncodable` names \
+                         this format does not carry, and a print page has no pixel arm to fall \
+                         back to: a frame that cannot cross as marks crosses as the raster the \
+                         confined process already drew, and a page at the printer's resolution \
+                         is not drawn there at all",
+            })?;
+            writer.u8(k::PRINT_PAGE).usize(page.page);
+            match page.target {
+                Some(target) => {
+                    writer.u8(1).u32(target.width).u32(target.height);
+                    display_list::write_transform(&mut writer, target.transform);
+                }
+                None => {
+                    writer.u8(0);
+                }
+            }
+            writer.bytes(&bytes).strings(&page.reports);
         }
         Answer::Popups(popups) => {
             writer.u8(k::POPUPS);
@@ -3609,6 +3737,53 @@ pub(crate) fn decode_answer_reusing(
         },
         k::ARTICLES => Reply::Articles(panels::decode_articles(&mut reader)?),
         k::THUMBNAIL => Reply::Thumbnail(panels::decode_thumbnail(&mut reader)?),
+        k::PRINT_PAGE => {
+            let page = reader.usize("a print page's index")?;
+            let target = match reader.u8("whether a print page has a target")? {
+                0 => None,
+                1 => {
+                    let width = reader.u32("a print target's width")?;
+                    let height = reader.u32("a print target's height")?;
+                    // The same bounds every render target crosses under, and for the same
+                    // reason: the worker is the untrusted side, so a dimension it states is a
+                    // claim rather than a number.
+                    if width > pdf_render::MAX_EXTENT || height > pdf_render::MAX_EXTENT {
+                        return Err(ProtocolError::Unbuildable {
+                            what: "a print target",
+                            why: "a dimension past what an f32 resolves to a fraction of a pixel",
+                        });
+                    }
+                    if u64::from(width).saturating_mul(u64::from(height)) > viewer_core::MAX_PIXELS
+                    {
+                        return Err(ProtocolError::Unbuildable {
+                            what: "a print target",
+                            why: "more pixels than a render request is held to",
+                        });
+                    }
+                    let transform = display_list::read_transform(&mut reader, "a print target")?;
+                    Some(pdf_render::TargetSpec {
+                        width,
+                        height,
+                        transform,
+                    })
+                }
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "whether a print page has a target",
+                        value: u32::from(value),
+                    });
+                }
+            };
+            let list = std::sync::Arc::new(display_list::decode(
+                reader.bytes("a print page's display list")?,
+            )?);
+            Reply::PrintPage {
+                page,
+                list,
+                target,
+                reports: reader.strings("a print page's reports")?,
+            }
+        }
         k::PROPERTIES => {
             let (information, metadata) = panels::decode_properties(&mut reader)?;
             Reply::Properties {
@@ -3775,6 +3950,18 @@ mod tests {
             )),
             Command::Restrict(RestrictionScope::Document(RestrictionOverride::NONE)),
             Command::Copy,
+            // §7.6.4.2's bit 3, and all three ends of §8.11.4.5's print operation: a sheet
+            // somebody chose, Table 193's "not known" — which is a different answer and not a
+            // missing one — and the revert the clause requires (ADR 1180).
+            Command::Print(viewer_core::Printing::Start(viewer_core::Sheet {
+                media: Some([0.0, 0.0, 595.0, 842.0]),
+                scale: 300.0 / 72.0,
+            })),
+            Command::Print(viewer_core::Printing::Paper(viewer_core::Sheet {
+                media: None,
+                scale: 150.0 / 72.0,
+            })),
+            Command::Print(viewer_core::Printing::Finish),
             // §12.8.1's third question: the empty policy every host starts with, and a populated
             // one. Both, because the empty set is not a degenerate case — it is this program's
             // standing answer (ADR 1039) and a wire that lost it would turn *nobody named one*
@@ -4332,6 +4519,7 @@ mod tests {
             Query::Collection,
             Query::Articles,
             Query::Thumbnail(7),
+            Query::PrintPage(7),
             Query::Properties,
             Query::Opening,
             Query::Preferences,
@@ -4341,7 +4529,7 @@ mod tests {
             Query::Readback,
             Query::View,
         ];
-        assert_eq!(carried.len(), 32, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 33, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

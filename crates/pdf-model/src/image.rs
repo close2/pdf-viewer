@@ -708,11 +708,23 @@ fn samples_of(
             // The codestream's grid rather than the dictionary's, on §7.4.8's own statement of
             // where a JPEG's dimensions live; [`decode_jpeg`] has the reading and says why the
             // two disagreeing costs no mark.
+            //
+            // Table 13's `/ColorTransform` is read out of the filter's own parameter dictionary
+            // and nowhere else, because that is the one place both clauses mentioning it put a
+            // filter's parameters — §7.4.1's "These optional parameters shall be specified by
+            // the DecodeParms entry in the stream's dictionary", and this clause's own "the
+            // parameter need not be present in the encoded data but shall be specified in the
+            // filter parameter dictionary". ADR 1183.
+            let stated = source
+                .parms
+                .as_ref()
+                .map(|parms| document.get_key(parms, "ColorTransform"))
+                .and_then(|value| value.as_integer());
             let DecodedJpeg {
                 samples: mut rgba,
                 components,
                 grid,
-            } = decode_jpeg(&source.data)?;
+            } = decode_jpeg(&source.data, stated)?;
             // §8.9.6.4's ranges cover "colour components before decoding", which for this
             // filter are the bytes just answered with; the conversion below replaces them, so
             // the test is taken here and its answer applied afterwards. It cannot be applied
@@ -2395,25 +2407,166 @@ fn ycck_to_cmyk(pixels: &mut [u8]) {
         ) else {
             continue;
         };
-        let (y, cb, cr) = (f32::from(y), f32::from(cb) - 128.0, f32::from(cr) - 128.0);
-        // ITU-T T.871's inverse, which is the one JFIF states and the one every JPEG decoder
-        // implements; the clamp is the standard's own, since the transform's range exceeds a byte.
-        let clamp = |value: f32| {
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "clamped to 0..=255 on the line above, which is what makes it a byte"
-            )]
-            let byte = value.clamp(0.0, 255.0).round() as u8;
-            255_u8.saturating_sub(byte)
-        };
-        let red = clamp(1.402_f32.mul_add(cr, y));
-        let green = clamp((-0.714_136_f32).mul_add(cr, (-0.344_136_f32).mul_add(cb, y)));
-        let blue = clamp(1.772_f32.mul_add(cb, y));
+        let [red, green, blue] = jfif_inverse(y, cb, cr);
         if let Some(three) = pixel.get_mut(..3) {
-            three.copy_from_slice(&[red, green, blue]);
+            three.copy_from_slice(&[
+                255_u8.saturating_sub(red),
+                255_u8.saturating_sub(green),
+                255_u8.saturating_sub(blue),
+            ]);
         }
     }
+}
+
+/// Undoes §7.4.8's Table 13 three-component transform, in place: `YCbCr` channels become `RGB`.
+///
+/// > If the image has three colour components, RGB values shall be transformed to YCbCr before
+/// > encoding and from YCbCr to RGB after decoding.
+///
+/// `zune-jpeg` does this itself for every frame it reads *as* `YCbCr`, and it is the whole of
+/// what this filter's default case asks for — so the only samples that reach here are a frame
+/// the decoder read as already `RGB` (its component identifiers spell the three letters) over
+/// which Table 13's entry states the transform anyway. [`decode_jpeg`] has that reading.
+fn ycbcr_to_rgb(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(3) {
+        let (Some(y), Some(cb), Some(cr)) = (
+            pixel.first().copied(),
+            pixel.get(1).copied(),
+            pixel.get(2).copied(),
+        ) else {
+            continue;
+        };
+        pixel.copy_from_slice(&jfif_inverse(y, cb, cr));
+    }
+}
+
+/// One sample through ITU-T T.871's inverse of the JFIF luminance-chrominance transform.
+///
+/// The one implementation of it in this crate, because both of Table 13's transforms are built
+/// on it: the three-component one is this and nothing else, and the four-component one is this
+/// over the first three channels with the inversion an Adobe four-component JPEG assumes left in
+/// place ([`ycck_to_cmyk`] says why that inversion is not undone).
+///
+/// The clamp is the standard's own, since the transform's range exceeds a byte.
+fn jfif_inverse(y: u8, cb: u8, cr: u8) -> [u8; 3] {
+    let (y, cb, cr) = (f32::from(y), f32::from(cb) - 128.0, f32::from(cr) - 128.0);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to 0..=255 in the same expression, which is what makes it a byte"
+    )]
+    let clamp = |value: f32| value.clamp(0.0, 255.0).round() as u8;
+    [
+        clamp(1.402_f32.mul_add(cr, y)),
+        clamp((-0.714_136_f32).mul_add(cr, (-0.344_136_f32).mul_add(cb, y))),
+        clamp(1.772_f32.mul_add(cb, y)),
+    ]
+}
+
+/// Whether §7.4.8's Table 13 says a codestream's samples are to be transformed, where it says.
+///
+/// `None` is the ranking ending without an answer, and the codestream's own declaration answers
+/// there — which is what the decoder inferred. Three things produce it: a component count Table 13
+/// describes nothing for, a stated code naming a channel count the frame does not have, and the
+/// clause's third case, where the default *is* stated and this tree departs from it for a reason
+/// ADR 1183 records.
+///
+/// The ranking is the clause's, in its order:
+///
+/// - **The marker.** "[T]he colours shall be transformed, or not, after the DCT decoding has
+///   been performed according to the value provided in the encoded data and the value of this
+///   dictionary entry shall be ignored." The *value* is Adobe's rather than Table 13's, which is
+///   what §7.4.8 defers to Adobe Technical Note #5116 for — 0 is no transformation, 1 names a
+///   three-channel one and 2 a four-channel one — and a code naming a channel count the frame
+///   does not have states nothing about this frame.
+/// - **The entry**, "[i]f the Adobe-defined marker code in the encoded data indicating the
+///   ColorTransform value is not present". Its values *are* Table 13's, and Table 13 states them
+///   in terms of the frame: 1 is `YCbCr → RGB` for three components and `YCbCrK → CMYK` for
+///   four, 0 is "No transformation", and the option "shall be ignored if the image has one or
+///   two colour components".
+/// - **The default**, with neither: "1 if the image has three components and 0 otherwise".
+#[expect(
+    clippy::doc_markdown,
+    reason = "verbatim quotations: Table 13 spells ColorTransform without backticks"
+)]
+fn colour_transform(data: &[u8], components: u8, stated: Option<i64>) -> Option<bool> {
+    // "This option shall be ignored if the image has one or two colour components", and a count
+    // outside three and four is one no part of Table 13 describes.
+    if components != 3 && components != 4 {
+        return None;
+    }
+    match adobe_transform(data) {
+        Some(0) => return Some(false),
+        Some(1) => return (components == 3).then_some(true),
+        Some(2) => return (components == 4).then_some(true),
+        // A code Adobe's marker does not define says nothing, and the entry is still ignored:
+        // the marker "indicating the ColorTransform value" is present.
+        Some(_) => return None,
+        None => {}
+    }
+    // Table 13 gives the entry two values and describes no others, so an entry stating anything
+    // else has specified no transformation code and falls through to the default — the same
+    // reading ADR 1177 gave a producer who writes the name where §7.4.1 puts no parameter.
+    //
+    // And with no entry either, the answer would be the clause's default, `Some(components == 3)`.
+    // It is `None` instead, and that is this tree's one departure from Table 13: where the frame's
+    // component identifiers spell `R`, `G`, `B` the decoder reads the samples as already
+    // transformed, and this tree keeps that reading against the clause's default of 1, on a page
+    // three other renderers agree with us about. ADR 1183 prices it.
+    match stated {
+        Some(0) => Some(false),
+        Some(1) => Some(true),
+        _ => None,
+    }
+}
+
+/// The transform code of a `DCTDecode` codestream's Adobe `APP14` marker segment, if it has one.
+///
+/// Walks ISO/IEC 10918-1's marker segments to the first scan rather than searching for bytes,
+/// for the reason [`defined_number_of_lines`] and `filter::jpeg_extent` do: an `APPn` segment
+/// may carry an entire second JPEG, whose own `APP14` is not this image's. Only a segment
+/// beginning with Adobe's `Adobe` identifier counts, which is the same test the decoder makes.
+fn adobe_transform(data: &[u8]) -> Option<u8> {
+    /// Walks the header segments, answering `None` on a codestream that runs out or is not one.
+    fn walk(data: &[u8]) -> Option<u8> {
+        if data.get(..2)? != [0xFF, 0xD8] {
+            return None;
+        }
+        let mut at = 2_usize;
+        loop {
+            // A marker is a run of `FF` and the byte after it.
+            if data.get(at)? != &0xFF {
+                return None;
+            }
+            while data.get(at) == Some(&0xFF) {
+                at = at.checked_add(1)?;
+            }
+            let marker = *data.get(at)?;
+            at = at.checked_add(1)?;
+            match marker {
+                // `SOS`: everything after this is entropy-coded data, and a header segment
+                // cannot follow it.
+                0xDA => return None,
+                // The standalone markers, which carry no length.
+                0x01 | 0xD0..=0xD9 => continue,
+                _ => {}
+            }
+            // The two-byte length counts itself.
+            let length = usize::from(u16::from_be_bytes([
+                *data.get(at)?,
+                *data.get(at.checked_add(1)?)?,
+            ]));
+            let payload = data.get(at.checked_add(2)?..at.checked_add(length)?)?;
+            // `Adobe`, a two-byte version, two-byte `flags0`, two-byte `flags1`, then the
+            // transform byte — so a segment too short to hold one is not the marker either.
+            if marker == 0xEE && payload.get(..5) == Some(b"Adobe") {
+                return payload.get(11).copied();
+            }
+            at = at.checked_add(length)?;
+        }
+    }
+
+    walk(data)
 }
 
 /// What a `DCTDecode` codestream answered with.
@@ -2598,11 +2751,53 @@ fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
         .set_max_height(AXIS)
 }
 
+/// # Table 13's `/ColorTransform`, and which of its three cases `stated` reaches
+///
+/// `stated` is the entry as the filter's parameter dictionary writes it, or `None` where it
+/// writes none. §7.4.8's Table 13 ranks three cases and this function executes all three:
+///
+/// > If the encoding algorithm has inserted the Adobe-defined marker code in the encoded data
+/// > indicating the ColorTransform value, then the colours shall be transformed, or not, after
+/// > the DCT decoding has been performed according to the value provided in the encoded data and
+/// > the value of this dictionary entry shall be ignored. If the Adobe-defined marker code in
+/// > the encoded data indicating the ColorTransform value is not present then the value
+/// > specified in this dictionary entry will be used. If the Adobe-defined marker code (APP14)
+/// > in the encoded data indicating the ColorTransform value is not present and this dictionary
+/// > entry is not present in the filter dictionary then the default value of ColorTransform
+/// > shall be 1 if the image has three components and 0 otherwise.
+///
+/// An `APP14` segment therefore silences the entry, which [`adobe_transform`] is here to detect:
+/// `zune-jpeg` reads the marker's value but reports it through the same `input_colorspace()` it
+/// reports its own defaults through — a three-component frame is `YCbCr` whether the marker said
+/// so or was absent — so the marker has to be read off the codestream separately or the clause's
+/// three cases cannot be told apart. [`colour_transform`] is the ranking.
+///
+/// What the entry asks for is stated in terms of the frame's component count — "If the image
+/// has three colour components, RGB values shall be transformed to YCbCr before encoding and
+/// from YCbCr to RGB after decoding. If the image has four components, CMYK values shall be
+/// transformed to YCbCrK before encoding and from YCbCrK to CMYK after decoding" — and a
+/// sentence above both takes the small counts out: "This option shall be ignored if the image
+/// has one or two colour components".
+///
+/// **The marker and the entry are both honoured over the frame's component identifiers.** A
+/// three-component frame whose identifiers spell `R`, `G`, `B` is read by `zune-jpeg` as
+/// already transformed, and no clause of ISO 32000-2 or of ISO/IEC 10918-1 gives an identifier
+/// any meaning — the convention is `libjpeg`'s, and a convention no standard defines does not
+/// outrank a value this clause reads. What is left to the identifiers is the third case alone,
+/// where this tree departs from the clause's stated default of 1 for a page
+/// `AMBIGUOUS_JPEG_COMPONENT_IDS` in `oracle.rs` holds and ADR 1183 prices.
+///
 /// # Errors
 ///
 /// See [`ImageError`]. The grid the codestream states is bounded by [`MAX_SAMPLES`] here,
 /// because it is no longer the dictionary's grid that [`decode_parts`] already checked.
-fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
+#[expect(
+    clippy::doc_markdown,
+    reason = "verbatim quotations: Table 13 spells ColorTransform and YCbCrK without backticks"
+)]
+fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageError> {
+    use zune_jpeg::zune_core::colorspace::ColorSpace;
+
     let data = frame_as_defined(data);
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
@@ -2665,15 +2860,38 @@ fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
     // `Unimplemented colorspace mapping from RGB to CMYK` — 21 images over four documents of a
     // 4000-document web sample, whole photographs lost (ADR 0266).
     let input = decoder.input_colorspace();
-    let four = info.components == 4
-        && matches!(
-            input,
-            Some(
-                zune_jpeg::zune_core::colorspace::ColorSpace::CMYK
-                    | zune_jpeg::zune_core::colorspace::ColorSpace::YCCK
-            )
-        );
-    if let Some(space) = input.filter(|_| four) {
+    let four = info.components == 4 && matches!(input, Some(ColorSpace::CMYK | ColorSpace::YCCK));
+    // Table 13's ranking, in the order the clause states it: the Adobe `APP14` segment, then the
+    // filter's parameter dictionary, then the clause's own default. `None` is where the ranking
+    // reaches its end without an answer, and there the codestream's own declaration is what
+    // decides — which is `zune-jpeg`'s inference, already in `input`. ADR 1183.
+    let transform = colour_transform(&data, info.components, stated);
+    // Where this crate applies the transform rather than the decoder, the decoder is asked for the
+    // frame's own components untouched — which `zune-jpeg` gives when the space asked for out is
+    // the one it read in, since an input and an output that agree are a copy to it. That is every
+    // four-component frame, and a three-component one whose transform this crate is about to
+    // decide against the decoder's own reading.
+    //
+    // **A three-component frame's `input_colorspace()` is provisional and its untouched space is
+    // therefore named rather than echoed**: the Adobe marker's transform 0 maps to `CMYK` at the
+    // marker and is corrected to `RGB` only once the frame has been read (ADR 0266), so echoing
+    // it here would ask a three-channel decode for four channels — which is not a conversion the
+    // decoder has. `RGB` is the corrected answer in that case and in the identifiers' case alike,
+    // and `YCbCr` in the remaining one.
+    let untouched = if four {
+        input
+    } else if info.components == 3
+        && (transform == Some(false) || (transform == Some(true) && input == Some(ColorSpace::RGB)))
+    {
+        Some(if input == Some(ColorSpace::YCbCr) {
+            ColorSpace::YCbCr
+        } else {
+            ColorSpace::RGB
+        })
+    } else {
+        None
+    };
+    if let Some(space) = untouched {
         decoder.set_options(jpeg_options().jpeg_set_out_colorspace(space));
     }
 
@@ -2683,11 +2901,18 @@ fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
     let mut pixels = decoder.decode().map_err(|e| ImageError::Malformed {
         detail: format!("JPEG data: {e}"),
     })?;
-    // Gated on `four` for the same reason: a *three*-component frame whose marker says transform 2
-    // is read as `YCbCr` by the decoder, and running the four-channel conversion over three
-    // channels would walk a `chunks_exact_mut(4)` across pixel boundaries rather than refuse.
-    if four && input == Some(zune_jpeg::zune_core::colorspace::ColorSpace::YCCK) {
+    // Table 13's transform, in the two places it is this crate's to apply rather than the
+    // decoder's. Four components always, because the decoder has no `YCCK → CMYK` of its own;
+    // three only where the decoder read the frame as already transformed and the clause says
+    // otherwise, which is [`colour_transform`]'s reading.
+    //
+    // Both arms are gated on the count the samples are actually on, for the reason the first was
+    // when it was the only one: a *three*-component frame the decoder resolved to `YCbCr` would
+    // have a `chunks_exact_mut(4)` walked across its pixel boundaries rather than refused.
+    if components == 4 && transform.unwrap_or(input == Some(ColorSpace::YCCK)) {
         ycck_to_cmyk(&mut pixels);
+    } else if components == 3 && transform == Some(true) && input == Some(ColorSpace::RGB) {
+        ycbcr_to_rgb(&mut pixels);
     }
     let count = usize::from(info.width).saturating_mul(usize::from(info.height));
 

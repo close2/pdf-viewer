@@ -757,20 +757,80 @@ impl DisplayList {
         }
     }
 
-    /// Records that a command in this list carries [`crate::BlendMode::Overprint`].
+    /// Records that the builder *chose* §11.7.4.3's special overprinting blend mode while
+    /// building this list.
     ///
-    /// A page is interpreted into one list — a soft mask's group, a tiling pattern's cell and
-    /// a form's content are all built on it and split back out — so one flag set where the
-    /// mode is chosen answers for the whole list, and no backend pays a walk to find out.
-    /// `render-gpu` and `render-raster` read it to refuse the list by name: neither
-    /// rasteriser's scene vocabulary has a mode outside Table 135's sixteen, and a page drawn
-    /// as though the document had not asked for overprinting is the silent divergence the
-    /// cross-backend comparison exists to prevent. ADR 1157.
+    /// **This is a hint and not the verdict.** Choosing the mode and emitting a command under
+    /// it are two different events: a mode is asked for once per painting operator and per
+    /// part, before the operator knows whether that part marks the page at all, and a run of
+    /// content that drew under the mode can be thrown away and run again in a space that
+    /// cannot reach it. [`DisplayList::settle_overprinting`] is what turns this into the
+    /// question a backend actually asks. ADR 1181.
     pub fn note_overprinting(&mut self) {
         self.overprinting = true;
     }
 
+    /// Settles [`DisplayList::overprints`] against the commands this list actually holds.
+    ///
+    /// Asked of the finished list rather than at each site a mark is pushed, for the reason
+    /// [`DisplayList::noninvertible_marks`] is: the condition is a property of the command,
+    /// and one walk cannot miss a route into the list or be left standing by a route out of
+    /// it. The walk is gated on [`DisplayList::note_overprinting`] having fired, so a page
+    /// that never reaches the mode — every page but the fraction
+    /// `pdf-model`'s `examples/overprint_ink_group_census` counts — pays one boolean test and
+    /// no walk at all. ADR 1181.
+    ///
+    /// **It narrows and never widens**, which is what the gate means: a builder says where it
+    /// chose the mode and this says whether the choice reached a command. A list assembled by
+    /// hand therefore carries the mode only if it states the hint as well as the command.
+    ///
+    /// Idempotent: settling a settled list asks the same question of the same commands.
+    pub fn settle_overprinting(&mut self) {
+        if !self.overprinting {
+            return;
+        }
+        self.overprinting = self.soft_masks.iter().any(|mask| {
+            Self::commands_overprint(&mask.commands)
+                || mask
+                    .black
+                    .as_ref()
+                    .is_some_and(|half| Self::commands_overprint(&half.commands))
+        }) || Self::commands_overprint(&self.commands);
+    }
+
+    /// Whether any of `commands`, or anything nested in one of them, carries
+    /// [`crate::BlendMode::Overprint`].
+    fn commands_overprint(commands: &[Command]) -> bool {
+        commands.iter().any(|command| {
+            matches!(command.blend(), BlendMode::Overprint(_))
+                || match command {
+                    Command::Group {
+                        commands, blending, ..
+                    } => {
+                        Self::commands_overprint(commands)
+                            || blending
+                                .as_deref()
+                                .and_then(GroupBlending::black)
+                                .is_some_and(Self::commands_overprint)
+                    }
+                    Command::Shaped { object, shape } => {
+                        Self::commands_overprint(std::slice::from_ref(object.as_ref()))
+                            || Self::commands_overprint(std::slice::from_ref(shape.as_ref()))
+                    }
+                    Command::Fill { .. } | Command::Stroke { .. } | Command::Image { .. } => false,
+                }
+        })
+    }
+
     /// Whether any command here composites under §11.7.4.3's special overprinting blend mode.
+    ///
+    /// `render-gpu` and `render-raster` read it to refuse the list by name: neither
+    /// rasteriser's scene vocabulary has a mode outside Table 135's sixteen, and a page drawn
+    /// as though the document had not asked for overprinting is the silent divergence the
+    /// cross-backend comparison exists to prevent. So the answer has to be **exactly** whether
+    /// a command under the mode is here — a refusal for a mark that is not on the page costs
+    /// the page its backend for nothing. [`DisplayList::settle_overprinting`] is what makes it
+    /// that. ADRs 1157, 1181.
     #[must_use]
     pub fn overprints(&self) -> bool {
         self.overprinting

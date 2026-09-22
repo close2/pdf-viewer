@@ -1,6 +1,25 @@
 # RFC 0004 — Print support and print preview
 
-Status: **draft**
+Status: **partly built** — sections 4, 5 and 6 as far as one round carried them; sections 3, 7 and
+the open questions of section 10 still as proposed.
+
+**What is built** (ADRs 1179 and 1180): section 4's print intent, whole — Table 167's bits 2, 3 and
+6 re-decided by what the output is for, §8.11.4.5's `Print` event applied and reverted, §12.5.6.22's
+fixed print watermark against the sheet, form fields printed from their current appearance, no
+chrome. Section 3's Route B and its DPI policy, in `viewer_host::printing`. Section 5's entry point
+in all four windows, on **Shift and P rather than Ctrl+P** — the key table takes no modifier but
+Shift and says why, and `p` unshifted is §12.4.4's presentation. `quorra-gtk` prints through
+`GtkPrintOperation`; the other three windows show what would print and say they have no printer.
+Section 6's preview, in the form the recommendation asked for and not yet as a panel: the pages on
+the screen are interpreted for paper for the duration of the operation.
+
+**What is not**: the print panel and its paper composition (section 6's picture), page ranges,
+scale modes and n-up; the Qt bridge for `QPrinter`; the winit panel and IPP submission; the spool
+container of section 5, and with it the scope sentence of section 9 that the owner has not
+answered. Section 10's questions 2, 3, 4, 5 and 6 are still open; question 1 is answered by Route B
+being what is built, and question 7 by `Operation::Print` going through `restriction::asserted` at
+the four levels.
+
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — page ranges and any spool-shaping derivative
 go through it), RFC 0003 (file-system faces), RFC 0005 (text editing). Numbering was

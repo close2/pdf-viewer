@@ -58,6 +58,10 @@
 //! - [`copying`] — §14.8.2.5's two content orders, and which of them the text a person copies out
 //!   of the program is in. The *clipboard* is a platform surface and there are four of them here;
 //!   which order to hand it, and what to say about the one it did not get, is one decision.
+//! - [`printing`] — §12.2's half of Table 147 as the state a print dialogue opens in, and the
+//!   resolution a printed page is drawn at. `GtkPrintOperation` against `QPrinter` against an IPP
+//!   attribute is what a print system is; which of Table 147's eight entries each of them is
+//!   opening on, and the budget RFC 0004 puts on the resolution, is one decision.
 //! - [`keys`] — what a key press means, once it has reached the page. Three windowed hosts had
 //!   three tables and they disagreed about the arrows, about `f` and about Escape; the *toolkit
 //!   key* is `gdk::Key` against `Qt::Key` against `winit::keyboard::Key` and what a press means is
@@ -123,6 +127,7 @@ pub mod password;
 pub mod policy;
 pub mod popup;
 pub mod presentation;
+pub mod printing;
 pub mod report;
 pub mod restriction;
 pub mod status;
@@ -152,6 +157,7 @@ pub use policy::{
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};
+pub use printing::Defaults as PrintDefaults;
 pub use restriction::{Chose, Entry, Question, Restrictions, Row, Scope, asked, chosen, declined};
 pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,

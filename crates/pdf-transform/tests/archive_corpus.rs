@@ -463,3 +463,129 @@ fn preserving_forbidden_annotations_relocates_where_it_can() {
     }
     println!("preserve: {relocated} appearance(s) relocated onto their producer's own page in all");
 }
+
+/// What the separation-supply census found at one target.
+///
+/// **A census of its own, for [`preserve_sweep`]'s reason**: the two sweeps above answer what a
+/// caller gets with nothing configured and with every *loss* authorised, and a configured remedy is
+/// neither. `graphics/separations-of-one-name-agree` is answered by an operator naming which of a
+/// colourant's definitions their archive means (`doc/adr/1188`), so what it converts is invisible to
+/// a sweep that supplies nothing.
+#[derive(Debug, Default)]
+struct Agreed {
+    /// Documents the supply converted that refused without it.
+    converted: usize,
+    /// Colourants whose definitions the supply decided, over those documents.
+    colourants: usize,
+    /// Documents that failed the requirement and still refused with the supply in hand.
+    still_refused: usize,
+}
+
+/// Converts every document under `part` with the separation supply answered, and tallies it.
+fn separation_sweep(root: &Path, part: &str, target: Target, winner: &str) -> Agreed {
+    let mut census = Agreed::default();
+    let site = "graphics/separations-of-one-name-agree";
+    for path in documents(root, part) {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(document) = Document::open_with_limits(bytes.clone(), Limits::DEFAULT) else {
+            continue;
+        };
+        let fails = pdf_archive::check(&document, target)
+            .failures()
+            .any(|judgement| judgement.id == site);
+        drop(document);
+        if !fails {
+            continue;
+        }
+        let text = format!("[site.\"{site}\"]\nremedy = \"supply\"\nwinner = \"{winner}\"\n");
+        let config = pdf_transform::archive::Configuration::read(&text, target)
+            .expect("the configuration reads");
+        let sinks = MemorySinks::new();
+        let report = apply(
+            &Plan::Archive(ArchivePlan {
+                source: 0,
+                names: "out.pdf".parse().expect("a pattern"),
+                target,
+                authorised: authorise_everything(),
+                profile: None,
+                substitute_fonts: true,
+                departures: Vec::new(),
+                claim_conformance: false,
+                derivations: Vec::new(),
+                supplies: config.supplies(target),
+                preservations: Vec::new(),
+                tool_outputs: ToolOutputs::new(),
+            }),
+            &[Source::new(bytes)],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        );
+        let report = report.unwrap_or_else(|refusal| {
+            panic!(
+                "{}: the conversion errored rather than refusing: {refusal}",
+                path.display()
+            )
+        });
+        let Some(conversion) = report.archive.as_ref() else {
+            continue;
+        };
+        let decided = conversion
+            .decided
+            .iter()
+            .find(|decided| decided.requirement == site);
+        match decided.map(|decided| &decided.decision) {
+            Some(Decision::Configured { .. }) => {
+                census.converted = census.converted.saturating_add(1);
+                census.colourants = census.colourants.saturating_add(
+                    conversion
+                        .supplied
+                        .iter()
+                        .filter(|row| row.site == site)
+                        .count(),
+                );
+            }
+            _ => census.still_refused = census.still_refused.saturating_add(1),
+        }
+        // Whatever the decision, the requirement must not survive a conversion that answered it:
+        // an output still failing it would be a supply that wrote the wrong definitions.
+        if let Some(output) = sinks.into_outputs().pop().map(|(_, bytes)| bytes) {
+            let held =
+                Document::open_with_limits(output, Limits::DEFAULT).expect("the output re-opens");
+            assert!(
+                !pdf_archive::check(&held, target)
+                    .failures()
+                    .any(|judgement| judgement.id == site),
+                "{}: a file was written that still fails the requirement the supply answered",
+                path.display()
+            );
+        }
+    }
+    census
+}
+
+#[test]
+#[ignore = "needs doc/veraPDF-corpus, which is 239 MB and not part of a checkout"]
+fn a_supplied_separation_winner_answers_the_documents_that_disagree() {
+    let Some(root) = corpus() else {
+        println!("doc/veraPDF-corpus is not here; nothing to sweep");
+        return;
+    };
+    // Both words, because they can pick different definitions and each has to reach every
+    // document: a word that answered fewer would be one an operator could choose and lose by.
+    for winner in ["first", "most-used"] {
+        for (part, target) in TARGETS {
+            let census = separation_sweep(&root, part, target, winner);
+            if census.converted == 0 && census.still_refused == 0 {
+                continue;
+            }
+            println!(
+                "separations {target} winner={winner}: {} document(s) converted, {} colourant(s) \
+                 decided, {} still refused",
+                census.converted, census.colourants, census.still_refused
+            );
+        }
+    }
+}

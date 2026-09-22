@@ -630,21 +630,34 @@ the non-isolated group the clause's last paragraph builds around one, and
 document no object of which carries Table 58's `/OP` or `/op` is not interpreted at all, which is
 what makes it affordable over 65 944 documents.
 
-**1826 documents and 9863 pages paint under the mode**, 27 435 261 marks; that is 2.8% of the
+**1788 documents and 9863 pages paint under the mode**, 27 435 261 marks; that is 2.7% of the
 documents that open, against the single corpus witness the feature was built against. **145
 documents and 493 pages do it under a non-Normal blend mode** — §11.7.4.3's implicit group — with
 42 075 of the 43 199 marks under `Multiply`. And **not one crawled page carries an
 `Unsupported::Overprint`**: both remaining reports are §11.4.6 NOTE 6's knockout case, and the web
 reaches neither.
 
-So the row this file gains is a backend one rather than a reading one. `render-raster` and
-`render-gpu` refuse a page by name whenever that flag is set, which was the conservative answer
-while the number was unknown; at 1826 documents it is the largest by-name coverage loss either
-carries, and `render-cpu` already draws them. **The flag is also 1.8% wider than the marks**:
-`content::overprint` sets it where it *computes* the mode and `path.rs` asks for the fill's and
-the stroke's before it asks whether either marks the page, so 177 of the 10 040 pages carrying the
-verdict have no command under it and are refused for a mark that is not there. Whoever narrows the
-refusal sets the flag where the command is emitted.
+So the row this file gains is a backend one rather than a reading one, and it is `render-raster`'s
+alone. That backend refuses a page by name whenever the flag is set and `render-cpu` draws them;
+`render-gpu` refuses every page *and* every group compositing in four components before it reaches
+the overprint test, so what its own refusal takes off it is the one position left over — a
+§11.6.5.1 soft-mask group with four components on a page whose space is the device's (ADR 1182
+section 2).
+
+**What it would take, and it is one Porter-Duff operator.** Substituting §11.7.4.3's two values of
+`B` into §11.3.6's formula collapses it: a kept component composites destination-over, every other
+source-over, one union alpha (ADR 1182, held against `render-cpu`'s own compositing function). Of
+the 27 435 261 marks, 13 772 602 keep all three channels, 13 650 173 keep none, and **12 486 keep a
+proper subset** — so **9734 of 9863 pages and 1711 of 1788 documents need nothing but
+`Compose::DestOver`**, and the per-channel choice is 77 documents. `raster_scene::Compose` has
+`SrcOver`, `Src`, `DestOut` and `Plus`, and the staged pair cannot stand in for destination-over
+(the missing factor is the destination's own alpha per pixel). `doc/QUORRA_FEEDBACK.md` section 49
+is the ask in those terms; `doc/questions/Q76` asks the owner who builds it.
+
+**The flag itself is no longer wider than the marks** (ADR 1181): it was set where the mode was
+*computed*, so 177 of the 10 040 pages carrying the verdict had no command under it, and the
+verdict is now settled against the commands the finished list holds. The census's own column for
+it is zero.
 
 ## What the five precedents have in common, and what the sixth was instead
 
