@@ -138,6 +138,13 @@ pub static SHIFTS: &[Shift] = &[
                   12.6.4.17 does not exist",
     },
     Shift {
+        clause: "12.7.3",
+        earlier: Earlier::Numbered("12.7.2"),
+        subject: "the interactive form dictionary, which ISO 32000-1 states one number earlier; \
+                  its own 12.7.3 is *Field Dictionaries*, so the citation resolves there and \
+                  names something else",
+    },
+    Shift {
         clause: "12.7.5.2.3",
         earlier: Earlier::Numbered("12.7.4.2.3"),
         subject: "check boxes; ISO 32000-1 has no 12.7.5.2.3",

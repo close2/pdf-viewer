@@ -3177,11 +3177,46 @@ pub enum PressIdentity {
     Profile(u128, Rendering),
 }
 
+/// How many distinct conversions out of a group the standard defines for **one** profile.
+///
+/// Trap 38's question, answered: the standard does state a number this budget has to clear.
+/// §11.7.5.3's second bullet makes the conversion out of a group a function of the graphics
+/// state at the `Do`:
+///
+/// > the rendering intent used shall be the current rendering intent in effect at the time the
+/// > Do operator is applied to the group
+///
+/// Two entries of that state select it. Table 69 names four rendering intents, §8.6.5.9's
+/// `/UseBlackPtComp` is a second parameter of the same conversion, and that clause pins one of
+/// the eight pairs:
+///
+/// > If the current render intent of an object is AbsColorimetric then the value of
+/// > UseBlackPtComp shall be treated as OFF .
+///
+/// Four intents times two settings less the pair the clause removes is **seven**, and
+/// [`PressIdentity::Profile`] is keyed on exactly that pair.
+///
+/// So a page that embeds one profile and paints it under every intent the standard defines
+/// names seven presses, and a budget below seven would refuse a conformant page that named a
+/// single profile. Nothing in the standard bounds how many *profiles* a page may name —
+/// Annex C is informative and states no number for this at all.
+const RENDERINGS_OF_ONE_PROFILE: usize = 7;
+
 /// How many *distinct* presses one interpretation may name.
 ///
 /// A press costs its grid — `PRESS_SIDE⁴` device colours — plus, if a page converts a colour
 /// *into* it, [`INK_TABLE_SIDE`]³ separations. At the sizes below that is 1.0 MB and 78 KB
-/// apiece, so an interpretation that spends the whole budget holds **8.6 MB** of press.
+/// apiece.
+///
+/// **The number is the standard's floor with a profile's worth of room above it**, which is
+/// what trap 38 asks a bound to say by name. [`RENDERINGS_OF_ONE_PROFILE`] is what one profile
+/// can be, so no conformant page naming one profile can meet this refusal; the second multiple
+/// is margin over everything measured. What was measured is
+/// `pdf-model --example press_depth`: over the 974-document corpus **no page names a press at
+/// all**, and over a 5 977-document even sample of the crawl — 13 188 pages — the deepest page
+/// names **one**. So the budget is two orders of magnitude above the population and one
+/// profile above the clause, and an interpretation that spent the whole of it would hold
+/// 15 MB of press. ADR 1254.
 ///
 /// **It is a budget on the interpretation rather than on the process, and that is the thing
 /// about it worth saying out loud** (ADR 0417). It was the other way round until the
@@ -3189,14 +3224,14 @@ pub enum PressIdentity {
 /// never evicted, so the ninth distinct press a *process* met was refused and which document
 /// that fell on was decided by the order the scheduler ran the eight before it in. Every other
 /// budget in this tree — `MAX_OPERATIONS`, `MAX_FORM_DEPTH`, `MAX_STATE_DEPTH` — is spent by the
-/// document that reaches it, and this one now is too: a page naming nine presses is refused the
-/// ninth on every run and on every machine, and a page naming one is never refused whatever
-/// else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s third-bound section
-/// the three roads.
+/// document that reaches it, and this one now is too: a page naming more than this many presses
+/// is refused the next one on every run and on every machine, and a page naming one is never
+/// refused whatever else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s
+/// third-bound section the three roads.
 ///
 /// What is *not* per interpretation is the sampling, which is [`SAMPLED`]: a cache changes how
 /// fast an answer is reached and never what it is, so it may be shared where a budget may not.
-pub const MAX_PRESSES: usize = 8;
+pub const MAX_PRESSES: usize = RENDERINGS_OF_ONE_PROFILE * 2;
 
 /// How many sampled presses this process keeps, so that a second page need not sample again.
 ///
@@ -3206,9 +3241,10 @@ pub const MAX_PRESSES: usize = 8;
 /// what the population measures — the web names 28 distinct presses over 65 703 documents
 /// (`examples/press_census`) — where [`MAX_PRESSES`] may not.
 ///
-/// Eight is what this process spent on presses before the budget moved, so nothing about that
-/// change costs a byte of steady-state memory; a run holding more is holding them in the
-/// interpretations that named them.
+/// Eight is what this process has always spent on presses, so a run holding more is holding
+/// them in the interpretations that named them. It is deliberately **not** tied to
+/// [`MAX_PRESSES`]: one is what a page may name and the other what a process keeps warm, and
+/// the web names 28 distinct presses over 65 703 documents either way.
 const MAX_CACHED_PRESSES: usize = 8;
 
 /// The presses this process has sampled, most recently used first.
@@ -3651,24 +3687,27 @@ impl Presses {
 ///
 /// # The side is measured, and so is what it still costs
 ///
-/// `examples/press_census.rs --sample` builds the grid at several sides over **the 286 presses
-/// the web population names** and compares it against evaluating the profile directly, in
-/// levels of 255:
+/// `examples/press_census.rs --sample` builds the grid at several sides over **the 287 presses
+/// the whole crawl names** and compares it against evaluating the profile directly, in levels
+/// of 255:
 ///
 /// | side | median worst gap | p90 | largest |
 /// |---|---|---|---|
-/// | 9 | 16.34 | 18.12 | 21.60 |
-/// | **17** | **5.99** | **11.02** | **14.52** |
+/// | 9 | 15.06 | — | 21.36 |
+/// | **17** | **5.91** | **12.06** | **15.90** |
 /// | 33, on a sample of six | 1.80–4.80 | — | — |
 ///
 /// **No feasible side reaches half a level**, and that is a property of the profiles rather
 /// than of the arithmetic: a v2 CMYK profile puts a steep sampled curve on each ink *before*
 /// its own table, so a grid uniform in ink is misaligned with the shape it is sampling.
-/// Sampling in linear light instead is **worse** — 8.62 median at side 17 against 5.99 —
+/// Sampling in linear light instead is **worse** — 22.88 at its largest against 15.90 —
 /// because it moves the error into the bright end where a level of 255 is a smaller step.
 ///
 /// So seventeen is where the curve flattens against what a finer grid costs: 33 is 1.19 million
-/// evaluations and 14 MB a press, for about half the remaining gap. What the residue is
+/// evaluations and 14 MB a press, for about half the remaining gap. The figures above moved
+/// with ADR 1253's compensation — the largest was 14.52 while the black point was a per-axis
+/// stretch and is 15.90 under ISO 18619's single scale, because the steeper map is the harder
+/// one to interpolate — which is the price of that reading, measured rather than assumed. What the residue is
 /// measured *against* is the alternative it replaces — compositing a page in somebody else's
 /// four components, which ADR 0251 measured at **48 to 51 of 255**. ADR 0272 records both
 /// numbers and the construction that would close the rest: per-axis input curves beside the
@@ -4556,6 +4595,12 @@ fn transform(matrix: &[f32; 9], vector: [f32; 3]) -> [f32; 3] {
 ///   profile — the darkest colour the device can actually reach — and aligning it is what
 ///   `PDF20_AN001-BPC` argues for. A source's stated shadow is a different quantity that
 ///   happens to share a name.
+/// - And the procedure §8.6.5.9 defers to says so itself. ISO/CD 18619 (2013) section 4.1
+///   takes two ICC profiles and a rendering intent as the whole of its input, and constrains
+///   both profiles to be ICC profiles of one of four colour spaces; a `CalRGB` dictionary's
+///   three numbers are not among its inputs at any point. So this is no longer only a
+///   choice about an undefined stretch — the operation `ON` names has nothing here to
+///   operate on (ADR 1253).
 ///
 /// The cost, stated plainly: a document raising its `BlackPoint` gets shadows at the
 /// lightness it states rather than stretched down to the display's black. **This paragraph
@@ -4914,10 +4959,18 @@ mod tests {
             )
             .expect("a from-CIE table");
         assert_eq!(grey, want, "a device colour goes in through sRGB's XYZ");
-        // And that answer is the table's rule on the stretched XYZ — the fixture's black is
-        // a tenth of white, so the compensation undone puts sRGB's 0.2140 at
-        // `0.9 × 0.2140 + 0.1` of D50 — rather than anything the search would find.
-        let level = 0.9f32.mul_add(0.214_04, 0.1);
+        // And that answer is the table's rule on the compensated XYZ rather than anything the
+        // search would find. Which compensation, derived: the fixture is a CMYK profile
+        // carrying a "from CIE" table, so ISO/CD 18619 (2013) section 4.2.3 calls it
+        // output-capable and takes the connection space's black through that table — which
+        // this fixture answers with the three chromatic inks at full and no black ink, a
+        // colour its own "to CIE" table then evaluates as paper white. A profile whose two
+        // tables contradict each other that way is what the draft's clamp is for: L\* comes
+        // out at 100 and is cut to 50, whose relative luminance is ((50 + 16) / 116)³ =
+        // 0.184 19, so section 4.2.6's scale is 1 / (1 − 0.184 19) = 1.225 78 and its offset
+        // is −0.225 78 of the white point. Undoing that on sRGB's 0.214 04 of D50 gives
+        // (0.214 04 + 0.225 78) / 1.225 78 = 0.358 81.
+        let level = (0.214_04 + 0.225_776) / 1.225_776;
         let stated = 1.0 - 0.964_2 * level * 32768.0 / 65535.0;
         assert!(
             (grey[0] - stated).abs() < 1e-3,

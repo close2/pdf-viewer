@@ -16,18 +16,27 @@
 //! suggest; the third is [`trust`]'s and [`verdict`]'s, under anchors a host supplies.
 //!
 //! [`cms`] reads RFC 5652's `SignedData` out of §12.8.3.3's signature value, [`x509`] reads RFC
-//! 5280's certificate out of that, [`trust`] builds and validates a certification path from them
-//! (RFC 5280 section 6.1), [`revocation`] reads §12.8.4's CRLs and OCSP responses and applies them
-//! to that path, and [`der`] is the X.690 tag-length-value reader all of them are built on — the
-//! tree's only ASN.1. Then one module per family Table 260 names: [`pkcs1`] and
+//! 5280's certificate out of that, [`ess`] reads RFC 5035's signing-certificate attribute that
+//! §12.8.3.4.5 step a) compares against it, [`trust`] builds and validates a certification path
+//! from them (RFC 5280 section 6.1), [`revocation`] reads §12.8.4's CRLs and OCSP responses and
+//! applies them to that path, and [`der`] is the X.690 tag-length-value reader all of them are
+//! built on — the tree's only ASN.1. Then one module per family Table 260 names: [`pkcs1`] and
 //! [`pss`] for RFC 8017's two RSA paddings, [`dsa`], [`ecdsa`], and [`eddsa`] for the row ISO/TS
 //! 32002 section 5.1.2 adds. `bigint` is the seam over `crypto-bigint` that keeps the budgets
 //! and the refusal names this project's own while the multiplications are reviewed code.
 //!
+//! Three modules answer questions the clause asks after the arithmetic. [`revision`] is
+//! §12.8.2.2.2's second step — the signed revision beside the current one, object by object,
+//! ranked against Table 257's `/P`. [`timestamp`] establishes §12.8.5's document timestamps, so
+//! that a verdict has an instant to be asserted as of. [`policy`] reads §12.8.3.4.4's signature
+//! policy identifier and whether the document the file carries is the one the signer committed
+//! to, as far as the texts this tree holds reach.
+//!
 //! # Why this is not part of the document model
 //!
-//! `pdf-model`'s stated responsibility is the page tree, and none of the nine modules below
-//! [`signature`] contains a line of PDF. They are ASN.1, X.509 and modular arithmetic, which is
+//! `pdf-model`'s stated responsibility is the page tree, and only [`signature`], [`revision`]
+//! and [`timestamp`] here read a file at all: everything they are built on is ASN.1, X.509 and
+//! modular arithmetic over bytes somebody else handed it. That is
 //! the argument `doc/PLAN.md` already records for a crate boundary — "self-contained,
 //! independently testable and independently fuzzable" — and the same argument that made
 //! `pdf-syntax` separate in the first place. `doc/reviews/984-direction-and-boundaries.md`

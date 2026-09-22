@@ -209,6 +209,39 @@ use rewrite::convert;
 /// either — ISO 19005 chose it.
 const COMPRESSION_LEVEL: u32 = 9;
 
+/// What a configuration answers at ISO 19005's two interactive form sites.
+///
+/// Two keys rather than a remedy word each, because at both sites the *word* is `discard` and
+/// what the operator is choosing is what goes with the removal: whether the field appearances a
+/// removed `/NeedAppearances` was asking for are built first
+/// (`forms/need-appearances-absent-or-false`'s `construct`), and whether a form the document
+/// itself says is dynamic may lose its `/XFA` at all (`forms/no-xfa-key`'s `dynamic`).
+/// `doc/pdf-a-mitigations.md` sections 7 and `doc/adr/1257` are the arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormAnswers {
+    /// Whether every visible widget the file provides no normal appearance for is given one.
+    ///
+    /// `true` is what a caller who says nothing gets, and the catalogue calls the pair *owed, not
+    /// optional*: the flag removal is then lossless. `false` is the operator's other answer and
+    /// costs [`Loss::FieldAppearances`].
+    pub construct_appearances: bool,
+    /// Whether a form whose document states `/NeedsRendering` true still loses its `/XFA`.
+    ///
+    /// `false` is the default and is `dynamic = "stop"`: ISO 32000-2 Table 29 makes that entry
+    /// the claim that the document's pages are regenerated when it is first opened, so the pages
+    /// in the file are not the form and the `AcroForm` left behind is not the document either.
+    pub remove_dynamic_xfa: bool,
+}
+
+impl Default for FormAnswers {
+    fn default() -> Self {
+        Self {
+            construct_appearances: true,
+            remove_dynamic_xfa: false,
+        }
+    }
+}
+
 /// One document converted to a stated part and level of ISO 19005.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArchivePlan {
@@ -261,6 +294,8 @@ pub struct ArchivePlan {
     /// keeps the claim, which a downstream validator fails either way; the only difference is
     /// whether the file lied before it failed, and that is the operator's to own explicitly.
     pub claim_conformance: bool,
+    /// What the caller's configuration answers at the two interactive form sites.
+    pub forms: FormAnswers,
     /// The `derive` remedies the caller's configuration named.
     ///
     /// `doc/questions/A55`, and the type is the guardrail: a [`Derivation`] cannot exist without
@@ -533,6 +568,8 @@ fn decide_every_failure(
         removed_identifiers: Vec::new(),
         described_schemas: Vec::new(),
         appearances: Vec::new(),
+        unconstructed: Vec::new(),
+        removed_files: Vec::new(),
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
@@ -597,6 +634,11 @@ fn decide_every_failure(
     // was appended, carrying this, from there, placed so*.
     if let Ok(composed) = &prepared.preserved {
         conversion.preserved.clone_from(&composed.carried);
+    }
+    // Named whether or not the flag came out: the fields here are exactly why it did not, and a
+    // refusal whose sentence points at a list has to be able to print the list (`doc/adr/1257`).
+    if let Ok(built) = &prepared.field_appearances {
+        conversion.unconstructed.clone_from(&built.unconstructed);
     }
     conversion.signatures = signature_decision(plan, &prepared);
     (conversion, version, prepared)
@@ -687,14 +729,28 @@ fn configured(
             warns,
         });
     }
-    remedies
-        .pending
-        .iter()
-        .any(|request| request.site == id)
-        .then_some(Decision::Refused(Because::AwaitingTool(
+    if remedies.pending.iter().any(|request| request.site == id) {
+        return Some(Decision::Refused(Because::AwaitingTool(
             remedies::AWAITING_TOOL,
+        )));
+    }
+    // **A derivation that was run and did not answer refuses the site**, rather than falling
+    // through to whatever the decision table would have done. `doc/rfc/0007` section 4.2: what
+    // comes back is not trusted, so a tool that failed, declined or produced something other than
+    // what it promised has answered nothing — and offering the operator the table's authorised
+    // loss instead would be answering a question they did not put. The report already carries the
+    // row saying which of the three it was.
+    remedies
+        .derived_report
+        .iter()
+        .any(|row| row.site == id && row.outcome != DerivedOutcome::Attached)
+        .then_some(Decision::Refused(Because::NotBuiltYet(
+            DERIVATION_DID_NOT_ANSWER,
         )))
 }
+
+/// Why a site whose declared tool was run and did not answer keeps its refusal.
+const DERIVATION_DID_NOT_ANSWER: &str = "this configuration answers this requirement by deriving      a new representation with a program it declares, the program was run, and what came back      did not answer it — it failed, it declined, or it produced something other than the media      type the tool promised. doc/rfc/0007 section 4.2 does not trust what comes back, so the      requirement keeps its refusal rather than being answered by a remedy nobody asked for; the      report's derived row says which of the three happened";
 
 /// Why a `preserve` at a site the table answers with no single rewrite is refused.
 ///
@@ -859,6 +915,23 @@ fn apply_the_decisions(
         && let Ok(appearances) = &prepared.appearances
     {
         conversion.appearances.clone_from(&appearances.constructed);
+    }
+    // The widgets §12.7.3's Table 224 asked for are named in the same list and for the same
+    // reason: the construction is this program's either way, and which requirement asked for it
+    // is the decision's to say rather than the list's.
+    if wanted.contains(&Rewrite::WidgetAppearance)
+        && let Ok(built) = &prepared.field_appearances
+    {
+        conversion
+            .appearances
+            .extend(built.constructed.iter().cloned());
+    }
+    // The same condition at the embedded-file site: what went is a file nothing in the output
+    // points at any more, so the report is the only place a reader learns it was ever there.
+    if wanted.contains(&Rewrite::EmbeddedFileRemoved)
+        && let Ok(removed) = &prepared.embedded_files
+    {
+        conversion.removed_files.clone_from(&removed.names);
     }
     // What went off the page, beside what was put on it: `doc/pdf-a-conversion-limits.md` section
     // 3.2 asks for the page each removed annotation was on, and whether it drew anything, because
@@ -1043,6 +1116,13 @@ fn rewrites_wanted(
     // construction, gated the same way as the appended page it is the alternative to.
     if has_relocations {
         wanted.insert(Rewrite::RelocatedOnPage);
+    }
+    // §12.7.3's Table 224 makes an absent `/NeedAppearances` a claim that appearance streams have
+    // been provided for every visible widget, so the construction that makes the claim true is
+    // wanted whenever the removal is. Both happen or neither does: the preparation refuses the
+    // removal where it could not build one, and builds none where `construct = false` said so.
+    if wanted.contains(&Rewrite::NeedAppearancesCleared) {
+        wanted.insert(Rewrite::WidgetAppearance);
     }
     wanted
 }

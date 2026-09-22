@@ -23,7 +23,10 @@
 //!
 //! Nothing is lost by that grouping except the name of the type, which no backend needs.
 
+use std::ops::Range;
 use std::sync::Arc;
+
+use rayon::prelude::*;
 
 use crate::geom::{Point, Transform};
 use crate::paint::{Color, Grid};
@@ -1095,6 +1098,165 @@ pub struct MeshRaster {
     pub image: crate::Image,
 }
 
+/// Device pixels of a mesh raster above which [`MeshRaster::build`] divides its rows across
+/// rayon's pool rather than walking them.
+///
+/// **Four thousand and ninety-six — a 64 by 64 raster — and it is deliberately far below
+/// [`crate::paint`]'s `PARALLEL_FLOOR`, which is the figure a first version of this took.** A
+/// reduced image is one raster the size of a photograph; a mesh shading is *many* rasters the
+/// size of the shape it fills, and `personwithdog.pdf` states fifteen of them between 1 430 and
+/// 141 728 pixels. At 65 536 not one of them divided and the frame was the serial frame to
+/// within its noise; dividing every one of them took the page's scene walk from 6.50 ms to
+/// 3.35 (`examples/frame_budget`, the zoom step's `scene`, minimum of three devices, four
+/// alternating pairs, every divided sample below every serial one). So the floor belongs where
+/// a raster is plainly worth a fork and join rather than where a photograph is, and the page of
+/// very small meshes keeps the serial walk. ADR 1259 has the table.
+const MESH_PARALLEL_FLOOR: u64 = 4_096;
+
+/// How a raster's rows are divided between the workers that will paint them.
+#[derive(Clone, Copy)]
+struct Bands {
+    /// Rows in every band but the last, which holds whatever is left.
+    rows: u32,
+    /// How many bands that makes.
+    count: usize,
+}
+
+/// One band per worker, which is the coarsest division that still uses the whole pool.
+///
+/// Coarse on purpose: a band pays for the triangles that *reach* it, so twice the bands is
+/// twice the bucketing and no more parallelism than the pool can take up.
+fn rows_per_band(rows: u32) -> Bands {
+    let workers = u32::try_from(rayon::current_num_threads())
+        .unwrap_or(1)
+        .max(1);
+    let per = rows.div_ceil(workers).max(1);
+    Bands {
+        rows: per,
+        count: usize::try_from(rows.div_ceil(per)).unwrap_or(1),
+    }
+}
+
+/// Where a [`MeshRaster`] sits on the target and how wide it is, in device pixels.
+///
+/// One value rather than four arguments, because every one of them is read by both halves of
+/// the rasterisation — which rows a triangle marks, and where a pixel of it goes.
+#[derive(Clone, Copy)]
+struct Placed {
+    /// Device x of the raster's first column.
+    left: u32,
+    /// Device y of the raster's first row.
+    top: u32,
+    /// Columns in the raster.
+    span: u32,
+    /// Rows in the raster.
+    rows: u32,
+}
+
+impl Placed {
+    /// A raster at `(left, top)`, `span` columns by `rows` rows.
+    fn new(left: u32, top: u32, span: u32, rows: u32) -> Self {
+        Self {
+            left,
+            top,
+            span,
+            rows,
+        }
+    }
+}
+
+/// One contiguous run of a [`MeshRaster`]'s rows, and the bytes of exactly those rows.
+///
+/// A band is what makes the rasterisation divisible (ADR 1259): every pixel's colour is the
+/// last triangle covering *its own centre*, so which thread computes which row cannot change a
+/// byte — and within a band the triangles are still painted in the file's order, which is what
+/// §8.7.4.5.5's overlap rule needs. That is the property ADR 0138's strip experiment did not
+/// have: a coverage-antialiasing rasteriser reads geometry that crosses the cut, and this one
+/// samples points.
+struct Band<'a> {
+    /// The raster row this band's first row is.
+    first: u32,
+    /// One past the raster row this band's last row is.
+    last: u32,
+    /// The bytes of rows [`Self::first`] to [`Self::last`], and no others.
+    data: &'a mut [u8],
+}
+
+impl<'a> Band<'a> {
+    /// The whole raster as one band, which is what a caller that is not dividing it paints.
+    fn whole(data: &'a mut [u8], rows: u32) -> Self {
+        Self {
+            first: 0,
+            last: rows,
+            data,
+        }
+    }
+}
+
+/// Paints `device`'s triangles into a raster of `placed`, dividing the rows across rayon's pool
+/// when `divided`.
+///
+/// **The two arms produce the same bytes, and that is a property rather than a hope.** Every
+/// pixel's colour is decided by the triangles covering *its own centre*, in the order they are
+/// painted, and a band holds whole rows and the triangles that reach them in that same order —
+/// so which thread paints which row cannot change a byte. It is the property ADR 0138's strip
+/// experiment did not have, where a coverage-antialiasing rasteriser read geometry that crossed
+/// the cut and moved 3 982 bytes by as much as 64 of 255. `divided` is a parameter rather than a
+/// branch inside so that `both_arms_of_the_division_paint_the_same_bytes` can hold the two
+/// against each other; [`MeshRaster::build`] decides it from [`MESH_PARALLEL_FLOOR`]. ADR 1259.
+fn rasterise(device: &[Triangle], ramp: Option<&Ramp>, placed: Placed, divided: bool) -> Vec<u8> {
+    let Placed { span, rows, .. } = placed;
+    let row_bytes = (span as usize).saturating_mul(4);
+    let mut data = vec![0u8; row_bytes.saturating_mul(rows as usize)];
+    let bands = rows_per_band(rows);
+    if divided {
+        // Which band each triangle reaches, decided once here. The alternative — every band
+        // asking every triangle — is work that grows with the pool, and a patch mesh
+        // tessellates into hundreds of triangles per shading.
+        let mut buckets: Vec<Vec<&Triangle>> = vec![Vec::new(); bands.count];
+        for triangle in device {
+            let marks = triangle.rows(placed);
+            // `Bands::rows` is at least one, so neither division can fail; a zero would put
+            // every triangle in the first band, which is the serial walk rather than a wrong
+            // picture.
+            let band_of = |row: u32| usize::try_from(row.checked_div(bands.rows).unwrap_or(0));
+            let first = band_of(marks.start).unwrap_or(usize::MAX);
+            let last = band_of(marks.end.saturating_sub(1))
+                .unwrap_or(usize::MAX)
+                .min(bands.count.saturating_sub(1));
+            // An empty range — a triangle above or below the raster — leaves `first` past
+            // `last`, and `get_mut` answers such a range with `None` rather than a panic.
+            for bucket in buckets.get_mut(first..=last).unwrap_or_default() {
+                bucket.push(triangle);
+            }
+        }
+        data.par_chunks_mut(row_bytes.saturating_mul(bands.rows as usize))
+            .enumerate()
+            .for_each(|(index, chunk)| {
+                let first = u32::try_from(index)
+                    .unwrap_or(u32::MAX)
+                    .saturating_mul(bands.rows);
+                let mut band = Band {
+                    first,
+                    last: first.saturating_add(bands.rows).min(rows),
+                    data: chunk,
+                };
+                // Painted in the file's own order, which is what §8.7.4.5.5's overlap
+                // rule needs; a band holds its triangles in the order they were bucketed.
+                for triangle in buckets.get(index).into_iter().flatten() {
+                    triangle.paint(&mut band, ramp, placed);
+                }
+            });
+    } else {
+        let mut band = Band::whole(&mut data, rows);
+        for triangle in device {
+            triangle.paint(&mut band, ramp, placed);
+        }
+    }
+
+    data
+}
+
 impl MeshRaster {
     /// Rasterises a mesh into the part of a `width` by `height` target it covers.
     ///
@@ -1177,15 +1339,13 @@ impl MeshRaster {
             return None;
         }
 
-        let mut data = vec![
-            0u8;
-            (span as usize)
-                .saturating_mul(rows as usize)
-                .saturating_mul(4)
-        ];
-        for triangle in &device {
-            triangle.paint(&mut data, ramp, left, top, span, rows);
-        }
+        let placed = Placed::new(left, top, span, rows);
+        // The paint is what a mesh page's frame is made of — 6.50 ms of `personwithdog.pdf`'s
+        // 15.19 ms zoom step, which is 78% of a 120 Hz refresh for its shadings alone — so it
+        // is divided across rayon's pool once the raster is worth the fork ([`rasterise`] for
+        // why the two arms are the same bytes, [`MESH_PARALLEL_FLOOR`] for where the line is).
+        let divided = u64::from(span).saturating_mul(u64::from(rows)) >= MESH_PARALLEL_FLOOR;
+        let data = rasterise(&device, ramp, placed, divided);
 
         Some(Self {
             left: i32::try_from(left).ok()?,
@@ -1584,12 +1744,17 @@ impl ShadingRaster {
                 {
                     return None;
                 }
+                // One band over the whole raster: this path paints a background wash under a
+                // region a caller already bounded, and dividing it would wake threads for a
+                // loop [`MeshRaster::build`]'s own floor is the measurement for.
+                let mut band = Band::whole(&mut data, rows);
+                let placed = Placed::new(left, top, span, rows);
                 for triangle in drawn.iter() {
                     Triangle {
                         points: triangle.points.map(|point| to_device.apply(point)),
                         corners: triangle.corners,
                     }
-                    .paint(&mut data, ramp.as_ref(), left, top, span, rows);
+                    .paint(&mut band, ramp.as_ref(), placed);
                 }
             }
         }
@@ -2122,6 +2287,35 @@ impl PatchMesh {
 }
 
 impl Triangle {
+    /// The smallest and largest of one coordinate over the three corners.
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "the clause's own notation for a triangle's corners"
+    )]
+    fn extent(points: [Point; 3], get: fn(&Point) -> f32) -> (f32, f32) {
+        let [a, b, c] = points;
+        let (p, q, r) = (get(&a), get(&b), get(&c));
+        (p.min(q).min(r), p.max(q).max(r))
+    }
+
+    /// The rows of `placed` this triangle can mark.
+    ///
+    /// Read twice — once to decide which bands a triangle belongs to and once by the band that
+    /// paints it — so it is one function rather than two copies of the same rounding. Half a
+    /// pixel of margin, because a pixel is sampled at its centre.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a device row index, bounded by the caller's extent"
+    )]
+    fn rows(&self, placed: Placed) -> Range<u32> {
+        let (y0, y1) = Self::extent(self.points, |point| point.y);
+        let first = ((y0 - 0.5).floor().max(0.0) as u32).saturating_sub(placed.top);
+        let last =
+            (((y1 + 0.5).ceil().max(0.0) as u32).saturating_sub(placed.top)).min(placed.rows);
+        first..last
+    }
+
     /// Paints this triangle into a device-resolution buffer by §8.7.4.5.5's interpolation.
     ///
     /// The buffer's first pixel is device `(left, top)`. A pixel belongs to the triangle when
@@ -2147,15 +2341,7 @@ impl Triangle {
         clippy::many_single_char_names,
         reason = "the clause's own notation for a triangle and its barycentric weights"
     )]
-    fn paint(
-        &self,
-        data: &mut [u8],
-        ramp: Option<&Ramp>,
-        left: u32,
-        top: u32,
-        span: u32,
-        rows: u32,
-    ) {
+    fn paint(&self, band: &mut Band<'_>, ramp: Option<&Ramp>, placed: Placed) {
         let [a, b, c] = self.points;
         // Twice the signed area. Zero means the three corners are collinear, so the triangle
         // covers nothing and has no interior to interpolate over.
@@ -2164,16 +2350,18 @@ impl Triangle {
             return;
         }
 
-        let extent = |get: fn(&Point) -> f32| {
-            let (p, q, r) = (get(&a), get(&b), get(&c));
-            (p.min(q).min(r), p.max(q).max(r))
-        };
-        let (x0, x1) = extent(|point| point.x);
-        let (y0, y1) = extent(|point| point.y);
+        let (x0, x1) = Self::extent(self.points, |point| point.x);
+        let marks = self.rows(placed);
+        let Placed {
+            left, top, span, ..
+        } = placed;
         let first_x = ((x0 - 0.5).floor().max(0.0) as u32).saturating_sub(left);
-        let first_y = ((y0 - 0.5).floor().max(0.0) as u32).saturating_sub(top);
         let last_x = (((x1 + 0.5).ceil().max(0.0) as u32).saturating_sub(left)).min(span);
-        let last_y = (((y1 + 0.5).ceil().max(0.0) as u32).saturating_sub(top)).min(rows);
+        // The rows this triangle marks, cut to the band this call owns: a band holds a
+        // contiguous run of the raster's rows and nothing else, so a triangle that reaches
+        // past it is painted here for the part that is here and by another band for the rest.
+        let first_y = marks.start.max(band.first);
+        let last_y = marks.end.min(band.last);
 
         for row in first_y..last_y {
             let y = top.saturating_add(row) as f32 + 0.5;
@@ -2213,11 +2401,11 @@ impl Triangle {
                         None => continue,
                     },
                 };
-                let at = ((row as usize)
+                let at = ((row.saturating_sub(band.first) as usize)
                     .saturating_mul(span as usize)
                     .saturating_add(column as usize))
                 .saturating_mul(4);
-                let Some(pixel) = data.get_mut(at..at.saturating_add(4)) else {
+                let Some(pixel) = band.data.get_mut(at..at.saturating_add(4)) else {
                     continue;
                 };
                 for (slot, value) in pixel
@@ -2235,7 +2423,8 @@ impl Triangle {
 #[cfg(test)]
 mod tests {
     use super::{
-        Corners, MeshRaster, PatchCorners, PatchMesh, Ramp, SurfacePatch, Triangle, blend_parameter,
+        Corners, MESH_PARALLEL_FLOOR, MeshRaster, PatchCorners, PatchMesh, Placed, Ramp,
+        SurfacePatch, Triangle, blend_parameter, rasterise,
     };
     use crate::{Color, Point, Transform};
 
@@ -2796,5 +2985,53 @@ mod tests {
             (red - 0.25).abs() < 0.03,
             "the bilinear mix at the centre is a quarter of white: {red}"
         );
+    }
+
+    /// Dividing the rows across the pool paints the same bytes as walking them.
+    ///
+    /// The one property ADR 1259's division rests on, held against the defect it would be: a
+    /// band that read a triangle out of order, or dropped one that straddled its edge, shows
+    /// here as a byte. The mesh is two overlapping triangles — so the later one *must* win
+    /// where they cross — over a raster comfortably above [`MESH_PARALLEL_FLOOR`], and the
+    /// bands are many, because `rows_per_band` divides by the pool this machine has.
+    #[test]
+    fn both_arms_of_the_division_paint_the_same_bytes() {
+        let corner = |r: f32, g: f32, b: f32| Color { r, g, b, a: 1.0 };
+        let over = |points: [Point; 3], colour: Color| Triangle {
+            points,
+            corners: Corners::Colours([colour, colour, colour]),
+        };
+        let device = [
+            over(
+                [
+                    Point { x: 2.0, y: 2.0 },
+                    Point { x: 250.0, y: 20.0 },
+                    Point { x: 20.0, y: 250.0 },
+                ],
+                corner(1.0, 0.0, 0.0),
+            ),
+            over(
+                [
+                    Point { x: 30.0, y: 30.0 },
+                    Point { x: 255.0, y: 90.0 },
+                    Point { x: 90.0, y: 255.0 },
+                ],
+                corner(0.0, 0.0, 1.0),
+            ),
+        ];
+        let placed = Placed::new(0, 0, 256, 256);
+        assert!(
+            u64::from(placed.span) * u64::from(placed.rows) >= MESH_PARALLEL_FLOOR,
+            "the case has to be one the shipped path would divide"
+        );
+        let walked = rasterise(&device, None, placed, false);
+        let divided = rasterise(&device, None, placed, true);
+        assert!(walked.iter().any(|byte| *byte != 0), "it paints something");
+        let differing = walked
+            .iter()
+            .zip(&divided)
+            .filter(|(walked, divided)| walked != divided)
+            .count();
+        assert_eq!(differing, 0, "bands changed the picture");
     }
 }

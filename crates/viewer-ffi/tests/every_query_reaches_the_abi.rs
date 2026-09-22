@@ -72,10 +72,15 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "quorra_collection_folder_of",
             "quorra_collection_ordered",
             "quorra_collection_layouts",
+            "quorra_collection_whole_window",
         ],
         Query::Articles => &["quorra_articles_read"],
         Query::PageLabel(_) => &["quorra_page_label"],
         Query::Thumbnail(_) => &["quorra_thumbnail_read", "quorra_thumbnail_copy"],
+        // §12.3.6's preview is the same handle a page's thumbnail comes back as, so what is new
+        // is the one call that produces it: `info`, `copy` and `free` are the pair above's and a
+        // caller learns one picture idiom (ADR 1251).
+        Query::AttachmentPreview(_) => &["quorra_attachment_preview_read"],
         Query::LinkAt(_) => &["quorra_link_at"],
         Query::FieldAt(_) => &["quorra_field_at"],
         Query::Fields => &["quorra_fields_read"],
@@ -159,6 +164,7 @@ fn every_query() -> Vec<Query<'static>> {
         Query::Articles,
         Query::PageLabel(0),
         Query::Thumbnail(0),
+        Query::AttachmentPreview("<3>report.pdf"),
         Query::PrintPage(0),
         Query::LinkAt(at),
         Query::FieldAt(at),

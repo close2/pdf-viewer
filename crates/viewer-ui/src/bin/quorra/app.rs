@@ -471,6 +471,14 @@ pub(crate) struct App {
     /// because a thumbnail is a property of an immutable document — the same argument the
     /// outline and the attachments are cached under, and exactly not the layers'.
     pub(crate) pages: viewer_host::Miniatures<pdf_render::Image>,
+    /// §12.3.6's preview pictures for §12.3.5's attachments, by `/EmbeddedFiles` key.
+    ///
+    /// Empty until the files tab draws a layout made of pictures of the attachments — Table 160's
+    /// `FilmStrip`, `FreeForm` and `Linear` — because a preview is an embedded document opened and
+    /// a page's `/Thumb` decoded, which is exactly the eager work `CLAUDE.md` section 2 forbids on
+    /// the launch path. Filled and kept for the same reason the pages are: an attachment's picture
+    /// is a property of an immutable document.
+    pub(crate) previews: viewer_host::panel::Previews<pdf_render::Image>,
     /// How many rows §12.3.4's tab has, which is the document's page count.
     pub(crate) page_count: usize,
     pub(crate) state: Option<State>,

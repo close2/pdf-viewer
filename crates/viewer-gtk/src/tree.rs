@@ -22,7 +22,14 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{gio, glib, pango};
 
-use viewer_host::panel::{PanelRow, RowAction};
+use viewer_host::panel::{PanelRow, Picture, RowAction};
+
+/// A file's own preview picture, where this host has decoded one.
+///
+/// §12.3.6's `FilmStrip`, `FreeForm` and `Linear` are built out of pictures of the *attachments*,
+/// and this is how one reaches a row: the `/EmbeddedFiles` key in, the attachment's own first
+/// page's §12.3.4 `/Thumb` out. `None` is most files and is not a defect (ADR 1251).
+pub(crate) type Previews = Rc<dyn Fn(&str) -> Option<gtk4::gdk::MemoryTexture>>;
 
 /// How many rows the initial expansion will open before it stops.
 ///
@@ -33,7 +40,15 @@ use viewer_host::panel::{PanelRow, RowAction};
 const EXPANSION_LIMIT: u32 = 4096;
 
 /// A scrollable tree over these rows, with `act` called for every row a person acts on.
-pub(crate) fn tree(rows: &[PanelRow], act: &Rc<dyn Fn(&RowAction)>) -> gtk4::Widget {
+///
+/// `pictures` answers a file's own preview where the row asks for one, and is called from `bind`
+/// — so a collection of a hundred files opens the embedded documents of the rows on the screen
+/// and no others, which is the demand-driven rule §12.3.4's page list already follows.
+pub(crate) fn tree(
+    rows: &[PanelRow],
+    act: &Rc<dyn Fn(&RowAction)>,
+    pictures: &Previews,
+) -> gtk4::Widget {
     let model = gtk4::TreeListModel::new(store(rows), false, false, |parent| {
         let row = parent.downcast_ref::<glib::BoxedAnyObject>()?;
         let children = row.borrow::<PanelRow>().children.clone();
@@ -46,7 +61,8 @@ pub(crate) fn tree(rows: &[PanelRow], act: &Rc<dyn Fn(&RowAction)>) -> gtk4::Wid
 
     let factory = gtk4::SignalListItemFactory::new();
     let act = Rc::clone(act);
-    factory.connect_bind(move |_, item| bind(item, &act));
+    let pictures = Rc::clone(pictures);
+    factory.connect_bind(move |_, item| bind(item, &act, &pictures));
 
     let selection = gtk4::SingleSelection::new(Some(model));
     selection.set_autoselect(false);
@@ -90,7 +106,7 @@ fn open_what_the_document_asked_for(model: &gtk4::TreeListModel) {
 }
 
 /// Builds the widgets for one row and wires what acting on it does.
-fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
+fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>, pictures: &Previews) {
     let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
         return;
     };
@@ -103,13 +119,12 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
     let row = held.borrow::<PanelRow>().clone();
 
     let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-    // Table 153's `/View T`: "each file in the collection denoted by a small icon". Which *kind*
-    // of icon is `viewer_host::panel::Icon`'s, shared with `viewer-qt`; the picture is the running
-    // theme's, because the clause states no artwork at all (ADR 1215).
-    if let Some(icon) = row.icon {
-        let image = gtk4::Image::from_icon_name(icon.theme_name());
-        image.set_icon_size(gtk4::IconSize::Large);
-        line.append(&image);
+    // Table 153's `/View T` is "a small icon" and §12.3.6's three further layouts are built out
+    // of thumbnails and previews of the attachments themselves. Which *kind* of thing a row is
+    // stays `viewer_host::panel::Icon`'s, shared with `viewer-qt`; the icon's picture is the
+    // running theme's, because the clause states no artwork at all (ADRs 1215, 1251).
+    if let Some(picture) = row.picture {
+        line.append(&picture_for(&row, picture, pictures));
     }
     if let RowAction::Toggle { group, on, locked } = row.action {
         let switch = gtk4::CheckButton::new();
@@ -208,3 +223,97 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
 
     item.set_child(Some(&expander));
 }
+
+/// The widget a row's [`Picture`] is drawn as.
+///
+/// The file's own preview where §12.3.6 asks for one and this host has decoded it; the icon
+/// theme's picture for the kind otherwise, which is also what Table 153's `/View T` asks for
+/// outright. The size is this toolkit's ink — the clause states "a small icon", "thumbnails" and
+/// "a large size preview" and no measurement (ADR 1251).
+pub(crate) fn picture_for(row: &PanelRow, picture: Picture, pictures: &Previews) -> gtk4::Widget {
+    let side = match picture {
+        Picture::Icon(_) => 0,
+        Picture::Thumbnail(_) => 64,
+        Picture::Preview(_) => 128,
+    };
+    if picture.wants_the_files_own_picture()
+        && let RowAction::Extract { name } = &row.action
+        && let Some(texture) = pictures(name)
+    {
+        let image = gtk4::Image::from_paintable(Some(&texture));
+        image.set_pixel_size(side);
+        return image.upcast();
+    }
+    let image = gtk4::Image::from_icon_name(picture.kind().theme_name());
+    if side == 0 {
+        image.set_icon_size(gtk4::IconSize::Large);
+    } else {
+        image.set_pixel_size(side);
+    }
+    image.upcast()
+}
+
+/// §12.3.6's `FreeForm`, which is a surface rather than a list.
+///
+/// > The FreeForm layout provides a simple layout, in which thumbnails for each item in the
+/// > collection contents are displayed at a random location on the view.
+///
+/// A `GtkFixed` is this toolkit's surface with places on it, and the places are
+/// `viewer_host::panel::scattered`'s so that the three windows put the same file in the same
+/// spot. The rows that are sentences rather than files go under it, because a scatter is where
+/// the *files* go (ADR 1251).
+pub(crate) fn scatter(
+    rows: &[PanelRow],
+    act: &Rc<dyn Fn(&RowAction)>,
+    pictures: &Previews,
+) -> gtk4::Widget {
+    let surface = gtk4::Fixed::new();
+    let mut sentences = Vec::new();
+    for row in rows {
+        let RowAction::Extract { name } = &row.action else {
+            sentences.push(row);
+            continue;
+        };
+        let item = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        if let Some(picture) = row.picture {
+            item.append(&picture_for(row, picture, pictures));
+        }
+        let label = gtk4::Label::new(Some(&row.label));
+        label.set_ellipsize(pango::EllipsizeMode::End);
+        label.set_max_width_chars(12);
+        item.append(&label);
+        let click = gtk4::GestureClick::new();
+        let act = Rc::clone(act);
+        let action = row.action.clone();
+        click.connect_released(move |_, _, _, _| act(&action));
+        item.add_controller(click);
+        let (across, down) = viewer_host::panel::scattered(name);
+        let room = f64::from(SCATTER_ROOM);
+        surface.put(&item, f64::from(across) * room, f64::from(down) * room);
+    }
+    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    surface.set_size_request(0, SCATTER_ROOM.saturating_add(SCATTER_ITEM));
+    column.append(&surface);
+    for row in sentences {
+        let label = gtk4::Label::new(Some(&row.label));
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        label.add_css_class("dim-label");
+        column.append(&label);
+    }
+    let scroller = gtk4::ScrolledWindow::new();
+    scroller.set_child(Some(&column));
+    scroller.set_vexpand(true);
+    scroller.set_hexpand(true);
+    scroller.upcast()
+}
+
+/// How much room §12.3.6's `FreeForm` scatters its thumbnails over, in logical pixels.
+///
+/// Ink rather than a reading: the clause asks for "a random location on the view" and states no
+/// extent. Six hundred is twice the panel's own width, so a scatter is a scatter and the
+/// `GtkScrolledWindow` around it reaches the rest (ADR 1251).
+const SCATTER_ROOM: i32 = 600;
+
+/// How much room one of those thumbnails takes under its own place.
+const SCATTER_ITEM: i32 = 96;

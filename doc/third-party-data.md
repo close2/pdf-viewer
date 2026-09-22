@@ -485,14 +485,14 @@ surrounding page markers rather than assume the file runs forwards.
 2.1.0 above all, which is most of the profiles that exist — since neither text is the edition such
 a profile names, and everything of either document beyond clause 6.3's tag lists.
 
-## Black point compensation: what is held, and what is free but not yet fetched
+## Black point compensation: the four texts, and which one states the algorithm
 
 ISO 32000-2 §8.6.5.9 says that where `/UseBlackPtComp` is `ON` the conversion shall follow ISO
-18619, and that document has never been on this disk. Session 1185 established that its *content*
-is obtainable free and that none of the ICC texts above states it; ADR 1208 is the reading and
-§8.6.5.9's ledger row carries the consequence. This section is the provenance.
+18619. None of the ICC texts above states that algorithm — ADR 1208 is the checking that closed
+the family — and the ICC publishes the committee draft that does, free. This section is the
+provenance of all four.
 
-**Held already, and missing a row here until now: PDF 2.0 Application Note 001.**
+**The freely redistributable one: PDF 2.0 Application Note 001.**
 `doc/md/PDF20_AN001-BPC.md` is *Black Point Compensation*, PDF Association, 2018-09, and its cover
 page states Creative Commons Attribution 4.0 International — **the one text in this family that is
 freely redistributable, with attribution**. It is also a corpus document several crates open by
@@ -502,16 +502,23 @@ what absolute colorimetry does at the white end. For the algorithm it defers to 
 many words, and its reference list names exactly two documents, ISO 32000-2 and ISO 18619. So the
 note settles what the flag *means* and states nothing computable.
 
-**Free to obtain from the ICC, and not yet obtained.** Three documents, each verified reachable on
-2026-09-22 and none of them downloaded into this tree — a worktree's `doc/` does not survive its
-merge, and `doc/md` is a symlink to the main checkout, so fetching them is a job for a round
-working on the main branch:
+**Free to obtain from the ICC, and held here.** Three documents, fetched on 2026-09-22 into the
+gitignored `doc/` beside the other specifications and converted by `tools/spec-md.py` into
+`doc/md/`, which is ignored for ADR 0187's reason. The byte counts below are what came back and
+are what a re-fetch should match:
 
-| document | where | terms |
+| document | file, and where it came from | terms |
 |---|---|---|
-| ISO/CD 18619, *Image technology colour management — Black point compensation* (ISO/TC 130/WG 7 N063, 2013-05-02) | `https://www.color.org/BlackPointCompensation.pdf`, 340 916 bytes | ISO committee-draft notice: free to obtain and read, **no reproduction for any other purpose** — the same single-reader position as ICC.1:2022 above |
-| ICC White Paper 40, *Black-point compensation: theory and application* (2010-07-27) | `https://www.color.org/whitepapers/`, 2 338 582 bytes | **no copyright or permission statement in the document at all**; terms unestablished, treated as single-reader |
-| *Adobe Systems' Implementation of Black Point Compensation* (2006) | `https://www.color.org/AdobeBPC.pdf`, 196 694 bytes | Adobe copyright, no grant of any kind — and one sentence that matters: Adobe states it holds **no patents** on the algorithm or on its use in colour transforms |
+| ISO/CD 18619, *Image technology colour management — Black point compensation* (ISO/TC 130/WG 7 N063, 2013-05-02) | `doc/ISO-CD-18619-2013.pdf`, `doc/md/ISO-CD-18619-2013.md`; `https://www.color.org/BlackPointCompensation.pdf`, 340 916 bytes | ISO committee-draft notice: reproduction permitted for participants in the ISO standards development process and **for no other purpose without ISO's written permission** — the same single-reader position as ICC.1:2022 above |
+| ICC White Paper 40, *Black-point compensation: theory and application* (2010-07-27) | `doc/ICC-White-Paper-40-BPC.pdf`, `doc/md/ICC-White-Paper-40-BPC.md`; `https://archive.color.org/files/WP40-Black_Point_Compensation_2010-07-27.pdf`, linked from `https://www.color.org/whitepapers/`, 2 338 582 bytes | **no copyright or permission statement in the document at all**; terms unestablished, treated as single-reader |
+| *Adobe Systems' Implementation of Black Point Compensation* (2006) | `doc/AdobeBPC-2006.pdf`, `doc/md/AdobeBPC-2006.md`; `https://www.color.org/AdobeBPC.pdf`, 196 694 bytes | Adobe copyright, no grant of any kind — and one sentence that matters: Adobe states it holds **no patents** on the algorithm or on its use in colour transforms |
+
+**What the draft states, and where it now lives in this tree.** Its clause 4 is the whole
+procedure — a vertex set per colour space, a branch for an output-capable CMYK source, a black
+point clamped in lightness, an estimation for a LUT-based *destination*, and one scale and offset
+in PCSXYZ — and `crates/pdf-colour/src/icc.rs` carries it out for a source profile against the
+display. ADR 1253 is the reading and the measurement; `Profile::source_black_point`'s doc comment
+is the section-by-section paraphrase.
 
 **Three cautions, and each changes what a round may write.**
 

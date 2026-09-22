@@ -43,6 +43,13 @@
 //!   schema is described from what the packet states, which keeps every property where it is,
 //!   and the key says what happens to a property whose value type the packet does not show
 //!   (`doc/adr/1245`).
+//! - **`discard` at ISO 19005's two interactive form sites**, which take a key of their own
+//!   beside the word because what is being chosen is what goes *with* the removal:
+//!   `construct` says whether the appearances a removed `/NeedAppearances` was asking for are
+//!   built first — `true` where the row states none, because §12.7.3's Table 224 makes clearing
+//!   the flag a claim that streams have been provided — and `dynamic` says whether a form whose
+//!   own document states `/NeedsRendering` true still loses its `/XFA`, defaulting to `stop`
+//!   (`doc/adr/1257`). [`Configuration::form_answers`] is what reads them.
 //! - **A departure** (section 4.7), the first of which accepts XML and only XML attachments when
 //!   the target is `PDF/A-2` — `A60`'s case, `ZUGFeRD` and `Factur-X`'s, and the only route an operator
 //!   has now that part 3 is not a target.
@@ -849,6 +856,12 @@ struct Row {
     unlisted: Kind,
     /// `winner` — which of a colourant's disagreeing definitions the archive keeps.
     winner: Option<Winner>,
+    /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
+    /// built first. `true` where the row states none, which is the catalogue's *owed, not
+    /// optional*.
+    construct: bool,
+    /// `dynamic` — what happens at `forms/no-xfa-key` to a form the document says is dynamic.
+    dynamic: Kind,
     /// The 1-based line its header sits on, for an error a person can find.
     line: usize,
 }
@@ -1072,6 +1085,33 @@ impl Configuration {
             .filter(|row| requirement_binds(&row.site, target))
             .filter_map(supplied)
             .collect()
+    }
+
+    /// What this configuration answers at ISO 19005's two interactive form sites.
+    ///
+    /// Two keys rather than two remedy words: at both sites the word is `discard`, and what the
+    /// operator is choosing beside it is whether the appearances a removed `/NeedAppearances` was
+    /// asking for are built first, and whether a form the *document* says is dynamic may lose its
+    /// `/XFA` at all. A row the target does not bind states nothing, so the defaults stand.
+    #[must_use]
+    pub fn form_answers(&self, target: Target) -> super::FormAnswers {
+        let mut answers = super::FormAnswers::default();
+        for row in &self.sites {
+            if !requirement_binds(&row.site, target) {
+                continue;
+            }
+            match row.site.as_str() {
+                "forms/need-appearances-absent-or-false" => {
+                    answers.construct_appearances = row.construct;
+                }
+                // `dynamic = "stop"` is the default and the shipped profiles' word; any other
+                // remedy word at that key is the operator saying the removal happens anyway,
+                // which is `doc/adr/1257`'s second answer.
+                "forms/no-xfa-key" => answers.remove_dynamic_xfa = row.dynamic != Kind::Stop,
+                _ => {}
+            }
+        }
+        answers
     }
 
     /// Every external program this configuration can run, in name order.
@@ -1370,6 +1410,15 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .get("fresh-packet")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let construct = tbl
+        .get("construct")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let dynamic = tbl
+        .get("dynamic")
+        .and_then(Value::as_text)
+        .and_then(Kind::parse)
+        .unwrap_or(Kind::Stop);
     let undeterminable = tbl
         .get("undeterminable")
         .and_then(Value::as_text)
@@ -1402,6 +1451,8 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         on_failure,
         placement,
         original,
+        construct,
+        dynamic,
         fresh_packet,
         undeterminable,
         media_types,
@@ -1620,9 +1671,9 @@ fn check_fallback(tbl: &toml::Table, site: &str) -> Result<(), ConfigError> {
 ///
 /// A site documents its own keys (`doc/rfc/0007` section 3), and the reader does not know most of
 /// them — but the ones the shipped profiles use most are flags, and `fresh-packet = "yes"` is a
-/// mistake worth naming rather than passing over. The keys a remedy this round cannot yet carry
-/// out are still validated for shape, so a configuration written against the format is well formed
-/// before the remedy that reads it exists.
+/// mistake worth naming rather than passing over. A key whose remedy no version carries out yet is
+/// still validated for shape, so a configuration written against the format is well formed before
+/// the remedy that reads it exists.
 const BOOLEAN_KEYS: &[&str] = &[
     "keep-attachment",
     "construct",
@@ -2091,15 +2142,17 @@ on-failure = [\"preserve\", \"stop\"]
 
     #[test]
     fn a_target_qualifier_decides_which_row_applies() {
-        let text = "\
-[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\"]
-remedy = \"discard\"
-
-[site.\"embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile\".target.\"4f\"]
-remedy = \"preserve\"
-";
-        // At PDF/A-4 the unqualified `discard` row applies; the 4f row is read but does not.
-        let four = Configuration::read(text, Target::Four(Flavour::Plain)).expect("reads");
+        let site = "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile";
+        let plain = format!("[site.{site:?}]\nremedy = \"discard\"\n");
+        let qualified = format!(
+            "{plain}\n[site.{site:?}.target.\"4\"]\nremedy = \"preserve\"\nplacement = \"append\"\n"
+        );
+        // The unqualified row is a `discard` this version carries out; the qualified one asks for
+        // the attachment's pages appended, which it does not. So which of the two `unbuilt` names
+        // is the whole of what the qualifier decided.
+        let four = Configuration::read(&plain, Target::Four(Flavour::Plain)).expect("reads");
+        assert!(four.unbuilt(Target::Four(Flavour::Plain)).is_empty());
+        let four = Configuration::read(&qualified, Target::Four(Flavour::Plain)).expect("reads");
         assert_eq!(four.unbuilt(Target::Four(Flavour::Plain)).len(), 1);
     }
 

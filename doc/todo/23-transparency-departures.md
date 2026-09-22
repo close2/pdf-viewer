@@ -532,9 +532,12 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    entry and "none of their knockout groups is drawn today", which had stopped being true when ADR
    0327 scoped the flag — measured over every page of all nine, not one of their knockout groups
    reaches the refusal. The world population was **1 of 65 944** crawled web documents. What is
-   refused in its place is a *scope*: a group whose content painted under **both** readings, and,
-   under the shape reading, a non-isolated group used as an element — whose accumulated alpha
-   carries its backdrop's beside its own, which is item 1's debt one level up.
+   refused in its place is a *scope*: a group whose content painted under **both** readings, and
+   nothing else. A non-isolated group used as an element was never a shape gap — §11.3.7.2 makes a
+   group's shape the union of its elements', accumulated on transparency, whatever its isolation
+   (ADR 1205) — and the one construction that refused such an element for §11.4.6's NOTE 6 takes it
+   now, wherever the knockout group composites its elements against an initial backdrop it keeps
+   (ADR 1256).
 3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed in the
    four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
    three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
@@ -683,3 +686,39 @@ a backend already has rather than a new quantity, the initial backdrop retained 
 accumulation. What the residues left in the table still need is a conversion **between two
 presses**, per pixel, at a group boundary — a function of a function, which really is not a
 quantity a command could name, and which no corpus document asks for.
+
+## The cube into a parent's space has identity curves, and that is what the "non-affine route" is
+
+**Answered in the one-thousand-two-hundred-and-eighth, and half of it by the clause** (ADR 1254).
+This file and §11.3.4's row carried a question about the non-affine route into a blending colour
+space. `Lab` is not part of it: §11.3.4 says the Lab space and lightness-chromaticity `ICCBased`
+spaces "shall not be used as blending colour spaces because the compositing computations in such
+spaces do not give meaningful results when applied separately to each component", so a file
+naming one is the document's failure and not a route anything here owes.
+
+Nor is anything left non-representable. `pdf_render::ColourCube` is per-axis input curves, a
+`side³` grid and an output curve — a sampled lookup, not an affine map — so it carries a
+non-affine conversion as readily as a linear one. What it carries *badly* now has a number.
+`transparency::into_parent_cube` samples `parent_channels` at `INTO_PARENT_SIDE` = 33 with
+**identity** input curves, which puts the whole conversion in the grid. Against evaluating that
+conversion directly — worst of 200 000 uniformly random colours, in levels of 255:
+
+| side | `CalRGB` `/Gamma 2.2` | `CalRGB` `/Gamma 1` |
+|---|---|---|
+| 2 | 8.55 | 73.25 |
+| 9 | 7.54 | 1.47 |
+| 17 | 6.24 | 0.37 |
+| 33, what is built | **4.66** | 0.09 |
+| 65 | 3.40 | 0.04 |
+
+A linear space converges the way a smooth function should. A gamma-2.2 one does not converge
+usefully at all — quadrupling the side bought 1.26 levels — because the conversion's last stage is
+an inverse gamma whose derivative is unbounded at zero, and a grid sampled uniformly in the
+encoded domain cannot resolve it. `ColourCube`'s own doc comment already says this about the
+device's transfer function; the parent's gamma is the same shape one conversion earlier.
+
+**What is owed**: give the cube the parent's per-component curve as its input curves, so the grid
+between them is linear and two samples an axis reproduce it exactly — which is what
+`own_space_conversion` already does for the conversion *out* of a `CalRGB` group. It changes what
+is drawn on the 31 documents of 88 890 that reach a group composited into a parent's own space,
+so it is a round with `raster_golden` and the oracle behind it.

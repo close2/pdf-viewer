@@ -4441,6 +4441,50 @@ pub unsafe extern "C" fn quorra_thumbnail_read(
     }
 }
 
+/// §12.3.6's preview picture for one of §12.3.5's attachments, by its `/EmbeddedFiles` key.
+///
+/// The picture is that attachment's own first page's §12.3.4 `/Thumb` — the miniature its
+/// producer wrote — because that is the one picture of a document's page the standard defines, and
+/// Table 160's `FilmStrip`, `FreeForm` and `Linear` are built out of pictures of the attachments
+/// (ADR 1251).
+///
+/// **The same handle `quorra_thumbnail_read` produces**, so `quorra_thumbnail_info`,
+/// `quorra_thumbnail_copy` and `quorra_thumbnail_free` serve both: one picture idiom rather than
+/// two. `QUORRA_NO_ANSWER` where the tree holds no such key, and where the attachment is not a PDF
+/// or states no `/Thumb` on its first page — which is most attachments, and is a document being
+/// quiet rather than a failure.
+///
+/// **One attachment at a time and no list-valued form of this call exists**, which is
+/// `CLAUDE.md` section 2 by construction, exactly as for a page's thumbnail: a preview is an
+/// embedded document opened, and a caller asks for the rows it is about to draw.
+///
+/// # Safety
+///
+/// See the module documentation. `name` is a NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_attachment_preview_read(
+    viewer: *const Session,
+    name: *const c_char,
+    thumbnail: *mut *mut Miniature,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), thumbnail.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    if name.is_null() {
+        return Status::NullArgument.code();
+    }
+    let Ok(name) = CStr::from_ptr(name).to_str() else {
+        return Status::NotUtf8.code();
+    };
+    match viewer.attachment_preview(name) {
+        Ok(miniature) => {
+            *out = Box::into_raw(Box::new(miniature));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// Releases what `quorra_thumbnail_read` produced. Null is a no-op.
 ///
 /// # Safety
@@ -5312,6 +5356,34 @@ pub unsafe extern "C" fn quorra_collection_free(collection: *mut Collection) {
     if !collection.is_null() {
         drop(Box::from_raw(collection));
     }
+}
+
+/// Table 158's `/Direction` `N`: whether the file navigation view takes the whole window.
+///
+/// §12.3.5.1, Table 158:
+///
+/// > N indicates that the window is not split. The entire window region shall be dedicated to the
+/// > file navigation view.
+///
+/// Non-zero where the document asked for it, zero otherwise — including where Table 153's `/View`
+/// is `H`, since a view the document asked to hide is not one a window is dedicated to. The rest
+/// of the split dictionary does not cross: `H`, `V` and `/Position` state where a splitter bar
+/// goes in an initial view this library draws nothing of, which is the platform's furniture and
+/// not a fact about the file (ADRs 1168, 1252).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_collection_whole_window(
+    collection: *const Collection,
+    whole: *mut u32,
+) -> c_int {
+    let (Some(collection), Some(whole)) = (collection.as_ref(), whole.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *whole = u32::from(collection.whole_window());
+    Status::Ok.code()
 }
 
 /// Table 153's `/View`: how the collection is first presented.

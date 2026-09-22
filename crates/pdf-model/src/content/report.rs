@@ -480,6 +480,17 @@ pub struct Interpretation {
     pub view_dependent: bool,
     /// What could not be drawn. Empty means the page is complete.
     pub unsupported: Vec<Unsupported>,
+    /// How many *distinct* presses this interpretation named, against
+    /// [`crate::colour::MAX_PRESSES`].
+    ///
+    /// ISO 32000-2 §11.7.2 gives a page's four-component blending space a conversion of its
+    /// own, and this counts how many such conversions one page asked for. It is here because
+    /// the budget that refuses the next one is per interpretation (ADR 0417), so the only
+    /// instrument that can say whether a population reaches it is one that asks a page rather
+    /// than a process — `examples/press_depth` is that instrument, and ADR 1254 is what it
+    /// measured. Zero for a page that composites on the device's own components, which is
+    /// almost every page.
+    pub presses_named: usize,
     /// The page's text, in the order the content stream showed it.
     ///
     /// Produced by the same pass that draws the glyphs, and from the same code-to-glyph

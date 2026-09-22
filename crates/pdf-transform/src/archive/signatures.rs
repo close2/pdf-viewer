@@ -117,7 +117,7 @@ pub(super) enum Site {
 impl Site {
     /// The site of a catalog entry: its object where the entry refers to one, the catalog
     /// itself where the entry is written directly.
-    fn of(entry: &Object) -> Self {
+    pub(super) fn of(entry: &Object) -> Self {
         entry.as_reference().map_or(Self::InCatalog, Self::Object)
     }
 }

@@ -46,7 +46,8 @@ use std::path::{Path, PathBuf};
 use pdf_archive::{Flavour, Level, Target, Verdict};
 use pdf_syntax::{Document, Limits};
 use pdf_transform::archive::{
-    ArchivePlan, Authorisations, Decision, ExternalData, Loss, PLACEMENT_ON_PAGE, Preservation,
+    ArchivePlan, Authorisations, Decision, ExternalData, FormAnswers, Loss, PLACEMENT_ON_PAGE,
+    Preservation,
 };
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
@@ -315,6 +316,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
                 supplied_fonts: BTreeMap::new(),
                 departures: Vec::new(),
                 claim_conformance: false,
+                forms: FormAnswers::default(),
                 derivations: Vec::new(),
                 supplies: Vec::new(),
                 preservations: Vec::new(),
@@ -495,6 +497,7 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                 supplied_fonts: BTreeMap::new(),
                 departures: Vec::new(),
                 claim_conformance: false,
+                forms: FormAnswers::default(),
                 derivations: Vec::new(),
                 supplies: Vec::new(),
                 preservations: sites
@@ -634,6 +637,7 @@ fn separation_sweep(root: &Path, part: &str, target: Target, winner: &str) -> Ag
                 supplied_fonts: BTreeMap::new(),
                 departures: Vec::new(),
                 claim_conformance: false,
+                forms: FormAnswers::default(),
                 derivations: Vec::new(),
                 supplies: config.supplies(target),
                 preservations: Vec::new(),

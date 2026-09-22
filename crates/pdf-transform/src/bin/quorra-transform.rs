@@ -841,6 +841,7 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
         supplied_fonts,
         departures: read.departures,
         claim_conformance: read.claim_conformance,
+        forms: read.forms,
         derivations: read.derivations,
         supplies: read.supplies,
         preservations: read.preservations,
@@ -856,6 +857,8 @@ fn archive_plan(arguments: &Arguments, names: Pattern) -> Result<ArchivePlan, Fa
 struct FromConfig {
     /// The departures it names.
     departures: Vec<pdf_transform::archive::Departure>,
+    /// What it answers at the two interactive form sites (`construct`, `dynamic`).
+    forms: pdf_transform::archive::FormAnswers,
     /// Whether the output still claims the target (`--claim-conformance`, `A59`).
     claim_conformance: bool,
     /// The `derive` remedies it names, each with the tool it declares.
@@ -931,6 +934,7 @@ fn read_config(
     let Some(path) = arguments.value(&["--config"]) else {
         return Ok(FromConfig {
             departures: Vec::new(),
+            forms: pdf_transform::archive::FormAnswers::default(),
             claim_conformance: claim,
             derivations: Vec::new(),
             supplies: Vec::new(),
@@ -985,6 +989,7 @@ fn read_config(
     }
     Ok(FromConfig {
         departures,
+        forms: config.form_answers(target),
         claim_conformance: claim,
         derivations,
         supplies,

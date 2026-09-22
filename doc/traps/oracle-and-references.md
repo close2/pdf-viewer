@@ -667,6 +667,15 @@ Three things follow for a round reading a worst-tile verdict:
 `the_same_difference_reads_half_as_much_when_it_straddles_the_tile_grid` pins the halving in
 arithmetic. ADR 0755.
 
+### 43. A specification fetched into `doc/` grows the oracle's judged population, and the round that fetched it owns the pages it adds
+
+`doc/*.pdf` is walked for page one of every specification held, so a text fetched for its
+contents arrives as a page the references are asked to settle. It has bitten three rounds —
+ICC.1:2022-05, ITU-T X.690, and ISO/CD 18619 with ICC White Paper 40 (ADR 1253), whose page one
+came back ambiguous and undiagnosed and failed the gate until `doc/todo/00` step 6's two ladders
+placed it in `AMBIGUOUS_GLYPH_SCAN_CONVERSION`. A round that puts a PDF under `doc/` runs the oracle
+before it reports and diagnoses what its own file added.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves

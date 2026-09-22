@@ -39,7 +39,7 @@ use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
     QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtPopup, QtPrintCell, QtPrintJob, QtQuad,
-    QtRow, QtUpdate,
+    QtRow, QtScatter, QtUpdate,
 };
 use crate::keys;
 use crate::page;
@@ -1846,6 +1846,19 @@ impl Host {
         pages_panel_index()
     }
 
+    /// Which of the panels is §12.3.5's, whose presentation Table 153 and §12.3.6 decide.
+    ///
+    /// Asked across the bridge for `pages_panel`'s reason: the list of panels is
+    /// `viewer_host::Tab` and a second one in C++ would be a second thing to keep level.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so a constant answer is \
+                  still a method"
+    )]
+    pub(crate) fn files_panel(&self) -> u8 {
+        u8::try_from(Tab::Files.index()).unwrap_or(u8::MAX)
+    }
+
     /// How many rows §12.3.4's panel has, which is how many pages the document has.
     pub(crate) fn page_count(&self) -> usize {
         match self.viewer.query(Query::PageCount) {
@@ -1894,6 +1907,58 @@ impl Host {
     )]
     pub(crate) fn kept_miniatures(&self) -> usize {
         viewer_host::KEPT_MINIATURES
+    }
+
+    /// §12.3.6's preview picture for one attachment, asked for when a row is about to be drawn.
+    ///
+    /// [`Self::page_row`]'s shape and every one of its reasons: one file at a time, the pixels
+    /// copied out because the C++ side keeps a `QPixmap` of them, and a zero width for a file
+    /// that states no §12.3.4 `/Thumb` on its first page — which is most files, and is a document
+    /// being quiet rather than a failure (ADR 1251).
+    pub(crate) fn attachment_preview(&self, name: &str) -> QtPage {
+        match viewer_host::panel::attachment_preview(&self.viewer, name) {
+            Some(image) => QtPage {
+                label: String::new(),
+                width: image.width,
+                height: image.height,
+                pixels: image.data.to_vec(),
+            },
+            None => QtPage {
+                label: String::new(),
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+            },
+        }
+    }
+
+    /// Where §12.3.6's `FreeForm` puts one file's thumbnail, from the one place all three windows
+    /// ask.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so an answer that depends                   only on its argument is still a method"
+    )]
+    pub(crate) fn scatter_place(&self, name: &str) -> QtScatter {
+        let (across, down) = viewer_host::panel::scattered(name);
+        QtScatter { across, down }
+    }
+
+    /// Whether the files panel is drawing §12.3.6's `FreeForm` scatter rather than a list of rows.
+    pub(crate) fn collection_scatters(&self) -> bool {
+        match self.viewer.query(Query::Collection) {
+            Answer::Collection { collection, .. } => {
+                viewer_host::panel::presentation(&collection) == viewer_host::panel::Mode::FreeForm
+            }
+            _ => false,
+        }
+    }
+
+    /// Table 158's `/Direction` `N`: whether the whole window region is the file navigation view's.
+    pub(crate) fn collection_takes_the_window(&self) -> bool {
+        match self.viewer.query(Query::Collection) {
+            Answer::Collection { collection, .. } => viewer_host::panel::whole_window(&collection),
+            _ => false,
+        }
     }
 
     /// §12.3.4: "allowing the user to navigate to a page by clicking its thumbnail image".
@@ -2994,10 +3059,20 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
                 headings: row.cells.iter().map(|cell| cell.heading.clone()).collect(),
                 values: row.cells.iter().map(|cell| cell.value.clone()).collect(),
                 icon: row
-                    .icon
-                    .map(Icon::theme_name)
+                    .picture
+                    .map(|picture| Icon::theme_name(picture.kind()))
                     .unwrap_or_default()
                     .to_owned(),
+                picture: match row.picture {
+                    None => 0,
+                    Some(viewer_host::panel::Picture::Icon(_)) => 1,
+                    Some(viewer_host::panel::Picture::Thumbnail(_)) => 2,
+                    Some(viewer_host::panel::Picture::Preview(_)) => 3,
+                },
+                key: match &row.action {
+                    RowAction::Extract { name } => name.clone(),
+                    _ => String::new(),
+                },
             },
             action: row.action.clone(),
         });
@@ -3487,7 +3562,7 @@ mod tests {
                 note: false,
                 emphasis: false,
                 cells: Vec::new(),
-                icon: None,
+                picture: None,
                 children: vec![PanelRow {
                     label: "under".to_owned(),
                     detail: Some("said".to_owned()),
@@ -3496,7 +3571,7 @@ mod tests {
                     note: false,
                     emphasis: false,
                     cells: Vec::new(),
-                    icon: None,
+                    picture: None,
                     children: Vec::new(),
                 }],
             },
@@ -3512,7 +3587,7 @@ mod tests {
                 // carries it so that the bold row is the one the *document* named.
                 emphasis: true,
                 cells: Vec::new(),
-                icon: None,
+                picture: None,
                 children: Vec::new(),
             },
         ];

@@ -333,7 +333,14 @@ annotation is in the one the name tree does not list — and where a document st
 because the values it orders by are §7.11.6's collection items no host holds (ADR 1168), and in the
 view Table 153's `/View` asks for: the details view's columns are the whole visible schema and the
 tile view's are its head beside an icon naming the file's kind, which is every value of that entry
-obeyed rather than reported (ADR 1215) — because a
+obeyed rather than reported (ADR 1215), and in §12.3.6's own named layouts, where all seven of
+Table 160's are now drawn — `FilmStrip` a run of thumbnails indexing the files and the folders with
+the selected attachment's fields beside it, `FreeForm` those thumbnails scattered over a surface,
+`Linear` one attachment large with the schema's fields and the file specification's beside it, each
+thumbnail being that attachment's own first page's §12.3.4 `/Thumb` and its Table 44 kind where the
+file states none (ADR 1251) — and in the window region Table 158's `/Direction` `N` asks to be
+given to the file list, with its `H`, `V` and `/Position` and Table 157's `/Colors` named out loud
+as the furniture this window decides for itself (ADR 1252) — because a
 collection is how a document *arranges* its files rather than a new population of them (ADR 0202);
 §14.3.3's `/Info` with §14.3.2's XMP under it; §12.3.4's thumbnails, one row per page with the
 miniature fitted above §12.4.2's label and **fetched only for the rows about to be drawn**, which is
@@ -626,6 +633,22 @@ every schema described (ADR 1245). **And an amendment identifier that is not the
 year separated by a colon is cut out by span**, which is the one remedy section 6.6.4 leaves:
 neither half is recoverable, the entry is optional, and what goes is a claim the file was already
 making incorrectly (ADR 1246).
+**And a form stops asking a reader to do its work.** ISO 19005's section 6.4.1 requires Table
+224's `/NeedAppearances` absent or false, and that table makes an absent one the claim that
+appearance streams have been provided for every visible widget — so the flag comes out with each
+such widget's `/AP` `/N` constructed first, by §12.7.4.3's algorithm from the widget's own
+characteristics and its field's value, and a widget whose appearance cannot be built keeps the flag
+with its field named in the report. A widget its producer already gave a stream keeps the
+producer's bytes. Section 6.4.2's `/XFA` goes with `--authorise xfa-form`, on §K.2's own
+requirement that the interactive form dictionary agree with the resource being removed — so for a
+form the AcroForm describes, the fields and their values stay and what goes is the behaviour the
+template carried. A document whose own `/NeedsRendering` says its pages are regenerated is the case
+where the AcroForm is not the document, and it is refused by name until a configuration says
+otherwise (ADR 1257). **And an embedded file no part of ISO 19005 admits is taken out of the
+document** with `--authorise embedded-file`: every reference to its file specification goes, its
+`/EmbeddedFiles` entry and its place in every `/AF` array, and the specification and its bytes go
+with them; §7.7.4's Table 31 is why both entries go rather than one, and the report names each file
+that left (ADR 1258).
 A refusal is a question answered in advance: a configuration names each refusal site and its
 remedy, `--remedy-sites` prints every site a target binds with what this version carries out and its
 own total of what is not built yet — and, given a profile, the answers that profile gives which this

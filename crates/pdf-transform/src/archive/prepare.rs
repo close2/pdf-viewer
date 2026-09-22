@@ -28,7 +28,7 @@ use super::jpeg2000::{self, Specifications};
 use super::preserve::{self, Composed};
 use super::report::{Preserved, SetIn};
 use super::rewrite::Rewrite;
-use super::signatures::{self, ForeignHandlers, Signatures};
+use super::signatures::{self, ForeignHandlers, Signatures, Site};
 use super::sites::{
     self, AppearanceStates, ColorantEntries, CompletedOrders, DescriptorSets, PageResources,
     SharedProfile, Sites, StandardEncodings,
@@ -305,6 +305,20 @@ const BUTTON_APPEARANCE_STATES: &str = "this document holds a widget of a button
      appearance per state rather than a single stream. Which states the button has is what an \
      absent appearance dictionary does not say, and naming them would be inventing the control's \
      own vocabulary";
+
+/// Why a `/NeedAppearances` a conversion could not make true is left standing.
+const WIDGET_APPEARANCE_NOT_CONSTRUCTED: &str = "this document asks a processor to build the \
+     appearances of its form fields, and this conversion could not build one for every visible \
+     widget the file provides none for — the report names each field it could not, under \
+     `unconstructed`. Clearing the flag would leave the file stating that appearances had been \
+     provided for widgets that have none, so the flag stays and the requirement with it";
+
+/// Why a dynamic XFA form's `/XFA` is not removed unless the operator says so.
+const DYNAMIC_XFA_DECLINED: &str = "this document states NeedsRendering true, which ISO 32000-2 \
+     Table 29 makes the claim that its pages are regenerated when it is first opened — so the \
+     pages in the file are not what a reader of this form shows, and the AcroForm this conversion \
+     would keep is not the form. Answer forms/no-xfa-key with dynamic = \"discard\" to remove the \
+     key anyway, accepting a document whose form nothing will build the pages of";
 
 /// Why an annotation the page states inline is not given one.
 const APPEARANCE_ON_A_DIRECT_ANNOTATION: &str = "this document writes an annotation directly into \
@@ -739,6 +753,23 @@ pub(super) struct Prepared {
     pub(super) extra_appearance_states: Result<ExtraAppearanceStates, Because>,
     /// The optional content configurations that lose their `/AS`, or why none do.
     pub(super) automatic_states: Result<sites::AutomaticStates, Because>,
+    /// Where the interactive form dictionary is, for the two section 6.4 rewrites that edit it.
+    pub(super) form: Result<Site, Because>,
+    /// The same site, refused where the document says its own pages are generated.
+    ///
+    /// A second field rather than a second read: the `/XFA` removal is the one of the two whose
+    /// answer depends on what kind of form this is, and `doc/adr/1257` is the predicate.
+    pub(super) xfa: Result<Site, Because>,
+    /// The widget appearances Table 224's condition asks for, or why they cannot be built.
+    pub(super) field_appearances: Result<FieldAppearances, Because>,
+    /// The embedded files a target's own rule does not admit, or why none can be removed.
+    pub(super) embedded_files: Result<sites::EmbeddedFiles, Because>,
+    /// Whether the operator asked for those appearances at all (`construct`).
+    ///
+    /// Carried beside the construction rather than read from the plan again, because it is what
+    /// [`super::decision::answer_of`] routes on: with the appearances built the flag's removal
+    /// loses nothing, and without them it loses a field its producer gave no stream.
+    pub(super) constructs_field_appearances: bool,
     /// The pages a `preserve` remedy appends, or why none can be.
     ///
     /// `doc/adr/1014`, and the field is `Err(NOT_ASKED_FOR)` for every conversion whose caller
@@ -919,6 +950,20 @@ impl Prepared {
         let automatic_states = asked(wanted(Rewrite::AutomaticStatesRemoved), || {
             sites::automatic_states(document)
         });
+        // ISO 19005-2 section 6.4.1 and 6.4.2, and ISO 19005-4's same two: both edit the one
+        // dictionary §12.7.3 puts `/NeedAppearances` and `/XFA` in, so the site is read once.
+        let form = asked(wanted(Rewrite::NeedAppearancesCleared), || {
+            sites::interactive_form(document)
+        });
+        let xfa = asked(wanted(Rewrite::XfaRemoved), || {
+            // `doc/adr/1257`: a form whose own document says its pages are regenerated is the
+            // dynamic case, where the AcroForm is not the form and removing the key leaves a
+            // document nothing will build the pages of. `dynamic` is the operator's word for it.
+            if sites::xfa_form_is_dynamic(document) && !plan.forms.remove_dynamic_xfa {
+                return Err(Because::Declined(DYNAMIC_XFA_DECLINED));
+            }
+            sites::interactive_form(document)
+        });
         let preserved = the_preserved_pages(
             plan,
             document,
@@ -1012,6 +1057,25 @@ impl Prepared {
                 &mut spare,
             )
         });
+        // **Prepared after the section 6.3.3 construction and from it**: an annotation with no
+        // appearance dictionary at all is that rewrite's, and a widget in both populations would
+        // otherwise have its `/AP` written twice. `construct = false` is the operator's other
+        // answer — the flag goes and the blank fields go with it — so nothing is built.
+        let field_appearances = asked(wanted(Rewrite::NeedAppearancesCleared), || {
+            if plan.forms.construct_appearances {
+                prepare_field_appearances(
+                    document,
+                    plan.target,
+                    appearances.as_ref().ok(),
+                    &mut spare,
+                )
+            } else {
+                Ok(FieldAppearances::default())
+            }
+        });
+        let embedded_files = asked(wanted(Rewrite::EmbeddedFileRemoved), || {
+            sites::embedded_files(document, input)
+        });
         let structure = structure_tree(wanted(Rewrite::MarkInfo), document, catalog.as_ref());
         // One reading of §12.6's action trees for the three rewrites the action clauses ask for,
         // and the rules in force are the ones *this document failed*: a rule the file already
@@ -1081,6 +1145,11 @@ impl Prepared {
             hidden_annotations,
             extra_appearance_states,
             automatic_states,
+            form,
+            xfa,
+            field_appearances,
+            embedded_files,
+            constructs_field_appearances: plan.forms.construct_appearances,
             preserved,
             recorded_provenance,
         }
@@ -1138,6 +1207,21 @@ impl Prepared {
                 self.extra_appearance_states.as_ref().err().copied()
             }
             Rewrite::AutomaticStatesRemoved => self.automatic_states.as_ref().err().copied(),
+            Rewrite::NeedAppearancesCleared => self
+                .form
+                .as_ref()
+                .err()
+                .copied()
+                .or_else(|| self.field_appearances.as_ref().err().copied())
+                .or_else(|| {
+                    self.field_appearances
+                        .as_ref()
+                        .ok()
+                        .filter(|built| !built.unconstructed.is_empty())
+                        .map(|_| Because::TheFence(WIDGET_APPEARANCE_NOT_CONSTRUCTED))
+                }),
+            Rewrite::XfaRemoved => self.xfa.as_ref().err().copied(),
+            Rewrite::EmbeddedFileRemoved => self.embedded_files.as_ref().err().copied(),
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
@@ -1179,6 +1263,11 @@ impl Prepared {
         }
         if let Ok(appearances) = &self.appearances {
             for (id, object) in &appearances.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(built) = &self.field_appearances {
+            for (id, object) in &built.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -1813,6 +1902,112 @@ fn prepare_appearances(
         constructed,
         removed,
     })
+}
+
+/// The widget appearances Table 224's flag asks a processor to build, and the fields it could not.
+///
+/// ISO 19005-2 section 6.4.1 and ISO 19005-4 section 6.4.1 require `/NeedAppearances` to be
+/// absent or false, and §12.7.3's Table 224 states the condition under which a writer may say so:
+///
+/// > A PDF writer shall include this key, with a value of true , if it has not provided appearance
+/// > streams for all visible widget annotations present in the document.
+///
+/// So clearing the flag is a claim about the file, and the claim is true exactly where every
+/// visible widget has a normal appearance. [`Self::at`] is what this conversion writes to make it
+/// true; [`Self::unconstructed`] is every field where it could not, and a site with anything in it
+/// stays refused rather than clearing a flag the file would then be lying with.
+#[derive(Debug, Default)]
+pub(super) struct FieldAppearances {
+    /// The `/AP` `/N` object each widget is to name, in the *source's* numbering.
+    pub(super) at: BTreeMap<ObjectId, ObjectId>,
+    /// The form `XObject`s this conversion adds.
+    pub(super) written: Vec<(ObjectId, Object)>,
+    /// Every appearance written, for the report, on the same footing as [`Appearances`]'.
+    pub(super) constructed: Vec<WrittenAppearance>,
+    /// The fields whose widget this conversion could not give an appearance, by name.
+    ///
+    /// Named by *field* rather than by widget for [`pdf_model::view::Written::unconstructed`]'s
+    /// reason: §12.7.4.1 lets one field spread over two widgets, and what a person looks for in a
+    /// form is the field's name. The sentence the site is refused with says where to read them.
+    pub(super) unconstructed: Vec<String>,
+}
+
+/// Constructs the appearance of every visible widget the file provides none for.
+///
+/// **The population is the writer obligation's own, and nothing wider.** Table 224 asks for
+/// streams for the *visible* widgets, so §12.5.3's Table 167 decides which those are — a widget
+/// whose `Hidden` or `NoView` bit is set is one no reader draws, and giving it marks would be this
+/// converter deciding it should be seen. And a widget whose `/AP` already states an `/N` has been
+/// provided for: the producer's bytes stay, because §12.7.2 makes the consistency of a stated
+/// stream with its field's value the producer's obligation and the file kept it.
+///
+/// `already` is the population the section 6.3.3 rewrite writes for, passed in so that a widget
+/// with no appearance dictionary at all is written once rather than by two rewrites racing for
+/// the same key.
+///
+/// **A button field's widget is never constructed for.** §12.7.5.2.3 and §12.7.5.2.4 make a check
+/// box's and a radio button's states "defined by an appearance stream in the appearance dictionary
+/// of the field's widget annotation", which its `/V` selects among — so one stream written into
+/// `/N` would replace a set of states with a picture, and nothing in a file that states none says
+/// what the states look like. Such a widget is named in [`FieldAppearances::unconstructed`] and
+/// the site keeps its refusal, which is `doc/adr/1257`.
+fn prepare_field_appearances(
+    document: &Document,
+    target: Target,
+    already: Option<&Appearances>,
+    spare: &mut Spare,
+) -> Result<FieldAppearances, Because> {
+    let names = pdf_model::view::widgets_by_field_name(document);
+    let mut found = FieldAppearances::default();
+    for widget in pdf_archive::visible_widgets(document, target) {
+        let annotation = widget
+            .at
+            .ok_or(Because::NotBuiltYet(APPEARANCE_ON_A_DIRECT_ANNOTATION))?;
+        if already.is_some_and(|written| written.at.contains_key(&annotation)) {
+            continue;
+        }
+        let name = || field_named(&names, annotation);
+        let Some(dict) = document.get(annotation).as_dict().cloned() else {
+            found.unconstructed.push(name());
+            continue;
+        };
+        if button_widget(document, &dict) {
+            found.unconstructed.push(name());
+            continue;
+        }
+        let built = pdf_model::appearance::for_annotation(document, &dict);
+        let Some(built) = built.filter(|built| built.owed.is_none()) else {
+            found.unconstructed.push(name());
+            continue;
+        };
+        let stream = spare
+            .take(document)
+            .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
+        found.at.insert(annotation, stream);
+        found.written.push((stream, built.stream));
+        found.constructed.push(WrittenAppearance {
+            page: widget.page,
+            subtype: "Widget".to_owned(),
+        });
+    }
+    found.unconstructed.sort_unstable();
+    found.unconstructed.dedup();
+    Ok(found)
+}
+
+/// §12.7.4.2's fully qualified name of the field a widget belongs to.
+///
+/// The table is [`pdf_model::view::widgets_by_field_name`]'s, which is the reading the viewer
+/// names a field by, so a person reading the report sees the name their form shows them. A widget
+/// no field tree reaches is named by its object number, which is what there is to say about it.
+fn field_named(names: &BTreeMap<String, Vec<ObjectId>>, widget: ObjectId) -> String {
+    names
+        .iter()
+        .find(|(_, widgets)| widgets.contains(&widget))
+        .map_or_else(
+            || format!("the field of object {}", widget.number),
+            |(name, _)| name.clone(),
+        )
 }
 
 /// Every annotation a target's part does not admit, and what taking each off the page costs.

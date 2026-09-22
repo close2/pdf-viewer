@@ -42,10 +42,12 @@ waiting only on the surface and the operation it drives. **What builds them:** t
 read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMenubar` alone
 (ADRs 1203, 1204, 1227).
 
-- §12.3.5 — Table 153's `/Colors` and `/Split`, and §12.3.6's `FilmStrip`, `FreeForm` and `Linear`:
-  surfaces one panel does not offer as alternatives, each named by `unsupported_presentation` rather
-  than dropped in silence. `/View` is obeyed for every one of its four values, tile mode included,
-  and `/Sort` orders the panel (ADRs 1168, 1215).
+- **Beside this bucket and not in it** — §12.3.5 and §12.3.5.1 are `departed`, and §12.3 with them:
+  every name Table 160 defines is drawn, `/View` is obeyed for each of its four values, `/Sort`
+  orders the panel and Table 158's `Direction N` gives the window to the file list. What is left is
+  Table 157's `/Colors`, a suggestion a NOTE only recommends, and Table 158's `H`, `V` and
+  `/Position`, whose splitter divides a pair of areas this window does not present — both named by
+  `panel::unused_furniture` (ADRs 1168, 1215, 1251, 1252).
 - **Beside this bucket and not in it** — §12.7.5.3 is `departed`: bit 26's `RichText` *formatting*,
   which §12.7.4.3 hands to XFA and which is therefore reported rather than drawn — the plain `/V` is
   laid out. The control's contents cross, a person's chosen pathname is read by `viewer_host::policy`
@@ -100,11 +102,6 @@ permanent) or an owner decision to acquire a specification.
   `mean(rgb * a)` — 131 of 255 on the painted channel at a magnified stencil's partly covered pixel,
   and it is what a reader sees. The premultiplication has to move into quorra's upload or sampler
   (`doc/QUORRA_FEEDBACK.md` section 39).
-- §8.6.5.9 — black point compensation's ON half defers to ISO 18619, and **the blocker is the
-  construction rather than the document**: no ICC text held states the algorithm, the content is
-  obtainable free from the ICC, and ADR 1208 lists the eight things it adds — of which four move
-  pixels, the LUT-destination estimation being the eleven levels ADR 0510 measured. A build across a
-  round or two rather than a missing text (`doc/third-party-data.md`).
 - §12.7.6.2 — a submission's *client*. The request itself is composed — method, URL, media type,
   body — and `viewer_host::policy::may_submit` is the one place the answer is decided; what is
   absent is something to send it with, because `viewer-host` has no HTTP dependency and `xdg-open`
@@ -131,12 +128,14 @@ unblock them:** focused multi-round work on a shape channel, a per-pixel second-
 colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
 pixels.
 
-- §11.7.5.2 — the transfer-function channel: a fully opaque mark's function seen through a later
-  translucent one, a whole second rasterisation pass. The channel itself lands in both CPU backends;
-  `Unsupported::TransferFunction` is narrowed to a shading's simplified ramp and a tiling cell
-  interpreted once and copied. `render-gpu` has no pass over a Vello scene's result and refuses such
-  a list by name; a page carrying the channel crosses the confinement as pixels (`doc/todo/13`,
-  ADR 1125).
+- §11.7.5.2 — the two paints whose function is still inside their colour rather than on the mark.
+  The channel is built and both CPU backends map the finished pixel through it, reading §11.6.4.2's
+  shape for each kind of mark; `Unsupported::TransferFunction` is narrowed to a shading pattern's
+  sampled ramp and a tiling cell interpreted once and copied to every site. The shading half is two
+  hunks in `content/pattern.rs` and is designed (ADR 1255); the tiling half is a change to the
+  replication rather than to the channel. `render-gpu` has no pass over a Vello scene's result and
+  refuses such a list by name; a page carrying the channel crosses the confinement as pixels
+  (`doc/todo/13`, ADRs 1125, 1255).
 - §11.4.4, §11.4.6 — a knockout element whose one alpha is the product of shape and opacity. A bare
   constant is read as opacity at every shape, not only where the two readings agree; what is left is
   the element whose two quantities reach the compositor as one number. §11.4.4's recurrence and
@@ -153,18 +152,23 @@ pixels.
   own sentence, which asks that a group's "colour, shape, and opacity" be treated as one object's —
   `Command::Group`'s `alpha_is_shape` states the groups where the two coincide, and everywhere else
   the single object carries the product.
-- §11.4.7, §11.5.3, §11.6.6, §11.7.2 — a page that has already spent `colour::MAX_PRESSES`: such a
-  group has no press to composite in, so its elements are painted in the parent's space and
-  `PagePress::Beyond` names why. A four-component `/CS` that is neither `DeviceCMYK` nor a
-  four-channel profile is refused on the same line and is *not* a debt beside it — §11.6.6 excludes
-  such a space from being a group colour space at all, and a plain `/DeviceCMYK` with no profile
-  behind it composites in ADR 0263's assumed inks (ADR 1230). §11.4.7 carries a
-  second requirement of its own — a reference XObject's imported page is composited under the
-  containing page's group attributes instead of its own — which nothing on this disk can witness,
-  because no document here states a reference XObject at all.
+- §11.4.7, §11.5.3 — a page that has already spent `colour::MAX_PRESSES`: such a group has no press
+  to composite in, so its elements are painted in the parent's space and `PagePress::Beyond` names
+  why. The bound is no longer a round number — it is twice what the standard says one profile can
+  be, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less the pair that clause
+  forbids, and the deepest page `examples/press_depth` finds names one press (ADR 1254) — so
+  §11.6.6 and §11.7.2 record it as a `departed` bound rather than a debt and have left this bucket.
+  §11.4.7 carries a second requirement of its own — a reference XObject's imported page is
+  composited under the containing page's group attributes instead of its own — which nothing on
+  this disk can witness, because no document here states a reference XObject at all. §11.5.3
+  carries its own second one: a blend mode inside a subtractive group of more than one component.
 - §11.3.4 — the choice of route into a one-component blending space (ADR 0790), which `doc/todo/23`
-  prices. That is the whole of what keeps this row open; the three-component spaces left it when
-  §10.4.2.1's ranking was read against §10.3's own subject.
+  prices, and beside it a precision this row can now put a number on: the cube that carries the
+  conversion *into* a parent's three components is a 33³ sampled grid with **identity** input
+  curves, and against the exact conversion into a `CalRGB` with `/Gamma 2.2` that is 4.66 of 255
+  at its worst, where the same grid on a linear `CalRGB` is 0.09. Not a representability limit —
+  `ColourCube`'s three stages exist for exactly this and would make it exact — but a build with
+  `raster_golden` behind it (ADR 1254, `doc/todo/23`).
 - §10.7.4 — the sharing half of a path whose subpaths overlap, which the two fill rules answer
   differently. `doc/todo/11` prices it. The clip region that is the union of two fills is built:
   `render-cpu` composes it and the other two backends refuse it by name, with
@@ -269,8 +273,8 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §8.9.6, §8.11, §8.11.1, §8.11.4, §8.11.4.1, §10.7, §11.3.7, §11.4, §11.6,
-§11.6.4, §11.7, §11.7.4, §11.7.5, §12.1, §12.3, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
+§7.6, §8.9.6, §10.7, §11.3.7, §11.4, §11.6,
+§11.6.4, §11.7, §11.7.4, §11.7.5, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
 §12.7.5, §12.7.6, §12.8, §12.8.3, §12.8.3.4.
 
 
@@ -295,11 +299,6 @@ reading.
 - §12.5.6.11, §12.5.6.12 (`reported`) — a caret's `/Sy` symbol and a rubber stamp's `/IT`, whose
   artwork the standard states nowhere (`doc/todo/26`); every corpus instance carries an appearance,
   and Table 184 is the only place any of the fourteen stamp legends is printed at all.
-- §12.3.5.1 — Table 158's `Direction N`, which says the window "is not split" and then gives the whole
-  region to the file navigation view: a `shall` conditional on a splitter this clause elsewhere makes
-  a `may`, where this program gives the region to the page and the files to a side panel (ADR 0202's
-  decision). `/Colors` is "a suggested set of colours" and carries no `shall` at a processor at all.
-  Both are named by `unsupported_presentation`.
 - §12.7.5.4 — a choice field's selection *mark*: the clause names it and states no quantity for it, so
   the page draws the list, auto-sized to what is visible and in `/Opt`'s own order, and reports which
   item `/V` names. This is the class `doc/questions/Q72` asks the owner about, and the row's status is

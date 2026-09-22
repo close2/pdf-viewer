@@ -1,232 +1,101 @@
 # A frame every refresh — 60 Hz as the floor, 120 Hz as the target
 
-Status: **built, and the last thing it was open for is done** (ADR 0391). The presenter is a clock
-(ADR 0383; the trigger and the Wayland refresh rate corrected by ADR 0384) and **the render is on a
-thread of its own**, so the clock now decides how long a frame lasts as well as when one may start.
-The period is the surface's own refresh rate where it states one and the floor of 60 Hz where it
-does not, every present is spaced by it, a view that keeps moving is answered every tick by a
-reprojection composed against the last *rendering*, a late frame re-bases, and a still window
-presents nothing and spends no processor time. The trace's summary carries the two claims rule 6
-asks for: the interval distribution, and what share of the presents were the page rather than a
-picture of it moved.
+Status: **the cadence is built; the frame is now measured, and what it costs is the open half.**
+The presenter is a clock on a thread of its own, a view that keeps moving is answered every tick,
+a missed frame is stood in for by a reprojection and a late one re-bases (ADRs 0383, 0384, 0385,
+0391). What was never measured until ADR 1260 is the thing the whole design is a floor under:
+**what one frame costs, stage by stage, against the 8.333 ms a 120 Hz refresh allows.** It is
+measured now, and the answer decides what the next rounds take.
 Priority: 36 — **and `36` is this file alone since ADR 0983**, which moved the other item that
-carried the number to `doc/todo/63-a-retrieval-api.md`; a citation of `doc/todo/36` that is about
-a retrieval CLI or a `Query` for a page's text means that file rather than this one.
-The first item in this tree whose acceptance was a *rate*, and the rate is now
-whatever the owner's own run says it is rather than whatever a synchronous renderer permitted.
-Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The A/B that
-proves the trigger is on `doc/PDF20_AN001-BPC.pdf`, which is.
-Instrument: the window's `--trace` frame lines and its summary, which now report a cadence.
+carried the number to `doc/todo/63-a-retrieval-api.md`; a citation of `doc/todo/36` about a
+retrieval CLI or a `Query` for a page's text means that file rather than this one.
+
+Instruments, and neither carries its numbers in a document:
+
+- **`tools/state.sh frame`** — what a frame costs, stage by stage, for three page classes at two
+  magnifications: the page *turned to*, the same frame asked for again, and the page placed at
+  twice the magnification. `crates/render-raster/examples/frame_budget.rs` is the example under
+  it and its module comment says what each row contains. ADR 1260.
+- **`quorra --trace`'s frame lines and its summary** — the cadence in a real window: the interval
+  distribution, and what share of the presents were the page rather than a picture of it moved.
+  It needs a display server; `doc/environment.md`'s `Xvfb` recipe is how it is run here.
+
 Clauses: none — presentation. §10.7.4 does not reach it: nothing reprojected is a rendering.
-Code: `crates/viewer-ui/src/bin/quorra/{cadence,stale,surface,window}.rs`
+Code: `crates/viewer-ui/src/bin/quorra/{cadence,stale,surface,window}.rs` for the clock,
+`crates/render-raster/src/scene.rs` and `crates/pdf-model/src/content/` for what a frame is made
+of.
 
-## The owner's *miss* is now what triggers a reprojection, and it was not (ADR 0384)
+## What the measurement says, in shapes rather than numbers
 
-The sentence at the top of this file — *"we should still try to render a correct image every frame,
-but if we miss, we should interpolate"* — is now the code's own trigger: a **miss** is a frame that
-does not land inside `Cadence::period`, which is the surface's own refresh where the surface states
-one. ADR 0378's rule 5 had it as `SHARE` × a *measured* reprojection cost instead, and the owner
-ran the result on their own graphics device and reported that reprojection did not appear to work.
-It did not: the bar was 510 ms until a reprojection had been measured, only a reprojection above
-the bar could measure one, and their frames were 80 to 438 ms. **A self-calibrating threshold whose
-own gate blocked its only sample.** ADR 0384 has the trace and the A/B.
+Run the instrument for the figures. What it establishes, and what a later round should re-derive
+rather than inherit:
 
-**And the base's lifetime was the same defect a third time (ADR 0385).** Rules 4 and 5 were then
-right and two view changes of every one of the owner's runs still showed nothing, because a real
-frame that had repacked its glyph atlas destroyed the pixels of the rendering before it on its way
-in — so the next view change asked the device to read a window back, was told there was no encode
-to replay, and refused for want of a **capture** while the pixels a reprojection actually needs sat
-in this host's own memory. The base now outlives the frame it came from and carries the page and
-placement it is of; a refusal to capture is no longer read as a refusal to draw; and every
-remaining refusal prints which of two kinds it is, with the count in the summary.
+- **A repaint of what is already on the screen fits inside one refresh on every page class
+  measured**, with most of the budget to spare. A window that has drawn its page can answer a
+  selection, a caret or a chrome change at 120 Hz today.
+- **A page turn onto a page whose outlines the device has not seen fits on none of them**,
+  including a page of ordinary text. That is the expensive end of the gesture; `launch_path`'s
+  own page-turn figure — arrow keys inside one document whose page one is already drawn — is the
+  cheap end, and a session moves between the two.
+- **The largest stage is a different one per page class** — raster's encode for dense text, this
+  tree's own scene walk for vector artwork, interpretation and the transfer for a photograph — so
+  no single witness can rank this work, and the population is part of the claim.
+- **The graphics device's own passes are a few per cent of every row.** A frame that misses the
+  refresh is a host thread every time, which is what makes each remaining item a host item.
 
-**And rule 4 was the same defect one layer down, found by the owner running the fix.** With rule 5
-re-grounded their second trace reached 7 reprojections of 24 presents — but six view changes still
-showed nothing, silently, because rule 4's bar was a *tenth* of the frame and a tenth of a real
-device's frame is less than what a readback costs on it. Reprojections of 6 to 16 ms were refused
-against frames of 58 to 156. `SHARE` is gone: standing in must **buy at least one refresh**
-(`reprojection + period ≤ frame`), which is the smallest difference the display can show. There is
-now no number in this design that the project chose rather than measured.
+## The two halves
 
-**120 Hz is reached, and this file can finally say so.** The owner's second trace opens
-`120.0 Hz — no output claims this window yet, so the slowest display attached states it` and closes
-`120.0 Hz, stated by the surface`. Item 3 below was the thing standing in the way and it was a
-question asked one moment too early.
+**Settled: what happens when a frame is late.** The clock, the reprojection, the re-basing, the
+base that outlives its frame, and the refusals that print which of two kinds they are. The owner
+has chosen *correct frames wherever possible, reprojection where not*, and declined the deferral
+that would buy 60 Hz by not trying — **do not re-open that as an optimisation**. ADR 0386 §3.3 is
+the trade they refused; a later round that finds a gesture smoother when the real frame waits is
+rediscovering it, and owes this paragraph an argument rather than a measurement.
 
-## Two small things this round found and did not take
+**Open: where the pixels come from in 8.3 ms.** This is the half the budget now describes, and it
+is four costs with two owners:
 
-- **The trace does not say how many encode threads quorra got.** `render_quorra::options()` reads
-  `available_parallelism` at construction and nothing prints it, so "the encode is parallel here"
-  is an inference from the shape of the number rather than a reading of it. ADR 0384 §7 makes the
-  inference and says why it holds; a `--trace` line under `Topic::Launch` would make it a fact.
-  One line, and it belongs beside `device up in …`.
-- **A window dragged to another display keeps the first display's cadence.** `Cadence::ask` stops
-  at the first answer from the window's own surface, deliberately (ADR 0384 §5): polling the
-  monitor every frame is a per-frame cost for a question that changes when somebody drags a window.
-  winit's Wayland backend *receives* `surface_enter` and its handler body is empty
-  (`platform_impl/linux/wayland/state.rs:348`), so the honest fix is upstream reporting the change
-  rather than this tree polling for it.
+| the cost | whose | where it stands |
+|---|---|---|
+| raster's encode of a page seen for the first time, on the lane a page turn takes | quorra's | asked, with the measurement: `doc/QUORRA_FEEDBACK.md` §52 ask 1 |
+| an image restaged for every placement it is drawn at | quorra's | asked, with the byte counts: `doc/QUORRA_FEEDBACK.md` §52 ask 2 |
+| a mesh shading rasterised into device pixels on every view change | this tree's | the **paint** is divided across the pool (ADR 1259); `PatchMesh::tessellate` is still serial and is what remains |
+| a photograph decoded on the way into a page turn | this tree's | untaken. Callgrind puts two thirds of it in `zune-jpeg` and about a sixth in `pdf-model`'s `image.rs` — the expansion of decoded components into RGBA, and `frame_as_defined`'s linear scan of the whole codestream for a `DNL` marker nearly no file has (ADR 1260 §5) |
 
-## What was left is built, and the answer was an upstream one (ADR 0391)
+## Two standing facts about measuring this, which no command prints
 
-*Session 556. The section below states the item as it stood; this section is what became of it and
-amends nothing above it.*
+- **120 Hz cannot be observed on this machine at all.** `Xvfb` states no refresh rate — `xrandr`
+  reports `0.00` and `--newmode` does not take — so a window run here takes the 60 Hz floor
+  whatever the code does, and a cadence claim about the target has to come from the owner's own
+  display. What is establishable here instead is the pair ADR 0383 rests on: that the presenter
+  sustains the intervals when the frames fit, and which kinds of frame fit.
+- **A window dragged to another display keeps the first display's cadence**, and the honest fix is
+  upstream rather than here. `Cadence::ask` stops at the first answer from the window's own surface
+  deliberately (ADR 0384 §5), because polling the monitor every frame is a per-frame cost for a
+  question that changes when somebody drags a window; winit's Wayland backend *receives*
+  `surface_enter` and its handler body is empty, so nothing tells this tree the output changed.
 
-**The ask was answered yes.** quorra's ADR 0056 took the surface out of the device:
-`Device::detach_presenter` hands over a `Send` `Presenter` holding the surface, its swapchain and
-one pipeline, and `Presenter::present(&[Layer])` puts finished rasters on the window under their
-own affines. `doc/QUORRA_NONBLOCKING_RENDER_ANSWER.md` is their reply, carried across verbatim.
+## What the next round takes
 
-What this tree then built, and what binds here:
+The two that are this tree's, in this order:
 
-- **A render thread owns the device and draws pages into two textures the host owns** — the page
-  over the medium, the chrome on transparency. The event thread owns the presenter and presents on
-  the clock's tick: the medium under everything, the page under the placement `stale.rs` computes,
-  the chrome at the identity over it. `crates/viewer-ui/src/bin/quorra/renderer.rs`.
-- **The readback is gone, and with it the refusal it produced.** A reprojection used to resample an
-  `Arc<[u8]>` read back off the window — 2.7 to 6.6 ms of the owner's 8.333 ms refresh, plus an
-  8 192 000-byte re-upload — and it could fail outright when the last frame had repacked its glyph
-  atlas. The base is now the texture the device drew into, which a repack does not touch. The two
-  refusals the owner saw in twenty-four presents are gone with the route rather than handled.
-- **Rule 5 gained a second instrument and rule 4 lost its premise.** A miss is still a frame that
-  does not land inside one refresh, and it is now *observed* as well as predicted: a render still
-  being drawn at the next tick has missed that refresh, whatever anybody predicted. Rule 4 —
-  standing in must buy a refresh, because it delayed the real frame by what it cost — is deleted,
-  because a reprojection on the presenting thread delays nothing. ADR 0391 §4 has the argument.
-- **A refusal now means *present nothing this tick and keep the clock armed*** rather than *draw the
-  real frame here*. That is the owner's own sentence honoured: a frame expected inside one refresh
-  is waited for, at a cost of at most one refresh, rather than stood in for by a resampling of a
-  frame that was about to arrive.
-- **`doc/todo/37` rule 2 is stronger rather than spent.** `Stale::reproject` hands back a
-  *placement* and no pixels, so a caller can supply neither half of the composition; the offscreen
-  rasteriser did not move; and the test that walks every `.rs` outside `viewer-ui/src/bin` still
-  passes.
-- **And the ceiling is upstream's own measurement now rather than an inference.** Their reply's §9
-  zeroed their phases against the owner's trace: with the whole of `encode` at zero this page is
-  **107.0 ms a frame**, and with everything quorra does at zero our own scene walk alone is
-  **24.4 ms — 2.9 refreshes**. This page can never be rendered inside one refresh. The target this
-  item is measured against is therefore **a picture every refresh**, and a *rendering* every
-  refresh is a different claim that nothing in this design promises.
+1. **`pdf-model`'s `image.rs` on the way into a page turn.** The largest single stage of any row
+   measured, and two of its parts are this tree's own loops rather than the codec's. The scan for
+   `DNL` runs over every `DCTDecode` codestream in every document and finds nothing in nearly all
+   of them; whether it can be cheaper without changing what it finds is a question with a clean
+   before-and-after, and `examples/callgrind_interpret` counts it without a clock.
+2. **`PatchMesh::tessellate`.** Each patch is independent and produces its triangles in order, so
+   ADR 1259's argument carries — but it needs its own measurement, because the paint was the half
+   that was measured and the tessellation is what is left of that stage.
 
-## The item as it stood before that, kept for the argument
-
-**The render runs to completion on the event thread.** `QuorraPresenter::present` blocks, so the
-clock decides when a frame may *start* and has no say in how long one lasts: a correct frame of the
-witness costs 55–73 ms on this software adapter, which is four refreshes at 60 Hz and eight at 120,
-and nothing can be presented during them. It is visible in ADR 0383's own histogram as the single
-79 ms interval among ninety-one of one refresh.
-
-The owner's *"we should still try to render a correct image every frame"* is therefore honoured in
-the only sense a synchronous renderer permits — a correct frame is attempted at every tick at which
-no reprojection is owed — and **not** in the pipelined sense, where a presenter presents at the
-deadline whatever a renderer running beside it has finished. That second sense is what is left.
-
-It is a **larger** piece of work than this one was, and the obstacle is named rather than guessed:
-`raster_gpu::Device::render` takes `&mut self` and owns the caches and the surface, so one device
-cannot serve a render thread and a present thread at once. Whoever takes it owes the argument for
-what crosses the thread boundary before any code — a second device, a channel of finished frames,
-or an ask to quorra — and `doc/todo/16`'s road C is the neighbouring item, not the same one.
-
-### The design round settled it, and the answer is an ask (ADR 0386)
-
-*Session 551, a design round: it built nothing. This section is its own and amends nothing above it.*
-
-**The argument owed by the paragraph above is written**, and the three candidates it named are
-priced against the owner's own traces rather than weighed. ADR 0386 has the whole of it;
-`doc/QUORRA_NONBLOCKING_RENDER.md` is the ask it ends in. What binds here:
-
-- **Per rate, and the asymmetry nobody had stated in one place.** 60 Hz needs a non-blocking render
-  and **nothing else about cost**: on the owner's machine all seven of their reprojections fit
-  16.667 ms, the worst at 16.2. 120 Hz needs the non-blocking render **and**
-  `doc/QUORRA_FEEDBACK.md` §28.6's no-readback path, because six of those seven miss 8.333 ms and
-  the readback is the whole of the difference.
-- **A third requirement, which this file did not have.** A reprojection needs a *base*, and the
-  owner's run printed the refusal twice against its seven reprojections — the atlas repacked and the
-  retained encode died with it (ADR 0384 §6). Some view changes can show nothing today whatever the
-  presenter does. A page rendered into a texture the host owns is unaffected by a repack, so the
-  same change closes this too.
-- **`execute` is 0.15% of a frame** — 6.7 ms of 4454.9 over the owner's whole run. The graphics
-  device is idle for essentially all of it, which is what declines "submit, then poll" on the
-  measurement rather than on a preference.
-- **A second device is priced and declined**: quorra has no constructor that adopts a `wgpu::Device`
-  and wgpu 30 shares no texture across devices, so the page would cross as **8 192 000 bytes a
-  frame** — more than a 120 Hz refresh before anything is drawn.
-- **The recommendation is one device on two threads, split at the surface**, and it costs
-  `viewer-core` nothing: `NeedsRender`/`RenderReady` already carry an opaque handle "a caller may
-  move to a thread of its own", so no `Command`, `Event` or `Query` moves and `interpret` stays what
-  it was.
-- **What is available without any ask, and was not taken**: deferring the real frame until the view
-  comes to rest would give 60 Hz through a gesture today. It stops trying to render a correct image
-  every frame, which is the owner's own sentence, so it is theirs to choose. ADR 0386 §3.3.
-- **And the ceiling, so the ask is not oversold**: during the 4.366 s the owner's view was moving,
-  120 Hz is 524 refreshes and **15 could carry a rendering — 2.9%**. The reprojection is the floor
-  and it is most of what would be seen. Every round that makes a frame cheaper moves that number and
-  none of them changes the answer to the owner's question.
-
-## What was settled, so that nobody settles it twice
-
-The four questions this file used to carry as unsettled, with where the answer lives:
-
-1. **Where the pixels come from at 8.3 ms** — from a readback taken **once per real frame** rather
-   than once per reprojection, and resampled under a recomposed transform after that. The first
-   reprojection of a base costs 39.6 ms and the nine after it 3.4–5.9 ms, off one capture and no
-   upload. ADR 0383's table. It needed nothing from quorra, and ADR 0382 §6's "the escape hatch is
-   complete" is **corrected** in the same ADR: a `Target::Texture` can be rendered into and sampled,
-   but presenting it needs the surface, which quorra owns and whose format a host cannot learn
-   because `Device` returns no `wgpu::Adapter`. `doc/QUORRA_FEEDBACK.md` §28.6's ask stands and is
-   sharper for it.
-2. **What "every frame" means when nothing changed** — nothing. The clock is armed by an obligation
-   and by nothing else, and a window nobody is touching sits in `ControlFlow::Wait`: measured at
-   **no present and no measurable processor time over twenty seconds**.
-3. **Where the cadence comes from** — `winit`'s `MonitorHandle::refresh_rate_millihertz`, and it is
-   asked **more than once**, which is ADR 0384's correction. Reading it in `resumed` is right on
-   X11 and answers `None` on every Wayland session for ever: `Window::current_monitor` on that
-   backend is the first output in the surface's own `wl_surface::enter` list, and a Wayland surface
-   enters no output until it has been drawn to. So the floor stood in, and **120 Hz was out of
-   reach in principle on the platform the owner runs.** The cadence now re-asks after each present
-   until the window's own output answers, with `available_monitors`' *slowest* standing in
-   meanwhile, and the trace names which of the three said it.
-4. **What the gates see** — nothing. Everything this round wrote is in a binary; `doc/todo/37`
-   rule 2 is untouched and its test still walks every `.rs` outside `viewer-ui/src/bin`.
-
-**And one the harness could not settle**: `Xvfb` states no refresh rate (`xrandr` reports `0.00`
-and `--newmode` does not take), so **120 Hz cannot be observed on this machine at all**. What ADR
-0383 establishes instead is the two things that decide it — the presenter sustains 8.3 ms intervals
-when the frames fit, and a replay (1.3–1.5 ms) and a composed reprojection (3.4–5.9 ms) both fit
-while a correct frame of this page does not. A run on the owner's own display is what would close
-it.
+Both are wall-clock changes on a shared machine, so both owe `doc/habits/measuring.md`'s method:
+arms alternated in one sitting, the minimum of several fresh processes, the load average printed
+beside every figure.
 
 ## Why the owner's framing is right, and worth keeping
 
 *"We should still try to render a correct image every frame"* — the reprojection is a floor under
-the experience, never a substitute for the frame being fast. Everything that makes a frame cheaper
-(ADR 0377's threads, ADR 0374's raster cache, ADR 0351's retained frame) reduces how often this
-item is visible, and it has moved a long way already: ADR 0378 measured this witness's zoom step at
-492–1036 ms and this round measured it at 55–73. The standing intent from
-[`37`](37-a-frame-that-says-it-is-stale.md) holds — **the better the renderer gets, the less this
-should ever be seen** — and it is now legible as a number, because the summary says what share of
-the presents were correct.
-
-## The choice this file left to the owner is made: correct every frame, 2026-08-20
-
-ADR 0386 §3.3 offered one thing "available without any ask" — **defer the real frame until the view
-comes to rest**, which would give 60 Hz through a gesture today at the price of no longer trying to
-render a correct image every frame. This file said it was the owner's to choose because it
-contradicts their own sentence. **They have chosen, and they declined it**:
-
-> If possible we should always try to have correct frames, even when still zooming. For most
-> documents this should be achievable. If we can't correctly render a frame in time, we should
-> reproject. If possible we should reproject on intermediate frames.
-
-So the shape already built is the shape wanted, and nothing above changes: the render is on its own
-thread, a reprojection is drawn on a **miss** rather than on a policy of not trying, and repeated
-reprojection through a gesture composes against the base rather than chaining. What the decision
-closes is the option, not an item — and it re-ranks the rest of this file, because "every round that
-makes a frame cheaper moves that number" stops being a consolation and becomes the whole road. The
-2.9% ceiling stands as the honest statement of how much of a moving view can ever be correct on the
-owner's own measurement, and it is a reason to make frames cheaper rather than a reason to stop
-trying.
-
-**Do not re-open the deferral as an optimisation.** A later round finding that a gesture would be
-smoother if the real frame waited is rediscovering a trade the owner has refused, and owes this
-section an argument rather than a measurement.
+the experience, never a substitute for the frame being fast. Every round that makes a frame cheaper
+reduces how often this item is visible at all, and the ceiling ADR 0386 measured on the owner's own
+trace — the share of a moving view that can ever carry a rendering — moves with it. That is the
+whole road, and the budget above is the map of it.

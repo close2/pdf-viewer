@@ -79,8 +79,8 @@ impl Interpreter<'_> {
     ///
     /// # c) is a question about what the output is for, and a host answers it
     ///
-    /// "[T]he PDF is being printed" is a fact about the operation under way and not about the
-    /// file, so it arrives the way every such fact arrives here — as an input a host or an
+    /// The amended c)'s "the PDF is being printed" is a fact about the operation under way and
+    /// not about the file, so it arrives the way every such fact arrives here — as an input a host or an
     /// operation supplies, [`crate::optional_content::Purpose`], reached through the view state
     /// (ADR 1173). `Purpose::View` and `Purpose::Export` both fail c)'s condition and fall to
     /// d), which is the clause's own arrangement: c) opens "Otherwise if the PDF is being

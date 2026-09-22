@@ -411,7 +411,12 @@ ISO 19005-2 section 6.4.2 and ISO 19005-4 section 6.4.2 both forbid `/XFA` in th
 - **Default: keep the data, drop the `/XFA` key, and refuse a dynamic form outright** — for a
   dynamic one the AcroForm is not the document and the conversion would produce a placeholder
   page wearing a conformance claim. `CLAUDE.md` excludes XFA rendering, so this project cannot
-  flatten one and will not pretend otherwise.
+  flatten one and will not pretend otherwise. Built, with the distinction taken from the
+  **document's own sentence** rather than from the resource: Annex K states no test and says
+  outright that whether an XFA schema's pages are materialised as PDF pages is implementation
+  dependent, while §7.7.2's Table 29 makes `/NeedsRendering` true the claim that the document is
+  regenerated when it is first opened. `dynamic = "stop"` is the default and `doc/adr/1257` states
+  the limit that reading has.
 
 ### 3.5 Encryption, and the permissions that went with it
 
@@ -780,11 +785,14 @@ require `NeedAppearances` to be absent or false (-2 §6.4.1, -4 §6.4.1).
   in the bytes.
 - **`NeedAppearances` true is the interesting case**: it means the producer deliberately left
   appearances to the reader. Turning it false without constructing appearances would blank the
-  form; constructing them freezes this program's rendering into the archive. **Ask** — and no
-  interface exists to ask it, so such a document is refused. Nothing guards it in the converter and
-  nothing needs to: a document stating `NeedAppearances` true also fails the requirement that it be
-  absent or false, which the decision table answers with nothing, so the conversion stops before an
-  appearance is written.
+  form; constructing them freezes this program's rendering into the archive. **Ask**, and the
+  question is asked once, before the run — `construct = true | false` at
+  `forms/need-appearances-absent-or-false`, with `true` the default because §12.7.3's Table 224
+  makes removing the flag the *claim* that streams have been provided for every visible widget.
+  The population is that obligation's: visible by §12.5.3's Table 167 and with no `/N` by
+  §12.5.5's Table 170, so a widget its producer already gave a stream keeps the producer's bytes,
+  and a widget whose appearance cannot be built leaves the flag standing with its field named in
+  the report. `doc/adr/1257`.
 
 ### 4.5 Colour space bookkeeping
 

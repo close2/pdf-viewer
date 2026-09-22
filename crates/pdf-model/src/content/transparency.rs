@@ -1593,7 +1593,27 @@ pub(super) struct ImplicitKnockout {
 ///   construction, which retains the initial backdrop beside the accumulation and is drawn
 ///   by the oracle alone. Not inside a knockout group: §11.4.6's NOTE 6 gives a nested
 ///   group the *outer* group's initial backdrop, "not the immediate backdrop of the inner
-///   group", and the construction seeds from the immediate one.
+///   group", and this command is seeded from the immediate one wherever the enclosing
+///   knockout group is not itself drawn against a retained initial backdrop.
+///
+/// # An element that is itself a non-isolated group (§11.4.6's NOTE 6)
+///
+/// > When a non-isolated group is nested within a knockout group, the initial backdrop of
+/// > the inner group is the same as that of the outer group; it is not the immediate
+/// > backdrop of the inner group.
+///
+/// The third construction satisfies that by itself, and it takes no flag to do it. §11.4.6
+/// composites "each individual element ... with the group's initial backdrop rather than
+/// with the stack of preceding elements in the group", so for a *direct* element of a
+/// knockout group the immediate backdrop the note contrasts with **is** the group's initial
+/// backdrop: a backend that composites each element against a private copy of that backdrop
+/// hands a nested non-isolated group exactly the backdrop the note asks for, which is the
+/// note's own "consequence of the group compositing formulas when b = 0". So the third
+/// construction admits such an element and the first two do not — they draw the elements on
+/// transparency, where an inner group would seed from the accumulation instead. ADR 1256.
+///
+/// Two routes arrive with one: §11.7.4's implicit groups (ADR 1170), and a form `XObject`
+/// inside a Type 3 glyph.
 ///
 /// The shape each element states is §11.6.4.3's `/AIS` reading's — `None` where the content
 /// painted under both readings *and the flag reinterprets something in these parts*
@@ -1615,15 +1635,15 @@ pub(super) fn implicit_knockout_group(
     inside_knockout: bool,
     shape_masks: &ShapeMasks,
 ) -> Option<ImplicitKnockout> {
-    // `Command::Group`'s `isolated` is `false` only where no enclosing group is a knockout
-    // group, and §11.4.6's NOTE 6 is the reason: a nested group's initial backdrop is the
-    // *outer* group's rather than its immediate one, which a command seeded from the immediate
-    // backdrop cannot state. An element that is already such a group therefore cannot become
-    // an element of this one under any of the three constructions below — the first two draw
-    // the elements on transparency, where its backdrop would be gone. Two routes reach here
-    // with one: §11.7.4's implicit groups (ADR 1170), and a form XObject inside a Type 3
-    // glyph. The group this refusal leaves unbuilt keeps the report it already has.
-    if commands.iter().any(|command| {
+    let alpha = seen.settled_over(commands)?;
+    // §11.4.6's NOTE 6 decides which of the three constructions may take an element that is
+    // itself a non-isolated group: such an element's own initial backdrop is *this* group's
+    // initial backdrop, so only a construction that composites each element against that
+    // backdrop can hand it over. The two below that draw the elements on transparency cannot
+    // — there an element's backdrop is the accumulation, and §11.4.4's NOTE 3 cancellation
+    // that makes them exact is a statement about the group's own result rather than about
+    // what a nested group is given. ADR 1256.
+    let nested_non_isolated = commands.iter().any(|command| {
         matches!(
             command,
             Command::Group {
@@ -1631,27 +1651,26 @@ pub(super) fn implicit_knockout_group(
                 ..
             }
         )
-    }) {
-        return None;
-    }
-    let alpha = seen.settled_over(commands)?;
-    if !any_command(commands, &command_blends) {
-        return Some(ImplicitKnockout {
-            elements: transparent_knockout_elements(commands, alpha, shape_masks)?,
-            blend: BlendMode::Normal,
-            isolated: true,
-        });
-    }
-    if let Some(blend) = blend_at_the_do(commands) {
-        let stripped = commands
-            .iter()
-            .map(without_blend)
-            .collect::<Option<Vec<_>>>()?;
-        return Some(ImplicitKnockout {
-            elements: transparent_knockout_elements(&stripped, alpha, shape_masks)?,
-            blend,
-            isolated: true,
-        });
+    });
+    if !nested_non_isolated {
+        if !any_command(commands, &command_blends) {
+            return Some(ImplicitKnockout {
+                elements: transparent_knockout_elements(commands, alpha, shape_masks)?,
+                blend: BlendMode::Normal,
+                isolated: true,
+            });
+        }
+        if let Some(blend) = blend_at_the_do(commands) {
+            let stripped = commands
+                .iter()
+                .map(without_blend)
+                .collect::<Option<Vec<_>>>()?;
+            return Some(ImplicitKnockout {
+                elements: transparent_knockout_elements(&stripped, alpha, shape_masks)?,
+                blend,
+                isolated: true,
+            });
+        }
     }
     if inside_knockout {
         return None;

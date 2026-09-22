@@ -359,6 +359,9 @@ impl Viewer {
                 .and_then(|page| pdf_model::thumbnail::read(&open.document, &page.dict))
                 .and_then(Result::ok)
                 .map_or(Answer::None, Answer::Thumbnail),
+            Query::AttachmentPreview(name) => {
+                attachment_preview(open, name).map_or(Answer::None, Answer::Thumbnail)
+            }
             // §7.6.4.2's bit 3 was asked by `Command::Print`, so this answers only inside the
             // grant that command made: no job, no page. The interpretation is fresh and not kept
             // — a print job asks for each page once, and a thousand-page document's lists would
@@ -4328,6 +4331,39 @@ fn attachments_in_view(open: &Open) -> Vec<pdf_model::attachment::Attachment> {
         out.push(file);
     }
     out
+}
+
+/// §12.3.6's preview picture for one attachment: its own first page's §12.3.4 `/Thumb`.
+///
+/// Three of Table 160's layouts are made of pictures of the attachments — a strip of thumbnails,
+/// thumbnails scattered over the view, a large preview beside the metadata — and §12.3.4 is the
+/// one place the standard says what a picture of a document's page is:
+///
+/// > The thumbnail image for a page shall be an image XObject specified by the Thumb entry in the
+/// > page object
+///
+/// So the preview is the attachment's producer's own miniature of its first page, and this
+/// program invents nothing where a file states none. `None` covers every such file: one that is
+/// not a PDF, one whose first page states no `/Thumb`, one whose bytes this reader cannot decode.
+/// A panel says which of its files had no picture rather than drawing a substitute (ADR 1251).
+///
+/// **Bounded by what already bounds a stream.** The attachment's bytes come out under
+/// `pdf_syntax::Limits::max_stream_len` and the nested document parses under the same limits, so
+/// a decompression bomb attached to a collection is refused by the bound that refuses one in the
+/// containing file — no second number is chosen here (trap 38).
+///
+/// **One level.** The nested document is asked for a page's `/Thumb` and never for *its*
+/// attachments, so a document embedding itself is one open rather than a walk.
+fn attachment_preview(open: &Open, name: &str) -> Option<pdf_model::thumbnail::Thumbnail> {
+    let file = open
+        .view
+        .attachments(&open.document)
+        .into_iter()
+        .find(|file| file.name == name)?;
+    let bytes = open.document.decoded_stream_data(&file.stream)?;
+    let embedded = pdf_syntax::Document::open(bytes.to_vec()).ok()?;
+    let page = pdf_model::Pages::new(&embedded).get(0)?;
+    pdf_model::thumbnail::read(&embedded, &page.dict)?.ok()
 }
 
 /// The files the annotation under the click carries: §12.5.6.15's, and §14.13.9's.

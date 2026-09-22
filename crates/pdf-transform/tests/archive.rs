@@ -32,7 +32,9 @@ use std::fmt::Write as _;
 use pdf_archive::{Flavour, Level, Outcome, Target, Verdict};
 use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits};
-use pdf_transform::archive::{ArchivePlan, Authorisations, Because, Decision, Loss, Rewrite};
+use pdf_transform::archive::{
+    ArchivePlan, Authorisations, Because, Decision, FormAnswers, Loss, Rewrite,
+};
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, Exit, MemorySinks, Plan, Policy, Report, Source, apply};
 
@@ -326,6 +328,7 @@ fn convert(bytes: &[u8], target: Target, authorised: Authorisations) -> (Report,
             supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
+            forms: FormAnswers::default(),
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
@@ -698,6 +701,9 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -843,6 +849,9 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -915,6 +924,9 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -1756,6 +1768,7 @@ fn a_supplied_profile_is_the_one_embedded_and_its_copyright_tag_is_reported() {
             supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
+            forms: FormAnswers::default(),
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
@@ -2220,6 +2233,7 @@ fn convert_with_profile(
             supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
+            forms: FormAnswers::default(),
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
@@ -2472,6 +2486,7 @@ fn no_substitute_turns_the_font_back_into_a_refusal_the_caller_can_take_back() {
             supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
+            forms: FormAnswers::default(),
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
@@ -3354,6 +3369,9 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3939,6 +3957,9 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3984,6 +4005,9 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4027,6 +4051,9 @@ fn two_specifications_marked_best_stay_refused() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4063,6 +4090,9 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4812,6 +4842,7 @@ fn convert_with_departure(
             supplied_fonts: std::collections::BTreeMap::new(),
             departures,
             claim_conformance: claim,
+            forms: FormAnswers::default(),
             derivations: Vec::new(),
             supplies: Vec::new(),
             preservations: Vec::new(),
@@ -4972,6 +5003,317 @@ fn a_part_four_document_with_an_attachment(subtype: Option<&str>) -> Vec<u8> {
     .build()
 }
 
+// ---------------------------------------------------------------------------------------------
+// ISO 19005-2 sections 6.4.1, 6.4.2 and 6.8, ISO 19005-4 sections 6.4.1, 6.4.2 and 6.9 —
+// `doc/adr/1257` and `doc/adr/1258`, the three sites `as-if-printed` still named at PDF/A-2b.
+// ---------------------------------------------------------------------------------------------
+
+/// A document whose form asks a reader to build its field appearances.
+///
+/// One widget with a `/DA` and the `/DR` §12.7.4.3 resolves its font through, and that font is
+/// embedded because a constructed appearance *uses* it: what this conversion writes into the file
+/// is held to the target like everything else, so a fixture naming a face the file does not carry
+/// would be testing the font requirement rather than this one. The page draws in `DeviceGray` for
+/// the same reason — the construction does too, and the output intent the conversion adds for the
+/// page covers both.
+fn a_form_asking_for_appearances(field: &str, extra: Vec<String>) -> Vec<u8> {
+    let widget = format!(
+        "<< /Type /Annot /Subtype /Widget /F 4 /Rect [10 10 190 40] /T (Total) \
+         /DA (/F1 12 Tf 0 g) {field} >>"
+    );
+    let mut objects = vec![
+        widget,
+        // 556 is what Liberation Sans itself states for a digit — 1139 units of a 2048-unit em
+        // is 0.55615 — so the widths this dictionary states are inside the thousandth ISO 19005-4
+        // section 6.2.10.5 allows, and the field's value below is digits for that reason.
+        "<< /Type /Font /Subtype /TrueType /BaseFont /LiberationSans /FirstChar 48 \
+         /LastChar 57 /Widths [556 556 556 556 556 556 556 556 556 556] /FontDescriptor 8 0 R \
+         /Encoding /WinAnsiEncoding >>"
+            .to_owned(),
+        String::new(),
+    ];
+    // The binary object holding the program is written after every text object, so which number
+    // it takes depends on how many the caller added. Computed rather than written down, because
+    // a descriptor naming the wrong object is a fixture that tests something else.
+    let program = 9_usize.saturating_add(extra.len());
+    objects[2] = format!(
+        "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+         /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+         /CapHeight 716 /StemV 80 /FontFile2 {program} 0 R >>"
+    );
+    objects.extend(extra);
+    Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] /NeedAppearances true \
+                  /DA (/F1 12 Tf 0 g) /DR << /Font << /F1 7 0 R >> >> >>"
+            .to_owned(),
+        page: "/Annots [6 0 R]".to_owned(),
+        contents: Some((String::new(), b"0 g 10 100 20 20 re f".to_vec())),
+        objects,
+        binary_objects: vec![stream(
+            &format!("/Length {}", LIBERATION_SANS.len()),
+            LIBERATION_SANS,
+        )],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn need_appearances_is_cleared_with_the_field_appearances_written_first() {
+    // ISO 19005-4 section 6.4.1 requires the flag absent or false, and §12.7.3's Table 224 states
+    // what an absent one claims: "A PDF writer shall include this key, with a value of true , if
+    // it has not provided appearance streams for all visible widget annotations present in the
+    // document." So the construction is what makes the claim true, and the decision is a
+    // statement rather than a loss — `doc/adr/1257`.
+    let source = a_form_asking_for_appearances("/FT /Tx /V (1234)", Vec::new());
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "forms/need-appearances-absent-or-false"),
+        Decision::Stated {
+            rewrite: Rewrite::NeedAppearancesCleared,
+            ..
+        }
+    ));
+    let output = output.expect("nothing is lost, so it converts with nothing authorised");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let form = document.get_key(&catalog, "AcroForm");
+    let form = form.as_dict().expect("the form survives");
+    assert_eq!(
+        form.get("NeedAppearances"),
+        None,
+        "the flag asking a reader to build them is gone"
+    );
+    let widgets = pdf_model::view::widgets_by_field_name(&document);
+    let widget = widgets["Total"][0];
+    let widget = document.get(widget).as_dict().cloned().expect("the widget");
+    let normal = document.get_key(&widget, "AP");
+    let normal = normal.as_dict().expect("an appearance dictionary");
+    assert!(
+        document.get_key(normal, "N").as_stream().is_some(),
+        "and the widget now names the stream that makes the claim true"
+    );
+    assert_eq!(
+        conversion(&report)
+            .appearances
+            .iter()
+            .filter(|written| written.subtype == "Widget")
+            .count(),
+        1,
+        "A21's condition: every appearance this program constructed is named in the report"
+    );
+}
+
+#[test]
+fn a_widget_whose_appearance_cannot_be_built_keeps_the_flag_and_is_named() {
+    // §12.7.5.2.3 makes a check box's `/N` a subdictionary of one appearance per state, which its
+    // `/V` selects among, and a file stating none says nothing about what those states look like.
+    // Clearing the flag would then leave the file claiming appearances nobody provided, so the
+    // requirement keeps its refusal and the report names the field.
+    let source = a_form_asking_for_appearances("/FT /Btn /V /Off", Vec::new());
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "forms/need-appearances-absent-or-false"),
+        Decision::Refused(Because::TheFence(_))
+    ));
+    assert!(output.is_none(), "so no file is written");
+    assert_eq!(
+        conversion(&report).unconstructed,
+        vec!["Total".to_owned()],
+        "and the field is named, by the name §12.7.4.2 gives it"
+    );
+}
+
+#[test]
+fn a_widget_the_producer_gave_an_appearance_keeps_the_producer_s_bytes() {
+    // §12.7.2 makes the consistency of a stated appearance with its field's value the producer's
+    // obligation, and the file kept it; §12.5.5's Table 170 makes `/N` what a reader draws. So a
+    // widget that has one is provided for, the flag may go, and rebuilding the stream would
+    // replace a producer's marks with this program's for no requirement at all.
+    let appearance = "<< /Type /XObject /Subtype /Form /BBox [0 0 180 30] /Length 5 >>\n\
+                      stream\n1 0 g\nendstream"
+        .to_owned();
+    let source =
+        a_form_asking_for_appearances("/FT /Tx /V (kept) /AP << /N 9 0 R >>", vec![appearance]);
+    let (report, output) = to_part_four(&source);
+    assert!(matches!(
+        decision(&report, "forms/need-appearances-absent-or-false"),
+        Decision::Stated { .. }
+    ));
+    let output = output.expect("it converts");
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let widgets = pdf_model::view::widgets_by_field_name(&document);
+    let widget = document
+        .get(widgets["Total"][0])
+        .as_dict()
+        .cloned()
+        .expect("the widget");
+    let normal = document.get_key(&widget, "AP");
+    let normal = document.get_key(normal.as_dict().expect("an /AP"), "N");
+    let normal = normal.as_stream().expect("the producer's stream");
+    assert_eq!(
+        document
+            .decoded_stream_data(normal)
+            .expect("its bytes")
+            .as_ref(),
+        b"1 0 g",
+        "the producer's marks cross unchanged"
+    );
+    assert!(
+        conversion(&report)
+            .appearances
+            .iter()
+            .all(|written| written.subtype != "Widget"),
+        "and nothing was constructed for it, so nothing is reported as constructed"
+    );
+}
+
+#[test]
+fn a_static_xfa_form_loses_its_packet_and_keeps_its_fields() {
+    // ISO 19005-4 section 6.4.2 forbids the key, and ISO 32000-2 Annex K is what makes the removal
+    // something other than deleting the form: "The other entries in the interactive form
+    // dictionary shall be consistent with the information in the XFA resource." So the AcroForm
+    // is the form, and what goes is the behaviour the template carried — `doc/adr/1257`.
+    let xfa = stream(
+        "/Length 39",
+        b"<xdp:xdp xmlns:xdp=\"x\"></xdp:xdp>\n\n\n\n\n",
+    );
+    let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] /XFA 7 0 R >>".to_owned(),
+        objects: vec![field, String::from_utf8(xfa).expect("ascii")],
+        ..Conforming::default()
+    }
+    .build();
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Unauthorised {
+            loss: Loss::XfaForm,
+            rewrite: Rewrite::XfaRemoved,
+        },
+        "the template's calculations and validations go, so somebody has to say so"
+    );
+    assert!(output.is_none());
+
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::XfaForm);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert_eq!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Authorised {
+            loss: Loss::XfaForm,
+            rewrite: Rewrite::XfaRemoved,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    let form = document.get_key(&catalog, "AcroForm");
+    let form = form.as_dict().expect("the form is still there");
+    assert_eq!(form.get("XFA"), None, "the resource is gone");
+    assert!(
+        document.get_key(form, "Fields").as_array().is_some(),
+        "and the fields Annex K required it to agree with are not"
+    );
+}
+
+#[test]
+fn a_dynamic_xfa_form_is_refused_until_the_configuration_says_otherwise() {
+    // §7.7.2's Table 29 makes `/NeedsRendering` the claim that "the document shall be regenerated
+    // when the document is first opened", so the pages in the file are not what a reader of this
+    // form shows and the AcroForm left behind is not the document. `dynamic = "stop"` is the
+    // default and `doc/adr/1257` is the predicate.
+    let xfa = stream(
+        "/Length 39",
+        b"<xdp:xdp xmlns:xdp=\"x\"></xdp:xdp>\n\n\n\n\n",
+    );
+    let field = "<< /FT /Tx /T (Total) /V (7) >>".to_owned();
+    let source = Conforming {
+        catalog: "/AcroForm << /Fields [6 0 R] /XFA 7 0 R >> /NeedsRendering true".to_owned(),
+        objects: vec![field, String::from_utf8(xfa).expect("ascii")],
+        ..Conforming::default()
+    }
+    .build();
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::XfaForm);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert!(matches!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Refused(Because::Declined(_)),
+    ));
+    assert!(output.is_none(), "the document's own claim stops it");
+
+    let mut plan = plan_from(
+        "[site.\"forms/no-xfa-key\"]\nremedy = \"discard\"\ndynamic = \"discard\"\n",
+        Target::Four(Flavour::Plain),
+    );
+    plan.forms.remove_dynamic_xfa = true;
+    plan.authorised.authorise(Loss::XfaForm);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert_eq!(
+        decision(&report, "forms/no-xfa-key"),
+        Decision::Authorised {
+            loss: Loss::XfaForm,
+            rewrite: Rewrite::XfaRemoved,
+        },
+        "and the operator's own answer is what lets it through"
+    );
+    let output = output.expect("it converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+}
+
+#[test]
+fn an_embedded_file_the_target_does_not_admit_is_taken_out_of_the_document() {
+    // ISO 19005-4 section 6.9 requires every embedded file of a plain PDF/A-4 file to conform to a
+    // part of ISO 19005, and states nowhere to put one that does not. §7.7.4's Table 31 is why
+    // both entries go rather than one: "All File Specification dictionaries referenced from this
+    // name tree shall contain an EF key whose value is a dictionary which contains either an F or
+    // UF key whose value is an embedded file stream." `doc/adr/1258`.
+    let source = a_part_four_document_with_an_attachment(Some("text#2Fcsv"));
+    let (report, output) = to_part_four(&source);
+    assert_eq!(
+        decision(
+            &report,
+            "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile"
+        ),
+        Decision::Unauthorised {
+            loss: Loss::EmbeddedFile,
+            rewrite: Rewrite::EmbeddedFileRemoved,
+        }
+    );
+    assert!(output.is_none());
+
+    let mut authorised = Authorisations::default();
+    authorised.authorise(Loss::EmbeddedFile);
+    let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
+    assert_eq!(
+        conversion(&report).removed_files,
+        vec!["rows.csv".to_owned()],
+        "and the report names the file that went, because nothing in the output will"
+    );
+    let output = output.expect("authorised, so it converts");
+    let held = holds(&output, Target::Four(Flavour::Plain));
+    assert_eq!(held.verdict(), Verdict::Conforms, "{}", held.render());
+    let document = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let catalog = document.catalog().expect("a catalog");
+    assert_eq!(catalog.get("AF"), None, "the association goes with it");
+    let names = document.get_key(&catalog, "Names");
+    let tree = document.get_key(names.as_dict().expect("a name dictionary"), "EmbeddedFiles");
+    let leaves = document.get_key(tree.as_dict().expect("a name tree"), "Names");
+    assert_eq!(
+        leaves.as_array().expect("its leaves").len(),
+        0,
+        "and the name tree no longer maps a name to a specification with no file under it"
+    );
+}
+
 /// A directory this test owns, removed when the guard goes out of scope.
 struct Scratch(std::path::PathBuf);
 
@@ -5051,6 +5393,7 @@ fn plan_from(text: &str, target: Target) -> ArchivePlan {
         supplied_fonts: std::collections::BTreeMap::new(),
         departures: Vec::new(),
         claim_conformance: false,
+        forms: FormAnswers::default(),
         derivations: config.derivations(target),
         supplies: config.supplies(target),
         preservations: config.preservations(target),
@@ -5598,6 +5941,9 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6015,6 +6361,9 @@ fn a_malformed_amendment_identifier_is_cut_out_of_the_identification_schema() {
 
     let authorised = Authorisations {
         amendment_identifier: true,
+        field_appearances: true,
+        xfa_form: true,
+        embedded_file: true,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -6452,6 +6801,9 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6765,6 +7117,9 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6794,6 +7149,9 @@ fn every_loss() -> Authorisations {
         automatic_states: false,
         metadata_packet: false,
         amendment_identifier: false,
+        field_appearances: false,
+        xfa_form: false,
+        embedded_file: false,
     }
 }
 
@@ -7459,6 +7817,7 @@ fn a_supplied_font(target: Target, base_font: &str, program: &[u8]) -> ArchivePl
         supplied_fonts: supplied,
         departures: Vec::new(),
         claim_conformance: false,
+        forms: FormAnswers::default(),
         derivations: Vec::new(),
         supplies: Vec::new(),
         preservations: Vec::new(),

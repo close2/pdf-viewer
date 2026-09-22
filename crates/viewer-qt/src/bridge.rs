@@ -105,6 +105,34 @@ pub mod ffi {
         /// `viewer_host::panel::Icon::theme_name`, shared with `viewer-gtk`. The clause states no
         /// artwork, so the picture is the running theme's (ADR 1215).
         icon: String,
+        /// How large a picture this row carries, and where it comes from.
+        ///
+        /// `viewer_host::panel::Picture`: 0 for no picture, 1 for Table 153's `/View T` "small
+        /// icon", 2 for §12.3.6's thumbnail and 3 for its "large size preview". The two above 1
+        /// ask for the *attachment's* own picture — `attachment_preview` — with `icon` standing
+        /// in where the file states none (ADR 1251).
+        picture: u8,
+        /// The `/EmbeddedFiles` key this row's file is filed under, or empty for a row that is
+        /// not a file.
+        ///
+        /// What `attachment_preview` and `scatter_place` name a file by; §7.7.4's tree key rather
+        /// than Table 43's `/UF`, because the key is what the collection addresses a file with.
+        key: String,
+    }
+
+    /// Where one of §12.3.6's `FreeForm` thumbnails goes, as a fraction of the surface.
+    ///
+    /// > The FreeForm layout provides a simple layout, in which thumbnails for each item in the
+    /// > collection contents are displayed at a random location on the view.
+    ///
+    /// The place is `viewer_host::panel::scattered`'s, so that a person moving between the three
+    /// windows finds the same file in the same spot; the *surface* is this toolkit's (ADR 1251).
+    #[derive(Debug, Clone, Copy)]
+    struct QtScatter {
+        /// How far across, in `0.0 ..= 1.0`.
+        across: f32,
+        /// How far down, likewise.
+        down: f32,
     }
 
     /// One row of §12.3.4's panel: a page's label, and its miniature where the page states one.
@@ -661,6 +689,8 @@ pub mod ffi {
         fn panel_label(self: &Host, tab: u8) -> String;
         /// Which of the panels is §12.3.4's — the one that is a list of pictures rather than rows.
         fn pages_panel(self: &Host) -> u8;
+        /// Which of the panels is §12.3.5's, whose presentation the document decides.
+        fn files_panel(self: &Host) -> u8;
         /// How many rows §12.3.4's panel has, which is the document's page count.
         fn page_count(self: &Host) -> usize;
         /// One row of §12.3.4's panel, asked for when the model is about to draw that row.
@@ -672,6 +702,24 @@ pub mod ffi {
         fn page_row(self: &Host, index: usize) -> QtPage;
         /// How many of §12.3.4's miniatures the panel may keep — `viewer_host::KEPT_MINIATURES`.
         fn kept_miniatures(self: &Host) -> usize;
+        /// §12.3.6's preview picture for one attachment, by its `/EmbeddedFiles` key.
+        ///
+        /// `page_row`'s shape and its reasoning: asked when the model is about to draw that row
+        /// and never in a loop over the collection, because a preview is an embedded document
+        /// opened and its first page's §12.3.4 `/Thumb` decoded. A file that states none comes
+        /// back with a zero width, which is most files and is not a defect (ADR 1251).
+        fn attachment_preview(self: &Host, name: &str) -> QtPage;
+        /// Where §12.3.6's `FreeForm` puts this file's thumbnail.
+        fn scatter_place(self: &Host, name: &str) -> QtScatter;
+        /// Whether the files panel is drawing §12.3.6's `FreeForm` scatter rather than a list.
+        fn collection_scatters(self: &Host) -> bool;
+        /// Table 158's `/Direction` `N`: whether the whole window region is the file list's.
+        ///
+        /// §12.3.5.1, Table 158:
+        ///
+        /// > N indicates that the window is not split. The entire window region shall be dedicated
+        /// > to the file navigation view.
+        fn collection_takes_the_window(self: &Host) -> bool;
         /// Every control the page's form wants.
         fn controls(self: &Host) -> Vec<QtControl>;
         /// Table 234's `/Opt` labels for control `index`, in the array's own order.

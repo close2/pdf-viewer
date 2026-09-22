@@ -1,13 +1,14 @@
 //! ISO 32000-2 §12.2's print half: read, answered to a host, and marking nothing.
 //!
 //! Table 147's dictionary controls "the way the document shall be presented on the screen or in
-//! print", and eight of its entries are about the second of those. Every one of the eight states
-//! a `shall` whose condition is an operation this program does not perform — a print dialogue
-//! being displayed (`/PrintScaling`, `/Duplex`, `/PickTrayByPDFSize`, `/PrintPageRange`,
-//! `/NumCopies`), or a page being rendered for paper (`/PrintArea`, `/PrintClip`, and
-//! `/PrintScaling`'s second sentence). What this program owes such an entry is therefore to read
-//! it and to put it where whoever holds that condition can take it, which is
-//! [`Query::Preferences`].
+//! print", and eight of its entries are about the second of those. Each of the eight states a
+//! `shall` whose condition is an operation this crate does not itself carry out — a print
+//! dialogue being displayed (`/PrintScaling`, `/Duplex`, `/PickTrayByPDFSize`,
+//! `/PrintPageRange`, `/NumCopies`), or a page being rendered for paper (`/PrintArea`,
+//! `/PrintClip`, and `/PrintScaling`'s second sentence). What this crate owes such an entry is
+//! therefore to read it and to put it where whoever holds that condition can take it, which is
+//! [`Query::Preferences`] — and the hosts hold it: `viewer_host::printing` opens a dialogue on
+//! Table 147's values, and `Purpose::Print` is what selects the boundaries the second pair names.
 //!
 //! So this file pins **both halves of that sentence at once**, which is the only way either is
 //! worth anything:

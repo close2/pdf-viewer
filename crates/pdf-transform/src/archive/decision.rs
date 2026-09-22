@@ -269,11 +269,60 @@ pub enum Loss {
     /// keeps the key and requires a conforming processor to ignore it, which is the same document
     /// for a reader and the producer's array still in the file.
     AutomaticStates,
+    /// ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1: a form whose appearances a reader
+    /// was asked to build, left as the producer wrote it with the request removed.
+    ///
+    /// §12.7.3's Table 224 makes `/NeedAppearances` "[a] flag specifying whether to construct
+    /// appearance streams and appearance dictionaries for all widget annotations in the
+    /// document", and both parts forbid the file to ask. Two answers follow and the operator
+    /// chooses between them: the appearances are constructed first, which loses nothing and is
+    /// the `Decision::Stated` this row takes by default, or the flag goes on its own — and then
+    /// **a field whose appearance its producer never wrote is blank in the archive**, because
+    /// nothing is left to tell a reader to draw it.
+    ///
+    /// That is the loss, and it is the second answer only. A printed copy of the same form showed
+    /// the same empty boxes, which is what makes it an operator's choice rather than a defect;
+    /// `construct = true` is what a caller who says nothing gets.
+    FieldAppearances,
+    /// ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2: the XFA resource, removed with the
+    /// key that named it.
+    ///
+    /// Neither part offers anywhere to put it, and what goes is what the template carried beyond
+    /// the fields themselves — the calculations, the validations and the formatting. **What does
+    /// not go is the form**: ISO 32000-2 Annex K requires a file stating the key to keep its
+    /// interactive form dictionary consistent with the resource, field for field and value for
+    /// value, so the `AcroForm` this conversion writes is the form the XFA described.
+    ///
+    /// **Not a mark, and not a page.** Every content stream crosses this conversion byte for
+    /// byte; what stops is a form engine recomputing fields as somebody fills them in. A document
+    /// whose own `/NeedsRendering` says its pages are regenerated is the case where the
+    /// `AcroForm`
+    /// is *not* the document, and `doc/adr/1257` refuses that one by name rather than pricing it
+    /// here.
+    XfaForm,
+    /// ISO 19005-2 section 6.8, ISO 19005-4 section 6.9: an embedded file the target does not
+    /// admit, taken out of the document.
+    ///
+    /// Both clauses require an embedded file to conform to a part of ISO 19005 — part 2 to
+    /// ISO 19005-1 or -2, plain PDF/A-4 to a part of its own — and neither offers anywhere to
+    /// put one that does not. So the file specification and the bytes under it go, and what is
+    /// lost is the attachment itself: a spreadsheet, an invoice's XML, a scanned original.
+    ///
+    /// **The other three answers are the configuration's and are better where they are open.**
+    /// `doc/rfc/0007` section 4.6 ranks them: attach unchanged, which PDF/A-4f and -4e admit and
+    /// this row does not bind at; derive a conforming PDF from the bytes with a declared tool,
+    /// which `remedy = "derive"` reaches; and the owner's own XML departure, which keeps an
+    /// attachment a part of ISO 19005 will not. This is the last of the four, and the report
+    /// names every file that went.
+    ///
+    /// **No mark on any page moves.** The attachment was never drawn; what changes is that the
+    /// archive no longer carries it.
+    EmbeddedFile,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 17] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::MetadataPacket,
@@ -288,6 +337,9 @@ impl Loss {
         Self::HiddenAnnotation,
         Self::AppearanceStates,
         Self::AutomaticStates,
+        Self::FieldAppearances,
+        Self::XfaForm,
+        Self::EmbeddedFile,
     ];
 
     /// The word a caller authorises it by.
@@ -308,10 +360,19 @@ impl Loss {
             Self::HiddenAnnotation => "hidden-annotation",
             Self::AppearanceStates => "appearance-states",
             Self::AutomaticStates => "automatic-states",
+            Self::FieldAppearances => "field-appearances",
+            Self::XfaForm => "xfa-form",
+            Self::EmbeddedFile => "embedded-file",
         }
     }
 
     /// What is lost, in one sentence for a person.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per loss, and the arms are prose for a person rather than code. \
+                  Splitting the match would need either a catch-all, which stops a new loss from \
+                  failing to compile until somebody has written its sentence, or an unreachable arm"
+    )]
     #[must_use]
     pub const fn describe(self) -> &'static str {
         match self {
@@ -408,6 +469,30 @@ impl Loss {
                  afterwards. A PDF/A-4 target costs nothing here: ISO 19005-4 section 6.10 keeps \
                  the key and has a conforming processor ignore it"
             }
+            Self::FieldAppearances => {
+                "the interactive form dictionary's NeedAppearances is removed and no appearance \
+                 is constructed in its place, so a field whose appearance its producer never \
+                 wrote is blank in the archive \u{2014} nothing in the file then tells a reader \
+                 to draw it. Answer forms/need-appearances-absent-or-false with construct = true, \
+                 which is the default, and every visible widget the file provides none for is \
+                 given one first and nothing is lost"
+            }
+            Self::XfaForm => {
+                "the interactive form dictionary's XFA is removed, and with it the calculations, \
+                 validations and formatting the XFA template carried; a form that computed its \
+                 own fields stops computing them. The fields and their values stay, because ISO \
+                 32000-2 Annex K requires a file stating the key to keep the interactive form \
+                 dictionary consistent with the resource \u{2014} so for a static form the \
+                 AcroForm is the form. No mark on any page moves"
+            }
+            Self::EmbeddedFile => {
+                "an embedded file that is not itself a conforming PDF/A is taken out of the \
+                 document, and the bytes go with it \u{2014} so the archive no longer carries \
+                 the attachment. No mark on any page moves, because an attachment is not drawn. \
+                 The report names every file that went; remedy = \"derive\" with a declared \
+                 tool makes a conforming PDF of it instead, and a PDF/A-4f or -4e target keeps \
+                 it unchanged because the rule does not bind there"
+            }
         }
     }
 
@@ -459,6 +544,12 @@ pub struct Authorisations {
     pub appearance_states: bool,
     /// Whether [`Loss::AutomaticStates`] was authorised.
     pub automatic_states: bool,
+    /// Whether [`Loss::FieldAppearances`] was authorised.
+    pub field_appearances: bool,
+    /// Whether [`Loss::XfaForm`] was authorised.
+    pub xfa_form: bool,
+    /// Whether [`Loss::EmbeddedFile`] was authorised.
+    pub embedded_file: bool,
 }
 
 impl Authorisations {
@@ -480,6 +571,9 @@ impl Authorisations {
             Loss::HiddenAnnotation => self.hidden_annotation,
             Loss::AppearanceStates => self.appearance_states,
             Loss::AutomaticStates => self.automatic_states,
+            Loss::FieldAppearances => self.field_appearances,
+            Loss::XfaForm => self.xfa_form,
+            Loss::EmbeddedFile => self.embedded_file,
         }
     }
 
@@ -500,6 +594,9 @@ impl Authorisations {
             Loss::HiddenAnnotation => self.hidden_annotation = true,
             Loss::AppearanceStates => self.appearance_states = true,
             Loss::AutomaticStates => self.automatic_states = true,
+            Loss::FieldAppearances => self.field_appearances = true,
+            Loss::XfaForm => self.xfa_form = true,
+            Loss::EmbeddedFile => self.embedded_file = true,
         }
     }
 }
@@ -821,6 +918,25 @@ const APPEARANCE_REINTERPRETS: &str = "an appearance stream this program constru
      §12.5.2 then has a reader ignore C, IC, Border, BS and the rest in favour of the stream, so \
      an annotation whose look used to be recomputed from those entries is fixed as it is here. \
      The report names every appearance written, with the page it is on";
+
+/// What clearing `/NeedAppearances` asserts, which is `doc/questions/A21`'s condition again.
+///
+/// `doc/adr/0927`: the sentence travels with the decision. §12.7.3's Table 224 makes the flag
+/// "[a] flag specifying whether to construct appearance streams and appearance dictionaries for
+/// all widget annotations in the document", and its writer obligation makes an absent one a claim
+/// that streams have been provided for every visible widget. So what changes is the same thing
+/// `APPEARANCE_REINTERPRETS` names, at the widgets: the construction stops being every reader's
+/// own and becomes this program's, frozen in the file.
+const FIELD_APPEARANCE_REINTERPRETS: &str = "this file asked every reader to build its form \
+     fields' appearances for itself. Instead, each visible widget the file provides no normal \
+     appearance for is given one this program constructed by ISO 32000-2 \u{a7}12.7.4.3's \
+     algorithm, from the widget's own MK characteristics and its field's value, and the flag \
+     asking is removed. A widget whose AP already states an N keeps its producer's bytes \
+     untouched. What the clause hands the processor \u{2014} where a baseline sits, how far \
+     apart two lines are, what size auto-sizing picks \u{2014} is this renderer's choice, so a \
+     field that every reader used to lay out slightly differently now looks the same everywhere \
+     and looks the way this program draws it. The report names every appearance written, with \
+     the page it is on";
 
 /// What embedding a substitute face asserts, which is `doc/questions/A47`'s condition on it.
 ///
@@ -1532,11 +1648,47 @@ pub(super) const REMEDIES: &[Remedy] = &[
         answer: Answer::Mechanical(Rewrite::PacketHeaderAttributes),
     },
     // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2 — the second sentence of the pair.
-    // The first, `forms/no-xfa-key`, is still refused, which is what makes this one lossless:
-    // a document whose form dictionary still states an `/XFA` never reaches a written file.
+    // The entry is deprecated, its subject is the XFA form, and §7.7.2's Table 29 gives it a
+    // default of `false` — so removing it states what an absent entry states. What it is *not* is
+    // a statement about the form beside it: the `/XFA` row's own answer removes the resource, and
+    // `doc/adr/1257` reads this same entry as the document's claim that its pages are generated.
     Remedy {
         requirement: "forms/no-needs-rendering",
         answer: Answer::Mechanical(Rewrite::NeedsRendering),
+    },
+    // ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1. §12.7.3's Table 224 makes clearing
+    // the flag a claim about the file — that appearance streams have been provided for all
+    // visible widget annotations — so the construction beside it is what makes the claim true.
+    // With `construct = false` the operator asks for the flag alone, and `answer_of` routes that
+    // to `Loss::FieldAppearances`. `doc/adr/1257`.
+    Remedy {
+        requirement: "forms/need-appearances-absent-or-false",
+        answer: Answer::Stated(
+            None,
+            Rewrite::NeedAppearancesCleared,
+            FIELD_APPEARANCE_REINTERPRETS,
+        ),
+    },
+    // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2, first sentence. ISO 32000-2 Annex K
+    // requires a file stating the key to keep its interactive form dictionary consistent with the
+    // resource, so for a static form the AcroForm is the form and what goes is the behaviour the
+    // template carried. `doc/adr/1257` is what refuses a dynamic one.
+    Remedy {
+        requirement: "forms/no-xfa-key",
+        answer: Answer::Loses(Loss::XfaForm, Rewrite::XfaRemoved),
+    },
+    // ISO 19005-2 section 6.8, ISO 19005-4 section 6.9: an embedded file that is not itself a
+    // conforming PDF/A, with nowhere in either clause to put it. The last of `doc/rfc/0007`
+    // section 4.6's four answers, and the three above it are the configuration's — `derive` with
+    // a declared tool, the owner's XML departure, and a 4f or 4e target where the rule does not
+    // bind at all. `doc/adr/1258`.
+    Remedy {
+        requirement: "embedded-files/embedded-file-is-itself-pdfa",
+        answer: Answer::Loses(Loss::EmbeddedFile, Rewrite::EmbeddedFileRemoved),
+    },
+    Remedy {
+        requirement: "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
+        answer: Answer::Loses(Loss::EmbeddedFile, Rewrite::EmbeddedFileRemoved),
     },
     // ISO 19005-2 section 6.2.11.6, ISO 19005-4 section 6.2.10.6 — the two rows of that
     // subclause whose subject is the font dictionary rather than the program. Each is mechanical
@@ -1594,6 +1746,14 @@ pub enum Conditional {
     /// §14.11.2.1 has already made the entry its intersection with the media box, and changes
     /// what a reader shows where it has not.
     PerDocument(Loss),
+    /// The rewrite states an interpretation under one answer the site admits and costs [`Loss`]
+    /// under the other, and which is the **operator's** to say rather than the file's.
+    ///
+    /// `doc/adr/1257`: §12.7.3's Table 224 makes clearing `/NeedAppearances` a claim that
+    /// appearance streams have been provided, so `construct = true` builds them and loses
+    /// nothing, and `construct = false` clears the flag alone and leaves a field its producer
+    /// gave no stream blank.
+    PerConfiguration(Loss),
 }
 
 impl Conditional {
@@ -1609,6 +1769,10 @@ impl Conditional {
                 "mechanical for some documents and an authorised loss for others, decided per \
                  file against the clause rather than by the decision table"
             }
+            Self::PerConfiguration(_) => {
+                "lossless under one answer this site admits and an authorised loss under the \
+                 other, decided by the configuration rather than by the file"
+            }
         }
     }
 
@@ -1617,7 +1781,7 @@ impl Conditional {
     pub const fn loss(self) -> Option<Loss> {
         match self {
             Self::CallerSuppliesTheBytes => None,
-            Self::PerDocument(loss) => Some(loss),
+            Self::PerDocument(loss) | Self::PerConfiguration(loss) => Some(loss),
         }
     }
 }
@@ -1636,6 +1800,10 @@ pub(super) const CONDITIONAL: &[(&str, Conditional)] = &[
     (
         "implementation-limits/page-boundary-sizes",
         Conditional::PerDocument(Loss::PageBoundary),
+    ),
+    (
+        "forms/need-appearances-absent-or-false",
+        Conditional::PerConfiguration(Loss::FieldAppearances),
     ),
 ];
 
@@ -1999,14 +2167,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
     // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9's first sentence: the embedded file
     // shall itself conform. Converting it means running this whole verb over the file inside the
     // file, which is a slice of its own and is named as one rather than half-done.
-    (
-        "embedded-files/embedded-file-is-itself-pdfa",
-        Because::NotBuiltYet(EMBEDDED_FILE_NOT_CONVERTED),
-    ),
-    (
-        "embedded-files/embedded-file-is-itself-pdfa-in-the-plain-profile",
-        Because::NotBuiltYet(EMBEDDED_FILE_NOT_CONVERTED),
-    ),
     // ISO 19005-4 section 6.9 wants a MIME media type, and nothing in a file specification says
     // what one is: a file name's extension is a convention rather than a statement.
     (
@@ -2170,15 +2330,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(WRITE_MODE_DISAGREEMENT),
     ),
     // ISO 19005-2 section 6.4.2, ISO 19005-4 section 6.4.2.
-    (
-        "forms/no-xfa-key",
-        Because::NotBuiltYet(XFA_REMOVAL_NOT_BUILT),
-    ),
-    // ISO 19005-2 section 6.4.1, ISO 19005-4 section 6.4.1.
-    (
-        "forms/need-appearances-absent-or-false",
-        Because::NotBuiltYet(NEED_APPEARANCES_NOT_BUILT),
-    ),
     // ISO 19005-2 section 6.2.3, ISO 19005-4 section 6.2.3: the destination profile the file
     // already holds.
     (
@@ -2387,12 +2538,6 @@ const FOUR_F_NEEDS_AN_EMBEDDED_FILE: &str = "ISO 19005-4 Annex A.2 makes an Embe
      be adding content no source states, which is not converting. Ask for PDF/A-4 instead: the \
      plain profile is what a document with nothing embedded in it is for";
 
-/// Why an embedded file is not itself converted.
-const EMBEDDED_FILE_NOT_CONVERTED: &str = "this file embeds another PDF, and the clause requires \
-     that one to conform to ISO 19005 as well. Converting it means running this whole verb over \
-     the embedded bytes under a budget of their own, which is not built; PDF/A-4f and PDF/A-4e \
-     lift the requirement altogether and admit an embedded file of any type";
-
 /// Why an embedded file's `/Subtype` media type is not supplied.
 const NO_MEDIA_TYPE_TO_DERIVE: &str = "ISO 19005-4 section 6.9 asks the embedded file stream for \
      a Subtype that is a MIME media type, and nothing in a file specification states one: a file \
@@ -2548,32 +2693,6 @@ const WRITE_MODE_DISAGREEMENT: &str = "this CMap stream's WMode entry and the wr
      statements its producer meant, which changes either the writing direction a reader lays the \
      text out in or the program's own bytes. That is a question for the document's owner, and no \
      interface exists to ask it";
-
-/// Why `/XFA` is not removed.
-///
-/// **The pair this used to answer is now one row.** ISO 19005-2 section 6.4.2 forbids two
-/// entries and the catalog's `/NeedsRendering` is the half whose answer the base standard prints
-/// — §7.7.2's Table 29 deprecates it and gives it a default of `false` — so it is a
-/// `Rewrite::NeedsRendering` and no longer waits on this. What is left here is the half that
-/// genuinely needs a judgement about the producer's pipeline.
-const XFA_REMOVAL_NOT_BUILT: &str = "both parts forbid an XFA entry in the interactive form \
-     dictionary. doc/pdf-a-conversion-limits.md \
-     section 3.4's default is to keep the AcroForm's data and drop the XFA key — ISO 32000-2 \
-     Annex K requires a conforming hybrid file's AcroForm entries to be consistent with the XFA \
-     information, so for a static form the AcroForm is the form — and to refuse a dynamic one \
-     outright, because there the AcroForm is not the document and the output would be a \
-     placeholder page wearing a conformance claim. Neither the key removal nor the test that \
-     tells the two apart is built, and CLAUDE.md excludes rendering XFA, so flattening one is \
-     not available";
-
-/// Why `/NeedAppearances` is not simply written `false`.
-const NEED_APPEARANCES_NOT_BUILT: &str = "this form asks a reader to build its field \
-     appearances, which ISO 32000-2 Table 224 deprecates and ISO 19005 forbids. The honest \
-     answer is a pair: construct every field's appearance — doc/pdf-a-conversion-limits.md \
-     section 4.4, which this converter does for annotations whose own subtype clause states what \
-     to draw — and then write the flag false, so the file says what it shows. Writing the flag \
-     alone would assert appearances nobody built, and the field construction for every widget in \
-     the form is what this needs";
 
 /// Why the destination profile a file already holds is not replaced.
 const DESTINATION_PROFILE_NOT_REPLACED: &str = "the destination profile this file's own output \
@@ -3026,6 +3145,27 @@ fn answer_of(answer: Answer, authorised: Authorisations, prepared: &Prepared) ->
                     },
                     Decision::Refused,
                 ),
+            }
+        }
+        // §12.7.3's Table 224 read as the two answers it admits (`doc/adr/1257`): the flag with
+        // the appearances built is a statement, and the flag on its own is a loss. Which of the
+        // two this conversion is taking is the operator's `construct`, which the preparation has
+        // already read — an empty construction beside a flag that still has to go.
+        Answer::Stated(_, Rewrite::NeedAppearancesCleared, reinterprets) => {
+            if prepared.constructs_field_appearances {
+                prepared.obstacle(Rewrite::NeedAppearancesCleared).map_or(
+                    Decision::Stated {
+                        rewrite: Rewrite::NeedAppearancesCleared,
+                        reinterprets,
+                    },
+                    Decision::Refused,
+                )
+            } else {
+                answer_of(
+                    Answer::Loses(Loss::FieldAppearances, Rewrite::NeedAppearancesCleared),
+                    authorised,
+                    prepared,
+                )
             }
         }
         // Every other `Stated` row is decided by the requirement and the standard, and then by

@@ -352,9 +352,10 @@ fn reports_and_fills(name: &str) -> (Vec<String>, usize) {
 }
 
 /// **A form nested inside a form, stating no `/Resources`, inherits the page's — not its
-/// invoker's.** §7.8.3's NOTE 3, since Errata Collection 3 Issue #128, has the fallback
-/// inherit "from the resource dictionary of the page on which they are used"
-/// (`content/annotations.rs` quotes the NOTE in full), and Table 93's `/Resources` cell says
+/// invoker's.** §7.8.3 stated that fallback as a `shall` in a bullet Errata Collection 3's Issue
+/// #128 struck; what is left is NOTE 3, reporting that earlier versions let such resources be
+/// inherited "from the resource dictionary of the page on which they are used"
+/// (`content/annotations.rs` quotes the amended NOTE in full), and Table 93's `/Resources` cell says
 /// the same as a `shall` for the files that omit the entry: "In a PDF whose version is 1.1 and
 /// earlier, all named resources used in the form `XObject` shall be included in the resource
 /// dictionary of each page object on which the form `XObject` appears". The invoker's dictionary

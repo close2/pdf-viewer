@@ -371,3 +371,14 @@ picture it produces is still plausible: `compose_tiling` made a cell isolated wh
 mode was not Normal on ADR 0237's collapse, expired by ADR 1107 and found only by reading the
 condition against the backend (ADR 1243). Trap 40 is about a refusing function; this is about a
 conservative one, which reads as correct.
+
+**A ledger note that claims a report exists is a claim about code, and `grep` for the entry name is
+how it is checked.** Both collection rows asserted for four sessions that `unsupported_presentation`
+named `/Colors` and `/Split` out loud, and that function never mentioned either (ADR 1251). Trap 42
+is about a refusal's *reason* read off a comment; this is about a report's *existence*.
+
+**When a contract names a residue, read the code's own refusal before the ledger note's first
+sentence.** Both of round 1209's contract items described a state two earlier ADRs had moved on
+from, and the capability one refusal said did not exist was forty lines away in the backend it named
+(ADR 1256). For a refusal citing a backdrop, read the backend function that builds that backdrop and
+ask what it hands each element.

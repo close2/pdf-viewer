@@ -34,7 +34,7 @@
 
 use pdf_model::article::Thread;
 use pdf_model::attachment::Attachment;
-use pdf_model::collection::{Collection, Field, FieldKind, Initial, Layout, View};
+use pdf_model::collection::{Collection, Field, FieldKind, Initial, Layout, SplitDirection, View};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item, Outline};
 use pdf_model::viewer_preferences::PageMode;
@@ -124,12 +124,12 @@ pub struct PanelRow {
     /// without draws [`PanelRow::detail`], which carries the same cells joined. Both come from one
     /// reading, so two windows cannot disagree about what a file's fields say (ADR 1215).
     pub cells: Vec<Cell>,
-    /// Table 153's `/View T` "small icon", where this row is a file or a folder in tile mode.
+    /// The picture this row carries, where [`Mode`] draws one for it.
     ///
-    /// `None` in every other mode and in every other panel. **The clause states no artwork** — it
-    /// says "denoted by a small icon" and stops — so what is decided here is only *which kind of
-    /// thing the row is*, and each toolkit names its own picture for it (ADR 1215).
-    pub icon: Option<Icon>,
+    /// `None` in every panel but §12.3.5's, and in that one wherever the layout draws no picture
+    /// for the row. [`Picture`] says *how large* it is and *where it comes from*; the clause
+    /// states no artwork for any of them, so each toolkit draws its own (ADRs 1215, 1251).
+    pub picture: Option<Picture>,
     /// The rows underneath it.
     pub children: Vec<PanelRow>,
 }
@@ -147,11 +147,14 @@ pub struct Cell {
     pub value: String,
 }
 
-/// Which of Table 153's two drawable presentations a collection is shown in.
+/// Which presentation a collection is shown in: Table 153's two views, and §12.3.6's three
+/// further named layouts.
 ///
-/// Table 153 states each `/View` value as its own `shall`, and these are the two that describe a
-/// *list of files*: `H` is the sidebar being closed until a person opens it, and `C` defers to
-/// §12.3.6's navigator, which [`presentation`] resolves before answering.
+/// Table 153 states each `/View` value as its own `shall`, and two of them describe a *list of
+/// files*: `H` is the sidebar being closed until a person opens it, and `C` defers to §12.3.6's
+/// navigator, which [`presentation`] resolves before answering. §12.3.6's `Tree` is what
+/// [`collection_rows`] builds by construction and shares [`Mode::Details`]'s arrangement; the
+/// other three describe surfaces of their own and are the three variants after it (ADR 1251).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// `D`: "The collection view shall be presented in details mode, with all information in the
@@ -160,6 +163,36 @@ pub enum Mode {
     /// `T`: "The collection view shall be presented in tile mode, with each file in the collection
     /// denoted by a small icon and a subset of information from the Schema dictionary."
     Tile,
+    /// §12.3.6's `FilmStrip`: "a strip of thumbnails, providing an index to the file attachments
+    /// within the collection. The selected attachment should be previewed alongside the index."
+    ///
+    /// One run rather than a tree, because a strip is one run — and it indexes the folders as
+    /// well, which the clause states outright: "[t]hese thumbnails provide an index into the
+    /// files and folders present within the collection."
+    FilmStrip,
+    /// §12.3.6's `FreeForm`: "thumbnails for each item in the collection contents are displayed
+    /// at a random location on the view."
+    ///
+    /// Where each thumbnail lands is the *host's*, because a random location is not a fact about
+    /// the document and ADR 1168's property is what decides which of those cross.
+    FreeForm,
+    /// §12.3.6's `Linear`: "a large size preview of one file attachment in the collection and
+    /// displays alongside the preview the metadata for the file attachment, including the name,
+    /// description and other collection schema entries."
+    Linear,
+}
+
+impl Mode {
+    /// Whether this layout arranges the files flat rather than in §12.3.5.2's folder tree.
+    ///
+    /// Table 153's two views draw the tree: §12.3.5.2 is a separate `shall` about where a file
+    /// sits, and ADR 1215 keeps the folders in both of them. The three §12.3.6 layouts each
+    /// describe a surface with no nesting in it — a strip, a scatter, a single preview — so the
+    /// folder a file sits in is said on the row instead of drawn around it.
+    #[must_use]
+    pub const fn is_flat(self) -> bool {
+        matches!(self, Self::FilmStrip | Self::FreeForm | Self::Linear)
+    }
 }
 
 /// What kind of thing a tile's icon stands for, which is all this crate decides about it.
@@ -184,6 +217,44 @@ pub enum Icon {
     Document,
     /// A file whose media type the document does not state, or states as something else.
     File,
+}
+
+/// What picture a row carries, and how much room the layout gives it.
+///
+/// Table 153 and §12.3.6 ask for three different pictures of the same file, and the difference
+/// between them is size and source rather than artwork: `/View T` wants "a small icon",
+/// `FilmStrip` and `FreeForm` want "thumbnails", `Linear` wants "a large size preview". Every one
+/// of them carries an [`Icon`], because the *kind* of a file is what this crate decides about it
+/// (ADR 1215); the two larger ones also say that a host should ask [`attachment_preview`] for the
+/// attachment's own picture and fall back to the icon where the file states none (ADR 1251).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Picture {
+    /// Table 153's `/View T`: "each file in the collection denoted by a small icon".
+    Icon(Icon),
+    /// §12.3.6's thumbnail — `FilmStrip`'s "strip of thumbnails" and `FreeForm`'s scatter.
+    Thumbnail(Icon),
+    /// §12.3.6's "large size preview": `Linear`'s one attachment, and the one `FilmStrip` says
+    /// "should be previewed alongside the index".
+    Preview(Icon),
+}
+
+impl Picture {
+    /// The kind of thing the row stands for, whatever size the layout draws it at.
+    #[must_use]
+    pub const fn kind(self) -> Icon {
+        match self {
+            Self::Icon(icon) | Self::Thumbnail(icon) | Self::Preview(icon) => icon,
+        }
+    }
+
+    /// Whether a host should ask [`attachment_preview`] for the file's own picture first.
+    ///
+    /// False for [`Self::Icon`], which Table 153 makes an icon outright, and true for the two
+    /// sizes §12.3.6 builds out of pictures of the attachments themselves.
+    #[must_use]
+    pub const fn wants_the_files_own_picture(self) -> bool {
+        matches!(self, Self::Thumbnail(_) | Self::Preview(_))
+    }
 }
 
 impl Icon {
@@ -220,7 +291,7 @@ impl PanelRow {
             note: false,
             emphasis: false,
             cells: Vec::new(),
-            icon: None,
+            picture: None,
             children: Vec::new(),
         }
     }
@@ -255,7 +326,7 @@ fn row_of_item(item: &Item) -> PanelRow {
         note: false,
         emphasis: false,
         cells: Vec::new(),
-        icon: None,
+        picture: None,
         children: item.children.iter().map(row_of_item).collect(),
     }
 }
@@ -294,7 +365,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             note: false,
             emphasis: false,
             cells: Vec::new(),
-            icon: None,
+            picture: None,
             children: Vec::new(),
         },
         Layer::Collection { label, children } => PanelRow {
@@ -305,7 +376,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             note: false,
             emphasis: false,
             cells: Vec::new(),
-            icon: None,
+            picture: None,
             children: children.iter().map(row_of_layer).collect(),
         },
     }
@@ -349,7 +420,7 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             // §12.3.5's schema is what fills these, and this list is the one a document with no
             // `/Collection` gets: the same files, unarranged.
             cells: Vec::new(),
-            icon: None,
+            picture: None,
             children: Vec::new(),
         })
         .collect()
@@ -475,16 +546,33 @@ pub fn collection_rows(
     let sorted = in_sort_order(order, attachments);
     let attachments = sorted.as_slice();
 
-    let mut rows = match collection.folders.as_ref() {
-        Some(root) => {
-            let stated = &stated_ids(root);
-            let mut rows = files_where(attachments, &columns, mode, &|id| {
-                id.is_none_or(|id| !stated.contains(&id))
-            });
-            rows.push(folder_row(root, attachments, &columns, mode));
-            rows
+    // §12.3.6's two layouts that show one attachment larger than the rest need to know which one
+    // before a row is built, because it is the row that differs rather than the drawing.
+    let previewed = match mode {
+        Mode::FilmStrip | Mode::Linear => previewed_file(initial, attachments),
+        Mode::Details | Mode::Tile | Mode::FreeForm => None,
+    };
+    let shape = Shape {
+        mode,
+        columns: &columns,
+        previewed: previewed.as_deref(),
+        folders: folder_names(collection),
+    };
+
+    let mut rows = if mode.is_flat() {
+        flat_rows(collection, attachments, &shape)
+    } else {
+        match collection.folders.as_ref() {
+            Some(root) => {
+                let stated = &stated_ids(root);
+                let mut rows = files_where(attachments, &shape, &|id| {
+                    id.is_none_or(|id| !stated.contains(&id))
+                });
+                rows.push(folder_row(root, attachments, &shape));
+                rows
+            }
+            None => files_where(attachments, &shape, &|_| true),
         }
-        None => files_where(attachments, &columns, mode, &|_| true),
     };
 
     mark_initial(&mut rows, initial);
@@ -498,10 +586,134 @@ pub fn collection_rows(
     if let Some(sentence) = unsupported_presentation(collection) {
         rows.push(PanelRow::saying(&sentence));
     }
+    if let Some(sentence) = unused_furniture(collection) {
+        rows.push(PanelRow::saying(&sentence));
+    }
     if let Some(sentence) = restricted_names(collection) {
         rows.push(PanelRow::saying(&sentence));
     }
     rows
+}
+
+/// What every row of one collection has in common, which is everything but the file.
+///
+/// One value rather than four parameters threaded through five functions: the layout, the columns
+/// it shows, which attachment it previews and what §12.3.5.2's folders are called are decided once
+/// in [`collection_rows`] and read everywhere below it.
+struct Shape<'a> {
+    /// Which presentation, resolved by [`presentation`].
+    mode: Mode,
+    /// Table 154's visible schema fields in Table 155's `/O` order, already cut to what this mode
+    /// shows.
+    columns: &'a [(&'a String, &'a Field)],
+    /// The `/EmbeddedFiles` key of the one attachment §12.3.6's `FilmStrip` and `Linear` show
+    /// larger than the rest, or [`None`] in a layout that shows them all alike.
+    previewed: Option<&'a str>,
+    /// §12.3.5.2's folder identifiers and what each is called, for the layouts that draw no tree.
+    folders: std::collections::BTreeMap<u32, String>,
+}
+
+impl Shape<'_> {
+    /// The picture this row carries, at the size its layout draws.
+    fn picture(&self, kind: Icon, previewed: bool) -> Option<Picture> {
+        match self.mode {
+            Mode::Details => None,
+            Mode::Tile => Some(Picture::Icon(kind)),
+            Mode::FilmStrip if previewed => Some(Picture::Preview(kind)),
+            Mode::FilmStrip | Mode::FreeForm => Some(Picture::Thumbnail(kind)),
+            Mode::Linear => previewed.then_some(Picture::Preview(kind)),
+        }
+    }
+
+    /// Whether this row carries the schema's fields.
+    ///
+    /// Table 153's two views put them on every row. §12.3.6's `FilmStrip` puts them beside the one
+    /// attachment it previews — "[t]he selected attachment should be previewed alongside the
+    /// index" — and `Linear` likewise; `FreeForm` states nothing but thumbnails and a selection,
+    /// so its items carry their names and no fields.
+    const fn shows_fields(&self, previewed: bool) -> bool {
+        match self.mode {
+            Mode::Details | Mode::Tile => true,
+            Mode::FilmStrip | Mode::Linear => previewed,
+            Mode::FreeForm => false,
+        }
+    }
+
+    /// Which of §12.3.5.2's folders a file sits in, where the layout draws no tree to put it in.
+    ///
+    /// §12.3.5.2 makes membership of the folder structure a `shall`, and the three flat layouts
+    /// draw no folder around a file — so the arrangement is *said* on the row instead of lost.
+    fn where_it_sits(&self, folder: Option<u32>) -> Option<String> {
+        if !self.mode.is_flat() {
+            return None;
+        }
+        self.folders.get(&folder?).map(|name| format!("in {name}"))
+    }
+}
+
+/// §12.3.5.2's folders by identifier, for a layout that names them instead of nesting in them.
+fn folder_names(collection: &Collection) -> std::collections::BTreeMap<u32, String> {
+    let mut names = std::collections::BTreeMap::new();
+    let mut stack: Vec<&pdf_model::collection::Folder> = collection.folders.iter().collect();
+    while let Some(folder) = stack.pop() {
+        names.insert(folder.id, folder.name.clone());
+        stack.extend(folder.children.iter());
+    }
+    names
+}
+
+/// The one attachment §12.3.6's `FilmStrip` and `Linear` show larger than the rest.
+///
+/// `Linear` "provides a large size preview of **one** file attachment in the collection", and
+/// `FilmStrip` previews "the selected attachment" — so both need one named before anybody has
+/// selected anything, and §12.3.5.1's `/D` is the document's own answer to that question. Where
+/// `/D` names the container, names nothing, or names a file the name tree does not hold, the
+/// clause's own fallback applies: "the first item from the list of files to display in its user
+/// interface", which in this list is the first in Table 153's `/Sort` order.
+fn previewed_file(initial: &Initial, attachments: &[&Attachment]) -> Option<String> {
+    if let Initial::Embedded(name) = initial
+        && attachments.iter().any(|file| &file.name == name)
+    {
+        return Some(name.clone());
+    }
+    attachments.first().map(|file| file.name.clone())
+}
+
+/// §12.3.6's three flat layouts, which arrange the same files without §12.3.5.2's tree.
+///
+/// `FilmStrip` indexes the folders as well as the files, because the clause says its thumbnails
+/// "provide an index into the files and folders present within the collection"; `FreeForm` and
+/// `Linear` are stated over "the file attachments" alone, so their folders are named on each
+/// row by [`Shape::where_it_sits`] rather than drawn.
+///
+/// The folders come first and in the tree's own order. Table 153's `/Sort` orders the *items* of
+/// the collection and a folder is not one of them, so the standard states no order between the
+/// two groups; putting the coarser half of the index first is this program's choice, made once
+/// here (ADR 1251).
+fn flat_rows(collection: &Collection, attachments: &[&Attachment], shape: &Shape) -> Vec<PanelRow> {
+    let mut rows = Vec::new();
+    if shape.mode == Mode::FilmStrip
+        && let Some(root) = collection.folders.as_ref()
+    {
+        index_folders(root, shape, &mut rows);
+    }
+    rows.extend(files_where(attachments, shape, &|_| true));
+    rows
+}
+
+/// Every folder of the tree as one entry of a strip, depth first.
+fn index_folders(folder: &pdf_model::collection::Folder, shape: &Shape, out: &mut Vec<PanelRow>) {
+    out.push(PanelRow {
+        detail: folder.description.clone(),
+        // A folder is not a file: it has no bytes to take out, and in a strip it has no children
+        // drawn under it either, so what it does is nothing until a person chooses it.
+        action: RowAction::Inert,
+        picture: shape.picture(Icon::Folder, false),
+        ..PanelRow::item(folder.name.clone())
+    });
+    for child in &folder.children {
+        index_folders(child, shape, out);
+    }
 }
 
 /// The attachments in the order Table 153's `/Sort` states, or as they came where it states none.
@@ -586,17 +798,24 @@ pub fn restricted_names(collection: &Collection) -> Option<String> {
 /// - `H` is met by the sidebar being closed until a person opens it.
 ///
 /// - `T` is Table 153's tile view, each file under [`Icon`] with [`TILE_FIELDS`] of the schema's
-///   own fields beside it.
+///   own fields beside it;
+/// - `FilmStrip` is the files and folders in one run of thumbnails with the previewed attachment's
+///   fields beside it;
+/// - `FreeForm` is the same thumbnails with the host scattering them;
+/// - `Linear` is one attachment large, with the schema's fields and the file specification's
+///   beside it.
 ///
-/// The three that are not here — `FilmStrip`, `FreeForm` and `Linear` — each need a surface this
-/// panel is not: a strip of miniatures, a free canvas, a large preview beside the metadata.
-/// [`unsupported_presentation`] is what a person is told when a document asks for one of them,
-/// because a panel that quietly drew something else would be §12.3.6 obeyed in silence.
-pub const DRAWN_LAYOUTS: [Layout; 4] = [
+/// **Every name Table 160 defines is here**, so §12.3.6's selection rule chooses from the whole
+/// table and [`unsupported_presentation`] is left with the one case that remains: a navigator
+/// naming only layouts this table does not define (ADR 1251).
+pub const DRAWN_LAYOUTS: [Layout; 7] = [
     Layout::Tree,
     Layout::View(View::Details),
     Layout::View(View::Tile),
     Layout::View(View::Hidden),
+    Layout::FilmStrip,
+    Layout::FreeForm,
+    Layout::Linear,
 ];
 
 /// How many of Table 154's schema fields a tile shows, which is what "a subset" is decided to be.
@@ -624,8 +843,10 @@ pub const TILE_FIELDS: usize = 2;
 ///
 /// The navigator is asked first because it is the more specific instruction and because Table 153
 /// makes `/Navigator` the presentation when `/View` is `C`. [`pdf_model::collection::Navigator`]
-/// answers the selection from [`DRAWN_LAYOUTS`]; `None` from it means the file names no layout
-/// this program can draw, which the clause allows for and does not say what to do about.
+/// answers the selection from [`DRAWN_LAYOUTS`], which is now every name Table 160 defines — so
+/// `None` from it means the file names *only* layouts the table does not define, which §12.3.6
+/// permits ("[t]his mechanism is inherently extensible and allows inclusion of custom named
+/// layouts") while requiring a producer to name one of the seven as well.
 ///
 /// **This sentence is the project's and not the standard's**, on ADR 0711's reason for the rest of
 /// this clause: neither clause asks for a message. What it prevents is the failure trap 5 names —
@@ -643,8 +864,8 @@ pub fn unsupported_presentation(collection: &Collection) -> Option<String> {
         return Some(match named.len() {
             0 => "This collection states a navigator that names no layout.".to_owned(),
             _ => format!(
-                "This collection asks to be presented as {}, which this panel does not draw; its \
-                 files are shown as a tree.",
+                "This collection asks to be presented as {}, which Table 160 does not define and \
+                 this panel does not draw; its files are shown as a tree.",
                 named.join(" or ")
             ),
         });
@@ -656,6 +877,101 @@ pub fn unsupported_presentation(collection: &Collection) -> Option<String> {
             "This collection asks to be presented by a navigator it does not state.".to_owned(),
         ),
         View::Details | View::Tile | View::Hidden => None,
+    }
+}
+
+/// What a panel says about the presentation entries it reads and does not draw, or nothing.
+///
+/// Two entries, and neither carries a `shall` at a processor:
+///
+/// - Table 157's `/Colors` is "a suggested set of colours for use by a collection layout", whose
+///   only sentence about using them is a NOTE — "[i]t is recommended that a layout use the colours
+///   provided" — and a NOTE states no requirement;
+/// - Table 158's `/Direction` `H` and `V` and its `/Position` describe "the orientation of the
+///   splitter bar" of an initial view in which "the available display area **may** be divided by a
+///   splitter bar into two areas", one of them "a preview of the initial or currently selected
+///   document of the collection". This program's window divides the panel from the *container's*
+///   own pages rather than from a preview of the selected attachment (ADR 0202), so a percentage
+///   whose subject is the other pair of areas is not applied to this one. ADR 1252.
+///
+/// Table 158's `/Direction` `N` is not here: it says the window is not divided at all, which is a
+/// statement about the window rather than about a bar, and [`whole_window`] obeys it.
+///
+/// **This sentence is the project's and not the standard's**, on ADR 0711's reason for the rest of
+/// this clause: what the document asked for is said rather than dropped, because an entry read and
+/// silently unused is indistinguishable from one nobody read (trap 5).
+#[must_use]
+pub fn unused_furniture(collection: &Collection) -> Option<String> {
+    let colours = collection.colours != pdf_model::collection::Colours::default();
+    let splitter = matches!(
+        collection.split.as_ref().map(|split| &split.direction),
+        Some(SplitDirection::Horizontal | SplitDirection::Vertical)
+    );
+    match (colours, splitter) {
+        (false, false) => None,
+        (true, false) => Some(
+            "This collection suggests colours for a layout; this window draws its own.".to_owned(),
+        ),
+        (false, true) => Some(
+            "This collection asks for a splitter bar between the file list and a preview; this \
+             window puts the files beside the document's own pages."
+                .to_owned(),
+        ),
+        (true, true) => Some(
+            "This collection suggests colours for a layout and a splitter bar between the file \
+             list and a preview; this window draws its own colours and puts the files beside the \
+             document's own pages."
+                .to_owned(),
+        ),
+    }
+}
+
+/// Table 158's `/Direction` `N`: whether the file navigation view takes the whole window.
+///
+/// §12.3.5.1, Table 158:
+///
+/// > N indicates that the window is not split. The entire window region shall be dedicated to the
+/// > file navigation view.
+///
+/// A `shall` at a processor, and the one entry of the collection split dictionary that is not
+/// about a bar: `H` and `V` state where a splitter goes, and `N` states that there is no second
+/// area at all. A window with no splitter widget can still obey it, which is why it is answered
+/// here rather than departed with the rest of the entry (ADR 1252).
+///
+/// **Not while Table 153's `/View` is `H`.** That value says "[t]he collection view shall be
+/// initially hidden", and a view that is hidden cannot be the one the window is dedicated to; the
+/// two entries would otherwise ask for opposite things at once.
+#[must_use]
+pub fn whole_window(collection: &Collection) -> bool {
+    if collection.view == View::Hidden {
+        return false;
+    }
+    matches!(
+        collection.split.as_ref().map(|split| &split.direction),
+        Some(SplitDirection::None)
+    )
+}
+
+/// §12.3.6's preview picture for one attachment, asked for when a panel is about to draw it.
+///
+/// [`Picture::wants_the_files_own_picture`] says which rows have one. The picture is the
+/// attachment's *own* first page's §12.3.4 `/Thumb`, which that clause makes the image `XObject`
+/// the page's own entry names — so it is the miniature that file's producer wrote, and this
+/// program invents none where a file states none.
+///
+/// [`None`] is the common answer and is not a defect: an attachment that is not a PDF, or whose
+/// first page states no `/Thumb`, has no picture the standard defines. A host draws
+/// [`Picture::kind`] in its place and the panel says so once, rather than passing an icon off as a
+/// thumbnail (ADR 1251).
+///
+/// **One attachment at a time and no cache here**, exactly as [`page_entry`] is shaped: a host
+/// holds the pictures of the rows it is showing, in its own toolkit's type, and [`Miniatures`] is
+/// the policy for how many.
+#[must_use]
+pub fn attachment_preview(viewer: &Viewer, name: &str) -> Option<Image> {
+    match viewer.query(Query::AttachmentPreview(name)) {
+        Answer::Thumbnail(thumbnail) => Some(thumbnail.image),
+        _ => None,
     }
 }
 
@@ -686,20 +1002,14 @@ fn stated_ids(root: &pdf_model::collection::Folder) -> std::collections::BTreeSe
 }
 
 /// The files whose name-tree key names `folder`, as rows.
-fn files_in(
-    folder: u32,
-    attachments: &[&Attachment],
-    columns: &[(&String, &Field)],
-    mode: Mode,
-) -> Vec<PanelRow> {
-    files_where(attachments, columns, mode, &|id| id == Some(folder))
+fn files_in(folder: u32, attachments: &[&Attachment], shape: &Shape) -> Vec<PanelRow> {
+    files_where(attachments, shape, &|id| id == Some(folder))
 }
 
 /// The files whose key's folder identifier — `None` where the key names none — `wanted` admits.
 fn files_where(
     attachments: &[&Attachment],
-    columns: &[(&String, &Field)],
-    mode: Mode,
+    shape: &Shape,
     wanted: &dyn Fn(Option<u32>) -> bool,
 ) -> Vec<PanelRow> {
     attachments
@@ -712,14 +1022,29 @@ fn files_where(
             if !wanted(id) {
                 return None;
             }
-            let cells = cells_of(columns, attachment);
+            let previewed = shape.previewed == Some(attachment.name.as_str());
+            let mut cells = if shape.shows_fields(previewed) {
+                cells_of(shape.columns, attachment)
+            } else {
+                Vec::new()
+            };
+            if shape.mode == Mode::Linear && previewed {
+                beside_the_preview(&mut cells, shape.columns, attachment);
+            }
+            let mut detail = joined(&cells).or_else(|| detail_of(attachment));
+            if let Some(sits) = shape.where_it_sits(id) {
+                detail = Some(match detail {
+                    Some(line) => format!("{line}  ·  {sits}"),
+                    None => sits,
+                });
+            }
             Some(PanelRow {
-                detail: joined(&cells).or_else(|| detail_of(attachment)),
+                detail,
                 action: RowAction::Extract {
                     name: attachment.name.clone(),
                 },
+                picture: shape.picture(icon_of(attachment), previewed),
                 cells,
-                icon: (mode == Mode::Tile).then(|| icon_of(attachment)),
                 ..PanelRow::item(
                     attachment
                         .file_name
@@ -731,6 +1056,67 @@ fn files_where(
         .collect()
 }
 
+/// §12.3.6's `Linear` metadata, which is the schema's fields *and* the file specification's.
+///
+/// The clause asks for both by name — "the metadata for the file attachment, including the name,
+/// description and other collection schema entries", and "[a]n interactive PDF … should use the
+/// file schema and file specification dictionary to provide information about the attachment" —
+/// so a schema that names none of Table 155's file-related subtypes would otherwise leave the
+/// layout's one attachment without the two entries the clause names first.
+///
+/// Only what the schema has not already asked for, so nothing is shown twice, and **the headings
+/// are this program's words**: Table 155's `/N` is the document's name for a *schema* field, and
+/// these are not schema fields, so the standard states no heading for them (ADR 1251).
+fn beside_the_preview(
+    cells: &mut Vec<Cell>,
+    columns: &[(&String, &Field)],
+    attachment: &Attachment,
+) {
+    let stated: Vec<FieldKind> = columns
+        .iter()
+        .map(|(_, field)| field.kind.clone())
+        .collect();
+    for (kind, heading, value) in [
+        (
+            FieldKind::FileName,
+            "Name",
+            attachment
+                .file_name
+                .clone()
+                .or(Some(attachment.name.clone())),
+        ),
+        (
+            FieldKind::Description,
+            "Description",
+            attachment.description.clone(),
+        ),
+        (
+            FieldKind::Size,
+            "Size",
+            attachment.size.map(|size| format!("{size}")),
+        ),
+        (
+            FieldKind::CreationDate,
+            "Created",
+            stamp(attachment.created_date(), attachment.created.as_ref()),
+        ),
+        (
+            FieldKind::ModificationDate,
+            "Modified",
+            stamp(attachment.modified_date(), attachment.modified.as_ref()),
+        ),
+    ] {
+        if stated.contains(&kind) {
+            continue;
+        }
+        let Some(value) = value else { continue };
+        cells.push(Cell {
+            heading: heading.to_owned(),
+            value,
+        });
+    }
+}
+
 /// One folder, with its files and its child folders under it.
 ///
 /// Open, because a collection that arrived closed would be a folder tree presented as one row —
@@ -740,15 +1126,14 @@ fn files_where(
 fn folder_row(
     folder: &pdf_model::collection::Folder,
     attachments: &[&Attachment],
-    columns: &[(&String, &Field)],
-    mode: Mode,
+    shape: &Shape,
 ) -> PanelRow {
-    let mut children = files_in(folder.id, attachments, columns, mode);
+    let mut children = files_in(folder.id, attachments, shape);
     children.extend(
         folder
             .children
             .iter()
-            .map(|child| folder_row(child, attachments, columns, mode)),
+            .map(|child| folder_row(child, attachments, shape)),
     );
     PanelRow {
         detail: folder.description.clone(),
@@ -756,7 +1141,7 @@ fn folder_row(
         // A folder is not a file: it has no bytes to take out, so its row acts through its
         // children.
         action: RowAction::Inert,
-        icon: (mode == Mode::Tile).then_some(Icon::Folder),
+        picture: shape.picture(Icon::Folder, false),
         children,
         ..PanelRow::item(folder.name.clone())
     }
@@ -847,6 +1232,11 @@ pub fn presentation(collection: &Collection) -> Mode {
     {
         return match layout {
             Layout::View(View::Tile) => Mode::Tile,
+            Layout::FilmStrip => Mode::FilmStrip,
+            Layout::FreeForm => Mode::FreeForm,
+            Layout::Linear => Mode::Linear,
+            // `Tree`, `D`, `H`, and a `/View C` whose navigator selected nothing: the details
+            // arrangement, which is §12.3.6's `Tree` by construction.
             _ => Mode::Details,
         };
     }
@@ -1101,6 +1491,119 @@ pub fn page_entry(viewer: &Viewer, index: usize) -> PageEntry {
             _ => None,
         },
     }
+}
+
+/// §12.3.6's preview pictures a panel has decoded, keyed by `/EmbeddedFiles` key.
+///
+/// [`Miniatures`]'s sibling and its reasoning exactly, with a name for a key because a collection
+/// addresses its files by §7.7.4's tree key rather than by an index: decode on demand, keep what
+/// the panel is drawing, and drop the rest once there are more than [`KEPT_MINIATURES`] of them.
+/// Generic over the picture for the same reason — `T` is a `gdk::Texture` in one host and a
+/// [`pdf_render::Image`] in another, and this crate names no pixel format.
+///
+/// **A file with no picture is held as one**, which is what makes this a cache rather than a
+/// retry loop: [`attachment_preview`] answers [`None`] for most attachments, and a map that held
+/// only the successes would open the same embedded document again on every frame (ADR 1251).
+#[derive(Debug)]
+pub struct Previews<T> {
+    /// The key, and the picture that file states or [`None`] where it states none.
+    held: std::collections::BTreeMap<String, Option<T>>,
+}
+
+impl<T> Default for Previews<T> {
+    fn default() -> Self {
+        Self {
+            held: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl<T> Previews<T> {
+    /// An empty panel, which is what a document that has just opened has.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Forgets everything, which is what a new document is.
+    pub fn clear(&mut self) {
+        self.held.clear();
+    }
+
+    /// How many files have been asked about, which is what a test asserts the bound on.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.held.len()
+    }
+
+    /// Whether nothing has been asked about yet.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.held.is_empty()
+    }
+
+    /// This file's picture where it has already been asked about, and [`None`] otherwise.
+    ///
+    /// The reading half of [`Self::picture`], for a host that draws from a shared borrow after
+    /// filling what it is about to draw — the division [`Miniatures::get`] already states.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&Option<T>> {
+        self.held.get(name)
+    }
+
+    /// This file's picture, decoding it with `make` if it has not been asked about.
+    ///
+    /// `make` is called exactly once per file, whatever it answers, so an attachment that states
+    /// no `/Thumb` is opened once and not once a frame.
+    pub fn picture(&mut self, name: &str, make: impl FnOnce() -> Option<T>) -> Option<&T> {
+        if !self.held.contains_key(name) {
+            let picture = make();
+            // Dropped in key order rather than by distance, which is where this differs from
+            // `Miniatures`: a collection's files have a stated order but no *position* a panel
+            // scrolls through, so there is no "furthest" row to prefer. The bound is the same
+            // number for the same reason — a decoded picture is tens of kilobytes.
+            while self.held.len() >= KEPT_MINIATURES {
+                let Some(oldest) = self.held.keys().next().cloned() else {
+                    break;
+                };
+                self.held.remove(&oldest);
+            }
+            self.held.insert(name.to_owned(), picture);
+        }
+        self.held.get(name).and_then(Option::as_ref)
+    }
+}
+
+/// Where a host puts one of §12.3.6's `FreeForm` thumbnails, as a fraction of the view.
+///
+/// > The FreeForm layout provides a simple layout, in which thumbnails for each item in the
+/// > collection contents are displayed at a random location on the view.
+///
+/// **The place is the host's and the *stability* is the point.** A random location is not a fact
+/// about the document — ADR 1168's property puts it on the platform's side — but a panel that
+/// drew a new scatter on every frame would be unusable, so the place is derived from the file's
+/// own `/EmbeddedFiles` key: the same file lands in the same spot for as long as the document is
+/// open, and two files land in different spots. The three windows share this so that a person
+/// moving between them sees one arrangement, which is `doc/todo/30`'s level-hosts rule rather
+/// than anything the clause asks for (ADR 1251).
+///
+/// Both numbers are in `0.0 ..= 1.0`; a host multiplies them by the room it has left after the
+/// thumbnail's own size.
+#[must_use]
+pub fn scattered(name: &str) -> (f32, f32) {
+    // A 64-bit FNV-1a over the key, split into two halves. Any stable hash would do; this one is
+    // four lines and brings in nothing.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in name.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a hash split into two 16-bit fractions, whose every value is exact in f32"
+    )]
+    let place = |bits: u64| (bits & 0xffff) as f32 / 65_535.0;
+    (place(hash >> 16), place(hash >> 40))
 }
 
 /// How many of §12.3.4's miniatures a panel keeps once it has decoded them.

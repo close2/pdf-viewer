@@ -189,6 +189,7 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
         display_list,
         view_dependent,
         unsupported,
+        presses_named,
         text,
         glyphs,
         codes_without_a_glyph,
@@ -206,6 +207,10 @@ fn agree(replaced: &Interpretation, whole: &Interpretation, index: usize, at: Op
     assert_eq!(display_list, &whole.display_list, "display list, {where_}");
     assert_eq!(view_dependent, &whole.view_dependent, "NoZoom, {where_}");
     assert_eq!(unsupported, &whole.unsupported, "reports, {where_}");
+    assert_eq!(
+        presses_named, &whole.presses_named,
+        "§11.7.2's presses, {where_}"
+    );
     assert_eq!(text, &whole.text, "readback, {where_}");
     assert_eq!(glyphs, &whole.glyphs, "glyphs, {where_}");
     assert_eq!(

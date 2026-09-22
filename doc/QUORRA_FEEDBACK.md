@@ -5504,3 +5504,61 @@ vocabulary would take every later clause that needs a region wider than its own 
 scene — a 30-unit square and a 55-unit rule across it, under `W n` — and asserts the refusal by
 name; `cargo test -p render-cpu --test zero_area_clip` draws the same geometry and measures the
 union against the fill of the same path, which is the answer a `clip_union` would have to match.
+
+## 52. Two thirds of a page turn are yours, measured stage by stage against a 120 Hz refresh — the CPU-lane encode of a first sight, and an image restaged per placement
+
+**Where this comes from.** `doc/todo/36` asks this side for a picture every refresh: 60 Hz as the
+floor, 120 Hz as the target, so **8.333 ms**. Nothing here could say what share of that each stage
+of a frame takes, so `crates/render-raster/examples/frame_budget.rs` was written to say it
+(ADR 1260): a page interpreted and drawn on a device that has already drawn something else — what
+`Command::GoTo(Next)` costs — then the same frame asked for again, then the page placed at twice
+the magnification. Each row is the minimum of five rounds, each on a device of its own, on a
+Radeon 890M through RADV, into a 1 600 × 1 000 window, at a load average of 2.7.
+
+**The lane is stated because it decides the answer.** This host gives a *moved view*
+`Coverage::Compute` and everything else the lane its magnification picks, which below 10× is
+`Coverage::Cpu` — so a page turn and a zoom step of the same page are drawn by two different
+rasterisers of yours, and a figure that does not name its lane is not comparable with one that
+does.
+
+| page | row | budget | interp | scene | **encode** | **transfer** | elsewhere | execute |
+|---|---|---|---|---|---|---|---|---|
+| ISO 32000-2 p101, text, 3 007 commands | turn (CPU lane) | 9.25 | 1.37 | 0.44 | **6.38** | 0.22 | 0.52 | 0.32 |
+| | warm | 0.35 | — | — | 0.00 | 0.02 | 0.25 | 0.08 |
+| | step (compute) | 1.47 | — | — | 0.22 | 0.11 | 1.03 | 0.11 |
+| `personwithdog.pdf` p1, patch meshes | turn | 10.75 | 3.69 | 2.73 | 1.48 | 0.55 | 1.95 | 0.35 |
+| | step (compute) | 11.18 | — | 3.98 | **4.21** | 0.54 | 2.06 | 0.39 |
+| `issue12841_reduced.pdf` p1, one photograph | turn | 131.58 | 78.68 | 0.01 | 0.01 | **51.49** | 1.20 | 0.19 |
+| | step (compute) | 11.14 | — | 0.00 | 0.01 | **8.23** | 2.72 | 0.18 |
+
+Milliseconds. `budget` excludes the readback, which a window never pays. `interp` and `scene` are
+this side's; the rest is inside your `Device::render`.
+
+**What this side has already taken off it.** The mesh page's `scene` was 8.22 ms on the step and is
+3.98 because this side now divides `MeshRaster`'s rows across its own pool (ADR 1259). The image
+page's 78.68 ms of `interp` is a five-megapixel JPEG decoded here, and it is this side's item.
+
+**Ask 1 — the CPU-lane encode of a page seen for the first time: 6.38 ms, 77% of one refresh.**
+That is the largest single stage of the commonest interaction there is, on the commonest kind of
+page, and it is nine tenths of what a person waits for when they press an arrow key. The same page
+re-encodes in 0.00 ms (replayed) and re-places on the compute lane in 0.22. The frame hands you
+3 007 commands and 207 outlines it has not uploaded before, so some of this is the glyph coverage
+the lane exists to compute — the question is how much, and whether a first sight can pay less of it
+than a sweep of the whole page. Anything that reports the split would let this side stop guessing:
+`Options::instrument_encode`'s three phases are for the *encode* road, and on this lane the frame
+line says only `encode`.
+
+**Ask 2 — an image is staged per placement, and a placement change restages it whole.** The photo
+page's page turn moves **20 021 824 bytes** (51.49 ms) for a frame whose window is 1 600 × 1 000;
+the zoom step to 2× moves **80 087 104 bytes** (8.23 ms) with **zero resource uploads from this
+host** — this side hands the samples once and your encode resolves §8.9.5.3's filter and the
+area-averaging reduction per placement (your ADR 0089, this tree's ADR 0706). That design is what
+keeps a scene view-free and this side asked for it, so this is not a request to undo it. The ask is
+narrower: **can the reduction for a placement be computed from the resident samples on the device
+rather than staged from the host each time it changes?** A 20-megapixel image redrawn at each notch
+of a zoom gesture is 80 MB a notch, and 8.23 ms of a 8.333 ms refresh is the whole budget for one
+picture.
+
+**Reproducing either.** `cargo run --release -p render-raster --example frame_budget`, or
+`tools/state.sh frame`. The example names its three documents, all committed here; the first is
+ISO 32000-2 itself.

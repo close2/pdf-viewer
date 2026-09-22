@@ -40,7 +40,7 @@ use crate::trace::Topic;
 /// to 12 points crosses it between 10.7× and 13×. Ten is the low end of that band,
 /// chosen because being early costs a fraction of a millisecond and being late costs
 /// ten — measured on this machine at 0.44 ms per frame at 8× against 4.4 ms at 12×
-/// (`doc/raster-gpu-coverage.md`).
+/// (`doc/quorra-gpu-coverage.md`).
 ///
 /// A page whose text is much larger or much smaller than a book's crosses it somewhere
 /// else, and the honest way to do better would be to ask the display list what size its
@@ -709,6 +709,7 @@ impl App {
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
         // `&mut self` and runs before the panel is drawn.
         self.fill_visible_pages();
+        self.fill_collection_previews();
         let (width, height) = {
             let state = self.state.as_ref()?;
             state.size

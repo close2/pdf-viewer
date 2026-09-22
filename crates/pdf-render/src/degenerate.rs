@@ -35,7 +35,7 @@
 //! the GPU backend painted nothing where it asks for a circle, and a path consisting only of
 //! `m` was an *error* on one backend and silence on the other. That is trap 2's shape
 //! exactly — a decision either backend can make alone is a decision neither has made — which
-//! is why the rule is stated here, in the crate both of them consume, and why the circle is
+//! is why the rule is stated here, in the crate every backend consumes, and why the circle is
 //! this crate's own geometry rather than whatever each rasteriser's round cap happens to be.
 //!
 //! # The other half of the clause, which is not this rule
@@ -63,7 +63,7 @@
 //! Both marks are shapes of the line's own width in *both* directions, so their area goes as the
 //! square of it and a width under a device pixel makes them the first marks a raster loses.
 //! §10.7.4 forbids that by name and [`crate::sub_pixel::point_mark`] is the answer; the callers
-//! here hand it the transform, which is what keeps the two backends drawing one mark rather than
+//! here hand it the transform, which is what keeps every backend drawing one mark rather than
 //! each deciding for itself. See that module's comment for the construction and what it gives up.
 
 use crate::geom::{Path, PathCommand, Point, Transform};
@@ -146,7 +146,7 @@ fn placed(dots: Path, mark: PointMark, to_device: Option<Transform>) -> Path {
 ///
 /// The classic four-cubic circle: `4/3 · (√2 − 1)`, which is `0.552_284_749_8` and rounds to
 /// this at `f32`. Its radial error peaks at about 0.027% of the radius — a fifth of a
-/// thousandth of a pixel on a ten-pixel dot — and both backends receive the *same*
+/// thousandth of a pixel on a ten-pixel dot — and every backend receives the *same*
 /// approximation, so it cannot be a reason for them to disagree.
 pub(crate) const KAPPA: f32 = 0.552_284_8;
 
@@ -218,7 +218,7 @@ pub fn split_degenerate(
 ///
 /// The alternative was searching the source path for the segment nearest each dash, which is
 /// quadratic in the number of dashes, needs a nearest-point-on-cubic solver, and would have
-/// to exist twice because the two backends hold their geometry in different libraries'
+/// to exist once per backend, because each holds its geometry in a different library's
 /// types.
 pub const ZERO_DASH: f32 = 1e-3;
 

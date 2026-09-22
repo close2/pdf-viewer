@@ -151,6 +151,12 @@ struct Ui {
     /// The splitter it sits in, because full screen takes the notebook *out* rather than hiding
     /// it: a `GtkPaned` keeps a position that was set, and a hidden child would leave the space.
     split: gtk4::Paned,
+    /// The page's own half of that splitter, held across the times it is not in it.
+    ///
+    /// Table 158's `/Direction` `N` takes it out — "[t]he entire window region shall be dedicated
+    /// to the file navigation view" — the same way full screen takes the notebook out, and for
+    /// the same reason: a `GtkPaned` keeps a position that was set (ADR 1252).
+    page_area: gtk4::Overlay,
     /// The header bar's own buttons, which are this host's tool bar: §12.2's `/HideToolbar`.
     ///
     /// The *buttons* rather than the bar, because GTK4 puts them in the same widget as the window
@@ -252,6 +258,14 @@ pub struct Host {
     /// binds a row with reaches it while the host may itself be borrowed — the same reason
     /// [`Host::chrome`] is an [`Rc<RefCell<Chrome>>`].
     miniatures: Rc<RefCell<Miniatures<gtk4::gdk::MemoryTexture>>>,
+    /// §12.3.6's preview pictures, decoded when a collection row is bound and bounded by
+    /// [`viewer_host::panel::Previews`].
+    ///
+    /// Empty for every document that states no `/Collection`, and for every collection presented
+    /// as a tree, a details view or a tile view: only Table 160's `FilmStrip`, `FreeForm` and
+    /// `Linear` are made of pictures of the attachments, and a preview is an embedded document
+    /// opened (ADR 1251).
+    previews: Rc<RefCell<panel::Previews<gtk4::gdk::MemoryTexture>>>,
     /// Whether the document has been opened yet, which waits for the first allocation.
     opened: bool,
     /// Whether anything is unsaved.
@@ -505,6 +519,7 @@ impl Host {
                 asking: viewer_host::Asking::new(),
                 report_due: viewer_host::report::Due::default(),
                 miniatures: Rc::new(RefCell::new(Miniatures::new())),
+                previews: Rc::new(RefCell::new(panel::Previews::new())),
                 opened: false,
                 dirty: false,
                 caption: String::new(),
@@ -1669,6 +1684,8 @@ impl Host {
     /// Builds every panel from its own answer.
     fn build_panels(&mut self) {
         self.miniatures.borrow_mut().clear();
+        self.previews.borrow_mut().clear();
+        self.dedicate_to_the_collection();
         for tab in Tab::ALL {
             self.rebuild_panel(*tab);
         }
@@ -1695,7 +1712,15 @@ impl Host {
                     Topic::Panel,
                     format_args!("{}: {} row(s)", tab.label(), rows.len()),
                 );
-                slot.append(&tree::tree(rows, &act));
+                let pictures = self.preview_sink();
+                // §12.3.6's `FreeForm` is the one named layout that is not a list of rows —
+                // "thumbnails … displayed at a random location on the view" — so it gets a
+                // surface with places on it rather than a `GtkListView` (ADR 1251).
+                if tab == Tab::Files && self.scatters_the_files() {
+                    slot.append(&tree::scatter(rows, &act, &pictures));
+                } else {
+                    slot.append(&tree::tree(rows, &act, &pictures));
+                }
             }
             Panel::Pages(count) => {
                 self.trace.say(
@@ -1775,6 +1800,88 @@ impl Host {
     }
 
     /// What a tree row does when a person acts on it.
+    /// Table 158's `/Direction` `N`: the whole window region to the file navigation view.
+    ///
+    /// §12.3.5.1, Table 158:
+    ///
+    /// > N indicates that the window is not split. The entire window region shall be dedicated to
+    /// > the file navigation view.
+    ///
+    /// The page's half of the splitter is **taken out rather than hidden**, which is the move
+    /// `apply_chrome` already makes in the other direction and for the same reason: a `GtkPaned`
+    /// carries a `position` that was set, and a hidden child would leave a hole where the page
+    /// was. Put back for any document that does not ask for this, so nothing survives a second
+    /// file. The panel is opened and the files tab selected, because a window dedicated to a view
+    /// a person cannot see would be obeying the letter of the sentence and none of it (ADR 1252).
+    fn dedicate_to_the_collection(&mut self) {
+        let whole = match self.viewer.query(Query::Collection) {
+            Answer::Collection { collection, .. } => panel::whole_window(&collection),
+            _ => false,
+        };
+        if whole {
+            self.panel_wanted = true;
+            self.ui
+                .tabs
+                .set_current_page(Some(notebook_page(Tab::Files)));
+            if self.ui.split.end_child().is_some() {
+                self.ui.split.set_end_child(None::<&gtk4::Widget>);
+            }
+        } else if self.ui.split.end_child().is_none() {
+            let page_area = self.ui.page_area.clone();
+            self.ui.split.set_end_child(Some(&page_area));
+            self.ui.split.set_position(PANEL_WIDTH);
+        }
+        self.apply_chrome();
+    }
+
+    /// Whether the files panel is drawing §12.3.6's `FreeForm` scatter rather than a list.
+    ///
+    /// Asked of the same answer the rows were built from, because a surface and a list are two
+    /// widgets and only one of them is built: "thumbnails … displayed at a random location on the
+    /// view" is not a `GtkListView` (ADR 1251).
+    fn scatters_the_files(&self) -> bool {
+        match self.viewer.query(Query::Collection) {
+            Answer::Collection { collection, .. } => {
+                panel::presentation(&collection) == panel::Mode::FreeForm
+            }
+            _ => false,
+        }
+    }
+
+    /// §12.3.6's preview picture for one attachment, decoded when a row is bound.
+    ///
+    /// `page_sink`'s shape and its reasoning: GTK binds the rows it lays out, so a collection of
+    /// a hundred files opens the embedded documents of the rows on the screen and no others.
+    /// A file that states no §12.3.4 `/Thumb` on its first page is held as one, so the same
+    /// document is not opened again on the next bind (ADR 1251).
+    fn preview_sink(&self) -> tree::Previews {
+        let me = self.me.clone();
+        let held = Rc::clone(&self.previews);
+        Rc::new(move |name: &str| {
+            let host = me.upgrade()?;
+            // Trap 5 rather than a blank picture, exactly as `page_sink` says: a toolkit's
+            // scheduling is a claim, and one that failed silently would be a thumbnail nobody
+            // could account for.
+            let host = host
+                .try_borrow()
+                .inspect_err(|_| {
+                    eprintln!("note: the host was busy, so {name:?} was drawn without its preview");
+                })
+                .ok()?;
+            held.borrow_mut()
+                .picture(name, || {
+                    panel::attachment_preview(&host.viewer, name).and_then(|image| {
+                        page::thumbnail(&image)
+                            .inspect_err(|error| {
+                                eprintln!("note: cannot show {name:?}'s preview: {error}");
+                            })
+                            .ok()
+                    })
+                })
+                .cloned()
+        })
+    }
+
     fn row_sink(&self) -> Rc<dyn Fn(&RowAction)> {
         let me = self.me.clone();
         Rc::new(move |action| {
@@ -3441,7 +3548,7 @@ fn build_window(
 
     let split = gtk4::Paned::new(gtk4::Orientation::Horizontal);
     split.set_start_child(Some(&tabs));
-    split.set_end_child(Some(&overlay));
+    split.set_end_child(Some(&overlay.clone()));
     split.set_position(PANEL_WIDTH);
     split.set_resize_start_child(false);
 
@@ -3522,6 +3629,7 @@ fn build_window(
         slots,
         tabs,
         split,
+        page_area: overlay,
         tool_buttons,
         menu,
         status_bar,

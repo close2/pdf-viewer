@@ -517,6 +517,20 @@ pub struct Conversion {
     /// appearance written, so the difference between the producer's file and ours is visible in
     /// the report rather than only in the bytes.
     pub appearances: Vec<WrittenAppearance>,
+    /// Every field whose widget this conversion could not give an appearance, by name.
+    ///
+    /// The other half of the same condition, at ISO 19005's `/NeedAppearances` site: §12.7.3's
+    /// Table 224 makes an absent flag the claim that appearance streams have been provided for
+    /// every visible widget, so a conversion that could not build one refuses to make the claim —
+    /// and what a person needs told is *which field*. Named by field rather than by widget
+    /// because §12.7.4.1 lets one field spread over two of them.
+    pub unconstructed: Vec<String>,
+    /// Every embedded file this conversion took out of the document, by name.
+    ///
+    /// ISO 19005-2 section 6.8's loss, named the way `doc/pdf-a-conversion-limits.md` section 3.2
+    /// asks a removal to be named: an attachment that is gone leaves nothing in the output to
+    /// notice, so the report says which file it was. The name is §7.11.3's `/UF`, or its `/F`.
+    pub removed_files: Vec<String>,
     /// Every annotation this conversion removed for its subtype.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 3.2's condition on the loss, in its own words:
@@ -737,6 +751,24 @@ impl Conversion {
                     self.appearances
                         .iter()
                         .map(WrittenAppearance::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "removed_embedded_files".to_owned(),
+                Value::Array(
+                    self.removed_files
+                        .iter()
+                        .map(|name| Value::text(name.clone()))
+                        .collect(),
+                ),
+            ),
+            (
+                "unconstructed".to_owned(),
+                Value::Array(
+                    self.unconstructed
+                        .iter()
+                        .map(|name| Value::text(name.clone()))
                         .collect(),
                 ),
             ),
@@ -1038,6 +1070,12 @@ impl Conversion {
     /// `doc/pdf-a-conversion-limits.md` section 3.9 for every property removed, each named rather
     /// than counted. They are one function because they are one obligation seen twice: what this
     /// program wrote that the producer did not, and what it took away that the producer did.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one block per thing this conversion wrote or took away, each with the sentence \
+                  its own permission made a condition. They are a list a reader goes down, and \
+                  splitting it would put half the list behind a call"
+    )]
     fn render_what_was_written(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
@@ -1081,6 +1119,28 @@ impl Conversion {
                     appearance.subtype,
                     appearance.page.saturating_add(1)
                 );
+            }
+        }
+        if !self.removed_files.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} embedded file(s) this target does not admit are no longer in the \
+                 document:",
+                self.removed_files.len()
+            );
+            for name in &self.removed_files {
+                let _ = writeln!(out, "      {name}");
+            }
+        }
+        if !self.unconstructed.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} form field(s) ask a reader to build an appearance this conversion could \
+                 not, so the NeedAppearances flag asking stays and the requirement with it:",
+                self.unconstructed.len()
+            );
+            for field in &self.unconstructed {
+                let _ = writeln!(out, "      {field}");
             }
         }
         if !self.substituted.is_empty() {

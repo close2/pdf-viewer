@@ -230,8 +230,16 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // the separation simulation, which the clause conditions on a request no file makes and
     // §10.8.1 leaves "up to the processing software". It takes no struct by value, so
     // `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADR 1228).
-    assert_eq!(no_mangle, 202, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 188, "186 `unsafe` entry points and two helpers");
+    // **And two for §12.3.5's last residues**: `quorra_collection_whole_window` is Table 158's
+    // `/Direction` `N`, the one entry of the collection split dictionary addressed to a processor
+    // rather than describing a bar, and therefore the one a caller cannot derive (ADR 1252); and
+    // `quorra_attachment_preview_read` is §12.3.6's picture of an attachment, which is that
+    // file's own first page's §12.3.4 `/Thumb` and comes back as the handle
+    // `quorra_thumbnail_read` already produces, so `info`, `copy` and `free` are not repeated
+    // (ADR 1251). Neither takes a struct by value, so `QUORRA_ABI_VERSION` stays where it is for
+    // the standing reason.
+    assert_eq!(no_mangle, 204, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 190, "188 `unsafe` entry points and two helpers");
 }
 
 #[test]

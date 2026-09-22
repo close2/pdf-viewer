@@ -827,7 +827,7 @@ impl QuorraWindowRenderer {
     /// Forwarded to `raster_gpu::Device::set_coverage`, and the reason it is forwarded
     /// rather than fixed when the presenter is built is that the right answer changes
     /// while a document is open. raster's two lanes have opposite cost curves and the
-    /// crossover is a magnification — see `doc/raster-gpu-coverage.md` and the caller
+    /// crossover is a magnification — see `doc/quorra-gpu-coverage.md` and the caller
     /// in `viewer-ui`, which is the crate that knows what magnification the next frame
     /// is at. Nothing here decides; this only carries the decision.
     pub fn set_coverage(&mut self, coverage: raster_gpu::Coverage) {

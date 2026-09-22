@@ -134,6 +134,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         display_list,
         view_dependent,
         unsupported,
+        presses_named,
         text,
         glyphs,
         codes_without_a_glyph,
@@ -157,6 +158,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
     differs(display_list == &whole.display_list, "display list");
     differs(view_dependent == &whole.view_dependent, "view_dependent");
     differs(unsupported == &whole.unsupported, "reports");
+    differs(presses_named == &whole.presses_named, "presses named");
     differs(text == &whole.text, "readback");
     differs(glyphs == &whole.glyphs, "glyphs");
     differs(

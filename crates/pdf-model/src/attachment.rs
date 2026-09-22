@@ -377,7 +377,8 @@ pub fn external_associated(document: &Document, dict: &Dictionary) -> Vec<Extern
 ///
 /// **The one `/AF` site whose key is not `AF`, and it took an erratum to say so.** §14.13.5's 2020
 /// sentence never named the property list's key at all — it said only that the property list
-/// "shall specify an array of file specification dictionaries", and §14.13.10's EXAMPLE 3 writes
+/// "shall specify an array of file specification dictionaries", words Errata Collection 3 has
+/// since struck, and §14.13.10's EXAMPLE 3 writes
 /// `/AF /NamedAF BDC` without showing what `/NamedAF` resolves to. So `AF` was an inference from
 /// the tag operand, and it is the inference this tree made.
 ///

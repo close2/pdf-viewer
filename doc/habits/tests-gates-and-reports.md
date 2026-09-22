@@ -277,3 +277,19 @@ The frontier-map gate (ADR 1250) was built in a six-round batch and had to be re
 against rows other rounds were still moving; the last reconciliation is only as good as the moment it
 ran. Land such a gate on a boundary round, or hand the merge the one command that re-derives it —
 here `cargo test -p conformance --test conformance the_frontier_map`, run first at the merge.
+
+## A correction's explanation sits beside the quotation it retires
+
+`spec-errata applied` marks a site from a 400-character window either side of the quotation, so
+`write.rs`'s `startxref` — whose erratum paragraph was correct and complete — read like a site that
+had never heard of Issue #101 because the paragraph sat further down (ADR 1262). Move the paragraph,
+never widen the window: the window is also what stops an unrelated "struck" three screens away from
+excusing a stale quotation.
+
+## A fixture for a construction carries what the construction uses
+
+The `/NeedAppearances` fixture failed three times for reasons that were not the site under test: the
+constructed appearance renders a font, so the file needs it embedded with widths inside ISO 19005's
+tolerance; it paints in `DeviceGray`, so the page must already fail the output-intent row or nothing
+is prepared for it; and a builder that appends objects while a dictionary names one by number
+silently re-points the reference (ADR 1257).

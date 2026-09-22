@@ -13,7 +13,9 @@
 #include <vector>
 
 #include <QAbstractItemModel>
+#include <QHash>
 #include <QAbstractListModel>
+#include <QListView>
 #include <QFrame>
 #include <QImage>
 #include <QMainWindow>
@@ -28,6 +30,8 @@
 class QLabel;
 class QLineEdit;
 class QListView;
+class QSplitter;
+class QStackedWidget;
 class QTabWidget;
 class QTimer;
 class QToolBar;
@@ -53,11 +57,24 @@ public:
     /// Replaces every row. The whole model resets, because a new document is a new tree.
     void setRows(const rust::Vec<QtRow>& rows);
 
+    /// Where §12.3.6's preview pictures come from, for the one panel that has them.
+    ///
+    /// A model asks `data` for the rows a view is laying out and no others, so this is what makes
+    /// a collection's previews demand-driven: an embedded document is opened when its row is
+    /// drawn, never in a loop over the collection. ADR 1251.
+    void setHost(const Host* host);
+
     /// Which flattened row a model index names, or -1.
     int flatRow(const QModelIndex& index) const;
 
     /// Which model index a flattened row is at, so that §12.3.3's `/Count` can open it.
     QModelIndex indexOfFlatRow(int flat) const;
+
+    /// The `/EmbeddedFiles` key of a flattened row, or empty for a row that is not a file.
+    ///
+    /// What §12.3.6's scatter places a thumbnail by, and the one thing about a collection's row
+    /// that the view needs and the model's roles do not carry.
+    QString keyOfFlatRow(int flat) const;
 
     QModelIndex index(int row, int column, const QModelIndex& parent) const override;
     QModelIndex parent(const QModelIndex& child) const override;
@@ -87,6 +104,21 @@ private:
     /// The node a model index names, or nullptr.
     const Node* nodeAt(const QModelIndex& index) const;
 
+    /// The picture for one row: the attachment's own where §12.3.6 asks for one and the file
+    /// states it, and the icon theme's for the kind otherwise.
+    QPixmap pictureFor(const QtRow& row) const;
+
+    /// Where the previews come from; null for every panel but §12.3.5's.
+    const Host* host_ = nullptr;
+
+    /// The previews already decoded, by `/EmbeddedFiles` key.
+    ///
+    /// Mutable because `data` is const and a cache is not part of what the model *says*; bounded
+    /// by `kept_miniatures`, which is `viewer_host::KEPT_MINIATURES` asked for across the bridge
+    /// rather than written down a second time. A file that states no picture is held as one, so
+    /// the same embedded document is not opened again on the next paint.
+    mutable QHash<QString, QPixmap> previews_;
+
     std::vector<Node> nodes_;
     std::vector<QtRow> rows_;
     std::vector<int> nodeOfFlat_;
@@ -110,6 +142,23 @@ private:
 /// who scrolls a thousand pages would otherwise leave the window holding all of them. Eviction is
 /// by distance from the row last asked for rather than by age, for the reason a panel is scrolled:
 /// what a view wants next is next to what it just wanted.
+/// ISO 32000-2 §12.3.6's `FreeForm` surface: a `QListView` whose item positions a program may set.
+///
+/// `QListView::setPositionForIndex` is protected, so placing an item is a thing only a subclass can
+/// do — and placing items is the whole of what this layout is: "thumbnails for each item in the
+/// collection contents are displayed at a random location on the view". Everything else about the
+/// view is `QListView`'s. ADR 1251.
+class ScatterView : public QListView
+{
+    Q_OBJECT
+
+public:
+    using QListView::QListView;
+
+    /// Puts one item where `viewer_host::panel::scattered` said.
+    void place(const QPoint& at, const QModelIndex& index) { setPositionForIndex(at, index); }
+};
+
 class PageModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -357,6 +406,10 @@ private:
     void reportPlacement();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
+    /// §12.3.6's `FreeForm`, which is a surface with places on it rather than a list of rows.
+    ScatterView* buildScatter(unsigned char which);
+    /// §12.3.6's `FreeForm` and Table 158's `/Direction` `N`, applied to the widgets.
+    void arrangeTheCollection();
     /// ISO 32000-2 §12.3.4's panel: a `QListView` of miniatures, built once and filled on demand.
     QListView* buildPages();
     /// Puts the window in the state Table 29 and ISO 32000-2 §12.2 ask for.
@@ -387,6 +440,23 @@ private:
     std::vector<PanelModel*> models_;
     /// §12.3.4's panel, which is the one that is not a tree.
     QListView* pageView_ = nullptr;
+    /// §12.3.5's panel, which is a tree or a scatter depending on what the document asked for.
+    ///
+    /// Two widgets over one model: §12.3.6's `FreeForm` is "thumbnails … displayed at a random
+    /// location on the view", which a `QTreeView` cannot be, and its other six named layouts are
+    /// lists of rows. ADR 1251.
+    QStackedWidget* filesStack_ = nullptr;
+    /// The scatter half of that stack — a `QListView` in icon mode with free movement, which is
+    /// the one Qt view whose item positions a program may set.
+    ScatterView* scatterView_ = nullptr;
+    /// Which panel §12.3.5's is, from `files_panel`.
+    unsigned char filesPanel_ = 0;
+    /// The splitter the panels and the page sit in.
+    ///
+    /// Held because Table 158's `/Direction` `N` hides the page's half of it — "[t]he entire
+    /// window region shall be dedicated to the file navigation view" — and puts it back for a
+    /// document that asks for anything else. ADR 1252.
+    QSplitter* split_ = nullptr;
     PageModel* pageModel_ = nullptr;
     PageArea* page_;
     QLabel* status_;

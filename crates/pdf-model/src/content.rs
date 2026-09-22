@@ -1700,6 +1700,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         // page's marks a function of the magnification, which is the one question this answers.
         view_dependent: interpreter.view_dependent || interpreter.magnified_tiling,
         unsupported,
+        presses_named: interpreter.presses.named(),
         text: interpreter.text,
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,

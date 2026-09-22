@@ -635,7 +635,11 @@ path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605565.pdf"
 page = 1
 session = 907
 reports = []
-ink = 50.779 .. 52.779
+# 50.779 .. 52.779 until the merge of sessions 1207-1212: ADR 1253 built ISO/CD 18619's black
+# point compensation on the ICC route, and this page's four-component profile carries the B2A
+# table whose source black point section 4.2.3 now states, so its ink moved to 52.849 - the
+# same construction, one black point closer to the profile's own.
+ink = 51.849 .. 53.849
 why = "the witness for §11.5.3's colorimetric branch at four components (ADRs 0856, 0857), and a row that pins a page this tree moved *away* from three references on purpose. The page is a menu whose panels are painted through /Luminosity masks in an ICCBased 'CMYK' group; §11.3.4 lists that space beside 'GRAY' and 'RGB ' and §8.6.5.1 makes it CIE-based, so §11.5.3 asks for the Y of the CIE 1931 XYZ of the composited four components rather than EXAMPLE 2's weights on a device raster. Drawing it means §11.4.7's pair of rasters inside the mask, which is what SoftMask::black now carries. Ink 57.235 before and 51.779 after, over 241 642 moved pixels with a worst channel of 56 — the 'Soup of the Day' panel goes to poppler's, mupdf's and ghostscript's bright yellow, and the salad panel's gradient fades further from all three, because the clause's Y of an encoded mid-grey is its linear luminance and every reference takes the device branch here. That is ADR 0797's issue21346.pdf disagreement one component count over, measured this time over 41 crawl pages: 38 of them move away from the reference consensus and 3 toward it, by 0.77 (poppler), 0.84 (mupdf) and 1.47 (ghostscript) levels of 255 in the mean. The band is the usual width and is what fails if the branch is ever taken back to the device's channels; `reports` is empty because session 904's report for this shape is what session 907 replaced with the construction"
 
 [[document]]

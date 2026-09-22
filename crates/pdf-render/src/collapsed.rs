@@ -109,8 +109,8 @@
 //! the stroke's is left to the implementation and then made conditional. ADR 0208.
 //!
 //! The mark is *geometry* built here rather than a hairline stroke each backend applies,
-//! for the reason [`crate::degenerate`] states a circle rather than trusting a round cap: a
-//! decision either backend can make alone is a decision neither has made. It is also filled
+//! for the reason [`crate::degenerate`] states a circle rather than trusting a round cap
+//! (trap 2): a decision a backend can make alone is a decision none of them has made. It is also filled
 //! separately from the path it came out of, under the non-zero rule, because a mark added to
 //! the path itself would join that path's winding — under the even-odd rule a mark landing
 //! inside a filled region would punch a hole in it.

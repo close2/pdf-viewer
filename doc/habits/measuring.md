@@ -526,3 +526,13 @@ ADR 1209 measured `--font` with the machine's DejaVu and Droid, both `glyf` face
 closed none of the corpus font refusals; two were closable that day by naming a bare CFF, which
 §9.9's Table 124 makes a different class of input rather than a different file. The measurement was
 of the tester's font directory, not of the capability (ADR 1221).
+
+## 41. An instrument models the caches the shipped path keeps between gestures, or it prices the wrong configuration
+
+Interpreting a page with a fresh `FontCache` read 12.45 ms where the same page after its
+predecessor, against the cache `viewer-core` keeps per document, reads 1.37 — a factor of nine in
+the exact stage the round was ranking, and the mistake looks like a correct measurement of a real
+function (ADR 1260). A gesture's price includes what the last gesture left behind: ask which caches
+the host owns across the gesture and fill them the way the host fills them. The same ADR's other
+half: a page turn and a zoom step are drawn by different rasterisers, and a budget for one taken on
+the other is a configuration nobody runs.

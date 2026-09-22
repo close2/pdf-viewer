@@ -254,6 +254,21 @@ section_launch() {
         cargo test --release -p viewer-ui --test launch_path -- --ignored --nocapture
 }
 
+# Principle 2's fifth number, which is the one a person feels after the launch: what a *frame*
+# costs, stage by stage, against the 8.333 ms `doc/todo/36` asks for. `section_launch` above times
+# a page turn end to end; this says where the time inside one goes — interpretation, this crate's
+# scene walk, raster's encode, the transfer, the device's own passes — for a text page, a page of
+# vector artwork and a page that is one photograph, at 1x and at 2x.
+#
+# **It needs the graphics device and it takes about a minute**, which is why it is not in `quick`:
+# every row is the minimum of three rounds on a device of its own. On a machine with no adapter it
+# fails loudly rather than skipping, exactly as the corpus comparison beside it does.
+section_frame() {
+    run "what a frame costs, stage by stage (doc/todo/36's budget)" \
+        '^frame budget|minima of|^the budget is|page [0-9]+ —|^  (turn|warm|step) |of one refresh' \
+        cargo run --release -q -p render-raster --example frame_budget
+}
+
 # RFC 0003 section 5.2's five write verbs and section 4's whole layout, over every corpus document
 # the core opens. The `--bins` build is trap 10: a `--profile gates --test` line builds one test
 # target and nothing else, so `pdf-vfs-worker` beside it would otherwise be whatever an earlier
@@ -808,7 +823,7 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
+all="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
 quick="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk remedies"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
@@ -848,6 +863,7 @@ for section in $sections; do
     writer) section_writer ;;
     vfs) section_vfs ;;
     launch) section_launch ;;
+    frame) section_frame ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     save) section_save ;;

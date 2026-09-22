@@ -88,6 +88,14 @@ const MARKER: f32 = 14.0;
 /// score samples on a side — with a line of text under it for the page's label.
 const THUMBNAIL_UNITS: usize = 7;
 
+/// How wide §12.3.6's `FreeForm` thumbnails are drawn, in logical pixels.
+///
+/// The clause states nothing about size — "thumbnails for each item in the collection contents are
+/// displayed at a random location on the view" — so this is this window's ink. Fifty-six is about
+/// a fifth of the panel's width, which leaves a scatter that is a scatter rather than a collision
+/// (ADR 1251).
+const SCATTER_SIDE: f32 = 56.0;
+
 /// How tall the tab strip is, in logical pixels.
 const TABS: f32 = TEXT_SIZE * ROW_HEIGHT + 6.0;
 
@@ -534,13 +542,15 @@ enum Marker {
         /// Table 99's `/Locked`, which forbids offering the switch at all.
         locked: bool,
     },
-    /// Table 153's `/View T`: "each file in the collection denoted by a small icon".
+    /// The picture a §12.3.5 row carries: Table 153's `/View T` "small icon", and §12.3.6's
+    /// larger thumbnail and preview.
     ///
     /// The two native hosts ask the running icon theme for the picture; this window draws its own
     /// ink and has no theme, so it draws one — a page, or a folder, with a mark inside it naming
-    /// the kind. **The clause states no artwork at all**, which is what makes this a choice rather
-    /// than a reading (ADR 1215).
-    Tile(viewer_host::panel::Icon),
+    /// the kind — at the size [`viewer_host::panel::Picture`] asks for. **The clause states no
+    /// artwork at all**, which is what makes this a choice rather than a reading (ADRs 1215,
+    /// 1251).
+    Picture(viewer_host::panel::Picture),
 }
 
 /// What the rest of the row does when it is clicked.
@@ -698,6 +708,13 @@ pub struct Presentation<'a> {
     /// Resolved for the same reason `initial` is, and applied by
     /// `viewer_host::panel::in_sort_order`, which is one answer for all three windows.
     pub order: &'a [String],
+    /// §12.3.6's preview pictures this panel has decoded, by `/EmbeddedFiles` key.
+    ///
+    /// Three of Table 160's layouts are made of pictures of the attachments rather than of this
+    /// document's pages, and a picture is a decoded image — so the host fills these for the rows
+    /// it is about to draw and `viewer_host::panel::Previews` bounds what it keeps, exactly as
+    /// `pages` does for §12.3.4's miniatures.
+    pub previews: &'a viewer_host::panel::Previews<pdf_render::Image>,
 }
 
 /// What a click on the sidebar asked for.
@@ -744,9 +761,34 @@ pub struct Sidebar {
     scroll: [f32; 6],
     /// Which row the pointer is over, for the hover highlight.
     hovered: Option<usize>,
+    /// Table 158's `/Direction` `N`: the window's logical width, where the panel has the window.
+    ///
+    /// §12.3.5.1, Table 158:
+    ///
+    /// > N indicates that the window is not split. The entire window region shall be dedicated to
+    /// > the file navigation view.
+    ///
+    /// [`None`] is every other document and is the panel's own width. `viewer_host::panel::whole_window`
+    /// is what reads the entry; this is a *width*, because that is the whole of what obeying it
+    /// means for a panel that already sits beside the page (ADR 1252).
+    dedicated: Option<f32>,
 }
 
 impl Sidebar {
+    /// Table 158's `/Direction` `N`: give the whole window region to the file navigation view.
+    ///
+    /// `Some(width)` is the window's logical width and `None` puts the panel back at its own. A
+    /// person closes the panel to get the page back, which is the way out the clause does not
+    /// state and this window has anyway (ADR 1252).
+    pub const fn dedicate(&mut self, window: Option<f32>) {
+        self.dedicated = window;
+    }
+
+    /// How wide the panel is drawn, in device pixels.
+    fn wide(&self, scale: f32) -> f32 {
+        self.dedicated.unwrap_or(PANEL_WIDTH) * scale
+    }
+
     /// The sidebar's width in device pixels, or zero when it is hidden.
     ///
     /// This is what insets the page: the viewport `viewer-core` is told about is the window less
@@ -759,7 +801,7 @@ impl Sidebar {
                 clippy::cast_sign_loss,
                 reason = "a panel width in pixels: positive, and a few hundred"
             )]
-            let width = (PANEL_WIDTH * scale).round() as u32;
+            let width = (self.wide(scale)).round() as u32;
             width
         } else {
             0
@@ -776,7 +818,29 @@ impl Sidebar {
     /// is visible decodes the row a reader is scrolling onto in the frame that shows it.
     #[must_use]
     pub fn visible_pages(&self, page_count: usize, height: u32, scale: f32) -> Range<usize> {
-        if !self.shows_pages() || page_count == 0 {
+        if !self.shows_pages() {
+            return 0..0;
+        }
+        self.picture_rows(page_count, height, scale)
+    }
+
+    /// Which of §12.3.6's picture rows are on the screen, on [`Self::visible_pages`]'s reasoning.
+    ///
+    /// `count` is how many rows of the files tab carry one of Table 160's thumbnails or previews,
+    /// in the order [`viewer_host::panel::collection_rows`] put them. A preview is an embedded
+    /// document opened and a page decoded, so the same demand-driven rule applies: fetch what is
+    /// on the screen and one row either side (ADR 1251).
+    #[must_use]
+    pub fn visible_previews(&self, count: usize, height: u32, scale: f32) -> Range<usize> {
+        if !self.shows_files() {
+            return 0..0;
+        }
+        self.picture_rows(count, height, scale)
+    }
+
+    /// The rows of a list of [`THUMBNAIL_UNITS`]-tall rows that the window is showing.
+    fn picture_rows(&self, count: usize, height: u32, scale: f32) -> Range<usize> {
+        if count == 0 {
             return 0..0;
         }
         #[expect(
@@ -803,7 +867,7 @@ impl Sidebar {
         )]
         let rows = ((tall - TABS) / row.max(1.0)) as usize;
         let first = first.saturating_sub(1);
-        let last = first.saturating_add(rows).saturating_add(2).min(page_count);
+        let last = first.saturating_add(rows).saturating_add(2).min(count);
         first.min(last)..last
     }
 
@@ -815,6 +879,65 @@ impl Sidebar {
     #[must_use]
     pub const fn shows_pages(&self) -> bool {
         self.shown && matches!(self.tab, Tab::Pages)
+    }
+
+    /// Whether §12.3.5's tab is the one showing.
+    ///
+    /// Asked by the host before it fetches §12.3.6's preview pictures, for the reason
+    /// [`Self::shows_pages`] is asked before the page list is built: a preview means opening an
+    /// embedded document, and a document opens at a page rather than at a contact sheet.
+    #[must_use]
+    pub const fn shows_files(&self) -> bool {
+        self.shown && matches!(self.tab, Tab::Files)
+    }
+
+    /// Whether the files tab is drawing §12.3.6's `FreeForm` scatter rather than a list of rows.
+    ///
+    /// The one layout of Table 160 that is not a list: "thumbnails for each item in the collection
+    /// contents are displayed at a random location on the view". A run of rows with pictures in
+    /// them is `FilmStrip` — "a single strip of thumbnails" — and drawing one for the other would
+    /// be the presentation the document asked for replaced in silence (trap 5).
+    fn scattering(&self, content: Content<'_>) -> bool {
+        matches!(self.tab, Tab::Files)
+            && content.collection.is_some_and(|presentation| {
+                viewer_host::panel::presentation(presentation.collection)
+                    == viewer_host::panel::Mode::FreeForm
+            })
+    }
+
+    /// Where each of `FreeForm`'s thumbnails lands, and the sentences that are not thumbnails.
+    ///
+    /// One function for the drawing and the hit test, because a scatter a person can see and a
+    /// scatter a person can click have to be the same scatter — and the place itself is
+    /// `viewer_host::panel::scattered`'s, so that the three windows agree about which file is
+    /// where (ADR 1251).
+    fn scatter_places(&self, content: Content<'_>, scale: f32) -> (Vec<(Row, f32, f32)>, Vec<Row>) {
+        let (mut placed, mut sentences) = (Vec::new(), Vec::new());
+        for row in self.rows(content) {
+            match row.act {
+                Act::Extract(_) => placed.push(row),
+                _ => sentences.push(row),
+            }
+        }
+        let (strip, thumb) = (TABS * scale, SCATTER_SIDE * scale);
+        let room = (
+            (self.wide(scale) - thumb).max(0.0),
+            scatter_surface(placed.len(), scale),
+        );
+        let top = strip - self.scrolled() * scale;
+        let placed = placed
+            .into_iter()
+            .map(|row| {
+                let name = match &row.act {
+                    Act::Extract(name) => name.as_str(),
+                    _ => "",
+                };
+                let (across, down) = viewer_host::panel::scattered(name);
+                let at = (across * room.0, top + down * room.1);
+                (row, at.0, at.1)
+            })
+            .collect();
+        (placed, sentences)
     }
 
     /// Shows or hides the sidebar.
@@ -844,7 +967,20 @@ impl Sidebar {
                 .sum::<usize>() as f32,
             height as f32 / scale.max(0.01),
         );
-        let furthest = (rows * (TEXT_SIZE * ROW_HEIGHT) - (tall - TABS)).max(0.0);
+        // §12.3.6's `FreeForm` is a surface of its own height rather than a stack of rows, so
+        // what a person can scroll to is that surface's foot (ADR 1251).
+        let extent = if self.scattering(content) {
+            scatter_surface(
+                self.rows(content)
+                    .iter()
+                    .filter(|row| matches!(row.act, Act::Extract(_)))
+                    .count(),
+                1.0,
+            ) + SCATTER_SIDE
+        } else {
+            rows * (TEXT_SIZE * ROW_HEIGHT)
+        };
+        let furthest = (extent - (tall - TABS)).max(0.0);
         let at = self.tab.index();
         if let Some(scroll) = self.scroll.get_mut(at) {
             *scroll = (*scroll + by).clamp(0.0, furthest);
@@ -874,11 +1010,11 @@ impl Sidebar {
     /// the person cannot see.
     #[must_use]
     pub fn click(&mut self, at: (f32, f32), content: Content<'_>, scale: f32) -> Option<Hit> {
-        if !self.shown || at.0 >= PANEL_WIDTH * scale {
+        if !self.shown || at.0 >= self.wide(scale) {
             return None;
         }
         if at.1 < TABS * scale {
-            let chosen = tab_at(at.0, scale);
+            let chosen = tab_at(at.0, self.wide(scale));
             if chosen != self.tab {
                 self.tab = chosen;
                 self.hovered = None;
@@ -888,32 +1024,37 @@ impl Sidebar {
         let Some((_, row)) = self.row_at(at, content, scale) else {
             return Some(Hit::Nothing);
         };
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a nesting depth, which pdf-model bounds"
-        )]
-        let indent = (MARKER + INDENT * row.depth as f32) * scale;
-        if at.0 < indent {
-            return Some(match row.marker {
-                Marker::Disclosure { id, .. } => {
-                    if !self.toggled.insert(id) {
-                        self.toggled.remove(&id);
+        // §12.3.6's `FreeForm` has no left edge to click: its items are thumbnails at places of
+        // their own, and the clause says what one does — "[w]hen a thumbnail is selected, an
+        // interactive PDF processor should display the attachment" (ADR 1251).
+        if !self.scattering(content) {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a nesting depth, which pdf-model bounds"
+            )]
+            let indent = (MARKER + INDENT * row.depth as f32) * scale;
+            if at.0 < indent {
+                return Some(match row.marker {
+                    Marker::Disclosure { id, .. } => {
+                        if !self.toggled.insert(id) {
+                            self.toggled.remove(&id);
+                        }
+                        Hit::Redraw
                     }
-                    Hit::Redraw
-                }
-                // §8.11.4.3 on `/Locked`: "[t]he state of a locked group cannot be changed
-                // through the user interface of an interactive PDF processor." So the switch is
-                // drawn — a person is entitled to see the state — and clicking it does nothing.
-                Marker::Switch { on, locked: false } => match row.group {
-                    Some(group) => Hit::SetGroup { group, on: !on },
-                    None => Hit::Nothing,
-                },
-                // A tile's icon says what kind of file the row is and is not a control, so the
-                // row's own `Act` is what a click on it reaches.
-                Marker::Switch { locked: true, .. } | Marker::Tile(_) | Marker::None => {
-                    Hit::Nothing
-                }
-            });
+                    // §8.11.4.3 on `/Locked`: "[t]he state of a locked group cannot be changed
+                    // through the user interface of an interactive PDF processor." So the switch is
+                    // drawn — a person is entitled to see the state — and clicking it does nothing.
+                    Marker::Switch { on, locked: false } => match row.group {
+                        Some(group) => Hit::SetGroup { group, on: !on },
+                        None => Hit::Nothing,
+                    },
+                    // A tile's icon says what kind of file the row is and is not a control, so the
+                    // row's own `Act` is what a click on it reaches.
+                    Marker::Switch { locked: true, .. } | Marker::Picture(_) | Marker::None => {
+                        Hit::Nothing
+                    }
+                });
+            }
         }
         Some(match row.act {
             Act::Activate(object) => Hit::Activate(object),
@@ -925,8 +1066,11 @@ impl Sidebar {
 
     /// The row under a point, and which of the visible rows it is.
     fn row_at(&self, at: (f32, f32), content: Content<'_>, scale: f32) -> Option<(usize, Row)> {
-        if !self.shown || at.0 >= PANEL_WIDTH * scale || at.1 < TABS * scale {
+        if !self.shown || at.0 >= self.wide(scale) || at.1 < TABS * scale {
             return None;
+        }
+        if self.scattering(content) {
+            return self.scattered_at(at, content, scale);
         }
         let row_height = TEXT_SIZE * ROW_HEIGHT * scale;
         let offset = at.1 - TABS * scale + self.scrolled() * scale;
@@ -948,6 +1092,27 @@ impl Sidebar {
             top = bottom;
         }
         None
+    }
+
+    /// The scattered thumbnail under a point, and which of them it is.
+    ///
+    /// The same places [`Self::draw_scatter`] drew, walked from the last to the first so that the
+    /// thumbnail a person can see on top is the one a click reaches — a random scatter overlaps,
+    /// and the clause asks for the scatter rather than for room between its items.
+    fn scattered_at(
+        &self,
+        at: (f32, f32),
+        content: Content<'_>,
+        scale: f32,
+    ) -> Option<(usize, Row)> {
+        let (placed, _) = self.scatter_places(content, scale);
+        let thumb = SCATTER_SIDE * scale;
+        placed
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, (_, x, y))| at.0 >= *x && at.0 < x + thumb && at.1 >= *y && at.1 < y + thumb)
+            .map(|(index, (row, _, _))| (index, row.clone()))
     }
 
     /// Whether an outline item's children are shown.
@@ -981,7 +1146,14 @@ impl Sidebar {
                     // PDF processor shall present the document as a portable collection." The same
                     // files, in §12.3.5.2's folders and with the schema's columns beside them.
                     Some(presentation) => {
-                        collection_rows(presentation, content.attachments, &mut out);
+                        for row in &viewer_host::panel::collection_rows(
+                            presentation.collection,
+                            presentation.initial,
+                            presentation.order,
+                            content.attachments,
+                        ) {
+                            collection_row(row, 0, presentation.previews, &mut out);
+                        }
                     }
                     None => {
                         for file in content.attachments {
@@ -1121,7 +1293,7 @@ impl Sidebar {
             reason = "a window height in pixels, which is thousands and not billions"
         )]
         let tall = height as f32;
-        let width = PANEL_WIDTH * scale;
+        let width = self.wide(scale);
         // The list's "page size" is the sidebar itself: nothing here is a page, and what the
         // backends use it for is the extent of the thing being drawn.
         let mut list = DisplayList::new(pdf_render::Size {
@@ -1135,6 +1307,15 @@ impl Sidebar {
 
         let size = TEXT_SIZE * scale;
         let strip = TABS * scale;
+        // §12.3.6's `FreeForm` is a surface rather than a list, so it takes the whole panel below
+        // the tabs and the row loop below is skipped entirely (ADR 1251).
+        if self.scattering(content) {
+            self.draw_scatter(&mut list, chrome, content, tall, size, scale);
+            self.draw_tabs(&mut list, chrome, width, size, scale);
+            rectangle(&mut list, (0.0, strip - scale, width, scale), EDGE);
+            rectangle(&mut list, (width - scale, 0.0, scale, tall), EDGE);
+            return list;
+        }
         let row_height = TEXT_SIZE * ROW_HEIGHT * scale;
         let mut next = strip - self.scrolled() * scale;
         for (index, row) in self.rows(content).into_iter().enumerate() {
@@ -1220,6 +1401,72 @@ impl Sidebar {
         list
     }
 
+    /// §12.3.6's `FreeForm`: each attachment's thumbnail at its own place on the panel.
+    ///
+    /// > The FreeForm layout provides a simple layout, in which thumbnails for each item in the
+    /// > collection contents are displayed at a random location on the view.
+    ///
+    /// The picture is the attachment's own first page's §12.3.4 `/Thumb` where it states one, and
+    /// [`Marker::Picture`]'s drawing where it does not — the panel's own sentence says which files
+    /// those were, because an icon passed off as a thumbnail is trap 5's shape (ADR 1251).
+    ///
+    /// The sentences a list would have at its foot are drawn at the foot here too: a scatter is
+    /// where the *files* go, and "this collection lists no files" is not a file.
+    fn draw_scatter(
+        &self,
+        list: &mut DisplayList,
+        chrome: &Chrome,
+        content: Content<'_>,
+        tall: f32,
+        size: f32,
+        scale: f32,
+    ) {
+        let (placed, sentences) = self.scatter_places(content, scale);
+        let thumb = SCATTER_SIDE * scale;
+        for (index, (row, x, y)) in placed.iter().enumerate() {
+            if self.hovered == Some(index) {
+                rectangle(list, (*x, *y, thumb, thumb), HOVER);
+            }
+            match row.image.as_ref() {
+                Some(image) => draw_thumbnail(list, image, (*x, *y, thumb, thumb), scale),
+                None => draw_marker(
+                    list,
+                    row.marker,
+                    (x + thumb * 0.5, y + thumb * 0.5),
+                    scale * 2.0,
+                ),
+            }
+            let label = elide(chrome, &row.label, size, row.style, thumb * 1.6);
+            chrome.text(
+                list,
+                &label,
+                (*x, y + thumb + size),
+                size,
+                row.style,
+                row.colour,
+            );
+        }
+        let mut baseline = tall - size * 0.5;
+        for row in sentences.iter().rev() {
+            let label = elide(
+                chrome,
+                &row.label,
+                size,
+                row.style,
+                self.wide(scale) - 8.0 * scale,
+            );
+            chrome.text(
+                list,
+                &label,
+                (4.0 * scale, baseline),
+                size,
+                row.style,
+                row.colour,
+            );
+            baseline -= TEXT_SIZE * ROW_HEIGHT * scale;
+        }
+    }
+
     /// The strip of tab labels across the top, with the current one lit.
     fn draw_tabs(
         &self,
@@ -1259,13 +1506,31 @@ impl Sidebar {
     }
 }
 
+/// How tall §12.3.6's `FreeForm` surface is, in device pixels, for this many thumbnails.
+///
+/// **From the items rather than from the window**, which is what lets the drawing and the hit test
+/// agree without either of them being told how tall the window is — and what keeps a file in the
+/// same place when the window is resized, which a scatter measured against the viewport would not.
+/// The shape is a square: a scatter of `n` items over a surface `sqrt(n)` items tall is about as
+/// crowded whatever `n` is, and four is the floor so that a collection of one file is not a
+/// thumbnail alone on a strip of nothing. This is ink and not a reading — the clause states a
+/// random location and no extent (ADR 1251).
+fn scatter_surface(count: usize, scale: f32) -> f32 {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a count of a document's embedded files, which is tens"
+    )]
+    let rows = (count.max(4) as f32).sqrt().ceil();
+    rows * (SCATTER_SIDE + TEXT_SIZE * ROW_HEIGHT) * scale
+}
+
 /// Which tab a horizontal position is in.
-fn tab_at(x: f32, scale: f32) -> Tab {
+fn tab_at(x: f32, width: f32) -> Tab {
     #[expect(
         clippy::cast_precision_loss,
         reason = "the number of tabs, which is five"
     )]
-    let each = (PANEL_WIDTH * scale) / Tab::ALL.len() as f32;
+    let each = width / Tab::ALL.len() as f32;
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -1275,219 +1540,53 @@ fn tab_at(x: f32, scale: f32) -> Tab {
     Tab::ALL.get(index).copied().unwrap_or(Tab::Document)
 }
 
-/// §12.3.5's collection, as rows: the folder tree, with each file under the folder it names.
+/// One [`viewer_host::PanelRow`] of §12.3.5's collection, and everything under it.
 ///
-/// **The container's pages stay on the screen**, and that is the one decision this panel makes
-/// that the clause leaves open. §12.3.5 says a processor "shall present the document as a portable
-/// collection" and does not say *instead of what*; §7.6.7's unencrypted wrapper is the case that
-/// settles it — a wrapper's whole purpose is a page saying the payload is encrypted, and Table
-/// 153's `/View H` is how such a document asks for the file list to start hidden. A viewer that
-/// replaced the page with a file browser would hide the sentence the wrapper exists to show. So
-/// the collection is a panel over a page, like every other tab.
-///
-/// §12.3.5.2's key format is what files a folder: a name-tree key `<3>report.pdf` is *report.pdf*
-/// in folder 3, and `collection::folder_of` reads it. A key that does not conform names no folder,
-/// and the clause says such files "shall be treated as associated with the root folder" — so they
-/// are drawn at depth zero, above the folders, which is where the root's own files belong.
-///
-/// **Every embedded file is on the screen, and the clause says so twice** — a document that states
-/// no `/Folders` gets a flat list, because "[i]f no folder structure is specified, interactive PDF
-/// processors should show all files in the collection in a flat list", and a key naming a folder
-/// identifier the tree does not state is drawn at the root, because "[w]hen folders are used, all
-/// files in the `EmbeddedFiles` name tree … shall be treated as members of the folder structure by
-/// an interactive PDF processor". Such a key conforms to the naming rules, so the clause's own
-/// root-folder sentence does not reach it; what it contradicts is "[t]he value shall correspond to
-/// a folder ID", a requirement on the producer for which the clause states no remedy. Both cases
-/// dropped the file from this panel altogether until the seven-hundred-and-seventy-second session
-/// (ADR 0711). `viewer_host::panel::collection_rows` is the same two rules for the other two
-/// windows.
-///
-/// # §12.3.5.1's `/D`, and what "presented" means for a panel over a page
-///
-/// Table 153's `/D` "identif[ies] an entry in the `EmbeddedFiles` name tree, determining the
-/// document that shall be initially presented in the user interface", with three fallbacks the
-/// clause states as `shall`s: a missing or invalid entry means the container, a valid one naming
-/// no file means "the first item from the list of files to display in its user interface", and
-/// an empty tree means "an empty preview window". [`pdf_model::collection::Initial`] is those
-/// four outcomes and `viewer_core` resolves them, because the name tree is the document's.
-///
-/// This panel obeys them the only way a panel over a page can: the row of the initial document is
-/// **the one set in bold**, and an empty tree says so instead of drawing nothing. The container
-/// case marks no row, because the container is what is already on the screen — the decision above.
-/// The standard states no appearance for any of this, so the emphasis is a choice, made once here.
-fn collection_rows(
-    presentation: Presentation<'_>,
-    files: &[pdf_model::attachment::Attachment],
-    out: &mut Vec<Row>,
-) {
-    let Presentation {
-        collection,
-        initial,
-        order,
-    } = presentation;
-    let start = out.len();
-    // Table 153's `/Sort`, applied once for every window by `viewer_host::panel::in_sort_order`
-    // — the levels below both close over this list, so sorting it here puts every folder's rows
-    // in the stated order without either of them knowing there is an order (ADR 1168).
-    let files = viewer_host::panel::in_sort_order(order, files);
-    let files = files.as_slice();
-
-    // The schema's visible columns in Table 155's `/O` order, which is "[t]he relative order of
-    // the field name in the user interface". A field with no `/O` sorts after the ones that state
-    // one, by key, which is the only order left when the file states none.
-    let mut columns: Vec<(&String, &pdf_model::collection::Field)> = collection
-        .schema
-        .iter()
-        .filter(|(_, field)| field.visible)
-        .collect();
-    columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
-    // Table 153's `/View`, resolved for all three windows by `viewer_host::panel::presentation`:
-    // `D` is "all information in the Schema dictionary" and `T` "a subset of information from the
-    // Schema dictionary", each file "denoted by a small icon". This panel draws one column of
-    // text, so its details view is every field on the detail line and its tile view is the head
-    // of the same order beside an icon (ADR 1215).
-    let mode = viewer_host::panel::presentation(collection);
-    if mode == viewer_host::panel::Mode::Tile {
-        columns.truncate(viewer_host::panel::TILE_FIELDS);
-    }
-
-    // Which folder identifiers the tree actually states, which is what makes a key naming one
-    // that it does not a file with nowhere else to go but the root.
-    let mut stated = std::collections::BTreeSet::new();
-    let mut stack: Vec<&pdf_model::collection::Folder> = collection.folders.iter().collect();
-    while let Some(folder) = stack.pop() {
-        stated.insert(folder.id);
-        stack.extend(folder.children.iter());
-    }
-
-    let mut under = |folder: Option<u32>, out: &mut Vec<Row>, depth: usize| {
-        for file in files {
-            let (id, name) = match pdf_model::collection::folder_of(&file.name) {
-                Some((id, name)) => (Some(id), name.to_owned()),
-                None => (None, file.name.clone()),
-            };
-            // The root level takes the files no *stated* folder claims, which is the clause's own
-            // rule for a non-conforming key and this program's choice for a conforming key naming
-            // an identifier nobody wrote. With no folder tree at all, the level takes everything.
-            let here = match folder {
-                Some(folder) => id == Some(folder),
-                None => id.is_none_or(|id| !stated.contains(&id)),
-            };
-            if !here {
-                continue;
-            }
-            let mut row = Row::plain(depth, file.file_name.clone().unwrap_or(name));
-            row.detail = columns_of(&columns, file).or_else(|| describe(file));
-            row.act = Act::Extract(file.name.clone());
-            if mode == viewer_host::panel::Mode::Tile {
-                row.marker = Marker::Tile(viewer_host::panel::icon_of(file));
-            }
-            out.push(row);
-        }
-    };
-
-    under(None, out, 0);
-    if let Some(root) = collection.folders.as_ref() {
-        folder_rows(root, 0, mode, &mut under, out);
-    }
-
-    // The rows this call added, in the order a person reads them, which is what the clause's
-    // "the first item from the list of files to display in its user interface" points at.
-    let listed = &mut out[start..];
-    let opened = match initial {
-        pdf_model::collection::Initial::Embedded(name) => listed
-            .iter_mut()
-            .find(|row| row.act == Act::Extract(name.clone())),
-        pdf_model::collection::Initial::FirstFile => listed
-            .iter_mut()
-            .find(|row| matches!(row.act, Act::Extract(_))),
-        // The container's own pages are on the screen already, so there is no row to mark; an
-        // empty tree has no rows at all, and says so below instead.
-        pdf_model::collection::Initial::Container | pdf_model::collection::Initial::Empty => None,
-    };
-    if let Some(row) = opened {
-        row.style.bold = true;
-    }
-    if matches!(initial, pdf_model::collection::Initial::Empty) {
-        out.push(nothing(
-            "This collection names an initial document and holds no files.",
-        ));
-    }
-    // §12.3.6's navigator and Table 153's `/View`, where either asks for a presentation these
-    // rows are not. `viewer_host::panel::unsupported_presentation` is the one sentence for all
-    // three windows, and the layouts it selects from are what this panel draws.
-    if let Some(sentence) = viewer_host::panel::unsupported_presentation(collection) {
-        out.push(nothing(&sentence));
-    }
-    // §12.3.5.2's restricted names. This program supports them (ADR 1050) and draws them as the
-    // file wrote them, so the row above may say `a:b`; `viewer_host::panel::restricted_names` is
-    // the one sentence that says so, in all three windows.
-    if let Some(sentence) = viewer_host::panel::restricted_names(collection) {
-        out.push(nothing(&sentence));
-    }
-}
-
-/// One folder and everything under it.
-fn folder_rows(
-    folder: &pdf_model::collection::Folder,
+/// **The arrangement is `viewer_host::panel::collection_rows`'s and the ink is this host's**,
+/// which is the division ADR 0711 drew for the other two windows and ADR 1251 extends to this
+/// one: §12.3.6's three further layouts tripled what a panel has to decide about a collection —
+/// which files are flat, which one is previewed, what size each picture is — and a third copy of
+/// those decisions is where two windows begin disagreeing about what the clause says. What is
+/// left here is how a row looks: bold for §12.3.5.1's `/D`, dimmed and italic for a sentence
+/// about the document, and a taller row for a picture.
+fn collection_row(
+    row: &viewer_host::PanelRow,
     depth: usize,
-    mode: viewer_host::panel::Mode,
-    under: &mut impl FnMut(Option<u32>, &mut Vec<Row>, usize),
+    previews: &viewer_host::panel::Previews<pdf_render::Image>,
     out: &mut Vec<Row>,
 ) {
-    let mut row = Row::plain(depth, folder.name.clone());
-    row.detail.clone_from(&folder.description);
-    // A folder is not a file: it has no bytes to extract, so its row acts through its children.
-    row.act = Act::None;
-    if mode == viewer_host::panel::Mode::Tile {
-        row.marker = Marker::Tile(viewer_host::panel::Icon::Folder);
+    if row.note {
+        out.push(nothing(&row.label));
+        return;
     }
-    out.push(row);
-    under(Some(folder.id), out, depth.saturating_add(1));
-    for child in &folder.children {
-        folder_rows(child, depth.saturating_add(1), mode, under, out);
+    let mut drawn = Row::plain(depth, row.label.clone());
+    drawn.detail.clone_from(&row.detail);
+    // §12.3.5.1's `/D`: "the document that shall be initially presented in the user interface".
+    // The clause states no appearance, so bold is this window's way of setting one row apart —
+    // Qt uses a bold `Qt::FontRole` and GTK Adwaita's heading class.
+    drawn.style = Style {
+        bold: row.emphasis,
+        italic: false,
+    };
+    if let viewer_host::RowAction::Extract { name } = &row.action {
+        drawn.act = Act::Extract(name.clone());
     }
-}
-
-/// The schema's columns for one file, as `name: value` joined — the detail line of its row.
-///
-/// Table 47's `/P` prefix is concatenated with the value and not with the name, which is what the
-/// table says it is for: "[a] prefix string that shall be concatenated with the text string
-/// presented to the user".
-fn columns_of(
-    columns: &[(&String, &pdf_model::collection::Field)],
-    file: &pdf_model::attachment::Attachment,
-) -> Option<String> {
-    let shown: Vec<String> = columns
-        .iter()
-        .filter_map(|(key, field)| {
-            let value = collection_value(key, field, file)?;
-            Some(format!("{}: {value}", field.name))
-        })
-        .collect();
-    (!shown.is_empty()).then(|| shown.join("  ·  "))
-}
-
-/// One column's value for one file.
-///
-/// Table 155's `/Subtype` decides *where the value lives*, which is the distinction
-/// `collection::FieldKind` exists for: the first three kinds read §7.11.6's collection item, and
-/// the file-related ones read the file specification this host already has. Only the second group
-/// is answered here — the item is on the file specification's `/CI` and `Attachment` does not
-/// carry it, which is a gap this row records rather than papers over.
-fn collection_value(
-    _key: &str,
-    field: &pdf_model::collection::Field,
-    file: &pdf_model::attachment::Attachment,
-) -> Option<String> {
-    use pdf_model::collection::FieldKind;
-    match field.kind {
-        FieldKind::FileName => file.file_name.clone(),
-        FieldKind::Description => file.description.clone(),
-        FieldKind::Size => file.size.map(|size| format!("{size}")),
-        FieldKind::ModificationDate => file.modified.clone(),
-        FieldKind::CreationDate => file.created.clone(),
-        _ => None,
+    if let Some(picture) = row.picture {
+        drawn.marker = Marker::Picture(picture);
+        if picture.wants_the_files_own_picture() {
+            // §12.3.6's thumbnail and preview are pictures of the *attachment*, so the row is as
+            // tall as §12.3.4's miniature rows and carries the file's own first-page `/Thumb`
+            // where it states one. Where it states none the marker's drawing stands in, and the
+            // panel's own sentence says which files those were (ADR 1251).
+            drawn.units = THUMBNAIL_UNITS;
+            if let viewer_host::RowAction::Extract { name } = &row.action {
+                drawn.image = previews.get(name).and_then(Clone::clone);
+            }
+        }
+    }
+    out.push(drawn);
+    for child in &row.children {
+        collection_row(child, depth.saturating_add(1), previews, out);
     }
 }
 
@@ -1640,13 +1739,22 @@ fn draw_thumbnail(
 /// backends' stroke rules never enter an interface's appearance. ADR 1215.
 fn draw_tile(
     list: &mut DisplayList,
-    icon: viewer_host::panel::Icon,
+    picture: viewer_host::panel::Picture,
     centre: (f32, f32),
     scale: f32,
 ) {
     use viewer_host::panel::Icon;
+    let icon = picture.kind();
     let (cx, cy) = centre;
-    let (half, edge) = (5.0 * scale, scale);
+    // §12.3.6 asks for three sizes of the same picture — "a small icon", "thumbnails", "a large
+    // size preview" — and this window has one drawing for all of them, so the size is where they
+    // differ. The multiples are this host's ink and not the clause's (ADR 1251).
+    let grown = match picture {
+        viewer_host::panel::Picture::Icon(_) => 1.0,
+        viewer_host::panel::Picture::Thumbnail(_) => 2.0,
+        viewer_host::panel::Picture::Preview(_) => 3.0,
+    };
+    let (half, edge) = (5.0 * scale * grown, scale);
     let (left, top, side) = (cx - half, cy - half, half * 2.0);
     if icon == Icon::Folder {
         // A tab above a box, which is what a folder is everywhere a folder is drawn.
@@ -1713,7 +1821,7 @@ fn draw_marker(list: &mut DisplayList, marker: Marker, centre: (f32, f32), scale
             };
             outline_of(list, &corners, EDGE);
         }
-        Marker::Tile(icon) => draw_tile(list, icon, centre, scale),
+        Marker::Picture(picture) => draw_tile(list, picture, centre, scale),
         Marker::Switch { on, locked } => {
             let half = 4.5 * scale;
             rectangle(

@@ -578,6 +578,7 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
             collection: &collection,
             initial: &pdf_model::collection::Initial::Container,
             order: &[],
+            previews: &viewer_host::panel::Previews::new(),
         }),
         information: &NOTHING,
         metadata: None,
@@ -654,6 +655,7 @@ fn no_embedded_file_is_lost_because_its_key_names_a_folder_that_is_not_there() {
                 collection,
                 initial: &Initial::Container,
                 order: &[],
+                previews: &viewer_host::panel::Previews::new(),
             }),
             information: &NOTHING,
             metadata: None,
@@ -725,6 +727,7 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
                 collection: &collection,
                 initial,
                 order: &[],
+                previews: &viewer_host::panel::Previews::new(),
             }),
             information: &NOTHING,
             metadata: None,
@@ -784,6 +787,7 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
             collection: &collection,
             initial: &Initial::Empty,
             order: &[],
+            previews: &viewer_host::panel::Previews::new(),
         }),
         information: &NOTHING,
         metadata: None,
@@ -1388,4 +1392,81 @@ fn a_choice_fields_options_are_drawn_on_the_rows_a_press_picks() {
     assert_eq!(list.option_at((5.0, 5.0)), None);
     assert!(!list.covers((5.0, 5.0)));
     assert!(list.covers(list.row_middle(0).expect("the first row")));
+}
+
+/// §12.3.6's `FreeForm` is a scatter a person can click, and the same scatter that was drawn.
+///
+/// ISO 32000-2 §12.3.6:
+///
+/// > The FreeForm layout provides a simple layout, in which thumbnails for each item in the
+/// > collection contents are displayed at a random location on the view.
+///
+/// and, of what selecting one does, "an interactive PDF processor should display the attachment".
+/// The place is `viewer_host::panel::scattered`'s and the surface is this window's, so what a test
+/// can hold is the property that makes the two halves one layout: the thumbnail a person sees at a
+/// point is the file a click there names, and a point with no thumbnail under it names none
+/// (ADR 1251).
+#[test]
+fn a_free_form_thumbnail_is_where_the_click_finds_it() {
+    use pdf_model::collection::{Collection, Initial, Layout, Navigator, View};
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    let collection = Collection {
+        view: View::Navigator,
+        navigator: Some(Navigator {
+            layouts: vec![Layout::FreeForm],
+        }),
+        ..Collection::default()
+    };
+    let files = vec![attachment("readme.txt", 12), attachment("report.pdf", 4096)];
+    let previews = viewer_host::panel::Previews::new();
+    let content = Content {
+        outline: &outline,
+        layers: &[],
+        attachments: &files,
+        articles: &[],
+        collection: Some(viewer_ui::chrome::Presentation {
+            collection: &collection,
+            initial: &Initial::Container,
+            order: &[],
+            previews: &previews,
+        }),
+        information: &NOTHING,
+        metadata: None,
+        page_count: 0,
+        pages: None,
+    };
+    let mut panel = Sidebar::default();
+    panel.toggle();
+    assert_eq!(panel.click((tab(3), 8.0), content, 1.0), Some(Hit::Redraw));
+
+    // The surface this window gives the scatter: the panel's width less one thumbnail, and a
+    // square-ish run of rows for however many files there are. Both halves of the layout compute
+    // it the same way, which is the property under test.
+    let side = 56.0_f32;
+    let room = (300.0 - side, 2.0 * (side + 12.0 * 1.7));
+    let strip = 12.0 * 1.7 + 6.0;
+    for name in ["readme.txt", "report.pdf"] {
+        let (across, down) = viewer_host::panel::scattered(name);
+        let at = (
+            across * room.0 + side * 0.5,
+            strip + down * room.1 + side * 0.5,
+        );
+        assert_eq!(
+            panel.click(at, content, 1.0),
+            Some(Hit::Extract(name.to_owned())),
+            "the thumbnail at {at:?} is {name}"
+        );
+    }
+
+    // The scatter is drawn, and it is drawn where the clicks landed: ink in the band the two
+    // thumbnails occupy, and the panel is not a list of rows down its left edge.
+    let list = panel.draw(&chrome, content, HEIGHT, 1.0);
+    // The band the surface occupies, in whole device rows: the tab strip's foot to the foot of
+    // the lowest place a thumbnail can take, which for two files is two rows of the square.
+    let band = 27..(27 + 153 + 56);
+    assert!(
+        ink(&list, band) > 40,
+        "the thumbnails and their labels are on the surface"
+    );
 }

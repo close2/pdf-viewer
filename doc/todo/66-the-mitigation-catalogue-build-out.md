@@ -26,9 +26,9 @@ The second prints, for each answer the profile gives at a site without code behi
 > note: the configuration answers "<site>" with `discard`, which this version does not carry out
 > yet; that site stays refused with the sentence it names
 
-**The item is done when a shipped profile produces no such note at any target**, and **the first
-milestone is reached**: `only-metadata-loss` answers every site it names at PDF/A-2b, 2u and 2a
-with a remedy this version carries out. `tools/state.sh remedies` is what says so, and what says
+**The item is done when a shipped profile produces no such note at any target**, and **two
+milestones are reached**: `only-metadata-loss` and `as-if-printed` each answer every site they name
+at PDF/A-2b, 2u and 2a with a remedy this version carries out. `tools/state.sh remedies` is what says so, and what says
 which targets each of the other profiles still owes. Both halves of
 that condition are now instruments rather than numbers in this file. `--remedy-sites` prints its own
 two totals — `N of M sites not built yet`, and, given `--config <file>`, every answer that profile
@@ -52,9 +52,14 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   under one `Loss::InteractiveBehaviour`, with `forms/no-action-on-widget-or-field` beside them
   because one routine answers all nine. A removed action's §12.6.2 `/Next` subtree is promoted into
   its place, so the permitted actions behind a forbidden one still run (ADR 1175).
-- **Forms** (`forms/*`, four): widget actions **built** with the Actions routine above;
-  `/NeedAppearances` cleared and the XFA packet removed or, at 4f, attached (catalogue section 7's
-  `preserve`) are what is left, and they are the two sites `as-if-printed` still names at PDF/A-2b.
+- **Forms** (`forms/*`, four): **built** — widget actions with the Actions routine above,
+  `/NeedAppearances` cleared with the field appearances constructed first, and the `/XFA` removed
+  from a form the document does not itself say is dynamic (ADR 1257). §12.7.3's Table 224 makes
+  clearing the flag a claim that streams have been provided, so the construction is what makes the
+  claim true and a widget whose appearance cannot be built keeps the flag with its field named;
+  §7.7.2's Table 29 is the dynamic predicate, because Annex K states no test. What is left in this
+  family is `keep-xfa = "attach"`, the packet kept as a file at 4f, which needs the same attachment
+  machinery `original = "attach"` does.
 - **Metadata** (`metadata/*`, eight): **built but for one mechanism.** The fresh packet is written
   where this tree cannot read the producer's, with the original laid out on an appended page
   (ADR 1245, catalogue section 9; the owner's *append or prefix the packet as a page*); the
@@ -102,8 +107,11 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   alone because ISO 19005-4 section 6.10 keeps the key and has a processor ignore it. Configuration
   names are what is left, and the catalogue's entry makes them a `supply` with the converter as the
   supplier — a different argument, and one no shipped profile answers yet.
-- **Embedded files** (four): the 4f `preserve` (catalogue section 1.2) for anything a byte string
-  can hold, and the media-type `supply` already built.
+- **Embedded files** (four): the media-type `supply` and the `derive` were already built, and the
+  `discard` is **built** (ADR 1258) — every reference to the file specification goes, the name tree
+  and the `/AF` arrays with it, and the report names each file that left. What is left is appending
+  the attachment's pages, whose blocker is now only the page composition, and the 4f `preserve`
+  (catalogue section 1.2) for anything a byte string can hold.
 - **Fonts, content-stream marks**: the catalogue's *none* — leave them, and say so; ADR 0816's
   fence is the reason, and ADR 1124's content-stream splice is the precedent to cite if a later
   round argues the fence should move. Two have a narrower reading than the family's:

@@ -107,6 +107,26 @@ pub enum Query<'a> {
     /// would decode a thousand images to draw eight. The panel knows which eight it is showing;
     /// this crate does not, and a host that scrolls one keeps what it has already asked for.
     Thumbnail(usize),
+    /// §12.3.6's preview picture for one of §12.3.5's file attachments, named by its
+    /// `/EmbeddedFiles` key.
+    ///
+    /// Three of Table 160's named layouts are built out of pictures of the *attachments* rather
+    /// than of this document's pages — `FilmStrip`'s "strip of thumbnails", `FreeForm`'s
+    /// thumbnails "at a random location on the view", `Linear`'s "large size preview" — and the
+    /// standard defines a picture of a document in exactly one place: §12.3.4's `/Thumb`, "an
+    /// image that shall be used as a thumbnail image representing the page". So this opens the
+    /// named attachment as a document and answers its **first page's** `/Thumb`, which is the
+    /// picture that file's own producer wrote for that page.
+    ///
+    /// [`Answer::None`] where the attachment is not a PDF, states no `/Thumb` on its first page,
+    /// or cannot be decoded — which is most attachments, and is a document being quiet rather
+    /// than a failure. A host says so instead of drawing a substitute (ADR 1251).
+    ///
+    /// **One attachment at a time and nothing cached here**, for [`Query::Thumbnail`]'s reason
+    /// exactly, and **one level deep**: the picture comes from the attachment's own first page
+    /// and this crate never asks an attachment of an attachment, so no chain of embedded files
+    /// can be walked by drawing a panel.
+    AttachmentPreview(&'a str),
     /// One page of the document, interpreted for paper — the pages of a print operation.
     ///
     /// Zero-based, and [`Answer::None`] for a page that is not there **and for every page while no

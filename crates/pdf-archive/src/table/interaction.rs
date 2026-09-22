@@ -1488,6 +1488,65 @@ pub fn annotations_without_an_appearance(
         .collect()
 }
 
+/// One widget annotation Table 224's writer obligation asks for an appearance stream.
+///
+/// **The reading as a population rather than as a verdict**, on the same footing as
+/// [`MissingAppearance`]: the `/NeedAppearances` row reports one finding at one flag, and a
+/// converter clearing that flag has to be given every widget the flag's own condition is about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleWidget {
+    /// The object the annotation is, where it is an indirect one.
+    ///
+    /// `None` for a widget written directly into a page's `/Annots` array, which nothing that
+    /// rewrites objects can reach.
+    pub at: Option<ObjectId>,
+    /// The zero-based page it is on.
+    pub page: usize,
+}
+
+/// Every visible widget annotation the file provides no normal appearance for, in page order.
+///
+/// ISO 32000-2 §12.7.3's Table 224 states the condition a writer may leave `/NeedAppearances`
+/// absent under:
+///
+/// > A PDF writer shall include this key, with a value of true , if it has not provided appearance
+/// > streams for all visible widget annotations present in the document.
+///
+/// So the population is the widgets that obligation is unmet at: visible, and with no `/N` in
+/// their appearance dictionary. §12.5.3's Table 167 decides *visible* — a widget whose `Hidden` or
+/// `NoView` bit is set is one no reader draws — and §12.5.5's Table 170 makes `/N` "the
+/// annotation's normal appearance", which is what a reader draws when neither of the other two
+/// states applies. A widget whose `/N` is a subdictionary of states rather than a stream has been
+/// provided for as well: §12.5.2's Table 166 makes `/AS` select among them, and §12.7.5.2.3 makes
+/// those states what a check box's value chooses between.
+#[must_use]
+pub fn visible_widgets(document: &Document, target: Target) -> Vec<VisibleWidget> {
+    let exam = Examination::new(document, target);
+    exam.annotations()
+        .iter()
+        .filter(|annotation| {
+            name_at(document, &annotation.dict, "Subtype").as_deref() == Some("Widget")
+        })
+        .filter(|annotation| {
+            let flags = document
+                .get_key(&annotation.dict, "F")
+                .as_integer()
+                .unwrap_or(0);
+            flags & (HIDDEN | NO_VIEW) == 0
+        })
+        .filter(|annotation| {
+            document
+                .get_key(&annotation.dict, "AP")
+                .as_dict()
+                .is_none_or(|appearance| appearance.get("N").is_none())
+        })
+        .map(|annotation| VisibleWidget {
+            at: annotation.id,
+            page: annotation.page,
+        })
+        .collect()
+}
+
 /// ISO 19005-2 section 6.3.3's first paragraph, whose exempt subtypes are `Popup` and `Link`.
 fn appearance_dictionary_present_two(exam: &Examination<'_>, findings: &mut Findings) {
     appearance_dictionary_present(

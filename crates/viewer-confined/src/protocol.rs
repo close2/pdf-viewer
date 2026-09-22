@@ -2849,6 +2849,9 @@ mod query_kind {
     // §12.9's measurement of a traced path. It crosses because the worker holds the document and
     // therefore the page's `/VP`, while the window process holds the pointer (ADR 1191).
     pub(super) const MEASURE: u8 = 34;
+    // §12.3.6's preview picture for one attachment, which is that attachment's own first page's
+    // §12.3.4 `/Thumb`. It crosses because only the worker holds the bytes to open (ADR 1251).
+    pub(super) const ATTACHMENT_PREVIEW: u8 = 35;
 }
 
 /// Encodes one question.
@@ -2956,6 +2959,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         Query::Thumbnail(index) => {
             writer.u8(k::THUMBNAIL).usize(index);
         }
+        Query::AttachmentPreview(name) => {
+            writer.u8(k::ATTACHMENT_PREVIEW).str(name);
+        }
         Query::PrintPage(index) => {
             writer.u8(k::PRINT_PAGE).usize(index);
         }
@@ -2997,6 +3003,11 @@ pub(crate) enum OwnedQuery {
     Plain(PlainQuery),
     /// [`Query::Find`], with the string it searches for.
     Find(String),
+    /// [`Query::AttachmentPreview`], with the `/EmbeddedFiles` key it names.
+    ///
+    /// Owned for [`Self::Find`]'s reason: the key belongs to the panel that asked, and nothing on
+    /// this side of the transport is holding it.
+    AttachmentPreview(String),
     /// [`Query::Measure`], with the path it measures.
     ///
     /// Owned for [`Self::Find`]'s reason: the slice a host passes is the host's own gesture, and
@@ -3058,6 +3069,7 @@ impl OwnedQuery {
     pub(crate) fn as_query(&self) -> Query<'_> {
         match self {
             Self::Find(needle) => Query::Find(needle),
+            Self::AttachmentPreview(name) => Query::AttachmentPreview(name),
             Self::Plain(plain) => match *plain {
                 PlainQuery::PageCount => Query::PageCount,
                 PlainQuery::CurrentPage => Query::CurrentPage,
@@ -3138,6 +3150,9 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
         }),
         k::DIRTY => OwnedQuery::Plain(PlainQuery::Dirty),
         k::FIND => OwnedQuery::Find(reader.string("a search string")?),
+        k::ATTACHMENT_PREVIEW => {
+            OwnedQuery::AttachmentPreview(reader.string("an attachment's name")?)
+        }
         k::SELECTION => OwnedQuery::Plain(PlainQuery::Selection),
         k::LOGICAL_SELECTION => OwnedQuery::Plain(PlainQuery::LogicalSelection),
         k::FOCUS => OwnedQuery::Plain(PlainQuery::Focus),
@@ -4806,6 +4821,7 @@ mod tests {
             Query::Collection,
             Query::Articles,
             Query::Thumbnail(7),
+            Query::AttachmentPreview("<3>report.pdf"),
             Query::PrintPage(7),
             Query::Measure(&[[3.0, 4.0], [11.0, 12.0], [1.0, 2.0]]),
             Query::Properties,
@@ -4817,7 +4833,7 @@ mod tests {
             Query::Readback,
             Query::View,
         ];
-        assert_eq!(carried.len(), 34, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 35, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();

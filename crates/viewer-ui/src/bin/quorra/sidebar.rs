@@ -115,6 +115,7 @@ impl App {
                         collection,
                         initial,
                         order,
+                        previews: &self.previews,
                     },
                 ),
             information: &self.information,
@@ -179,6 +180,64 @@ impl App {
         }
     }
 
+    /// §12.3.6's preview pictures for the rows the files panel is about to draw, and Table 158's
+    /// `/Direction` `N`.
+    ///
+    /// Beside `fill_visible_pages` and for its reason: a preview is an embedded document opened
+    /// and a page's §12.3.4 `/Thumb` decoded, so the panel fetches the rows it is showing and no
+    /// others. Three of Table 160's layouts are made of those pictures and the other four are not,
+    /// which is why nothing is fetched for a collection presented as a tree, a details view or a
+    /// tile view (ADR 1251).
+    ///
+    /// The window's own region is given to the panel where Table 158 asks for it — "[t]he entire
+    /// window region shall be dedicated to the file navigation view" — and taken back the moment
+    /// the document states something else, so nothing survives a second document (ADR 1252).
+    pub(crate) fn fill_collection_previews(&mut self) {
+        let Some((_, height, scale)) = self.window() else {
+            return;
+        };
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's width in pixels, which is thousands"
+        )]
+        let logical = |pixels: u32| pixels as f32 / scale.max(0.01);
+        let dedicated = self
+            .collection
+            .as_ref()
+            .is_some_and(|(collection, _, _)| viewer_host::panel::whole_window(collection));
+        self.panel.dedicate(match (dedicated, self.window()) {
+            (true, Some((width, _, _))) => Some(logical(width)),
+            _ => None,
+        });
+        if !self.panel.shows_files() {
+            return;
+        }
+        let wanted: Vec<String> = match self.collection.as_ref() {
+            Some((collection, initial, order)) => {
+                let rows = viewer_host::panel::collection_rows(
+                    collection,
+                    initial,
+                    order,
+                    &self.attachments,
+                );
+                let mut keys = Vec::new();
+                preview_keys(&rows, &mut keys);
+                keys
+            }
+            None => return,
+        };
+        let shown = self.panel.visible_previews(wanted.len(), height, scale);
+        // Disjoint field borrows: the picture is fetched through the viewer while the cache is
+        // being filled, and only naming the two fields apart makes that one statement.
+        let viewer = &self.viewer;
+        let previews = &mut self.previews;
+        for name in wanted.get(shown).unwrap_or_default() {
+            let _ = previews.picture(name, || {
+                viewer_host::panel::attachment_preview(viewer, name)
+            });
+        }
+    }
+
     /// What the pointer moving does: the panel's highlight, or the page's §12.5.5 appearance.
     ///
     /// Only one of the two, and never both: a hover highlight in the panel and a rollover
@@ -207,6 +266,7 @@ impl App {
                             collection,
                             initial,
                             order,
+                            previews: &self.previews,
                         },
                     ),
                 information: &self.information,
@@ -293,6 +353,7 @@ impl App {
                             collection,
                             initial,
                             order,
+                            previews: &self.previews,
                         },
                     ),
                 information: &self.information,
@@ -372,6 +433,7 @@ impl App {
                                 collection,
                                 initial,
                                 order,
+                                previews: &self.previews,
                             },
                         ),
                     information: &self.information,
@@ -435,6 +497,24 @@ fn zoom_steps(carry: &mut f32, delta: winit::event::MouseScrollDelta) -> i32 {
     // refused a magnification, not banked for the next event to spend.
     *carry -= whole;
     steps
+}
+
+/// The `/EmbeddedFiles` keys of the rows carrying one of §12.3.6's pictures of an attachment.
+///
+/// In the order the panel draws them, which is what `Sidebar::visible_previews` indexes into:
+/// `viewer_host::panel::Picture` says which rows have one, and `RowAction::Extract` carries the
+/// key `Query::AttachmentPreview` names a file by.
+fn preview_keys(rows: &[viewer_host::PanelRow], out: &mut Vec<String>) {
+    for row in rows {
+        if row
+            .picture
+            .is_some_and(viewer_host::panel::Picture::wants_the_files_own_picture)
+            && let viewer_host::RowAction::Extract { name } = &row.action
+        {
+            out.push(name.clone());
+        }
+        preview_keys(&row.children, out);
+    }
 }
 
 #[cfg(test)]

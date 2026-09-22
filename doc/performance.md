@@ -261,6 +261,57 @@ rounds of misreading, both found in the five-hundred-and-fifty-second session (A
 the graphics device's own timestamps — is **0.07 %** of a zoom frame of that document. A viewer whose
 slow frame is 99.9 % host thread has no lever on the device at all.
 
+### 3e. What a whole *frame* costs, stage by stage, and the lane that decides the answer
+
+**A zoom step is not the frame a person meets most often**, and until session 1211 nothing here
+measured the one that is. `crates/render-raster/examples/frame_budget.rs` does —
+`tools/state.sh frame` runs it — and it reports three rows per page: the page **turned to**
+(interpreted, then drawn on a device that has already drawn another document's page), the same
+frame asked for again, and the page placed at **twice the magnification**. Three page classes,
+because the answer is a different stage for each: a dense text page, a page of §8.7.4.5.7 patch
+meshes, and a page that is one five-megapixel photograph.
+
+Two things about the instrument are worth more than the numbers it prints, and both were mistakes
+this round made before it made the measurement (ADR 1260):
+
+- **A page turn and a zoom step are drawn by two different rasterisers of raster's.** `lane_for`
+  gives a moved view `Coverage::Compute` and everything else the lane its magnification picks,
+  which below 10× is `Coverage::Cpu`. A budget for one taken on the other is a budget for a
+  configuration nobody runs — `doc/todo/47`'s own correction, in the other direction.
+- **Interpretation must be timed against the font cache a page turn has.** `viewer-core` keeps one
+  `FontCache` per open document; an instrument that builds a fresh one per page measures §9.6's
+  font loading as though every page paid it. On ISO 32000-2's page 101 that is 12.45 ms against
+  **1.37**, in the stage the question was about.
+
+The figures, on the 890M through RADV, into a 1 600 × 1 000 window, minimum of five rounds each on
+a device of its own, load average 2.7 — milliseconds, and the share is of one 120 Hz refresh
+(8.333 ms). `budget` excludes the readback, which this example pays and a window does not:
+
+| page | row | budget | interp | scene | encode | transfer | elsewhere | execute |
+|---|---|---|---|---|---|---|---|---|
+| ISO 32000-2 p101, text, 3 007 commands | turn | 9.25 (111%) | 1.37 | 0.44 | **6.38** | 0.22 | 0.52 | 0.32 |
+| | warm | 0.35 (4%) | — | — | 0.00 | 0.02 | 0.25 | 0.08 |
+| | step | 1.47 (18%) | — | — | 0.22 | 0.11 | 1.03 | 0.11 |
+| `personwithdog.pdf` p1, patch meshes | turn | 10.75 (129%) | 3.69 | 2.73 | 1.48 | 0.55 | 1.95 | 0.35 |
+| | warm | 0.86 (10%) | — | — | 0.00 | 0.04 | 0.61 | 0.21 |
+| | step | 11.18 (134%) | — | **3.98** | 4.21 | 0.54 | 2.06 | 0.39 |
+| `issue12841_reduced.pdf` p1, one photograph | turn | 131.58 (1579%) | **78.68** | 0.01 | 0.01 | **51.49** | 1.20 | 0.19 |
+| | warm | 0.24 (3%) | — | — | 0.00 | 0.00 | 0.15 | 0.08 |
+| | step | 11.14 (134%) | — | 0.00 | 0.01 | **8.23** | 2.72 | 0.18 |
+
+**A repaint of what is on the screen always fits**; **a page turn onto a page whose outlines the
+device has not seen fits on none of the three** — the expensive end of that gesture, where
+`launch_path`'s `turn_ms` inside one already-drawn document is the cheap end; and
+**`execute` — the device's own passes — is 1% to 5% of every row**, which is ADR 0387's 0.07% on
+one page found again across three classes. A frame that misses the refresh is a host thread, every
+time.
+
+**And one of those rows moved in the same session.** The mesh page's zoom step spent 8.22 ms in
+this crate's scene walk; `MeshRaster`'s rows are now divided across rayon's pool and it spends
+3.98. The division is byte-identical by construction — a mesh is point-sampled, so a band is not a
+boundary in the arithmetic the way ADR 0138's strips were — and it is held to that by a calibrated
+test. ADR 1259 has the A/B and the floor's derivation.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

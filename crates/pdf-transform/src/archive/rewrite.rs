@@ -23,9 +23,9 @@ use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
 use super::jpeg2000::Specifications;
 use super::prepare::{
-    Amended, Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, ForbiddenAnnotations, Fresh,
-    Headers, HiddenAnnotations, Intent, Metadata, Prepared, Respelled, SchemasDescribed,
-    intent_dictionary, metadata_stream, output_intent_entries,
+    Amended, Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, FieldAppearances,
+    ForbiddenAnnotations, Fresh, Headers, HiddenAnnotations, Intent, Metadata, Prepared, Respelled,
+    SchemasDescribed, intent_dictionary, metadata_stream, output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -525,6 +525,77 @@ pub enum Rewrite {
     /// regenerate. The two are one clause and this half is the half whose answer the standard
     /// prints.
     NeedsRendering,
+    /// The interactive form dictionary's `/NeedAppearances` is removed.
+    ///
+    /// ISO 19005-2 section 6.4.1 and ISO 19005-4 section 6.4.1 require the flag to be absent or
+    /// false, and §12.7.3's Table 224 states the condition a writer may say so under:
+    ///
+    /// > A PDF writer shall include this key, with a value of true , if it has not provided
+    /// > appearance streams for all visible widget annotations present in the document.
+    ///
+    /// So the removal is a *claim about the file*, and [`Self::WidgetAppearance`] beside it is
+    /// what makes the claim true: every visible widget the file provides no normal appearance for
+    /// is given one first, and a widget whose appearance could not be built leaves this rewrite
+    /// refused rather than clearing a flag the file would then be lying with (`doc/adr/1257`).
+    ///
+    /// **A widget whose `/AP` already states an `/N` is left exactly as its producer wrote it.**
+    /// §12.7.2 makes the consistency of a stated appearance with its field's value the producer's
+    /// obligation, and the file kept it; rebuilding such a stream would replace a producer's marks
+    /// with this program's for no requirement at all (`doc/adr/0816`'s fence, and
+    /// `doc/adr/0947`'s rule that nothing is changed no failed requirement asked for).
+    ///
+    /// **The other answer is the operator's**: `construct = false` clears the flag and constructs
+    /// nothing, so a field whose appearance the producer never wrote is blank in the archive. That
+    /// is what [`super::Loss::FieldAppearances`] is authorised for; with `construct = true` there
+    /// is nothing to authorise and the decision is a statement instead.
+    NeedAppearancesCleared,
+    /// Every visible widget the file provides no normal appearance for gains one.
+    ///
+    /// The construction is `pdf_model::appearance`'s, which is §12.7.4.3's — the clause that
+    /// states it is the one Table 224's flag points at, and the marks come from the widget's own
+    /// `/MK` characteristics and its field's value. A button field's widget is never given one:
+    /// §12.7.5.2.3 makes its `/N` a subdictionary of one appearance per state, and one stream
+    /// written there would replace a set of states with a picture.
+    ///
+    /// **Not [`Self::AppearanceDictionary`]**, although both write an `/AP` `/N`. That one answers
+    /// ISO 19005's own section 6.3.3 over the annotations with no appearance dictionary at all;
+    /// this answers §12.7.3's Table 224 over the widgets a *flag* asks a processor to draw, and the
+    /// preparation passes the first population to the second so a widget in both is written once.
+    WidgetAppearance,
+    /// The interactive form dictionary's `/XFA` is removed.
+    ///
+    /// ISO 19005-2 section 6.4.2 and ISO 19005-4 section 6.4.2 forbid the key and offer nothing to
+    /// put in its place. What makes the removal something other than deleting the form is §K.2's
+    /// own consistency requirement, of a file that states the key at all:
+    ///
+    /// > The other entries in the interactive form dictionary shall be consistent with the
+    /// > information in the XFA resource.
+    ///
+    /// > PDF interactive form field objects shall be present for each field specified in the XFA
+    /// > resource. The XFA field values shall be consistent with the corresponding V entries of
+    /// > the PDF field objects.
+    ///
+    /// So in a conforming file the `AcroForm` *is* the form, field for field and value for value,
+    /// and what goes with the key is the calculations, validations and formatting the template
+    /// carried — [`super::Loss::XfaForm`]. A document whose own `/NeedsRendering` says its pages
+    /// are regenerated is the case where that reading does not hold, and `doc/adr/1257` refuses it
+    /// unless the operator answers `dynamic` otherwise.
+    XfaRemoved,
+    /// Every file specification whose embedded file the target does not admit is taken out of the
+    /// `/EmbeddedFiles` name tree and out of every `/AF` array that named it.
+    ///
+    /// ISO 19005-2 section 6.8 requires an embedded file to conform to a part of ISO 19005 and
+    /// ISO 19005-4 section 6.9 requires the same of a plain PDF/A-4 file; neither offers anywhere
+    /// to put one that does not, so the only rewrite that meets either removes it —
+    /// [`super::Loss::EmbeddedFile`].
+    ///
+    /// **The references are what go, and nothing hunts for the object** (`doc/adr/1099`'s rule).
+    /// The walk copies what the converted document reaches, so a specification nothing names is
+    /// one the output does not hold, and the embedded file stream under it goes with it. Both
+    /// entries are removed rather than one: §7.7.4's Table 31 requires every file specification a
+    /// `/EmbeddedFiles` name tree references to state an `/EF` holding an embedded file stream, so
+    /// a tree entry left behind would be a defect this conversion wrote.
+    EmbeddedFileRemoved,
     /// Every symbolic TrueType font that states an `/Encoding` loses it, where no code it could
     /// show reaches a different glyph without it.
     ///
@@ -942,6 +1013,27 @@ impl Rewrite {
                 "an XMP packet header loses the deprecated bytes or encoding attribute, leaving \
                  every other byte of the packet as its producer wrote it"
             }
+            Self::NeedAppearancesCleared => {
+                "the interactive form dictionary's NeedAppearances goes, so no reader is asked to \
+                 rebuild the form's appearances; every visible widget the file provided none for \
+                 has one written first, which is what makes the file's new claim true"
+            }
+            Self::WidgetAppearance => {
+                "a visible widget the file provides no normal appearance for is given an /AP \
+                 whose /N names a form XObject built from its own characteristics and its \
+                 field's value, by the construction ISO 32000-2 \u{a7}12.7.4.3 states"
+            }
+            Self::EmbeddedFileRemoved => {
+                "a file specification whose embedded file this target does not admit is taken \
+                 out of the EmbeddedFiles name tree and out of every AF array naming it, so \
+                 nothing in the output reaches the file and the bytes are not carried"
+            }
+            Self::XfaRemoved => {
+                "the interactive form dictionary's XFA goes, and with it the calculations, \
+                 validations and formatting the template carried; the fields and their values \
+                 stay, because ISO 32000-2 Annex K requires the AcroForm to agree with the \
+                 resource that is being removed"
+            }
             Self::NeedsRendering => {
                 "the catalog's NeedsRendering goes, which ISO 32000-2 deprecates and whose \
                  absence states the false its own table gives as the default"
@@ -1086,6 +1178,10 @@ impl Rewrite {
             Self::CidToGidIdentity => "cid-to-gid-identity",
             Self::PacketHeaderAttributes => "packet-header-attributes",
             Self::NeedsRendering => "needs-rendering",
+            Self::NeedAppearancesCleared => "need-appearances-cleared",
+            Self::WidgetAppearance => "widget-appearance",
+            Self::XfaRemoved => "xfa-removed",
+            Self::EmbeddedFileRemoved => "embedded-file-removed",
             Self::SymbolicTrueTypeEncodingRemoved => "symbolic-truetype-encoding-removed",
             Self::StandardTrueTypeEncoding => "standard-truetype-encoding",
             Self::SharedDestinationProfile => "shared-destination-profile",
@@ -1157,6 +1253,10 @@ pub(super) fn convert(
         hidden_annotations: prepared.hidden_annotations.as_ref().ok(),
         extra_appearance_states: prepared.extra_appearance_states.as_ref().ok(),
         automatic_states: prepared.automatic_states.as_ref().ok(),
+        form: prepared.form.as_ref().ok().copied(),
+        xfa: prepared.xfa.as_ref().ok().copied(),
+        field_appearances: prepared.field_appearances.as_ref().ok(),
+        embedded_files: prepared.embedded_files.as_ref().ok(),
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
         rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
@@ -1929,6 +2029,14 @@ struct Rewriter<'a> {
     extra_appearance_states: Option<&'a ExtraAppearanceStates>,
     /// The optional content configurations losing their `/AS`, where any are.
     automatic_states: Option<&'a sites::AutomaticStates>,
+    /// Where the interactive form dictionary is, where its `/NeedAppearances` is being cleared.
+    form: Option<Site>,
+    /// The same site, where its `/XFA` is being removed.
+    xfa: Option<Site>,
+    /// The appearance each widget's `/AP` `/N` is to name, where any are being constructed.
+    field_appearances: Option<&'a FieldAppearances>,
+    /// The file specifications whose embedded file goes, and the entries that named them.
+    embedded_files: Option<&'a sites::EmbeddedFiles>,
     /// The `/FontFile` entry each font descriptor is to gain, where any are being embedded.
     substitutes: Option<&'a Substitutes>,
     /// The font program stream to write in place of each one being restated.
@@ -2114,6 +2222,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::AppearanceDictionary);
             changed = true;
         }
+        changed |= self.interactive_edits(id, &mut out, applied);
         if self.wants(Rewrite::SubstituteFontProgram)
             && let Some(embedding) = self
                 .substitutes
@@ -3339,6 +3448,213 @@ impl Rewriter<'_> {
                 catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
                 changed = true;
             }
+        }
+        changed |= self.forget_embedded_files(None, catalog, applied);
+        // §12.7.3 puts the form dictionary where the catalog's `/AcroForm` names it, and a
+        // producer may write it directly: the two section 6.4 removals edit whatever this catalog
+        // now holds, after the append-only clear above, so a document needing both gets one
+        // dictionary with both done to it.
+        if let Some(Object::Dictionary(form)) = catalog.get("AcroForm") {
+            let mut form = form.clone();
+            if self.edit_interactive_form(Site::InCatalog, &mut form, applied) {
+                catalog.insert(Name::new(&b"AcroForm"[..]), Object::Dictionary(form));
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9, at whichever entry names the file.
+    ///
+    /// `at` is the object being rewritten, or `None` for the catalog's own dictionary: the
+    /// catalog may state its `/AF` array directly, and a removal that only edited objects would
+    /// leave that one standing.
+    fn forget_embedded_files(
+        &self,
+        at: Option<ObjectId>,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::EmbeddedFileRemoved) {
+            return false;
+        }
+        let Some(removed) = self.embedded_files else {
+            return false;
+        };
+        let mut changed = false;
+        let holds_a_name = match at {
+            Some(id) => removed.named_by.contains(&id),
+            None => removed.named_in_catalog,
+        };
+        if holds_a_name {
+            changed |= Self::prune_name_tree(out, &removed.at, 0, applied);
+        }
+        let associated = match at {
+            Some(id) => removed.associated_by.contains(&id),
+            None => removed.associated_in_catalog,
+        };
+        if associated && let Some(files) = self.document.get_key(out, "AF").as_array() {
+            let kept: Vec<Object> = files
+                .iter()
+                .filter(|entry| {
+                    entry
+                        .as_reference()
+                        .is_none_or(|id| !removed.at.contains(&id))
+                })
+                .cloned()
+                .collect();
+            // §14.13.2 makes `/AF` an array of associated files; one with nothing left in it
+            // says the object has none, which is what an absent entry says, so the entry goes
+            // rather than staying as an empty array.
+            if kept.is_empty() {
+                out.remove("AF");
+            } else {
+                out.insert(Name::new(&b"AF"[..]), Object::Array(kept));
+            }
+            count(applied, Rewrite::EmbeddedFileRemoved);
+            changed = true;
+        }
+        changed
+    }
+
+    /// ISO 19005's three clause 6.4 and 6.8 edits, at whichever object each one's site names.
+    ///
+    /// One function rather than three branches in [`Self::rewrite_dictionary`], on
+    /// [`Self::owed_rewrites`]' reason: each is an edit at objects a preparation chose, and none
+    /// of them decides anything about the object it is handed.
+    fn interactive_edits(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self.wants(Rewrite::WidgetAppearance)
+            && let Some(stream) = self.field_appearances.and_then(|built| built.at.get(&id))
+        {
+            // The population is the widgets whose appearance dictionary states no `/N`, so an
+            // `/AP` the producer wrote is added to rather than replaced: §12.5.5's Table 170 makes
+            // `/R` and `/D` the rollover and down appearances, and a widget that states one of
+            // those and no normal one keeps it. (ISO 19005's own section 6.3.3 row is what then
+            // reduces the dictionary to `/N`, at the population it reported.)
+            let mut appearance = self
+                .document
+                .get_key(out, "AP")
+                .as_dict()
+                .cloned()
+                .unwrap_or_default();
+            appearance.insert(Name::new(&b"N"[..]), Object::Reference(*stream));
+            out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
+            count(applied, Rewrite::WidgetAppearance);
+            changed = true;
+        }
+        changed |= self.edit_interactive_form(Site::Object(id), out, applied);
+        changed |= self.forget_embedded_files(Some(id), out, applied);
+        changed
+    }
+
+    /// Takes every removed file out of the `/Names` arrays this dictionary reaches directly.
+    ///
+    /// §7.9.6 makes a leaf's `/Names` "an array of the form [ key1 value1 key2 value2 … keyn
+    /// valuen ]", so a removed specification takes the name beside it: an odd-length remainder
+    /// would be a tree no reader could read. The descent follows only entries written *directly*
+    /// inside this dictionary — a node that is an object of its own is reached by the walk, and
+    /// `super::sites::embedded_files` recorded it there.
+    fn prune_name_tree(
+        out: &mut Dictionary,
+        removed: &BTreeSet<ObjectId>,
+        depth: usize,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if depth >= sites::MAX_NAME_TREE_DEPTH {
+            return false;
+        }
+        let mut changed = false;
+        // §7.7.4's name dictionary states `/Names` as a *dictionary* of name trees, and §7.9.6's
+        // leaf states it as an array; the descent starts at the first and the pruning happens at
+        // the second, so one key is read two ways and which it is decides which.
+        if let Some(Object::Dictionary(mut names)) = out.get("Names").cloned()
+            && Self::prune_name_tree(&mut names, removed, depth.saturating_add(1), applied)
+        {
+            out.insert(Name::new(&b"Names"[..]), Object::Dictionary(names));
+            changed = true;
+        }
+        if let Some(Object::Array(names)) = out.get("Names") {
+            let kept: Vec<Object> = names
+                .chunks(2)
+                .filter(|pair| {
+                    pair.get(1)
+                        .and_then(Object::as_reference)
+                        .is_none_or(|id| !removed.contains(&id))
+                })
+                .flat_map(<[Object]>::to_vec)
+                .collect();
+            if kept.len() != names.len() {
+                out.insert(Name::new(&b"Names"[..]), Object::Array(kept));
+                count(applied, Rewrite::EmbeddedFileRemoved);
+                changed = true;
+            }
+        }
+        for key in ["EmbeddedFiles", "Kids"] {
+            match out.get(key).cloned() {
+                Some(Object::Dictionary(mut node)) => {
+                    if Self::prune_name_tree(&mut node, removed, depth.saturating_add(1), applied) {
+                        out.insert(Name::new(key.as_bytes()), Object::Dictionary(node));
+                        changed = true;
+                    }
+                }
+                Some(Object::Array(kids)) => {
+                    let mut written = Vec::with_capacity(kids.len());
+                    let mut any = false;
+                    for kid in kids {
+                        match kid {
+                            Object::Dictionary(mut node) => {
+                                any |= Self::prune_name_tree(
+                                    &mut node,
+                                    removed,
+                                    depth.saturating_add(1),
+                                    applied,
+                                );
+                                written.push(Object::Dictionary(node));
+                            }
+                            other => written.push(other),
+                        }
+                    }
+                    if any {
+                        out.insert(Name::new(key.as_bytes()), Object::Array(written));
+                        changed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        changed
+    }
+
+    /// ISO 19005-2 sections 6.4.1 and 6.4.2, in the form dictionary wherever §12.7.3 put it.
+    ///
+    /// One function for both keys because they are one dictionary and one preparation:
+    /// `super::sites::interactive_form` reads where it is once, and each removal is wanted or not
+    /// by its own requirement. The site is compared rather than the object hunted for, so a
+    /// dictionary that merely happens to hold a `/NeedAppearances` is untouched.
+    fn edit_interactive_form(
+        &self,
+        site: Site,
+        form: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self.wants(Rewrite::NeedAppearancesCleared)
+            && self.form == Some(site)
+            && form.remove("NeedAppearances").is_some()
+        {
+            count(applied, Rewrite::NeedAppearancesCleared);
+            changed = true;
+        }
+        if self.wants(Rewrite::XfaRemoved) && self.xfa == Some(site) && form.remove("XFA").is_some()
+        {
+            count(applied, Rewrite::XfaRemoved);
+            changed = true;
         }
         changed
     }

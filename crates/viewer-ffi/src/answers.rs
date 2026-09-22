@@ -659,6 +659,13 @@ pub struct Collection {
     /// *processor* can draw — "the first one it is capable of displaying" — and what a caller of
     /// this library can draw is the caller's own fact (ADR 1168).
     layouts: Vec<(crate::kinds::NavigatorKind, String)>,
+    /// Table 158's `/Direction` `N`: whether the whole window region is the file list's.
+    ///
+    /// One boolean and not the split dictionary, because one entry of it is addressed to a
+    /// processor and the rest are not: `N` says the window is not divided at all, which is a fact
+    /// about the document a caller cannot derive, while `H`, `V` and `/Position` state where a
+    /// splitter bar goes in an initial view this library draws nothing of (ADRs 1168, 1252).
+    whole_window: bool,
 }
 
 /// What [`Collection::column`] answers: the subtype, where its value lives, `/O`, `/V` and `/E`.
@@ -742,6 +749,7 @@ impl Collection {
             initial: (kind, name.to_owned()),
             columns,
             folders,
+            whole_window: viewer_host::panel::whole_window(collection),
             order,
             layouts: collection
                 .navigator
@@ -794,6 +802,23 @@ impl Collection {
     #[must_use]
     pub fn view(&self) -> crate::kinds::CollectionViewKind {
         self.view
+    }
+
+    /// Table 158's `/Direction` `N`: whether the file navigation view takes the whole window.
+    ///
+    /// §12.3.5.1, Table 158:
+    ///
+    /// > N indicates that the window is not split. The entire window region shall be dedicated to
+    /// > the file navigation view.
+    ///
+    /// The one entry of the collection split dictionary that is addressed to a processor rather
+    /// than describing a bar, and therefore the one that crosses under ADR 1168's property: a
+    /// caller cannot derive it, and the three windows in this tree obey it (ADR 1252). False
+    /// while Table 153's `/View` is `H`, because a view the document asked to hide is not one a
+    /// window is dedicated to.
+    #[must_use]
+    pub const fn whole_window(&self) -> bool {
+        self.whole_window
     }
 
     /// §12.3.5.1's outcome, and the `/EmbeddedFiles` key for [`crate::kinds::InitialKind::Embedded`].

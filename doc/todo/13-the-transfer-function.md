@@ -33,8 +33,10 @@ itself states.
 (ADR 0570): a mark the clause does not call fully opaque is never the object whose function it
 chooses, anywhere, so it is handed the page's default — which is a per-object rule, and the
 "rasteriser change" this file priced was a price for two things at once. That half is implemented
-and §11.7.5.2 is `partial`; **one thing is owed here now**, the overlap below, and the file stays
-for it.
+and §11.7.5.2 is `partial`. **The overlap below is closed too** — the channel carries every mark's
+function to the backends, which map the finished pixel once — and **two paints are owed here now**:
+a shading pattern's, whose ramp is still sampled under the function, and a tiling cell's, which is
+interpreted once and copied to every site. ADR 1255 designs the first and prices the second.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, how
@@ -342,6 +344,24 @@ pattern's cell — decide which marks the first sentence hands a function to.
    against `poppler` 2.96392, `hayro` 3.44317 and `ghostscript` 3.48165 — closer to the three that
    apply the function than before, because the image's samples are now resampled raw and mapped at
    the device pixel, which is where §11.7.5.3's NOTE puts the map.
+
+   **The channel's own shape was the mark's region until ADR 1255, and it is §11.6.4.2's now.**
+   `shape_of` painted every shape solid white, which is right for a path in a uniform colour and
+   wrong for the two objects the clause states apart: a shading, whose shape is "1.0 inside and 0.0
+   outside the bounds of the shading's painti ng geometry", and an image carrying an `/SMask`, whose
+   shape is the whole rectangle because §11.6.5.2's mask is opacity rather than one of the two masks
+   that sentence admits. The first occluded pixels it never painted and the second stopped occluding
+   pixels it covers, and both are a wrong *function* rather than a wrong colour. Two fixtures in
+   `tests/transfer_functions.rs` hold each against the clause's value. `SampleAlpha::Both` is the
+   one shape left unstated, which is ADR 1218's pair.
+
+   **What that unblocks is the first of the two paints, and ADR 1255 writes it out.** ADR 0479 put a
+   shading's function inside its colours because mapping a simplified ramp's two stops draws the
+   chord between the transferred ends; the channel maps the finished pixel and has no stops to
+   interpolate between, so the argument does not reach it, and what did block the move was a shape
+   that claimed the whole path. Two hunks in `content/pattern.rs` — `mark_transfer`'s
+   `PatternPaint::Shading` arm, and `sh`'s `Colouring` — would leave `Unsupported::TransferFunction`
+   about the tiling cell alone.
 
    **The build's pricing was corrected in the one-thousand-one-hundred-and-thirty-seventh session,
    and the "matching pass in all three backends" above is where it was wrong.** `render-raster` is

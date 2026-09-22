@@ -47,6 +47,16 @@ What has been built and measured against it:
 
 ## The revisit condition, stated once — and in the shipped lane's numbers
 
+**The condition is about *this* witness, and a second page now meets it for the opposite reason.**
+ADR 1260 measures a patch-mesh page's zoom step on the compute lane and finds `encode` the largest
+term of it — not because encode grew but because that page's kernels are small, which is what a
+condition written around the worst page cannot see. So the condition below stands as written, on
+Entwurf, and the encode question that is actually open is asked from the *other* lane: a page turn
+takes `Coverage::Cpu`, where a page seen for the first time spends most of a 120 Hz refresh in
+`encode` and a replay of the same frame spends none. `doc/QUORRA_FEEDBACK.md` §52 ask 1 is that
+question with the table under it, and `tools/state.sh frame` is what prints it.
+
+
 Take this item up only when encode is the largest term of the step **measured with
 `ZOOM_FRAME_COVERAGE=compute`** — which a successful kernel-floor round
 ([`46-the-kernel-floor.md`](46-the-kernel-floor.md), the flatten-from-quadratics idea, the

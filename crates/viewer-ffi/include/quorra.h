@@ -1292,6 +1292,19 @@ int32_t quorra_collection_folder_text(const quorra_collection *collection, size_
 int32_t quorra_collection_ordered(const quorra_collection *collection, size_t *count);
 int32_t quorra_collection_order_key(const quorra_collection *collection, size_t index, char *out,
                        size_t cap, size_t *needed);
+/* Table 158's /Direction N: whether the entire window region is the file navigation view's.
+ * Non-zero where the document asked for it, zero otherwise — including where /View is H, since a
+ * view the document asked to hide is not one a window is dedicated to. The rest of the split
+ * dictionary does not cross: H, V and /Position place a splitter bar in an initial view this
+ * library draws nothing of (ADRs 1168, 1252). */
+int32_t quorra_collection_whole_window(const quorra_collection *collection, uint32_t *whole);
+/* §12.3.6's preview picture for one attachment, by its /EmbeddedFiles key: that file's own first
+ * page's §12.3.4 /Thumb, which is the one picture of a document's page the standard defines. The
+ * same handle quorra_thumbnail_read produces, so quorra_thumbnail_info, _copy and _free serve
+ * both. QUORRA_NO_ANSWER where the tree holds no such key, and where the attachment states no
+ * /Thumb — which is most attachments (ADR 1251). */
+int32_t quorra_attachment_preview_read(const quorra_viewer *viewer, const char *name,
+                       quorra_thumbnail **thumbnail);
 /* §12.3.6's navigator: how many named layouts it states, and each in the document's own order of
  * preference. Zero layouts is a collection stating no /Navigator. */
 int32_t quorra_collection_layouts(const quorra_collection *collection, size_t *count);

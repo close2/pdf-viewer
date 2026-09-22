@@ -41,6 +41,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTimer>
@@ -205,6 +206,52 @@ void PanelModel::setRows(const rust::Vec<QtRow>& rows)
     endResetModel();
 }
 
+void PanelModel::setHost(const Host* host)
+{
+    host_ = host;
+}
+
+// ISO 32000-2 §12.3.6's picture for one row. The attachment's own first page's §12.3.4 `/Thumb`
+// where the layout asks for a thumbnail or a preview and the file states one — "an image that
+// shall be used as a thumbnail image representing the page", which is the picture that file's
+// producer wrote — and the icon theme's picture for the kind otherwise, which is also what Table
+// 153's `/View T` asks for outright. ADR 1251.
+QPixmap PanelModel::pictureFor(const QtRow& row) const
+{
+    const QString key = text(row.key);
+    if (row.picture >= 2 && host_ != nullptr && !key.isEmpty()) {
+        const auto held = previews_.constFind(key);
+        if (held != previews_.constEnd()) {
+            if (!held.value().isNull()) {
+                return held.value();
+            }
+        } else {
+            const QByteArray utf8 = key.toUtf8();
+            const QtPage preview = host_->attachment_preview(
+                rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+            QPixmap picture;
+            if (preview.width > 0 && preview.height > 0) {
+                const QImage image(preview.pixels.data(), static_cast<int>(preview.width),
+                                   static_cast<int>(preview.height),
+                                   static_cast<int>(preview.width) * 4, QImage::Format_RGBA8888);
+                picture = QPixmap::fromImage(image.copy());
+            }
+            // A file with no picture is held as one, so the same embedded document is not opened
+            // again on the next paint; the bound is the bridge's, not a second number here.
+            if (previews_.size() >= static_cast<int>(host_->kept_miniatures())) {
+                previews_.clear();
+            }
+            previews_.insert(key, picture);
+            if (!picture.isNull()) {
+                return picture;
+            }
+        }
+    }
+    const QIcon icon = QIcon::fromTheme(text(row.icon));
+    const int side = row.picture >= 3 ? 128 : (row.picture == 2 ? 64 : 0);
+    return side > 0 ? icon.pixmap(side, side) : QPixmap();
+}
+
 const PanelModel::Node* PanelModel::nodeAt(const QModelIndex& index) const
 {
     const quintptr id = index.isValid() ? index.internalId() : 0;
@@ -234,6 +281,14 @@ QModelIndex PanelModel::indexOfFlatRow(int flat) const
         }
     }
     return {};
+}
+
+QString PanelModel::keyOfFlatRow(int flat) const
+{
+    if (flat < 0 || static_cast<std::size_t>(flat) >= rows_.size()) {
+        return {};
+    }
+    return text(rows_[static_cast<std::size_t>(flat)].key);
 }
 
 QModelIndex PanelModel::index(int row, int column, const QModelIndex& parent) const
@@ -305,11 +360,26 @@ QVariant PanelModel::data(const QModelIndex& index, int role) const
         const std::size_t cell = static_cast<std::size_t>(index.column() - 1);
         return cell < row.values.size() ? text(row.values[cell]) : QVariant{};
     }
-    // Table 153's `/View T`: "each file in the collection denoted by a small icon". The name is
-    // `viewer_host::panel::Icon::theme_name`'s and the picture is the running theme's, because the
-    // clause states no artwork at all. ADR 1215.
-    if (role == Qt::DecorationRole && index.column() == 0 && !row.icon.empty()) {
+    // Table 153's `/View T`: "each file in the collection denoted by a small icon", and §12.3.6's
+    // three further layouts, which are built out of thumbnails and previews of the attachments
+    // themselves. The icon's name is `viewer_host::panel::Icon::theme_name`'s and its picture is
+    // the running theme's, because the clause states no artwork at all. ADRs 1215, 1251.
+    if (role == Qt::DecorationRole && index.column() == 0 && row.picture > 0) {
+        if (row.picture == 1) {
+            return QIcon::fromTheme(text(row.icon));
+        }
+        const QPixmap picture = pictureFor(row);
+        if (!picture.isNull()) {
+            return picture;
+        }
         return QIcon::fromTheme(text(row.icon));
+    }
+    // §12.3.6's thumbnails and previews are pictures rather than icons, so the row is as tall as
+    // the picture asks. The sizes are this toolkit's ink: the clause says "thumbnails" and "a
+    // large size preview" and states no measurement. ADR 1251.
+    if (role == Qt::SizeHintRole && row.picture >= 2) {
+        const int side = row.picture >= 3 ? 128 : 64;
+        return QSize(side, side + 4);
     }
     // §8.11.4.3's switch is a *role* here and a widget in the other host. Qt puts the check box
     // in the model; GTK4's list view puts a `GtkCheckButton` in the row. ADR 0246.
@@ -817,6 +887,7 @@ MainWindow::MainWindow(rust::Box<Host> host)
     // toolkits agree about a problem.
     tabs_->setTabPosition(QTabWidget::West);
     const unsigned char pages = host_->pages_panel();
+    filesPanel_ = host_->files_panel();
     for (unsigned char which = 0;; ++which) {
         const QString label = text(host_->panel_label(which));
         if (label.isEmpty()) {
@@ -829,16 +900,28 @@ MainWindow::MainWindow(rust::Box<Host> host)
             tabs_->addTab(pageView_, label);
         } else {
             QTreeView* view = buildTree(which);
-            tabs_->addTab(view, label);
+            if (which == filesPanel_) {
+                // ISO 32000-2 §12.3.6's `FreeForm` is "thumbnails … displayed at a random
+                // location on the view", which a `QTreeView` is not — so §12.3.5's panel is two
+                // widgets over one model, and `rebuildPanels` picks the one the document asked
+                // for. ADR 1251.
+                filesStack_ = new QStackedWidget;
+                filesStack_->addWidget(view);
+                scatterView_ = buildScatter(which);
+                filesStack_->addWidget(scatterView_);
+                tabs_->addTab(filesStack_, label);
+            } else {
+                tabs_->addTab(view, label);
+            }
         }
     }
 
-    auto* split = new QSplitter(Qt::Horizontal);
-    split->addWidget(tabs_);
-    split->addWidget(page_);
-    split->setStretchFactor(1, 1);
-    split->setSizes({380, 620});
-    setCentralWidget(split);
+    split_ = new QSplitter(Qt::Horizontal);
+    split_->addWidget(tabs_);
+    split_->addWidget(page_);
+    split_->setStretchFactor(1, 1);
+    split_->setSizes({380, 620});
+    setCentralWidget(split_);
 
     status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     statusBar()->addWidget(status_, 1);
@@ -947,6 +1030,46 @@ QTreeView* MainWindow::buildTree(unsigned char which)
         }
         Busy guard(busy_);
         host_->toggle_row(which, static_cast<std::size_t>(flat), on);
+        applyUpdates();
+    });
+    return view;
+}
+
+// ISO 32000-2 §12.3.6's `FreeForm`:
+//
+//   The FreeForm layout provides a simple layout, in which thumbnails for each item in the
+//   collection contents are displayed at a random location on the view.
+//
+// A `QListView` in icon mode with free movement is the one Qt view whose item positions a program
+// may set, which is what makes this the clause's layout rather than a grid standing in for it. The
+// places themselves are `viewer_host::panel::scattered`'s, so a person moving between the three
+// windows finds the same file in the same spot. ADR 1251.
+// How much room §12.3.6's `FreeForm` scatters its thumbnails over, in logical pixels.
+//
+// Ink rather than a reading: the clause asks for "a random location on the view" and states no
+// extent. Six hundred is wider than the panel, so the scatter is a scatter and the view scrolls to
+// the rest. ADR 1251.
+constexpr float kScatterRoom = 600.0F;
+
+ScatterView* MainWindow::buildScatter(unsigned char which)
+{
+    auto* view = new ScatterView;
+    view->setViewMode(QListView::IconMode);
+    view->setMovement(QListView::Free);
+    view->setResizeMode(QListView::Fixed);
+    view->setWordWrap(true);
+    view->setIconSize(QSize(64, 64));
+    view->setModel(models_[which]);
+    connect(view, &QListView::clicked, this, [this, which](const QModelIndex& index) {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        PanelModel* model = models_[which];
+        const int flat = model == nullptr ? -1 : model->flatRow(index);
+        if (flat >= 0) {
+            host_->activate_row(which, static_cast<std::size_t>(flat));
+        }
         applyUpdates();
     });
     return view;
@@ -1640,6 +1763,9 @@ void MainWindow::rebuildPanels()
             continue;
         }
         const rust::Vec<QtRow> rows = host_->rows(static_cast<unsigned char>(which));
+        if (which == static_cast<std::size_t>(filesPanel_)) {
+            models_[which]->setHost(host_.operator->());
+        }
         models_[which]->setRows(rows);
         // §12.3.3 gives an outline item's `/Count` a sign for it — "[i]f the outline item is open,
         // Count is the sum of the number of visible descendent outline items" — so a tree that
@@ -1663,6 +1789,7 @@ void MainWindow::rebuildPanels()
         pages = static_cast<int>(host_->page_count());
         pageModel_->setCount(pages);
     }
+    arrangeTheCollection();
     const QString said = QStringLiteral("%1 tree row(s) into %2 model(s) and %3 page row(s) in %4 µs")
                              .arg(built)
                              .arg(models_.size())
@@ -1670,6 +1797,53 @@ void MainWindow::rebuildPanels()
                              .arg(clock.nsecsElapsed() / 1000);
     const QByteArray utf8 = said.toUtf8();
     host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+}
+
+// ISO 32000-2 §12.3.6's `FreeForm` and Table 158's `/Direction` `N`: the two things about a
+// collection's presentation that are a *widget* rather than a row.
+//
+// The scatter is chosen over the tree where the document asked for it and each thumbnail is put
+// where `viewer_host::panel::scattered` says. `N` — "[t]he entire window region shall be dedicated
+// to the file navigation view" — hides the page's half of the splitter and opens the files panel,
+// and both are put back for a document that asks for anything else, so nothing survives a second
+// file. ADRs 1251, 1252.
+void MainWindow::arrangeTheCollection()
+{
+    const std::size_t which = static_cast<std::size_t>(filesPanel_);
+    if (filesStack_ == nullptr || which >= models_.size() || models_[which] == nullptr) {
+        return;
+    }
+    PanelModel* model = models_[which];
+    const bool scatters = host_->collection_scatters();
+    filesStack_->setCurrentIndex(scatters ? 1 : 0);
+    if (scatters && scatterView_ != nullptr) {
+        const int rows = model->rowCount(QModelIndex());
+        for (int row = 0; row < rows; ++row) {
+            const QModelIndex index = model->index(row, 0, QModelIndex());
+            const int flat = model->flatRow(index);
+            if (flat < 0) {
+                continue;
+            }
+            const QString key = model->keyOfFlatRow(flat);
+            if (key.isEmpty()) {
+                continue;
+            }
+            const QByteArray utf8 = key.toUtf8();
+            const QtScatter place = host_->scatter_place(
+                rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+            scatterView_->place(QPoint(static_cast<int>(place.across * kScatterRoom),
+                                       static_cast<int>(place.down * kScatterRoom)),
+                                index);
+        }
+    }
+    const bool whole = host_->collection_takes_the_window();
+    if (page_ != nullptr) {
+        page_->setVisible(!whole);
+    }
+    if (whole) {
+        tabs_->setVisible(true);
+        tabs_->setCurrentIndex(static_cast<int>(filesPanel_));
+    }
 }
 
 void MainWindow::rebuildControls()

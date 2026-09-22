@@ -1204,6 +1204,30 @@ impl Session {
         }
     }
 
+    /// §12.3.6's preview picture for one of §12.3.5's attachments, by its `/EmbeddedFiles` key.
+    ///
+    /// Three of Table 160's named layouts are built out of pictures of the *attachments* — a strip
+    /// of thumbnails, thumbnails scattered over the view, a large preview beside the metadata —
+    /// and the standard says what a picture of a document's page is in one place, §12.3.4's
+    /// `/Thumb`. So this opens the named attachment and answers its **first page's** `/Thumb`: the
+    /// miniature that file's own producer wrote (ADR 1251).
+    ///
+    /// The same [`Miniature`] a page's thumbnail comes back as, so `quorra_thumbnail_info`,
+    /// `quorra_thumbnail_copy` and `quorra_thumbnail_free` serve both and a caller learns one
+    /// idiom.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, where the tree holds no such key, and
+    /// where the attachment is not a PDF or its first page states no `/Thumb` — which is most
+    /// attachments, and is a document being quiet rather than a failure.
+    pub fn attachment_preview(&self, name: &str) -> Result<Miniature, Status> {
+        match self.viewer.query(Query::AttachmentPreview(name)) {
+            Answer::Thumbnail(thumbnail) => Ok(Miniature::new(thumbnail)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
     /// How many pages on the screen have a readback shortfall to report.
     ///
     /// [`Self::reported_pages`]'s counterpart, and one entry per page for the same reason: a

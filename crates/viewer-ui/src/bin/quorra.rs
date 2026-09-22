@@ -358,6 +358,7 @@ fn main() {
         // No viewport until the window exists. The core renders nothing into one with no
         // extent, which is exactly right: there is nothing to render into yet.
         viewer: Viewer::new(0, 0, 1.0),
+        previews: viewer_host::panel::Previews::new(),
         title: path.to_string_lossy().into_owned(),
         path: PathBuf::from(&path),
         embedded: None,

@@ -43,7 +43,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use pdf_render::{Command, Corners, Paint, Ramp, Shading, ShadingKind, Transform};
+use pdf_render::{Command, Corners, Paint, Ramp, Rasterizer, Shading, ShadingKind, Transform};
 use pdf_syntax::Document;
 
 /// One eight-bit level, which is the resolution every colour below is finally drawn at.
@@ -890,5 +890,127 @@ fn a_default_halftone_takes_its_override_off_and_leaves_the_transfer_function() 
     assert!(
         (halftone_only.r - 0.5).abs() < LEVEL,
         "the halftone's function survives /TR /Identity: {halftone_only:?}"
+    );
+}
+
+/// The page rendered at one pixel per unit, as straight-alpha RGBA8.
+///
+/// §11.7.5.3's NOTE puts §10.5's map after compositing, so the only place a fixture can read
+/// §11.7.5.2's answer is the finished raster.
+fn rendered(bytes: Vec<u8>) -> pdf_render::Raster {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let list = &interpretation.display_list;
+    let target = pdf_render::TargetSpec::for_page(list, 1.0, 1 << 20).expect("a 100 by 100 target");
+    render_cpu::CpuRasterizer::new()
+        .rasterize(list, target)
+        .expect("the fixture rasterises")
+}
+
+/// The RGB of one pixel of [`rendered`]'s raster.
+fn at(raster: &pdf_render::Raster, x: u32, y: u32) -> [u8; 3] {
+    let index = ((y * raster.width + x) * 4) as usize;
+    let bytes = &raster.data[index..index + 3];
+    [bytes[0], bytes[1], bytes[2]]
+}
+
+/// §11.7.5.2's topmost object is the topmost object with a *nonzero shape*, and a shading's
+/// shape is where it paints rather than the path it was painted through.
+///
+/// > The topmost object at any point shall be defined to be the topmost elementary object in
+/// > the entire page stack that has a nonzero object shape value ( f j) at that point (that is,
+/// > for which the point is inside the object).
+///
+/// §11.6.4.2 states that shape per kind of object, and for a shading it is not the path:
+///
+/// > For objects painted with the sh operator (8.7.4.2, "Shading operator"), the shape shall be
+/// > 1.0 inside and 0.0 outside the bounds of the shading's painti ng geometry, disregarding the
+/// > Background entry in the shading dictionary (see 8.7.4.3, "Shading dictionaries").
+///
+/// The fixture paints a white square under an inverting transfer, then fills the whole page
+/// again with a shading pattern whose axis runs from 0 to 50 and which does not extend. So the
+/// second mark covers the left half of the page and nothing on the right, and §11.7.5.2's
+/// topmost object is the shading on the left and the white square on the right. The expected
+/// values are the clause's:
+///
+/// - On the left the shading is fully opaque and carries no function, so the page's default
+///   applies — the identity on this device — and the pixel is the shading's own green.
+/// - On the right the white square is the topmost object and is fully opaque, so its function
+///   applies to the finished pixel: white inverted is black.
+///
+/// A shape taken from the *path* rather than from the shading would hand the right half the
+/// default as well and leave it white, which is the second assertion.
+#[test]
+fn a_shadings_shape_is_where_it_paints_and_not_the_path_it_was_painted_through() {
+    let page = rendered(fixture(
+        "/ExtGState << /G1 << /TR [INVERT INVERT INVERT INVERT] >> >> \
+         /Pattern << /P 5 0 R >>"
+            .replace("INVERT", INVERT)
+            .as_str(),
+        "q /G1 gs 1 1 1 rg 0 0 100 100 re f Q /Pattern cs /P scn 0 0 100 100 re f",
+        "5 0 obj\n<< /Type /Pattern /PatternType 2 /Shading << /ShadingType 2 \
+         /ColorSpace /DeviceRGB /Coords [0 0 50 0] /Extend [false false] \
+         /Function << /FunctionType 2 /Domain [0 1] /C0 [0 1 0] /C1 [0 1 0] /N 1 >> >> >>\n\
+         endobj\n",
+    ));
+
+    assert_eq!(
+        at(&page, 25, 50),
+        [0, 255, 0],
+        "where the shading paints it is the topmost object and carries no function"
+    );
+    assert_eq!(
+        at(&page, 75, 50),
+        [0, 0, 0],
+        "where it does not, the white square under it is the topmost object and its function \
+         maps the finished pixel"
+    );
+}
+
+/// §11.6.4.2 gives an image the whole of its rectangle for a shape, whatever its `/SMask` says.
+///
+/// > For images (8.9, "Images"), the shape shall be 1.0 inside the image rectangle and 0.0
+/// > outside it. This may be further modified by an explicit or colour key mask (8.9.6.3,
+/// > "Explicit masking" and 8.9.6.4, "Colour key masking").
+///
+/// An `/SMask` is in neither of the two the sentence admits — §11.6.5.2 makes it opacity — so an
+/// image carrying one covers its rectangle for §11.7.5.2's purposes even where it is wholly
+/// transparent, and the clause's fourth condition then makes it not fully opaque:
+///
+/// > If the object is an image XObject and there is not an SMask entry in its image dictionary.
+///
+/// So the whole rectangle takes the page's default function, which on this device is the
+/// identity. The fixture paints a white page under an inverting transfer and draws over all of
+/// it a two-sample image whose left sample is opaque red and whose right one is fully
+/// transparent. Both halves are inside the image, so neither is inverted: the left is the
+/// image's red and the right is the white underneath it, unmapped.
+///
+/// Reading the shape off the *samples* would leave the transparent half uncovered, hand it the
+/// white square's function and turn it black, which is the second assertion.
+#[test]
+fn an_images_shape_is_its_rectangle_although_its_soft_mask_empties_half_of_it() {
+    let page = rendered(fixture(
+        "/ExtGState << /G1 << /TR [INVERT INVERT INVERT INVERT] >> >> /XObject << /Im 5 0 R >>"
+            .replace("INVERT", INVERT)
+            .as_str(),
+        "q /G1 gs 1 1 1 rg 0 0 100 100 re f Q q 100 0 0 100 0 0 cm /Im Do Q",
+        "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 1 \
+         /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R \
+         /Filter /ASCIIHexDecode /Length 14 >>\nstream\nFF0000FFFFFF>\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 1 \
+         /ColorSpace /DeviceGray /BitsPerComponent 8 \
+         /Filter /ASCIIHexDecode /Length 6 >>\nstream\nFF00>\nendstream\nendobj\n",
+    ));
+
+    assert_eq!(
+        at(&page, 25, 50),
+        [255, 0, 0],
+        "the image's opaque half takes the page's default function, not the square's"
+    );
+    assert_eq!(
+        at(&page, 75, 50),
+        [255, 255, 255],
+        "and so does the half its soft mask empties, which is inside the rectangle all the same"
     );
 }

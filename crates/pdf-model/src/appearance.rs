@@ -4890,10 +4890,10 @@ impl Border {
         let entry = document.get_key(annotation, "Border");
         let border = entry.as_array().unwrap_or_default();
 
-        // Table 166: "If an annotation dictionary includes the BS entry, then the Border entry
-        // is ignored." §12.5.4 supplies the default width the two of them share. Errata
-        // Collection 3 makes it "shall be ignored" (Issue #287) — the same precedence, stated
-        // as a requirement.
+        // Table 166's NOTE states the precedence — "If an annotation dictionary includes the BS
+        // entry, then the Border entry is ignored." — and Errata Collection 3's Issue #287
+        // sharpens those words to *shall be ignored*, the same precedence stated as a
+        // requirement. §12.5.4 supplies the default width the two of them share.
         //
         // **The corner radii are part of what is ignored, and were read out of `/Border`
         // whatever `/BS` said until the four-hundred-and-fifty-eighth session.** They are the

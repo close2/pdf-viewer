@@ -496,11 +496,12 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["T-REC-X.690-2
 /// checkable.** It went on to give ours as ssim 0.98591 and 0.97906 against an exact form at
 /// 0.98772 and 0.98001, and those are the *quarter-quantised* raster's numbers: ADR 0476 made ours
 /// the exact form, so the two rows stopped being two things and neither figure survived the change
-/// the sentence above it announces. The gate prints, on this tree, `ours at worst … ssim 0.9879`
-/// against `bound … ssim 0.9886` for page 1 and `0.9802` against `0.9840` for page 2 — which is
-/// the exact form's place in the ranking and not the quantised one's, and ADR 0489 re-derived both
-/// closed forms independently and put ours 0.0000% of either page from the exact one. **The 33
-/// levels this paragraph used to call "ours" are paid.**
+/// the sentence above it announces. What this tree's raster actually scores against the bound on
+/// each of the two pages is the gate's own line to print rather than this note's to carry — the
+/// oracle run of `doc/todo/02` section 2 prints `ours at worst` beside `bound` for both — and what the
+/// figures said when they were last read is the exact form's place in the ranking and not the
+/// quantised one's: ADR 0489 re-derived both closed forms independently and put ours 0.0000% of
+/// either page from the exact one. **The 33 levels this paragraph used to call "ours" are paid.**
 ///
 /// The correction is `--bin overtaken`'s first finding (ADR 0491), and the reason the note could hold
 /// it for
@@ -1384,13 +1385,14 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// `hayro`'s 8 464-byte CGATS profile through the same evaluator gives **(25, 34, 44)**.
 ///
 /// It is not the rendering intent — Artifex's `A2B0` and `A2B1` point at the same 41 478 bytes —
-/// and `icc.rs` had already predicted it in prose, under `detect_black`: a colorimetric
-/// black point walked off the device range and Little CMS's perceptual one round-tripped through
-/// `B2A` "agree everywhere except in the darkest few percent". `0.82 0.7 0.54 0.67 k` is the
-/// darkest few percent, and the CGATS profile carries no `B2A` for the two constructions to
-/// disagree over. **So trap 9's sixth bullet is right about the region it was measured in and not
-/// about this one**: our evaluator on *either* press predicts all three renderers to eight levels
-/// on the sampled ramp, and on this one deep ink one of the two is eleven levels out. ADR 0510.
+/// it is which black point the two constructions find, and **that gap is closed**: the black
+/// point this tree compensates towards is ISO/CD 18619 (2013) section 4.2.3's, whose branch for
+/// an output-capable CMYK source takes the connection space's black through the profile's own
+/// "from CIE" table rather than walking its device corners. Artifex's profile carries such a
+/// table and the CGATS profile does not, which is the whole of why the one agreed and the other
+/// did not. `Profile::to_rgb` of that ink gives (26, 35, 46) through Artifex's press now against
+/// (25, 34, 45) through the CGATS one — one level where it was eleven — so trap 9's sixth bullet
+/// holds in this region as well as on the sampled ramp. ADRs 0510, 1253.
 ///
 /// # `function_based_shading_cmyk.pdf` page 2 left in the six-hundred-and-eighty-eighth session,
 /// and the mechanism is untouched
@@ -10681,7 +10683,36 @@ const AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG: [&str; 1] = ["issue19326.pd
 ///
 /// Neither page is a defect and both are §10.7.4's last sentence: a page that is nothing but text
 /// is a page of glyph edges, and where a renderer puts an edge is what the clause declines to say.
-const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 26] = [
+/// # And one that arrived with a specification rather than with a change
+///
+/// **`ICC-White-Paper-40-BPC.pdf` page 1** entered the pool the way `ICC.1-2022-05.pdf` and
+/// `T-REC-X.690-202102.pdf` did: `doc/*.pdf` is gitignored and this gate walks page one of every
+/// specification this project holds, so the round that fetched ISO 18619's committee draft and the
+/// two papers beside it grew the judged population by three pages. Two of them agree; this one is
+/// `ambiguous`, and no pixel of anything else moved to make it so.
+///
+/// It is a sheet of eight-point Arial with a small logo, and the references never form a consensus
+/// on it because `ghostscript` is heavy at the page's own scale. Four ladders, mean ink in levels
+/// of 255, ours at 1×, 4×, 8× and 16× against the three references at 72, 288, 576 and 1152 dpi:
+///
+/// ```text
+///                72 dpi      288       576      1152
+/// ours         16.0935   16.0951   16.0951   16.0938
+/// poppler      16.0543   16.0737   16.0921   16.0911
+/// mupdf        17.9175   16.3712   16.1004   15.9626
+/// ghostscript  17.1915   16.9852   16.6385   16.4070
+/// ```
+///
+/// **Ours is flat from its first rung and lands within 0.010 of `poppler`'s limit and 0.005 of
+/// `mupdf`'s at 576** — the three bracket 16.09 to 16.10 — while `ghostscript` is 1.10 of 255 heavy
+/// at 72 dpi and has still not converged at 1152, 0.31 above the other three. That is the same
+/// renderer doing the same thing as on `issue4665.pdf` and `bug911034.pdf` above, on a page with
+/// forty times the glyphs. Our own worst measures against the pool — mean 9.00, worst tile 41.24,
+/// 10.15% differing, ssim 0.8321 — are what a dense text page costs when one voter is heavy, and
+/// the nearest reference is 0.72 away while the furthest is 1.80: we are inside the spread, not
+/// outside it. §10.7.4's last sentence again.
+const AMBIGUOUS_GLYPH_SCAN_CONVERSION: [&str; 27] = [
+    "ICC-White-Paper-40-BPC.pdf page 1",
     "issue4665.pdf page 1",
     "bug911034.pdf page 1",
     "issue13193.pdf page 1",

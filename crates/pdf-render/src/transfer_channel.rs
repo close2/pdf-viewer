@@ -36,9 +36,9 @@
 //!   of consecutive marks painted under one function. Run numbers rise with painting order, so
 //!   the topmost mark covering a pixel is the one in the *highest* run covering it, and no
 //!   per-pixel ordering has to be carried.
-//! - Each run holds its marks as *shapes* — the same geometry, painted opaque white under Normal
-//!   with no mask — so a backend rasterises them through the machinery it already has and reads
-//!   §11.7.5.2's `f j` out of the alpha channel.
+//! - Each run holds its marks as *shapes* — §11.6.4.2's shape of each, opaque and under Normal
+//!   with no mask ([`shape_of`]) — so a backend rasterises them through the machinery it already
+//!   has and reads §11.7.5.2's `f j` out of the alpha channel.
 //!
 //! # What it costs where no file states a transfer
 //!
@@ -210,28 +210,45 @@ impl TransferBuilder {
 /// Opaque, Normal and unmasked on purpose. §11.6.4.4 makes a soft mask a contribution to *alpha*
 /// — shape is the object's own geometry — so a mark the clause hands the page's default because a
 /// mask is in force still has a shape, and still occludes what is under it. The clip stays,
-/// because §8.5.4's clip does bound the area an object covers; a [`Command::Image`] keeps its
-/// samples, whose alpha is the shape of a stencil mask (§8.9.6.4).
+/// because §8.5.4's clip does bound the area an object covers.
+///
+/// # Where the shape is not the whole of what the command covers
+///
+/// §11.6.4.2 states it per kind of object, and two of them are not the mark's own region:
+///
+/// > For objects painted with the sh operator (8.7.4.2, "Shading operator"), the shape shall be
+/// > 1.0 inside and 0.0 outside the bounds of the shading's painti ng geometry, disregarding the
+/// > Background entry in the shading dictionary (see 8.7.4.3, "Shading dictionaries").
+///
+/// so a path painted with a shading that does not cover it — an axial ramp that does not extend,
+/// a mesh's triangles, a sampled grid's cover — marks less than its path, and the shape is
+/// [`crate::Shading::opaque`] rather than a solid (§11.6.4.2's fourth bullet says the same of a
+/// pattern: "the shape shall be further constrained by the objects that define the pattern").
+///
+/// > For images (8.9, "Images"), the shape shall be 1.0 inside the image rectangle and 0.0
+/// > outside it.
+///
+/// so an image whose samples carry *opacity* — §11.6.5.2's `/SMask` — has the whole image
+/// rectangle for a shape, which is the unit square under the image's transform; one whose samples
+/// carry shape is its own shape, which is §8.9.6.2's stencil. A raster that multiplied the two
+/// before either was a command answers with the shape alone where its producer kept them apart,
+/// and with the product where it could not (ADR 1218) — the one residue here, and it is the same
+/// pair `pdf_model`'s knockout shape leaves.
 #[must_use]
 pub fn shape_of(command: &Command) -> Option<Command> {
-    let white = Paint::Solid(Color {
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-        a: 1.0,
-    });
     match command {
         Command::Fill {
             path,
             transform,
             fill_rule,
+            paint,
             clip,
             ..
         } => Some(Command::Fill {
             path: Arc::clone(path),
             transform: *transform,
             fill_rule: *fill_rule,
-            paint: white,
+            paint: opaque_paint(paint),
             clip: *clip,
             mask: None,
             blend: BlendMode::Normal,
@@ -240,13 +257,14 @@ pub fn shape_of(command: &Command) -> Option<Command> {
             path,
             transform,
             stroke,
+            paint,
             clip,
             ..
         } => Some(Command::Stroke {
             path: Arc::clone(path),
             transform: *transform,
             stroke: stroke.clone(),
-            paint: white,
+            paint: opaque_paint(paint),
             clip: *clip,
             mask: None,
             blend: BlendMode::Normal,
@@ -256,16 +274,79 @@ pub fn shape_of(command: &Command) -> Option<Command> {
             transform,
             clip,
             ..
-        } => Some(Command::Image {
-            image: image.clone(),
-            transform: *transform,
-            alpha: 1.0,
-            clip: *clip,
-            mask: None,
-            blend: BlendMode::Normal,
-        }),
+        } => Some(image_shape(image, *transform, *clip)),
         Command::Group { .. } | Command::Shaped { .. } => None,
     }
+}
+
+/// White, as [`shape_of`] paints a shape whose geometry is the mark's own.
+fn white() -> Paint {
+    Paint::Solid(Color {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    })
+}
+
+/// A paint that marks where its argument marks, at full opacity (§11.6.4.2).
+///
+/// A shading keeps its own geometry and loses its alpha; every other paint marks its whole path,
+/// so white stands for it. A paint of a kind this crate does not know marks its path as far as
+/// anything here can tell, which is the answer that occludes rather than the one that vanishes:
+/// §11.7.5.2 hands a point whose topmost object is not fully opaque the page's default, and a
+/// shape dropped from the channel would let an older function reach it instead.
+fn opaque_paint(paint: &Paint) -> Paint {
+    match paint {
+        Paint::Shading(shading) => Paint::Shading(if shading.is_opaque() {
+            Arc::clone(shading)
+        } else {
+            Arc::new(shading.opaque())
+        }),
+        _ => white(),
+    }
+}
+
+/// §11.6.4.2's shape of one image, as a command whose drawn alpha is that shape.
+///
+/// See [`shape_of`] for the clause's two sentences and for the pair that cannot be separated.
+fn image_shape(
+    image: &crate::ImageSource,
+    transform: crate::Transform,
+    clip: Option<crate::ClipId>,
+) -> Command {
+    let samples = |image: crate::ImageSource| Command::Image {
+        image,
+        transform,
+        alpha: 1.0,
+        clip,
+        mask: None,
+        blend: BlendMode::Normal,
+    };
+    match image.sample_alpha() {
+        crate::SampleAlpha::Shape => samples(image.clone()),
+        crate::SampleAlpha::Opacity => Command::Fill {
+            path: Arc::new(unit_square()),
+            transform,
+            fill_rule: crate::FillRule::NonZero,
+            paint: white(),
+            clip,
+            mask: None,
+            blend: BlendMode::Normal,
+        },
+        crate::SampleAlpha::Both => samples(image.shape().unwrap_or_else(|| image.clone())),
+    }
+}
+
+/// The unit square §8.9.4 maps an image's samples onto, as a path.
+fn unit_square() -> crate::Path {
+    let mut path = crate::Path::new();
+    path.push(crate::PathCommand::MoveTo(crate::Point::new(0.0, 0.0)));
+    path.push(crate::PathCommand::LineTo(crate::Point::new(1.0, 0.0)));
+    path.push(crate::PathCommand::LineTo(crate::Point::new(1.0, 1.0)));
+    path.push(crate::PathCommand::LineTo(crate::Point::new(0.0, 1.0)));
+    path.push(crate::PathCommand::Close);
+    path
 }
 
 /// Applies §11.7.5.2's chosen function to every pixel of a finished page.

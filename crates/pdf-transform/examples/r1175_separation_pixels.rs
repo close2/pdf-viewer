@@ -14,7 +14,7 @@ use std::path::Path;
 
 use pdf_archive::{Flavour, Target};
 use pdf_syntax::{Document, Limits};
-use pdf_transform::archive::{ArchivePlan, Authorisations, Configuration};
+use pdf_transform::archive::{ArchivePlan, Authorisations, Configuration, FormAnswers};
 use pdf_transform::tool::ToolOutputs;
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Source, apply};
 
@@ -41,6 +41,7 @@ fn convert(bytes: &[u8], target: Target, winner: &str) -> Option<Vec<u8>> {
             supplied_fonts: std::collections::BTreeMap::new(),
             departures: Vec::new(),
             claim_conformance: false,
+            forms: FormAnswers::default(),
             derivations: Vec::new(),
             supplies: config.supplies(target),
             preservations: Vec::new(),

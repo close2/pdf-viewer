@@ -169,7 +169,7 @@ fn paper_profile(white: [f32; 3], medium: Option<[f32; 3]>) -> Vec<u8> {
 ///
 /// Three grid points on one input axis. The two ends are the same in all three tables — D50's
 /// white at input 0.0 and a tenth of it at 1.0 — so every table describes the same device range
-/// and `Profile::detect_black` finds the same black for each; what differs is `mid`, the
+/// and `Profile::source_black_point` finds the same black for each; what differs is `mid`, the
 /// connection-space colour at input 0.5. That is the whole calibration: a test that probes the
 /// mid-tone is reading which table was selected and nothing else, because compensation, the
 /// white point and the darkest colour are identical whichever one it was.

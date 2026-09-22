@@ -1062,8 +1062,11 @@ fn a_collection_holding_no_files_says_so() {
 /// nothing about this one (trap 11):
 ///
 /// - a navigator naming a layout these rows *are* adds no sentence, whatever it names first;
-/// - one naming only layouts this panel cannot draw names them;
-/// - and Table 153's `/View T` is the same gap without a navigator.
+/// - one naming only layouts Table 160 does not define names them — which is what is left of this
+///   sentence since every name the table *does* define is drawn (ADR 1251), and the clause
+///   permits it: "[t]his mechanism is inherently extensible and allows inclusion of custom named
+///   layouts";
+/// - and Table 153's `/View T` is a presentation rather than a gap.
 #[test]
 fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_loud() {
     use pdf_model::collection::{Layout, Navigator, View};
@@ -1105,17 +1108,31 @@ fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_l
 
     let undrawable = panel(
         View::Navigator,
-        Some(vec![Layout::FilmStrip, Layout::Linear]),
+        Some(vec![
+            Layout::Custom("Carousel".to_owned()),
+            Layout::Custom("Mosaic".to_owned()),
+        ]),
     );
     assert_eq!(
         sentence(&undrawable),
         Some(
-            "This collection asks to be presented as FilmStrip or Linear, which this panel does \
-             not draw; its files are shown as a tree."
+            "This collection asks to be presented as Carousel or Mosaic, which Table 160 does \
+             not define and this panel does not draw; its files are shown as a tree."
                 .to_owned()
         ),
         "the report names what it matched: {undrawable:?}"
     );
+
+    // And the three §12.3.6 describes a surface for are selected rather than reported, which is
+    // the whole difference between a capability and a sentence about not having one (ADR 1251).
+    for named in [Layout::FilmStrip, Layout::FreeForm, Layout::Linear] {
+        let drawn = panel(View::Navigator, Some(vec![named.clone()]));
+        assert_eq!(
+            sentence(&drawn),
+            None,
+            "{named:?} is one of the presentations this panel draws: {drawn:?}"
+        );
+    }
 
     // Table 153's `/View T` is drawn since ADR 1215, so it is selected rather than reported —
     // which is the whole difference between a capability and a sentence about not having one.
@@ -1314,8 +1331,8 @@ fn table_153s_details_and_tile_views_are_two_presentations_of_one_collection() {
         "all of the visible schema, in /O order"
     );
     assert!(
-        detailed.iter().all(|row| row.icon.is_none()),
-        "the details view states no icon: {detailed:?}"
+        detailed.iter().all(|row| row.picture.is_none()),
+        "the details view states no picture: {detailed:?}"
     );
 
     let tile = rows_for("T");
@@ -1330,15 +1347,17 @@ fn table_153s_details_and_tile_views_are_two_presentations_of_one_collection() {
     // §12.3.5.2's tree rather than a file in it — both get one, and which picture is the
     // toolkit's.
     assert!(
-        tiled.iter().all(|row| row.icon.is_some()),
-        "every file is denoted by an icon: {tiled:?}"
+        tiled
+            .iter()
+            .all(|row| matches!(row.picture, Some(panel::Picture::Icon(_)))),
+        "every file is denoted by a small icon: {tiled:?}"
     );
     assert_eq!(
         flattened(&tile)
             .iter()
             .find(|row| row.label == "Chapters")
-            .and_then(|row| row.icon),
-        Some(panel::Icon::Folder)
+            .and_then(|row| row.picture),
+        Some(panel::Picture::Icon(panel::Icon::Folder))
     );
     // §12.3.5.1's `/D` is the same row in either view: the presentation changes what a row shows
     // and never which document the file named.
@@ -1811,4 +1830,242 @@ fn the_separation_simulation_is_a_preference_with_two_words() {
         separations_note(false).contains("§10.8.2"),
         "off names the clause that describes what a screen does instead"
     );
+}
+
+/// §12.3.6's three remaining named layouts each describe a surface, and each is drawn.
+///
+/// The clause says what each one *is*, and those sentences are what is checkable here:
+///
+/// - `FilmStrip` "displays a strip of thumbnails, providing an index to the file attachments
+///   within the collection. The selected attachment should be previewed alongside the index", and
+///   those thumbnails "provide an index into the files and folders present within the collection";
+/// - `FreeForm` "places thumbnails of the file attachments within the collection randomly in the
+///   view";
+/// - `Linear` "provides a large size preview of one file attachment in the collection and displays
+///   alongside the preview the metadata for the file attachment, including the name, description
+///   and other collection schema entries".
+///
+/// So: all three are flat, `FilmStrip` carries the folder as an item and the other two do not, one
+/// row is larger in the two that preview one attachment, and only those rows carry the metadata.
+/// Read off one document under four presentations, so that a difference is the layout's and not
+/// the file's (ADR 1251).
+#[test]
+fn the_three_layouts_the_clause_describes_a_surface_for_are_drawn() {
+    let rows_for = |layout: &str| {
+        let (collection, initial, order, files) = collection_and_files(a_collection(
+            &format!("/D (<3>report.pdf) /View /C /Navigator << /Layout /{layout} >>"),
+            "/Folders 10 0 R",
+            3,
+        ));
+        let mode = panel::presentation(&collection);
+        (mode, collection_rows(&collection, &initial, &order, &files))
+    };
+    let files = |rows: &[PanelRow]| -> Vec<PanelRow> {
+        flattened(rows)
+            .into_iter()
+            .filter(|row| matches!(row.action, RowAction::Extract { .. }))
+            .cloned()
+            .collect()
+    };
+
+    let (mode, strip) = rows_for("FilmStrip");
+    assert_eq!(mode, panel::Mode::FilmStrip);
+    assert!(
+        strip.iter().all(|row| row.children.is_empty()),
+        "a strip is one run, not a tree: {strip:?}"
+    );
+    assert!(
+        strip.iter().any(|row| row.label == "Chapters"),
+        "the thumbnails index the folders as well as the files: {strip:?}"
+    );
+    let striped = files(&strip);
+    assert_eq!(striped.len(), 2, "no file falls out of a strip");
+    assert_eq!(
+        striped[0].picture,
+        Some(panel::Picture::Preview(panel::Icon::Document)),
+        "§12.3.5.1's `/D` names the attachment previewed alongside the index"
+    );
+    assert!(
+        matches!(striped[1].picture, Some(panel::Picture::Thumbnail(_))),
+        "the rest of the index is thumbnails: {striped:?}"
+    );
+    assert!(
+        !striped[0].cells.is_empty() && striped[1].cells.is_empty(),
+        "the preview carries the fields and the index does not: {striped:?}"
+    );
+
+    let (mode, scatter) = rows_for("FreeForm");
+    assert_eq!(mode, panel::Mode::FreeForm);
+    let scattered = files(&scatter);
+    assert_eq!(scattered.len(), 2);
+    assert!(
+        scattered.iter().all(
+            |row| matches!(row.picture, Some(panel::Picture::Thumbnail(_))) && row.cells.is_empty()
+        ),
+        "thumbnails of the file attachments and nothing else: {scattered:?}"
+    );
+    assert!(
+        !scatter.iter().any(|row| row.label == "Chapters"),
+        "Table 160 states this layout over \"the file attachments\": {scatter:?}"
+    );
+
+    let (mode, linear) = rows_for("Linear");
+    assert_eq!(mode, panel::Mode::Linear);
+    let lined = files(&linear);
+    assert_eq!(lined.len(), 2);
+    assert_eq!(
+        lined[0].picture,
+        Some(panel::Picture::Preview(panel::Icon::Document)),
+        "one file attachment, previewed large"
+    );
+    assert_eq!(lined[1].picture, None, "and one of them: {lined:?}");
+    // "the metadata for the file attachment, including the name, description and other collection
+    // schema entries", and §12.3.6's own "should use the file schema and file specification
+    // dictionary": the schema names a file name, a size and a description, and the file
+    // specification's dates are what the schema did not ask for.
+    let headings: Vec<&str> = lined[0]
+        .cells
+        .iter()
+        .map(|cell| cell.heading.as_str())
+        .collect();
+    assert!(
+        headings.starts_with(&["File", "Size", "About"]),
+        "the schema's own fields in /O order first: {headings:?}"
+    );
+    assert!(
+        lined[1].cells.is_empty(),
+        "and only the previewed one: {lined:?}"
+    );
+
+    // §12.3.5.2's folder is not drawn around a file in a flat layout, so it is said on the row
+    // instead — the clause makes membership of the folder structure a `shall` either way.
+    assert!(
+        lined[0]
+            .detail
+            .as_deref()
+            .is_some_and(|line| line.contains("in Chapters")),
+        "the arrangement is said rather than lost: {lined:?}"
+    );
+}
+
+/// §12.3.6's `FreeForm` puts the same file in the same place, and two files in two places.
+///
+/// The clause asks for "a random location on the view" and a location is not a fact about the
+/// document, so what is checkable is the property a *panel* needs: a place that does not move
+/// under a person between one frame and the next, and does not collapse onto one spot. The three
+/// windows share this so that a person moving between them finds the same file where they left it
+/// (ADR 1251).
+#[test]
+fn a_free_form_thumbnail_keeps_the_place_it_was_given() {
+    let one = panel::scattered("<3>report.pdf");
+    assert_eq!(
+        one,
+        panel::scattered("<3>report.pdf"),
+        "stable under redraw"
+    );
+    assert_ne!(one, panel::scattered("readme.txt"), "and not one spot");
+    for name in ["", "a", "<3>report.pdf", "readme.txt"] {
+        let (across, down) = panel::scattered(name);
+        assert!(
+            (0.0..=1.0).contains(&across) && (0.0..=1.0).contains(&down),
+            "a fraction of the surface: {name:?} at {across}, {down}"
+        );
+    }
+}
+
+/// Table 158's `/Direction` `N` gives the window region to the file navigation view.
+///
+/// §12.3.5.1, Table 158:
+///
+/// > N indicates that the window is not split. The entire window region shall be dedicated to the
+/// > file navigation view.
+///
+/// A `shall` at a processor, and the one entry of the collection split dictionary that is not
+/// about a bar — `H` and `V` state where a splitter goes, which is furniture this window decides
+/// for itself (ADR 1252). `/View H` is the one case it does not reach: that value says "[t]he
+/// collection view shall be initially hidden", and a hidden view is not one a window is dedicated
+/// to.
+#[test]
+fn table_158s_n_gives_the_whole_window_to_the_file_navigation_view() {
+    let whole = |entries: &str| {
+        let (collection, _, _, _) =
+            collection_and_files(a_collection(entries, "/Folders 10 0 R", 3));
+        panel::whole_window(&collection)
+    };
+    assert!(whole("/View /D /Split << /Direction /N >>"));
+    assert!(
+        !whole("/View /D /Split << /Direction /H /Position 40 >>"),
+        "a splitter's orientation is not this sentence"
+    );
+    assert!(!whole("/View /D"), "and a document that states no /Split");
+    assert!(
+        !whole("/View /H /Split << /Direction /N >>"),
+        "a view the document asked to hide is not one the window is dedicated to"
+    );
+}
+
+/// The presentation entries this panel reads and does not draw are named rather than dropped.
+///
+/// Table 157's `/Colors` is "a suggested set of colours for use by a collection layout" whose only
+/// sentence about using them is a NOTE, and Table 158's `H` and `V` describe "the orientation of
+/// the splitter bar" of an initial view this window does not present. Neither carries a `shall` at
+/// a processor and both are departures rather than gaps — but an entry read and silently unused is
+/// indistinguishable from one nobody read, which is trap 5's shape (ADRs 1168, 1252).
+#[test]
+fn the_presentation_entries_this_window_does_not_draw_are_named_out_loud() {
+    let said = |entries: &str| {
+        let (collection, _, _, _) =
+            collection_and_files(a_collection(entries, "/Folders 10 0 R", 3));
+        panel::unused_furniture(&collection)
+    };
+    assert_eq!(said("/View /D"), None, "nothing asked for, nothing said");
+    assert!(
+        said("/View /D /Colors << /Background [1 1 1] >>")
+            .is_some_and(|line| line.contains("colours")),
+        "Table 157's suggestion is named"
+    );
+    assert!(
+        said("/View /D /Split << /Direction /V /Position 30 >>")
+            .is_some_and(|line| line.contains("splitter")),
+        "and Table 158's bar"
+    );
+    let both = said("/View /D /Colors << /Background [1 1 1] >> /Split << /Direction /V >>")
+        .expect("both are stated");
+    assert!(
+        both.contains("colours") && both.contains("splitter"),
+        "a person is told what the document asked for: {both}"
+    );
+    // Table 158's `N` is not furniture: it is obeyed, so it is not in this sentence.
+    assert_eq!(
+        said("/View /D /Split << /Direction /N >>"),
+        None,
+        "the entry this window does obey says nothing here"
+    );
+}
+
+/// Every name Table 160 defines is a layout §12.3.6's selection rule can select.
+///
+/// The table's `/Layout` entry states that "[o]ne of the following names shall always be present,
+/// either singly or as the final entry in the array" and lists seven; a processor answers the
+/// selection with what it "is capable of displaying". With all seven drawn, a conforming file
+/// always selects something, and the report is left with the custom names the clause separately
+/// permits (ADR 1251).
+#[test]
+fn every_named_layout_table_160_defines_is_one_this_panel_draws() {
+    use pdf_model::collection::{Layout, View};
+
+    for named in [
+        Layout::View(View::Details),
+        Layout::View(View::Tile),
+        Layout::View(View::Hidden),
+        Layout::FilmStrip,
+        Layout::FreeForm,
+        Layout::Linear,
+        Layout::Tree,
+    ] {
+        assert!(
+            panel::DRAWN_LAYOUTS.contains(&named),
+            "Table 160 defines {named:?} and this panel draws every one of them"
+        );
+    }
 }

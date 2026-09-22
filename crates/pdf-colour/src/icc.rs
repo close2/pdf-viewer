@@ -41,7 +41,17 @@
 //! [`A2b`] is the choice and [`Rendering`] is what carries it beside §8.6.5.9's black point
 //! compensation, which is [`Profile::to_rgb_with`]'s and which [`Profile::to_device`] undoes.
 //! The `B2A` direction still takes `B2A1` over `B2A0` whatever the intent says — §11.7.5.3's
-//! ledger row is where that stands.
+//! ledger row is where that stands — except in one place, [`Profile::from_pcs_perceptual`],
+//! where a clause asks for `B2A0` by name.
+//!
+//! **And the compensation is ISO 18619's own, since ADR 1253.** §8.6.5.9 states the `ON` case
+//! by reference — "colour conversion shall be carried out according to the provisions in
+//! ISO 18619" — and this crate carries out that document's procedure for a source profile
+//! against the display: its vertex sets, its branch for an output-capable CMYK source, its
+//! clamp, and its single scale and offset in PCSXYZ. The draft is held on this machine under a
+//! single-reader licence, so it is cited by section and paraphrased and never quoted
+//! (`doc/third-party-data.md`, ADR 0187). [`Profile::source_black_point`] is the entry point
+//! and says what the procedure is, section by section.
 
 use std::sync::{Arc, OnceLock};
 
@@ -233,7 +243,12 @@ pub struct Profile {
     /// `None` for a profile that states none, which §8.6.5.5 permits of a profile used as a
     /// *source* space and forbids of one used as a blending space; a press without one keeps
     /// the right inverse of its own `A2B` that every press took before ADR 0796.
-    inverse: Option<Box<Lut>>,
+    ///
+    /// An `Arc` rather than a `Box` so that [`Profile::perceptual_from_pcs`] can hand the
+    /// same table back where `B2A0` is the tag this one took.
+    inverse: Option<Arc<Lut>>,
+    /// Where ISO/CD 18619 (2013) section 4.2.3's perceptual "from CIE" transform comes from.
+    perceptual_inverse: PerceptualInverse,
     /// The medium's white in connection-space XYZ, which [`A2b::Absolute`] reproduces.
     ///
     /// ICC.1:2022 clause 9.2.36's `wtpt` tag: the media white point as chromatically adapted
@@ -246,21 +261,28 @@ pub struct Profile {
     identity: u128,
 }
 
-/// One "to CIE" route: a transform and the darkest colour it reaches.
+/// One "to CIE" route: a transform and the black point of the space it reaches from.
 ///
-/// The black point belongs to the route rather than to the profile because it is a property of
-/// the *table*: a perceptual table already maps the medium's black onto the connection space's,
-/// so the span [`Profile::to_xyz_with`] stretches is the one the selected transform produced
-/// and not another's. [`Profile::detect_black`] finds it.
+/// The black point belongs to the route rather than to the profile because ISO/CD 18619 (2013)
+/// section 4.2.3 computes it under the rendering intent, and the intent is what selects the
+/// transform: a perceptual table already maps the medium's black onto the connection space's,
+/// so the lightness [`Profile::source_black_point`] finds is the one the selected transform
+/// produced and not another's.
 #[derive(Debug, Clone)]
 struct Route {
     /// How this route reaches the connection space.
     transform: Transform,
-    /// The darkest colour this route reaches, in connection-space XYZ.
+    /// ISO/CD 18619 (2013) section 4.2.3's `SourceBlackPoint`, as its L\* component alone.
     ///
-    /// `None` for a route whose black is already zero, and for the matrix and grey forms,
-    /// where it does not arise.
-    black: Option<[f32; 3]>,
+    /// The draft discards the black point's chromaticity before use — only L\* reaches
+    /// section 4.2.6's mapping — so one number is the whole of it. `None` for a profile whose
+    /// darkest colour cannot be evaluated at all; a profile whose black *is* the connection
+    /// space's black holds `Some(0.0)`, under which section 4.2.6 is the identity.
+    ///
+    /// Computed on first use rather than at parse, because finding it evaluates a table twice
+    /// and, for an output-capable CMYK profile, parses a second one — costs a document that
+    /// converts no colour through this profile should not pay (`CLAUDE.md` principle 2).
+    black: OnceLock<Option<f32>>,
 }
 
 /// An `A2B` tag an intent other than [`A2b::Colorimetric`] selects, parsed on first use.
@@ -282,6 +304,27 @@ struct Alternate {
     /// The parsed route, once something has asked for it. `Some(None)` for a tag that failed
     /// to parse, which falls back to [`Profile::colorimetric`] like an absent one.
     route: OnceLock<Option<Route>>,
+}
+
+/// Where a profile's perceptual "from CIE" transform comes from.
+///
+/// ISO/CD 18619 (2013) section 4.2.3 asks for `B2A0` by name, and it is the only caller in
+/// this crate that does; every other reads [`Profile::inverse`]. This says which of the two
+/// answers a given profile has, without a second copy of a table both would share.
+#[derive(Debug, Clone)]
+enum PerceptualInverse {
+    /// [`Profile::inverse`] is the answer: it is the `B2A0` tag itself, or the profile states
+    /// no `B2A0` and section 3.5 leaves whichever table it does state.
+    Inverse,
+    /// `B2A0` is a tag of its own, kept as bytes and parsed on first use for [`Alternate`]'s
+    /// reason. `Some(None)` in the cell is a tag that failed to parse, which falls back the
+    /// way an absent one does.
+    Own {
+        /// The tag's bytes.
+        tag: Arc<[u8]>,
+        /// The parsed table, once something has asked for it.
+        table: OnceLock<Option<Arc<Lut>>>,
+    },
 }
 
 /// How a profile gets from its own space to the connection space.
@@ -917,11 +960,16 @@ impl Profile {
         // A table this cannot read costs the profile nothing it had — the conversion out is
         // the profile's whatever the conversion in is — so a refusal here is a `None` and
         // not a failed parse.
-        let inverse = find(b"B2A1")
-            .or_else(|| find(b"B2A0"))
-            .and_then(|table| parse_lut(table, lab_pcs, version_4, true))
-            .filter(|table| table.grid.len() == 3 && table.outputs >= channels)
-            .map(Box::new);
+        let inverse_at = locate(b"B2A1").or_else(|| locate(b"B2A0"));
+        let (inverse, perceptual_inverse) = from_pcs_tables(
+            inverse_at.and_then(slice),
+            locate(b"B2A0")
+                .filter(|at| Some(*at) != inverse_at)
+                .and_then(slice),
+            lab_pcs,
+            version_4,
+            channels,
+        );
 
         // The other two intents' tables, kept as bytes and parsed on first use. A tag that is
         // the one already taken is not kept: it would be a second parse of one table, and the
@@ -935,7 +983,7 @@ impl Profile {
         };
         let media_white = media_white_of(data.get(12..16)?, find(b"wtpt"));
 
-        let mut profile = Self {
+        let profile = Self {
             channels,
             range,
             lab_pcs,
@@ -943,99 +991,170 @@ impl Profile {
             version_4,
             colorimetric: Route {
                 transform,
-                black: None,
+                black: OnceLock::new(),
             },
             perceptual: alternate(b"A2B0"),
             saturation: alternate(b"A2B2"),
             inverse,
+            perceptual_inverse,
             media_white,
             identity: identity_of(data),
         };
-        profile.colorimetric.black = profile.detect_black(&profile.colorimetric.transform);
         Some(profile)
     }
 
-    /// Finds the darkest colour the device can produce, for black point compensation.
+    /// ISO/CD 18619 (2013) section 4.2.3's `SourceBlackPoint` for one route, as its L\*.
     ///
-    /// A press cannot make a colour as dark as a screen's black, so a profile's darkest
-    /// output is a very dark grey rather than zero. Reproducing that literally leaves every
-    /// black on the page washed out — this profile's registration black comes out at
-    /// (28,27,23), a visibly grey "black".
+    /// ISO 32000-2 §8.6.5.9 states the `ON` case by reference and in one sentence: where
+    /// `/UseBlackPtComp` is `ON`, "colour conversion shall be carried out according to the
+    /// provisions in ISO 18619". This is that reference carried out on the source side. The
+    /// ISO committee draft is held on this machine under a single-reader licence, so it is
+    /// cited by section and paraphrased and never quoted (`doc/third-party-data.md`, ADR 0187).
     ///
-    /// ISO 32000-2 §8.6.5.9 is about exactly this: `/UseBlackPtComp` in the graphics state
-    /// takes `ON`, `OFF` or `Default`, `ON` means "according to the provisions in
-    /// ISO 18619", and `Default` — the initial value — is "left to the PDF processor to
-    /// determine". Compensating by default is therefore a choice the specification provides
-    /// for, and the cases where it is *not* permitted are honoured by
-    /// [`Self::to_rgb_with`].
+    /// **Why a profile has a black point to compensate at all**: a press cannot make a colour
+    /// as dark as a screen's black, so its darkest output is a very dark grey. Reproducing
+    /// that literally leaves every black on the page washed out — Artifex's press profile puts
+    /// registration black at (28,27,23), a visibly grey "black". PDF 2.0 Application Note 001
+    /// (`doc/md/PDF20_AN001-BPC.md`, the one text in this family that is freely
+    /// redistributable) states the goal as aligning the darkest colour the source data's space
+    /// can describe with the darkest the output profile can produce.
     ///
-    /// What compensation must achieve is defined without ambiguity, and not only by
-    /// ISO 18619. PDF 2.0 Application Note 001 (`doc/md/PDF20_AN001-BPC.md`), written by
-    /// ISO 32000's own co-project-leader to interpret this feature, states it as "aligning
-    /// the darkest colour that could be described by the colour space of the data to be
-    /// displayed with the darkest colour that the output profile for the display device
-    /// (screen or print) can produce". That sentence is what the code below implements, and
-    /// it settles the design question the arithmetic cannot: the black to be aligned is the
-    /// one *the source colour space* describes, which is why it is found at the end of this
-    /// profile's own device range rather than read off the display's.
+    /// **The procedure, section by section.** Section 4.2.2.2's function `D` takes the darkest
+    /// of a stated vertex set, compared by the L\* each vertex reaches through the profile
+    /// under the rendering intent: two vertices for Gray and for RGB, and **four** for CMYK —
+    /// paper, registration, black alone, and the three chromatic inks together. Section 4.2.3
+    /// then branches on whether the source is an *output-capable* CMYK profile, meaning one
+    /// carrying a transform from the connection space to its own (section 3.5): such a profile
+    /// does not walk its device corners at all, and takes the connection space's own black
+    /// through its perceptual "from CIE" transform instead. A CIELAB source's local black is
+    /// the connection space's black outright. Whichever branch produced it, the local black is
+    /// carried forward through the profile and its L\* clamped at 50.
     ///
-    /// The same note observes that BPC is "very similar to what switching between absolute
-    /// and relative colorimetric rendering intents does at the highlight end" — the reason
-    /// [`Self::to_rgb_with`] must refuse to compensate under `AbsoluteColorimetric`.
+    /// **That branch is the whole of the eleven levels ADR 0510 measured and ADR 1208
+    /// mis-attributed.** Artifex's press profile carries a `B2A` and is therefore
+    /// output-capable, so the draft sends it down the perceptual route — which is the
+    /// construction Little CMS implements, and which `poppler`, `mupdf` and `ghostscript`
+    /// therefore agree on; `hayro`'s CGATS profile carries no `B2A` at all, is not
+    /// output-capable, and takes the vertex walk that this tree took for every profile, which
+    /// is exactly the profile where this evaluator already landed with the other three. ADR
+    /// 1253 has the measurement.
     ///
-    /// The *arithmetic* by which the alignment is done is ISO 18619's, and that is a
-    /// normative reference this project does not hold; a linear mapping between the two
-    /// black points meets the stated goal, but it is not a transcription of the standard.
-    /// Worth knowing if the numbers in the last few percent ever have to be defended.
+    /// The clamp at 50 is also what makes section 4.2.6's division safe: an L\* of 50 is a
+    /// relative luminance of 0.1842, so its scale factor cannot exceed 1.226. This crate used
+    /// to guard the division with a test of its own, arrived at from a defect rather than from
+    /// the clause (ADR 0510), and the clause's own clamp replaces it.
     ///
-    /// The device range is walked rather than a `bkpt` tag read, because the CMYK profiles
-    /// that need this most often carry no such tag, and one that is absent cannot be
-    /// honoured.
+    /// `None` where the route cannot be evaluated into a lightness at all. A profile whose
+    /// black already *is* the connection space's black yields `Some(0.0)`, under which
+    /// [`compensation`] is the identity.
+    fn source_black_point(&self, transform: &Transform) -> Option<f32> {
+        let local = self.local_black(transform)?;
+        let lightness = lightness_of(self.connection(transform, &local));
+        lightness
+            .is_finite()
+            .then(|| lightness.clamp(0.0, MAX_BLACK_LIGHTNESS))
+    }
+
+    /// Section 4.2.3's `LocalBlack` for this profile, in [`Profile::encoded`]'s components.
     ///
-    /// This yields a *colorimetric* black point: the darkest colour the profile itself says
-    /// the space reaches, which is what the application note's wording asks for. An
-    /// alternative construction estimates a *perceptual* one by round-tripping through the
-    /// profile's `B2A` table; readers built on Little CMS take that route, and the two agree
-    /// everywhere except in the darkest few percent. Recorded because it explains a residual
-    /// disagreement that comes from a choice of construction rather than a free parameter —
-    /// there is nothing here to tune.
-    fn detect_black(&self, transform: &Transform) -> Option<[f32; 3]> {
-        if !matches!(transform, Transform::Lut(_)) {
-            return None;
+    /// The three branches the draft states, in its own order. The lower bound of zero on the
+    /// lightness above and the clamp on each component here are this reader's, not the
+    /// draft's: a table free to return anything cannot be allowed to hand the next step a
+    /// number that is not a colour, and `CLAUDE.md` principle 3 is why that is stated rather
+    /// than assumed.
+    fn local_black(&self, transform: &Transform) -> Option<[f32; MAX_OUTPUTS]> {
+        // A CIELAB source: the connection space's own black, in this profile's components.
+        if self.lab_data {
+            return Some(self.encoded(&[0.0, 0.0, 0.0]));
         }
-        // **Which end of the device range is dark is a property of the space, not of the
-        // profile**, and this read the subtractive answer for every space until the
-        // six-hundred-and-fifteenth session. Full ink is black in `CMYK`, `2CLR`.. `FCLR`
-        // and a `Separation`'s colourant; in `RGB` and `GRAY` — ICC's own header signatures
-        // for the additive spaces — every component at 1.0 is *white*. So an RGB scanner
-        // profile had its white point taken as its black, and where the two differed by a
-        // rounding — which is every profile whose white corner is not D50 to the bit — the
-        // span below was a thousandth of a unit wide and stretched the whole page onto
-        // black. `2268885.pdf` in the `SafeDocs` crawl is a floor plan drawn as a negative for
-        // that reason, with nothing reported.
+        // An output-capable CMYK source: the connection space's black through the profile's
+        // perceptual "from CIE" transform. The table's outputs are already on the unit
+        // interval this profile's tables are indexed by, so nothing decodes them on the way.
+        if self.channels == 4
+            && let Some(table) = self.perceptual_from_pcs()
+        {
+            // The connection space's black is (0, 0, 0) under either PCS encoding — XYZ's
+            // zero tristimulus and CIELAB's L\* = a\* = b\* = 0 are the same colour — so no
+            // branch on [`Profile::lab_pcs`] is owed here, only the table's own encoding.
+            let mut out = table.apply(&table.encoding.encode([0.0, 0.0, 0.0]), 3);
+            for value in &mut out {
+                *value = value.clamp(0.0, 1.0);
+            }
+            return Some(out);
+        }
+        // Section 4.2.2.2's `D`: the vertex of the stated set with the lowest L\*.
         //
-        // Both ends are evaluated and the darker taken, which needs no table of which
-        // signature is which and is what the application note's wording asks for directly:
-        // the darkest colour the source space describes. `Y` is luminance, so it is the axis
-        // that decides.
-        let black = [vec![0.0f32; self.channels], vec![1.0f32; self.channels]]
-            .into_iter()
-            .map(|end| self.connection(transform, &end))
-            .min_by(|left, right| {
-                left.get(1)
-                    .unwrap_or(&0.0)
-                    .total_cmp(right.get(1).unwrap_or(&0.0))
-            })?;
-        // Compensation aligns a *range*, so it needs one: the colour found has to be
-        // darker than the white it is being stretched away from, on every axis. A profile
-        // whose fullest ink is no darker than its white describes no range to align — and
-        // stretching one anyway divides by a span at or below zero, which does not produce
-        // a slightly wrong colour but an arbitrary one.
-        let usable = black
-            .iter()
-            .zip(WHITE)
-            .all(|(value, white)| *value < white && *value > 1e-4);
-        usable.then_some(black)
+        // **Which end of the device range is dark is a property of the space, not of the
+        // profile**, and this crate read the subtractive answer for every space until ADR
+        // 0510's fifth finding: full ink is black in CMYK, and every component at 1.0 is
+        // *white* in RGB and GRAY. So an RGB scanner profile had its white point taken as its
+        // black, and `2268885.pdf` in the `SafeDocs` crawl was drawn as a photographic
+        // negative for that reason. The draft's vertex sets state both ends for both families
+        // and let the lightness decide, which is the same answer with a clause behind it.
+        self.vertices().into_iter().flatten().min_by(|left, right| {
+            lightness_of(self.connection(transform, left))
+                .total_cmp(&lightness_of(self.connection(transform, right)))
+        })
+    }
+
+    /// Section 4.2.2.2's vertex set `V`, in [`Profile::encoded`]'s components.
+    ///
+    /// Two for Gray and RGB; four for CMYK, the two extra being black alone and the three
+    /// chromatic inks together. [`Profile::parse`] admits exactly the four data colour spaces
+    /// §8.6.5.5 Table 67 does, so the component count names the space with no header field to
+    /// consult: one is `'GRAY'`, four is `'CMYK'`, and three is `'RGB '` unless
+    /// [`Profile::lab_data`] says otherwise, which [`Profile::local_black`] answered first.
+    fn vertices(&self) -> [Option<[f32; MAX_OUTPUTS]>; 4] {
+        let mut paper = [0.0f32; MAX_OUTPUTS];
+        let mut full = [0.0f32; MAX_OUTPUTS];
+        for slot in full.iter_mut().take(self.channels.min(MAX_OUTPUTS)) {
+            *slot = 1.0;
+        }
+        // `encoded` is the identity on the unit interval, which is Table 68's range for all
+        // three device spaces; it is applied anyway so that a document's `/Range` cannot leave
+        // a vertex off the range its own tables are indexed by.
+        let on_range = |device: [f32; MAX_OUTPUTS]| Some(self.encoded(&device));
+        if self.channels != 4 {
+            paper[0] = 0.0;
+            return [on_range(paper), on_range(full), None, None];
+        }
+        let black_alone = [0.0, 0.0, 0.0, 1.0];
+        let chromatic = [1.0, 1.0, 1.0, 0.0];
+        [
+            on_range(paper),
+            on_range(full),
+            on_range(black_alone),
+            on_range(chromatic),
+        ]
+    }
+
+    /// The profile's perceptual "from CIE" transform, section 4.2.3's route for an
+    /// output-capable CMYK source.
+    ///
+    /// `B2A0` where the profile states one, and [`Profile::inverse`] where it does not:
+    /// section 3.5 makes a profile output-capable on its carrying *a* transform from the
+    /// connection space to its own, so a profile stating only `B2A1` is output-capable and the
+    /// table it states is the one it offers. `None` for a profile carrying neither, which
+    /// sends [`Profile::local_black`] to the vertex walk.
+    fn perceptual_from_pcs(&self) -> Option<Arc<Lut>> {
+        let PerceptualInverse::Own { tag, table } = &self.perceptual_inverse else {
+            return self.inverse.clone();
+        };
+        table
+            .get_or_init(|| {
+                parse_lut(tag, self.lab_pcs, self.version_4, true)
+                    .filter(|parsed| parsed.grid.len() == 3 && parsed.outputs >= self.channels)
+                    .map(Arc::new)
+            })
+            .clone()
+            .or_else(|| self.inverse.clone())
+    }
+
+    /// This route's black point, computed on first use.
+    fn black_of(&self, route: &Route) -> Option<f32> {
+        *route
+            .black
+            .get_or_init(|| self.source_black_point(&route.transform))
     }
 
     /// The connection-space XYZ a colour maps to through `transform`, before compensation or
@@ -1101,9 +1220,10 @@ impl Profile {
                     self.lab_data,
                     self.version_4,
                 )?;
-                let transform = Transform::Lut(Box::new(table));
-                let black = self.detect_black(&transform);
-                Some(Route { transform, black })
+                Some(Route {
+                    transform: Transform::Lut(Box::new(table)),
+                    black: OnceLock::new(),
+                })
             })
             .as_ref()
             .unwrap_or(&self.colorimetric)
@@ -1161,9 +1281,10 @@ impl Profile {
             }
             self.identity ^= u128::from(hash);
             self.range = stated;
-            // The darkest colour the space reaches is found at the ends of that range, so a
-            // range that moved moves it too.
-            self.colorimetric.black = self.detect_black(&self.colorimetric.transform);
+            // ISO/CD 18619 (2013) section 4.2.2.2's vertex set is stated in device values, so
+            // a range that moved moves the black point found at its ends. Clearing the cell
+            // is how a `OnceLock` is reset: the next caller computes it over the new range.
+            self.colorimetric.black = OnceLock::new();
         }
         self
     }
@@ -1275,20 +1396,15 @@ impl Profile {
             }
         }
 
-        // Black point compensation: stretch the profile's range so its darkest colour
-        // lands on the display's black instead of on a dark grey. Linear in XYZ, with the
-        // white point fixed, which is the standard construction.
-        if let Some(black) = route.black.filter(|_| rendering.black_point()) {
-            for (axis, value) in xyz.iter_mut().enumerate() {
-                let white = WHITE.get(axis).copied().unwrap_or(1.0);
-                let low = black.get(axis).copied().unwrap_or(0.0);
-                let span = white - low;
-                // Positive by construction — `detect_black` refuses anything else — but
-                // the division is guarded rather than assumed, since the alternative is
-                // silently emitting infinities into the page.
-                if span > 1e-9 {
-                    *value = (*value - low) / span * white;
-                }
+        // Black point compensation, ISO/CD 18619 (2013) section 4.2.7: the source's darkest
+        // colour is brought onto the destination's instead of onto a dark grey, by the one
+        // scale and offset section 4.2.6 computes from the two black points. It is applied
+        // here because section 4.2.7 puts it here — between the source profile's output and
+        // the destination profile's input, both in PCSXYZ.
+        if let Some(black) = self.black_of(route).filter(|_| rendering.black_point()) {
+            let (scale, offset) = compensation(black);
+            for (value, shift) in xyz.iter_mut().zip(offset) {
+                *value = scale.mul_add(*value, shift);
             }
         }
         xyz
@@ -1355,8 +1471,8 @@ impl Profile {
         }
         // A matrix profile's conversion in is its own two stages run backwards — ISO 15076-1
         // states the PCS-to-device direction of a three-component matrix profile as the
-        // inverse of the matrix followed by the inverse of each tone curve — and it has no
-        // black point to undo, since `detect_black` finds one for lookup tables alone. A
+        // inverse of the matrix followed by the inverse of each tone curve — and a display
+        // profile's black point is zero, so section 4.2.6's map on it is the identity. A
         // colour the device cannot reach is clamped to its range per component after the
         // matrix, which is the clamp §8.6.5.3 applies to a component "falling outside that
         // range" and the only answer the two stages define.
@@ -1369,14 +1485,16 @@ impl Profile {
             return Some(self.decoded(out));
         }
         let inverse = self.inverse.as_ref()?;
-        if let Some(black) = self.colorimetric.black.filter(|_| rendering.black_point()) {
-            for (axis, value) in xyz.iter_mut().enumerate() {
-                let white = WHITE.get(axis).copied().unwrap_or(1.0);
-                let low = black.get(axis).copied().unwrap_or(0.0);
-                let span = white - low;
-                if span > 1e-9 && white.abs() > 1e-9 {
-                    *value = *value / white * span + low;
-                }
+        // Section 4.2.7's map run backwards, on the route the colour was produced *under*
+        // rather than on the colorimetric one: this is a round trip and not a second
+        // compensation, so what it has to undo is whatever [`Self::to_xyz_with`] applied.
+        if let Some(black) = self
+            .black_of(self.route(rendering.transform()))
+            .filter(|_| rendering.black_point())
+        {
+            let (scale, offset) = compensation(black);
+            for (value, shift) in xyz.iter_mut().zip(offset) {
+                *value = (*value - shift) / scale;
             }
         }
         let pcs = if self.lab_pcs {
@@ -1604,6 +1722,83 @@ impl Lut {
 
 /// The D50 white point, which is the connection space's own.
 const WHITE: [f32; 3] = crate::colour::D50;
+
+/// The two "from CIE" tables [`Profile::parse`] keeps apart.
+///
+/// `inverse_tag` is `B2A1` or, where the profile states none, `B2A0`; `perceptual_tag` is
+/// `B2A0` where that is a tag the first did not take. A table this cannot read costs the
+/// profile nothing it had — the conversion out is the profile's whatever the conversion in is
+/// — so a refusal here is a `None` and not a failed parse.
+fn from_pcs_tables(
+    inverse_tag: Option<&[u8]>,
+    perceptual_tag: Option<&[u8]>,
+    lab_pcs: bool,
+    version_4: bool,
+    channels: usize,
+) -> (Option<Arc<Lut>>, PerceptualInverse) {
+    let inverse = inverse_tag
+        .and_then(|table| parse_lut(table, lab_pcs, version_4, true))
+        .filter(|table| table.grid.len() == 3 && table.outputs >= channels)
+        .map(Arc::new);
+    let perceptual =
+        perceptual_tag.map_or(PerceptualInverse::Inverse, |tag| PerceptualInverse::Own {
+            tag: Arc::from(tag),
+            table: OnceLock::new(),
+        });
+    (inverse, perceptual)
+}
+
+/// The lightness ISO/CD 18619 (2013) section 4.2.3 clamps a black point's L\* to.
+///
+/// The draft's own number, and the reason [`compensation`]'s division needs no guard of its
+/// own: L\* = 50 is a relative luminance of 0.1842, so the scale factor is at most 1.226.
+const MAX_BLACK_LIGHTNESS: f32 = 50.0;
+
+/// The L\* of a connection-space XYZ.
+///
+/// `crate::colour::xyz_to_lab`'s first component, which is all ISO/CD 18619 (2013) section
+/// 4.2.6 uses: the draft discards a black point's chromaticity before mapping with it.
+fn lightness_of(xyz: [f32; 3]) -> f32 {
+    crate::colour::xyz_to_lab(xyz)[0]
+}
+
+/// The relative luminance ISO/CD 18619 (2013) section 4.2.6 gives an L\*.
+///
+/// The CIE lightness function inverted, with the draft's own linear segment below L\* = 8 —
+/// which is the CIE's own break point written as a division by 8 rather than by the cube of
+/// 24/116, and is the same function. Its value at L\* = 100 is 1, so what it returns is
+/// relative to the connection space's white rather than in tristimulus units.
+fn pcs_luminance(lightness: f32) -> f32 {
+    if lightness > 8.0 {
+        ((lightness + 16.0) / 116.0).powi(3)
+    } else {
+        lightness * (24.0f32 / 116.0).powi(3) / 8.0
+    }
+}
+
+/// ISO/CD 18619 (2013) section 4.2.6's mapping, as the scale and offset section 4.2.7 applies.
+///
+/// `XYZ_DST = scaleXYZ × XYZ_SRC + offsetXYZ`, where `scaleXYZ` is the ratio of the two black
+/// points' distances from white and `offsetXYZ` carries the connection space's white point, so
+/// the map is a blend of the source colour with a little white and leaves white itself fixed.
+///
+/// **The destination's black is zero here, and that is the draft's answer rather than this
+/// tree's convenience.** Section 4.2.4 computes a non-LUT destination's black point by
+/// section 4.2.2.2's function `D` over its vertex set; the destination of every conversion in
+/// this crate is the display, whose profile is sRGB's matrix and tone curves — not LUT-based,
+/// RGB, and reaching XYZ (0, 0, 0) at device (0, 0, 0). Its `DestinationBlackPoint` is
+/// therefore L\* = 0 exactly, and section 4.2.5's estimation of a LUT destination's black —
+/// the bulk of the draft — has nothing to run on. ADR 1253.
+///
+/// Where `lightness` is zero this is scale 1 and offset 0: the identity, which is what a
+/// profile reaching the connection space's own black should get.
+fn compensation(lightness: f32) -> (f32, [f32; 3]) {
+    let source = pcs_luminance(lightness);
+    // `source` cannot reach 1 — `MAX_BLACK_LIGHTNESS` caps it at 0.1842 — so the division is
+    // safe by the clause's own clamp rather than by a test of this crate's.
+    let scale = 1.0 / (1.0 - source);
+    (scale, WHITE.map(|white| (1.0 - scale) * white))
+}
 
 /// Parses a `curv` or `para` tag.
 fn parse_curve(tag: &[u8]) -> Option<Curve> {
@@ -2267,6 +2462,49 @@ pub(crate) mod fixtures {
         )
     }
 
+    /// A press whose darkest colour is its black ink alone, not its four inks together.
+    ///
+    /// Ink limiting is why a real press behaves this way and why ISO/CD 18619 (2013) section
+    /// 4.2.2.2 states four vertices for CMYK rather than two: laying all four inks on at once
+    /// floods the paper and comes back lighter than the black ink by itself. The corners are
+    /// `XYZ = D50 x f`, with `f` a twentieth for black alone, three tenths for full ink, a
+    /// quarter for the three chromatic inks together and one for paper.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    pub(crate) fn ink_limited_clut() -> Vec<u16> {
+        let mut clut = Vec::with_capacity(48);
+        for corner in 0..16usize {
+            // The last axis varies fastest, so bit 0 is the black ink and bits 3, 2 and 1 are
+            // cyan, magenta and yellow.
+            let black = corner & 1 == 1;
+            let chromatic = corner >> 1 != 0;
+            let level = match (chromatic, black) {
+                (true, true) => 0.30f32,
+                (false, true) => 0.05,
+                (true, false) => 0.25,
+                (false, false) => 1.0,
+            };
+            for white in super::WHITE {
+                clut.push((white * level * 32768.0) as u16);
+            }
+        }
+        clut
+    }
+
+    /// [`ink_limited_clut`] as a profile, with no "from CIE" table: not output-capable, so
+    /// ISO/CD 18619 (2013) section 4.2.3 sends it to the vertex walk.
+    pub(crate) fn ink_limited_cmyk_profile() -> Vec<u8> {
+        profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[(*b"A2B1", mft2_tag(4, 3, &ink_limited_clut()))],
+        )
+    }
+
     /// The same press with its "to CIE" table only.
     pub(crate) fn one_way_cmyk_profile() -> Vec<u8> {
         profile_of(
@@ -2281,8 +2519,8 @@ pub(crate) mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        black_only_clut, complement_clut, mba_tag, mft2_tag, one_way_cmyk_profile, profile_of,
-        two_way_cmyk_profile, xyz_tag,
+        black_only_clut, complement_clut, ink_limited_cmyk_profile, mba_tag, mft2_tag,
+        one_way_cmyk_profile, profile_of, two_way_cmyk_profile, xyz_tag,
     };
     use super::{A2b, Encoding, Identification, Profile, Rendering, WHITE};
 
@@ -2680,13 +2918,18 @@ mod tests {
     /// towards, and for `RGB` that is zero rather than one.
     ///
     /// The same fixture as the test above with its two grid points swapped, which is what an
-    /// additive space writes: nothing in is black and everything in is white. Compensation
-    /// must therefore stretch the *zero* end onto the display's black and leave full input
-    /// where the profile put it — and the failure this pins is not a slightly wrong colour
-    /// but the whole page. Taking the one end as black gives a span of a few thousandths
-    /// between "black" and D50 white, and dividing by it puts every input on zero:
-    /// `2268885.pdf` in the crawl is a floor plan drawn as its own negative for that reason,
-    /// with nothing reported (ADR 0451).
+    /// additive space writes: nothing in is black and everything in is white. ISO/CD 18619
+    /// (2013) section 4.2.2.2 states both ends as the vertex set and lets the lightness
+    /// decide, so compensation must find the *zero* end here and leave full input where the
+    /// profile put it. `2268885.pdf` in the crawl is a floor plan drawn as its own negative
+    /// for the want of that (ADR 0451).
+    ///
+    /// **The mid-tone is the assertion that discriminates**, and the two ends are not: the
+    /// draft's clamp at L\* = 50 bounds what a wrongly chosen vertex can do, so taking the
+    /// white end as black still maps the profile's white to white and its darkest colour
+    /// below zero. What it does instead is darken everything between them — a half-input
+    /// whose relative luminance is 0.55 comes back at 1.225 78 × 0.55 − 0.225 78 = 0.448 4 —
+    /// and that is seventeen levels on the screen.
     #[test]
     #[expect(
         clippy::cast_possible_truncation,
@@ -2720,6 +2963,11 @@ mod tests {
             (255, 255, 255),
             "and must leave the profile's white where it is rather than stretching onto it"
         );
+        let (r, g, b) = bytes(profile.to_rgb(&[0.5]));
+        assert!(
+            (186..=190).contains(&r) && r.abs_diff(g) <= 2 && g.abs_diff(b) <= 2,
+            "a half-input is the profile's own mid-tone, unstretched, got {r},{g},{b}"
+        );
     }
 
     /// Independent evaluators of the same profile should agree with us.
@@ -2731,8 +2979,12 @@ mod tests {
     /// format than anything hand-assembled. If it ever disagrees, the profile's own tables
     /// decide who is wrong, not the majority.
     ///
-    /// The tolerance is wider on the darkest patches, where black point compensation is
-    /// doing the most work and the construction differs as `detect_black` describes.
+    /// **One level everywhere, the darkest patch included.** That patch is where black point
+    /// compensation does its work, and it was eight until this profile's black point began
+    /// coming from ISO/CD 18619 (2013) section 4.2.3's own branch for an output-capable CMYK
+    /// source — the profile carries a "from CIE" table, so the draft takes the connection
+    /// space's black through it rather than walking device corners, which is what the readers
+    /// this agrees with do. The bound is a ratchet and it moves one way (ADR 1253).
     #[test]
     fn a_real_cmyk_profile_agrees_with_independent_evaluators() {
         let Some(data) = corpus_cmyk_profile() else {
@@ -2749,7 +3001,7 @@ mod tests {
             ([0.0, 1.0, 0.0, 0.0], (229, 0, 126), 2),
             ([0.0, 0.0, 1.0, 0.0], (255, 237, 0), 2),
             ([0.5, 0.0, 0.0, 0.0], (130, 207, 245), 2),
-            ([0.0, 0.0, 0.0, 1.0], (27, 27, 24), 8),
+            ([0.0, 0.0, 0.0, 1.0], (27, 27, 24), 1),
             ([1.0, 1.0, 1.0, 1.0], (0, 0, 0), 1),
         ];
         for (input, expected, tolerance) in cases {
@@ -2767,6 +3019,129 @@ mod tests {
                 "{input:?}: got {got:?}, other readers give {expected:?} ({worst} away)"
             );
         }
+    }
+
+    /// ISO/CD 18619 (2013) section 4.2.2.2 states **four** vertices for a CMYK profile, and
+    /// the two extra ones are not a formality.
+    ///
+    /// The fixture is ink-limited: its black ink alone reaches a twentieth of the white point
+    /// and its four inks together only three tenths, which is what flooding paper does. A walk
+    /// over the paper and full-ink corners alone finds 0.30 and calls that the darkest colour
+    /// the space describes; the draft's set finds 0.05.
+    ///
+    /// Derived, not observed: L\* = 116 x f(Y) - 16 with f the cube root above the CIE break
+    /// point, so 0.05 gives 116 x 0.368 40 - 16 = 26.73 and 0.30 gives 116 x 0.669 43 - 16 =
+    /// 61.65, which section 4.2.3 would then cut to 50. Eight of one and thirty-five of the
+    /// other, on the one number section 4.2.6 maps with.
+    #[test]
+    fn a_cmyk_profiles_black_is_found_over_all_four_of_the_clauses_vertices() {
+        let profile = Profile::parse(&ink_limited_cmyk_profile()).expect("the fixture parses");
+        let black = profile
+            .black_of(profile.route(A2b::Colorimetric))
+            .expect("a CMYK profile has a darkest colour");
+        assert!(
+            (black - 26.73).abs() < 0.05,
+            "the black ink alone is the darkest vertex: L* {black} against 26.73"
+        );
+    }
+
+    /// Section 4.2.3 sends an *output-capable* CMYK source through its perceptual "from CIE"
+    /// transform instead of walking its device corners, and the two answers differ.
+    ///
+    /// The fixture's "from CIE" table answers the connection space's black with the three
+    /// chromatic inks at full and no black ink, which its own "to CIE" table evaluates as
+    /// paper white — a contradiction between a profile's two tables, and what the clamp at
+    /// L\* = 50 is for. The vertex walk over the same profile would find its full-ink corner
+    /// at a tenth of the white point, L\* = 116 x 0.464 16 - 16 = 37.84. So the branch is
+    /// visible in the number: 50 where it was taken, 37.84 where it was not.
+    ///
+    /// **This is the branch that closes ADR 0510's eleven levels** — see ADR 1253 — and the
+    /// pair of fixtures here is what holds it, since the profiles that demonstrated it are a
+    /// renderer's own and are not this project's to carry.
+    #[test]
+    fn an_output_capable_cmyk_source_takes_its_black_through_the_perceptual_table() {
+        let capable = Profile::parse(&two_way_cmyk_profile()).expect("parses");
+        let walked = Profile::parse(&one_way_cmyk_profile()).expect("parses");
+        let black_of = |profile: &Profile| {
+            profile
+                .black_of(profile.route(A2b::Colorimetric))
+                .expect("a CMYK profile has a darkest colour")
+        };
+        assert!(
+            (black_of(&capable) - 50.0).abs() < 1e-3,
+            "the perceptual table's answer, cut to the clause's maximum: {}",
+            black_of(&capable)
+        );
+        assert!(
+            (black_of(&walked) - 37.84).abs() < 0.05,
+            "the same tables without a from-CIE one walk the vertices: {}",
+            black_of(&walked)
+        );
+    }
+
+    /// Section 4.2.6's mapping is one scale and one offset towards the connection space's
+    /// white, and section 4.2.7 applies it to all three components alike.
+    ///
+    /// Computed from the draft's formulas rather than read off this code. For L\* = 37.84 the
+    /// relative luminance is ((37.84 + 16) / 116)³ = 0.100 0, the destination's is zero
+    /// because the display's profile reaches XYZ (0, 0, 0) at device (0, 0, 0), so the scale
+    /// is (1 - 0) / (1 - 0.100 0) = 1.111 1 and the offset is (1 - 1.111 1) x W =
+    /// -0.111 1 x W. White is fixed by construction — 1.111 1 x W - 0.111 1 x W = W — and the
+    /// source's black lands on zero: 1.111 1 x 0.1 x W - 0.111 1 x W = 0.
+    #[test]
+    fn the_compensation_is_one_scale_and_an_offset_towards_the_connection_spaces_white() {
+        let (scale, offset) = super::compensation(37.84);
+        assert!((scale - 1.1111).abs() < 1e-3, "scale {scale}");
+        for (axis, (shift, white)) in offset.into_iter().zip(WHITE).enumerate() {
+            assert!(
+                (shift + 0.1111 * white).abs() < 1e-3,
+                "offset {axis}: {shift} against {}",
+                -0.1111 * white
+            );
+            let fixed = scale.mul_add(white, shift);
+            assert!((fixed - white).abs() < 1e-4, "white stays put: {fixed}");
+            let black = scale.mul_add(0.1 * white, shift);
+            assert!(
+                black.abs() < 1e-4,
+                "the source's black lands on zero: {black}"
+            );
+        }
+        // A profile whose black already is the connection space's is not compensated at all,
+        // which section 4.2.6 gives without a branch of its own.
+        let (scale, offset) = super::compensation(0.0);
+        assert!((scale - 1.0).abs() < 1e-6, "no range to align: {scale}");
+        assert!(offset.iter().all(|shift| shift.abs() < 1e-6), "{offset:?}");
+    }
+
+    /// The lightness a black point is cut to is the draft's, and it is what keeps section
+    /// 4.2.6's division away from its pole.
+    ///
+    /// Section 4.2.3 caps `SourceBlackPoint`'s L\* at 50, whose relative luminance is
+    /// ((50 + 16) / 116)³ = 0.184 19; the largest scale factor any profile can ask for is
+    /// therefore 1 / (1 - 0.184 19) = 1.225 8. A profile reporting a lighter black than that
+    /// is not refused, as this crate used to refuse one — it is cut, and the cut is bounded.
+    #[test]
+    fn a_black_point_lighter_than_the_clause_permits_is_cut_to_it() {
+        let (scale, _) = super::compensation(super::MAX_BLACK_LIGHTNESS);
+        assert!(
+            (scale - 1.2258).abs() < 1e-3,
+            "the largest scale there is: {scale}"
+        );
+        assert!(
+            (super::pcs_luminance(super::MAX_BLACK_LIGHTNESS) - 0.18419).abs() < 1e-4,
+            "((50 + 16) / 116)^3"
+        );
+        // And the linear segment below the CIE break point, which the draft writes as a
+        // division by 8 rather than as a cube: L* = 8 is 8 x (24 / 116)³ / 8 = 0.008 856.
+        assert!(
+            (super::pcs_luminance(8.0) - 0.008_856).abs() < 1e-5,
+            "the break point joins: {}",
+            super::pcs_luminance(8.0)
+        );
+        assert!(
+            (super::pcs_luminance(8.0) - super::pcs_luminance(8.000_1)).abs() < 1e-5,
+            "and the two segments agree across it"
+        );
     }
 
     /// The profile's own inks must differ from the generic fallback, or applying it

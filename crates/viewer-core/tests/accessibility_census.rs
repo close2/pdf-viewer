@@ -1110,34 +1110,29 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         .filter(|name| !specifications.iter().any(|present| present == *name))
         .collect();
     if absent.is_empty() {
-        // 108 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 109 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
-            109,
+            112,
         );
-        // 2444 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 2_463 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
-            2463,
+            2509,
         );
-        // 219440 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        // 351324 until session 1154 read §14.7.5.4's array through §7.3.10: the entry may be
-        // written as an object of its own and 75 of the 109 documents with a structure tree write
-        // it so, which had left ADR 0325's page-scoped walk unreachable on them and their whole
-        // tree counted once per page. The fall is that double count going: 123 705 of it is
-        // `ISO-19444-1-2019-preview.pdf`'s one tree over 19 pages (131 884 -> 8 179), whose
-        // elements state no `/Pg` so the fallback kept every one of them for every page, and the
-        // last is `pr20043.pdf`'s `Annot` element, whose only content item is an object the
-        // page's `/Annots` does not list. Every element that lost was placeless (ADR 1151).
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 227_618);
+        // 227_618 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 228_725);
         // 665 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
         // specification fetched for reading by round 1075, joined the population the way
         // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
@@ -1147,20 +1142,19 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             census.substituted,
             670,
         );
-        // 11815 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        // 13221 until session 1154, and the 1080 that left are `ISO-19444-1-2019-preview.pdf`'s
-        // `/BBox`-bearing elements counted once per page — the same double count as the floor
-        // above, from the same cause (ADR 1151).
-        gate_ratchet::floor("elements placed, whole population", census.placed, 12_141);
-        // 190540 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 12_141 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("elements placed, whole population", census.placed, 12_202);
+        // 191_815 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            191_815,
+            192_882,
         );
         // 23183 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
@@ -1183,30 +1177,34 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             34_657,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
-        // 10998 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 11_258 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
-            11_258,
+            11_295,
         );
-        // 112295 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 113_098 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            113_098,
+            113_809,
         );
-        // 198244 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        gate_ratchet::floor("lines, whole population", census.lines, 199_568);
-        // 5291277 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
-        // specification fetched for reading by round 1098, joined the population the way every
-        // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
-        gate_ratchet::floor("characters, whole population", census.characters, 5_354_660);
+        // 199_568 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("lines, whole population", census.lines, 201_290);
+        // 5_354_660 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
+        // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
+        // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
+        // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("characters, whole population", census.characters, 5_420_256);
         // 887 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
@@ -1292,6 +1290,10 @@ const NO_PARENT_KEY_SILENT: &[&str] = &[
     // the merge of sessions 1074-1079): a tagged document whose page 8 states no /StructParents
     // and none of whose 3115 elements is on that page — the honest empty answer, the ICC.1 shape.
     "T-REC-X.690-202102.pdf p8",
+    // `ISO-CD-18619-2013.pdf` page 7 (round 1208's fetched draft, ADR 1253, a corpus document
+    // since the merge of sessions 1207-1212): the same shape — a tagged document whose page 7
+    // states no /StructParents and none of whose 461 elements is on that page (trap 43).
+    "ISO-CD-18619-2013.pdf p7",
     "bug1755507.pdf p1",
     "bug816075.pdf p1",
     "comments.pdf p1",
