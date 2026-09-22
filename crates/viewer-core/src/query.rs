@@ -865,6 +865,19 @@ pub struct PopupWindow {
     pub modified: Option<String>,
     /// Table 166's `/C`: "[t]he title bar of the annotation's popup window".
     pub colour: Option<pdf_render::Color>,
+    /// Table 172's `/Subj`: "[t]ext representing a short description of the subject being
+    /// addressed by the annotation".
+    ///
+    /// Beside the title rather than in the body, because §12.5.6.2 says a markup annotation's
+    /// text "may be displayed in other ways by an interactive PDF processor, such as in a
+    /// comments pane" and a subject is what makes such a pane legible. ADR 1224.
+    pub subject: Option<String>,
+    /// Table 172's `/CreationDate`, as the file spells it: when the annotation was created.
+    ///
+    /// Distinct from [`Self::modified`], which is when it last changed — a thread reads by the
+    /// first and a document's freshness by the second. `pdf_model::popup::Popup::created_date`
+    /// is the parsed form for a host that formats it.
+    pub created: Option<String>,
     /// §12.5.6.2's thread: the replies this window shows rather than opening windows of their own.
     ///
     /// Table 172 makes that a `shall` on a processor — "[i]nteractive PDF processors shall not

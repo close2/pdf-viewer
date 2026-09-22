@@ -44,8 +44,23 @@
 //! # Why it may be believed on a machine running three other rounds
 //!
 //! A wall-clock gate that fires under a neighbour's load gets switched off, and this tree has
-//! three recorded false failures of exactly that kind (`doc/todo/02` section 2). Five things
-//! answer it, and none of them is a wider band:
+//! three recorded false failures of exactly that kind (`doc/todo/02` section 2). These answer it,
+//! and none of them is a wider band:
+//!
+//! - **A figure taken while the machine is above one runnable task per physical core is re-taken,
+//!   and then printed without being judged.** That ceiling is derived from the kernel's own
+//!   topology rather than written down ([`the_load_ceiling`]), and the reason it is the physical
+//!   core count is the measurement below: above it a fresh child has to share a core with a
+//!   neighbour, and a neighbour inside a core costs a figure 43% with nothing in any clock to
+//!   subtract. **A judged figure is still the minimum of exactly [`SAMPLES`] children**, because
+//!   [`quickest`] stops repeating at the first attempt taken under the ceiling rather than
+//!   pooling the attempts — a band has a floor as well as a ceiling, and pooling would fail a
+//!   figure out of the bottom of one. The load, the ceiling and the population are printed.
+//!
+//!   **This exists because the gate was being declined rather than disbelieved.** Three rounds in
+//!   one week did not run it at all, each on a private judgement that the load was too high, and
+//!   a figure nobody takes is not a figure anybody can argue with. A gate that says which of its
+//!   figures the machine was fit to judge can be run at any load.
 //!
 //! - **One figure has no clock in it at all, and it is the one principle 2's cold-open gate is
 //!   really asking about.** `open_kinstructions` counts the instructions a process executes to
@@ -206,6 +221,21 @@ const SAMPLES: usize = 9;
 /// no observed population between those two, so anything from a few per cent to a half would
 /// separate the same samples.
 const WAITED_SHARE: f64 = 0.10;
+
+/// How many times a figure taken above [`the_load_ceiling`] is re-taken before it is declined.
+///
+/// **Three, and the reason repeating helps at all is that the ceiling's quantity lags.** The
+/// one-minute load average decays over a minute while a figure here is milliseconds, so an average
+/// still above the ceiling can describe a machine a neighbour's build left free seconds ago;
+/// re-taking the figure is how that is found out, and it costs one more round of [`SAMPLES`]
+/// children per attempt. What it cannot do is wait out a machine that is genuinely busy, which is
+/// why there is a small number of attempts and then a figure that says so rather than a figure
+/// that quietly passes.
+///
+/// A dimensionless choice rather than a measured one, and it says so: what decides it is that the
+/// whole gate costs about six seconds, so three attempts on a figure is a cost nobody notices and
+/// thirty would make this the gate a round declines to run — which is the thing it is here to stop.
+const LOAD_ATTEMPTS: usize = 3;
 
 /// How many times the calibration probe repeats inside its child.
 ///
@@ -1235,6 +1265,85 @@ fn the_performance_cores() -> Option<String> {
     Some(list.join(","))
 }
 
+/// The one-minute load average, and how many tasks are runnable right now out of how many.
+///
+/// `/proc/loadavg`'s first and fourth fields. **They answer two different questions and the gate
+/// needs both**: the average is a statement about the last minute, decaying with a time constant
+/// of a minute, and the runnable count is what the kernel sees at this instant. A figure here is
+/// milliseconds long, so the instant is what actually shapes it — and the instant is also far too
+/// noisy to band, because a single sample of it says nothing about the tens of children a figure
+/// is made of. So the *average* is what [`the_load_ceiling`] is compared against, and the runnable
+/// count is printed beside it so that a reader can see when the two disagree.
+///
+/// `None` where there is no `/proc`, which is every platform but Linux.
+fn load_average() -> Option<(f64, u64, u64)> {
+    let text = std::fs::read_to_string("/proc/loadavg").ok()?;
+    let mut fields = text.split_whitespace();
+    let average = fields.next()?.parse().ok()?;
+    let entities = fields.nth(2)?;
+    let (runnable, total) = entities.split_once('/')?;
+    Some((average, runnable.parse().ok()?, total.parse().ok()?))
+}
+
+/// How many *physical* cores this machine has, from the kernel's own topology.
+///
+/// Distinct `(physical_package_id, core_id)` pairs across every CPU `sysfs` lists, which is the
+/// count of cores rather than of hardware threads. `None` where the kernel exports no topology.
+fn the_physical_cores() -> Option<usize> {
+    let mut seen: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
+    for cpu in 0..1024_usize {
+        let topology = format!("/sys/devices/system/cpu/cpu{cpu}/topology");
+        let Ok(core) = std::fs::read_to_string(format!("{topology}/core_id")) else {
+            break;
+        };
+        let Ok(package) = std::fs::read_to_string(format!("{topology}/physical_package_id")) else {
+            break;
+        };
+        seen.insert((package.trim().to_owned(), core.trim().to_owned()));
+    }
+    (!seen.is_empty()).then_some(seen.len())
+}
+
+/// The load average above which a figure with a clock in it is re-taken and then declined.
+///
+/// **The machine's physical core count, derived rather than written down**, and the derivation is
+/// the one thing that makes this a threshold rather than a superstition. A load average of one per
+/// physical core is the point at which a freshly woken child can no longer be given a core of its
+/// own: above it the scheduler has to put somebody on the other hardware thread of a core this
+/// gate's child is already on, and round 938 measured what that costs — eight spinning processes
+/// on exactly the eight CPUs these children are pinned to raised a warm open 43% and the
+/// calibration probe 74% while the kernel's own wait counter read *exactly zero* in all twenty
+/// samples (ADR 0916). That is contention with nothing to subtract, so the only honest answer is
+/// to decline the figure, and this is where the declining starts.
+///
+/// On the machine these bands were taken on it comes to twelve, which is also the number three
+/// rounds in one week used by instinct when they declined to run this gate at all. The instinct
+/// was right and the derivation is why.
+///
+/// `f64::INFINITY` where the topology cannot be read and [`std::thread::available_parallelism`]
+/// cannot either: a machine this gate cannot ask about is not a machine to decline on, and the
+/// run says the ceiling is unknown rather than silently judging or silently declining.
+///
+/// **Not a `gate_ratchet` bound, and it is worth saying why once.** That crate is for a number
+/// this *tree* must not exceed, printed beside the population it bounds so that a creep toward it
+/// is visible; a ratchet has a direction. This is a property of the **machine**, computed on every
+/// run from the kernel's own topology, and "the load average must not grow" is not a claim
+/// anything here could make. It is printed beside every figure it declines and in the run's own
+/// header, which is the half of `gate_ratchet`'s rule that applies to it. ADR 1226.
+fn the_load_ceiling() -> f64 {
+    static CEILING: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *CEILING.get_or_init(|| {
+        the_physical_cores()
+            .or_else(|| {
+                std::thread::available_parallelism()
+                    .ok()
+                    .map(std::num::NonZeroUsize::get)
+            })
+            .and_then(|cores| u32::try_from(cores).ok())
+            .map_or(f64::INFINITY, f64::from)
+    })
+}
+
 /// Whether this run was asked for the figures that are wall clocks.
 ///
 /// Asked once, because a run that measured half its figures under one answer and half under the
@@ -1513,7 +1622,7 @@ fn require_the_sandbox() {
 }
 
 /// The smallest of `samples` runs of one phase, and the fields the quickest of them printed.
-fn quickest(
+fn one_attempt(
     phase: &str,
     key: &str,
     document: Option<&Path>,
@@ -1535,6 +1644,71 @@ fn quickest(
         }
     }
     best.ok_or_else(|| format!("{phase} was not sampled at all"))
+}
+
+/// One figure, taken again while the machine is above [`the_load_ceiling`].
+///
+/// **This is what makes the gate runnable on a machine six rounds share, and the shape of it is
+/// what keeps the bands valid.** An attempt is [`one_attempt`]'s whole population of [`SAMPLES`]
+/// fresh children, bracketed by a load reading at each end; the load a figure is judged under is
+/// the *larger* of the two, because a figure is only as quiet as the busiest moment at either end
+/// of it.
+///
+/// - **The loop stops at the first attempt taken under the ceiling**, and that attempt's figure is
+///   the one returned. So a judged figure is always the minimum of exactly [`SAMPLES`] children —
+///   the population the bands were derived from. A loop that kept the smallest across every
+///   attempt would judge the minimum of up to [`LOAD_ATTEMPTS`] times as many draws, and since a
+///   [`Band`] has a floor as well as a ceiling, that would turn a busy afternoon into a failure
+///   out of the *bottom* of a band. The population is printed for exactly this reason.
+/// - **Where no attempt was quiet the smallest figure of all of them is kept, and it is not
+///   judged.** A startup figure's noise is one-sided — contention adds time and never removes it —
+///   so the smallest is the best estimate available, and it is still an estimate of a machine
+///   nobody banded. The load it was taken under goes out beside it so that the run says *how* busy
+///   rather than only *too busy*.
+///
+/// Returns the figure, the fields the child printed with the load appended, and how many attempts
+/// it took.
+fn quickest(
+    phase: &str,
+    key: &str,
+    document: Option<&Path>,
+    samples: usize,
+    before_each: &mut dyn FnMut() -> Result<Fields, String>,
+) -> Result<(f64, Fields), String> {
+    // A figure with no clock in it cannot be moved by a neighbour, and a run that was not asked
+    // for clocks judges nothing else — so it pays nothing for this.
+    let attempts = if clocks_are_wanted() {
+        LOAD_ATTEMPTS
+    } else {
+        1
+    };
+    let mut best: Option<(f64, Fields, f64)> = None;
+    let mut taken = 0_usize;
+    for _ in 0..attempts {
+        taken = taken.saturating_add(1);
+        let before = load_average();
+        let (value, fields) = one_attempt(phase, key, document, samples, before_each)?;
+        let after = load_average();
+        let load = match (before, after) {
+            (Some((before, ..)), Some((after, ..))) => before.max(after),
+            (Some((only, ..)), None) | (None, Some((only, ..))) => only,
+            (None, None) => 0.0,
+        };
+        let quiet = load <= the_load_ceiling();
+        if quiet {
+            best = Some((value, fields, load));
+            break;
+        }
+        if best.as_ref().is_none_or(|&(seen, ..)| value < seen) {
+            best = Some((value, fields, load));
+        }
+    }
+    let (value, mut fields, load) =
+        best.ok_or_else(|| format!("{phase} was not sampled at all"))?;
+    fields.push(("load".to_owned(), format!("{load:.2}")));
+    fields.push(("load_attempts".to_owned(), taken.to_string()));
+    fields.push(("load_population".to_owned(), samples.to_string()));
+    Ok((value, fields))
 }
 
 /// How large the file [`cold_latency_ms`] reads is.
@@ -1687,6 +1861,24 @@ struct Judged {
     /// one pass, once, in a process that has not done it before — where [`Self::calibration`] is
     /// the best of fifty in a warmed one. See [`calibration_pass`] and `doc/todo/42`.
     calibration_first: Option<f64>,
+    /// The load average the attempt behind this figure was taken under.
+    ///
+    /// The coarsest of the readings here and the first one asked, because it is the *cause* of
+    /// which the others are symptoms: a probe out of band under a load average of twenty is the
+    /// load, and naming the probe would send a reader looking for a regression in the machine.
+    /// `None` where there is no `/proc/loadavg`. See [`the_load_ceiling`] and [`quickest`].
+    load: Option<f64>,
+    /// How many attempts [`quickest`] made before it kept this one.
+    ///
+    /// More than one says the machine was over the ceiling at least once, which is worth seeing
+    /// even on a figure that was judged in the end.
+    load_attempts: Option<f64>,
+    /// How many fresh children the kept figure is the minimum of.
+    ///
+    /// Printed because a band is a claim about a population: [`quickest`] stops at the first
+    /// attempt taken under the ceiling precisely so that this stays [`SAMPLES`], and a reader who
+    /// cannot see it cannot check that it did.
+    load_population: Option<f64>,
 }
 
 /// Which of a figure's three conditions failed, in the order they are asked.
@@ -1698,6 +1890,8 @@ struct Judged {
 enum Declined {
     /// The whole run declined — a profile, a sample override, or the headline probe.
     TheRun,
+    /// The machine was above [`the_load_ceiling`] for every attempt this figure was given.
+    TheLoad,
     /// The child that produced this figure was not on the machine's own clock.
     ItsProbe,
     /// That child's *first* pass of the same work was outside its band.
@@ -1725,7 +1919,12 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
         None => format!("{what} not reported"),
     };
     let machine = format!(
-        "{}, {}, {}, {}",
+        "load {}, kept from {} children on attempt {}, {}, {}, {}, {}",
+        figure
+            .load
+            .map_or_else(|| "not reported".to_owned(), |load| format!("{load:.2}")),
+        figure.load_population.unwrap_or(0.0),
+        figure.load_attempts.unwrap_or(1.0),
         reading("this child's calibration", figure.calibration),
         reading("its first pass", figure.calibration_first),
         reading("the disk's rate", figure.io),
@@ -1742,6 +1941,11 @@ fn why_not(declined: Declined, figure: &Judged) -> String {
     };
     let said = match declined {
         Declined::TheRun => "the run is not judging at all",
+        Declined::TheLoad => {
+            "the machine's load average was above one task per physical core for every attempt \
+             this figure was given, and a neighbour that shares a core rather than queueing for \
+             one leaves nothing in a clock to subtract"
+        }
         Declined::ItsProbe => "the child that produced it was not on the machine's own clock",
         Declined::ItsFirstPass => {
             "the child's first pass of that same work was outside its band, so the machine was \
@@ -1807,6 +2011,9 @@ fn band_it(
                     (elapsed > 0.0).then(|| runq / elapsed)
                 }),
                 calibration_first: field(fields, "calibration_first_ms"),
+                load: field(fields, "load"),
+                load_attempts: field(fields, "load_attempts"),
+                load_population: field(fields, "load_population"),
             },
         ));
     }
@@ -1857,6 +2064,27 @@ fn the_launch_path_stays_inside_its_bands() {
         "launch-path: this run is `{profile}`, {samples} samples per figure, viewport {}x{}",
         VIEWPORT.0, VIEWPORT.1
     );
+
+    // **The load and the population, printed before anything is measured.** This gate's figures
+    // were disbelieved and then not run at all by three rounds in one week, on a judgement about
+    // the machine that the output gave them no way to make; what a reader needs first is what the
+    // machine was and what a figure is going to be the minimum of.
+    match (load_average(), the_load_ceiling()) {
+        (Some((average, runnable, total)), ceiling) if ceiling.is_finite() => println!(
+            "launch-path: load average {average:.2} with {runnable} of {total} tasks runnable, \
+             against a ceiling of {ceiling:.0} — this machine's physical cores, above which a \
+             fresh child cannot be given one to itself. A figure taken over it is re-taken up to \
+             {LOAD_ATTEMPTS} times and then printed without being judged"
+        ),
+        (Some((average, runnable, total)), _) => println!(
+            "launch-path: load average {average:.2} with {runnable} of {total} tasks runnable, \
+             and no ceiling — this machine's topology does not say how many physical cores it \
+             has, so no figure is declined for load"
+        ),
+        (None, _) => println!(
+            "launch-path: no /proc/loadavg, so no figure is declined for load on this machine"
+        ),
+    }
 
     println!(
         "launch-path: children pinned to {}",
@@ -1923,11 +2151,25 @@ fn the_launch_path_stays_inside_its_bands() {
             "launch-path: NOT JUDGED — {}",
             if !sampling_is_the_file_s {
                 "the sample count was overridden, and a minimum of n is not a minimum of five"
+                    .to_owned()
             } else if profile != check.profile {
-                "this build's profile is not the one the bands are a claim about"
+                "this build's profile is not the one the bands are a claim about".to_owned()
             } else {
-                "the calibration probe is outside its band, so this is not the machine the \
-                 bands were taken on"
+                // **The load is named here too, because it is what made the probe fail.** A run
+                // told only that its calibration is out of band has been handed the symptom; the
+                // load average is the one reading that says whether to look at the machine or at
+                // the tree.
+                match load_average() {
+                    Some((average, ..)) if average > the_load_ceiling() => format!(
+                        "the calibration probe is outside its band, and the load average is \
+                         {average:.2} against a ceiling of {:.0} — so this is not the machine the \
+                         bands were taken on, because somebody else is on it",
+                        the_load_ceiling()
+                    ),
+                    _ => "the calibration probe is outside its band, so this is not the machine \
+                          the bands were taken on"
+                        .to_owned(),
+                }
             }
         );
     }
@@ -2307,6 +2549,7 @@ fn the_launch_path_stays_inside_its_bands() {
     }
 
     let mut unjudged = 0_usize;
+    let mut for_load = 0_usize;
     for (what, figure) in &judged {
         // **The band goes out beside the figure on every run, and not only when the figure is
         // outside it.** A band this gate prints only on a failure is a band nobody reads until it
@@ -2341,11 +2584,28 @@ fn the_launch_path_stays_inside_its_bands() {
         let waited_little = figure
             .waited_share
             .is_none_or(|share| share <= WAITED_SHARE);
+        // The coarsest guard and the one [`quickest`] already gave this figure every chance
+        // against: see [`the_load_ceiling`].
+        let load_held = figure.load.is_none_or(|load| load <= the_load_ceiling());
         let machine_was_right =
-            probe_held && first_held && disk_held && latency_held && waited_little;
+            load_held && probe_held && first_held && disk_held && latency_held && waited_little;
         if !(figure.steady || (judging && machine_was_right)) {
             unjudged = unjudged.saturating_add(1);
-            let declined = if judging {
+            // **The load is asked first, because it is the cause of which the rest are
+            // symptoms.** A calibration probe out of band under a load average of twenty is the
+            // load, and naming the probe would send a reader looking for a regression in the
+            // machine that produced it.
+            if !load_held {
+                for_load = for_load.saturating_add(1);
+            }
+            // **The load outranks even the run's own verdict.** Under a load average of twenty the
+            // headline calibration probe is out of band too, so `judging` is false and the figure
+            // would otherwise be declined as "the run is not judging at all" — which is true and
+            // is the symptom. The cause is the load, and a reader who is told the symptom goes
+            // looking for a regression in the machine.
+            let declined = if !load_held {
+                Declined::TheLoad
+            } else if judging {
                 if !waited_little {
                     Declined::ItWaited
                 } else if !probe_held {
@@ -2395,7 +2655,8 @@ fn the_launch_path_stays_inside_its_bands() {
 
     println!(
         "launch-path: {measured_documents} documents measured, {absent} absent, \
-         {uncounted} not counted, {} figures banded, {unjudged} not judged, {} outside",
+         {uncounted} not counted, {} figures banded, {unjudged} not judged ({for_load} of them \
+         for load), {} outside",
         judged.len(),
         judged
             .iter()

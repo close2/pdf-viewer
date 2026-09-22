@@ -1480,8 +1480,17 @@ fn stored_appearance(
 ) -> Normal {
     let showing = view.appearance;
     let appearances = document.get_key(annotation, "AP");
-    let Some(appearances) = appearances.as_dict() else {
-        return Normal::Absent;
+    // §12.7.8.3.2's replacing sentence, for the one entry of Table 249 that is an appearance:
+    // where an FDF import stated an `/AP` for this field, it *is* the appearance dictionary, and
+    // the widget's own is the entry it replaced. Its streams are copies that name no object of
+    // the FDF file, so everything below reads them as it reads the document's own (ADR 1223).
+    let appearances = if let Some(imported) = view.imported_appearance {
+        imported
+    } else {
+        let Some(stated) = appearances.as_dict() else {
+            return Normal::Absent;
+        };
+        stated
     };
     let key = match showing {
         crate::view::Appearance::Normal => "N",

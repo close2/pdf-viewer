@@ -104,12 +104,24 @@ impl Shading {
             }
             ShadingKind::Sampled { source, .. } => source.is_opaque(),
             // A parametric mesh's colours are all in its ramp, and its corners hold none.
-            ShadingKind::Mesh { triangles, ramp } => match ramp {
+            ShadingKind::Mesh {
+                triangles,
+                patches,
+                ramp,
+            } => match ramp {
                 Some(ramp) => ramp.stops.iter().all(|stop| opaque(&stop.colour)),
-                None => triangles.iter().all(|triangle| match &triangle.corners {
-                    Corners::Colours(colours) => colours.iter().all(opaque),
-                    Corners::Parameters(_) => false,
-                }),
+                None => {
+                    triangles.iter().all(|triangle| match &triangle.corners {
+                        Corners::Colours(colours) => colours.iter().all(opaque),
+                        Corners::Parameters(_) => false,
+                    }) && patches
+                        .iter()
+                        .flat_map(|mesh| mesh.patches.iter())
+                        .all(|patch| match &patch.corners {
+                            PatchCorners::Colours(colours) => colours.iter().all(opaque),
+                            PatchCorners::Parameters(_) => false,
+                        })
+                }
             },
         }
     }
@@ -142,11 +154,25 @@ impl Shading {
     /// coordinates travels with the shading and is therefore over it at every site.
     #[must_use]
     pub fn painting_bounds(&self) -> Option<[f32; 4]> {
-        let ShadingKind::Mesh { triangles, .. } = self.kind.as_ref() else {
+        let ShadingKind::Mesh {
+            triangles, patches, ..
+        } = self.kind.as_ref()
+        else {
             return None;
         };
+        // A Bézier surface lies inside the convex hull of its control net, so the net's own
+        // bounding box is over every point §8.7.4.5.7's mapping can reach — which is what this
+        // has to be, since the triangles a device will draw the patch as do not exist yet.
+        let net = patches
+            .iter()
+            .flat_map(|mesh| mesh.patches.iter())
+            .flat_map(|patch| patch.net.into_iter().flatten());
         let mut bounds: Option<[f32; 4]> = None;
-        for point in triangles.iter().flat_map(|triangle| triangle.points) {
+        for point in triangles
+            .iter()
+            .flat_map(|triangle| triangle.points)
+            .chain(net)
+        {
             if !point.x.is_finite() || !point.y.is_finite() {
                 return None;
             }
@@ -291,6 +317,7 @@ impl Shading {
             // goes; a corner holding a parameter has none to map.
             ShadingKind::Mesh {
                 triangles,
+                patches,
                 ramp: colours,
             } => ShadingKind::Mesh {
                 triangles: triangles
@@ -305,6 +332,7 @@ impl Shading {
                         },
                     })
                     .collect(),
+                patches: patches.as_ref().map(|mesh| mesh.with_colours(&map)),
                 ramp: colours.as_ref().map(ramp),
             },
         };
@@ -711,7 +739,20 @@ pub enum ShadingKind {
     /// Colour varies smoothly across triangles (PDF types 4, 5, 6 and 7).
     Mesh {
         /// The triangles, each carrying a colour or a parametric value per corner.
+        ///
+        /// Empty exactly where `patches` is `Some`: a mesh is drawn from one or the other, so
+        /// that §8.7.4.5.7's "[i]f one patch overlaps another, the patch that appears later in
+        /// the data stream shall paint over the earlier one" is the order of one sequence
+        /// rather than an interleaving two producers would have to agree on.
         triangles: Arc<[Triangle]>,
+        /// Types 6 and 7, where the interpreter left the fineness to the device.
+        ///
+        /// `None` for the triangle meshes (types 4 and 5), whose geometry is exactly the
+        /// triangles the file states and has no fineness to choose, and for a patch mesh whose
+        /// colours §8.7.4.4 requires be interpolated in a space no backend holds — there the
+        /// interpreter tessellates and converts, and the triangles above are the answer.
+        /// [`PatchMesh`] has the whole of why the rest travel.
+        patches: Option<PatchMesh>,
         /// The shading's `/Function`, sampled — present exactly where the corners carry
         /// [`Corners::Parameters`], because that is the entry whose presence makes them
         /// parameters. `None` where they carry colours.
@@ -1055,7 +1096,11 @@ pub struct MeshRaster {
 }
 
 impl MeshRaster {
-    /// Rasterises `triangles` into the part of a `width` by `height` target they cover.
+    /// Rasterises a mesh into the part of a `width` by `height` target it covers.
+    ///
+    /// `triangles` and `patches` are [`ShadingKind::Mesh`]'s, and exactly one of them is
+    /// non-empty: a patch mesh is tessellated here, at the fineness `to_device` says its
+    /// patches need, and a triangle mesh is drawn as the file states it.
     ///
     /// `to_device` carries the mesh's own coordinates onto the target. `ramp` is
     /// [`ShadingKind::Mesh`]'s, and is what turns a [`Corners::Parameters`] corner into a
@@ -1074,12 +1119,24 @@ impl MeshRaster {
     )]
     pub fn build(
         triangles: &[Triangle],
+        patches: Option<&PatchMesh>,
         ramp: Option<&Ramp>,
         to_device: Transform,
         width: u32,
         height: u32,
     ) -> Option<Self> {
-        if triangles.is_empty() || width == 0 || height == 0 {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        // §8.7.4.5.7's patches are evaluated here rather than by the interpreter, because how
+        // finely is a question in device pixels and `to_device` is where they are known:
+        // [`SurfacePatch`] has the reading.
+        let tessellated = patches.map(|mesh| mesh.tessellate(to_device));
+        let triangles: &[Triangle] = match tessellated.as_deref() {
+            Some(triangles) => triangles,
+            None => triangles,
+        };
+        if triangles.is_empty() {
             return None;
         }
         if ramp.is_none()
@@ -1508,18 +1565,26 @@ impl ShadingRaster {
                     Some(sample_grid(&grid, cell.x, cell.y))
                 });
             }
-            ShadingKind::Mesh { triangles, ramp } => {
+            ShadingKind::Mesh {
+                triangles,
+                patches,
+                ramp,
+            } => {
                 // The mesh's own rasterisation, over this region rather than over the mesh's
                 // bounding box: every pixel no triangle covers keeps the background it was
                 // filled with, which is the whole difference the entry makes.
+                let drawn = match patches {
+                    Some(mesh) => std::borrow::Cow::Owned(mesh.tessellate(to_device)),
+                    None => std::borrow::Cow::Borrowed(&**triangles),
+                };
                 if ramp.is_none()
-                    && triangles
+                    && drawn
                         .iter()
                         .any(|triangle| matches!(triangle.corners, Corners::Parameters(_)))
                 {
                     return None;
                 }
-                for triangle in triangles.iter() {
+                for triangle in drawn.iter() {
                     Triangle {
                         points: triangle.points.map(|point| to_device.apply(point)),
                         corners: triangle.corners,
@@ -1688,6 +1753,374 @@ pub enum Corners {
     Parameters([f32; 3]),
 }
 
+/// One Bézier patch of a type 6 or type 7 shading, carried to the device that draws it.
+///
+/// # Why the patch travels rather than its triangles
+///
+/// ISO 32000-2 §8.7.4.5.7 defines a patch's geometry as a *mapping*, not as a polygon —
+///
+/// > Coordinates are mapped from the unit square into a four-sided patch whose sides are not
+/// > necessarily linear
+///
+/// — and says the same again of what a reader sees: "NOTE The patch is a control surface
+/// rather than a painting geometry." A triangulation stands in for that mapping, and how fine
+/// it must be is a question in **device pixels**. §10.7.3's NOTE 2 is the clause that separates
+/// the two tolerances a patch answers to:
+///
+/// > The effect of the smoothness tolerance is similar to that of the flatness tolerance.
+/// > However, that flatness is measured in device-dependent units of pixel width, whereas
+/// > smoothness is measured as a fraction of colour component range.
+///
+/// The interpreter holds the second and cannot hold the first: a display list is re-rasterised
+/// at any zoom without being interpreted again, so the pixels a patch will cover are not known
+/// where it is read. So the patch itself travels — the same answer [`ShadingKind::Sampled`]
+/// gives §8.7.4.5.2's function — and [`Self::steps`] derives the fineness where the device
+/// transform is known. ADR 1217.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SurfacePatch {
+    /// The 4×4 control net of the bicubic surface, in the shading's own coordinates, the first
+    /// index running with `u` and the second with `v`.
+    ///
+    /// A Coons patch states twelve boundary points and §8.7.4.5.7 defines its interior from
+    /// them, so both types arrive here as the sixteen a tensor-product surface is evaluated
+    /// over: §8.7.4.5.8's own sentence is that a type 7 shading is "identical to Type 6, except
+    /// that they are based on a bicubic tensor-product patch defined by 16 control points".
+    pub net: [[Point; 4]; 4],
+    /// What the four corners carry, at `(u, v)` of (0,0), (0,1), (1,1) and (1,0) — the order
+    /// §8.7.4.5.7 states them in, "in the same order as the control points corresponding to the
+    /// corners".
+    pub corners: PatchCorners,
+}
+
+/// What a [`SurfacePatch`]'s four corners carry, which is what is interpolated across it.
+///
+/// [`Corners`] one dimension up: §8.7.4.5.7 makes a patch's interior a bilinear interpolation
+/// of these four — "[c]olours are specified for each corner of the unit square, and bilinear
+/// interpolation is used to fill in colours over the entire unit square" — and §8.7.4.5.5's
+/// choice of *what* is interpolated is the same choice a triangle's corners make.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PatchCorners {
+    /// A colour per corner: the mesh states its components and no `/Function`.
+    Colours([Color; 4]),
+    /// §8.7.4.5.5's parametric value per corner. The colour is [`ShadingKind::Mesh`]'s ramp at
+    /// the interpolated value.
+    Parameters([f32; 4]),
+}
+
+/// How far a patch's flattened boundary may sit from the surface §8.7.4.5.7 defines, in device
+/// pixels.
+///
+/// ISO 32000-2 §10.7.2 is where a number of this kind is stated — "the maximum permitted
+/// distance in device pixels between the mathematically correct path and an approximation
+/// constructed from straight line segments" — and Table 52 gives the graphics state's initial
+/// flatness as 1.0. Half of that, for a reason of this rasteriser's own rather than the file's:
+/// [`Triangle::paint`] decides a pixel by its *centre*, so a boundary displaced by less than
+/// half a pixel cannot carry the surface past the nearest sample, and §10.7.2's NOTE 1 says
+/// which direction is the safe one to err in ("[s]maller values yield greater precision at the
+/// cost of more computation"). The file's own `/FL` is not read here: §10.7.2 permits that
+/// outright — "PDF processors may choose to ignore any flatness tolerance specified within a
+/// PDF file" — and this tree flattens every ordinary curve at `render_cpu::area`'s own constant
+/// for the same reason. ADR 1217.
+const SILHOUETTE: f32 = 0.5;
+
+/// Most steps one patch's surface is evaluated in along either axis.
+///
+/// 64 is 8192 triangles for one patch, which is [`MAX_PATCH_TRIANGLES`]'s whole budget shared
+/// between 32 of them. A patch needing more than this has a boundary curving by some four
+/// thousand device pixels between its control points, which is a patch drawn far larger than
+/// any screen. §10.7.3 licenses a bound of this kind — "[e]ach output device may have internal
+/// limits on the maximum and minimum tolerances attainable".
+const MAX_PATCH_STEPS: u32 = 64;
+
+/// Most triangles one patch mesh is drawn with, shared equally between its patches.
+///
+/// The same figure `pdf_colour::mesh::MAX_TRIANGLES` bounds a mesh's own triangles by, and
+/// under the same sentence of §10.7.3. It is shared *equally* rather than spent in order, so a
+/// mesh past the bound is drawn coarsely everywhere instead of finely at the front and dropped
+/// at the back: a patch mesh past this bound has every patch it states, which is what
+/// §8.7.4.5.7's "[i]f one patch overlaps another, the patch that appears later in the data
+/// stream shall paint over the earlier one" needs.
+pub const MAX_PATCH_TRIANGLES: usize = 1 << 18;
+
+impl SurfacePatch {
+    /// The point of the surface at `(u, v)`, ISO 32000-2 §8.7.4.5.7's mapping from the unit
+    /// square.
+    ///
+    /// The bicubic tensor-product surface over [`Self::net`]: the clause's own construction for
+    /// a type 7 patch, and the surface a type 6 patch's `S` describes once its interior control
+    /// points are derived from its boundary curves.
+    #[must_use]
+    pub fn point_at(&self, u: f32, v: f32) -> Point {
+        let (bu, bv) = (bernstein(u), bernstein(v));
+        let mut point = Point::new(0.0, 0.0);
+        for (row, weight_u) in self.net.iter().zip(bu) {
+            for (control, weight_v) in row.iter().zip(bv) {
+                point.x += control.x * weight_u * weight_v;
+                point.y += control.y * weight_u * weight_v;
+            }
+        }
+        point
+    }
+
+    /// How finely this patch has to be evaluated along `u` and along `v` to be drawn on the
+    /// device `to_device` maps it onto.
+    ///
+    /// Two requirements, each derived from the clause that states it, and the answer is the
+    /// larger:
+    ///
+    /// - **The silhouette.** A cubic Bézier's distance from its own chord is at most three
+    ///   quarters of the larger of its two second differences, and subdividing it into `n`
+    ///   uniform pieces divides that by `n²`; so `n` is the square root of the bound over
+    ///   [`SILHOUETTE`]. An isoparametric curve of the surface is the Bernstein blend of the
+    ///   net's rows (or columns), and Bernstein weights are non-negative and sum to one, so the
+    ///   largest second difference over the four of them bounds every curve in that direction.
+    /// - **The colour.** §8.7.4.5.7 fills a patch's interior by bilinear interpolation, and a
+    ///   rasteriser draws each cell as two triangles, each *linear*. Over a cell of `1/n_u` by
+    ///   `1/n_v` the two differ by at most a quarter of the bilinear cross term — the corners
+    ///   alternately added and subtracted — divided by `n_u · n_v`, which is §10.7.3's
+    ///   "allowable colour error between a shading approximated by piecewise linear
+    ///   interpolation and the true value of a (possibly nonlinear) shading function" measured
+    ///   "for each colour component" with "the maximum independent error" used. `smoothness` is
+    ///   that tolerance, already "expressed as a fraction of the range of the colour component"
+    ///   by the graphics state the shading was read under. Where the corners carry §8.7.4.5.5's
+    ///   parameter it is the parameter that is interpolated (ADR 0292), and the tolerance is the
+    ///   same number: the ramp is sampled from the same `/SM`, so a parameter resolved finer
+    ///   than that buys no colour.
+    ///
+    /// `budget` is how many triangles this patch may spend, which caps both.
+    #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "each cast is between a step count bounded by MAX_PATCH_STEPS and its f32, \
+                  which holds every integer that small exactly"
+    )]
+    pub fn steps(&self, to_device: Transform, smoothness: f32, budget: usize) -> (u32, u32) {
+        let net = self.net.map(|row| row.map(|point| to_device.apply(point)));
+        // A row of `net` is a curve in `v` and a row of its transpose one in `u`, so one
+        // measurement serves both directions.
+        let columns: [[Point; 4]; 4] = std::array::from_fn(|v| std::array::from_fn(|u| net[u][v]));
+        let curve = |points: &[Point; 4]| {
+            let second =
+                |a: Point, b: Point, c: Point| (a.x - 2.0 * b.x + c.x).hypot(a.y - 2.0 * b.y + c.y);
+            let [p0, p1, p2, p3] = *points;
+            second(p0, p1, p2).max(second(p1, p2, p3))
+        };
+        let along_u = columns.iter().map(curve).fold(0.0_f32, f32::max);
+        let along_v = net.iter().map(curve).fold(0.0_f32, f32::max);
+        let flatten = |bound: f32| {
+            if !bound.is_finite() || bound <= 0.0 {
+                return 1u32;
+            }
+            let steps = (0.75 * bound / SILHOUETTE).sqrt().ceil();
+            if steps.is_finite() {
+                (steps as u32).clamp(1, MAX_PATCH_STEPS)
+            } else {
+                MAX_PATCH_STEPS
+            }
+        };
+
+        // The bilinear cross term, per channel, and the largest of them: §10.7.3's "maximum
+        // independent error".
+        let cross = |a: f32, b: f32, c: f32, d: f32| (a - b + c - d).abs();
+        let span = match self.corners {
+            PatchCorners::Colours([c1, c2, c3, c4]) => cross(c1.r, c2.r, c3.r, c4.r)
+                .max(cross(c1.g, c2.g, c3.g, c4.g))
+                .max(cross(c1.b, c2.b, c3.b, c4.b))
+                .max(cross(c1.a, c2.a, c3.a, c4.a)),
+            PatchCorners::Parameters([t1, t2, t3, t4]) => cross(t1, t2, t3, t4),
+        };
+        let smooth = if smoothness > 0.0 && span.is_finite() {
+            let steps = (span / (4.0 * smoothness)).sqrt().ceil();
+            if steps.is_finite() {
+                (steps as u32).clamp(1, MAX_PATCH_STEPS)
+            } else {
+                MAX_PATCH_STEPS
+            }
+        } else {
+            MAX_PATCH_STEPS
+        };
+
+        // Two triangles a cell, so the budget is a cap on each axis of the square that fits in
+        // it — the same cap both ways, because a budget cannot say which axis deserves it.
+        let cap = ((budget / 2) as f64).sqrt();
+        let cap = if cap >= 1.0 {
+            (cap as u32).min(MAX_PATCH_STEPS)
+        } else {
+            1
+        };
+        (
+            flatten(along_u).max(smooth).min(cap),
+            flatten(along_v).max(smooth).min(cap),
+        )
+    }
+
+    /// Appends the triangles this patch is drawn as at `steps` divisions along each axis.
+    ///
+    /// # The order the triangles come out in is the clause's, not the loop's
+    ///
+    /// A patch may fold over itself, and §8.7.4.5.7 says which of the parameter points landing
+    /// on one device point wins:
+    ///
+    /// > If more than one point ( u, v ) in parameter space is mapped to the same point in
+    /// > device space, the point selected shall be the one with the largest value of v . If
+    /// > multiple points have the same v , the one with the largest value of u shall be
+    /// > selected.
+    ///
+    /// Every rasteriser here paints a mesh's triangles in the order they arrive, each
+    /// overwriting what is under it, so *later in this vector* is *what the reader sees*. The
+    /// precedence is therefore lexicographic in `(v, u)`, so `v` is the outer loop: the last
+    /// cell written over any point is the one with the largest `v`, and among equal `v` the
+    /// largest `u`. Nesting them the other way round answers with the largest `u` instead,
+    /// which is the clause's *tie-breaker* promoted over its rule (ADR 0778).
+    pub fn tessellate(&self, steps: (u32, u32), out: &mut Vec<Triangle>) {
+        match self.corners {
+            PatchCorners::Colours(corners) => self.grid(
+                steps,
+                out,
+                corners,
+                |a, b, t| Color {
+                    r: a.r + (b.r - a.r) * t,
+                    g: a.g + (b.g - a.g) * t,
+                    b: a.b + (b.b - a.b) * t,
+                    a: a.a + (b.a - a.a) * t,
+                },
+                Corners::Colours,
+            ),
+            PatchCorners::Parameters(corners) => self.grid(
+                steps,
+                out,
+                corners,
+                |a, b, t| a + (b - a) * t,
+                Corners::Parameters,
+            ),
+        }
+    }
+
+    /// The whole of [`Self::tessellate`], written once for either thing a corner carries.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a step index, bounded by MAX_PATCH_STEPS"
+    )]
+    fn grid<T: Copy>(
+        &self,
+        steps: (u32, u32),
+        out: &mut Vec<Triangle>,
+        corners: [T; 4],
+        mix: impl Fn(T, T, f32) -> T,
+        wrap: impl Fn([T; 3]) -> Corners,
+    ) {
+        let (across, down) = (steps.0.max(1), steps.1.max(1));
+        let stride = (down as usize).saturating_add(1);
+        let cells = (across as usize).saturating_mul(down as usize);
+        let mut points = Vec::with_capacity(stride.saturating_mul(stride));
+        let mut values = Vec::with_capacity(points.capacity());
+        for u_step in 0..=across {
+            for v_step in 0..=down {
+                let (u, v) = (u_step as f32 / across as f32, v_step as f32 / down as f32);
+                points.push(self.point_at(u, v));
+                // The corners are `c1` at (0,0), `c2` at (0,1), `c3` at (1,1) and `c4` at
+                // (1,0), matching the order the control points visit them.
+                let top = mix(corners[0], corners[1], v);
+                let bottom = mix(corners[3], corners[2], v);
+                values.push(mix(top, bottom, u));
+            }
+        }
+
+        out.reserve(cells.saturating_mul(2));
+        let at = |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
+        for v_step in 0..down as usize {
+            for u_step in 0..across as usize {
+                let (u_next, v_next) = (u_step.saturating_add(1), v_step.saturating_add(1));
+                let (a, b, c, d) = (
+                    at(u_step, v_step),
+                    at(u_step, v_next),
+                    at(u_next, v_step),
+                    at(u_next, v_next),
+                );
+                let mut triangle = |x: usize, y: usize, z: usize| {
+                    out.push(Triangle {
+                        points: [points[x], points[y], points[z]],
+                        corners: wrap([values[x], values[y], values[z]]),
+                    });
+                };
+                triangle(a, b, c);
+                triangle(b, d, c);
+            }
+        }
+    }
+}
+
+/// The four cubic Bernstein basis values at `t`.
+fn bernstein(t: f32) -> [f32; 4] {
+    let s = 1.0 - t;
+    [s * s * s, 3.0 * s * s * t, 3.0 * s * t * t, t * t * t]
+}
+
+/// A type 6 or type 7 shading's patches, with the tolerance they are to be drawn to.
+///
+/// The pair travels together because neither half decides anything alone: a patch says what
+/// surface to draw and §10.7.3's tolerance says how closely, and a backend that had the patches
+/// and guessed the tolerance would be the fixed fineness this replaced, one level down.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PatchMesh {
+    /// The patches, in the order the stream states them — which is the order they are painted
+    /// in, because §8.7.4.5.7 makes that the precedence between two that overlap.
+    pub patches: Arc<[SurfacePatch]>,
+    /// ISO 32000-2 §10.7.3's smoothness tolerance under the graphics state the shading was read
+    /// in: "[t]he allowable error (or tolerance) shall be expressed as a fraction of the range
+    /// of the colour component, from 0.0 to 1.0."
+    ///
+    /// The value this tree actually answers to rather than the file's `/SM`, which is the same
+    /// clause's other sentence — "[e]ach output device may have internal limits on the maximum
+    /// and minimum tolerances attainable" — applied once, where the ramp's own sampling is
+    /// decided, so that a mesh and a ramp under one graphics state answer to one number.
+    pub smoothness: f32,
+}
+
+impl PatchMesh {
+    /// The triangles these patches are drawn as on the device `to_device` maps them onto.
+    ///
+    /// [`MAX_PATCH_TRIANGLES`] shared equally between the patches, each asked
+    /// [`SurfacePatch::steps`] for its own fineness within that share.
+    #[must_use]
+    pub fn tessellate(&self, to_device: Transform) -> Vec<Triangle> {
+        let budget = MAX_PATCH_TRIANGLES
+            .checked_div(self.patches.len())
+            .unwrap_or(MAX_PATCH_TRIANGLES);
+        let mut out = Vec::new();
+        for patch in self.patches.iter() {
+            patch.tessellate(patch.steps(to_device, self.smoothness, budget), &mut out);
+        }
+        out
+    }
+
+    /// Returns these patches with `map` applied to every colour they carry.
+    ///
+    /// A patch carrying §8.7.4.5.5's parameter carries no colour: its ramp does, and that is
+    /// where [`Shading::with_colours`] maps it.
+    #[must_use]
+    fn with_colours(&self, map: &impl Fn(&Color) -> Color) -> Self {
+        Self {
+            patches: self
+                .patches
+                .iter()
+                .map(|patch| SurfacePatch {
+                    net: patch.net,
+                    corners: match patch.corners {
+                        PatchCorners::Colours(corners) => {
+                            PatchCorners::Colours(corners.map(|colour| map(&colour)))
+                        }
+                        parameters @ PatchCorners::Parameters(_) => parameters,
+                    },
+                })
+                .collect(),
+            smoothness: self.smoothness,
+        }
+    }
+}
+
 impl Triangle {
     /// Paints this triangle into a device-resolution buffer by §8.7.4.5.5's interpolation.
     ///
@@ -1801,7 +2234,9 @@ impl Triangle {
 
 #[cfg(test)]
 mod tests {
-    use super::{Corners, MeshRaster, Ramp, Triangle, blend_parameter};
+    use super::{
+        Corners, MeshRaster, PatchCorners, PatchMesh, Ramp, SurfacePatch, Triangle, blend_parameter,
+    };
     use crate::{Color, Point, Transform};
 
     /// A break makes a step, and a ramp without one averages across it.
@@ -1947,7 +2382,7 @@ mod tests {
     fn a_parametric_mesh_interpolates_the_parameter_and_not_the_colour() {
         let ramp = Ramp::sample(|t| Color::rgb(t * t, 0.0, 0.0));
         let mesh = [triangle(Corners::Parameters([0.0, 1.0, 0.0]))];
-        let raster = MeshRaster::build(&mesh, Some(&ramp), Transform::IDENTITY, 32, 32)
+        let raster = MeshRaster::build(&mesh, None, Some(&ramp), Transform::IDENTITY, 32, 32)
             .expect("the mesh covers pixels");
 
         let (red, _, _, alpha) = pixel(&raster, 10, 0);
@@ -1969,8 +2404,8 @@ mod tests {
             Color::rgb(1.0, 0.0, 0.0),
             Color::rgb(0.0, 0.0, 0.0),
         ]))];
-        let raster =
-            MeshRaster::build(&mesh, None, Transform::IDENTITY, 32, 32).expect("it covers pixels");
+        let raster = MeshRaster::build(&mesh, None, None, Transform::IDENTITY, 32, 32)
+            .expect("it covers pixels");
         let (red, _, _, _) = pixel(&raster, 10, 0);
         let expected = level(PARAMETER);
         assert!(
@@ -1984,7 +2419,7 @@ mod tests {
     #[test]
     fn a_parametric_mesh_without_its_ramp_is_refused() {
         let mesh = [triangle(Corners::Parameters([0.0, 1.0, 0.0]))];
-        assert!(MeshRaster::build(&mesh, None, Transform::IDENTITY, 32, 32).is_none());
+        assert!(MeshRaster::build(&mesh, None, None, Transform::IDENTITY, 32, 32).is_none());
     }
 
     /// §10.7.3's smoothness tolerance moves the sampling in one direction only.
@@ -2198,5 +2633,168 @@ mod tests {
             ramp.colour_at(0.0)
         );
         assert_eq!(ramp.colour_at(7.0f32.clamp(0.0, 1.0)), ramp.colour_at(1.0));
+    }
+
+    /// A patch whose boundary is a straight, evenly spaced net, so its second differences are
+    /// zero and its corners carry one colour.
+    fn flat_patch() -> SurfacePatch {
+        let net = std::array::from_fn(|u| {
+            std::array::from_fn(|v| {
+                #[expect(clippy::cast_precision_loss, reason = "two indices below four")]
+                Point::new(v as f32 * 30.0, u as f32 * 30.0)
+            })
+        });
+        SurfacePatch {
+            net,
+            corners: PatchCorners::Colours([Color::BLACK; 4]),
+        }
+    }
+
+    /// The same patch with one control point pulled out of the plane, which gives the net a
+    /// second difference to measure.
+    fn curved_patch() -> SurfacePatch {
+        let mut patch = flat_patch();
+        patch.net[1][1] = Point::new(30.0, 120.0);
+        patch
+    }
+
+    /// A patch flat in geometry and constant in colour needs no subdivision at all.
+    ///
+    /// Both derivations answer zero, so ISO 32000-2 §8.7.4.5.7's surface *is* the two triangles
+    /// of its own corners, and drawing more of them would be work with no picture behind it —
+    /// which is what a fixed fineness spends on every patch of every mesh.
+    #[test]
+    fn a_flat_patch_of_one_colour_is_two_triangles() {
+        let patch = flat_patch();
+        assert_eq!(patch.steps(Transform::IDENTITY, 1.0 / 256.0, 4096), (1, 1));
+        let mut out = Vec::new();
+        patch.tessellate((1, 1), &mut out);
+        assert_eq!(out.len(), 2);
+    }
+
+    /// The fineness follows the device, which is the whole of why the patch travels.
+    ///
+    /// §10.7.2 measures the silhouette "in device pixels", so a patch drawn four times larger
+    /// is four times further from its own chords and needs twice the steps — the square root
+    /// the derivation states. A tessellation chosen where the shading is *read* cannot see
+    /// this, because the display list is rasterised at any magnification without being
+    /// interpreted again.
+    #[test]
+    fn a_patch_drawn_larger_is_subdivided_finer() {
+        let patch = curved_patch();
+        let at = |scale: f32| {
+            patch
+                .steps(
+                    Transform::new(scale, 0.0, 0.0, scale, 0.0, 0.0),
+                    1.0 / 256.0,
+                    1 << 16,
+                )
+                .0
+        };
+        let (one, four) = (at(1.0), at(4.0));
+        assert!(one > 1, "a curved patch needs more than one step: {one}");
+        // Twice, to the rounding up that a whole number of steps costs either end.
+        assert!(
+            four.abs_diff(one * 2) <= 1,
+            "four times the scale is twice the steps: {one} at 1x, {four} at 4x"
+        );
+    }
+
+    /// §10.7.3's tolerance decides the colour half, and it is a *fraction of the component
+    /// range* rather than a length: the same patch at the same scale is subdivided further
+    /// when the graphics state asks for less colour error.
+    ///
+    /// The corners here carry the largest bilinear cross term two colours can make — black and
+    /// white at opposite corners — which is the quantity two triangles of a cell cannot
+    /// reproduce.
+    #[test]
+    fn a_tighter_smoothness_subdivides_a_patchs_colour_further() {
+        let patch = SurfacePatch {
+            net: flat_patch().net,
+            corners: PatchCorners::Colours([
+                Color::BLACK,
+                Color::WHITE,
+                Color::BLACK,
+                Color::WHITE,
+            ]),
+        };
+        let at = |smoothness: f32| patch.steps(Transform::IDENTITY, smoothness, 1 << 16).0;
+        let (coarse, fine) = (at(0.1), at(1.0 / 4096.0));
+        assert!(
+            fine > coarse,
+            "a tolerance of 1/4096 asks for more than one of 0.1: {fine} against {coarse}"
+        );
+    }
+
+    /// A budget of two triangles leaves one cell, whatever either derivation asked for.
+    ///
+    /// §10.7.3 permits it — "[e]ach output device may have internal limits on the maximum and
+    /// minimum tolerances attainable" — and the patch is still *drawn*, which is what
+    /// §8.7.4.5.7's precedence between overlapping patches needs of every patch in the stream.
+    #[test]
+    fn a_patch_out_of_budget_is_still_drawn() {
+        let patch = curved_patch();
+        assert_eq!(patch.steps(Transform::IDENTITY, 1.0 / 4096.0, 2), (1, 1));
+    }
+
+    /// The cells come out in `(v, u)` order, which is ISO 32000-2 §8.7.4.5.7's precedence for a
+    /// patch that folds onto itself: "the point selected shall be the one with the largest
+    /// value of v . If multiple points have the same v , the one with the largest value of u
+    /// shall be selected." Every rasteriser here paints the triangles in the order they arrive,
+    /// so the last one written over a point is the one that shows (ADR 0778).
+    #[test]
+    fn a_patchs_cells_are_emitted_in_v_then_u_order() {
+        let patch = flat_patch();
+        let mut out = Vec::new();
+        patch.tessellate((2, 2), &mut out);
+        assert_eq!(out.len(), 8, "two by two cells, two triangles each");
+        // The first corner of each cell's first triangle is its (u, v) grid point. The net's
+        // control points are evenly spaced from 0 to 90 along both axes, so the surface is the
+        // identity on that square and its midpoint is 45.
+        let corners: Vec<(f32, f32)> = out
+            .chunks(2)
+            .map(|cell| (cell[0].points[0].x, cell[0].points[0].y))
+            .collect();
+        assert_eq!(
+            corners,
+            vec![(0.0, 0.0), (0.0, 45.0), (45.0, 0.0), (45.0, 45.0)],
+            "v is the outer loop, so both cells at v = 0 come before either at v = 1"
+        );
+    }
+
+    /// A patch mesh reaches the rasteriser as patches and is drawn, with §8.7.4.5.7's bilinear
+    /// interpolation across it.
+    ///
+    /// The corners are black at three of them and white at the fourth, so the centre of the
+    /// patch is a quarter of the way to white — the bilinear mix, which is what the clause
+    /// states and what no single triangle between three corners would give.
+    #[test]
+    fn a_patch_mesh_is_rasterised_from_its_patches() {
+        let patch = SurfacePatch {
+            net: flat_patch().net,
+            corners: PatchCorners::Colours([
+                Color::BLACK,
+                Color::BLACK,
+                Color::WHITE,
+                Color::BLACK,
+            ]),
+        };
+        let mesh = PatchMesh {
+            patches: std::sync::Arc::from(vec![patch]),
+            smoothness: 1.0 / 256.0,
+        };
+        let raster = MeshRaster::build(&[], Some(&mesh), None, Transform::IDENTITY, 128, 128)
+            .expect("the patch covers pixels");
+        // The net spans 0..90 in both axes, so the patch's centre is device (45, 45).
+        let (x, y) = (
+            45 - u32::try_from(raster.left).expect("in range"),
+            45 - u32::try_from(raster.top).expect("in range"),
+        );
+        let index = ((y * raster.image.width + x) * 4) as usize;
+        let red = f32::from(raster.image.data[index]) / 255.0;
+        assert!(
+            (red - 0.25).abs() < 0.03,
+            "the bilinear mix at the centre is a quarter of white: {red}"
+        );
     }
 }

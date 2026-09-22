@@ -1836,6 +1836,31 @@ impl Signature {
         })
     }
 
+    /// The signature policy this signature was made under, where it states one.
+    ///
+    /// §12.8.3.4.4's explicit-policy profile is the basic one plus this attribute, and the clause
+    /// hands its rules to ETSI EN 319 122-1 clause 5.2.9 rather than restating them. What comes
+    /// back is which policy, what the signer said about its document's digest, the qualifiers that
+    /// clause defines — a URL for the document, a notice meant to be shown, the specification its
+    /// syntax is written in — and clause 5.2.10's stored copy where the file carries one;
+    /// [`crate::policy::SignaturePolicy::binding`] is what checks the stored copy against the
+    /// digest the signer signed over it.
+    ///
+    /// `Ok(None)` for a signature under no policy, which is the basic profile. Not scoped to the
+    /// `ETSI.CAdES.detached` sub-filter: the attribute is a fact about the CMS object wherever it
+    /// appears, and [`Self::pades_profile`] is the one that answers about a profile.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::policy::PolicyError`], which a caller reports rather than reading as *no policy*:
+    /// a signature whose policy attribute will not parse has committed to rules nobody can name.
+    pub fn signature_policy<'a>(
+        &self,
+        cms: &SignedData<'a>,
+    ) -> Result<Option<crate::policy::SignaturePolicy<'a>>, crate::policy::PolicyError> {
+        crate::policy::SignaturePolicy::read(cms)
+    }
+
     /// The rules §12.8.3.4.3 (b), (c) and (j) and §12.8.3.4.4 state only by reference to ETSI.
     ///
     /// Split out of [`Self::pades_departures`] because the two halves are read against different

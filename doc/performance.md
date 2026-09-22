@@ -28,6 +28,15 @@ way. And **the launch's document half is measured on the real adapter now**, hea
 number below `lavapipe` is not. ADR 0884 is the construction, ADR 0885 is which of principle 2's
 claims survived it.
 
+**Run it at any load — it says which of its figures the machine was fit to judge.** The gate reads
+the load average before and after each figure and compares it against the machine's own physical
+core count, re-takes a figure the machine was over that ceiling for, and where it still cannot get
+a quiet one prints the figure with its load and does not judge it; the population behind every
+figure goes out beside it. So the right thing to do with a busy machine is to run the gate and read
+what it declined, never to skip it — which is what three rounds in one week did, each deciding
+privately that the load was too high and leaving no trace of the judgement. ADR 1226, and
+`doc/habits/measuring.md`'s habit 36 for why a neighbour costs a figure what it costs.
+
 **Since the two-hundred-and-seventy-fourth session `--trace` prints the whole
 launch as a timeline** — one `Instant` taken at `main`'s first statement, one mark per milestone,
 printed when the first frame lands. It was **145 ms from process start to the first frame** on this

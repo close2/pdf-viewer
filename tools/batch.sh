@@ -93,14 +93,16 @@ gates() {
     tail -1 "$log"
 }
 
-# The six things a merge checks by hand before it commits, one line each, from inside the worktree.
+# What a merge checks by hand before it commits, one line each, from inside the worktree.
 #
 # Every one of them has bitten a merge, and every one was a command somebody had to remember: a
 # stray file with no place in the tree, a specification written into a worktree that dies with it
 # (sessions 1071, 1079), a `\uXXXX` in a ledger note that blocks tier 1 for all six rounds, a record
-# over `doc/todo/02` section 8's budget, a symlink staged where git expects a submodule, and a
-# formatting difference that fails tier 1 after the commit. Six commands remembered is six commands
-# forgotten; this is one command, and its exit status is the answer.
+# over `doc/todo/02` section 8's budget, a record numbered behind one already committed, an escaped
+# section sign that hides a clause citation from the gate that reads them, a symlink staged where
+# git expects a submodule, and a formatting difference that fails tier 1 after the commit. Each is a
+# command remembered and therefore a command forgotten; this is one command, and its exit status is
+# the answer.
 #
 # **It reports a sibling's in-flight files as findings, and that is the instrument working.** Run
 # mid-batch it says what is there now; run at the merge, after every round is in, what it says is
@@ -141,6 +143,49 @@ check_batch() {
     records=$(cargo test -q -p conformance --test records -- --nocapture 2>&1) && found= || found=$records
     printf 'records over budget              %s\n' "$([ -z "$found" ] && echo none || echo over)"
     [ -z "$found" ] || { printf '%s\n' "$found" | grep -E 'over the budget' | sed 's/^/    /'; bad=1; }
+
+    # A record numbered behind one that is already committed. `doc/history/` is read by `ls`
+    # order, so a record whose number a committed one already carries sorts into somebody else's
+    # round and is invisible where it belongs — and the number is the only thing in the file that
+    # says which round wrote it.
+    #
+    # **Untracked records only**, which is what a round adds: a tracked one's number is committed
+    # by definition, so including it would fire on every run and stop being a signal (trap 39).
+    # The leading `<n>-` and nothing else is the number — a file name carrying `19005` reads as a
+    # record from the twenty-thousandth session to a grep that takes any digits in the path.
+    local newest
+    newest=$(git ls-files doc/history |
+        sed -n 's|^doc/history/\([0-9]\{1,\}\)-.*\.md$|\1|p' | sort -n | tail -1)
+    found=$(git status --porcelain --untracked-files=all -- doc/history |
+        awk '$1 == "??" { print $NF }' |
+        sed -n 's|^\(doc/history/\([0-9]\{1,\}\)-.*\.md\)$|\2 \1|p' |
+        awk -v newest="${newest:-0}" '$1 <= newest { printf "%s is numbered %s, behind the committed %s\n", $2, $1, newest }')
+    printf 'record numbered behind a merged one %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) record(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }
+
+    # An escaped section sign in a doc comment of a file this batch changed. `tools/conformance`'s
+    # `citation.rs` finds a clause citation by looking for `§` **as a character** on every line, so
+    # `\u{a7}7.11.5` is a citation no gate can see, no ratchet counts, and rustdoc prints literally.
+    #
+    # **The section sign and no other escape**, and that is calibrated rather than chosen: of the
+    # fifteen `\u{...}` escapes in `crates/`'s doc comments, five are escaped section signs and
+    # every one of them names a real ISO 32000-2 clause that is invisible to the scan; the other
+    # ten name a character that is invisible on the page — a soft hyphen, an ESCAPE, a replacement
+    # character — or an ellipsis, and no gate reads any of those. A rule wide enough to take in the
+    # ten would fire on every run.
+    #
+    # **Scoped to the lines this batch added**, for the same reason, and to added lines rather than
+    # to changed files: scoped by file it reported one of the five against the round that happened
+    # to be editing that file for something else, which is a finding addressed to the wrong person.
+    # What this catches is a round writing one now, which is what batch 28 lost an hour to.
+    local untracked
+    untracked=$(git status --porcelain --untracked-files=all |
+        awk '$1 == "??" { print $NF }' | grep -E '^crates/.*\.rs$' || true)
+    found=$( { git diff -U0 -- 'crates/*.rs'; git diff -U0 main...HEAD -- 'crates/*.rs'
+               [ -z "$untracked" ] || sed 's/^/+/' $untracked; } 2>/dev/null |
+        grep -E '^\+\s*(///|//!).*\\u\{[aA]7\}' || true)
+    printf 'escaped section sign in a doc comment %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) line(s)")"
+    [ -z "$found" ] || { printf '%s\n' "$found" | cut -c1-140 | sed 's/^/    /'; bad=1; }
 
     # A symlink staged where git expects a submodule. `git status` cannot see it, because the index
     # already agrees with the working tree.

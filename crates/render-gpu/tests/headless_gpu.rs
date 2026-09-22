@@ -318,6 +318,29 @@ fn the_gpu_refuses_a_sampled_shading_by_name() {
         .expect("the correctness oracle draws what the device refuses");
 }
 
+/// The two backends tessellate ISO 32000-2 §8.7.4.5.7's and §8.7.4.5.8's patches the same way.
+///
+/// A patch reaches a backend as a control net and four corner colours, and the backend decides
+/// how finely to evaluate it — from §10.7.2's silhouette in device pixels and §10.7.3's colour
+/// tolerance (ADR 1217). Two backends deciding that for themselves is two answers unless the
+/// derivation is one piece of code, which is what this pins: the scene's boundaries are far off
+/// their chords, so a backend that chose a different fineness would differ along every patch
+/// edge.
+#[test]
+fn cpu_and_gpu_agree_on_a_patch_mesh() {
+    let list = test_scenes::patch_mesh();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "patch mesh",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+}
+
 /// §11.4.6's non-isolated knockout group is refused **by name** on this backend.
 ///
 /// Each element composites with the group's *initial* backdrop — here the group's own,
@@ -966,6 +989,7 @@ fn cpu_and_gpu_agree_on_a_mesh_shading() {
 
     let list = shaded_page(pdf_render::ShadingKind::Mesh {
         triangles: triangles.into(),
+        patches: None,
         ramp: None,
     });
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
@@ -1004,6 +1028,7 @@ fn cpu_and_gpu_agree_on_a_parametric_mesh_shading() {
 
     let list = shaded_page(pdf_render::ShadingKind::Mesh {
         triangles: triangles.into(),
+        patches: None,
         ramp: Some(ramp),
     });
     let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");

@@ -90,6 +90,8 @@ private:
     std::vector<Node> nodes_;
     std::vector<QtRow> rows_;
     std::vector<int> nodeOfFlat_;
+    /// ISO 32000-2 Table 155's `/N` for each schema column, or empty for a panel with none.
+    std::vector<QString> headings_;
 };
 
 /// ISO 32000-2 §12.3.4's panel as a Qt item model: one row per page, and the miniature it states.

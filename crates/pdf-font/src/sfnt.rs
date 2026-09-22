@@ -688,6 +688,61 @@ pub(crate) fn with_advances(data: &[u8], advances: &BTreeMap<u16, u16>) -> Optio
     checksummed(out)
 }
 
+/// A copy of an sfnt with some of its tables left out and its directory written afresh.
+///
+/// **A removal cannot append the way [`rewritten_sfnt`] does**, because the directory's length is
+/// what every table's offset is measured from: dropping an entry moves every table that follows,
+/// so the file is laid out again. Each kept table's bytes are copied unchanged and in the tag
+/// order a directory is required to be in; the search fields are computed from the new count, and
+/// [`checksummed`] restates every checksum, because a file whose directory this rebuilt would
+/// otherwise carry sums taken over a layout it no longer has.
+///
+/// `None` where the bytes are not an sfnt this can take apart; the program unchanged where it
+/// names none of the tables to drop.
+pub(crate) fn without_tables(data: &[u8], dropped: &[[u8; 4]]) -> Option<Vec<u8>> {
+    let tables = sfnt_tables(data)?;
+    let kept: Vec<(&[u8], &[u8])> = tables
+        .iter()
+        .filter(|(tag, _)| !dropped.iter().any(|drop| drop.as_slice() == tag.as_slice()))
+        .map(|(tag, &(at, length))| Some((tag.as_slice(), data.get(at..at.checked_add(length)?)?)))
+        .collect::<Option<_>>()?;
+    if kept.len() == tables.len() {
+        return Some(data.to_vec());
+    }
+    let count = u16::try_from(kept.len()).ok()?;
+    if count == 0 {
+        return None;
+    }
+    // ISO/IEC 14496-22 defines the three search fields off the table count: the entry selector is
+    // the largest power of two no greater than it, and the range shift is what the binary search
+    // it describes does not cover.
+    let selector = u16::try_from(15u32.checked_sub(count.leading_zeros())?).ok()?;
+    let search = 16u16.checked_mul(1u16.checked_shl(u32::from(selector))?)?;
+    let mut out = data.get(..4)?.to_vec();
+    out.extend_from_slice(&count.to_be_bytes());
+    out.extend_from_slice(&search.to_be_bytes());
+    out.extend_from_slice(&selector.to_be_bytes());
+    out.extend_from_slice(&count.checked_mul(16)?.checked_sub(search)?.to_be_bytes());
+    let mut at = 12usize.checked_add(usize::from(count).checked_mul(16)?)?;
+    let mut body: Vec<u8> = Vec::new();
+    for (tag, bytes) in &kept {
+        out.extend_from_slice(tag);
+        // The checksum is written as zero and restated below, over the layout this is building.
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&u32::try_from(at).ok()?.to_be_bytes());
+        out.extend_from_slice(&u32::try_from(bytes.len()).ok()?.to_be_bytes());
+        body.extend_from_slice(bytes);
+        while !body.len().is_multiple_of(4) {
+            body.push(0);
+        }
+        at = 12usize
+            .checked_add(usize::from(count).checked_mul(16)?)?
+            .checked_add(body.len())?;
+    }
+    out.extend_from_slice(&body);
+    checksummed(out)
+}
+
 /// The font with every table's checksum and its own `checkSumAdjustment` recomputed.
 ///
 /// ISO/IEC 14496-22 states both: a directory record's `checkSum` is the sum of the table's

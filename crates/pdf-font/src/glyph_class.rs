@@ -390,6 +390,25 @@ mod tests {
         assert_eq!(decision.refused().len(), 2, "{:?}", decision.refused());
     }
 
+    /// §9.8.3.3's EXAMPLE 2, which states two classes and is not the ambiguous pair.
+    ///
+    /// The clause's own example is `/FD << /Proportional 25 0 R /HKana 26 0 R >>` on an
+    /// `Adobe-Japan1` font. Table 123 describes the two by disjoint characters — "Proportional
+    /// Latin glyphs" against "Half-width kana (katakana and hiragana) glyphs" — so both are
+    /// applied, which is the case [`Decision::read`] has to separate from `Proportional` beside
+    /// `HRoman`. A full-width kana is in neither, because Table 123 gives those to `Kana`.
+    #[test]
+    fn the_clauses_own_example_states_two_classes_and_both_are_applied() {
+        let stated = vec!["Proportional".to_owned(), "HKana".to_owned()];
+        let decision = Decision::read(&stated, Some(("Adobe", "Japan1")));
+        assert!(decision.refused().is_empty(), "{:?}", decision.refused());
+        assert_eq!(decision.class_for('A'), Some(0));
+        assert_eq!(decision.class_for('7'), Some(0));
+        assert_eq!(decision.class_for('\u{FF71}'), Some(1));
+        assert_eq!(decision.class_for('\u{3042}'), None);
+        assert_eq!(decision.class_for('\u{7684}'), None);
+    }
+
     /// The five classes no character decides, and the two collections that decide none.
     #[test]
     fn a_class_no_character_decides_is_refused_by_name() {

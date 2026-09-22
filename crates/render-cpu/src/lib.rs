@@ -1705,11 +1705,16 @@ impl CpuRasterizer {
             return true;
         }
         match shading.kind.as_ref() {
-            pdf_render::ShadingKind::Mesh { triangles, ramp } => {
+            pdf_render::ShadingKind::Mesh {
+                triangles,
+                patches,
+                ramp,
+            } => {
                 shading::fill_mesh(
                     pixmap,
                     path,
                     triangles,
+                    patches.as_ref(),
                     ramp.as_ref(),
                     to_device.of(shading.transform),
                     convert::fill_rule(fill_rule),

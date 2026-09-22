@@ -54,12 +54,14 @@
 //!
 //! The clause writes the first attribute as "Contents (or RC and DS )", so the list of *keys* is
 //! `/Contents`, `/RC`, `/DS`, `/M`, `/C`, `/T`, `/Popup`, `/CreationDate`, `/Subj` and `/Open`.
-//! Seven of them have a reader in this tree and each of those reads through [`group_source`]:
-//! `crate::popup` for the window's title, text, date and colour and for the two entries that open
-//! it, `crate::appearance` for the `/C` that is ink and the `/Contents` a free text annotation
-//! draws. The other three have no reader to correct — `/DS` is Table 177's default style string,
-//! which is XFA's rich-text format and which `CLAUDE.md` principle 5 excludes, and `/Subj` and
-//! `/CreationDate` reach a comments panel this program does not have.
+//! Nine of them have a reader in this tree and each of those reads through [`group_source`]:
+//! `crate::popup` for the window's title, text, subject, dates and colour and for the two entries
+//! that open it, `crate::appearance` for the `/C` that is ink and the `/Contents` a free text
+//! annotation draws. `/DS` is the one with no reader to correct, and by argument rather than by
+//! omission: Table 177 makes it "[a] default style string, as described in Adobe XML
+//! Architecture, XML Forms Architecture (XFA) Specification, version 3.3", which `CLAUDE.md`
+//! excludes — `crate::appearance` reports the departure on the note it would have styled
+//! (ADR 1224).
 //!
 //! # Measured
 //!

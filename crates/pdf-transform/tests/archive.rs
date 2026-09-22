@@ -7518,3 +7518,418 @@ fn one_command_fetches_what_a_locator_names_and_writes_it_into_the_stream() {
         "with the fetched bytes inside the file"
     );
 }
+
+// ------------------------------------------------------------------------------------------
+// §9.9's Table 124, the two rows a supplied program reaches that a shipped face cannot: an
+// sfnt carrying a `CFF ` table under a Type1 dictionary, and a composite font's descendant.
+// ADRs 1221 and 1222.
+// ------------------------------------------------------------------------------------------
+
+/// One of this program's compiled-in bare CFF faces, which is name-keyed.
+const FOXIT_SERIF: &[u8] = include_bytes!("../../../data/standard-fonts/FoxitSerif.pfb");
+
+/// A CFF-flavoured OpenType face built around a bare CFF program.
+///
+/// §9.9's Table 124 admits an sfnt under a `Type1` font dictionary through its `OpenType` row:
+///
+/// > A Type1 font dictionary or CIDFontType0 CIDFont dictionary, if the embedded font program
+/// > contains a "CFF " table without CIDFont operators. In addition to the "CFF " table, the font
+/// > program shall include the "cmap" table.
+///
+/// and adds that "not all tables are required in the font file, as described for each type of
+/// font dictionary that can include this entry". So the wrapper carries the two tables the row
+/// names, plus the `head`, `hhea`, `hmtx` and `maxp` an sfnt reader needs before it can state an
+/// em square, a glyph count or an advance. **Every number in those four is read out of the `CFF `
+/// table itself**, so the container describes the program it wraps and asserts nothing of its own
+/// — which is what makes this a fixture rather than a font this file invented.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "test code: an advance read out of a CFF is a non-negative design-unit integer \
+              already, and the round-trip through f32 is the reader's own answer type"
+)]
+fn cff_flavoured_opentype(cff: &[u8]) -> Vec<u8> {
+    let units = pdf_font::cff::units_per_em(cff).expect("a compiled-in face states its em");
+    let count = u16::try_from(pdf_font::cff::glyph_count(cff).expect("it states a glyph count"))
+        .expect("a compiled-in face holds fewer than 65 536 glyphs");
+    let every: Vec<u16> = (0..count).collect();
+    let advances = pdf_font::cff::advances(cff, &every).expect("its charstrings read");
+
+    let mut hmtx = Vec::with_capacity(usize::from(count) * 4);
+    for advance in &advances {
+        let design = advance.unwrap_or(0.0).max(0.0).round() as u16;
+        hmtx.extend_from_slice(&design.to_be_bytes());
+        hmtx.extend_from_slice(&0i16.to_be_bytes());
+    }
+
+    // `head`, ISO/IEC 14496-22: version 1.0, the format's own magic number, and the em square.
+    let mut head = vec![0u8; 54];
+    head[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+    head[12..16].copy_from_slice(&0x5F0F_3CF5_u32.to_be_bytes());
+    head[18..20].copy_from_slice(&(units as u16).to_be_bytes());
+    // `hhea`: version 1.0, and `numberOfHMetrics` as its last field.
+    let mut hhea = vec![0u8; 36];
+    hhea[0..4].copy_from_slice(&0x0001_0000_u32.to_be_bytes());
+    hhea[34..36].copy_from_slice(&count.to_be_bytes());
+    // `maxp`: the version a CFF-flavoured font states, and the glyph count.
+    let mut maxp = 0x0000_5000_u32.to_be_bytes().to_vec();
+    maxp.extend_from_slice(&count.to_be_bytes());
+
+    let mut tables = vec![
+        (b"CFF ", cff.to_vec()),
+        (b"cmap", unicode_cmap(cff)),
+        (b"head", head),
+        (b"hhea", hhea),
+        (b"hmtx", hmtx),
+        (b"maxp", maxp),
+    ];
+    tables.sort_by_key(|(tag, _)| **tag);
+    sfnt(*b"OTTO", &tables)
+}
+
+/// A `cmap` mapping each Latin letter to the glyph the CFF's own charset gives its name.
+///
+/// Format 12, because its groups are a list of (first code, last code, first glyph) and need no
+/// segment arithmetic; the Adobe Glyph List names a Latin letter's glyph by the letter itself, so
+/// the name this looks up is the character.
+fn unicode_cmap(cff: &[u8]) -> Vec<u8> {
+    let pdf_font::cff::CodeToGlyph::Named(keyed) =
+        pdf_font::cff::CodeToGlyph::read(cff).expect("a compiled-in face parses")
+    else {
+        panic!("a compiled-in face is name-keyed");
+    };
+    let mut groups: Vec<(u32, u16)> = Vec::new();
+    for character in ('A'..='Z').chain('a'..='z') {
+        if let Some(glyph) = keyed.by_name.get(character.to_string().as_str()) {
+            groups.push((u32::from(character), *glyph));
+        }
+    }
+    groups.sort_unstable();
+    let mut subtable = 12_u16.to_be_bytes().to_vec();
+    subtable.extend_from_slice(&0_u16.to_be_bytes());
+    let length = u32::try_from(
+        groups
+            .len()
+            .checked_mul(12)
+            .and_then(|span| span.checked_add(16))
+            .expect("a few dozen groups"),
+    )
+    .expect("a few dozen groups");
+    subtable.extend_from_slice(&length.to_be_bytes());
+    subtable.extend_from_slice(&0_u32.to_be_bytes());
+    subtable.extend_from_slice(
+        &u32::try_from(groups.len())
+            .expect("a few dozen")
+            .to_be_bytes(),
+    );
+    for (character, glyph) in groups {
+        subtable.extend_from_slice(&character.to_be_bytes());
+        subtable.extend_from_slice(&character.to_be_bytes());
+        subtable.extend_from_slice(&u32::from(glyph).to_be_bytes());
+    }
+    // One encoding record, the Unicode one: platform 3, encoding 10.
+    let mut out = 0_u16.to_be_bytes().to_vec();
+    out.extend_from_slice(&1_u16.to_be_bytes());
+    out.extend_from_slice(&3_u16.to_be_bytes());
+    out.extend_from_slice(&10_u16.to_be_bytes());
+    out.extend_from_slice(&12_u32.to_be_bytes());
+    out.extend_from_slice(&subtable);
+    out
+}
+
+/// An sfnt container holding `tables`, which must be in the ascending tag order a directory is in.
+fn sfnt(version: [u8; 4], tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let count = u16::try_from(tables.len()).expect("a fixture of a few tables");
+    let selector = 15_u32
+        .checked_sub(count.leading_zeros())
+        .expect("at least one table");
+    let search = 16_u16
+        .checked_mul(
+            1_u16
+                .checked_shl(selector)
+                .expect("a fixture of a few tables"),
+        )
+        .expect("a fixture of a few tables");
+    let header = 12_usize
+        .checked_add(16_usize.checked_mul(tables.len()).expect("a few tables"))
+        .expect("a few tables");
+    let mut out = version.to_vec();
+    out.extend_from_slice(&count.to_be_bytes());
+    out.extend_from_slice(&search.to_be_bytes());
+    out.extend_from_slice(&u16::try_from(selector).expect("a few tables").to_be_bytes());
+    out.extend_from_slice(
+        &count
+            .checked_mul(16)
+            .and_then(|span| span.checked_sub(search))
+            .expect("a fixture of a few tables")
+            .to_be_bytes(),
+    );
+    let mut body: Vec<u8> = Vec::new();
+    for (tag, data) in tables {
+        let length = u32::try_from(data.len()).expect("a fixture of small tables");
+        let at = u32::try_from(header.checked_add(body.len()).expect("a fixture this size"))
+            .expect("a fixture this size");
+        out.extend_from_slice(*tag);
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&at.to_be_bytes());
+        out.extend_from_slice(&length.to_be_bytes());
+        body.extend_from_slice(data);
+        while !body.len().is_multiple_of(4) {
+            body.push(0);
+        }
+    }
+    out.extend_from_slice(&body);
+    out
+}
+
+/// The `/F1` font dictionary of a converted file's one page, found through the page's resources.
+///
+/// **Navigated rather than numbered**: the serializer writes the objects in its own order, so an
+/// object number read out of the fixture is not one to look for in what came out.
+fn font_resource(held: &Document) -> pdf_syntax::object::Dictionary {
+    let page = pdf_model::Pages::new(held).get(0).expect("the one page");
+    let resources = held
+        .get_key(&page.dict, "Resources")
+        .as_dict()
+        .cloned()
+        .expect("the page's resources");
+    let fonts = held
+        .get_key(&resources, "Font")
+        .as_dict()
+        .cloned()
+        .expect("its font resources");
+    held.get_key(&fonts, "F1")
+        .as_dict()
+        .cloned()
+        .expect("the one font")
+}
+
+/// A PDF/A-2 fixture whose one font is a `Type1` dictionary stating `widths` and no program.
+///
+/// §9.9's Table 124 opens three keys to a `Type1` dictionary and every one of them carries
+/// Compact Font Format, which is what makes this fixture the one that tells the table's rows
+/// apart: the same document takes a CFF-flavoured face and refuses a `glyf`-based one.
+fn a_type1_font_stating(widths: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td (A) Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /Type1 /BaseFont /FoxitSerif /FirstChar 65 \
+                 /LastChar 65 /Widths [{widths}] /FontDescriptor 7 0 R \
+                 /Encoding /WinAnsiEncoding >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /FoxitSerif /Flags 34 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 >>"
+                .to_owned(),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn an_sfnt_carrying_a_cff_table_goes_under_a_type1_dictionary_as_table_124_says() {
+    // §9.9's Table 124, the `FontFile3` `OpenType` row: "A Type1 font dictionary or CIDFontType0
+    // CIDFont dictionary, if the embedded font program contains a "CFF " table without CIDFont
+    // operators. In addition to the "CFF " table, the font program shall include the "cmap"
+    // table." So the descriptor names `/FontFile3` and the stream dictionary says `OpenType`,
+    // which Table 125 requires of it: "The name shall be Type1C for Type 1 compact fonts,
+    // CIDFontType0C for Type 0 compact CIDFonts, or OpenType for OpenType fonts."
+    //
+    // The fixture states a width the face does not, so the program is restated — section 4.9's
+    // second metric route, and the one where a mistake would move the page's text.
+    let source = a_type1_font_stating("600");
+    let plan = a_supplied_font(
+        Target::Two(Level::B),
+        "FoxitSerif",
+        &cff_flavoured_opentype(FOXIT_SERIF),
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the document converts");
+    let held = Document::open_with_limits(output.clone(), Limits::DEFAULT).expect("it opens");
+    let font = font_resource(&held);
+    let descriptor = held
+        .get_key(&font, "FontDescriptor")
+        .as_dict()
+        .cloned()
+        .expect("the font descriptor");
+    let stream = held
+        .get_key(&descriptor, "FontFile3")
+        .as_stream()
+        .cloned()
+        .expect("Table 124's key for a CFF-carrying sfnt under a Type1 dictionary");
+    assert!(
+        held.get_key(&descriptor, "FontFile").is_null()
+            && held.get_key(&descriptor, "FontFile2").is_null(),
+        "and Table 124 admits at most one of the three keys"
+    );
+    assert_eq!(
+        held.get_key(&stream.dict, "Subtype")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"OpenType".to_vec()),
+        "Table 125's /Subtype names the format of the program the key carries"
+    );
+    assert_eq!(
+        stated_widths(&output),
+        stated_widths(&source),
+        "the dictionary's widths are the producer's, untouched — section 4.9's route 3 is never"
+    );
+    assert_eq!(
+        glyph_origins(&output),
+        glyph_origins(&source),
+        "and every glyph is drawn where the content stream put it"
+    );
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .expect("the one font");
+    assert_eq!(
+        (font.authority, font.route),
+        (
+            pdf_transform::archive::FaceAuthority::Operator,
+            pdf_transform::archive::MetricRoute::RestatedProgram
+        ),
+        "the face is the operator's and its program was restated: {font:?}"
+    );
+}
+
+#[test]
+fn a_glyf_face_is_refused_under_a_type1_dictionary_because_table_124_opens_no_key_to_it() {
+    // The other half of the row above, and the one that decides what a person is told to do next.
+    // Every key §9.9's Table 124 opens to a `Type1` or `MMType1` dictionary carries Compact Font
+    // Format — `/FontFile` a Type 1 program, `/FontFile3` `/Type1C` a bare CFF, `/FontFile3`
+    // `/OpenType` an sfnt whose "CFF " table has a Top DICT without CIDFont operators — so a
+    // TrueType-flavoured face is admitted by none of them however complete it is. Naming another
+    // file of the same face does not help, and the refusal has to say so.
+    let source = a_type1_font_stating("600");
+    let plan = a_supplied_font(Target::Two(Level::B), "FoxitSerif", LIBERATION_SANS);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
+        panic!("the pairing Table 124 does not state is a refusal by name");
+    };
+    assert!(
+        because.sentence().contains("glyf table") && because.sentence().contains("CFF-flavoured"),
+        "the refusal names the pairing and what resolves it: {}",
+        because.sentence()
+    );
+}
+
+/// A PDF/A-2 fixture whose one font is a composite one with `Identity-H` and no program.
+///
+/// §9.7.4.2 puts a composite font's program in the *descendant* `CIDFont`'s descriptor, so the
+/// fixture states the descendant as an object of its own: object 9, with object 7 its descriptor.
+/// The page shows the two-byte code 0x0024, which `Identity-H` makes CID 36 — §9.7.5.2's own
+/// mapping, so which glyph is meant is the standard's answer rather than this fixture's.
+fn a_composite_font_stating(encoding: &str, descendant: &str) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >> /ColorSpace << /CS0 [/CalGray << /WhitePoint \
+                    [0.9505 1.0 1.089] >>] >>"
+            .to_owned(),
+        contents: Some((
+            String::new(),
+            b"/CS0 cs 0 sc BT /F1 12 Tf 10 100 Td <0024> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /LiberationSans /Encoding /{encoding} \
+                 /DescendantFonts [8 0 R] >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /LiberationSans /Flags 32 \
+             /FontBBox [-543 -303 1300 980] /ItalicAngle 0 /Ascent 905 /Descent -212 \
+             /CapHeight 716 /StemV 80 >>"
+                .to_owned(),
+            format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /LiberationSans \
+                 /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+                 /FontDescriptor 7 0 R /DW 1000 {descendant} >>"
+            ),
+        ],
+        // Object 9: a §9.7.4.2 CID-to-glyph map, for the test that asks what becomes of one.
+        binary_objects: vec![stream("/Length 74", &[0_u8; 74])],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn a_composite_fonts_program_goes_into_its_descendants_descriptor_under_the_identity_mapping() {
+    // §9.7.4.2 makes a CID an index into the glyphs of the font that defined it, so a supplied
+    // program goes into the *descendant* CIDFont's descriptor and the advances to restate it
+    // against are §9.7.4.3's `/W` and `/DW` rather than a `/Widths` array. Table 115 then makes
+    // `/CIDToGIDMap` "(Required for Type 2 CIDFonts with embedded font programs)", and `Identity`
+    // is what the CIDs of an `Identity-H` CMap were already being read as.
+    let source = a_composite_font_stating("Identity-H", "");
+    let plan = a_supplied_font(Target::Two(Level::B), "LiberationSans", LIBERATION_SANS);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the document converts");
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let descendant = held
+        .resolve(
+            held.get_key(&font_resource(&held), "DescendantFonts")
+                .as_array()
+                .and_then(|array| array.first())
+                .expect("§9.7.6.2's one-element array"),
+        )
+        .as_dict()
+        .cloned()
+        .expect("the descendant CIDFont");
+    let descriptor = held
+        .get_key(&descendant, "FontDescriptor")
+        .as_dict()
+        .cloned()
+        .expect("the descendant's descriptor");
+    assert!(
+        held.get_key(&descriptor, "FontFile2").as_stream().is_some(),
+        "Table 124's key for a glyf program under a CIDFontType2 dictionary"
+    );
+    assert_eq!(
+        held.get_key(&descendant, "CIDToGIDMap")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"Identity".to_vec()),
+        "Table 115's entry, required the moment a Type 2 CIDFont carries a program"
+    );
+    assert_eq!(
+        held.resolve(&held.get_key(&descendant, "DW")).as_number(),
+        Some(1000.0),
+        "and the dictionary's own advance is untouched: §9.2.4 makes it what positions the glyph"
+    );
+    let font = conversion(&report)
+        .substituted
+        .first()
+        .expect("the one font");
+    assert_eq!(
+        font.authority,
+        pdf_transform::archive::FaceAuthority::Operator,
+        "the program is the operator's, and the report says whose it is: {font:?}"
+    );
+}
+
+#[test]
+fn a_composite_font_whose_producer_wrote_its_own_cid_to_gid_map_is_refused_by_name() {
+    // §9.7.4.2, of a Type 2 CIDFont whose program is *not* embedded: the `/CIDToGIDMap` entry
+    // "shall be ignored, since it is not meaningful to refer to glyph indices in an external font
+    // program". So this file's map is a table no reader has used, written for a program that was
+    // never here — and embedding one would turn it on over glyphs it was not written for.
+    let source = a_composite_font_stating("Identity-H", "/CIDToGIDMap 9 0 R");
+    let plan = a_supplied_font(Target::Two(Level::B), "LiberationSans", LIBERATION_SANS);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "no file is written");
+    let Decision::Refused(because) = decision(&report, "fonts/font-programs-embedded") else {
+        panic!("a map this converter may not honour is a refusal by name");
+    };
+    assert!(
+        because.sentence().contains("CIDToGIDMap"),
+        "the refusal names the entry it will not honour: {}",
+        because.sentence()
+    );
+}

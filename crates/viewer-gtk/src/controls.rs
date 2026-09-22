@@ -93,6 +93,10 @@ pub(crate) fn build(
             multiline,
             password,
             max_len,
+            // Table 231 bit 21 changes what the text *means* rather than what the control is: a
+            // file-select control is an entry a person types a path into, and
+            // `viewer_host::form::edit_of` is where the path becomes a file (ADR 1216).
+            file_select: _,
         } => entry(field, *multiline, *password, *max_len, suppress, change),
         ControlKind::Check { on } => toggle(field, widget, *on, false, suppress, change),
         ControlKind::Radio {

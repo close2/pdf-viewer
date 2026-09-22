@@ -1222,3 +1222,132 @@ fn a_stencil_under_the_graphics_states_soft_mask_is_drawn_through_both() {
     // And the cell the stencil leaves alone stays unmarked whatever the mask says.
     assert!(!marked(&raster, 35, 5), "bottom row, fourth cell, unmarked");
 }
+
+/// A one-page PDF whose only mark is a knockout group drawing one image twice, overlapping.
+///
+/// `image` is the image `XObject`'s dictionary beyond its size, `data` its samples, and
+/// `extra` are the further objects it names, numbered from 7.
+fn knockout_group_drawing(image: &str, data: &[u8], extra: &[Vec<u8>]) -> Vec<u8> {
+    let form = b"20 0 0 20 5 5 cm /Im Do 1 0 0 1 0.5 0.5 cm /Im Do";
+    let mut objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", b"1 0 0 rg /Fm Do"),
+        stream_object(
+            5,
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+             /Group << /S /Transparency /I true /K true >> \
+             /Resources << /XObject << /Im 6 0 R >> >>",
+            form,
+        ),
+        stream_object(6, &format!("/Type /XObject /Subtype /Image {image}"), data),
+    ];
+    objects.extend_from_slice(extra);
+    assemble(&objects)
+}
+
+/// Every [`pdf_render::Command`] of an interpretation, groups flattened.
+fn commands_of(interpretation: &pdf_model::Interpretation) -> Vec<pdf_render::Command> {
+    fn walk(commands: &[pdf_render::Command], out: &mut Vec<pdf_render::Command>) {
+        for command in commands {
+            out.push(command.clone());
+            if let pdf_render::Command::Group { commands, .. } = command {
+                walk(commands, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(interpretation.display_list.commands(), &mut out);
+    out
+}
+
+/// A §8.9.6.2 stencil under an `/SMask` of its own keeps the two apart, so §11.4.6's knockout
+/// can state its shape.
+///
+/// The clause names the two quantities separately and says which is which. §11.6.4.2:
+///
+/// > For image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted areas
+/// > and 0.0 for masked areas.
+///
+/// §11.6.4.3 makes the soft mask the other one — "a soft mask ... shall override any explicit
+/// or colour key mask" — and §11.3.7.2 keeps shape and opacity as two numbers rather than one.
+/// One alpha channel holding their product answers for neither, which is why this element used
+/// to be reported instead of drawn. It is kept apart on the way to the display list now, so
+/// the knockout element arrives as a `Shaped` command whose *shape* is the stencil alone (ADR
+/// 1218): a `Decoded` source on the file's own grid, beside an object that is a producer
+/// because the pair is combined where the device scale is known.
+///
+/// The negative control is the same fixture with Table 144's `/Matte` on the mask: that is
+/// §11.6.5.2's pre-blending, which has to be undone in one raster before anything else, so the
+/// pair is combined as it is read and the report is the honest answer there.
+#[test]
+fn a_stencil_under_its_own_soft_mask_states_its_shape_to_a_knockout() {
+    // Four by two eight-bit grey samples, the opacity of each of the stencil's cells.
+    let mask = stream_object(
+        7,
+        "/Type /XObject /Subtype /Image /Width 4 /Height 2 /BitsPerComponent 8 \
+         /ColorSpace /DeviceGray",
+        b"\x00\x40\x80\xff\xff\x80\x40\x00",
+    );
+    let stencil = "/Width 4 /Height 2 /ImageMask true /SMask 7 0 R";
+
+    let kept = interpret(knockout_group_drawing(
+        stencil,
+        PATTERN,
+        std::slice::from_ref(&mask),
+    ));
+    let reported = format!("{:?}", kept.unsupported);
+    assert!(
+        !reported.contains("could not be kept apart"),
+        "the pair is kept apart, so the shape is statable: {reported}"
+    );
+    let shaped: Vec<_> = commands_of(&kept)
+        .into_iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Shaped { object, shape } => Some((*object, *shape)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shaped.len(), 2, "two elements, each stating its shape");
+    for (object, shape) in &shaped {
+        let (
+            pdf_render::Command::Image { image: object, .. },
+            pdf_render::Command::Image { image: shape, .. },
+        ) = (object, shape)
+        else {
+            panic!("both halves draw the image: {object:?}");
+        };
+        assert_eq!(
+            object.sample_alpha(),
+            pdf_render::SampleAlpha::Both,
+            "the object's alpha is the stencil's shape times the mask's opacity"
+        );
+        assert_eq!(
+            shape.sample_alpha(),
+            pdf_render::SampleAlpha::Shape,
+            "and the shape beside it is the stencil alone"
+        );
+        assert!(
+            matches!(shape, pdf_render::ImageSource::Decoded(_)),
+            "the stencil is on the grid the file states it on"
+        );
+    }
+
+    // The control: a `/Matte` has to be undone in one raster (§11.6.5.2), so the pair is
+    // combined as it is read and the shape cannot be asked for again.
+    let matted = stream_object(
+        7,
+        "/Type /XObject /Subtype /Image /Width 4 /Height 2 /BitsPerComponent 8 \
+         /ColorSpace /DeviceGray /Matte [0]",
+        b"\x00\x40\x80\xff\xff\x80\x40\x00",
+    );
+    let combined = interpret(knockout_group_drawing(stencil, PATTERN, &[matted]));
+    assert!(
+        format!("{:?}", combined.unsupported).contains("could not be kept apart"),
+        "a matte leaves the product, and the report is what is owed then: {:?}",
+        combined.unsupported
+    );
+}

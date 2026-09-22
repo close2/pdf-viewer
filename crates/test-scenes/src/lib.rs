@@ -1326,6 +1326,100 @@ pub fn radial_cone() -> DisplayList {
     list
 }
 
+/// ISO 32000-2 §8.7.4.5.7's Coons patch and §8.7.4.5.8's tensor patch, side by side, with
+/// boundaries curved enough that a tessellation shows.
+///
+/// # Why this scene exists
+///
+/// A patch's geometry is a *mapping* — "[c]oordinates are mapped from the unit square into a
+/// four-sided patch whose sides are not necessarily linear" — and how closely a triangulation
+/// has to follow it is §10.7.2's question, answered "in device pixels". So the patch travels to
+/// the backend and the backend decides (ADR 1217), which makes this the scene that says the two
+/// of them decided the same thing: both patches have boundary control points far off their
+/// chords, so a backend disagreeing about the fineness disagrees about the silhouette, and the
+/// four corner colours of each are the extremes of the bilinear mix, so one disagreeing about
+/// the colour derivation shows it in the interior.
+///
+/// The left patch is a Coons patch — twelve boundary points, its interior implied — and the
+/// right one a tensor patch whose four interior points are pulled off the surface the same
+/// twelve would imply, which is the only thing §8.7.4.5.8 adds and the thing a backend reading
+/// the net in the wrong order would lose.
+#[must_use]
+pub fn patch_mesh() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+    let at = |x: f32, y: f32| Point::new(x, y);
+
+    // A control net whose middle rows bow outward, so every isoparametric curve departs from
+    // its chord by tens of page units rather than by a rounding error.
+    let coons = pdf_render::SurfacePatch {
+        net: [
+            [
+                at(15.0, 15.0),
+                at(35.0, -10.0),
+                at(65.0, 40.0),
+                at(90.0, 15.0),
+            ],
+            [
+                at(-10.0, 35.0),
+                at(35.0, 35.0),
+                at(65.0, 65.0),
+                at(115.0, 35.0),
+            ],
+            [
+                at(40.0, 65.0),
+                at(35.0, 65.0),
+                at(65.0, 35.0),
+                at(60.0, 65.0),
+            ],
+            [
+                at(15.0, 90.0),
+                at(35.0, 115.0),
+                at(65.0, 60.0),
+                at(90.0, 90.0),
+            ],
+        ],
+        corners: pdf_render::PatchCorners::Colours([RED, GREEN, BLUE, Color::WHITE]),
+    };
+    let mut tensor = coons;
+    for row in &mut tensor.net {
+        for point in row {
+            point.x += 100.0;
+            point.y += 100.0;
+        }
+    }
+    // The four interior control points, which is the whole of what §8.7.4.5.8 adds: pulled
+    // well off where a Coons patch's construction would put them.
+    tensor.net[1][1] = at(190.0, 190.0);
+    tensor.net[1][2] = at(120.0, 190.0);
+    tensor.net[2][1] = at(190.0, 120.0);
+    tensor.net[2][2] = at(120.0, 120.0);
+
+    list.push(Command::Fill {
+        path: Arc::new(rect(0.0, 0.0, 200.0, 200.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: None,
+            kind: Arc::new(pdf_render::ShadingKind::Mesh {
+                triangles: Arc::from(Vec::new()),
+                patches: Some(pdf_render::PatchMesh {
+                    patches: Arc::from(vec![coons, tensor]),
+                    // §10.7.3's default: the tolerance a graphics state that states no `/SM`
+                    // leaves in force, as `Ramp::resolution_for` reads it.
+                    smoothness: 1.0 / 256.0,
+                }),
+                ramp: None,
+            }),
+            transform: Transform::IDENTITY,
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    list
+}
+
 /// The closed form behind [`sampled_shading`]: the colour at domain point `(x, y)`.
 ///
 /// Stated once, here, so that a test can evaluate the same arithmetic the scene draws and
@@ -1590,6 +1684,7 @@ pub fn shading_background() -> DisplayList {
                         corners: pdf_render::Corners::Colours([red, red, blue]),
                     },
                 ]),
+                patches: None,
                 ramp: None,
             }),
             transform: Transform::IDENTITY,

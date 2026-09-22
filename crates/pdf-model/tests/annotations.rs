@@ -3857,3 +3857,42 @@ fn an_annotations_own_measure_states_the_units_its_geometry_is_in() {
         "the length of a cubic Bezier is not a quantity Table 267 states a conversion for"
     );
 }
+
+/// §12.5.6.2's `/DS` is Table 177's entry, not Table 172's, and the clause names it once.
+///
+/// The group-attribute sentence is the only place §12.5.6.2 mentions it — "[t]hese entries are
+/// Contents (or RC and DS ), M , C , T , Popup , CreationDate , Subj , and Open" — and Table 177
+/// is where it is defined: "[a] default style string, as described in Adobe XML Architecture, XML
+/// Forms Architecture (XFA) Specification, version 3.3". That specification is one `CLAUDE.md`
+/// excludes, so the style is not applied and the note's text is laid out under Table 177's `/DA`
+/// instead. The departure is **reported** rather than shown in silence, which is the whole of
+/// what this asserts — a pair, so that the report fires on the entry and not on every free text
+/// annotation (trap 11). ADR 1224.
+#[expect(
+    clippy::doc_markdown,
+    reason = "verbatim quotations: §12.5.6.2 and Table 177 spell the entry names without \
+              backticks"
+)]
+#[test]
+fn a_note_whose_default_style_is_not_applied_says_so() {
+    let note = |extra: &str| {
+        format!(
+            "<< /Type /Annot /Subtype /FreeText /Rect [10 10 90 90] /F 4 \
+             /Contents (a note) /DA (/Helv 10 Tf 0 g) {extra} >>"
+        )
+    };
+    let plain = interpret(pdf_with(&note(""), "", ""));
+    let reports = format!("{:?}", plain.unsupported);
+    assert!(
+        !reports.contains("/DS"),
+        "a note stating no /DS owes nothing: {reports}"
+    );
+
+    let styled = interpret(pdf_with(&note("/DS (font: 12pt Helvetica)"), "", ""));
+    let reports = format!("{:?}", styled.unsupported);
+    assert!(reports.contains("/DS"), "the entry is named: {reports}");
+    assert!(
+        reports.contains("XFA"),
+        "and why it is not applied: {reports}"
+    );
+}

@@ -99,11 +99,18 @@ displayed" — and when Table 164's `/D` has elapsed. The event loop is all that
 `viewer-ui` adopted it and is shorter for it. **No message was added and no variant changed
 shape**, which is the third round running.
 
-**A clock that runs when nothing is presenting is a defect, and there is none**: `Clock` is an
+**A clock that runs with nothing to animate is a defect, and there is none**: `Clock` is an
 `Option` per host with no paused state, so leaving full screen removes the GTK source and stops the
 `QTimer`. A page stating no `/Dur` produces no events, and both native hosts repaint nothing on
 such a tick — "the page shall not advance automatically" costs a still window one wakeup and no
 texture.
+
+**A window that is not presenting has one too, for as long as §12.6.4.15's effect lasts** (ADR
+1216). That clause states no mode — a processor "shall render the state of the page viewing area
+as it exists after completion of the previous action and display it using a transition specified in
+the action dictionary" — so `Clock::for_one_transition` draws the same frames outside a
+presentation, ticks nothing at all (§12.4.4.1's `/Dur` is stated as presentation timing), and
+`Clock::spent` tells a host to drop it the turn the effect ends.
 
 **§12.4.4.2's states are walked**, since that same session: the current navigation node the clause
 opens by requiring, `/PresSteps` on arrival, `/NA` then `/Next`, `/PA` then `/Prev`, Table 165's

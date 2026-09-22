@@ -199,6 +199,17 @@ cargo run --release -p pdf-model --example integer_entry_census -- @<paths>  # -
   # documents; the whole disk at 24 threads crosses an 8 GiB `RLIMIT_DATA`, so it shards, and one
   # 5.6 GiB attachment in `batch5/poppler` is not walkable inside a round's memory budget at all.
   # ADR 0912
+cargo run --release -p pdf-syntax --example linearised_census -- doc/corpora doc/pdf.js/test/pdfs
+  # what §6.3.2.1's declined `should` is worth: how many documents state `/Linearized` inside
+  # §F.3.3's 1024-byte window, how many of those state an `L` that is not the file's own length and
+  # are therefore what Table F.1 calls not linearised at all, and what this reader touches before
+  # page one — bytes, read calls, cross-reference sections and object offsets — against Table F.1's
+  # `E`, the end of the first page. `LINEARISED_CENSUS_VERBOSE=1` prints a line per document;
+  # `LINEARISED_CENSUS_COLD=<directory>` makes each figure the quickest of seven opens of a copy
+  # whose pages were dropped first, so that directory must be one whose pages *can* be dropped
+  # (`/tmp` here is a `tmpfs` and cannot). Give it disjoint roots: it recurses, so naming `doc`
+  # beside `doc/corpora` counts everything twice. No display, no device and no sandbox, so it runs
+  # at any load. ADR 1225
 cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pdf.js doc/corpora
   # what a *rebuilt* cross-reference table loses to §7.5.7's object streams: how many documents
   # reach `xref::rebuild` at all, how many of those carry object streams the scan can see, and

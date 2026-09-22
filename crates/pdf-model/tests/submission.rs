@@ -1029,6 +1029,118 @@ fn a_file_select_controls_embedded_file_is_what_the_multipart_body_carries() {
     assert!(submission.owed.is_empty(), "{:?}", submission.owed);
 }
 
+/// §12.7.5.3's other half, closed: the contents of a file a **person** chose.
+///
+/// Table 231 bit 21 says the field's text "represents the pathname of a file whose contents shall
+/// be submitted as the field's value", and a process `CLAUDE.md` principle 3 gives no filesystem
+/// cannot fetch those contents — which is why a pathname alone is named on `Submission::owed`
+/// above. `ViewState::choose_file` is where they come from instead: a host ran the chooser, read
+/// the bytes, and the log carries the pathname as the value and the contents beside it (ADR 1216).
+///
+/// The document is the *same* one the test above uses, so what differs is only that somebody
+/// chose a file.
+#[test]
+fn a_file_a_person_chose_is_what_the_multipart_body_carries() {
+    let document = document();
+    let mut view = ViewState::of(&document);
+    let applied = view.choose_file(
+        &document,
+        "upload",
+        pdf_model::view::ChosenFile {
+            pathname: "/home/a/reader/report.csv".to_owned(),
+            media_type: Some("text/csv".to_owned()),
+            bytes: b"one,two\n".to_vec(),
+        },
+    );
+    assert_eq!(applied, 1, "one widget of the file-select field took it");
+
+    // "the field's text represents the pathname of a file": the value the page draws, and what a
+    // host reads back, is the path itself.
+    assert_eq!(
+        view.field_value(&document, "upload")
+            .map(|shown| shown.text),
+        Some("/home/a/reader/report.csv".to_owned())
+    );
+
+    let submission = compose(&document, &view, &action(4, ""), None).expect("it composes");
+    let body = body(&submission);
+    assert!(
+        body.contains(
+            "Content-Disposition: form-data; name=\"upload\"; \
+             filename=\"/home/a/reader/report.csv\"\r\n\
+             Content-Type: text/csv\r\n\r\none,two\n\r\n"
+        ),
+        "HTML 4.01 section 17.13.4.2's file part carries the contents: {body:?}"
+    );
+    // And nothing is owed for this field any more, which is the sentence the row used to end on.
+    assert!(
+        !submission.owed.iter().any(|owed| owed.contains("upload")),
+        "{:?}",
+        submission.owed
+    );
+}
+
+/// A field without Table 231 bit 21 takes no file at all, because the flag is what makes one.
+///
+/// §12.7.5.3:
+///
+/// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select control
+///
+/// — so a pathname put into an ordinary text field would be the wrong value under the right name,
+/// and the log takes nothing rather than taking it as text (trap 5; `viewer_core` says so).
+#[test]
+fn only_a_file_select_control_takes_a_chosen_file() {
+    let document = document();
+    let mut view = ViewState::of(&document);
+    let applied = view.choose_file(
+        &document,
+        "name",
+        pdf_model::view::ChosenFile {
+            pathname: "/home/a/reader/report.csv".to_owned(),
+            media_type: None,
+            bytes: b"one,two\n".to_vec(),
+        },
+    );
+    assert_eq!(applied, 0);
+    assert!(view.chosen_file("name").is_none());
+}
+
+/// Setting the value any other way takes the contents with it.
+///
+/// One field has one value, and §12.7.5.3 makes it a pathname *and* the file behind it — so a
+/// pathname and bytes that no longer belong to it would submit the wrong file under the right
+/// name. This is the shape a corrected path takes: the log forgets the old file.
+#[test]
+fn typing_over_a_chosen_files_pathname_forgets_the_file() {
+    let document = document();
+    let mut view = ViewState::of(&document);
+    view.choose_file(
+        &document,
+        "upload",
+        pdf_model::view::ChosenFile {
+            pathname: "/home/a/reader/report.csv".to_owned(),
+            media_type: None,
+            bytes: b"one,two\n".to_vec(),
+        },
+    );
+    assert!(view.chosen_file("upload").is_some());
+    view.set_field(
+        &document,
+        "upload",
+        &pdf_model::view::Entered::Text("/home/a/reader/other.csv".to_owned()),
+    );
+    assert!(view.chosen_file("upload").is_none());
+    let submission = compose(&document, &view, &action(4, ""), None).expect("it composes");
+    assert!(
+        submission
+            .owed
+            .iter()
+            .any(|owed| owed.contains("field upload") && owed.contains("no filesystem")),
+        "a pathname with nothing behind it is named again: {:?}",
+        submission.owed
+    );
+}
+
 /// Trap 5, planted: an embedded file stream that will not decode is a file whose contents this
 /// reader does not know, which is not a file of no bytes.
 #[test]

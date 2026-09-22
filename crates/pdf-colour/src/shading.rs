@@ -169,7 +169,7 @@ struct Built {
     /// document's mesh part-way and says nothing is the silent drop `pdf_model::content`'s module
     /// documentation forbids, and every other bound in that module is already reported as
     /// `pdf_model::Unsupported::LimitReached`.
-    truncated: bool,
+    truncated: Option<&'static str>,
     /// §8.7.4.4's subdivision of this mesh stopped short of §10.7.3's tolerance; see
     /// [`Shaded::coarse`].
     coarse: bool,
@@ -185,9 +185,13 @@ struct Built {
 pub struct Shaded {
     /// The shading to paint.
     pub shading: Shading,
-    /// [`crate::mesh::MAX_TRIANGLES`] stopped this shading's mesh stream part-way, so the
-    /// triangles are some of what the document states rather than all of them.
-    pub truncated: bool,
+    /// The bound that stopped this shading's mesh stream part-way, by name, so the geometry is
+    /// some of what the document states rather than all of it.
+    ///
+    /// `None` where the whole stream was read. Which bound depends on the type: a triangle mesh
+    /// is stopped by a count of triangles and a patch mesh by a count of patches, and the two
+    /// are separate numbers counting separate things, so the report says which (ADR 1217).
+    pub truncated: Option<&'static str>,
     /// A bound in [`crate::mesh`] stopped ISO 32000-2 §8.7.4.4's subdivision of this shading's
     /// mesh with a triangle still outside §10.7.3's tolerance, so somewhere in it the
     /// rasteriser's interpolation between device colours stands in for the clause's
@@ -418,7 +422,7 @@ fn kind_of(
         })?
     };
 
-    let mut truncated = false;
+    let mut truncated = None;
     let mut coarse = false;
     let (kind, own) = match kind {
         // Only a type 1 shading has a `/Matrix`, which places its domain rectangle within
@@ -749,8 +753,8 @@ fn radial(
 /// interpreter, kept apart from the geometry so that neither can be dropped by accident.
 #[derive(Debug, Clone, Copy)]
 struct MeshBounds {
-    /// [`crate::mesh::MAX_TRIANGLES`] stopped the stream part-way; [`Shaded::truncated`].
-    truncated: bool,
+    /// The bound that stopped the stream part-way, by name; [`Shaded::truncated`].
+    truncated: Option<&'static str>,
     /// §8.7.4.4's subdivision stopped short of §10.7.3's tolerance; [`Shaded::coarse`].
     coarse: bool,
 }
@@ -791,6 +795,7 @@ fn mesh(
     Ok((
         ShadingKind::Mesh {
             triangles: read.triangles.into(),
+            patches: read.patches,
             ramp: read.ramp,
         },
         MeshBounds {

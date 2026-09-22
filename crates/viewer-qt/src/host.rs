@@ -33,7 +33,7 @@ use viewer_core::{
 use viewer_host::ControlFit;
 use viewer_host::arrangement::next_layout;
 use viewer_host::form::{ControlKind, control_kind};
-use viewer_host::panel::{PanelRow, RowAction, Tab};
+use viewer_host::panel::{Icon, PanelRow, RowAction, Tab};
 use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
@@ -912,6 +912,17 @@ impl Host {
     /// number, and flags no update at all.
     pub(crate) fn presentation_tick(&mut self) {
         let now = std::time::Instant::now();
+        // §12.6.4.15's clock exists for one effect; `Clock::spent` is the turn after it ended, and
+        // dropping it here is what leaves a window that is not presenting with no timer at all —
+        // `presentation_wait` answers -1 the moment this is `None` (ADR 1216).
+        // Armed and not yet begun is not spent: the effect is drawn when the page it moves *to*
+        // arrives, which is one render request away.
+        if self.arming.is_none() && self.clock.as_ref().is_some_and(viewer_host::Clock::spent) {
+            self.clock = None;
+            self.shown = None;
+            self.update.window = true;
+            return;
+        }
         let animating = self
             .clock
             .as_ref()
@@ -990,17 +1001,18 @@ impl Host {
     /// so the events arrive as page change, transition, render request, and the arriving page's
     /// list is in the last of the three. §12.4.4.1's transition is one *to* a page.
     fn arm_transition(&mut self, transition: pdf_model::navigation::Transition) {
-        if self.clock.is_none() {
-            self.say(&format!(
-                "transition: {:?} over {} s — nothing is presenting, so the page is shown at once \
-                 (press p)",
-                transition.style, transition.duration
-            ));
-            return;
-        }
         if !viewer_host::Clock::shapes(&transition, self.viewport_rect()) {
             // The core has already said *why* through `Event::Reported`.
             return;
+        }
+        // §12.6.4.15 states no mode: a processor "shall render the state of the page viewing area
+        // as it exists after completion of the previous action and display it using a transition
+        // specified in the action dictionary". A window that is not presenting therefore gets a
+        // clock of its own for the one effect, dropped when it ends (ADR 1216).
+        if self.clock.is_none() {
+            self.clock = Some(viewer_host::Clock::for_one_transition(
+                std::time::Instant::now(),
+            ));
         }
         self.arming = Some(transition);
     }
@@ -1010,11 +1022,6 @@ impl Host {
     /// Two whole-viewport rasterisations happen here and none per frame: the page being left and
     /// the page arriving, each drawn where a frame will place it.
     fn face_arrived(&mut self, request: &viewer_core::RenderRequest) {
-        if self.clock.is_none() {
-            self.shown = None;
-            self.arming = None;
-            return;
-        }
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
             Answer::Geometry(geometry) => geometry.origin,
             _ => (0.0, 0.0),
@@ -1221,10 +1228,14 @@ impl Host {
             return;
         };
         let field = placed.name.qualified.clone();
-        self.dispatch(Command::Edit(Edit::SetField {
-            field,
-            value: Entered::Text(value.to_owned()),
-        }));
+        // §12.7.5.3's file-select control takes a *file* where every other text field takes text,
+        // and `viewer_host::form::edit_of` is the one place the three windows tell the two apart
+        // (ADR 1216).
+        let kind = placed.kind.clone();
+        match viewer_host::form::edit_of(Some(&kind), &field, Entered::Text(value.to_owned())) {
+            Ok(edit) => self.dispatch(Command::Edit(edit)),
+            Err(refusal) => self.say(&refusal),
+        }
     }
 
     /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now.
@@ -2760,6 +2771,8 @@ fn describe_kind(kind: &ControlKind) -> (u8, i32, bool, bool) {
             multiline,
             password,
             max_len,
+            // Table 231 bit 21 changes what the text *means* rather than what the control is.
+            file_select: _,
         } => {
             // Table 231 bit 14 outranks bit 13: a field that is both is a password field, and a
             // password field is never multiline.
@@ -2856,6 +2869,13 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
                 locked,
                 note: row.note,
                 emphasis: row.emphasis,
+                headings: row.cells.iter().map(|cell| cell.heading.clone()).collect(),
+                values: row.cells.iter().map(|cell| cell.value.clone()).collect(),
+                icon: row
+                    .icon
+                    .map(Icon::theme_name)
+                    .unwrap_or_default()
+                    .to_owned(),
             },
             action: row.action.clone(),
         });
@@ -3340,6 +3360,8 @@ mod tests {
                 },
                 note: false,
                 emphasis: false,
+                cells: Vec::new(),
+                icon: None,
                 children: vec![PanelRow {
                     label: "under".to_owned(),
                     detail: Some("said".to_owned()),
@@ -3347,6 +3369,8 @@ mod tests {
                     action: RowAction::Inert,
                     note: false,
                     emphasis: false,
+                    cells: Vec::new(),
+                    icon: None,
                     children: Vec::new(),
                 }],
             },
@@ -3361,6 +3385,8 @@ mod tests {
                 // §12.3.5.1's `/D` crosses the bridge like every other row flag, and this one
                 // carries it so that the bold row is the one the *document* named.
                 emphasis: true,
+                cells: Vec::new(),
+                icon: None,
                 children: Vec::new(),
             },
         ];
@@ -3392,6 +3418,7 @@ mod tests {
                 multiline: false,
                 password: true,
                 max_len: Some(8),
+                file_select: false,
             }),
             (2, 8, false, false)
         );
@@ -3400,6 +3427,7 @@ mod tests {
                 multiline: true,
                 password: false,
                 max_len: None,
+                file_select: false,
             }),
             (1, -1, false, false)
         );

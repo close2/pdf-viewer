@@ -169,6 +169,8 @@ mod tests {
             title: Some("A Reader".to_owned()),
             text: Some("a note".to_owned()),
             modified: Some("D:20240102030405Z".to_owned()),
+            subject: None,
+            created: None,
             colour: None,
             replies: Vec::new(),
         }

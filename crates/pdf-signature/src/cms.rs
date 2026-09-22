@@ -1276,7 +1276,7 @@ pub(crate) mod fixtures {
     };
 
     /// A DER `SEQUENCE`, `SET` or context tag around already-encoded children.
-    fn tagged(identifier: u8, children: &[Vec<u8>]) -> Vec<u8> {
+    pub(crate) fn tagged(identifier: u8, children: &[Vec<u8>]) -> Vec<u8> {
         primitive(identifier, &children.concat())
     }
 
@@ -1285,7 +1285,7 @@ pub(crate) mod fixtures {
     /// Two length forms are spelled, and the second arrived with the DSA fixture: a real
     /// certificate is over a thousand octets, so `0x82` and two length octets are reachable and
     /// the assertion below is where a third form would announce itself.
-    fn primitive(identifier: u8, contents: &[u8]) -> Vec<u8> {
+    pub(crate) fn primitive(identifier: u8, contents: &[u8]) -> Vec<u8> {
         let mut out = vec![identifier];
         if contents.len() < 128 {
             out.push(u8::try_from(contents.len()).unwrap_or(0));
@@ -1707,6 +1707,94 @@ pub(crate) mod fixtures {
     }
 
     /// `ContentInfo { id-signedData, [0] SignedData }` around one signer.
+    /// An `ETSI.CAdES.detached` value signed under a policy, with that policy's document stored.
+    ///
+    /// The shape ETSI EN 319 122-1 clauses 5.2.9 and 5.2.10 define between them, built whole so
+    /// that [`crate::policy`] has something to read: an identifier naming a policy and carrying a
+    /// SHA-256 digest of `signed_over`, all three of clause 5.2.9.2's qualifiers beside it, and a
+    /// store holding `document`. Passing two different byte strings is what makes the comparison
+    /// that clause 5.2.10's note describes testable in both directions.
+    pub(crate) fn pades_under_a_policy(
+        digest: &[u8],
+        document: &[u8],
+        signed_over: &[u8],
+    ) -> Vec<u8> {
+        // `SPUserNotice ::= SEQUENCE { noticeRef OPTIONAL, explicitText OPTIONAL }` with both
+        // members stated, the reference naming an organisation and one statement of it.
+        let notice = tagged(
+            0x30,
+            &[
+                tagged(
+                    0x30,
+                    &[
+                        primitive(0x1A, b"Example Authority"),
+                        tagged(0x30, &[primitive(0x02, &[0x07])]),
+                    ],
+                ),
+                primitive(0x0C, b"this signature is made under a policy"),
+            ],
+        );
+        let qualifier = |oid: &[u8], value: Vec<u8>| tagged(0x30, &[primitive(0x06, oid), value]);
+        let qualifiers = tagged(
+            0x30,
+            &[
+                qualifier(
+                    &[
+                        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x05, 0x01,
+                    ],
+                    primitive(0x16, b"https://example.invalid/policy"),
+                ),
+                qualifier(
+                    &[
+                        0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x05, 0x02,
+                    ],
+                    notice,
+                ),
+                qualifier(
+                    &[0x04, 0x00, 0x81, 0x95, 0x32, 0x02, 0x01],
+                    primitive(0x16, b"https://example.invalid/syntax"),
+                ),
+            ],
+        );
+        let policy = tagged(
+            0x30,
+            &[
+                primitive(0x06, &[0x2A, 0x03, 0x05]),
+                tagged(
+                    0x30,
+                    &[
+                        sha256_algorithm(),
+                        primitive(0x04, &Digest::Sha256.compute(&[signed_over])),
+                    ],
+                ),
+                qualifiers,
+            ],
+        );
+        // `SignaturePolicyStore ::= SEQUENCE { spDocSpec, spDocument }`, its specification an
+        // object identifier and its document the octets as they stand.
+        let store = tagged(
+            0x30,
+            &[
+                primitive(0x06, &[0x2A, 0x03, 0x06]),
+                primitive(0x04, document),
+            ],
+        );
+        content_info(
+            Digest::Sha256,
+            ID_DATA,
+            None,
+            signer_with(
+                Digest::Sha256,
+                Some(vec![
+                    attribute(ID_CONTENT_TYPE, primitive(0x06, ID_DATA)),
+                    attribute(ID_MESSAGE_DIGEST, primitive(0x04, digest)),
+                    attribute(ID_AA_ETS_SIG_POLICY_ID, policy),
+                ]),
+                Some(vec![attribute(ID_AA_ETS_SIG_POLICY_STORE, store)]),
+            ),
+        )
+    }
+
     fn content_info(
         digest: Digest,
         content_type: &[u8],

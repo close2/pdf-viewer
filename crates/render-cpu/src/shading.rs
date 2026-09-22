@@ -204,8 +204,9 @@ fn sampled_shader<'a>(
 /// Draws a mesh shading's triangles, clipped to a path (ISO 32000-2 §8.7.4.5.5).
 ///
 /// The mesh is rasterised once by [`pdf_render::MeshRaster`] — the clause's own linear
-/// interpolation, evaluated at each device pixel's centre — and the result is drawn as an
-/// image confined to the shape. So the *colour* is `pdf-render`'s, identically on both
+/// interpolation, evaluated at each device pixel's centre, over the triangles the file states
+/// or over the tessellation `to_device` says §8.7.4.5.7's patches need (ADR 1217) — and the
+/// result is drawn as an image confined to the shape. So the *colour* is `pdf-render`'s, identically on both
 /// backends, and the *edge* is `tiny-skia`'s, antialiased as every other fill's is.
 ///
 /// Until the forty-third session this subdivided each triangle until its corner colours
@@ -220,6 +221,7 @@ pub(crate) fn fill_mesh(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     shape: &tiny_skia::Path,
     triangles: &[pdf_render::Triangle],
+    patches: Option<&pdf_render::PatchMesh>,
     ramp: Option<&Ramp>,
     to_device: Transform,
     fill_rule: tiny_skia::FillRule,
@@ -228,9 +230,14 @@ pub(crate) fn fill_mesh(
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) {
-    let Some(raster) =
-        pdf_render::MeshRaster::build(triangles, ramp, to_device, pixmap.width(), pixmap.height())
-    else {
+    let Some(raster) = pdf_render::MeshRaster::build(
+        triangles,
+        patches,
+        ramp,
+        to_device,
+        pixmap.width(),
+        pixmap.height(),
+    ) else {
         return;
     };
     fill_with_raster(

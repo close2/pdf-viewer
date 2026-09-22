@@ -78,8 +78,9 @@ pub use paint::{
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use shading::{
-    ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Patch, Radial,
-    RadialRaster, Ramp, Shading, ShadingKind, ShadingRaster, Stop, Triangle, blend_parameter,
+    ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MAX_PATCH_TRIANGLES, MeshRaster,
+    Patch, PatchCorners, PatchMesh, Radial, RadialRaster, Ramp, Shading, ShadingKind,
+    ShadingRaster, Stop, SurfacePatch, Triangle, blend_parameter,
 };
 pub use soft_mask::{BlackHalf, Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{

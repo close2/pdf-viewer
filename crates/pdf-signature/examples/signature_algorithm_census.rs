@@ -205,6 +205,14 @@ struct Counts {
     pades_departures: BTreeMap<String, usize>,
     /// Which of §12.8.3.4.4's two profiles each `PAdES` signature presents itself as.
     pades_profiles: BTreeMap<String, usize>,
+    /// What ETSI EN 319 122-1 clause 5.2.9's policy attribute said, where a signature states one.
+    ///
+    /// Counted apart from the profile above because the two ask different questions: the profile
+    /// is about the *signed* set alone, and this is about what the attribute contains wherever it
+    /// sits — which policy, whether the signer committed to a digest of its document, and whether
+    /// a stored copy of that document is the one the digest is over. The last of those is the only
+    /// answer here that a file can get wrong, so it is what a reader of this report looks for.
+    signature_policies: BTreeMap<String, usize>,
     /// Which of §12.8.3.4.3's attributes each `PAdES` signature actually states.
     ///
     /// **Without this the report above cannot be read.** A rule that produced no departure did so
@@ -463,6 +471,7 @@ impl Counts {
             (&mut self.sub_filters, other.sub_filters),
             (&mut self.pades_departures, other.pades_departures),
             (&mut self.pades_profiles, other.pades_profiles),
+            (&mut self.signature_policies, other.signature_policies),
             (&mut self.pades_attributes, other.pades_attributes),
             (&mut self.signature_algorithms, other.signature_algorithms),
             (&mut self.digest_algorithms, other.digest_algorithms),
@@ -499,6 +508,16 @@ fn count_pades(
     let Ok(cms) = signature.signed_data() else {
         return;
     };
+    let policy = match signature.signature_policy(&cms) {
+        Ok(None) => None,
+        Ok(Some(policy)) => Some(format!("{}, {:?}", policy.identifier, policy.binding())),
+        Err(error) => Some(format!("refused: {error}")),
+    };
+    if let Some(policy) = policy {
+        let slot = counts.signature_policies.entry(policy.clone()).or_default();
+        *slot = slot.saturating_add(1);
+        counts.witnesses.push(format!("{path}: policy {policy}"));
+    }
     for departure in signature.pades_departures(&cms, bytes) {
         let slot = counts
             .pades_departures
@@ -1409,6 +1428,11 @@ fn main() {
         "§12.8.3.4.3's attributes as PAdES signatures actually state them, which is what says \
          whether a rule above was met or was never reached",
         &counts.pades_attributes,
+    );
+    report(
+        "ETSI EN 319 122-1 clause 5.2.9's signature policy, by identifier and by whether a stored \
+         policy document is bound to the digest the signer signed over it",
+        &counts.signature_policies,
     );
     report(
         "SignerInfo signatureAlgorithm",

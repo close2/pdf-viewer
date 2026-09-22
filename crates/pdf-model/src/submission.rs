@@ -600,7 +600,7 @@ fn chosen(
             continue;
         };
         if file_select {
-            let selected = selected_file(document, name, &value, owed);
+            let selected = selected_file(document, view, name, &value, owed);
             file_entry(format, name, selected, &mut chosen.entries, owed);
             continue;
         }
@@ -719,10 +719,27 @@ enum Selected {
 /// and submitting one as though it were would name a file the field never selected.
 fn selected_file(
     document: &Document,
+    view: &ViewState,
     name: &str,
     value: &Object,
     owed: &mut Vec<String>,
 ) -> Selected {
+    // §12.7.5.3 wants the file's *contents* and §7.11.1's string form only names it, so the one
+    // thing that can close the gap is a person having chosen the file and something outside this
+    // crate having read it: `ViewState::choose_file` is where those bytes are, keyed by the same
+    // fully qualified name this submission is composing under (ADR 1216).
+    if let Some(chosen) = view.chosen_file(name) {
+        return Selected::Carried(SelectedFile {
+            name: Some(chosen.pathname.clone()),
+            media_type: chosen
+                .media_type
+                .clone()
+                // HTML 4.01 section 17.13.4.2's own fallback, which is the same one an embedded
+                // file stream stating no Table 44 `/Subtype` gets below.
+                .unwrap_or_else(|| "application/octet-stream".to_owned()),
+            bytes: chosen.bytes.clone(),
+        });
+    }
     match document.resolve(value) {
         Object::String(bytes) => Selected::Elsewhere(bytes.to_vec()),
         Object::Dictionary(dict) => {

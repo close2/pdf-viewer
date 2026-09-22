@@ -1487,6 +1487,23 @@ impl Viewer {
                 });
                 return;
             }
+            // Table 231 bit 21 is what makes a pathname a *value*; without it a file-select
+            // control is an ordinary text field and the bytes behind the path belong to nothing.
+            // Said rather than applied as text, which would be the wrong value under the right
+            // name (trap 5).
+            crate::command::Edit::ChooseFile { field, .. }
+                if !pdf_model::view::is_file_select(&open.document, field) =>
+            {
+                events.push(Event::Reported {
+                    document: id,
+                    page: None,
+                    notes: vec![format!(
+                        "field {field:?} does not set Table 231 bit 21 FileSelect, so it is not a \
+                         file-select control (ISO 32000-2 §12.7.5.3) — no file was chosen for it"
+                    )],
+                });
+                return;
+            }
             crate::command::Edit::Detach { name }
                 if !open.view.attachment_named(&open.document, name) =>
             {
@@ -2282,6 +2299,8 @@ impl Viewer {
                             text: popup.text,
                             modified: popup.modified,
                             colour: popup.colour,
+                            subject: popup.subject,
+                            created: popup.created,
                             replies: popup.replies,
                         })
                     })
@@ -3809,7 +3828,12 @@ fn annotations_of(open: &Open, page: &pdf_model::Page) -> Vec<ObjectId> {
 /// type would make every future edit a claim about which permission covers it.
 fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operation {
     match edit {
-        crate::command::Edit::SetField { .. } => pdf_model::restriction::Operation::FillInForm,
+        // §12.7.5.3's file-select control is a form field being filled in, whatever the value
+        // happens to be: Table 22 bit 9 permits "[f]ill in existing interactive form fields
+        // (including signature fields)", and the pathname is the field's own text.
+        crate::command::Edit::SetField { .. } | crate::command::Edit::ChooseFile { .. } => {
+            pdf_model::restriction::Operation::FillInForm
+        }
         // §12.5.6.6's annotation and the text inside it are both annotating, which Table 22's own
         // wording separates from filling in a form: bit 6 is "[a]dd or modify text annotations,
         // fill in interactive form fields", and bit 9 permits filling alone. So an edit to a free
@@ -3842,7 +3866,8 @@ fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operatio
 /// annotation, which §12.7.4.2 gives no name to.
 fn field_of(edit: &crate::command::Edit) -> Option<&str> {
     match edit {
-        crate::command::Edit::SetField { field, .. } => Some(field),
+        crate::command::Edit::SetField { field, .. }
+        | crate::command::Edit::ChooseFile { field, .. } => Some(field),
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
         | crate::command::Edit::SetFreeText { .. }
@@ -3862,6 +3887,7 @@ fn annotation_of(edit: &crate::command::Edit) -> Option<ObjectId> {
     match edit {
         crate::command::Edit::SetFreeText { annotation, .. } => Some(*annotation),
         crate::command::Edit::SetField { .. }
+        | crate::command::Edit::ChooseFile { .. }
         | crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
         | crate::command::Edit::Attach { .. }

@@ -1863,6 +1863,29 @@ impl Rewriter<'_> {
     }
 
     /// A dictionary object, rewritten where its position asks for it.
+    /// Writes the `/CIDToGIDMap` a descendant `CIDFont` owes once a program is embedded in it.
+    ///
+    /// §9.7.4.2 makes a Type 2 `CIDFont`'s `/CIDToGIDMap` the mapping to "the glyph indices for
+    /// the appropriate glyph descriptions in that font program", and Table 115 makes the entry
+    /// required of such a `CIDFont` once it has one — so a descendant whose program this
+    /// conversion has just written in owes an entry it did not owe before. `Identity` is the only
+    /// value written, and it is what the glyphs the preparation checked were chosen under
+    /// (`doc/adr/1222`).
+    fn identity_cid_to_gid(&self, id: ObjectId, out: &mut Dictionary) -> bool {
+        if !self.wants(Rewrite::SubstituteFontProgram)
+            || !self
+                .substitutes
+                .is_some_and(|substitutes| substitutes.identity_cid_to_gid.contains(&id))
+        {
+            return false;
+        }
+        out.insert(
+            Name::new(&b"CIDToGIDMap"[..]),
+            Object::Name(Name::new(&b"Identity"[..])),
+        );
+        true
+    }
+
     fn rewrite_dictionary(
         &self,
         id: ObjectId,
@@ -1954,6 +1977,10 @@ impl Rewriter<'_> {
                 Name::new(embedding.key.as_bytes()),
                 Object::Reference(embedding.at),
             );
+            count(applied, Rewrite::SubstituteFontProgram);
+            changed = true;
+        }
+        if self.identity_cid_to_gid(id, &mut out) {
             count(applied, Rewrite::SubstituteFontProgram);
             changed = true;
         }

@@ -84,6 +84,7 @@ machinery, and those are not indexed here.
 | 38 | you pick a resource bound, or read one that already exists | ask whether the standard, or data the standard requires a reader to carry, states a number the bound must be at least as large as — and make the cut say so by name | parsers |
 | 39 | a signal, flag or warning in an instrument fires on every run | it has stopped being a signal and it looks like caution; check what it is computed from before trusting that it means anything | instruments |
 | 40 | you read a function that **refuses** something, with a good sentence saying why | the capability it says does not exist may be forty lines above it; read a refusing function's neighbours for the construction it denies | pixels |
+| 41 | you add a field to a `pdf_render` vocabulary type and `raster_golden` moves rows "list only" | the list digest is the `Debug` of the list, so every page using that variant moves with no pixel moving; count the digest-only rows as the variant's users before reading one as a change | instruments |
 
 **Two are not optional for the round they are about.** If this round can change a pixel, **trap 1**
 is the one that has paid every session since the tenth. If this round adds a report, **trap 11** is

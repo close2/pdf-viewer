@@ -109,6 +109,19 @@ fn cpu_and_quorra_agree_on_transparency_groups() {
     );
 }
 
+/// The third rasteriser tessellates §8.7.4.5.7's and §8.7.4.5.8's patches as the oracle does.
+///
+/// The patches travel to the backend and the backend derives the fineness (ADR 1217), so a
+/// third backend is a third opportunity to derive it differently; `MeshRaster::build` is the one
+/// implementation all three reach, and this is what says so of this one.
+#[test]
+fn cpu_and_quorra_agree_on_a_patch_mesh() {
+    assert_within_tolerance(
+        "patch mesh",
+        compare("patch mesh", &test_scenes::patch_mesh()),
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_knockout_groups() {
     assert_within_tolerance(

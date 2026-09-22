@@ -524,6 +524,16 @@ enum Refusal {
     NotDerivable(&'static str),
     /// Table 192's `/TP` names the side the caption goes on and not how much room it gets.
     CaptionBeside(i64),
+    /// Table 177's `/DS` styles this note's text in a specification this tree does not hold.
+    ///
+    /// §12.5.6.2 names the entry once, in its group-attribute list — "Contents (or RC and DS )"
+    /// — and Table 177 defines it: "[a] default style string, as described in Adobe XML
+    /// Architecture, XML Forms Architecture (XFA) Specification, version 3.3". So the characters
+    /// this reader lays out are the clause's and the **style** the producer stated is XFA's,
+    /// which `CLAUDE.md` excludes. The text is drawn under Table 177's `/DA` instead, and the
+    /// departure is said out loud rather than shown in silence — the same answer
+    /// [`rich_text_unformatted`] gives one clause over, for the field's own `/DS`. ADR 1224.
+    DefaultStyleUnapplied,
     /// §12.7.4.3's variable text could not be laid out, or not entirely.
     Text(Owed),
 }
@@ -541,6 +551,9 @@ impl Refusal {
                  §12.5.6.4 requires an appearance for"
             ),
             Self::NotDerivable(why) => format!("no appearance stream, and {why}"),
+            Self::DefaultStyleUnapplied => "its /DS states a default style in XFA 3.3's format, \
+                 which is not applied; the text is laid out under /DA"
+                .to_owned(),
             Self::CaptionBeside(code) => format!(
                 "no appearance stream, and Table 192's /TP {code} states which side of the icon \
                  the caption goes on and not how much of the rectangle it takes"
@@ -3886,8 +3899,25 @@ fn free_text(
             .owed
             .map(Refusal::Text)
             .or(callout.owed)
-            .or(decoration),
+            .or(decoration)
+            .or(unapplied_default_style(document, annotation)),
     })
+}
+
+/// Table 177's `/DS` on a note whose appearance this program constructed.
+///
+/// Read through [`crate::markup::group_source`] because §12.5.6.2 makes it a group attribute —
+/// its list is "Contents (or RC and DS ), M , C , T , Popup , CreationDate , Subj , and Open" —
+/// so a subordinate's own `/DS` is ignored and the primary's is the one that would have styled
+/// the words. [`Refusal::DefaultStyleUnapplied`] says why neither does. ADR 1224.
+#[expect(
+    clippy::doc_markdown,
+    reason = "a verbatim quotation: §12.5.6.2 spells the entry names without backticks"
+)]
+fn unapplied_default_style(document: &Document, annotation: &Dictionary) -> Option<Refusal> {
+    let shared = crate::markup::group_source(document, annotation);
+    (!matches!(document.get_key(&shared, "DS"), Object::Null))
+        .then_some(Refusal::DefaultStyleUnapplied)
 }
 
 /// What [`callout`] put on the page, and what it could not.

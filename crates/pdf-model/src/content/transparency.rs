@@ -1319,7 +1319,21 @@ fn shape_without_the_mask_and_the_constants(
                 mask: None,
                 blend: BlendMode::Normal,
             }),
-            SampleAlpha::Both => None,
+            // A stencil under a soft mask of its own: §11.6.4.2's shape is the stencil's
+            // painted areas and §11.6.4.3's opacity is the mask, and the raster a device draws
+            // holds their product. The pair is kept apart on the way here for exactly this
+            // question, so the shape is the stencil's own samples (ADR 1218). `None` where they
+            // were multiplied before a command existed — a mask behind an image codec, which
+            // `pdf_model::image::eligible_for_the_device_scale` declines — and there the report
+            // below stands.
+            SampleAlpha::Both => image.shape().map(|shape| Command::Image {
+                image: shape,
+                transform: *transform,
+                alpha: 1.0,
+                clip: *clip,
+                mask: None,
+                blend: BlendMode::Normal,
+            }),
         },
         // A group's shape is the union of its elements', which is what drawing their shapes
         // onto transparency accumulates. **Knockout or not makes no difference to a shape**
@@ -1506,8 +1520,12 @@ fn unstatable_shape(
         }
         Some(match (command, alpha) {
             (Command::Image { .. }, _) => {
-                "an image mask under a soft mask of its own, whose samples multiply shape \
-                 by opacity"
+                // The pair is kept apart wherever it can be (ADR 1218), so what reaches here
+                // is a mask this tree combined as it read: one behind an image codec, one
+                // carrying Table 144's `/Matte`, or an opacity that arrived inside a JPEG 2000
+                // codestream and was never two rasters.
+                "an image mask whose soft mask could not be kept apart from it, so its \
+                 samples multiply shape by opacity"
             }
             (Command::Fill { .. } | Command::Stroke { .. }, _) => {
                 "a paint this renderer cannot describe the shape of"

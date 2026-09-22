@@ -184,6 +184,34 @@ impl ApplicationHandler for App {
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
             return;
         }
+        if self.presentation.is_none() {
+            // §12.6.4.15's transition outside a presentation: one effect on the surface's own
+            // cadence, and then the window goes back to waiting for an event. `Clock::spent` is
+            // the turn after it ran out, which is what makes this a *transition* rather than a
+            // second presentation mode (ADR 1216).
+            let Some(effect) = self.effect.as_mut() else {
+                event_loop.set_control_flow(ControlFlow::Wait);
+                return;
+            };
+            // Armed and not yet begun is not spent: the effect is drawn when the page it moves
+            // *to* arrives, which is one render request away.
+            if effect.clock.spent() && self.arming.is_none() {
+                self.effect = None;
+                self.redraw();
+                event_loop.set_control_flow(ControlFlow::Wait);
+                return;
+            }
+            if !effect.clock.animating() {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
+                return;
+            }
+            let now = std::time::Instant::now();
+            if self.cadence.due(now) {
+                self.redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.cadence.next()));
+            return;
+        }
         let Some(presentation) = self.presentation.as_mut() else {
             event_loop.set_control_flow(ControlFlow::Wait);
             return;

@@ -1043,9 +1043,15 @@ ISO 19005-2 6.2.11.4.1 and 6.2.11.8, ISO 19005-4 6.2.10.4.1 and 6.2.10.9 · all 
   section 4.9 substitution applies instead, and `--font <base-font>=<path>` supplying the intended
   face moves the document into that case. **The flag is built** (ADR 1209): the program is the
   operator's, the licence ISO 19005-2 section 6.2.11.4.1 demands is theirs to state, and the report
-  and the output's own `xmpMM:History` record whose authority the face was in. It reaches a simple
-  font whose dictionary's `/Subtype` ISO 32000-2 Table 124 pairs with the program's format; a
-  composite font and Table 124's `OpenType` row are what is left.
+  and the output's own `xmpMM:History` record whose authority the face was in. **It reaches every
+  pairing ISO 32000-2 Table 124 states** (ADRs 1221 and 1222): a bare CFF or a CFF-carrying sfnt
+  under a `Type1` dictionary, the second as `/FontFile3` with `/Subtype /OpenType`, and a composite
+  font's program into the descendant CIDFont's descriptor, where §9.7.4.2 puts it and where
+  §9.7.4.3's `/W` and `/DW` are the advances restated against. What it does not reach is named in
+  each refusal: a `glyf`-based face under a `Type1` or `MMType1` dictionary, which Table 124 opens
+  no key to at all; a CMap that is not `Identity-H` or `Identity-V`; a CID-keyed program, whose own
+  character collection this converter may not copy into `/CIDSystemInfo`; and a `/CIDToGIDMap` the
+  producer wrote for a program that was never in the file.
 - **The two clauses are not the same shape, and only the remedy is shared.** Section 6.2.11.4.1's
   NOTE 2 exempts a font referenced solely in §9.3.6's text rendering mode 3, because such a font is
   not rendered; section 6.2.11.8 forbids a `.notdef` reference **regardless of text rendering

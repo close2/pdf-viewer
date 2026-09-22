@@ -100,6 +100,20 @@ pub struct ViewState {
     /// different thing from a widget nobody has touched: the first shows an empty field and the
     /// second shows the file's own `/V`.
     edited: BTreeMap<ObjectId, Entry>,
+    /// The file a person chose for each of §12.7.5.3's file-select controls, by field name.
+    ///
+    /// Table 231 bit 21 makes the *value* a pathname — "the field's text represents the pathname
+    /// of a file whose contents shall be submitted as the field's value" — so [`Self::edited`]
+    /// carries that text like any other, and what this carries is the half of the sentence a
+    /// pathname is not: the contents. They are kept beside the log rather than in it because
+    /// [`Entry::value`] is an [`Object`] and a file's bytes are §7.11.4's *stream*, which only a
+    /// document has a place for; `CLAUDE.md` rule 1 keeps the document immutable, so the bytes
+    /// live here and §12.7.6.2's submission reads them from here (ADR 1216).
+    ///
+    /// Keyed by §12.7.4.2's fully qualified name, because that is what the value is keyed by and
+    /// what a submission names a field with. A field whose value is set any other way loses its
+    /// entry here, so a pathname and the contents behind it cannot disagree.
+    chosen: BTreeMap<String, ChosenFile>,
     /// Which annotation the pointer is over or pressing, if any (§12.5.5).
     ///
     /// One annotation rather than a set, because a pointer is in one place. `None` is what
@@ -251,6 +265,23 @@ const FREE_TEXT_BASE_FONT: &str = "Helvetica";
 /// therefore available and is not what a person drawing a text box means — auto-sizing grows one
 /// character until it fills whatever rectangle was dragged. Twelve points is a note.
 const FREE_TEXT_SIZE: f32 = 12.0;
+
+/// The six of Table 171's subtypes an FDF file's `/Annots` may not carry.
+///
+/// ISO 32000-2 §12.7.8.3.1, Table 246, on the entry:
+///
+/// > The array may include annotations of any of the standard types listed in "Table 171 -
+/// > Annotation types" except Link, Movie, Widget, PrinterMark, Screen, and TrapNet .
+///
+/// A list of six rather than a condition, because the table states six. ADR 1224.
+const EXCLUDED_FDF_SUBTYPES: [&str; 6] = [
+    "Link",
+    "Movie",
+    "Widget",
+    "PrinterMark",
+    "Screen",
+    "TrapNet",
+];
 
 /// One annotation a person added, and the page it belongs to.
 #[derive(Debug, Clone, PartialEq)]
@@ -551,6 +582,34 @@ pub enum Entered {
     Chosen(Vec<usize>),
 }
 
+/// A file a person chose for §12.7.5.3's file-select control, with the bytes behind the pathname.
+///
+/// Table 231 bit 21 states the whole of what one is:
+///
+/// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select control.
+/// > In this case, the field's text represents the pathname of a file whose contents shall be
+/// > submitted as the field's value
+///
+/// — two things, the pathname and the contents, and the second is what no process this crate runs
+/// in can fetch: `CLAUDE.md` principle 3 gives it no filesystem. So the contents are supplied from
+/// outside by whoever ran a file chooser, and the pathname is what the field then draws. ADR 1216.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChosenFile {
+    /// The pathname the field's text becomes, as the person's own platform spells it.
+    ///
+    /// §7.11.2's platform-independent spelling of a path is knowledge of a filesystem this crate
+    /// has none of, so the name is carried as it was given. A choice, recorded — and the same one
+    /// `submission::compose` already makes for a pathname a document states.
+    pub pathname: String,
+    /// The media type to submit the contents under, where the chooser knew one.
+    ///
+    /// HTML 4.01 section 17.13.4.2 asks for one and names the fallback, which
+    /// `submission::compose` applies: `application/octet-stream`.
+    pub media_type: Option<String>,
+    /// The file's contents, which is the half of Table 231 bit 21 a pathname is not.
+    pub bytes: Vec<u8>,
+}
+
 /// One widget's edit, resolved against the document into what Table 226's `/V` will say.
 ///
 /// Resolved once, at [`ViewState::set_field`], rather than at each of the three places that read it
@@ -579,6 +638,8 @@ pub struct Imported {
     pub unmatched: Vec<String>,
     /// How many §12.7.7 template pages were added to the document.
     pub pages: usize,
+    /// How many §12.7.8.3.4 annotations were placed on the pages Table 254's `/Page` names.
+    pub annotations: usize,
     /// Templates the file named and this document could not add, each with the reason.
     pub refused: Vec<String>,
 }
@@ -615,6 +676,17 @@ pub struct AnnotationView<'a> {
     /// stands. Table 249 and Table 192 name the same Table 250 dictionary, so an imported one
     /// replaces the widget's under §12.7.8.3.2's replacing sentence. ADR 1186.
     pub icon_fit: Option<&'a Dictionary>,
+    /// §12.7.8's `/AP`, where an FDF file stated a push-button's appearance for this field.
+    ///
+    /// `None` is *this state has nothing to say*, so Table 170's own `/AP` in the widget stands.
+    /// Table 249 makes the two the same dictionary — its `/AP` is "as shown in "Table 170 -
+    /// Entries in an appearance dictionary"" bar its values being streams — so an imported one
+    /// replaces the widget's under §12.7.8.3.2's replacing sentence, whole rather than per state.
+    ///
+    /// Every stream in it is a **copy** made when the FDF file was read, so it names no object of
+    /// that file and `crate::annotation::stored_appearance` reads it as it reads any other.
+    /// ADR 1223.
+    pub imported_appearance: Option<&'a Dictionary>,
     /// What a person retyped into §12.5.6.6's annotation, where they retyped one.
     ///
     /// `None` is *this state has nothing to say*, so Table 166's `/Contents` and Table 177's `/RC`
@@ -805,6 +877,7 @@ impl ViewState {
             reset: BTreeSet::new(),
             imported: BTreeMap::new(),
             edited: BTreeMap::new(),
+            chosen: BTreeMap::new(),
             appended: Vec::new(),
             pointer: None,
             magnification: None,
@@ -1105,8 +1178,29 @@ impl ViewState {
                 .imported
                 .get(&annotation)
                 .and_then(|import| import.icon_fit.as_ref()),
+            imported_appearance: self
+                .imported
+                .get(&annotation)
+                .and_then(|import| import.appearance.as_ref()),
             contents: self.retyped.get(&annotation).map(String::as_str),
         }
+    }
+
+    /// §12.7.8's `/A` and `/AA`, where an FDF file stated either for this widget's field.
+    ///
+    /// A dictionary holding whichever of the two the file stated, which is what
+    /// [`crate::action::for_annotation`] reads: Table 197 states a precedence *between* the two
+    /// entries — "[f]or backward compatibility, the A entry in an annotation dictionary, if
+    /// present, takes precedence over this entry" — so a caller composes this over the widget's
+    /// own dictionary and asks the one function, rather than deciding the precedence twice.
+    ///
+    /// `None` for a widget no import has given either entry, which is every widget of every
+    /// document until an import-data action runs. ADR 1223.
+    #[must_use]
+    pub fn imported_actions(&self, widget: ObjectId) -> Option<&Dictionary> {
+        self.imported
+            .get(&widget)
+            .and_then(|import| import.actions.as_ref())
     }
 
     /// [`Self::annotation`] for an annotation that may have no object number of its own.
@@ -1156,7 +1250,87 @@ impl ViewState {
             ..Imported::default()
         };
         self.append_templates(document, data, &table, &mut outcome);
+        self.place_annotations(document, data, &mut outcome);
         outcome
+    }
+
+    /// Places §12.7.8.3.4's annotations on the pages Table 254's `/Page` names.
+    ///
+    /// The clause is one sentence and it is the whole requirement:
+    ///
+    /// > Each annotation dictionary in an FDF file shall have a Page entry (see "Table 254
+    /// > -Additional entry for annotation dictionaries in an FDF file") that shall indicate the
+    /// > page of the source document to which the annotation is attached.
+    ///
+    /// Table 254 spells the ordinal: "[t]he ordinal page number on which this annotation shall
+    /// appear, where page 0 is the first page". Everything else in such a dictionary is §12.5's —
+    /// an FDF annotation is an annotation — so once it names nothing of the other file there is
+    /// no second reading to do and nothing outside ISO 32000-2 to read it by. ADR 1224.
+    ///
+    /// **They go into the same log a person's own annotations go into**, which is what makes them
+    /// drawn, saved and undone by the code that already does those three: `Self::added` is
+    /// §12.5.5's "previously painted annotations" for the page, `Self::write_additions` writes
+    /// each into §7.5.6's update with its `/P`, and a replay clears and re-applies the import
+    /// like any other log entry.
+    ///
+    /// **Table 246 excludes six of Table 171's subtypes from an FDF file** — "[t]he array may
+    /// include annotations of any of the standard types listed in "Table 171 - Annotation types"
+    /// except Link, Movie, Widget, PrinterMark, Screen, and TrapNet" — and one that names an
+    /// excluded subtype is refused by name rather than placed, because a file that wrote one has
+    /// broken a rule this reader would otherwise act on.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "a verbatim quotation: Table 246 spells the subtype names without backticks"
+    )]
+    fn place_annotations(
+        &mut self,
+        document: &Document,
+        data: &crate::forms_data::FormsData,
+        outcome: &mut Imported,
+    ) {
+        // Table 246's `/EmbeddedFDFs` are files, so their annotations are this import's too, in
+        // `FormsData::files`' order (ADR 1185).
+        let annotations: Vec<&crate::forms_data::FdfAnnotation> = data
+            .files()
+            .into_iter()
+            .flat_map(|file| &file.annotations)
+            .collect();
+        if annotations.is_empty() {
+            return;
+        }
+        let pages = crate::Pages::new(document);
+        for annotation in annotations {
+            let (Some(ordinal), Some(dict)) = (annotation.page, annotation.dictionary.as_ref())
+            else {
+                // Both absences are already named on `FormsData::owed`, which is the list a host
+                // prints; saying them twice would double every line a person reads.
+                continue;
+            };
+            if let Some(subtype) = annotation.subtype.as_deref()
+                && EXCLUDED_FDF_SUBTYPES.contains(&subtype)
+            {
+                outcome.refused.push(format!(
+                    "an FDF annotation of subtype {subtype}, which Table 246 excludes from an \
+                     FDF file"
+                ));
+                continue;
+            }
+            let Some(page) = pages.get(ordinal).and_then(|page| page.id) else {
+                outcome.refused.push(format!(
+                    "an FDF annotation names page {ordinal}, which this document has not got"
+                ));
+                continue;
+            };
+            let id = self.allocate(document);
+            let mut dict = dict.clone();
+            // Table 254's own entry is the FDF file's way of spelling Table 166's `/P`, and the
+            // save writes that one: carrying the ordinal into the document would leave two
+            // statements about which page this is on, one of them in a key §12.5.2 does not
+            // define for an annotation in a PDF file.
+            dict.remove("Page");
+            self.added.push(Added { id, page, dict });
+            outcome.annotations = outcome.annotations.saturating_add(1);
+        }
     }
 
     /// Adds one of §12.5.6.10's text markup annotations over a run of quadrilaterals.
@@ -1903,6 +2077,10 @@ impl ViewState {
                 None => return 0,
             },
         };
+        // §12.7.5.3's file-select control keeps the contents beside the pathname, so a value set
+        // any other way takes them with it: a pathname and bytes that no longer belong to it
+        // would be the wrong file submitted under the right name.
+        self.chosen.remove(name);
         let mut applied = 0_usize;
         for widget in &taking {
             // The four statements about a value answer one question, so a widget belongs to
@@ -1913,6 +2091,49 @@ impl ViewState {
             applied = applied.saturating_add(1);
         }
         applied
+    }
+
+    /// Fills §12.7.5.3's file-select control with a file a person chose.
+    ///
+    /// Table 231 bit 21 says what such a field is:
+    ///
+    /// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select
+    /// > control. In this case, the field's text represents the pathname of a file whose contents
+    /// > shall be submitted as the field's value
+    ///
+    /// — so this does both halves at once, which is why it is one method rather than
+    /// [`Self::set_field`] and a second call: the value becomes the pathname, laid out and drawn
+    /// like any other text, and [`ChosenFile::bytes`] are kept beside it for
+    /// `crate::submission::compose` to put in §12.7.6.2's body. Setting the value any other way
+    /// afterwards drops the contents, so the two cannot disagree.
+    ///
+    /// **The bytes come from outside and that is the point.** `CLAUDE.md` principle 3 gives this
+    /// process no filesystem, and a *document* naming a path would be a document asking to read
+    /// an arbitrary file — which `crate::submission` refuses by name and still does. What this
+    /// takes is a file a **person** chose, read by whoever ran the chooser, which is the same
+    /// division `viewer_host::policy::read_import` draws one clause over (ADR 1216).
+    ///
+    /// Returns how many widgets took the value, and **zero where the field is not a file-select
+    /// control**: the flag is what makes a pathname a value at all, so a field without it takes
+    /// nothing here rather than taking the pathname as ordinary text.
+    pub fn choose_file(&mut self, document: &Document, name: &str, chosen: ChosenFile) -> usize {
+        if !is_file_select(document, name) {
+            return 0;
+        }
+        let applied = self.set_field(document, name, &Entered::Text(chosen.pathname.clone()));
+        if applied == 0 {
+            return 0;
+        }
+        self.chosen.insert(name.to_owned(), chosen);
+        applied
+    }
+
+    /// The file a person chose for one field, or `None` where nobody chose one.
+    ///
+    /// Asked by `crate::submission::compose`, which is the one clause the contents are for.
+    #[must_use]
+    pub fn chosen_file(&self, name: &str) -> Option<&ChosenFile> {
+        self.chosen.get(name)
     }
 
     /// What one field's value is *now*, as §12.7.4.3 would lay it out.
@@ -2141,6 +2362,7 @@ impl ViewState {
         let mut withheld = Vec::new();
         let (freed, still_reached) = self.write_filings(document, &mut update);
         self.write_additions(document, &mut update);
+        self.write_imported_appearances(document, &mut update);
         let unappeared = self.write_retypings(document, &mut update);
         for (widget, entered) in &self.edited {
             let widget = *widget;
@@ -2416,6 +2638,39 @@ impl ViewState {
         unappeared
     }
 
+    /// Writes §12.7.8's imported appearances onto the widgets that took them.
+    ///
+    /// §12.7.8.3.2: "importing a field causes the values of the entries in the FDF field
+    /// dictionary to replace those of the corresponding entries in the field with the same fully
+    /// qualified name in the target document". Table 249's `/AP` is an appearance dictionary "as
+    /// shown in "Table 170 - Entries in an appearance dictionary"", and Table 170 is the widget's
+    /// own `/AP` — so the corresponding entry is that one, and a save that left it alone would
+    /// write a file that draws something different from what the reader was shown.
+    ///
+    /// **These are the FDF producer's own marks, which is why writing them is not authoring.**
+    /// `CLAUDE.md`'s boundary asks whether the operation invents marks: every byte of a carried
+    /// stream was written by whoever produced the FDF file, carried across unreinterpreted, and
+    /// placed under the key that file named. Nothing here composes anything. ADR 1223.
+    ///
+    /// **The streams become objects here and not before.** A carried appearance holds its streams
+    /// *directly*, because a direct object names nothing and that is the whole point of the copy;
+    /// §7.3.8.1 requires a stream in a file to be an indirect object, so [`promote_streams`] gives
+    /// each one a number in this update as it is written.
+    fn write_imported_appearances(&self, document: &Document, update: &mut Update) {
+        for (widget, import) in &self.imported {
+            let Some(appearance) = import.appearance.as_ref() else {
+                continue;
+            };
+            let Some(mut dict) = update.current(document, *widget) else {
+                continue;
+            };
+            let placed = promote_streams(update, Object::Dictionary(appearance.clone()));
+            dict.insert(Name::new(&b"AP"[..]), placed);
+            update.stamp(&mut dict);
+            update.put(*widget, Object::Dictionary(dict));
+        }
+    }
+
     /// Writes every annotation a person added, and attaches each to its page.
     ///
     /// Two objects per annotation, because §12.5.2 says where an annotation lives: "each page
@@ -2494,6 +2749,9 @@ impl ViewState {
     /// any of it. See `viewer-core`'s `Open::replay` for why replaying beats inverting.
     pub fn clear_all_fields(&mut self) {
         self.edited.clear();
+        // §12.7.5.3's contents go with the pathnames they belong to: a replay that put one back
+        // without the other would submit a file nobody chose.
+        self.chosen.clear();
     }
 
     /// Every field a person has typed into or chosen among, by widget, in object order.
@@ -3620,6 +3878,37 @@ fn accepted(document: &Document, widgets: &[ObjectId], value: &str) -> String {
     value.get(..limit).unwrap_or(value).to_owned()
 }
 
+/// Whether one field is §12.7.5.3's file-select control — Table 231 bit 21, inherited.
+///
+/// The flag belongs to the *field* and §12.7.4.2 makes a field a name, so any of its widgets
+/// answers for all of them: `/Ff` is inheritable, which is why this walks `/Parent` the way
+/// [`is_read_only`] does. A name the document has no field for is not one.
+///
+/// Public because [`ViewState::choose_file`] takes nothing for a field without the flag, and a
+/// caller owes a person a sentence rather than a silent nothing (trap 5) — `viewer_core` asks
+/// this before it logs the edit.
+#[must_use]
+pub fn is_file_select(document: &Document, name: &str) -> bool {
+    let table = widgets_by_field_name(document);
+    let Some(widget) = table.get(name).and_then(|widgets| widgets.first()) else {
+        return false;
+    };
+    let mut current = match document.get(*widget).as_dict() {
+        Some(dict) => dict.clone(),
+        None => return false,
+    };
+    for _ in 0..MAX_FIELD_DEPTH {
+        if let Some(flags) = document.get_key(&current, "Ff").as_integer() {
+            return flags & crate::appearance::FLAG_FILE_SELECT != 0;
+        }
+        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
+            return false;
+        };
+        current = parent;
+    }
+    false
+}
+
 fn is_read_only(document: &Document, widget: ObjectId) -> bool {
     let mut current = match document.get(widget).as_dict() {
         Some(dict) => dict.clone(),
@@ -3962,6 +4251,15 @@ fn widgets_at(document: &Document, page: &crate::Page, x: f32, y: f32) -> Vec<Ob
 /// construction cannot fail for these subtypes. [`ViewState::write_retypings`] is where the same
 /// rule is departed from on purpose.
 fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut Dictionary) {
+    // An annotation that arrived with an appearance of its own keeps it. §12.7.8.3.4's
+    // annotations are the one kind that does — they carry the producer's `/AP`, copied whole —
+    // and constructing over it would replace another producer's marks with this program's, which
+    // is the line `CLAUDE.md`'s exclusion draws. The streams become objects here for
+    // [`ViewState::write_imported_appearances`]'s reason: §7.3.8.1 requires it of a file.
+    if let Some(stated) = dict.get("AP").cloned() {
+        dict.insert(Name::new(&b"AP"[..]), promote_streams(update, stated));
+        return;
+    }
     let Some(subtype) = document
         .get_key(dict, "Subtype")
         .as_name()
@@ -3985,6 +4283,54 @@ fn write_added_appearance(document: &Document, update: &mut Update, dict: &mut D
     let mut appearances = Dictionary::new();
     appearances.insert(Name::new(&b"N"[..]), Object::Reference(id));
     dict.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearances));
+}
+
+/// Gives every stream inside a carried object a number in this update, in place.
+///
+/// §7.3.8.1: "A stream shall consist of a dictionary followed by zero or more bytes bracketed
+/// between the keywords stream … and endstream". A stream is written as an indirect object and
+/// nothing else, so a value that crossed from an FDF file as a *direct* stream — which is what
+/// `crate::forms_data`'s copy produces, deliberately, since a direct object names nothing —
+/// becomes one here, and the reference takes its place.
+///
+/// Depth-first, so a stream inside another stream's `/Resources` is numbered before the stream
+/// that names it. The recursion is bounded by the structure the copy produced, which
+/// `crate::forms_data`'s own budget bounded when it was made. ADR 1223.
+fn promote_streams(update: &mut Update, value: Object) -> Object {
+    match value {
+        Object::Stream(stream) => {
+            let dict = match promote_streams(update, Object::Dictionary(stream.dict.clone())) {
+                Object::Dictionary(dict) => dict,
+                // `promote_streams` of a dictionary answers a dictionary; this arm cannot be
+                // reached and keeping the stream unchanged is the only harmless thing to do.
+                _ => stream.dict.clone(),
+            };
+            let id = update.allocate();
+            update.put(
+                id,
+                Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+                    dict,
+                    data: std::sync::Arc::clone(&stream.data),
+                    decryption_failed: false,
+                })),
+            );
+            Object::Reference(id)
+        }
+        Object::Dictionary(dict) => {
+            let mut out = Dictionary::new();
+            for (key, entry) in dict.iter() {
+                out.insert(key.clone(), promote_streams(update, entry.clone()));
+            }
+            Object::Dictionary(out)
+        }
+        Object::Array(items) => Object::Array(
+            items
+                .into_iter()
+                .map(|item| promote_streams(update, item))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 /// Replaces the appearance of a free text annotation whose `/Contents` a person retyped.

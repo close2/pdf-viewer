@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use viewer_core::{Answer, Command, DocumentId, Extraction, Query, Viewer};
+use viewer_host::panel;
 use viewer_host::policy::{Links, Opening, links, may_open_uri, open_uri, resolve_uri, uri_note};
 use viewer_host::{
     Clicked, ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, collection_rows,
@@ -237,6 +238,7 @@ fn a_password_field_asks_for_the_platforms_secure_control() {
             multiline: false,
             password: true,
             max_len: Some(8),
+            file_select: false,
         }
     );
 }
@@ -845,7 +847,10 @@ fn a_collection(initial: &str, folders: &str, folder_id: u32) -> Vec<u8> {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_owned(),
         "<< /Type /Filespec /UF (report.pdf) /Desc (the third chapter) /EF << /UF 5 0 R >> >>"
             .to_owned(),
-        "<< /Length 5 /Params << /Size 5 >> >>\nstream\nhello\nendstream".to_owned(),
+        // Table 44's `/Subtype` on the embedded file stream, which is the entry Table 153's
+        // `/View T` icon is chosen from (ADR 1215). The second file states none, on purpose.
+        "<< /Length 5 /Subtype /application#2Fpdf /Params << /Size 5 >> >>\nstream\nhello\nendstream"
+            .to_owned(),
         "<< /Type /Filespec /UF (readme.txt) /Desc (read me) /EF << /UF 7 0 R >> >>".to_owned(),
         "<< /Length 5 /Params << /Size 5 >> >>\nstream\nthere\nendstream".to_owned(),
         format!("<< /Type /Collection {initial} /Schema 9 0 R {folders} >>"),
@@ -853,7 +858,8 @@ fn a_collection(initial: &str, folders: &str, folder_id: u32) -> Vec<u8> {
         // name a person reads. `HD` states the *lowest* `/O` and `/V false`, so a panel obeying
         // `/O` alone would put it first.
         "<< /FN << /Subtype /F /N (File) /O 1 /V true >> /ZZ << /Subtype /Desc /N (About) >> \
-         /HD << /Subtype /Size /N (Hidden) /O 0 /V false >> >>"
+         /SZ << /Subtype /Size /N (Size) /O 2 /V true >> \
+         /HD << /Subtype /CompressedSize /N (Hidden) /O 0 /V false >> >>"
             .to_owned(),
         format!("<< /Type /Folder /ID {folder_id} /Name (Chapters) /Desc (the parts of it) >>"),
     ];
@@ -964,7 +970,7 @@ fn a_collection_becomes_a_folder_tree_with_the_schemas_columns() {
     // lowest `/O` and is hidden, so a panel reading `/O` alone would have put it first.
     assert_eq!(
         inside.detail.as_deref(),
-        Some("File: report.pdf  ·  About: the third chapter"),
+        Some("File: report.pdf  ·  Size: 5  ·  About: the third chapter"),
         "the visible fields, /O before the one that states none"
     );
     assert!(
@@ -1111,15 +1117,20 @@ fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_l
         "the report names what it matched: {undrawable:?}"
     );
 
+    // Table 153's `/View T` is drawn since ADR 1215, so it is selected rather than reported —
+    // which is the whole difference between a capability and a sentence about not having one.
     let tiled = panel(View::Tile, None);
     assert_eq!(
         sentence(&tiled),
-        Some(
-            "This collection asks to be shown in tile mode; this panel shows the details view \
-             instead."
-                .to_owned()
-        ),
-        "Table 153's `/View T` is a presentation this panel is not: {tiled:?}"
+        None,
+        "`T` is one of the presentations these rows are: {tiled:?}"
+    );
+    assert_eq!(
+        panel::presentation(&pdf_model::collection::Collection {
+            view: View::Tile,
+            ..pdf_model::collection::Collection::default()
+        }),
+        panel::Mode::Tile
     );
 
     let plain = panel(View::Details, None);
@@ -1127,6 +1138,198 @@ fn a_navigator_is_selected_from_what_this_panel_draws_and_the_rest_is_said_out_l
         sentence(&plain),
         None,
         "the details view is what these rows are: {plain:?}"
+    );
+}
+
+/// §12.7.5.3's file-select control turns a person's text into a *file*, and no other field does.
+///
+/// Table 231 bit 21:
+///
+/// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select control.
+/// > In this case, the field's text represents the pathname of a file whose contents shall be
+/// > submitted as the field's value
+///
+/// So the same keystrokes mean two different verbs depending on one flag, and this is the one
+/// place the three windows decide which (ADR 1216).
+#[test]
+fn table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value() {
+    let entry = |file_select| ControlKind::Entry {
+        multiline: false,
+        password: false,
+        max_len: None,
+        file_select,
+    };
+    let written = std::env::temp_dir().join("quorra-1189-file-select.txt");
+    std::fs::write(&written, b"one,two\n").expect("the test writes its own file");
+    let path = written.to_string_lossy().into_owned();
+
+    // The flag clear: the text is §7.9.2.2's text string and nothing is opened.
+    assert_eq!(
+        viewer_host::form::edit_of(
+            Some(&entry(false)),
+            "plain",
+            viewer_core::Entered::Text(path.clone())
+        ),
+        Ok(viewer_core::Edit::SetField {
+            field: "plain".to_owned(),
+            value: viewer_core::Entered::Text(path.clone()),
+        })
+    );
+
+    // The flag set: the pathname stays the field's text and the contents come with it.
+    let Ok(viewer_core::Edit::ChooseFile {
+        field,
+        pathname,
+        bytes,
+        mime,
+    }) = viewer_host::form::edit_of(
+        Some(&entry(true)),
+        "upload",
+        viewer_core::Entered::Text(path.clone()),
+    )
+    else {
+        panic!("a file-select control takes a file");
+    };
+    assert_eq!(field, "upload");
+    assert_eq!(pathname, path);
+    assert_eq!(bytes.bytes(), b"one,two\n");
+    // Table 44's `/Subtype` is what an embedded file states; a path on a filesystem states
+    // nothing, and HTML 4.01 section 17.13.4.2's fallback is `pdf_model::submission`'s to apply.
+    assert_eq!(mime, None);
+
+    // §12.7.6.3's own words for a value that is gone are "its V entry shall be removed", and
+    // there is no path to read behind nothing.
+    assert_eq!(
+        viewer_host::form::edit_of(Some(&entry(true)), "upload", viewer_core::Entered::Cleared),
+        Ok(viewer_core::Edit::SetField {
+            field: "upload".to_owned(),
+            value: viewer_core::Entered::Cleared,
+        })
+    );
+
+    // A path that names nothing is a file-select control with nothing behind it, said rather than
+    // taken as ordinary text — which would be the wrong value under the right name (trap 5).
+    let refused = viewer_host::form::edit_of(
+        Some(&entry(true)),
+        "upload",
+        viewer_core::Entered::Text(format!("{path}.no-such-file")),
+    );
+    assert!(
+        refused.is_err_and(|said| said.contains("cannot read")),
+        "the refusal names the path"
+    );
+    let _ = std::fs::remove_file(&written);
+}
+
+/// Table 153's two drawable views are two presentations of one collection, and they differ.
+///
+/// The entry states each as its own `shall`, and the two sentences say what separates them:
+/// `D` is "presented in details mode, with all information in the Schema dictionary presented in a
+/// multi- column format", `T` is "presented in tile mode, with each file in the collection denoted
+/// by a small icon and a subset of information from the Schema dictionary". So what is checkable
+/// is *all* against *a subset*, and the icon — and it is checked on one document read twice, so
+/// that a difference is the view's and not the file's.
+#[test]
+fn table_153s_details_and_tile_views_are_two_presentations_of_one_collection() {
+    fn file_rows(rows: &[PanelRow]) -> Vec<&PanelRow> {
+        flattened(rows)
+            .into_iter()
+            .filter(|row| matches!(row.action, RowAction::Extract { .. }))
+            .collect()
+    }
+    let rows_for = |view: &str| {
+        let (collection, initial, order, files) = collection_and_files(a_collection(
+            &format!("/D (<3>report.pdf) /View /{view}"),
+            "/Folders 10 0 R",
+            3,
+        ));
+        collection_rows(&collection, &initial, &order, &files)
+    };
+
+    let details = rows_for("D");
+    let detailed = file_rows(&details);
+    assert_eq!(detailed.len(), 2, "both files, either way: {details:?}");
+    // The schema states three fields and hides one, so "all information in the Schema dictionary"
+    // is the two `/V true` ones — a hidden field is a field the *document* took out of the
+    // interface, which is Table 155's `/O`/`/V` reading this panel already made.
+    assert_eq!(
+        detailed[0]
+            .cells
+            .iter()
+            .map(|cell| cell.heading.as_str())
+            .collect::<Vec<_>>(),
+        ["File", "Size", "About"],
+        "all of the visible schema, in /O order"
+    );
+    assert!(
+        detailed.iter().all(|row| row.icon.is_none()),
+        "the details view states no icon: {detailed:?}"
+    );
+
+    let tile = rows_for("T");
+    let tiled = file_rows(&tile);
+    assert_eq!(tiled.len(), 2, "no file falls out of the other view");
+    assert!(
+        tiled[0].cells.len() <= panel::TILE_FIELDS
+            && tiled[0].cells.len() < detailed[0].cells.len(),
+        "a subset, and fewer than the details view's: {tiled:?}"
+    );
+    // "each file in the collection denoted by a small icon", and a folder is a node of
+    // §12.3.5.2's tree rather than a file in it — both get one, and which picture is the
+    // toolkit's.
+    assert!(
+        tiled.iter().all(|row| row.icon.is_some()),
+        "every file is denoted by an icon: {tiled:?}"
+    );
+    assert_eq!(
+        flattened(&tile)
+            .iter()
+            .find(|row| row.label == "Chapters")
+            .and_then(|row| row.icon),
+        Some(panel::Icon::Folder)
+    );
+    // §12.3.5.1's `/D` is the same row in either view: the presentation changes what a row shows
+    // and never which document the file named.
+    assert_eq!(
+        flattened(&details)
+            .iter()
+            .filter(|row| row.emphasis)
+            .map(|row| row.label.clone())
+            .collect::<Vec<_>>(),
+        flattened(&tile)
+            .iter()
+            .filter(|row| row.emphasis)
+            .map(|row| row.label.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Table 44's `/Subtype` decides which kind of icon a tile carries, and a file stating none is one.
+///
+/// Table 153 asks for "a small icon" and states nothing about its artwork, so what is checkable is
+/// the *kind*: ADR 1215's choice is that the kind comes from the media type, which is the only
+/// thing about the file the standard puts in this program's hands. Read off the document rather
+/// than off a hand-built value, so that the entry a producer writes is the entry this reads.
+#[test]
+fn a_tiles_icon_names_the_kind_table_44s_subtype_states() {
+    let (_, _, _, files) = collection_and_files(a_collection(
+        "/D (<3>report.pdf) /View /T",
+        "/Folders 10 0 R",
+        3,
+    ));
+    let kinds: Vec<(String, panel::Icon)> = files
+        .iter()
+        .map(|file| (file.name.clone(), panel::icon_of(file)))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ("<3>report.pdf".to_owned(), panel::Icon::Document),
+            // The second file's stream states no Table 44 `/Subtype` at all, and a file whose
+            // kind the document did not state says only that it is a file — which is the honest
+            // picture for one nothing is known about.
+            ("readme.txt".to_owned(), panel::Icon::File),
+        ]
     );
 }
 

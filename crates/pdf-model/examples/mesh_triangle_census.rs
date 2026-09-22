@@ -108,8 +108,17 @@ fn meshes_in(commands: &[Command], out: &mut Vec<usize>) {
                 paint: Paint::Shading(shading),
                 ..
             } => {
-                if let ShadingKind::Mesh { triangles, .. } = shading.kind.as_ref() {
-                    out.push(triangles.len());
+                if let ShadingKind::Mesh {
+                    triangles, patches, ..
+                } = shading.kind.as_ref()
+                {
+                    // A patch mesh states patches and leaves the triangle count to the device
+                    // (ADR 1217), so what this census counts for one is the patches — which is
+                    // the number `mesh::MAX_PATCHES` bounds and the one a document decides.
+                    out.push(match patches {
+                        Some(mesh) => mesh.patches.len(),
+                        None => triangles.len(),
+                    });
                 }
             }
             Command::Group { commands, .. } => meshes_in(commands, out),

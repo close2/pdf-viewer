@@ -70,9 +70,9 @@ use std::sync::Arc;
 use pdf_render::{
     BlackHalf, BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners,
     DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin,
-    Luminance, MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Ramp, Rect, SampleAlpha, Shading,
-    ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind, Stop, Stroke, Transfer, Transform,
-    Triangle,
+    Luminance, MAX_GROUP_DEPTH, Paint, PatchCorners, PatchMesh, Path, PathCommand, Point, Ramp,
+    Rect, SampleAlpha, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind, Stop,
+    Stroke, SurfacePatch, Transfer, Transform, Triangle,
 };
 
 use super::{ProtocolError, Reader, Writer};
@@ -888,7 +888,11 @@ fn write_shading_kind(writer: &mut Writer, kind: &ShadingKind) -> Result<(), Unc
             write_ramp(writer, ramp);
             writer.bool(extend.0).bool(extend.1);
         }
-        ShadingKind::Mesh { triangles, ramp } => {
+        ShadingKind::Mesh {
+            triangles,
+            patches,
+            ramp,
+        } => {
             writer.u8(3);
             writer.usize(triangles.len());
             for triangle in triangles.iter() {
@@ -911,6 +915,7 @@ fn write_shading_kind(writer: &mut Writer, kind: &ShadingKind) -> Result<(), Unc
                     }
                 }
             }
+            write_patches(writer, patches.as_ref());
             match ramp {
                 Some(ramp) => {
                     writer.u8(1);
@@ -1196,6 +1201,8 @@ mod least {
     pub(super) const STOP: usize = 4 + 16;
     /// A mesh triangle: three points, a corner tag and three parameters.
     pub(super) const TRIANGLE: usize = 24 + 1 + 12;
+    /// A mesh patch: sixteen control points, a corner tag and four parameters.
+    pub(super) const PATCH: usize = 128 + 1 + 16;
     /// A dash length.
     pub(super) const DASH: usize = 4;
     /// A blending grid sample: three components.
@@ -1596,6 +1603,7 @@ fn read_shading_kind(reader: &mut Reader<'_>) -> Result<ShadingKind, ProtocolErr
                 };
                 Ok(Triangle { points, corners })
             })?;
+            let patches = read_patches(reader)?;
             let ramp = if reader.bool("a mesh's ramp")? {
                 Some(read_ramp(reader)?)
             } else {
@@ -1603,6 +1611,7 @@ fn read_shading_kind(reader: &mut Reader<'_>) -> Result<ShadingKind, ProtocolErr
             };
             Ok(ShadingKind::Mesh {
                 triangles: Arc::from(triangles),
+                patches,
                 ramp,
             })
         }
@@ -1611,6 +1620,85 @@ fn read_shading_kind(reader: &mut Reader<'_>) -> Result<ShadingKind, ProtocolErr
             value: u32::from(value),
         }),
     }
+}
+
+/// A mesh's §8.7.4.5.7 patches, where it has any.
+///
+/// They travel as patches, the same as they reach any other backend: the confined worker draws
+/// them at the fineness its own device asks for, and a fineness chosen on this side of the
+/// channel would be the one thing the display list is written not to carry (ADR 1217).
+fn write_patches(writer: &mut Writer, patches: Option<&PatchMesh>) {
+    let Some(mesh) = patches else {
+        writer.u8(0);
+        return;
+    };
+    writer.u8(1);
+    writer.f32(mesh.smoothness);
+    writer.usize(mesh.patches.len());
+    for patch in mesh.patches.iter() {
+        for row in &patch.net {
+            for point in row {
+                write_point(writer, *point);
+            }
+        }
+        match patch.corners {
+            PatchCorners::Colours(colours) => {
+                writer.u8(1);
+                for colour in colours {
+                    write_colour(writer, colour);
+                }
+            }
+            PatchCorners::Parameters(parameters) => {
+                writer.u8(2);
+                for parameter in parameters {
+                    writer.f32(parameter);
+                }
+            }
+        }
+    }
+}
+
+/// [`write_patches`]'s other half.
+fn read_patches(reader: &mut Reader<'_>) -> Result<Option<PatchMesh>, ProtocolError> {
+    if !reader.bool("a mesh's patches")? {
+        return Ok(None);
+    }
+    let smoothness = reader.f32("a patch mesh's smoothness")?;
+    let patches = table(reader, "a mesh's patches", least::PATCH, |reader| {
+        let mut net = [[Point::new(0.0, 0.0); 4]; 4];
+        for row in &mut net {
+            for point in row {
+                *point = read_point(reader, "a mesh patch's control point")?;
+            }
+        }
+        let corners = match reader.u8("a mesh patch's corners")? {
+            1 => {
+                let mut colours = [Color::TRANSPARENT; 4];
+                for colour in &mut colours {
+                    *colour = read_colour(reader, "a mesh patch corner's colour")?;
+                }
+                PatchCorners::Colours(colours)
+            }
+            2 => {
+                let mut parameters = [0.0_f32; 4];
+                for parameter in &mut parameters {
+                    *parameter = reader.f32("a mesh patch corner's parameter")?;
+                }
+                PatchCorners::Parameters(parameters)
+            }
+            value => {
+                return Err(ProtocolError::Unrecognised {
+                    what: "a mesh patch's corners",
+                    value: u32::from(value),
+                });
+            }
+        };
+        Ok(SurfacePatch { net, corners })
+    })?;
+    Ok(Some(PatchMesh {
+        patches: Arc::from(patches),
+        smoothness,
+    }))
 }
 
 fn read_ramp(reader: &mut Reader<'_>) -> Result<Ramp, ProtocolError> {
@@ -2174,9 +2262,47 @@ mod tests {
                         corners: Corners::Parameters([0.0, 0.5, 1.0]),
                     },
                 ]),
+                patches: None,
                 ramp: Some(a_ramp()),
             }),
             transform: Transform::IDENTITY,
+            background: None,
+        });
+        // §8.7.4.5.7's patches, which cross as patches rather than as a tessellation this side
+        // chose (ADR 1217): both corner kinds, because the tag between them is a branch of the
+        // codec and a fixture that leaves one at its default tests half of it (trap 12b).
+        let patch_mesh = Arc::new(Shading {
+            kind: Arc::new(ShadingKind::Mesh {
+                triangles: Arc::from(Vec::new()),
+                patches: Some(PatchMesh {
+                    patches: Arc::from(vec![
+                        SurfacePatch {
+                            net: std::array::from_fn(|u| {
+                                std::array::from_fn(|v| {
+                                    #[expect(
+                                        clippy::cast_precision_loss,
+                                        reason = "two indices below four"
+                                    )]
+                                    Point::new(v as f32 * 7.0, u as f32 * 5.0)
+                                })
+                            }),
+                            corners: PatchCorners::Colours([
+                                Color::BLACK,
+                                Color::WHITE,
+                                Color::rgb(1.0, 0.0, 0.0),
+                                Color::TRANSPARENT,
+                            ]),
+                        },
+                        SurfacePatch {
+                            net: [[Point::new(2.0, 3.0); 4]; 4],
+                            corners: PatchCorners::Parameters([0.0, 0.25, 0.5, 1.0]),
+                        },
+                    ]),
+                    smoothness: 1.0 / 256.0,
+                }),
+                ramp: Some(a_ramp()),
+            }),
+            transform: Transform::translate(1.5, 2.5),
             background: None,
         });
         let radial = Arc::new(Shading {
@@ -2267,6 +2393,15 @@ mod tests {
                     clip: None,
                     mask: None,
                     blend: BlendMode::Darken,
+                },
+                Command::Fill {
+                    path: a_path(),
+                    transform: Transform::IDENTITY,
+                    fill_rule: FillRule::NonZero,
+                    paint: Paint::Shading(patch_mesh),
+                    clip: None,
+                    mask: None,
+                    blend: BlendMode::Normal,
                 },
             ],
             alpha: 0.5,
@@ -2580,6 +2715,7 @@ mod tests {
                 };
                 64
             ]),
+            patches: None,
             ramp: None,
         });
         let mut list = DisplayList::new(Size::new(10.0, 10.0));

@@ -225,6 +225,30 @@ pub fn advances(data: &[u8], glyphs: &[u16]) -> Result<Vec<Option<f32>>, CffErro
         .collect())
 }
 
+/// Whether a CFF program's Top DICT uses `CIDFont` operators.
+///
+/// §9.9's Table 124 turns this into which `/FontFile3` `/Subtype` a program may be written
+/// under, and §9.7.4.2 into how a CID reaches a glyph inside it — the charset for a program that
+/// uses them, and the CID as the glyph index directly for one that does not. It is a fact about
+/// the program's own bytes, which is why a converter asks it here rather than trusting the
+/// `/Subtype` a producer wrote.
+///
+/// # Errors
+///
+/// See [`CffError`]: a program that does not open is not classified.
+pub fn uses_cid_operators(data: &[u8]) -> Result<bool, CffError> {
+    Ok(open(data)?.is_cid())
+}
+
+/// How many glyphs a CFF program holds, which is the length of its `CharStrings` INDEX.
+///
+/// # Errors
+///
+/// See [`CffError`].
+pub fn glyph_count(data: &[u8]) -> Result<u32, CffError> {
+    Ok(open(data)?.num_glyphs())
+}
+
 /// Opens a bare CFF font program.
 ///
 /// The units per em is left unstated so it is taken from the font's own `FontMatrix`;

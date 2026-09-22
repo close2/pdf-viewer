@@ -267,7 +267,12 @@ future feature, in the feature's own round:
   machinery ADR 0718 already loads lazily;
 - **click handling** → `--links=` with a real `Ask` arm, replacing the pin;
 - **anything that writes a file** → the save question. The confinement is no excuse here: the
-  *worker* has no filesystem, but the host holds one by design and opens the document itself.
+  *worker* has no filesystem, but the host holds one by design and opens the document itself;
+- **§12.7.5.3's file-select control** → a file *chooser*. The contents cross since ADR 1216 —
+  `viewer_host::policy::read_chosen` reads the pathname the clause already makes the field's text,
+  under one policy function so the four levels attach there — and what no window offers is a
+  `FileChooserNative` or a `QFileDialog` over that typing, which needs a round that can drive a
+  dialogue.
 
 ~~**`/PageLayout` is the first item**~~ **Taken in the six-hundred-and-sixth, and it did demand new
 vocabulary — one `Command` and one `Answer`'s shape** (ADR 0441). All six of Table 29's values are

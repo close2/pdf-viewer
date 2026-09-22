@@ -720,6 +720,39 @@ pub enum Edit {
         /// one a person has just drawn is.
         text: String,
     },
+    /// §12.7.5.3: fill a file-select control with a file a **person** chose.
+    ///
+    /// Table 231 bit 21 makes such a field two things at once:
+    ///
+    /// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select
+    /// > control. In this case, the field's text represents the pathname of a file whose contents
+    /// > shall be submitted as the field's value
+    ///
+    /// — a pathname the field draws, and contents §12.7.6.2 submits. [`Self::SetField`] carries
+    /// only the first, and a process `CLAUDE.md` principle 3 gives no filesystem cannot fetch the
+    /// second, so the bytes cross the boundary the same way [`Self::Attach`]'s do: rule 2 says the
+    /// host owns the filesystem, and what arrives here is the file rather than a path to read.
+    ///
+    /// **The host ran the chooser, which is what makes this safe.** A *document* naming a path
+    /// would be a document asking to read an arbitrary file on this machine, and
+    /// `pdf_model::submission` still refuses that by name; the path here is one a person picked,
+    /// which is the division `viewer_host::policy::read_import` draws one clause over. A host asks
+    /// `viewer_host::policy::may_choose_file` before it opens the chooser, so the four levels of
+    /// `CLAUDE.md` principle 3 attach in one place (ADR 1216).
+    ///
+    /// **A field without Table 231 bit 21 takes nothing**: the flag is what makes a pathname a
+    /// value at all, so the edit is reported rather than applied as ordinary text.
+    ChooseFile {
+        /// §12.7.4.2's fully qualified name of the field.
+        field: String,
+        /// The pathname the field's text becomes, spelled as the person's own platform spells it.
+        pathname: String,
+        /// The file, whole. A [`pdf_model::attachment::filing::Payload`] for [`Self::Attach`]'s
+        /// reason: this enumeration derives `Debug` and two hosts print a command.
+        bytes: pdf_model::attachment::filing::Payload,
+        /// The media type to submit under, where the host knows one.
+        mime: Option<String>,
+    },
     /// §7.11.4: put a file into the document, in one of §7.11.4.1's two homes.
     ///
     /// > Embedded file streams ( PDF 1.3 ) address this problem by allowing the contents of

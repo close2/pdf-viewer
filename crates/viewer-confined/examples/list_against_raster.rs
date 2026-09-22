@@ -148,9 +148,16 @@ fn shading_bytes(shading: &Shading, weight: &mut Weight) -> usize {
                     INDEX + program.steps().len() * (TAG + F32) + 2 * F32
                 })
         }
-        ShadingKind::Mesh { triangles, ramp } => {
+        ShadingKind::Mesh {
+            triangles,
+            patches,
+            ramp,
+        } => {
             INDEX
                 + triangles.len() * (3 * 2 * F32 + TAG + 3 * COLOUR)
+                + patches.as_ref().map_or(0, |mesh| {
+                    F32 + INDEX + mesh.patches.len() * (16 * 2 * F32 + TAG + 4 * COLOUR)
+                })
                 + ramp.as_ref().map_or(0, ramp_bytes)
         }
         // The enum is `#[non_exhaustive]`; a kind added later is priced as its tag alone and

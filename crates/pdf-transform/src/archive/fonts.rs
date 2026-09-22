@@ -65,6 +65,8 @@
 //! guess", which is also section 2.1's line about a substitution that answers *what does this
 //! glyph look like* being unable to answer *which character is this code*.
 
+mod composite;
+
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -266,6 +268,14 @@ pub(super) struct Substitutes {
     pub(super) at: BTreeMap<ObjectId, Embedding>,
     /// The stream objects this conversion adds, in the source's numbering.
     pub(super) written: BTreeMap<ObjectId, Object>,
+    /// The descendant `CIDFont` objects that gain a `/CIDToGIDMap` of `Identity`.
+    ///
+    /// §9.7.4.2 makes a Type 2 `CIDFont`'s `/CIDToGIDMap` what maps a CID to a glyph index of the
+    /// embedded program, and Table 115 makes the entry required once a program is embedded — so
+    /// a dictionary that stated none while its program was elsewhere owes one the moment this
+    /// conversion writes a program in. `Identity` is the only value written, which is what the
+    /// glyphs were chosen under (`doc/adr/1222`).
+    pub(super) identity_cid_to_gid: BTreeSet<ObjectId>,
     /// What was done, per font.
     pub(super) done: Vec<SubstitutedFont>,
 }
@@ -528,8 +538,10 @@ fn disagrees(stated: f32, program: f32) -> bool {
 ///
 /// # What is refused, and each refusal is by name
 ///
-/// - **A composite font.** §9.7.4.2 makes a CID an index into the glyphs of the font that
-///   defined it, so a substitute cannot be addressed by one at all; section 2.1 is the reading.
+/// - **A composite font nobody named a program for.** §9.7.4.2 makes a CID an index into the
+///   glyphs of the font that defined it, so a substitute cannot be addressed by one at all;
+///   section 2.1 is the reading. A program the operator *did* name goes into the descendant
+///   `CIDFont`'s descriptor, which is [`composite`]'s and carries its own refusals.
 /// - **A font with no descriptor**, which is the standard 14 stated by name alone. Embedding
 ///   needs one, and §9.8.1's Table 122 makes `/StemV` required of it — a measurement of a face,
 ///   which this converter does not take on the document's behalf.
@@ -554,7 +566,8 @@ pub(super) fn embed_faces(
             continue;
         }
         if subtype == "Type0" {
-            return Err(Because::NotBuiltYet(COMPOSITE_NOT_SUBSTITUTED));
+            composite::embed(document, used, spare, supplied, &mut substitutes)?;
+            continue;
         }
         // The *raw* entry rather than the resolved one: a program is embedded by writing a key
         // into the descriptor object, so a descriptor written directly inside the font
@@ -587,8 +600,8 @@ pub(super) fn embed_faces(
                     .map_err(|_| Because::NotBuiltYet(NO_SHIPPED_FACE_COVERS_IT))?,
             ),
         };
-        let key =
-            key_for(&subtype, face.format()).ok_or(Because::NotBuiltYet(NO_SHIPPED_FORMAT))?;
+        let row = key_for(&subtype, face.format(), face.program())
+            .ok_or_else(|| Because::NotBuiltYet(no_row(&subtype, face.format(), face.program())))?;
         let font = LoadedFont::load(document, &used.dict, &used.name)
             .map_err(|_| Because::NotBuiltYet(FONT_NOT_READ))?;
         let (widths, route) = face_widths(&font, &face, used)?;
@@ -608,13 +621,15 @@ pub(super) fn embed_faces(
             .take(document)
             .ok_or(Because::NotBuiltYet(NO_SPARE_OBJECT))?;
         let stream = program_stream(
-            subtype_dictionary(key).as_ref(),
+            subtype_dictionary(row).as_ref(),
             &program,
-            key == "FontFile2",
+            row.key == "FontFile2",
         )
         .ok_or(Because::NotBuiltYet(PROGRAM_NOT_ENCODED))?;
         substitutes.written.insert(at, stream);
-        substitutes.at.insert(descriptor, Embedding { key, at });
+        substitutes
+            .at
+            .insert(descriptor, Embedding { key: row.key, at });
         substitutes.done.push(SubstitutedFont {
             resource: used.name.clone(),
             requested,
@@ -796,17 +811,111 @@ fn needs_a_program(document: &Document, dict: &Dictionary) -> bool {
         .all(|key| document.get_key(&descriptor, key).is_null())
 }
 
-/// Which of §9.9's keys may carry a face of this format in a dictionary of this subtype.
+/// The tables §9.9's Table 124 requires of a program carrying `glyf` outlines.
 ///
-/// Table 124 decides it and this converter does not: a `glyf`-based sfnt goes in a `/FontFile2`
-/// under a `/TrueType` dictionary, and a bare CFF in a `/FontFile3` with `/Subtype /Type1C`
-/// under a `/Type1` or `/MMType1` one. Every other pairing the table does not state is `None`,
-/// which becomes a refusal naming the pairing rather than a file the table does not admit.
-fn key_for(subtype: &str, format: Format) -> Option<&'static str> {
-    match (subtype, format) {
-        ("TrueType", Format::Sfnt) => Some("FontFile2"),
-        ("Type1" | "MMType1", Format::BareCff) => Some("FontFile3"),
-        _ => None,
+/// The `FontFile2` row: "The font program shall include these tables: "glyf", "head", "hhea",
+/// "hmtx", "loca", and "maxp"." The `OpenType` row's first bullet names the same six.
+const GLYF_PROGRAM: [[u8; 4]; 6] = [*b"glyf", *b"head", *b"hhea", *b"hmtx", *b"loca", *b"maxp"];
+
+/// One row of §9.9's Table 124: a descriptor key, and the stream `/Subtype` that goes with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Table124 {
+    /// Which of §9.9's three keys the descriptor names the program by.
+    pub(super) key: &'static str,
+    /// The `/Subtype` the stream dictionary states, which Table 125 requires of a `/FontFile3`.
+    pub(super) stream_subtype: Option<&'static str>,
+}
+
+/// Which of §9.9's keys may carry this program in a dictionary of this subtype.
+///
+/// **Table 124 decides it and this converter does not**, which is why the match reads as the
+/// table's rows do. The table pairs a *key and stream subtype* with the font dictionary
+/// `/Subtype`s that may name it and — for the `OpenType` row — with what the program's own bytes
+/// contain:
+///
+/// > • A TrueType font dictionary or a CIDFontType2 CIDFont dictionary, if the embedded font
+/// > program contains a "glyf" table.
+///
+/// > • A CIDFontType0 CIDFont dictionary, if the embedded font program contains a "CFF " table
+/// > (notice the trailing SPACE) with a Top DICT that uses CIDFont operators (this is equivalent
+/// > to subtype CIDFontType0C ). In addition to the "CFF " table, the font program shall include
+/// > the "cmap" table.
+///
+/// > • A Type1 font dictionary or CIDFontType0 CIDFont dictionary, if the embedded font program
+/// > contains a "CFF " table without CIDFont operators. In addition to the "CFF " table, the font
+/// > program shall include the "cmap" table.
+///
+/// Two things the rows say that a reading in a hurry loses. **`MMType1` is in the `Type1C` row
+/// and not in the `OpenType` one**, so a multiple-master dictionary takes a bare CFF and not a
+/// wrapped one. And **a `glyf` program has no row under a `Type1` dictionary at all** — every key
+/// Table 124 opens to a `Type1` dictionary carries CFF — so a face this program ships that
+/// happens to be `glyf`-based cannot go there whatever else is true of it.
+///
+/// Every pairing the table does not state is `None`, which becomes a refusal naming the pairing
+/// rather than a file the table does not admit.
+fn key_for(subtype: &str, format: Format, program: &[u8]) -> Option<Table124> {
+    /// A `/FontFile` or `/FontFile2`, which Table 125 gives no `/Subtype`.
+    const fn plain(key: &'static str) -> Table124 {
+        Table124 {
+            key,
+            stream_subtype: None,
+        }
+    }
+    /// A `/FontFile3`, whose stream dictionary names the format (Table 125).
+    const fn font_file3(stream_subtype: &'static str) -> Table124 {
+        Table124 {
+            key: "FontFile3",
+            stream_subtype: Some(stream_subtype),
+        }
+    }
+    let sfnt = (format == Format::Sfnt)
+        .then(|| pdf_font::embedding::sfnt_tables(program))
+        .flatten();
+    let glyf = sfnt
+        .as_ref()
+        .is_some_and(|tables| tables.carries_all(&GLYF_PROGRAM));
+    let wrapped_cff = sfnt.as_ref().and_then(|tables| {
+        tables
+            .cff
+            .filter(|_| tables.carries(b"cmap"))
+            .map(|keying| keying == pdf_font::embedding::Keying::ByCid)
+    });
+    let bare_cid = (format == Format::BareCff)
+        .then(|| pdf_font::embedding::cff_keying(program, format))
+        .flatten()
+        .map(|keying| keying == pdf_font::embedding::Keying::ByCid);
+    let row = match subtype {
+        // One row, two dictionaries: the `FontFile2` row says the key may appear in the font
+        // descriptor for a TrueType font dictionary or, since PDF 1.3, for a CIDFontType2 CIDFont
+        // dictionary — so these are not two decisions.
+        "TrueType" | "CIDFontType2" if glyf => plain("FontFile2"),
+        "Type1" | "MMType1" if bare_cid == Some(false) => font_file3("Type1C"),
+        "Type1" if wrapped_cff == Some(false) => font_file3("OpenType"),
+        // §9.7.4.2 puts both keyings under a `CIDFontType0` dictionary — the charset for a Top
+        // DICT that uses CIDFont operators, the CIDs "directly as GID values" for one that does
+        // not — and Table 124's `CIDFontType0C` row is the key for a bare program either way.
+        "CIDFontType0" if bare_cid.is_some() => font_file3("CIDFontType0C"),
+        "CIDFontType0" if wrapped_cff.is_some() => font_file3("OpenType"),
+        _ => return None,
+    };
+    Some(row)
+}
+
+/// Which refusal a pairing Table 124 admits no row for earns, which is the pairing itself.
+///
+/// One case is worth naming apart from the rest, because it is the one an operator is most
+/// likely to have walked into and the one a `--font` cannot fix by naming a different file of the
+/// same face: **a `glyf`-based program under a `Type1` or `MMType1` dictionary**. Every key Table
+/// 124 opens to those two carries Compact Font Format — `/FontFile` a Type 1 program, `/FontFile3`
+/// `/Type1C` a bare CFF, `/FontFile3` `/OpenType` an sfnt carrying a `CFF ` table — so no
+/// TrueType-flavoured face qualifies however complete it is, and the answer is a CFF-flavoured
+/// face rather than another sfnt.
+fn no_row(subtype: &str, format: Format, program: &[u8]) -> &'static str {
+    let glyf = format == Format::Sfnt
+        && pdf_font::embedding::sfnt_tables(program).is_some_and(|tables| tables.carries(b"glyf"));
+    match subtype {
+        "Type1" | "MMType1" if glyf => GLYF_UNDER_A_TYPE1_DICTIONARY,
+        _ => NO_SHIPPED_FORMAT,
     }
 }
 
@@ -815,12 +924,12 @@ fn key_for(subtype: &str, format: Format) -> Option<&'static str> {
 /// Table 125 rather than Table 124: the key is the descriptor's and the subtype is the *stream
 /// dictionary's*, which is what "Additional entries in an embedded font stream dictionary" lists.
 /// Table 126 is §10.6.5's predefined spot functions and names nothing here.
-fn subtype_dictionary(key: &str) -> Option<Dictionary> {
-    (key == "FontFile3").then(|| {
+fn subtype_dictionary(row: Table124) -> Option<Dictionary> {
+    row.stream_subtype.map(|subtype| {
         let mut dict = Dictionary::new();
         dict.insert(
             Name::new(&b"Subtype"[..]),
-            Object::Name(Name::new(&b"Type1C"[..])),
+            Object::Name(Name::new(subtype.as_bytes())),
         );
         dict
     })
@@ -939,17 +1048,17 @@ const TWO_HEIGHTS_FOR_ONE_GLYPH: &str = "two of this font's codes reach the same
      be restating DW2 and W2, which ISO 32000-2 §9.7.4.3 makes what positions a glyph on a \
      vertical line";
 
-/// Why a composite font is not given a substitute.
+/// Why a composite font nobody supplied a program for is not given a substitute.
 const COMPOSITE_NOT_SUBSTITUTED: &str = "this document renders a composite font it does not \
-     embed. ISO 32000-2 §9.7.4.2 makes a CID an index into the glyphs of the font that defined \
-     it, so a code of this font names a glyph of a program that is not here and names nothing in \
-     any other face — a substitute could be given the right shapes only by deciding which \
-     character each code was for, which is the evidence the file never carried. \
-     doc/pdf-a-conversion-limits.md section 2.1 is the reading. Supplying the producer's own \
-     program would resolve it, because its CIDs would then index the glyphs they were written \
-     for; --font reaches a simple font and not yet a composite one, where the program goes into \
-     the descendant CIDFont's descriptor and the advances are §9.7.4.3's /W and /DW rather than \
-     a /Widths array";
+     embed, and no program was named for it. ISO 32000-2 §9.7.4.2 makes a CID an index into the \
+     glyphs of the font that defined it, so a code of this font names a glyph of a program that \
+     is not here and names nothing in any other face — a substitute could be given the right \
+     shapes only by deciding which character each code was for, which is the evidence the file \
+     never carried. doc/pdf-a-conversion-limits.md section 2.1 is the reading. Supplying the \
+     producer's own program resolves it, because its CIDs then index the glyphs they were \
+     written for: --font <base-font>=<path> naming either this font's BaseFont or its descendant \
+     CIDFont's writes the program into the descendant's own descriptor, against §9.7.4.3's /W \
+     and /DW";
 
 /// Why a font with no descriptor is not given a substitute.
 const NO_DESCRIPTOR_TO_EMBED_INTO: &str = "this rendered font states no FontDescriptor, which is \
@@ -986,14 +1095,23 @@ const NO_SUPPLIED_FACE_COVERS_IT: &str = "the font program named with --font has
 
 /// Why a face of the wrong format for the dictionary is not embedded.
 const NO_SHIPPED_FORMAT: &str = "the face this conversion would embed is not in a format ISO \
-     32000-2 §9.9's Table 124 admits under this font dictionary's own Subtype. Two pairings are \
-     written here, both stated in the table outright — a glyf-based sfnt into a /FontFile2 under \
-     a TrueType dictionary, and a bare Compact Font Format program into a /FontFile3 with \
-     Subtype Type1C under a Type1 or MMType1 one. So a Type1 or MMType1 dictionary needs a bare \
-     CFF program, which --font can name and which the sans-serif face shipped here is not. \
-     Table 124's OpenType row would admit an sfnt carrying a CFF table here too, under a \
-     /FontFile3 with Subtype OpenType; reading a CFF table out of an sfnt is what that needs, \
-     and nobody has written it";
+     32000-2 §9.9's Table 124 admits under this font dictionary's own Subtype. Every pairing the \
+     table states is written here — a glyf-based sfnt into a /FontFile2 under a TrueType or \
+     CIDFontType2 dictionary, a bare Compact Font Format program into a /FontFile3 with Subtype \
+     Type1C under a Type1 or MMType1 one and with Subtype CIDFontType0C under a CIDFontType0 \
+     one, and an sfnt carrying a CFF table and a cmap into a /FontFile3 with Subtype OpenType \
+     under a Type1 or CIDFontType0 one — and this program and this dictionary are none of them. \
+     Naming a program of the format the table admits with --font <base-font>=<path> resolves it";
+
+/// Why a `glyf`-based face is not embedded under a `Type1` or `MMType1` dictionary.
+const GLYF_UNDER_A_TYPE1_DICTIONARY: &str = "this document states a Type1 or MMType1 font \
+     dictionary, and the face that would be embedded into it is a TrueType-flavoured sfnt — one \
+     carrying a glyf table. ISO 32000-2 §9.9's Table 124 opens three keys to those two \
+     dictionaries and all three carry Compact Font Format: /FontFile a Type 1 program, \
+     /FontFile3 with Subtype Type1C a bare CFF, and /FontFile3 with Subtype OpenType an sfnt \
+     whose CFF table has a Top DICT without CIDFont operators. A glyf-based face is admitted by \
+     none of them, however complete it is, so naming a different file of the same face does not \
+     resolve it — naming a CFF-flavoured one with --font <base-font>=<path> does";
 
 /// Why a face whose advances cannot be restated is not embedded.
 const FACE_NOT_RESTATABLE: &str = "the face this program ships would have to have its advances \

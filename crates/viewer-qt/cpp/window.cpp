@@ -21,6 +21,7 @@
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -172,8 +173,20 @@ void PanelModel::setRows(const rust::Vec<QtRow>& rows)
     // rebuilds the tree. `open[d]` is the node that a row of depth `d + 1` belongs under.
     std::vector<int> open;
     open.push_back(0);
+    headings_.clear();
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const QtRow& row = rows[i];
+        // ISO 32000-2 Table 153's `/View`: the schema "presented in a multi- column format", one
+        // column per field. Every row of one panel carries the same headings in the same order —
+        // `viewer_host::panel::collection_rows` builds them from one list — so the widest row is
+        // the panel's header, and a row carrying none (every panel but the collection's) leaves
+        // this empty and the model at its two columns.
+        if (row.headings.size() > headings_.size()) {
+            headings_.clear();
+            for (const auto& heading : row.headings) {
+                headings_.push_back(text(heading));
+            }
+        }
         rows_.push_back(row);
         const std::size_t depth = static_cast<std::size_t>(row.depth) + 1;
         // A malformed depth — one that skips a level — would index past the stack. Clamping is
@@ -261,7 +274,14 @@ int PanelModel::columnCount(const QModelIndex&) const
     // Two columns, which is Qt's own way of showing a second line and is where the two hosts
     // diverge in shape rather than in data: `viewer-gtk` stacks the label and the detail in a
     // `GtkBox` inside one column, because a `GtkListView` row is a widget.
-    return 2;
+    //
+    // ISO 32000-2 Table 153's `/View D` asks for "all information in the Schema dictionary
+    // presented in a multi- column format", so a collection's panel is the name column plus one
+    // per schema field instead. ADR 1215.
+    if (headings_.empty()) {
+        return 2;
+    }
+    return 1 + static_cast<int>(headings_.size());
 }
 
 QVariant PanelModel::data(const QModelIndex& index, int role) const
@@ -272,7 +292,23 @@ QVariant PanelModel::data(const QModelIndex& index, int role) const
     }
     const QtRow& row = rows_[static_cast<std::size_t>(flat)];
     if (role == Qt::DisplayRole) {
-        return index.column() == 0 ? text(row.label) : text(row.detail);
+        if (index.column() == 0) {
+            return text(row.label);
+        }
+        if (headings_.empty()) {
+            return text(row.detail);
+        }
+        // Table 153's schema columns, one field each. A row with fewer cells than the header has
+        // columns is a folder rather than a file — §12.3.5.2's nodes carry no schema fields — and
+        // an empty cell is what a tree shows for one.
+        const std::size_t cell = static_cast<std::size_t>(index.column() - 1);
+        return cell < row.values.size() ? text(row.values[cell]) : QVariant{};
+    }
+    // Table 153's `/View T`: "each file in the collection denoted by a small icon". The name is
+    // `viewer_host::panel::Icon::theme_name`'s and the picture is the running theme's, because the
+    // clause states no artwork at all. ADR 1215.
+    if (role == Qt::DecorationRole && index.column() == 0 && !row.icon.empty()) {
+        return QIcon::fromTheme(text(row.icon));
     }
     // §8.11.4.3's switch is a *role* here and a widget in the other host. Qt puts the check box
     // in the model; GTK4's list view puts a `GtkCheckButton` in the row. ADR 0246.
@@ -299,7 +335,16 @@ QVariant PanelModel::headerData(int section, Qt::Orientation orientation, int ro
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole) {
         return {};
     }
-    return section == 0 ? QStringLiteral("Name") : QStringLiteral("Detail");
+    if (section == 0) {
+        return QStringLiteral("Name");
+    }
+    // Table 155's `/N` is "[t]he textual field name that shall be presented to the user by the
+    // interactive PDF processor", so a collection's header is the document's own words.
+    const std::size_t heading = static_cast<std::size_t>(section - 1);
+    if (heading < headings_.size()) {
+        return headings_[heading];
+    }
+    return QStringLiteral("Detail");
 }
 
 bool PanelModel::setData(const QModelIndex& index, const QVariant& value, int role)

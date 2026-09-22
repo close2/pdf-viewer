@@ -246,7 +246,7 @@ rule read as a statement about `Document::open` itself — 10 to 13 ms against 0
 keeps that question open, now correctly labelled as a question about the function rather than about
 the launch.
 
-## The five items, in the order the timeline ranked them
+## The items, in the order the timeline ranked them
 
 ### 1. `Document::open` — **taken in the two-hundred-and-seventy-sixth session, 41% off**
 
@@ -438,6 +438,53 @@ for page one instead of polling for it. The instrument is `--trace=launch` in ei
 - **A native launch has never been measured cold.** Every number above is a warm page cache and a
   warm loader, which is right for an A/B and wrong for `CLAUDE.md`'s cold-start gate. The gate does
   not exist for these two binaries at all.
+
+## 7. Annex F's parameter dictionary, if the figure ever moves — **declined, priced, not closed**
+
+§6.3.2.1 recommends that "Linearized files should be read as specified in Annex F", and its ledger
+row is `departed` rather than `partial` since ADR 1225 measured what declining costs. This item is
+what the ADR declined to build, kept here so that a later round starts from the plan rather than
+from the question.
+
+**The instrument is `crates/pdf-syntax/examples/linearised_census.rs`**, and it answers three
+things over any set of directories: how many documents state `/Linearized` inside §F.3.3's
+1024-byte window, how many of those state an `L` that is not the file's own length and are
+therefore what Table F.1 calls not linearised at all, and what an open reads before page one in
+bytes, read calls and objects, against Table F.1's `E`. `LINEARISED_CENSUS_COLD=<directory>` makes
+each figure the quickest of seven opens of a copy whose pages were dropped first, and
+`LINEARISED_CENSUS_VERBOSE=1` prints a line per document. It does **not** need a display, a
+graphics device or the sandbox, so it runs at any load.
+
+**What it found, and why nothing was built.** Run it for the numbers; what does not change with a
+run is the shape. Most genuinely-linearised files are opened by reading more than their own
+first-page region and by resolving the page tree §F.3.10 puts at the far end — so the
+recommendation really is declined rather than reached by another construction. But the whole of
+open-to-page-one on the largest linearised document in the corpus is a fraction of the *band* on
+time to first page, whose largest single term is cold graphics bring-up, by `CLAUDE.md` principle
+2's own choice to put the device on the critical path. F.1 prices its own recommendation in exactly
+that currency: a processor without it "can still successfully process linearized files although not
+as efficiently".
+
+**The two parts worth taking, in order of cost, and neither needs a hint table.** §F.4's tables
+compute byte ranges for a single HTTP request (§F.2), which this program never issues; both of
+these come out of Table F.1's parameter dictionary, which is 1024 bytes at the front of the file.
+
+- **`/N` and `/O` in place of a page-tree walk.** Table F.1 gives the page count and "[t]he object
+  number of the first page's page object" directly, and §F.3.7 makes that object self-sufficient —
+  its required attributes "may not be inherited from ancestor page tree nodes". Small, local to
+  whoever asks `pdf_model::Pages` for page one, and it removes every object resolved beyond `E`.
+- **A lazy `/Prev` chain.** §F.3.4 makes the first-page cross-reference table sufficient on its own
+  for page one, so a reader that followed `/Prev` only on a miss would never read the main table —
+  the larger of the two savings in bytes. **This one is not a local change**: `XrefTable::len`,
+  `object_numbers` and the trailer merge are statements about the whole chain, and the oracle rests
+  on `Document::open` being a function of the bytes alone. It needs its own argument and its own
+  gate.
+
+**Both are gated on Table F.1's `L` test**, and that is not optional: a large minority of the
+files in this corpus that state a parameter dictionary describe a file that no longer exists,
+because §F.3.6 says an incremental update invalidates the hint tables and §F.1 says the result
+"shall be treated as ordinary PDF". A route that trusted `/O` on one of those would open the wrong
+page and report nothing. Whoever takes this item runs the census first and reads that column.
 
 ## What is deliberately not here
 

@@ -220,15 +220,6 @@ impl App {
         let Some((width, height, _)) = self.window() else {
             return;
         };
-        // A window that is not presenting draws the page, which is the transition's end state.
-        if self.presentation.is_none() {
-            println!(
-                "note: transition: {:?} over {} s — nothing is presenting, so the page is shown \
-                 at once (press p)",
-                transition.style, transition.duration
-            );
-            return;
-        }
         let viewport = Rect::from_corners(Point::new(0.0, 0.0), whole(width, height));
         if !viewer_host::Clock::shapes(&transition, viewport) {
             // The core has already said *why* through `Event::Reported`; a second sentence here
@@ -242,6 +233,18 @@ impl App {
         // and animated it against itself, which is what the window showed before this was found.
         // §12.4.4.1's transition is one *to* a page, so waiting for that page's own request is
         // the clause's own order as well as this host's.
+        //
+        // §12.6.4.15 states no mode — a processor "shall render the state of the page viewing
+        // area as it exists after completion of the previous action and display it using a
+        // transition specified in the action dictionary" — so a window that is not presenting
+        // gets a clock for the one effect, and drops it when it runs out (ADR 1216).
+        if self.presentation.is_none() && self.effect.is_none() {
+            let now = std::time::Instant::now();
+            self.effect = Some(Presentation {
+                clock: viewer_host::Clock::for_one_transition(now),
+                wake: now,
+            });
+        }
         self.arming = Some(transition);
     }
 
@@ -296,8 +299,8 @@ impl App {
                 began.elapsed()
             ),
         );
-        if let Some(presentation) = self.presentation.as_mut() {
-            presentation
+        if let Some(playing) = self.presentation.as_mut().or(self.effect.as_mut()) {
+            playing
                 .clock
                 .begin(transition, outgoing, incoming, std::time::Instant::now());
         }
@@ -315,7 +318,8 @@ impl App {
         let shaped = self
             .presentation
             .as_mut()
-            .map(|presentation| presentation.clock.frame(viewport, now))?;
+            .or(self.effect.as_mut())
+            .map(|playing| playing.clock.frame(viewport, now))?;
         match shaped {
             Ok(list) => list,
             Err(problem) => {

@@ -566,6 +566,32 @@ impl App {
         true
     }
 
+    /// Reads §12.7.5.3's file-select control's file, where the field being left is one.
+    ///
+    /// Does nothing at all for every other field: its value is already in the log, put there by
+    /// the keystrokes that typed it. `viewer_host::form::edit_of` is the decision, shared with the
+    /// two native hosts so that three windows agree about what a person's typing into such a
+    /// field means (ADR 1216).
+    fn commit_chosen_file(&mut self, aim: &Aim, value: &str) {
+        let Aim::Field(field) = aim else { return };
+        let Answer::Fields(fields) = self.viewer.query(Query::Fields) else {
+            return;
+        };
+        let Some(kind) = fields
+            .iter()
+            .find(|one| one.name.qualified == *field)
+            .map(|one| control_kind(&one.control))
+        else {
+            return;
+        };
+        match viewer_host::form::edit_of(Some(&kind), field, Entered::Text(value.to_owned())) {
+            Ok(edit @ Edit::ChooseFile { .. }) => self.dispatch(Command::Edit(edit)),
+            // An ordinary field, whose value every keystroke has already sent.
+            Ok(_) => {}
+            Err(refusal) => println!("note: {refusal}"),
+        }
+    }
+
     /// Aims the keyboard at §12.5.6.6's annotation under the point, whoever wrote it.
     ///
     /// The same two questions a field takes, in the same order and for the same reasons:
@@ -831,6 +857,12 @@ impl App {
         let (next, moved, anchored) = match *key {
             Key::Named(NamedKey::Escape) => {
                 self.typing = None;
+                // §12.7.5.3's file-select control: "the field's text represents the pathname of a
+                // file whose contents shall be submitted as the field's value". Escape is where
+                // this window finishes with a field, so the pathname becomes a file *here* rather
+                // than on every keystroke — a filesystem read per character would be this host
+                // opening a file sixty times a second (ADR 1216).
+                self.commit_chosen_file(&aim, &current);
                 println!("note: the keyboard is back on the page");
                 // The caret goes with the keyboard, and the window is what has to be told: this
                 // press changes nothing about the *document*, so no command is sent and nothing

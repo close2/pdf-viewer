@@ -2023,6 +2023,23 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
         Edit::Detach { name } => {
             writer.u8(5).str(name);
         }
+        // §12.7.5.3's file-select control: the pathname the field draws and the contents
+        // §12.7.6.2 submits. The bytes ship whole for `Edit::Attach`'s reason one arm up — a
+        // confined worker has no filesystem to open a path through, and the person who chose the
+        // file is outside the confinement. ADR 1216.
+        Edit::ChooseFile {
+            field,
+            pathname,
+            bytes,
+            mime,
+        } => {
+            writer
+                .u8(6)
+                .str(field)
+                .str(pathname)
+                .bytes(bytes.bytes())
+                .option_str(mime.as_deref());
+        }
     }
 }
 
@@ -2100,6 +2117,12 @@ fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError> {
         },
         5 => Edit::Detach {
             name: reader.string("an attachment's name")?,
+        },
+        6 => Edit::ChooseFile {
+            field: reader.string("a field name")?,
+            pathname: reader.string("a chosen file's pathname")?,
+            bytes: reader.owned_bytes("a chosen file")?.into(),
+            mime: reader.option_string("a chosen file's media type")?,
         },
         value => {
             return Err(ProtocolError::Unrecognised {
@@ -5262,6 +5285,9 @@ mod tests {
                 title: Some("a title".to_owned()),
                 text: Some("a note".to_owned()),
                 modified: Some("D:20240101000000Z".to_owned()),
+                // Table 172's `/Subj` and `/CreationDate`, which cross with the rest.
+                subject: Some("a subject".to_owned()),
+                created: Some("D:20231231000000Z".to_owned()),
                 colour: Some(pdf_render::Color {
                     r: 0.1,
                     g: 0.2,
@@ -5277,6 +5303,8 @@ mod tests {
                         title: Some("a reviewer".to_owned()),
                         text: Some("a reply".to_owned()),
                         modified: Some("D:20240102000000Z".to_owned()),
+                        subject: Some("a reply's subject".to_owned()),
+                        created: Some("D:20240101120000Z".to_owned()),
                     },
                     pdf_model::popup::Comment {
                         annotation: ObjectId::new(35, 0),
@@ -5285,6 +5313,8 @@ mod tests {
                         title: None,
                         text: None,
                         modified: None,
+                        subject: None,
+                        created: None,
                     },
                 ],
             },
@@ -5295,6 +5325,8 @@ mod tests {
                 title: None,
                 text: None,
                 modified: None,
+                subject: None,
+                created: None,
                 colour: None,
                 replies: Vec::new(),
             },

@@ -90,6 +90,19 @@ pub struct Requirement {
     /// rather than assuming it: the threshold is on a *total* ([`penalty_total`]), and a file
     /// stating an entry above 100 has already broken the "shall" quoted above, so the clamp
     /// bounds a value the standard had bounded first.
+    ///
+    /// **What the clause says about the middle of the range is not addressed to a reader**, and
+    /// it is the only sentence of §12.11.3 nothing here carries out:
+    ///
+    /// > Values between 0 and 100 are available to weight the value of this feature among other
+    /// > features in the same document requirements array as well as when contributing to the
+    /// > total penalty points to weigh against other documents in the choosing process if
+    /// > alternatives are available.
+    ///
+    /// It states no modal verb, so it says what the values are *for* rather than what a
+    /// processor shall do with them; the weighting among features of one array is the sum
+    /// [`penalty_total`] takes, and the weighing against other documents is conditioned on
+    /// alternatives, which a reader opening one document does not have. ADR 1220.
     pub penalty: u8,
 }
 

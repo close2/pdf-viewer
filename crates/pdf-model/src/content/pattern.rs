@@ -1482,10 +1482,8 @@ impl Interpreter<'_> {
                 // §10.7.3 permits the bound and `crate::content`'s module documentation forbids
                 // drawing less than the document states in silence, so a mesh the bound cut
                 // short is said out loud before its remaining triangles are painted.
-                if built.truncated {
-                    self.note(Unsupported::LimitReached {
-                        limit: "max_mesh_triangles",
-                    });
+                if let Some(limit) = built.truncated {
+                    self.note(Unsupported::LimitReached { limit });
                 }
                 // And a mesh whose colours §8.7.4.4's subdivision could not bring within
                 // §10.7.3's tolerance before a bound stopped it is said the same way: the
@@ -1796,10 +1794,8 @@ impl Interpreter<'_> {
         // `scn` builds the colours and every later mark rebuilds them, and a mesh the bound cut
         // short is the same mesh at both. `note` is a set, so saying it once a mark says it
         // once.
-        if built.truncated {
-            self.note(Unsupported::LimitReached {
-                limit: "max_mesh_triangles",
-            });
+        if let Some(limit) = built.truncated {
+            self.note(Unsupported::LimitReached { limit });
         }
         if built.coarse {
             self.note(Unsupported::LimitReached {

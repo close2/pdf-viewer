@@ -29,6 +29,7 @@ pub mod cff;
 pub mod cmap;
 pub mod collection;
 mod composite;
+pub mod embedding;
 pub mod encoding;
 #[cfg(test)]
 mod fixture;

@@ -136,13 +136,19 @@ fn stop(offset: f32, colour: Color) -> peniko::ColorStop {
 pub(crate) fn fill_mesh(
     scene: &mut vello::Scene,
     triangles: &[pdf_render::Triangle],
+    patches: Option<&pdf_render::PatchMesh>,
     ramp: Option<&Ramp>,
     to_device: Transform,
     target: TargetSpec,
 ) {
-    let Some(raster) =
-        pdf_render::MeshRaster::build(triangles, ramp, to_device, target.width, target.height)
-    else {
+    let Some(raster) = pdf_render::MeshRaster::build(
+        triangles,
+        patches,
+        ramp,
+        to_device,
+        target.width,
+        target.height,
+    ) else {
         return;
     };
     let data = peniko::ImageData {

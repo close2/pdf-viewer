@@ -904,6 +904,17 @@ firing on the wrong condition, this one is about nothing being able to *see* tha
 is trap 33's shape again, a clean number about a question nobody asked. When a change can move a
 report, the diff has to be able to hold one.
 
+### 41. A display list's golden digest is its `Debug`, so a new field on a vocabulary enum moves every page using that variant with no pixel moving
+
+`raster_golden` holds two digests per page — the raster's and the display list's — and the second is
+`format!("{:?}", list)`. When round 1190 gave `ShadingKind::Mesh` a field, ten rows moved: six were
+type 6/7 shadings whose rasters changed, and four were type 4/5 meshes whose rasters did not — their
+digest moved because the variant's `Debug` gained a field. "List only (an interpreter change no pixel
+shows)" reads as a finding until the two populations are separated. Round 1160's overprint flag moved
+966 rows the same way. The rule: when a round adds a field to a `pdf_render` vocabulary type, count the
+digest-only rows as a population and show they are exactly the variant's users — interpret each and
+count its commands, do not infer — before reading any of them as a change (ADR 1217).
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

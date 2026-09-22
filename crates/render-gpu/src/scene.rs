@@ -602,7 +602,11 @@ fn encode_fill(
     // which no brush can express, so it is rasterised and drawn inside a layer clipped to
     // the shape.
     if let Paint::Shading(shading) = paint
-        && let pdf_render::ShadingKind::Mesh { triangles, ramp } = shading.kind.as_ref()
+        && let pdf_render::ShadingKind::Mesh {
+            triangles,
+            patches,
+            ramp,
+        } = shading.kind.as_ref()
     {
         // A mesh always needs a layer, because its raster is clipped to the shape;
         // source-over is what an unblended one composites through.
@@ -614,6 +618,7 @@ fn encode_fill(
         crate::shading::fill_mesh(
             scene,
             triangles,
+            patches.as_ref(),
             ramp.as_ref(),
             shading.transform.then(spaces.to_device),
             target,

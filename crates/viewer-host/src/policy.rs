@@ -328,6 +328,62 @@ pub fn read_import(directory: Option<&Path>, name: &str) -> Result<Vec<u8>, Stri
     std::fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
 
+/// How many bytes of a person's chosen file this program will take into memory.
+///
+/// §12.7.5.3 states no bound and could not: it is a fact about this machine rather than about any
+/// document. `CLAUDE.md` principle 3 asks for explicit memory budgets by name — "Rust does not
+/// prevent resource exhaustion" — and the whole file is read at once because §12.7.6.2's body is
+/// composed in memory. Sixty-four mebibytes is chosen as comfortably larger than anything a form
+/// attachment plausibly is and far below what a window may hold, and a file over it is refused
+/// with its size said out loud rather than read and then dropped (ADR 1216).
+pub const CHOSEN_FILE_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// The bytes of §12.7.5.3's file-select control, from a path a **person** named.
+///
+/// Table 231 bit 21 makes the field's text "the pathname of a file whose contents shall be
+/// submitted as the field's value", and the contents are the half `pdf-model` cannot have:
+/// `CLAUDE.md` principle 3 gives that process no filesystem. This is the read that follows, and
+/// it is a host's for the same reason [`read_import`] is.
+///
+/// **It is not [`read_import`] and the difference is who named the path.** §12.7.6.4's file is
+/// named by the *document*, so it is resolved against the document's own directory and nothing
+/// else — a document naming `/etc/passwd` gets a refusal. A file-select control's path is typed
+/// or chosen by the person at the keyboard, and confining *that* to the document's directory
+/// would be this program refusing its reader access to their own files. So the path is taken as
+/// given, with two bounds that are about this machine rather than about trust:
+/// [`CHOSEN_FILE_LIMIT`], and a refusal for anything that is not a regular file.
+///
+/// **A refusal rather than a hard `no`, for the reason [`may_submit`] gives**: the policy is asked
+/// once, in a place a host can supply, so `doc/todo/38`'s *ask* and *warn* levels attach here and
+/// nowhere else. §7.6.4.1's Table 22 bit 9 — filling in an existing interactive form field — is
+/// asked as `pdf_model::restriction::Operation::FillInForm` by `viewer_core::Viewer` before the
+/// edit is logged, which is the *document's* own restriction on the same act.
+///
+/// # Errors
+///
+/// The sentence to say to the person: the path names nothing, names something that is not a file,
+/// names one this process may not read, or names one over [`CHOSEN_FILE_LIMIT`].
+pub fn read_chosen(pathname: &str) -> Result<Vec<u8>, String> {
+    if pathname.is_empty() {
+        return Err("no file is named, so there is nothing to submit for this field".to_owned());
+    }
+    let path = Path::new(pathname);
+    let stated = std::fs::metadata(path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    if !stated.is_file() {
+        return Err(format!("{} is not a file", path.display()));
+    }
+    if stated.len() > CHOSEN_FILE_LIMIT {
+        return Err(format!(
+            "{} is {} bytes, over this program's {CHOSEN_FILE_LIMIT}-byte limit for a file-select \
+             control",
+            path.display(),
+            stated.len()
+        ));
+    }
+    std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
 /// Which clause asked for a file, in the word a host prints in front of its sentence.
 ///
 /// **One function rather than a literal at each call site**, for the reason [`refused`] records:

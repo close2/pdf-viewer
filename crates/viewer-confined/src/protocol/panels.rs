@@ -1513,6 +1513,8 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
             title,
             text,
             modified,
+            subject,
+            created,
             colour,
             replies,
         } = popup;
@@ -1520,10 +1522,15 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
             .object(*annotation)
             .option_object(*parent)
             .quad(*quad);
+        // Table 172's `/Subj` and `/CreationDate` cross with the rest of the window: a panel on
+        // the far side of the confinement that received less than the direct one would be the
+        // one place in this program showing a smaller answer for the same document.
         writer
             .option_str(title.as_deref())
             .option_str(text.as_deref())
-            .option_str(modified.as_deref());
+            .option_str(modified.as_deref())
+            .option_str(subject.as_deref())
+            .option_str(created.as_deref());
         match colour {
             Some(Color { r, g, b, a }) => {
                 writer.u8(1).f32(*r).f32(*g).f32(*b).f32(*a);
@@ -1545,13 +1552,17 @@ pub(super) fn encode_popups(writer: &mut Writer, popups: &[PopupWindow]) {
                 title,
                 text,
                 modified,
+                subject,
+                created,
             } = reply;
             writer.object(*annotation).option_object(*parent);
             writer.usize(*depth);
             writer
                 .option_str(title.as_deref())
                 .option_str(text.as_deref())
-                .option_str(modified.as_deref());
+                .option_str(modified.as_deref())
+                .option_str(subject.as_deref())
+                .option_str(created.as_deref());
         }
     }
 }
@@ -1566,6 +1577,8 @@ pub(super) fn decode_popups(reader: &mut Reader<'_>) -> Result<Vec<PopupWindow>,
             title: reader.option_string("a popup's title")?,
             text: reader.option_string("a popup's text")?,
             modified: reader.option_string("a popup's modification date")?,
+            subject: reader.option_string("a popup's subject")?,
+            created: reader.option_string("a popup's creation date")?,
             colour: if reader.bool("a popup's colour")? {
                 Some(Color {
                     r: reader.f32("a popup's colour")?,
@@ -1584,6 +1597,8 @@ pub(super) fn decode_popups(reader: &mut Reader<'_>) -> Result<Vec<PopupWindow>,
                     title: reader.option_string("a reply's author")?,
                     text: reader.option_string("a reply's text")?,
                     modified: reader.option_string("a reply's modification date")?,
+                    subject: reader.option_string("a reply's subject")?,
+                    created: reader.option_string("a reply's creation date")?,
                 })
             })?,
         })

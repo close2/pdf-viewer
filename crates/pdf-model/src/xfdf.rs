@@ -365,8 +365,11 @@ impl Reader {
             annotation_flags: FlagChange::Unchanged,
             options: None,
             // The same section, and the same sentence: an icon fit dictionary is not a value, so
-            // XFDF states no element for one.
+            // XFDF states no element for one. Nor an appearance, nor an action — a change to
+            // either is a change to something other than the field's value.
             icon_fit: None,
+            appearance: None,
+            actions: None,
             owed: Vec::new(),
         });
         Some(index)

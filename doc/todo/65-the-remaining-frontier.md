@@ -36,21 +36,17 @@ are not a gap in the reading — each one's core is already in place, waiting on
 the operation it drives. **What builds them:** the host work of `doc/todo/30`–`38` and RFC 0004's
 print path.
 
-- §6.3.2.1 — the one `should` this tree does not follow, "Linearized files should be read as
-  specified in Annex F". Not a host surface at all: what closes it is a decision about
-  linearisation, and nothing less does. §7.6.4.1 and the whole §7.6.4 family left this bucket in
-  session 1183, when bit 12 became `Operation::PrintFaithfully` and every position of Table 22 that
-  has a meaning reached an operation (`doc/todo/38`, ADR 1203).
 - §12.2 — `/PrintArea` and `/PrintClip`, which need the `Page::print_box` that row names, and which
   are work rather than a capability nothing would use now that a page is rendered for paper.
   `/PrintScaling` has something to honour since session 1183 (ADR 1204).
-- §12.3.5, §12.3.5.1 — a collection's `/View` tile mode, `/Sort`, `/Colors`, `/Split`: surfaces one
-  panel does not offer as alternatives.
-- §12.6.4.15 — animating a transition outside a presentation.
+- §12.3.5, §12.3.5.1 — a collection's `/Colors` and `/Split`, and §12.3.6's `FilmStrip`,
+  `FreeForm` and `Linear`: surfaces one panel does not offer as alternatives. Table 153's `/View`
+  is obeyed for every value since session 1189 (ADR 1215) and `/Sort` since 1165 (ADR 1168).
 - §12.6.4.3 (`reported`) — a remote go-to that needs a host filesystem to reach another file.
 - §12.6.4.6 (`reported`) — a launch action the sandbox withholds by design; deliberate, kept named.
-- §12.7.5.3, §12.7.6.2 — a file-select control's file *contents*, and a submit that needs a
-  network.
+- §12.7.5.3, §12.7.6.2 — a submit that needs a network, and a file chooser widget. A file-select
+  control's *contents* cross since session 1189 (ADR 1216): a person's typed pathname is read by
+  `viewer_host::policy::read_chosen` and submitted as the field's value.
 - §12.7.8.3.3 — an FDF template page whose Table 253 `/F` puts it in another file. A host question
   since ADR 1186 rather than an impossibility: `viewer_host::read_import` answers a file a document
   named from a directory a person supplied (ADR 1155), and `pdf-model` has no filesystem by design.
@@ -70,7 +66,9 @@ permanent) or an owner decision to acquire a specification.
   as texts outside this standard.
 - §12.8.1, §12.8.3.1, §12.8.3.3, §12.8.3.3.1 — brainpoolP512r1 and Ed448 (ISO/TS 32002): named at
   runtime by the certificate's own identifier; no reviewed arithmetic package on the `digest` line
-  is out of pre-release (ADR 1063).
+  is out of pre-release (ADR 1063). §12.8.3.1's row carries the measurement with its date, the
+  packages a search turns up that are refused for reasons other than a version number, and the
+  command that re-measures it.
 - §7.4.6 — CCITTFaxDecode's `/DamagedRowsBeforeError` concealment: `hayro-ccitt` exposes neither a
   failure's bit position nor a resume, so the search-and-substitute is a change to the shared
   decoder. Re-checked at the crate's head, which is also its latest release; the ledger row says what
@@ -87,11 +85,16 @@ permanent) or an owner decision to acquire a specification.
   obtainable free from the ICC, and ADR 1208 lists the eight things it adds — of which four move
   pixels, the LUT-destination estimation being the eleven levels ADR 0510 measured. This is a build
   across a round or two rather than a missing text (ADRs 0510, 1208; `doc/third-party-data.md`).
-- §12.7.8.3.4 — FDF annotation dictionaries need ISO 19444-1 sections 6.4 and 6.6; the preview held
-  stops at 5.7.1.
-- §12.8.3.4.4 — a signature policy: ETSI EN 319 122-1 clause 5.2.10 defines the attribute that
-  carries the policy document inside the signature; the specification that defines the policy's
-  syntax is not held.
+- §12.7.8.3.4 (`departed`) — the **XFDF** spelling of an FDF file's annotations needs ISO 19444-1
+  sections 6.4 and 6.6; the preview held stops at 5.7.1. The PDF-side import is built and needed
+  none of it: the clause is one sentence about Table 254's `/Page` and everything else in such a
+  dictionary is §12.5's (ADRs 1223, 1224). `doc/questions/Q97` asks for the text.
+- §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is
+  read: ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the
+  all-zero *not known* kept apart, the URL, the notice meant to be shown, the specification
+  identifier — and clause 5.2.10's stored copy checked against that digest. What is missing is the
+  specification the policy's own syntax is written in, and the signature *names* it, so the block is
+  per file and named at runtime rather than one text to acquire (ADR 1219).
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -120,11 +123,15 @@ pixels.
   conversion, which is the same per-pixel machinery the rows above want.
 - §11.3.4, §11.5.3 — the non-affine route into a one-component or three-curve blending space
   (`doc/todo/23`).
-- §11.6.5.2 — a soft mask behind an image codec, which would decode per raster request.
+- §11.6.5.2 — a soft mask behind an image codec. `doc/todo/41`'s decoded-stream cache cannot take
+  it: that cache holds the §7.4 chain's output keyed by the encoded allocation, and
+  `Document::image_stream` runs only the chain *in front of* the codec. `MaskCache`'s existing
+  `ObjectId` key would take it with no new key; what is owed is a bound on the decoded grey plane,
+  and the corpus says the whole of it is 16 masks and 27.2 MB (ADR 1218's row, §11.6.5.2).
 - §11.6.7 — a shading pattern's implicit knockout group (follows §11.4.6).
-- §8.7.4.5.7, §8.7.4.5.8 — a patch mesh's tessellation fineness, fixed rather than derived from
-  §10.7.3's smoothness because the silhouette tolerance is in device pixels `pdf-model` does not
-  carry (ADR 0919).
+- §8.7.4.5.7, §8.7.4.5.8 — the patch travels to the backend and the fineness is derived there
+  (ADR 1217); both rows are `departed` for the one branch left, a patch whose colours §8.7.4.4
+  requires be converted between its corners, which no corpus document takes.
 - §10.7.4 — a region that is the union of two fills under two rules, which no backend's clip
   vocabulary states (`doc/todo/11`).
 
@@ -150,12 +157,12 @@ rows the section below records as having moved here are named here now, which th
   The clause's replacing sentence is stated indicatively and covers every entry of the table, so
   each is a requirement unmet, `/RV` among them since ADR 1197 took the exclusion off it — what it
   would carry is formatting §12.7.4.3 does not apply, so importing it changes nothing a reader sees.
-  They divide by *where
-  the value lives* rather than by difficulty: `/AP`'s streams are objects of the FDF file, which is
-  §12.7.8.3.4's open second-`Document` question; `/APRef` names an external PDF file, which is
-  §12.7.6.4's hazard and a host question first; `/A` and `/AA` carry references from one object
-  space into another (ADR 1186). Table 249's `/IF` left this list when it was applied — an icon fit
-  dictionary states names, numbers and a boolean and nothing else, so it crosses whole.
+  `/AP`, `/A` and `/AA` left this list when `forms_data::carry` made a value that lives in the
+  other file cross as a value rather than as a reference (ADR 1223), as Table 249's `/IF` left it
+  before them. What is left is `/APRef`, and it has two branches: with Table 253's `/F` it names an
+  external PDF file, which is §12.7.6.4's hazard and a host question first, and **without** `/F`
+  the named page is one this document holds under §12.7.7's tree, which `named_page::NamedPages`
+  already reads — so that branch is a build rather than a blocker.
 
 ### 5. Answered, awaiting a real trigger — the public-key security handler
 
@@ -218,24 +225,21 @@ into their notes rather than here. The membership below is what survived.
   artwork the standard states nowhere (`doc/todo/26`); every corpus instance carries an appearance.
 - §10.7 — scan-conversion departures §10.7.1's NOTE licenses. (§10.4.2.3 stood beside it until its
   grey-to-CMYK direction was argued and priced: it is `departed` on §10.4.2.1's ranking, ADR 1194.)
-- §9.8.3.3 — an FD class descriptor: the reader's half is done; enforcement is a validator's job the
-  reader does not own.
 - §12.7.4.1 (`departed`) — a field-inheritance bound the clause forbids, kept because principle 3's
   resource budgets answer a `/Parent` cycle; reaching it is reported. The number was chosen from a
   measurement rather than asserted, after 32 was found to be refusing real fields (ADR 1198).
-- §12.5.6.2, §12.7.8.3.3 — `/Subj`, `/CreationDate` and `/DS`, which reach a comments pane this
-  program does not have, and the `/Rename` branch whose alternative would write fields onto an
-  immutable document. (`/ExData` is no longer part of §12.5.6.2's debt: Table 173 states no entries
-  for `MarkupGeo` and §12.10 names the subtype nowhere, checked in ADR 1212 rather than assumed.
-  §12.7.8.3.3 keeps a debt of its own beside that branch, Table 253's `/F`, which is in bucket 1.)
+- §12.7.8.3.3 — the `/Rename` branch whose alternative would write fields onto an immutable
+  document, and Table 253's `/F` beside it, which is in bucket 1. (§12.5.6.2 left this entry when
+  `/Subj` and `/CreationDate` reached `popup::Popup` and `viewer_core::PopupWindow`, and `/DS`
+  turned out not to be an entry of Table 172 at all — ADR 1224.)
 - §12.7.5.4 — a choice field's selection: the clause states no appearance for it, so the page shows
   the list and reports which item `/V` names.
-- §12.11, §12.11.3 — the weighting of one document's requirements "against other documents in the
-  choosing process", which needs a second document rather than a reading. (§12.11.3's *other*
-  weighting is over one document's own requirements array and is performed.) **§12.11.6 is no longer
-  beside them and is `implemented`**: its threshold is `restriction::Operation::Process`, so a reader
-  who asks for the clause's "shall not continue" gets it and one who asks for nothing gets the
-  document drawn with each requirement named (ADR 1167).
+- §12.11.6's threshold is `restriction::Operation::Process`, so a reader who asks for the clause's
+  "shall not continue" gets it and one who asks for nothing gets the document drawn with each
+  requirement named (ADR 1167). **§12.11 and §12.11.3 are no longer beside it and are
+  `implemented`**: the residue they carried — the weighting "against other documents in the choosing
+  process" — is a sentence with no modal verb in it, conditioned on alternatives a reader opening one
+  document does not have (ADR 1220).
 
 ### What left this bucket, and where it went
 
@@ -270,10 +274,12 @@ reading; this is only where they went.
 §12.7.8.3.2 named no bucket at all until bucket 4 above named them, and §12.8.3.4.4 none until
 bucket 2 did.
 
-Two rows kept their place and lost their stated reason, which is the same decay one step short of a
-move: §12.5.6.2's `/ExData` (a scope claim `CLAUDE.md` does not support, replaced by Table 173's own
-sentence) and §12.11.3 (a residue quoted across a join, half of which needs no second document and
-is performed). **§10.4.2.3 was the one candidate for a status this sweep could not take**, and ADR 1194 took it:
+Two rows lost their stated reason without leaving the bucket in the same pass, which is the same
+decay one step short of a move: §12.5.6.2's `/ExData` (a scope claim `CLAUDE.md` does not support,
+replaced by Table 173's own sentence) and §12.11.3 (a residue quoted across a join, half of which
+needs no second document and is performed — and the other half is a sentence with no modal verb, so
+that row and §12.11 with it are `implemented`, ADR 1220). **§10.4.2.3 was the one candidate for a
+status this sweep could not take**, and ADR 1194 took it:
 the clause defines the grey-to-CMYK conversion outright, `colour::rgb_to_cmyk` evaluates exactly it
 for a grey, and the residue is a departure of §10.4.2.5's shape on §10.4.2.1's ranking — a decision,
 which is why it needed a round that could write the ADR rather than a sweep.
@@ -302,8 +308,8 @@ recorded the premise is a record and stays as written.
   reason** (ADR 1205): §11.7.5.3's NOTE puts the transfer function after all compositing, so
   `transfer_channel` can be a pass over a finished raster, where §11.4.6's weighted average
   multiplies the accumulation *as it stood under each element* — which a finished page no longer
-  holds. What is left is one `Picture` arm in `pdf-model::image`, for the stencil under its own
-  `/SMask`.
+  holds. That last arm is built (ADR 1218): a stencil under its own `/SMask` is routed to the
+  device-scale producer so §11.6.4.2's shape and §11.6.4.3's opacity reach a command apart.
 - **ADR 0660 — #307's `shall not` as a writer's.** Discharged by ADR 1211: the four writers call
   one function, `filing::tree_root`, whose key type is the prohibition, and three end-to-end tests
   hold that a source's null key does not cross. `structure.rs`'s §14.7.5 `/IDTree` is the fifth

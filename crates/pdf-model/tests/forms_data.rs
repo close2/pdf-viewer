@@ -1192,3 +1192,254 @@ fn a_template_asking_for_renaming_is_refused_rather_than_imported_over_the_docum
     );
     assert!(!after.contains("from the template"), "{after:?}");
 }
+
+/// A one-page form whose only field is §12.7.5.2.2's push-button, with an appearance of its own.
+///
+/// Table 249's `/AP` is "[a]n appearance dictionary specifying the appearance of a push-button
+/// field", so a push-button is the field the entry is defined for — and its appearance is stored
+/// artwork rather than §12.7.4.3's variable text, which is what makes the readback below a
+/// statement about *which stream ran* and nothing else.
+fn form_with_a_button() -> Vec<u8> {
+    let appearance = "BT /Helv 12 Tf 0 g 2 8 Td (original) Tj ET\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
+         << /Fields [5 0 R] /DR << /Font << /Helv 7 0 R >> >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Btn \
+         /Ff 65536 /T (press) /DA (/Helv 12 Tf 0 g) /AP << /N 8 0 R >> >>\nendobj\n\
+         6 0 obj\nnull\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding /WinAnsiEncoding >>\nendobj\n\
+         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] \
+         /Resources << /Font << /Helv 7 0 R >> >> /Length {} >>\nstream\n\
+         {appearance}endstream\nendobj\n",
+        appearance.len()
+    );
+    rebuilt(&format!("%PDF-1.7\n{body}"))
+}
+
+/// An FDF file carrying more than its catalog: the objects its `/FDF` dictionary refers to.
+///
+/// §12.7.8.2.3 makes an FDF body "a sequence of indirect objects representing the file's catalog
+/// dictionary … and any additional objects that the catalog dictionary references", so an `/AP`
+/// whose streams are objects of the FDF file is an ordinary FDF file and not a special one.
+fn fdf_with_objects(fdf_dictionary: &str, extra: &str) -> Document {
+    let bytes = format!(
+        "%FDF-1.2\n1 0 obj\n<< /FDF {fdf_dictionary} >>\nendobj\n{extra}\
+         trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+    );
+    Document::open(bytes.into_bytes()).expect("an FDF file is opened by the PDF reader")
+}
+
+/// The FDF objects for an appearance stream drawing one word, under the number given.
+fn imported_appearance(word: &str) -> String {
+    let content = format!("BT /Helv 12 Tf 0 g 2 8 Td ({word}) Tj ET\n");
+    format!(
+        "2 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] \
+         /Resources << /Font << /Helv 3 0 R >> >> /Length {} >>\nstream\n\
+         {content}endstream\nendobj\n\
+         3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding /WinAnsiEncoding >>\nendobj\n",
+        content.len()
+    )
+}
+
+/// §12.7.8.3.2's replacing sentence over Table 249's `/AP`, end to end.
+///
+/// The entry is "[a]n appearance dictionary specifying the appearance of a push-button field",
+/// whose `/N`, `/R` and `/D` "shall all be streams" — and those streams are objects of the **FDF**
+/// file. `pdf_model::forms_data`'s copy is what brings them across, so the page draws the FDF
+/// producer's marks and the interpreter still holds one document. ADR 1223.
+///
+/// The imported stream's own `/Resources` name a font that exists only in the FDF file, which is
+/// the half a shallow copy would lose: the word would be laid out with no font and the readback
+/// would be empty.
+#[test]
+fn an_imported_appearance_is_the_one_that_is_drawn() {
+    let document = Document::open(form_with_a_button()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let (before, reports) = drawn(&document, &view);
+    assert!(
+        before.contains("original"),
+        "the file's own /AP: {before:?}"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+
+    let data = FormsData::read(&fdf_with_objects(
+        "<< /Fields [ << /T (press) /AP << /N 2 0 R >> >> ] >>",
+        &imported_appearance("imported"),
+    ))
+    .expect("an FDF catalog");
+    assert!(data.owed.is_empty(), "{:?}", data.owed);
+    assert!(
+        data.fields[0].appearance.is_some(),
+        "the /AP crossed: {:?}",
+        data.fields[0]
+    );
+
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.widgets, 1);
+    let (after, reports) = drawn(&document, &view);
+    assert!(after.contains("imported"), "{after:?}");
+    assert!(
+        !after.contains("original"),
+        "replaced, not added: {after:?}"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// The same import, written back by §7.5.6's incremental update.
+///
+/// The carried streams have no numbers of their own — a copy names nothing, which is what makes
+/// it a copy — so the save gives them numbers and puts the references where they belong. What the
+/// test asserts is the only thing that matters about that: the saved file, read back, draws what
+/// the screen showed.
+#[test]
+fn an_imported_appearance_is_written_into_the_saved_file() {
+    let document = Document::open(form_with_a_button()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf_with_objects(
+        "<< /Fields [ << /T (press) /AP << /N 2 0 R >> >> ] >>",
+        &imported_appearance("imported"),
+    ))
+    .expect("an FDF catalog");
+    view.import(&document, &data);
+
+    let written = view
+        .save(&document)
+        .expect("the fixture can take an update");
+    let reopened = Document::open(written.bytes.clone()).expect("the update is a valid PDF");
+    let (after, reports) = drawn(&reopened, &ViewState::of(&reopened));
+    assert!(
+        after.contains("imported"),
+        "the saved file draws the imported appearance: {after:?}"
+    );
+    assert!(!after.contains("original"), "{after:?}");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// §12.7.8.3.4's one requirement: "[e]ach annotation dictionary in an FDF file shall have a Page
+/// entry … that shall indicate the page of the source document to which the annotation is
+/// attached", and Table 254 makes page 0 the first page.
+///
+/// Everything else in such a dictionary is §12.5's — an FDF annotation is an annotation — so once
+/// the copy names nothing of the other file there is nothing left to read it by. ADR 1224.
+#[test]
+fn an_fdf_annotation_is_placed_on_the_page_its_ordinal_names() {
+    let document = Document::open(form()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let (before, _) = drawn(&document, &view);
+    assert!(!before.contains("from the other file"), "{before:?}");
+
+    let data = FormsData::read(&fdf(
+        "<< /Annots [ << /Type /Annot /Subtype /FreeText /Page 0 \
+         /Rect [10 70 190 95] /F 4 /Contents (from the other file) \
+         /DA (/Helv 10 Tf 0 g) >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.annotations, 1, "{outcome:?}");
+    assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+
+    let (after, _) = drawn(&document, &view);
+    assert!(after.contains("from the other file"), "{after:?}");
+}
+
+/// Table 246's exclusion, which is a rule about what an FDF file may carry: "[t]he array may
+/// include annotations of any of the standard types listed in "Table 171 - Annotation types"
+/// except Link, Movie, Widget, PrinterMark, Screen, and TrapNet ".
+///
+/// A file that wrote one has broken that rule, and placing it anyway would act on a document this
+/// reader knows to be wrong — so it is refused by name.
+#[expect(
+    clippy::doc_markdown,
+    reason = "a verbatim quotation: Table 246 spells the subtype names without backticks"
+)]
+#[test]
+fn an_fdf_annotation_of_an_excluded_subtype_is_refused_by_name() {
+    let document = Document::open(form()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Annots [ << /Type /Annot /Subtype /Widget /Page 0 /Rect [10 70 190 95] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.annotations, 0);
+    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(
+        outcome.refused[0].contains("Widget"),
+        "{:?}",
+        outcome.refused
+    );
+}
+
+/// An annotation naming a page this document has not got is refused rather than dropped.
+///
+/// Table 254's `/Page` is "[t]he ordinal page number on which this annotation shall appear", and
+/// a file whose ordinals do not fit this document is either the wrong FDF or a document that has
+/// changed — which only somebody who can see both can say (trap 5).
+#[test]
+fn an_fdf_annotation_naming_a_page_this_document_has_not_got_is_refused() {
+    let document = Document::open(form()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Annots [ << /Type /Annot /Subtype /Square /Page 7 /Rect [10 70 190 95] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.annotations, 0);
+    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(
+        outcome.refused[0].contains("page 7"),
+        "{:?}",
+        outcome.refused
+    );
+}
+
+/// Table 249's `/A` and `/AA` replace the widget's corresponding entries, and §12.6.3's Table 197
+/// precedence between them is still read once.
+///
+/// > For backward compatibility, the A entry in an annotation dictionary, if present, takes
+/// > precedence over this entry
+///
+/// So an import that states an `/AA /U` over a widget that states an `/A` changes nothing about
+/// which of the two runs — the rule is the same rule — and an import that states an `/A` replaces
+/// what the widget said. `viewer_core::interact` composes the two dictionaries and asks
+/// `action::for_annotation` once, which is why this test asks it the same way. ADR 1223.
+#[test]
+fn an_imported_action_replaces_the_widgets_own() {
+    let document = Document::open(form_with_a_button()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let widget = pdf_syntax::ObjectId::new(5, 0);
+    let stated = document.get(widget);
+    let stated = stated.as_dict().expect("the fixture's push-button");
+    assert!(
+        pdf_model::action::for_annotation(&document, stated, pdf_model::action::Trigger::Up)
+            .is_empty(),
+        "the fixture's widget states no action of its own"
+    );
+
+    let data = FormsData::read(&fdf(
+        "<< /Fields [ << /T (press) /A << /S /Named /N /NextPage >> >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    view.import(&document, &data);
+
+    let imported = view
+        .imported_actions(widget)
+        .expect("the import stated an /A for this field");
+    let mut composed = stated.clone();
+    for (key, value) in imported.iter() {
+        composed.insert(key.clone(), value.clone());
+    }
+    let actions =
+        pdf_model::action::for_annotation(&document, &composed, pdf_model::action::Trigger::Up);
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    assert!(
+        matches!(actions[0], pdf_model::action::Action::Named(_)),
+        "{actions:?}"
+    );
+}

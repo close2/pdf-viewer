@@ -449,6 +449,28 @@ under `/proc/self/` that is per-task rather than per-process — `stat`, `stack`
 
 ADR 0916.
 
+**And the failure this instrument was actually heading for is not a wrong figure — it is no
+figure.** `launch_path.rs` is the only gate in this tree that can see a startup regression, and
+three rounds in one week did not run its clock figures at all, each on a private judgement that the
+load average was too high to believe them. The judgement was sound and it left no trace: a figure
+nobody takes is a figure nobody can argue with, and a regression landing in such a week lands in
+silence. **So the rule about a shared machine has a second half.** The first is that a wall-clock
+figure taken beside a neighbour is worth less than it looks. The second is that *declining to
+measure* is a worse answer than measuring and saying what the machine was — worse precisely because
+it looks like caution, which is trap 39's shape in the round rather than in the instrument.
+
+What the gate does now is the shape to copy. It reads the load average before and after each figure
+and compares it against a **derived** ceiling — the machine's physical core count, from `sysfs`'s
+own topology, which is the point above which a freshly woken child can no longer be given a core to
+itself and so is exactly the contention measured above. Above it the figure is taken again a few
+times, because a one-minute average lags a figure of milliseconds and a neighbour's build may
+already have finished; and the loop **stops at the first attempt taken under the ceiling** rather
+than pooling the attempts, because a band has a floor as well as a ceiling and the minimum of three
+times as many draws would fail out of the bottom of one. Where no attempt is quiet, the smallest is
+printed with its load and not judged. **Every figure comes out with its population and the load
+beside it**, judged or not, so that a round reads the machine's fitness off the output instead of
+deciding it alone. ADR 1226.
+
 - **A number from an instrument that has never fired is not a finding — it is an uncalibrated
   reading.** Session 1025 woke twenty dormant conformance sweeps and gave nine of them an *act*
   verdict with a count attached. Three sessions were then spent acting on those counts, and the
@@ -497,3 +519,10 @@ the defect survived a rewrite. The clause's own EXAMPLE — object 4 starts off 
 recommendation when printing — is the sentence that found it, and `doc/md/` carries every example
 while no gate reads one. A round implementing such a clause encodes the example as a fixture
 (ADR 1173).
+
+## 40. Measure what a flag closes across the classes the clause distinguishes, not across what the machine has
+
+ADR 1209 measured `--font` with the machine's DejaVu and Droid, both `glyf` faces, and concluded it
+closed none of the corpus font refusals; two were closable that day by naming a bare CFF, which
+§9.9's Table 124 makes a different class of input rather than a different file. The measurement was
+of the tester's font directory, not of the capability (ADR 1221).

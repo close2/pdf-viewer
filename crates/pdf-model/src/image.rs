@@ -4085,6 +4085,24 @@ fn soft_mask_entry(
         }
     }
 
+    // §11.6.4.2 makes a stencil's painted areas this element's **shape** — "[f]or image masks
+    // (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted areas and 0.0 for masked
+    // areas" — while §11.6.4.3 makes an `/SMask` its **opacity**: "a soft mask ... shall override
+    // any explicit or colour key mask". §11.3.7.2 keeps the two as separate quantities, and
+    // §11.4.6's knockout reads the first of them apart from the second. One alpha channel holding
+    // their product cannot be asked for either again, so a stencil's pair is carried to the
+    // device rather than multiplied here — which is the same routing a refinement too large to
+    // build already takes, on a reason from the clause rather than from the grids. ADR 1218.
+    let stencil = matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true));
+    if stencil
+        && eligible_for_the_device_scale(document, &mask.dict)
+        && matches!(
+            matte_colour(document, dict, resources, &mask.dict),
+            Matte::Absent
+        )
+    {
+        return SoftMaskEntry::AtDeviceScale;
+    }
     if !worth_combining(width, height, mask_width, mask_height) {
         // The refinement of the two grids is large enough that §10.7.4's answer — combine at
         // device resolution — is the better one. It needs the mask's samples readable at a
@@ -4483,6 +4501,26 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
     /// decision.
     fn sample_alpha(&self) -> SampleAlpha {
         self.base.sample_alpha
+    }
+
+    /// The base alone, which for a stencil under its own `/SMask` is §11.6.4.2's shape.
+    ///
+    /// > For image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted
+    /// > areas and 0.0 for masked areas.
+    ///
+    /// So the stencil's own samples *are* the shape, and this hands them back on the grid the
+    /// file states them on — the grid a stencil with no soft mask would be drawn from anyway.
+    /// The kind is restated as [`SampleAlpha::Shape`] because that is what this raster's alpha
+    /// now is: the product is in [`Self::samples`] and not in this one. `None` for a base that
+    /// is not a stencil, whose alpha is the mask's opacity alone and has no shape to separate.
+    /// ADR 1218.
+    fn shape(&self) -> Option<pdf_render::ImageSource> {
+        (self.base.sample_alpha == SampleAlpha::Both).then(|| {
+            pdf_render::ImageSource::Decoded(Image {
+                sample_alpha: SampleAlpha::Shape,
+                ..self.base.clone()
+            })
+        })
     }
 }
 

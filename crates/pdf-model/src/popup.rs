@@ -98,6 +98,30 @@ pub struct Popup {
     ///
     /// `None` for the value the table gives an empty array: "0 No colour; transparent".
     pub colour: Option<pdf_render::Color>,
+    /// Table 172's `/Subj`: "[t]ext representing a short description of the subject being
+    /// addressed by the annotation".
+    ///
+    /// A *description of the annotation*, which is what separates it from [`Self::text`] and is
+    /// why it belongs beside [`Self::title`] rather than inside the body: §12.5.6.2 says a markup
+    /// annotation's text "may be displayed in other ways by an interactive PDF processor, such as
+    /// in a comments pane", and a pane listing a hundred comments is where a one-line subject
+    /// earns its place. Read from the same group source the other four are, because the same
+    /// sentence makes it a group attribute — its entries are "Contents (or RC and DS ), M , C ,
+    /// T , Popup , CreationDate , Subj , and Open". ADR 1224.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "a verbatim quotation: §12.5.6.2 spells the entry names without backticks"
+    )]
+    pub subject: Option<String>,
+    /// Table 172's `/CreationDate`: "[t]he date and time (7.9.4, "Dates") when the annotation was
+    /// created", as the file spells it.
+    ///
+    /// The string rather than the parsed date, for [`Self::modified`]'s reason turned round: the
+    /// table types this one `date` and cites §7.9.4, so [`Self::created_date`] is the answer a
+    /// host formats — and the string is kept because a file that wrote something §7.9.4 does not
+    /// state has still said *when*, and dropping it would show a comment with no date and report
+    /// nothing (trap 5). A group attribute, like the four beside it. ADR 1224.
+    pub created: Option<String>,
     /// §12.5.6.2's thread: every reply whose own window this one has absorbed, deepest last.
     ///
     /// Empty for the overwhelming majority of windows, which nobody has replied to. See
@@ -136,6 +160,13 @@ pub struct Comment {
     pub text: Option<String>,
     /// Table 166's `/M`, as the file spells it — [`Popup::modified`]'s rule, for the same reason.
     pub modified: Option<String>,
+    /// Table 172's `/Subj`, for this reply — [`Popup::subject`]'s entry, one thread deep.
+    pub subject: Option<String>,
+    /// Table 172's `/CreationDate`, for this reply — [`Popup::created`]'s entry.
+    ///
+    /// A thread is read in the order its replies were *written*, which is what this entry states
+    /// and what [`Popup::modified`] does not: a comment edited last is not the comment made last.
+    pub created: Option<String>,
 }
 
 impl Popup {
@@ -146,6 +177,16 @@ impl Popup {
     #[must_use]
     pub fn modified_date(&self) -> Option<pdf_syntax::Date> {
         pdf_syntax::Date::parse(self.modified.as_ref()?)
+    }
+
+    /// [`Popup::created`] as the date Table 172 types it.
+    ///
+    /// `None` where the file states none and where what it states is not §7.9.4's format, which
+    /// [`Popup::created`] still carries — the entry is typed `date` here rather than left open the
+    /// way `/M` is, so a reader that cannot parse one has met a file that broke the type.
+    #[must_use]
+    pub fn created_date(&self) -> Option<pdf_syntax::Date> {
+        pdf_syntax::Date::parse(self.created.as_ref()?)
     }
 
     /// How wide the window is, in default user space units.
@@ -233,6 +274,8 @@ pub fn popups(document: &Document, page: &Page, view: &crate::view::ViewState) -
                     title: popup.title,
                     text: popup.text,
                     modified: popup.modified,
+                    subject: popup.subject,
+                    created: popup.created,
                 },
                 popup.open,
             )),
@@ -391,6 +434,11 @@ fn read(document: &Document, id: ObjectId, dict: &Dictionary) -> Option<Popup> {
         text: text(document, &source, "Contents").or_else(|| rich_text(document, &source)),
         modified: text(document, &source, "M"),
         colour: colour(document, &source),
+        // Both are §12.5.6.2 group attributes and both are read from `source` for that reason —
+        // the sentence lists "Contents (or RC and DS ), M , C , T , Popup , CreationDate , Subj ,
+        // and Open", so a subordinate's own are ignored exactly as its `/T` already is.
+        subject: text(document, &source, "Subj"),
+        created: text(document, &source, "CreationDate"),
         replies: Vec::new(),
     })
 }
@@ -742,6 +790,39 @@ mod tests {
         );
         assert_eq!(popup.colour.map(|c| (c.r, c.g, c.b)), Some((1.0, 0.0, 0.0)));
         assert_eq!(popup.parent, Some(pdf_syntax::ObjectId::new(4, 0)));
+    }
+
+    /// Table 172's `/Subj` and `/CreationDate` reach the window, and the two dates are not one.
+    ///
+    /// `/CreationDate` is "[t]he date and time (7.9.4, "Dates") when the annotation was created"
+    /// and Table 166's `/M` is when it was last modified — a comment written on one day and
+    /// edited on another states both, and a pane that showed only the second would sort a thread
+    /// by when each of its comments was last touched. The subject is "[t]ext representing a short
+    /// description of the subject being addressed by the annotation", which is neither the title
+    /// nor the body. ADR 1224.
+    #[test]
+    fn a_window_carries_the_subject_and_the_date_the_annotation_was_created() {
+        let document = document(
+            "4 0 R 5 0 R",
+            "4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 30 30] /Popup 5 0 R \
+             /Contents (the body) /T (the author) /Subj (the subject) \
+             /CreationDate (D:20260101090000Z) /M (D:20260812120000Z) >> endobj\n\
+             5 0 obj << /Type /Annot /Subtype /Popup /Rect [40 40 200 140] /Parent 4 0 R \
+             /Open true >> endobj\n",
+        );
+        let view = crate::view::ViewState::of(&document);
+        let popups = popups(&document, &page(&document), &view);
+        assert_eq!(popups.len(), 1);
+        assert_eq!(popups[0].subject.as_deref(), Some("the subject"));
+        assert_eq!(popups[0].created.as_deref(), Some("D:20260101090000Z"));
+        assert_eq!(popups[0].modified.as_deref(), Some("D:20260812120000Z"));
+        let created = popups[0].created_date().expect("§7.9.4's format");
+        assert_eq!((created.year, created.month, created.day), (2026, 1, 1));
+        assert_ne!(
+            popups[0].created_date(),
+            popups[0].modified_date(),
+            "two entries, two answers"
+        );
     }
 
     /// §12.5.6.2's group attributes reach through Table 186's override.

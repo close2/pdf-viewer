@@ -534,6 +534,13 @@ enum Marker {
         /// Table 99's `/Locked`, which forbids offering the switch at all.
         locked: bool,
     },
+    /// Table 153's `/View T`: "each file in the collection denoted by a small icon".
+    ///
+    /// The two native hosts ask the running icon theme for the picture; this window draws its own
+    /// ink and has no theme, so it draws one — a page, or a folder, with a mark inside it naming
+    /// the kind. **The clause states no artwork at all**, which is what makes this a choice rather
+    /// than a reading (ADR 1215).
+    Tile(viewer_host::panel::Icon),
 }
 
 /// What the rest of the row does when it is clicked.
@@ -901,7 +908,11 @@ impl Sidebar {
                     Some(group) => Hit::SetGroup { group, on: !on },
                     None => Hit::Nothing,
                 },
-                Marker::Switch { locked: true, .. } | Marker::None => Hit::Nothing,
+                // A tile's icon says what kind of file the row is and is not a control, so the
+                // row's own `Act` is what a click on it reaches.
+                Marker::Switch { locked: true, .. } | Marker::Tile(_) | Marker::None => {
+                    Hit::Nothing
+                }
             });
         }
         Some(match row.act {
@@ -1330,6 +1341,15 @@ fn collection_rows(
         .filter(|(_, field)| field.visible)
         .collect();
     columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
+    // Table 153's `/View`, resolved for all three windows by `viewer_host::panel::presentation`:
+    // `D` is "all information in the Schema dictionary" and `T` "a subset of information from the
+    // Schema dictionary", each file "denoted by a small icon". This panel draws one column of
+    // text, so its details view is every field on the detail line and its tile view is the head
+    // of the same order beside an icon (ADR 1215).
+    let mode = viewer_host::panel::presentation(collection);
+    if mode == viewer_host::panel::Mode::Tile {
+        columns.truncate(viewer_host::panel::TILE_FIELDS);
+    }
 
     // Which folder identifiers the tree actually states, which is what makes a key naming one
     // that it does not a file with nowhere else to go but the root.
@@ -1359,13 +1379,16 @@ fn collection_rows(
             let mut row = Row::plain(depth, file.file_name.clone().unwrap_or(name));
             row.detail = columns_of(&columns, file).or_else(|| describe(file));
             row.act = Act::Extract(file.name.clone());
+            if mode == viewer_host::panel::Mode::Tile {
+                row.marker = Marker::Tile(viewer_host::panel::icon_of(file));
+            }
             out.push(row);
         }
     };
 
     under(None, out, 0);
     if let Some(root) = collection.folders.as_ref() {
-        folder_rows(root, 0, &mut under, out);
+        folder_rows(root, 0, mode, &mut under, out);
     }
 
     // The rows this call added, in the order a person reads them, which is what the clause's
@@ -1408,6 +1431,7 @@ fn collection_rows(
 fn folder_rows(
     folder: &pdf_model::collection::Folder,
     depth: usize,
+    mode: viewer_host::panel::Mode,
     under: &mut impl FnMut(Option<u32>, &mut Vec<Row>, usize),
     out: &mut Vec<Row>,
 ) {
@@ -1415,10 +1439,13 @@ fn folder_rows(
     row.detail.clone_from(&folder.description);
     // A folder is not a file: it has no bytes to extract, so its row acts through its children.
     row.act = Act::None;
+    if mode == viewer_host::panel::Mode::Tile {
+        row.marker = Marker::Tile(viewer_host::panel::Icon::Folder);
+    }
     out.push(row);
     under(Some(folder.id), out, depth.saturating_add(1));
     for child in &folder.children {
-        folder_rows(child, depth.saturating_add(1), under, out);
+        folder_rows(child, depth.saturating_add(1), mode, under, out);
     }
 }
 
@@ -1604,6 +1631,66 @@ fn draw_thumbnail(
     });
 }
 
+/// Table 153's `/View T` icon, drawn as this window's own ink.
+///
+/// The clause asks for "a small icon" and states nothing about what one looks like, so what is
+/// drawn here is a choice: a page for a file and a tabbed box for a folder, with nought to three
+/// bars inside naming the kind `viewer_host::panel::Icon` decided. Fills only, no strokes, for
+/// the reason [`draw_marker`]'s switch gives — this module draws no strokes so that the two
+/// backends' stroke rules never enter an interface's appearance. ADR 1215.
+fn draw_tile(
+    list: &mut DisplayList,
+    icon: viewer_host::panel::Icon,
+    centre: (f32, f32),
+    scale: f32,
+) {
+    use viewer_host::panel::Icon;
+    let (cx, cy) = centre;
+    let (half, edge) = (5.0 * scale, scale);
+    let (left, top, side) = (cx - half, cy - half, half * 2.0);
+    if icon == Icon::Folder {
+        // A tab above a box, which is what a folder is everywhere a folder is drawn.
+        rectangle(list, (left, top, side * 0.45, edge * 2.0), EDGE);
+        rectangle(
+            list,
+            (left, top + edge * 2.0, side, side - edge * 2.0),
+            EDGE,
+        );
+        return;
+    }
+    // A page: four thin rectangles for its edge, so that what is inside it is legible.
+    for border in [
+        (left, top, side, edge),
+        (left, top + side - edge, side, edge),
+        (left, top, edge, side),
+        (left + side - edge, top, edge, side),
+    ] {
+        rectangle(list, border, EDGE);
+    }
+    let bars: u8 = match icon {
+        Icon::Image => 1,
+        Icon::Audio => 2,
+        Icon::Video => 3,
+        Icon::Document => 4,
+        // A file whose kind the document did not state is a page with nothing written on it,
+        // which is the honest picture for a file nothing is known about.
+        Icon::File | Icon::Folder => 0,
+    };
+    for bar in 0..bars {
+        let step = f32::from(bar) * 2.0 * edge;
+        rectangle(
+            list,
+            (
+                left + 2.0 * edge,
+                top + 2.0 * edge + step,
+                side - 4.0 * edge,
+                edge,
+            ),
+            EDGE,
+        );
+    }
+}
+
 fn draw_marker(list: &mut DisplayList, marker: Marker, centre: (f32, f32), scale: f32) {
     let (cx, cy) = centre;
     match marker {
@@ -1626,6 +1713,7 @@ fn draw_marker(list: &mut DisplayList, marker: Marker, centre: (f32, f32), scale
             };
             outline_of(list, &corners, EDGE);
         }
+        Marker::Tile(icon) => draw_tile(list, icon, centre, scale),
         Marker::Switch { on, locked } => {
             let half = 4.5 * scale;
             rectangle(

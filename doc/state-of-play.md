@@ -90,14 +90,22 @@ kept under a per-document bound so that searching the same document twice does n
 the same fully qualified names a field carries, so an import means one thing whichever format came,
 and an FDF carrying Table 246's `/EmbeddedFDFs` carries FDF *files*, each read as one and applied
 in the array's order, with only the encrypted form refused because only that is deprecated
-(ADR 1185) —
+(ADR 1185). **An FDF file's annotations are placed on the pages Table 254's ordinals name**, and
+Table 249's `/AP`, `/A` and `/AA` replace the widget's own: a value that lives in the other file
+crosses as a *value*, copied rather than referred to, so the interpreter still holds one document
+and the imported appearance goes back into §7.5.6's update as the FDF producer's own marks (ADRs
+1223, 1224) —
 XFDF against ISO 19444-1, which ISO 32000-2 names and defines nowhere, with an `<annots>` element
 **counted and said out loud rather than read**, because the grammar that would let it create an
 annotation is in sections of that standard this tree does not hold (ADR 1108); a person can **fill
 in a form field** — where the host keeps the *point* it
 clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR
 0201), with a caret that says where the next character goes so that correcting the middle of a
-value is not deleting back to it (ADR 0211) — undo it and redo it; a person can **choose an option
+value is not deleting back to it (ADR 0211) — undo it and redo it; **a file-select control takes a
+file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
+whose contents shall be submitted as the field's value" and only a host has a filesystem to read
+them from — the path a *person* typed, under one policy function with a stated memory budget, which
+is not the path a *document* wrote (ADR 1216); a person can **choose an option
 in §12.7.5.4's two controls in all three windows**, which is Table 233 bit 19 obeyed in both of the
 directions it states rather than in the one that reads as a permission: the flag set is an editable
 text box beside a drop-down list — composed in GTK4, which has no widget that is both — and the flag
@@ -107,7 +115,9 @@ whole of its life (ADR 0596); a click on a markup annotation
 activation (ADR 0191) — **in all three windows**, where two
 of them drew nothing of it at all: the clause gives a popup "no appearance stream", so the window is
 furniture rather than ink and each host places its own, over one reading of the two clauses that say
-what goes in it (ADR 0613); a **cursor changes over §12.5.6.5's activation region** in all three,
+what goes in it (ADR 0613) — **with the subject and the creation date beside the title and the
+text**, and the two dates kept apart, because Table 172 states when an annotation was made and
+Table 166 when it was last changed (ADR 1224); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
 **measure a drawing** — §12.9's viewports, with the path traced in the window and the arithmetic and
 §12.9.2's five formatting steps the document's, so a length, an area, an angle and a slope come back
@@ -229,7 +239,10 @@ paperclip, because §7.11.4.1 gives an embedded file two homes and a file hung o
 annotation is in the one the name tree does not list — and where a document stating §12.3.5's
 `/Collection` gets its folder tree and the schema's columns instead of a flat list — in Table 153's
 `/Sort` order, which is a `shall` about the rows and is resolved once below the three windows
-because the values it orders by are §7.11.6's collection items no host holds (ADR 1168) — because a
+because the values it orders by are §7.11.6's collection items no host holds (ADR 1168), and in the
+view Table 153's `/View` asks for: the details view's columns are the whole visible schema and the
+tile view's are its head beside an icon naming the file's kind, which is every value of that entry
+obeyed rather than reported (ADR 1215) — because a
 collection is how a document *arranges* its files rather than a new population of them (ADR 0202);
 §14.3.3's `/Info` with §14.3.2's XMP under it; §12.3.4's thumbnails, one row per page with the
 miniature fitted above §12.4.2's label and **fetched only for the rows about to be drawn**, which is
@@ -479,7 +492,11 @@ ISO 32000-2 §9.9.1 makes whether a font program may be embedded a condition of 
 and ISO 19005-2 section 6.2.11.4.1 demands exactly that — so where no shipped face covers a
 document's characters, `--font <base-font>=<path>` names the program, §9.2.4's widths keep every
 glyph where the content stream put it, and the report and the output's `xmpMM:History` say whose
-authority the face was in (ADR 1209). The same shape answers a stream whose data is outside the
+authority the face was in (ADR 1209). Which key carries it is §9.9's Table 124 read in the writing
+direction, all of it: a bare CFF or a CFF-carrying sfnt under a `Type1` dictionary, the second as
+`/FontFile3` with `/Subtype /OpenType` (ADR 1221), and a composite font's program into the
+descendant CIDFont's descriptor, where §9.7.4.2 puts it and §9.7.4.3's `/W` and `/DW` are what its
+advances are restated against (ADR 1222). The same shape answers a stream whose data is outside the
 file: §7.11.5's locator is not a path and fetching one is a network operation this program does not
 have, so a configured tool does it under the operator's trust and what it returns lands in the same
 plan entry `--resolve-external-data` fills. **And a page boundary ISO 19005-2 section 6.1.13

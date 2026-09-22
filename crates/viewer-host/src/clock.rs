@@ -53,10 +53,26 @@
 //!   and never asks for this one.
 //! - **Progress through a transition is linear in time**, which is `viewer_core::transition`'s
 //!   choice already: Table 164 states a duration and no curve.
-//! - **A clock exists only while a presentation is running.** There is no paused state and no
-//!   "off" variant: a host holds an [`Option<Clock>`] and drops it when the mode ends, so a
-//!   program that is not presenting has no timer armed at all rather than one that wakes to
-//!   discover it has nothing to do.
+//! - **A clock exists only while there is something to animate.** There is no paused state and no
+//!   "off" variant: a host holds an [`Option<Clock>`] and drops it when the last thing it was
+//!   driving ends, so a program with a still page has no timer armed at all rather than one that
+//!   wakes to discover it has nothing to do. Two things drive one — §12.4.4's presentation, which
+//!   is a mode a person enters, and §12.6.4.15's transition action, which is one effect a document
+//!   asked for — and [`Clock::spent`] is how a host knows the second has finished with it.
+//!
+//! # §12.6.4.15's transition is not §12.4.4's, and the difference is one sentence
+//!
+//! §12.4.4.1 conditions a *page's* `/Trans` on a presentation: it says the two entries "specify
+//! how to display that page in presentation mode". §12.6.4.15 states no such condition —
+//!
+//! > If a transition action is present during a sequence, the interactive PDF processor shall
+//! > render the state of the page viewing area as it exists after completion of the previous
+//! > action and display it using a transition specified in the action dictionary
+//!
+//! — so an action's transition is drawn in whatever mode the window is in, and a window showing
+//! the page at once would be a `shall` disobeyed. What a transition needs is two faces and a
+//! clock, and only the clock was a presentation's; [`Clock::for_one_transition`] is the same
+//! machinery under the other clause (ADR 1216).
 
 use std::time::{Duration, Instant};
 
@@ -76,7 +92,17 @@ struct Playing {
     incoming: Image,
 }
 
-/// §12.4.4's presentation clock, while one is running.
+/// Which clause a clock is running for, which decides whether it advances pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Driving {
+    /// §12.4.4's presentation: the page's `/Dur` advances and transitions are drawn between
+    /// pages.
+    Presentation,
+    /// §12.6.4.15's transition action outside one: the effect is drawn and nothing advances.
+    OneTransition,
+}
+
+/// §12.4.4's presentation clock, and §12.6.4.15's transition outside one.
 ///
 /// One value per window rather than per document: §12.4.4.1's `/Dur` is a property of the page
 /// being *shown*, and a window shows one document at a time.
@@ -86,6 +112,8 @@ pub struct Clock {
     ticked: Instant,
     /// The transition being drawn, where one is in flight.
     playing: Option<Playing>,
+    /// Which of the two clauses this clock exists for.
+    driving: Driving,
 }
 
 impl Clock {
@@ -101,7 +129,36 @@ impl Clock {
         Self {
             ticked: now,
             playing: None,
+            driving: Driving::Presentation,
         }
+    }
+
+    /// A clock for §12.6.4.15's transition action in a window that is not presenting.
+    ///
+    /// The clause asks a processor to "display it using a transition specified in the action
+    /// dictionary" and says nothing about a mode, so the effect is drawn wherever the window is.
+    /// What this clock does *not* do is advance the page: §12.4.4.1's `/Dur` is stated as
+    /// presentation timing — "how to display that page in presentation mode" — so [`Clock::tick`]
+    /// answers `None` here and nothing in `viewer-core` is told that time passed.
+    ///
+    /// A host drops it when [`Clock::spent`] says so, which is the frame after the effect ends.
+    #[must_use]
+    pub fn for_one_transition(now: Instant) -> Self {
+        Self {
+            ticked: now,
+            playing: None,
+            driving: Driving::OneTransition,
+        }
+    }
+
+    /// Whether this clock has finished the one thing it was made for and may be dropped.
+    ///
+    /// Always `false` for a presentation's, which ends when a person leaves the mode rather than
+    /// when an effect does. `true` for §12.6.4.15's once its transition has run out, so that a
+    /// window that is not presenting goes back to having no timer armed at all.
+    #[must_use]
+    pub const fn spent(&self) -> bool {
+        matches!(self.driving, Driving::OneTransition) && self.playing.is_none()
     }
 
     /// How long the host should wait before asking this clock again.
@@ -128,7 +185,10 @@ impl Clock {
     /// the last one that no whole millisecond has passed, because a tick of zero would tell
     /// `viewer-core` that time did not move.
     pub fn tick(&mut self, now: Instant) -> Option<u32> {
-        if self.playing.is_some() {
+        // §12.4.4.1's advance timing is a presentation's — the page's `/Dur` says "how to display
+        // that page in presentation mode" — so a clock running §12.6.4.15's transition alone
+        // never tells the core that time passed (ADR 1216).
+        if self.playing.is_some() || matches!(self.driving, Driving::OneTransition) {
             self.ticked = now;
             return None;
         }
@@ -399,5 +459,71 @@ mod tests {
         let placed = composed.transform.apply(Point::new(0.0, 0.0));
         assert!((placed.x - 12.0).abs() < f32::EPSILON);
         assert!((placed.y - 5.0).abs() < f32::EPSILON);
+    }
+
+    /// §12.6.4.15's transition draws outside a presentation, and advances nothing while it does.
+    ///
+    /// The clause states no mode — a processor "shall render the state of the page viewing area as
+    /// it exists after completion of the previous action and display it using a transition
+    /// specified in the action dictionary" — so the same frames are drawn by a window that is not
+    /// presenting. What must *not* follow is §12.4.4.1's advance timing, which is stated as a
+    /// presentation's: the page's `/Dur` says "how to display that page in presentation mode".
+    #[test]
+    fn a_transition_action_outside_a_presentation_draws_and_advances_nothing() {
+        let start = Instant::now();
+        let mut clock = Clock::for_one_transition(start);
+        // Nothing to draw yet, and nothing for the core to be told: a clock made for one effect
+        // is spent until the effect begins, which is why a host also asks whether one is armed.
+        assert!(clock.spent());
+        assert_eq!(clock.tick(start + Duration::from_secs(1)), None);
+
+        clock.begin(wipe(), face(), face(), start);
+        assert!(clock.animating());
+        assert!(!clock.spent(), "an effect in flight is not spent");
+        // Still nothing advances: a presentation's clock would carry a second here.
+        assert_eq!(clock.tick(start + Duration::from_secs(1)), None);
+        assert!(
+            clock
+                .frame(viewport(), start + Duration::from_secs(1))
+                .expect("a wipe halfway through shapes a frame")
+                .is_some()
+        );
+
+        // Table 164's `/D` has run out, so the window shows the page — and the clock says it may
+        // be dropped, which is what leaves a window that is not presenting with no timer armed.
+        assert!(
+            clock
+                .frame(viewport(), start + Duration::from_secs(3))
+                .expect("the effect ends rather than failing")
+                .is_none()
+        );
+        assert!(clock.spent());
+        assert!(!clock.animating());
+    }
+
+    /// A presentation's clock is never spent, because a person ends it rather than an effect.
+    #[test]
+    fn a_presentations_clock_outlives_every_transition_it_draws() {
+        let start = Instant::now();
+        let mut clock = Clock::started(start);
+        assert!(!clock.spent());
+        clock.begin(wipe(), face(), face(), start);
+        assert!(
+            clock
+                .frame(viewport(), start + Duration::from_secs(3))
+                .expect("the effect ends rather than failing")
+                .is_none()
+        );
+        assert!(
+            !clock.spent(),
+            "§12.4.4's mode is left by a key, not by a clock"
+        );
+        // And it carries time again the moment the effect is over, which §12.4.4.1's EXAMPLE
+        // puts *before* the arriving page's own `/Dur`.
+        assert_eq!(
+            clock.tick(start + Duration::from_secs(4)),
+            Some(1000),
+            "the page's display duration starts when the transition ends"
+        );
     }
 }

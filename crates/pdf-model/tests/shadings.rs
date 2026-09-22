@@ -15,7 +15,7 @@
 
 use std::fmt::Write as _;
 
-use pdf_render::{Rasterizer, TargetSpec};
+use pdf_render::{Rasterizer, Shading, ShadingKind, TargetSpec};
 use pdf_syntax::Document;
 use render_cpu::CpuRasterizer;
 use test_scenes::{TYPE4_PAGE, TYPE4_SPLIT, Type4Comments, type4_comment_pair};
@@ -1305,32 +1305,25 @@ fn interpret_mesh(data: &str) -> pdf_model::content::Interpretation {
     pdf_model::interpret(&document, &page)
 }
 
-/// A mesh the triangle bound cuts short is reported, and one it does not is not.
+/// A mesh the patch bound cuts short is reported, and one it does not is not.
 ///
-/// `pdf_model::mesh::MAX_TRIANGLES` is this program's decompression-bomb bound for shadings,
-/// which ISO 32000-2 §10.7.3 licenses:
+/// `pdf_model::mesh::MAX_PATCHES` is this program's decompression-bomb bound for a type 6 or
+/// type 7 shading, which ISO 32000-2 §10.7.3 licenses:
 ///
 /// > Each output device may have internal limits on the maximum and minimum tolerances
 /// > attainable.
 ///
-/// It is counted in *this program's* triangles: a type 6 or 7 patch becomes `PATCH_STEPS`²
-/// cells, two triangles apiece. So the number of patches a document is allowed is
-/// `MAX_TRIANGLES / (2 · PATCH_STEPS²)`, and a stream stating more than that has some of its
-/// patches dropped. Drawing the remainder without saying so is the silent drop
-/// `pdf_model::content`'s module documentation forbids and that every other bound in it
-/// already avoids.
+/// It is counted in the document's own *patches*, which is what a patch mesh carries to the
+/// device: how many triangles those become is the device's answer to §10.7.2's silhouette and
+/// §10.7.3's colour, and is no longer a number the document's budget can depend on (ADR 1217).
+/// A stream stating more patches than this has the rest dropped, and drawing the remainder
+/// without saying so is the silent drop `pdf_model::content`'s module documentation forbids.
 ///
 /// Both directions are asserted, because a report that fires on everything says nothing: the
 /// strip below the bound draws complete, the strip above it is reported by the bound's name.
 #[test]
-fn a_mesh_the_triangle_bound_cuts_short_is_reported() {
-    let bound = pdf_model::mesh::MAX_TRIANGLES;
-    // A patch is a PATCH_STEPS × PATCH_STEPS grid of cells, two triangles apiece, which is 200
-    // at that constant's present value. `PATCH_STEPS` is private and this number is therefore
-    // written rather than read — and it is held by the two assertions below rather than left on
-    // trust: a larger fineness makes `inside` truncate and a smaller one stops `over` from
-    // truncating, so either failure names this line.
-    let allowed = bound / 200;
+fn a_mesh_the_patch_bound_cuts_short_is_reported() {
+    let allowed = pdf_model::mesh::MAX_PATCHES;
 
     let inside = interpret_mesh(&coons_strip(allowed.saturating_sub(1)));
     assert!(
@@ -1342,8 +1335,59 @@ fn a_mesh_the_triangle_bound_cuts_short_is_reported() {
     let over = interpret_mesh(&coons_strip(allowed.saturating_add(2)));
     let reported = format!("{:?}", over.unsupported);
     assert!(
-        reported.contains("max_mesh_triangles"),
+        reported.contains("max_mesh_patches"),
         "a mesh the bound cut short must be reported by the bound's name: {reported}"
+    );
+}
+
+/// The one shading a fixture's page paints with.
+fn one_shading(interpretation: &pdf_model::content::Interpretation) -> std::sync::Arc<Shading> {
+    interpretation
+        .display_list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            pdf_render::Command::Fill {
+                paint: pdf_render::Paint::Shading(shading),
+                ..
+            } => Some(std::sync::Arc::clone(shading)),
+            _ => None,
+        })
+        .expect("the page paints one shading")
+}
+
+/// A type 6 shading in a device space reaches the backends as ISO 32000-2 §8.7.4.5.7's patches,
+/// not as triangles this crate chose the fineness of.
+///
+/// This is the whole of ADR 1217 seen from the display list: the clause defines a patch's
+/// geometry as a mapping from the unit square, how closely a triangulation has to follow it is
+/// §10.7.2's question and is answered "in device pixels", and the interpreter does not know how
+/// many of those the patch will cover. The four control-net rows and the four corner colours
+/// are what travels; `pdf_render::SurfacePatch::steps` is what decides, in the backend.
+#[test]
+fn a_coons_patch_reaches_the_display_list_as_a_patch() {
+    let interpretation = interpret_mesh(&coons_strip(1));
+    let shading = one_shading(&interpretation);
+    let ShadingKind::Mesh {
+        triangles, patches, ..
+    } = shading.kind.as_ref()
+    else {
+        panic!("a type 6 shading is a mesh");
+    };
+    let mesh = patches.as_ref().expect("a type 6 shading carries patches");
+    assert_eq!(mesh.patches.len(), 1);
+    assert!(
+        triangles.is_empty(),
+        "a patch mesh states patches and no triangles: {} of them",
+        triangles.len()
+    );
+    // `/Decode [0 100 0 100 …]` maps an eight-bit coordinate onto 0..100, so the fixture's
+    // first control point `0A0A` is 10/255 of that in each axis.
+    let first = mesh.patches[0].net[0][0];
+    let expected = 10.0 / 255.0 * 100.0;
+    assert!(
+        (first.x - expected).abs() < 0.01 && (first.y - expected).abs() < 0.01,
+        "the net carries the stream's own control points, decoded: {first:?}"
     );
 }
 
@@ -1636,7 +1680,7 @@ fn a_clipped_grid_is_the_whole_grids_cells_bit_for_bit() {
                 paint: pdf_render::Paint::Shading(shading),
                 ..
             } => match shading.kind.as_ref() {
-                pdf_render::ShadingKind::Sampled { source, .. } => Some(source.clone()),
+                ShadingKind::Sampled { source, .. } => Some(source.clone()),
                 _ => None,
             },
             _ => None,

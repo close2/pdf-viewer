@@ -116,8 +116,96 @@ pub struct PanelRow {
     ///
     /// [`Qt::FontRole`]: https://doc.qt.io/qt-6/qt.html#ItemDataRole-enum
     pub emphasis: bool,
+    /// Table 154's schema for this row, one cell per field, in Table 155's `/O` order.
+    ///
+    /// Empty for every panel but §12.3.5's, where Table 153's `/View D` asks for "all information
+    /// in the Schema dictionary presented in a multi-column format" and `/View T` for "a subset of
+    /// information from the Schema dictionary". A toolkit with columns draws these in them; one
+    /// without draws [`PanelRow::detail`], which carries the same cells joined. Both come from one
+    /// reading, so two windows cannot disagree about what a file's fields say (ADR 1215).
+    pub cells: Vec<Cell>,
+    /// Table 153's `/View T` "small icon", where this row is a file or a folder in tile mode.
+    ///
+    /// `None` in every other mode and in every other panel. **The clause states no artwork** — it
+    /// says "denoted by a small icon" and stops — so what is decided here is only *which kind of
+    /// thing the row is*, and each toolkit names its own picture for it (ADR 1215).
+    pub icon: Option<Icon>,
     /// The rows underneath it.
     pub children: Vec<PanelRow>,
+}
+
+/// One of Table 154's schema fields, as it stands against one file.
+///
+/// Table 155's `/N` is "[t]he textual field name that shall be presented to the user by the
+/// interactive PDF processor", so the heading is the document's own word and never this
+/// program's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cell {
+    /// Table 155's `/N`.
+    pub heading: String,
+    /// What this file says for that field, with Table 47's `/P` prefix already on it.
+    pub value: String,
+}
+
+/// Which of Table 153's two drawable presentations a collection is shown in.
+///
+/// Table 153 states each `/View` value as its own `shall`, and these are the two that describe a
+/// *list of files*: `H` is the sidebar being closed until a person opens it, and `C` defers to
+/// §12.3.6's navigator, which [`presentation`] resolves before answering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// `D`: "The collection view shall be presented in details mode, with all information in the
+    /// Schema dictionary presented in a multi- column format."
+    Details,
+    /// `T`: "The collection view shall be presented in tile mode, with each file in the collection
+    /// denoted by a small icon and a subset of information from the Schema dictionary."
+    Tile,
+}
+
+/// What kind of thing a tile's icon stands for, which is all this crate decides about it.
+///
+/// Table 153's `/View T` asks for "a small icon" and states nothing about its artwork, so this is
+/// the `Text` annotation's situation one clause over (`CLAUDE.md` principle 5): a deliberate
+/// choice, documented as one. What the choice *is*: the icon names the file's kind, taken from
+/// Table 44's `/Subtype` where the document states one, because that is the only thing about the
+/// file the standard puts in this program's hands. Each toolkit then draws its own picture — GTK
+/// and Qt from the icon theme, `viewer-ui` from its own ink (ADR 1215).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Icon {
+    /// §12.3.5.2's folder, which is a node of the tree rather than a file in it.
+    Folder,
+    /// A media type whose type is `image`.
+    Image,
+    /// A media type whose type is `audio`.
+    Audio,
+    /// A media type whose type is `video`.
+    Video,
+    /// A media type whose type is `text`, and `application/pdf` with it.
+    Document,
+    /// A file whose media type the document does not state, or states as something else.
+    File,
+}
+
+impl Icon {
+    /// The icon-theme name a desktop toolkit looks this kind up by.
+    ///
+    /// These are the freedesktop icon-naming names, which a `GtkImage` and a `QIcon` both resolve
+    /// from the running theme — so two of the three windows share one lookup and neither ships
+    /// artwork. `viewer-ui` draws its own page and has no theme, so it does not ask this.
+    ///
+    /// **Not a decision the standard makes**, and not one either toolkit makes either: Table 153
+    /// asks for "a small icon" and stops (ADR 1215).
+    #[must_use]
+    pub const fn theme_name(self) -> &'static str {
+        match self {
+            Self::Folder => "folder",
+            Self::Image => "image-x-generic",
+            Self::Audio => "audio-x-generic",
+            Self::Video => "video-x-generic",
+            Self::Document => "text-x-generic",
+            Self::File => "application-x-generic",
+        }
+    }
 }
 
 impl PanelRow {
@@ -131,6 +219,8 @@ impl PanelRow {
             action: RowAction::Inert,
             note: false,
             emphasis: false,
+            cells: Vec::new(),
+            icon: None,
             children: Vec::new(),
         }
     }
@@ -164,6 +254,8 @@ fn row_of_item(item: &Item) -> PanelRow {
         action: RowAction::Activate(item.id),
         note: false,
         emphasis: false,
+        cells: Vec::new(),
+        icon: None,
         children: item.children.iter().map(row_of_item).collect(),
     }
 }
@@ -201,6 +293,8 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             },
             note: false,
             emphasis: false,
+            cells: Vec::new(),
+            icon: None,
             children: Vec::new(),
         },
         Layer::Collection { label, children } => PanelRow {
@@ -210,6 +304,8 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             action: RowAction::Inert,
             note: false,
             emphasis: false,
+            cells: Vec::new(),
+            icon: None,
             children: children.iter().map(row_of_layer).collect(),
         },
     }
@@ -250,6 +346,10 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             },
             note: false,
             emphasis: false,
+            // §12.3.5's schema is what fills these, and this list is the one a document with no
+            // `/Collection` gets: the same files, unarranged.
+            cells: Vec::new(),
+            icon: None,
             children: Vec::new(),
         })
         .collect()
@@ -355,12 +455,19 @@ pub fn collection_rows(
     order: &[String],
     attachments: &[Attachment],
 ) -> Vec<PanelRow> {
+    let mode = presentation(collection);
     let mut columns: Vec<(&String, &Field)> = collection
         .schema
         .iter()
         .filter(|(_, field)| field.visible)
         .collect();
     columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
+    // Table 153's `/View T` is "a subset of information from the Schema dictionary" against
+    // `/View D`'s "all information in the Schema dictionary", so the tile takes the head of the
+    // order the document itself stated and the details view takes the whole of it.
+    if mode == Mode::Tile {
+        columns.truncate(TILE_FIELDS);
+    }
 
     // Table 153's `/Sort`, applied once and here: every list below is a *filter* of this one, so
     // sorting the files before they are split into folders puts each folder's own rows in the
@@ -371,13 +478,13 @@ pub fn collection_rows(
     let mut rows = match collection.folders.as_ref() {
         Some(root) => {
             let stated = &stated_ids(root);
-            let mut rows = files_where(attachments, &columns, &|id| {
+            let mut rows = files_where(attachments, &columns, mode, &|id| {
                 id.is_none_or(|id| !stated.contains(&id))
             });
-            rows.push(folder_row(root, attachments, &columns));
+            rows.push(folder_row(root, attachments, &columns, mode));
             rows
         }
-        None => files_where(attachments, &columns, &|_| true),
+        None => files_where(attachments, &columns, mode, &|_| true),
     };
 
     mark_initial(&mut rows, initial);
@@ -478,16 +585,30 @@ pub fn restricted_names(collection: &Collection) -> Option<String> {
 /// - `D` is Table 153's details view, the schema's visible columns as each row's detail line;
 /// - `H` is met by the sidebar being closed until a person opens it.
 ///
-/// The four that are not here — `T`, `FilmStrip`, `FreeForm` and `Linear` — each need a surface
-/// this panel is not: a tile grid, a strip of miniatures, a free canvas, a large preview beside
-/// the metadata. [`unsupported_presentation`] is what a person is told when a document asks for
-/// one of them, because a panel that quietly drew something else would be §12.3.6 obeyed in
-/// silence.
-pub const DRAWN_LAYOUTS: [Layout; 3] = [
+/// - `T` is Table 153's tile view, each file under [`Icon`] with [`TILE_FIELDS`] of the schema's
+///   own fields beside it.
+///
+/// The three that are not here — `FilmStrip`, `FreeForm` and `Linear` — each need a surface this
+/// panel is not: a strip of miniatures, a free canvas, a large preview beside the metadata.
+/// [`unsupported_presentation`] is what a person is told when a document asks for one of them,
+/// because a panel that quietly drew something else would be §12.3.6 obeyed in silence.
+pub const DRAWN_LAYOUTS: [Layout; 4] = [
     Layout::Tree,
     Layout::View(View::Details),
+    Layout::View(View::Tile),
     Layout::View(View::Hidden),
 ];
+
+/// How many of Table 154's schema fields a tile shows, which is what "a subset" is decided to be.
+///
+/// Table 153 puts the two views on one axis and states no number for either: `D` has "all
+/// information in the Schema dictionary" and "provides the most information to the user", `T` has
+/// "a subset" and "provides top-level information about the file attachments". So what the
+/// standard fixes is that the tile shows *fewer*, and the count is this program's — two, being
+/// the most a row that also carries an icon holds at a panel's width, taken from the head of the
+/// producer's own `/O` order so that the fields a document put first are the fields it keeps
+/// (ADR 1215).
+pub const TILE_FIELDS: usize = 2;
 
 /// What a panel says when a document asks to be presented in a way it cannot draw, or nothing.
 ///
@@ -529,17 +650,12 @@ pub fn unsupported_presentation(collection: &Collection) -> Option<String> {
         });
     }
     match collection.view {
-        View::Tile => Some(
-            "This collection asks to be shown in tile mode; this panel shows the details view \
-             instead."
-                .to_owned(),
-        ),
         // `/View C` with no `/Navigator` is a file contradicting §12.3.5.1's Table 153, which
         // makes the navigator "[r]equired if the value of View is C". Nothing to select from.
         View::Navigator => Some(
             "This collection asks to be presented by a navigator it does not state.".to_owned(),
         ),
-        View::Details | View::Hidden => None,
+        View::Details | View::Tile | View::Hidden => None,
     }
 }
 
@@ -574,14 +690,16 @@ fn files_in(
     folder: u32,
     attachments: &[&Attachment],
     columns: &[(&String, &Field)],
+    mode: Mode,
 ) -> Vec<PanelRow> {
-    files_where(attachments, columns, &|id| id == Some(folder))
+    files_where(attachments, columns, mode, &|id| id == Some(folder))
 }
 
 /// The files whose key's folder identifier — `None` where the key names none — `wanted` admits.
 fn files_where(
     attachments: &[&Attachment],
     columns: &[(&String, &Field)],
+    mode: Mode,
     wanted: &dyn Fn(Option<u32>) -> bool,
 ) -> Vec<PanelRow> {
     attachments
@@ -594,11 +712,14 @@ fn files_where(
             if !wanted(id) {
                 return None;
             }
+            let cells = cells_of(columns, attachment);
             Some(PanelRow {
-                detail: columns_of(columns, attachment).or_else(|| detail_of(attachment)),
+                detail: joined(&cells).or_else(|| detail_of(attachment)),
                 action: RowAction::Extract {
                     name: attachment.name.clone(),
                 },
+                cells,
+                icon: (mode == Mode::Tile).then(|| icon_of(attachment)),
                 ..PanelRow::item(
                     attachment
                         .file_name
@@ -620,13 +741,14 @@ fn folder_row(
     folder: &pdf_model::collection::Folder,
     attachments: &[&Attachment],
     columns: &[(&String, &Field)],
+    mode: Mode,
 ) -> PanelRow {
-    let mut children = files_in(folder.id, attachments, columns);
+    let mut children = files_in(folder.id, attachments, columns, mode);
     children.extend(
         folder
             .children
             .iter()
-            .map(|child| folder_row(child, attachments, columns)),
+            .map(|child| folder_row(child, attachments, columns, mode)),
     );
     PanelRow {
         detail: folder.description.clone(),
@@ -634,6 +756,7 @@ fn folder_row(
         // A folder is not a file: it has no bytes to take out, so its row acts through its
         // children.
         action: RowAction::Inert,
+        icon: (mode == Mode::Tile).then_some(Icon::Folder),
         children,
         ..PanelRow::item(folder.name.clone())
     }
@@ -672,20 +795,90 @@ fn mark_first(rows: &mut [PanelRow], wanted: Option<&str>, done: &mut bool) {
     }
 }
 
-/// The schema's columns for one file, as `name: value` joined — the detail line of its row.
+/// The schema's columns for one file, in the order [`collection_rows`] put them.
 ///
 /// Table 47's `/P` prefix is concatenated with the *value* and not with the name, which is what
 /// the table says it is for: "[a] prefix string that shall be concatenated with the text string
 /// presented to the user".
-fn columns_of(columns: &[(&String, &Field)], attachment: &Attachment) -> Option<String> {
-    let shown: Vec<String> = columns
+/// **One cell per column, whether or not this file has a value for it.** A column format wants
+/// the same headings in the same places on every row, and a field a file says nothing about is a
+/// file saying nothing rather than a column that is not there — so the value is empty and the
+/// heading stands. [`joined`] drops the empty ones, because a line is not a column.
+fn cells_of(columns: &[(&String, &Field)], attachment: &Attachment) -> Vec<Cell> {
+    columns
         .iter()
-        .filter_map(|(_, field)| {
-            let value = column_value(field, attachment)?;
-            Some(format!("{}: {value}", field.name))
+        .map(|(_, field)| Cell {
+            heading: field.name.clone(),
+            value: column_value(field, attachment).unwrap_or_default(),
         })
+        .collect()
+}
+
+/// The same cells as one line, for a toolkit whose row has no columns to put them in.
+///
+/// Every window in this tree draws this today and two of them draw the columns as well, which is
+/// why it is derived from the cells rather than built beside them: a detail line and a column
+/// header that disagreed would be one reading of Table 155 presented twice (ADR 1215).
+fn joined(cells: &[Cell]) -> Option<String> {
+    let shown: Vec<String> = cells
+        .iter()
+        .filter(|cell| !cell.value.is_empty())
+        .map(|cell| format!("{}: {}", cell.heading, cell.value))
         .collect();
     (!shown.is_empty()).then(|| shown.join("  ·  "))
+}
+
+/// Which of Table 153's two drawable presentations this collection asks for.
+///
+/// §12.3.5.1's `shall` is that a processor "shall display the contents according to the View key
+/// of the collection dictionary", and §12.3.6 puts a navigator in front of it — "[w]hen a
+/// navigator dictionary is present, a PDF processor should use the value of the Layout entry to
+/// present the collection to the user". So the navigator is asked first, exactly as
+/// [`unsupported_presentation`] asks it, and `/View` decides where it selects nothing this
+/// program draws.
+///
+/// `H` and `C` are not modes of their own: `H` is the sidebar being closed until a person opens
+/// it, and `C` is the navigator this function has already consulted. Both therefore answer
+/// whatever the layout or the fallback says, which for a file list is the details view.
+#[must_use]
+pub fn presentation(collection: &Collection) -> Mode {
+    if let Some(navigator) = collection.navigator.as_ref()
+        && let Some(layout) = navigator.preferred(&DRAWN_LAYOUTS)
+    {
+        return match layout {
+            Layout::View(View::Tile) => Mode::Tile,
+            _ => Mode::Details,
+        };
+    }
+    match collection.view {
+        View::Tile => Mode::Tile,
+        View::Details | View::Hidden | View::Navigator => Mode::Details,
+    }
+}
+
+/// Table 153's `/View T` icon for one file, from Table 44's `/Subtype` where the document has one.
+///
+/// The clause asks for "a small icon" and says nothing else, so this names a *kind* and no
+/// picture; ADR 1215 records the choice and each toolkit draws its own. A media type this program
+/// does not recognise, and a file stating none, are the same row: [`Icon::File`], which says only
+/// that the thing is a file.
+///
+/// Public because `viewer_ui::chrome` draws its own rows — the division [`outline_rows`] already
+/// states — and *which kind a file is* is not a thing two windows may answer differently.
+#[must_use]
+pub fn icon_of(attachment: &Attachment) -> Icon {
+    let Some(media) = attachment.media_type.as_deref() else {
+        return Icon::File;
+    };
+    let (kind, rest) = media.split_once('/').unwrap_or((media, ""));
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "image" => Icon::Image,
+        "audio" => Icon::Audio,
+        "video" => Icon::Video,
+        "text" => Icon::Document,
+        "application" if rest.trim().eq_ignore_ascii_case("pdf") => Icon::Document,
+        _ => Icon::File,
+    }
 }
 
 /// One column's value for one file.

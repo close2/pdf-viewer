@@ -1143,6 +1143,8 @@ fn window(text: &str, title: Option<&str>) -> viewer_core::PopupWindow {
         title: title.map(str::to_owned),
         text: Some(text.to_owned()),
         modified: Some("D:20260805120000Z".to_owned()),
+        subject: None,
+        created: None,
         colour: None,
         replies: Vec::new(),
     }
@@ -1192,6 +1194,8 @@ fn a_threads_replies_are_drawn_under_the_note_they_answer() {
             title: Some("a reviewer".to_owned()),
             text: Some("A reply whose words this face can set.".to_owned()),
             modified: None,
+            subject: None,
+            created: None,
         },
         pdf_model::popup::Comment {
             annotation: ObjectId::new(10, 0),
@@ -1200,6 +1204,8 @@ fn a_threads_replies_are_drawn_under_the_note_they_answer() {
             title: Some("author".to_owned()),
             text: Some("And an answer to it.".to_owned()),
             modified: None,
+            subject: None,
+            created: None,
         },
     ];
     let plain = window("A note.", Some("author"));

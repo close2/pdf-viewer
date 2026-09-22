@@ -129,6 +129,16 @@ pub(crate) struct App {
     pub(crate) presented: Option<(Arc<pdf_render::DisplayList>, TargetSpec)>,
     /// §12.4.4's presentation, while `p` has one running. `None` is a window reading a document.
     pub(crate) presentation: Option<Presentation>,
+    /// §12.6.4.15's transition action in a window that is *not* presenting, while one is drawing.
+    ///
+    /// A field of its own rather than a second reason for [`App::presentation`] to be `Some`,
+    /// because the existence of that value is what presentation mode means in this window — the
+    /// arrow keys walk §12.4.4.2's states, Escape comes back, and none of that is asked for by an
+    /// action's transition. §12.6.4.15 states no mode at all: a processor "shall render the state
+    /// of the page viewing area as it exists after completion of the previous action and display
+    /// it using a transition specified in the action dictionary". So this is the same clock and
+    /// the same frames under the other clause, and it is dropped the turn it runs out (ADR 1216).
+    pub(crate) effect: Option<Presentation>,
     /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
     ///
     /// **The window a presentation had never had.** Which of Table 147's flags this window is

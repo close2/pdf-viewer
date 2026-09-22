@@ -994,6 +994,66 @@ fn every_corpus_signature_is_asked_whether_it_names_the_certificate_it_used() {
     );
 }
 
+/// §12.8.3.4.4's policy attribute over the corpus, asked of every signature rather than assumed.
+///
+/// The clause hands the attribute's rules to ETSI EN 319 122-1 clause 5.2.9, and
+/// `pdf_signature::policy` reads it: which policy, what the signer said about its document's
+/// digest, the qualifiers beside it, and clause 5.2.10's stored copy checked against that digest.
+///
+/// **The population is zero and that is the finding, not a gap.** No signature this corpus carries
+/// states a policy identifier at all, so what exercises the reader is the fixture beside it
+/// (`policy::tests`), and this is held at zero so that a document arriving which *does* state one
+/// announces itself — the same shape `no_corpus_documents_usage_rights_are_exceeded_by_what_this
+/// _program_does` keeps for §12.8.2.3. Asked of every signature rather than grepped for, because a
+/// `grep` over these files is the measurement of the instrument this file already records once.
+///
+/// What is asserted from the other end is that the asking *happened*: an empty answer list is what
+/// a reader that never ran would also produce, so the signatures reached are counted too.
+#[test]
+fn every_corpus_signature_is_asked_which_policy_it_was_made_under() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut asked = 0_usize;
+    let mut answers = Vec::new();
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(document) = Document::open(bytes) else {
+            continue;
+        };
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in &every_signature(&document) {
+            let Ok(cms) = signature.signed_data() else {
+                continue;
+            };
+            asked = asked.saturating_add(1);
+            match signature.signature_policy(&cms) {
+                Ok(None) => {}
+                Ok(Some(policy)) => answers.push(format!(
+                    "{name}: policy {}, {:?}, {:?}",
+                    policy.identifier,
+                    policy.hash,
+                    policy.binding()
+                )),
+                Err(error) => answers.push(format!("{name}: {error}")),
+            }
+        }
+    }
+    answers.sort();
+    println!("§12.8.3.4.4's signature policy over the corpus's signature dictionaries:");
+    for answer in &answers {
+        println!("  {answer}");
+    }
+    assert_eq!(asked, 10, "signature dictionaries whose CMS object read");
+    assert!(
+        answers.is_empty(),
+        "no corpus signature states a policy identifier: {answers:?}"
+    );
+}
+
 /// The same signature with one bit of its `/Contents` turned over.
 ///
 /// The last octet rather than the first: `/Contents` may carry §12.8.3.3.1's zero padding after

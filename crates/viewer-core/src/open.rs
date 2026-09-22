@@ -585,6 +585,20 @@ pub(crate) enum Done {
         /// The value: characters, §12.7.5.4's chosen options, or nothing.
         value: pdf_model::view::Entered,
     },
+    /// §12.7.5.3's file-select control, filled with the file a person chose.
+    ///
+    /// The bytes are shared rather than copied, for [`Done::Attach`]'s reason: the log, an undo
+    /// and a redo hold this one file and a replay hands it to `ViewState::choose_file` again.
+    ChooseFile {
+        /// §12.7.4.2's name.
+        field: String,
+        /// Table 231 bit 21's "pathname of a file", which is what the field's text becomes.
+        pathname: String,
+        /// The contents §12.7.6.2 submits.
+        bytes: pdf_model::attachment::filing::Payload,
+        /// Table 44's media type, where the host knew one.
+        mime: Option<String>,
+    },
     /// §12.5.6.10's markup, over quadrilaterals in **default user space**.
     Markup {
         /// The pages it was added to, in page order, each with the quadrilaterals of its own
@@ -1092,6 +1106,17 @@ impl Open {
             crate::command::Edit::SetField { field, value } => {
                 Some(Done::SetField { field, value })
             }
+            crate::command::Edit::ChooseFile {
+                field,
+                pathname,
+                bytes,
+                mime,
+            } => Some(Done::ChooseFile {
+                field,
+                pathname,
+                bytes,
+                mime,
+            }),
             crate::command::Edit::Detach { name } => Some(Done::Detach { name }),
             crate::command::Edit::Attach {
                 bytes,
@@ -1210,6 +1235,22 @@ impl Open {
                 }
                 Done::SetField { field, value } => {
                     self.view.set_field(&self.document, field, value);
+                }
+                Done::ChooseFile {
+                    field,
+                    pathname,
+                    bytes,
+                    mime,
+                } => {
+                    self.view.choose_file(
+                        &self.document,
+                        field,
+                        pdf_model::view::ChosenFile {
+                            pathname: pathname.clone(),
+                            media_type: mime.clone(),
+                            bytes: bytes.as_ref().to_vec(),
+                        },
+                    );
                 }
                 Done::Markup {
                     pages,

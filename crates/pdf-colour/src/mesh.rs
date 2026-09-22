@@ -43,7 +43,7 @@
 //! Getting that padding wrong shifts every subsequent value by a few bits, which produces a
 //! mesh that is plausible and wrong rather than one that fails.
 
-use pdf_render::{Color, Corners, Point, Ramp, Triangle};
+use pdf_render::{Color, Corners, PatchCorners, PatchMesh, Point, Ramp, SurfacePatch, Triangle};
 use pdf_syntax::{Dictionary, Document, Stream};
 
 use crate::colour::ColourSpace;
@@ -121,11 +121,22 @@ const REFINED_TRIANGLES: usize = MAX_TRIANGLES / 2;
 /// 23.3% of this bound and no page reports it.
 pub const MAX_TRIANGLES: usize = 1 << 18;
 
+/// Most patches one type 6 or type 7 shading may state.
+///
+/// A bound of its own rather than [`MAX_TRIANGLES`] divided by a tessellation's fineness, which
+/// is what this crate counted patches by until the fineness stopped being decided here: a
+/// document's patch budget is a property of the document and of this program's memory, and it
+/// had been a function of a constant that has nothing to do with either. Sixteen thousand
+/// patches is some three megabytes of control nets and corner colours, and fifty times the
+/// largest mesh any corpus on this disk paints with (`examples/mesh_triangle_census`). §10.7.3
+/// licenses it, as it licenses [`MAX_TRIANGLES`] — "[e]ach output device may have internal
+/// limits". ADR 1217.
+pub const MAX_PATCHES: usize = 1 << 14;
+
 /// Reads a mesh shading's stream into triangles, with the ramp a parametric mesh needs.
 ///
-/// [`Mesh::truncated`] is set where [`MAX_TRIANGLES`] stopped the reading with more of the
-/// stream to come, so the caller can say that the page is drawing less than the document
-/// states.
+/// [`Mesh::truncated`] names the bound that stopped the reading with more of the stream to come,
+/// so the caller can say that the page is drawing less than the document states.
 ///
 /// The ramp is `Some` exactly where the shading states a `/Function`, which is exactly where
 /// the triangles carry [`Corners::Parameters`]: §8.7.4.5.5 interpolates the parameter and
@@ -214,7 +225,7 @@ pub(crate) fn read(
     // The three readings differ only in what a vertex carries, which is what the two clauses
     // make the whole question: the one parametric value the function takes (§8.7.4.5.5), the
     // components of a space the gradient shall be calculated in (§8.7.4.4), or a device colour.
-    let ((triangles, truncated), ramp) = if !functions.is_empty() {
+    let ((triangles, patches, truncated), ramp) = if !functions.is_empty() {
         (
             reader.triangles::<f32>(&mut bits, kind, per_row, &mut refinement)?,
             Some(reader.ramp()),
@@ -226,19 +237,21 @@ pub(crate) fn read(
             None,
         )
     } else {
-        let (triangles, truncated) =
+        let (triangles, patches, truncated) =
             reader.triangles::<Color>(&mut bits, kind, per_row, &mut refinement)?;
         (
             (
                 transferred_corners(triangles, colouring.transfer),
+                patches,
                 truncated,
             ),
             None,
         )
     };
 
-    (!triangles.is_empty()).then_some(Mesh {
+    (!triangles.is_empty() || patches.is_some()).then_some(Mesh {
         triangles,
+        patches,
         ramp,
         truncated,
         coarse: refinement.coarse,
@@ -255,11 +268,26 @@ pub(crate) fn read(
 /// was written until that session.
 pub(crate) struct Mesh {
     /// The triangles, in the order §8.7.4.5.7's overlap rule needs them painted.
+    ///
+    /// Empty exactly where [`Mesh::patches`] is `Some`.
     pub(crate) triangles: Vec<Triangle>,
+    /// Types 6 and 7, where the fineness of the tessellation is the device's to choose.
+    ///
+    /// `None` for the triangle meshes, which have no surface to approximate, and for a patch
+    /// mesh some patch of which §8.7.4.4 requires be converted after the interpolation — that
+    /// one is tessellated and converted here, and [`Mesh::triangles`] is the answer.
+    /// `pdf_render::SurfacePatch` has why the rest do not need to be.
+    pub(crate) patches: Option<PatchMesh>,
     /// The ramp a parametric mesh needs, `Some` exactly where the shading states a `/Function`.
     pub(crate) ramp: Option<Ramp>,
-    /// [`MAX_TRIANGLES`] stopped the reading with a vertex, a row or a patch still to come.
-    pub(crate) truncated: bool,
+    /// The bound that stopped the reading with a vertex, a row or a patch still to come, by
+    /// name: [`MAX_TRIANGLES`] on a triangle mesh and [`MAX_PATCHES`] on a patch mesh, and
+    /// `None` where the whole stream was read.
+    ///
+    /// The *name* rather than a flag, because the two bounds are now different numbers counting
+    /// different things and a report naming the one that did not fire is a report about nothing
+    /// (ADR 1217).
+    pub(crate) truncated: Option<&'static str>,
     /// [`MAX_REFINEMENT_DEPTH`] or [`REFINED_TRIANGLES`] stopped §8.7.4.4's subdivision with a
     /// triangle still outside §10.7.3's tolerance, so somewhere in this mesh a rasteriser's
     /// linear interpolation between device colours stands in for the clause's interpolation in
@@ -408,6 +436,19 @@ trait Corner: Clone {
         refinement: &mut Refinement,
     );
 
+    /// This patch's four corners as a device can carry them, or `None` where they cannot be
+    /// carried and the patch has to be tessellated here.
+    ///
+    /// §8.7.4.5.7 makes a patch's interior a bilinear mix of its four corners, so a device
+    /// given the four draws the clause's own answer — *provided* the quantity mixed is one the
+    /// device holds. A colour and §8.7.4.5.5's parameter both are. [`Components`] are not: the
+    /// mix §8.7.4.4 asks for is in a colour space, and converting a space is what no backend
+    /// does (ADR 0028), so that impl answers `Some` only where it has checked that the
+    /// conversion is linear across this patch to §10.7.3's tolerance — in which case the mix of
+    /// the converted corners *is* the conversion of the mix, and the four colours say it all.
+    /// ADR 1217.
+    fn deferred(reader: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners>;
+
     /// Appends the triangles of one tessellated patch: `points` and `corners` are the
     /// [`PATCH_STEPS`]` + 1` square grid [`tessellate`] evaluated, `u`-major.
     ///
@@ -487,6 +528,16 @@ impl Corner for Color {
             points: [a.point, b.point, c.point],
             corners: Corners::Colours([a.corner, b.corner, c.corner]),
         });
+    }
+
+    fn deferred(reader: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
+        // §10.5's transfer, which the device-space route applies to the finished triangles,
+        // applied to the four corners instead — and that is the same arithmetic here and not
+        // merely near it, because a patch carried whole is mixed by the *device*, so the four
+        // colours a device mixes are the four the file states.
+        Some(PatchCorners::Colours(corners.map(|colour| {
+            transferred(colour, reader.colouring.transfer)
+        })))
     }
 }
 
@@ -667,6 +718,31 @@ impl Corner for Components {
             );
         }
     }
+
+    /// The nine-point question of [`Self::emit_patch`], asked of the patch's own four corners
+    /// rather than of a grid evaluated from them — which is the same question, because a grid
+    /// vertex's components *are* the bilinear mix of these four.
+    ///
+    /// Where the answer is yes, the conversion is linear across this patch to §10.7.3's
+    /// tolerance and the four converted corners carry the whole patch's colour; the device
+    /// mixes them, and no colour space travels with it. Where it is no, the conversion has to
+    /// happen between the corners, which only this crate can do.
+    fn deferred(reader: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
+        let converted = corners.each_ref().map(|corner| reader.colour_of(corner));
+        let mixed = |u: f32, v: f32| {
+            let top = mix_colour(converted[0], converted[1], v);
+            let bottom = mix_colour(converted[3], converted[2], v);
+            mix_colour(top, bottom, u)
+        };
+        let tolerance = reader.tolerance();
+        let linear = [(0.5, 0.0), (0.5, 1.0), (0.0, 0.5), (1.0, 0.5), (0.5, 0.5)]
+            .into_iter()
+            .all(|(u, v)| {
+                let components = bilinear(corners, u, v);
+                within(reader.colour_of(&components), mixed(u, v), tolerance)
+            });
+        linear.then_some(PatchCorners::Colours(converted))
+    }
 }
 
 /// An estimate of how far a rasteriser's linear interpolation across the cell at `(u, v)` of a
@@ -761,6 +837,14 @@ impl Corner for f32 {
             corners: Corners::Parameters([a.corner, b.corner, c.corner]),
         });
     }
+
+    fn deferred(_: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
+        // §8.7.4.5.7: "[a]ll linear interpolation within the mesh shall be done using the t
+        // values. After interpolation, the results shall be passed to the function(s) specified
+        // in the Function entry" — so the parameter is what travels, and the ramp beside it is
+        // what the device reads afterwards (ADR 0292).
+        Some(PatchCorners::Parameters(*corners))
+    }
 }
 
 /// The parsed shape of a mesh stream, ready to read vertices from.
@@ -795,10 +879,16 @@ impl MeshReader<'_> {
         kind: i64,
         per_row: usize,
         refinement: &mut Refinement,
-    ) -> Option<(Vec<Triangle>, bool)> {
+    ) -> Option<(Vec<Triangle>, Option<PatchMesh>, Option<&'static str>)> {
         match kind {
-            4 => Some(self.free_form::<C>(bits, refinement)),
-            5 => Some(self.lattice::<C>(bits, per_row, refinement)),
+            4 => {
+                let (triangles, truncated) = self.free_form::<C>(bits, refinement);
+                Some((triangles, None, truncated.then_some("max_mesh_triangles")))
+            }
+            5 => {
+                let (triangles, truncated) = self.lattice::<C>(bits, per_row, refinement);
+                Some((triangles, None, truncated.then_some("max_mesh_triangles")))
+            }
             6 | 7 => Some(self.patches::<C>(bits, kind == 7, refinement)),
             _ => None,
         }
@@ -1162,19 +1252,20 @@ impl MeshReader<'_> {
         bits: &mut BitReader<'_>,
         tensor: bool,
         refinement: &mut Refinement,
-    ) -> (Vec<Triangle>, bool) {
+    ) -> (Vec<Triangle>, Option<PatchMesh>, Option<&'static str>) {
         let boundary = 12usize;
         let total = if tensor { 16 } else { boundary };
 
-        let mut triangles = Vec::new();
-        let mut truncated = false;
+        let mut read: Vec<([[Point; 4]; 4], [C; 4])> = Vec::new();
+        let mut deferred: Vec<SurfacePatch> = Vec::new();
+        let mut truncated = None;
         let mut previous: Option<([Point; 16], [C; 4])> = None;
 
         while let Some(flag) = bits.read(self.flag_bits) {
             // Tested with a patch's flag in hand, for [`free_form`]'s reason: the flag then
             // says a patch was dropped rather than that a count was reached.
-            if triangles.len() >= MAX_TRIANGLES {
-                truncated = true;
+            if read.len() >= MAX_PATCHES {
+                truncated = Some("max_mesh_patches");
                 break;
             }
             let flag = flag & 0b11;
@@ -1242,11 +1333,42 @@ impl MeshReader<'_> {
             // bytes, so each patch's own total is a whole number of bytes either way. A file
             // with `/BitsPerFlag 2` would be the witness that decides it.
 
-            let grid = control_grid(&points, tensor);
-            tessellate(self, &grid, &corners, &mut triangles, refinement);
+            let net = control_grid(&points, tensor);
+            if deferred.len() == read.len()
+                && let Some(carried) = C::deferred(self, &corners)
+            {
+                deferred.push(SurfacePatch {
+                    net,
+                    corners: carried,
+                });
+            }
+            read.push((net, corners.clone()));
             previous = Some((points, corners));
         }
-        (triangles, truncated)
+
+        // All or none: a mesh drawn half from patches and half from triangles would have two
+        // producers deciding one paint order, and §8.7.4.5.7 makes that order the precedence
+        // between patches that overlap. One patch §8.7.4.4 will not let travel therefore keeps
+        // the whole mesh here, which is a mesh no corpus on this disk holds (ADR 1217).
+        if deferred.len() == read.len() && !read.is_empty() {
+            return (
+                Vec::new(),
+                Some(PatchMesh {
+                    patches: deferred.into(),
+                    smoothness: self.tolerance(),
+                }),
+                truncated,
+            );
+        }
+        let mut triangles = Vec::new();
+        for (net, corners) in &read {
+            if triangles.len() >= MAX_TRIANGLES {
+                truncated = Some("max_mesh_triangles");
+                break;
+            }
+            tessellate(self, net, corners, &mut triangles, refinement);
+        }
+        (triangles, None, truncated)
     }
 }
 

@@ -89,6 +89,22 @@ pub mod ffi {
         /// initially presented in the user interface". The clause states no appearance, so Qt
         /// says it with a bold `Qt::FontRole` and GTK with a `heading` class.
         emphasis: bool,
+        /// Table 155's `/N` for each of Table 154's schema fields, in `/O` order.
+        ///
+        /// `viewer_host::PanelRow::cells`' headings. Empty for every panel but §12.3.5's, where
+        /// Table 153's `/View` asks for the schema "presented in a multi- column format" — which
+        /// is what this model's columns beyond the first are.
+        headings: Vec<String>,
+        /// What this file says for each of those fields, in the same order and of the same length.
+        ///
+        /// Empty where the file states nothing for that field, so that one column holds one field
+        /// on every row.
+        values: Vec<String>,
+        /// The icon theme's name for Table 153's `/View T` "small icon", or empty for no icon.
+        ///
+        /// `viewer_host::panel::Icon::theme_name`, shared with `viewer-gtk`. The clause states no
+        /// artwork, so the picture is the running theme's (ADR 1215).
+        icon: String,
     }
 
     /// One row of §12.3.4's panel: a page's label, and its miniature where the page states one.

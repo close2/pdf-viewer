@@ -102,14 +102,19 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   only an operator can state, which §9.9.1 says outright, so the flag is `doc/rfc/0007`'s `supply`
   in its oldest form. The program is carried in the plan, `pdf_font::restate` makes its advances
   the numbers the dictionary already states so no glyph moves, and the report and the output's own
-  `xmpMM:History` record whose authority the face was in. **What it does not reach yet, measured
-  over the corpus rather than guessed**: no corpus document refuses at this site for want of
-  repertoire, so a supplied DejaVu or Droid face closes none of the thirteen that refuse. Twelve
-  fail §9.9's Table 124 on the format-to-`/Subtype` pairing — a `Type1` or `MMType1` dictionary
-  needing a bare CFF program, or a composite font, where §9.7.4.2's CIDs index the supplied
-  program directly and §9.7.4.3's `/W` and `/DW` are the advances to restate against — and one
-  states no `/FontDescriptor` at all. Table 124's `OpenType` row and the composite route are the
-  two builds that would close them.
+  `xmpMM:History` record whose authority the face was in. **Every pairing §9.9's Table 124 states is
+  now written** (ADRs 1221 and 1222): the `OpenType` row's third bullet puts an sfnt carrying a
+  name-keyed `CFF ` table under a `Type1` dictionary as `/FontFile3` with `/Subtype /OpenType`, and
+  a composite font's program goes into the descendant CIDFont's descriptor, where §9.7.4.2 puts it,
+  restated against §9.7.4.3's `/W` and `/DW`, with Table 115's `/CIDToGIDMap` `Identity` written
+  beside it. **Which corpus documents refuse at this site and for which of the several reasons is
+  printed by the archive sweep itself**, because a count alone does not rank a site that refuses
+  for more than one. What `--font` still does not reach, each refused with the clause that refuses
+  it: a `glyf`-based face under a `Type1` or `MMType1` dictionary, which Table 124 opens no key to
+  at all; a CMap that is neither `Identity-H` nor `Identity-V`; a CID-keyed program, whose own
+  character collection this converter may not copy into `/CIDSystemInfo`; a `/CIDToGIDMap` the
+  producer wrote beside a program that was never in the file; and a font stating no
+  `/FontDescriptor`, which `--font` names no descriptor for.
 - **Implementation limits**: *none* for nine of the ten, and **not** for
   `implementation-limits/page-boundary-sizes` — §7.7.3.3's Table 31 makes four of §14.11.2's five
   boxes optional and §14.11.2.1 gives each a default that is another box in the file, so removing

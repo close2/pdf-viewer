@@ -881,10 +881,10 @@ impl Host {
             if self.report_due.after_a_frame() {
                 queue.push_back(Command::Report);
             }
-            // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
-            // so this is where an armed one can begin. Only while a presentation is running,
-            // because taking the face costs a whole-viewport rasterisation and no other clause
-            // wants one.
+            // §12.4.4.1: the page a transition moves *to* is the one whose list has just
+            // arrived, so this is where an armed one can begin. The face is kept whether or not
+            // anything is presenting — it is an `Arc` and a target, and no rasterisation — because
+            // §12.6.4.15's transition needs a page to move *from* and states no mode (ADR 1216).
             self.face_arrived(&finished.request);
         }
         self.mind_a_long_draw();
@@ -1480,7 +1480,18 @@ impl Host {
                             ),
                         );
                     }
-                    host.dispatch(Command::Edit(Edit::SetField { field, value }));
+                    // §12.7.5.3's file-select control takes a *file* where every other text
+                    // field takes text, and `viewer_host::form::edit_of` is the one place the
+                    // three windows tell the two apart (ADR 1216).
+                    let control = host
+                        .placed
+                        .iter()
+                        .find(|placed| placed.key.0 == field)
+                        .map(|placed| placed.kind.clone());
+                    match viewer_host::form::edit_of(control.as_ref(), &field, value) {
+                        Ok(edit) => host.dispatch(Command::Edit(edit)),
+                        Err(refusal) => host.say(&refusal),
+                    }
                 }
                 FieldChange::Activate(annotation) => {
                     host.dispatch(Command::Activate(annotation));
@@ -2115,6 +2126,15 @@ impl Host {
     /// transition starts and stops, and a presentation that ends leaves nothing armed at all.
     fn pump_presentation(&mut self) {
         self.disarm();
+        // §12.6.4.15's clock exists for one effect. `Clock::spent` is the frame after it ended,
+        // and dropping it here is what leaves a window that is not presenting with no timer
+        // armed at all (ADR 1216).
+        // Armed and not yet begun is not spent: the effect is drawn when the page it moves *to*
+        // arrives, which is one render request away.
+        if self.arming.is_none() && self.clock.as_ref().is_some_and(viewer_host::Clock::spent) {
+            self.clock = None;
+            self.shown = None;
+        }
         let Some(interval) = self.clock.as_ref().map(viewer_host::Clock::interval) else {
             return;
         };
@@ -2181,18 +2201,19 @@ impl Host {
     /// list is in the last of the three. §12.4.4.1's transition is one *to* a page, so waiting for
     /// that page's own request is the clause's order as well as this host's.
     fn arm_transition(&mut self, transition: pdf_model::navigation::Transition) {
-        if self.clock.is_none() {
-            self.say(&format!(
-                "transition: {:?} over {} s — nothing is presenting, so the page is shown at once \
-                 (press p)",
-                transition.style, transition.duration
-            ));
-            return;
-        }
         if !viewer_host::Clock::shapes(&transition, self.viewport_rect()) {
             // The core has already said *why* through `Event::Reported`; a second sentence here
             // would say it twice.
             return;
+        }
+        // §12.6.4.15 states no mode: a processor "shall render the state of the page viewing area
+        // as it exists after completion of the previous action and display it using a transition
+        // specified in the action dictionary". So a window that is not presenting gets a clock of
+        // its own for the one effect and drops it when it ends (ADR 1216).
+        if self.clock.is_none() {
+            self.clock = Some(viewer_host::Clock::for_one_transition(
+                std::time::Instant::now(),
+            ));
         }
         self.arming = Some(transition);
     }
@@ -2203,11 +2224,6 @@ impl Host {
     /// the page arriving, each drawn where a frame will place it. A transition that re-rasterised
     /// per frame would pay a page's interpretation sixty times a second for the length of it.
     fn face_arrived(&mut self, request: &viewer_core::RenderRequest) {
-        if self.clock.is_none() {
-            self.shown = None;
-            self.arming = None;
-            return;
-        }
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
             Answer::Geometry(geometry) => geometry.origin,
             _ => (0.0, 0.0),

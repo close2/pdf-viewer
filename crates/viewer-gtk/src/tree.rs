@@ -103,6 +103,14 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
     let row = held.borrow::<PanelRow>().clone();
 
     let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    // Table 153's `/View T`: "each file in the collection denoted by a small icon". Which *kind*
+    // of icon is `viewer_host::panel::Icon`'s, shared with `viewer-qt`; the picture is the running
+    // theme's, because the clause states no artwork at all (ADR 1215).
+    if let Some(icon) = row.icon {
+        let image = gtk4::Image::from_icon_name(icon.theme_name());
+        image.set_icon_size(gtk4::IconSize::Large);
+        line.append(&image);
+    }
     if let RowAction::Toggle { group, on, locked } = row.action {
         let switch = gtk4::CheckButton::new();
         switch.set_active(on);
@@ -146,12 +154,37 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
         label.add_css_class("heading");
     }
     text.append(&label);
-    if let Some(detail) = row.detail.as_deref() {
-        let second = gtk4::Label::new(Some(detail));
-        second.set_xalign(0.0);
-        second.set_ellipsize(pango::EllipsizeMode::End);
-        second.add_css_class("dim-label");
-        text.append(&second);
+    // Table 153's `/View D` asks for "all information in the Schema dictionary presented in a
+    // multi- column format", and `/View T` for a subset of the same fields. A `GtkGrid` of
+    // heading-and-value pairs is this toolkit's multi-column format; every other panel carries no
+    // cells at all and falls to the one detail line (ADR 1215).
+    if row.cells.is_empty() {
+        if let Some(detail) = row.detail.as_deref() {
+            let second = gtk4::Label::new(Some(detail));
+            second.set_xalign(0.0);
+            second.set_ellipsize(pango::EllipsizeMode::End);
+            second.add_css_class("dim-label");
+            text.append(&second);
+        }
+    } else {
+        let columns = gtk4::Grid::new();
+        columns.set_column_spacing(12);
+        for (at, cell) in row.cells.iter().enumerate() {
+            let at = i32::try_from(at).unwrap_or(i32::MAX);
+            // Table 155's `/N` is "[t]he textual field name that shall be presented to the user",
+            // so the heading is the document's own word above the document's own value.
+            let heading = gtk4::Label::new(Some(&cell.heading));
+            heading.set_xalign(0.0);
+            heading.set_ellipsize(pango::EllipsizeMode::End);
+            heading.add_css_class("dim-label");
+            heading.add_css_class("caption");
+            let value = gtk4::Label::new(Some(&cell.value));
+            value.set_xalign(0.0);
+            value.set_ellipsize(pango::EllipsizeMode::End);
+            columns.attach(&heading, at, 0, 1, 1);
+            columns.attach(&value, at, 1, 1, 1);
+        }
+        text.append(&columns);
     }
     line.append(&text);
 

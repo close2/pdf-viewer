@@ -66,6 +66,11 @@ const TARGETS: [(&str, Target); 6] = [
     ("PDF_A-4e", Target::Four(Flavour::E)),
 ];
 
+/// The requirement whose refusals the sweep breaks down by reason.
+///
+/// ISO 19005-2 section 6.2.11.4.1 and ISO 19005-4 section 6.2.10.4.1, as `pdf_archive` names it.
+const FONT_SITE: &str = "fonts/font-programs-embedded";
+
 /// How many of a target's refused requirements the sweep prints.
 ///
 /// Enough to see the shape of what is left and short enough to read; the tail is a long list of
@@ -146,6 +151,16 @@ struct Tally {
     /// `CLAUDE.md`'s rule about derived facts is why this is printed by the sweep rather than
     /// written down anywhere.
     refusals: BTreeMap<&'static str, usize>,
+    /// For the font-embedding site, which refusal sentence stopped each document.
+    ///
+    /// **The one site whose refusals a count alone does not rank.** Every other requirement
+    /// refuses for one reason, so the name is the diagnosis; `fonts/font-programs-embedded`
+    /// refuses for several — §9.9's Table 124 admitting no key for the pairing of this
+    /// dictionary's `/Subtype` with the face's format, a composite font whose CIDs index a
+    /// program that is not here, a font stating no descriptor to embed into — and which of them
+    /// a document met is what says whether a build closes it. Printed by the sweep rather than
+    /// written down anywhere, which is `CLAUDE.md`'s rule about derived facts.
+    font_refusals: BTreeMap<&'static str, Vec<String>>,
     /// How each stream that keeps its data outside the file says where those bytes are.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 are answered by embedding the
@@ -192,6 +207,27 @@ fn every_stated_width(document: &Document) -> Vec<String> {
 }
 
 impl Tally {
+    /// Counts what stopped one refused conversion, and — at the font site — why.
+    fn note_refusals(&mut self, conversion: &pdf_transform::archive::Conversion, path: &Path) {
+        for decided in &conversion.decided {
+            if matches!(
+                decided.decision,
+                Decision::Refused(_) | Decision::Unauthorised { .. }
+            ) {
+                let seen = self.refusals.entry(decided.requirement).or_default();
+                *seen = seen.saturating_add(1);
+            }
+            if decided.requirement == FONT_SITE
+                && let Decision::Refused(because) = decided.decision
+            {
+                self.font_refusals
+                    .entry(because.sentence())
+                    .or_default()
+                    .push(named(path));
+            }
+        }
+    }
+
     /// Counts how each of one conversion's external streams named its data.
     fn note_external(&mut self, report: &pdf_transform::Report) {
         let Some(conversion) = &report.archive else {
@@ -202,6 +238,23 @@ impl Tally {
             *seen = seen.saturating_add(1);
         }
     }
+}
+
+/// A corpus document's own file name, which is what names it in the sweep's own output.
+fn named(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// As much of a refusal's sentence as ranks it, which is its first clause.
+///
+/// The sentences are paragraphs, because each one has to tell the person holding the document
+/// what to do next; what ranks them is the fact they open with.
+fn first_clause(sentence: &str) -> String {
+    let cut = sentence.find(". ").unwrap_or(sentence.len()).min(160);
+    sentence.chars().take(cut).collect()
 }
 
 /// How one stream says where its data is, in the words the census counts.
@@ -332,15 +385,7 @@ fn sweep(root: &Path, part: &str, target: Target, authorised: Authorisations) ->
             (false, None) => {
                 tally.refused = tally.refused.saturating_add(1);
                 let conversion = report.archive.as_ref().expect("a conversion is reported");
-                for decided in &conversion.decided {
-                    if matches!(
-                        decided.decision,
-                        Decision::Refused(_) | Decision::Unauthorised { .. }
-                    ) {
-                        let seen = tally.refusals.entry(decided.requirement).or_default();
-                        *seen = seen.saturating_add(1);
-                    }
-                }
+                tally.note_refusals(conversion, &path);
             }
         }
         tally.note_external(&report);
@@ -386,6 +431,14 @@ fn a_conforming_document_stays_conforming_and_nothing_errors() {
         ranked.sort_by_key(|(id, count)| (std::cmp::Reverse(**count), **id));
         for (id, count) in ranked.iter().take(MOST_REFUSED) {
             println!("    {count:>4} refused on {id}");
+        }
+        for (why, documents) in &tally.font_refusals {
+            println!(
+                "    {:>4} refused at {FONT_SITE}, each because {}",
+                documents.len(),
+                first_clause(why)
+            );
+            println!("         {}", documents.join(", "));
         }
         for (form, count) in &tally.external {
             println!("    {count:>4} stream(s) keep their data outside the file, named as {form}");

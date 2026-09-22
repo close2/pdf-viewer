@@ -330,3 +330,17 @@ and the cheapest check is reading the function the ADR names.** ADR 1069's premi
 about `rgb_to_ink`; the refuting doc comment was forty lines above it, and §10.4.2.4's row had
 already written the correct answer down two rows away (ADR 1207). `doc/todo/65`'s "expired
 premises" section is where such a decision goes once its ground has moved.
+
+**A row that records an alternative as *rejected rather than deferred* is re-read whenever the
+rejection names a party.** §12.7.5.3's rejection — a request to open an arbitrary path "on behalf
+of a document" — was sound about a document-named path and was applied to a person-typed one for
+eight sessions, though `read_import` had drawn that division one clause over. The sweep is
+`grep -n "rejected rather than deferred" doc/conformance/ledger.toml`, reading each for whose
+choice the refused input is (ADR 1216). The same shape one cell over: a refusal naming a file the
+document supplied is re-read for the branch where the document supplied none — Table 253's `/F` is
+optional, and its absence names a page in the associated file (ADR 1223).
+
+**A residue recorded in a row is a claim about the clause, and it decays either because the sentence
+has no modal verb at all or because its modal verb binds somebody who is not a reader.** §9.8.3.3
+was `partial` on sentences that bind the producer's dictionary; §12.11.3 on a sentence with no verb
+and a condition one open document never meets (ADR 1220).

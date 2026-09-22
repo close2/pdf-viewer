@@ -51,6 +51,15 @@ pub enum ControlKind {
         password: bool,
         /// Table 232's `/MaxLen`, which caps the control's own length.
         max_len: Option<u32>,
+        /// Table 231 bit 21: "the field shall function as a file-select control".
+        ///
+        /// The flag makes the entry's text "the pathname of a file whose contents shall be
+        /// submitted as the field's value", which is why it reaches a host at all: only a host
+        /// has a filesystem, so only a host can turn that pathname into the contents. What one
+        /// sends for such a control is [`viewer_core::Edit::ChooseFile`] rather than
+        /// [`viewer_core::Edit::SetField`], and [`edit_of`] is that decision written once
+        /// (ADR 1216).
+        file_select: bool,
     },
     /// §12.7.5.2.3's check box — a `GtkCheckButton` or a `QCheckBox`.
     Check {
@@ -189,7 +198,63 @@ fn entry_of(text: TextControl) -> ControlKind {
         multiline: text.multiline,
         password: text.password,
         max_len: text.max_len,
+        file_select: text.file_select,
     }
+}
+
+/// What a person's change to one control means, as a [`viewer_core::Edit`].
+///
+/// Ordinary fields take the value as it stands, which is [`viewer_core::Edit::SetField`].
+/// §12.7.5.3's file-select control does not:
+///
+/// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select control.
+/// > In this case, the field's text represents the pathname of a file whose contents shall be
+/// > submitted as the field's value
+///
+/// — so the text is a *path*, the contents behind it are what §12.7.6.2 submits, and a host is the
+/// only party with a filesystem to read them. [`crate::policy::read_chosen`] is that read, and
+/// this is the one place the two verbs are told apart so that three windows cannot disagree about
+/// which one a person's typing means (ADR 1216).
+///
+/// **A cleared file-select control is an ordinary clear**: §12.7.6.3's own words for a value that
+/// is gone are "its V entry shall be removed", and there is no path to read behind nothing.
+///
+/// `control` is `None` for a caller that has no control to hand — an assistive interface reaching
+/// a field by name — and then the value is taken as it stands, which is what every field but this
+/// one does anyway.
+///
+/// # Errors
+///
+/// [`crate::policy::read_chosen`]'s refusal, worded for a person. A path that could not be read is
+/// a file-select control with nothing behind it, and taking the path as ordinary text would put
+/// the wrong value under the right name (trap 5).
+pub fn edit_of(
+    control: Option<&ControlKind>,
+    field: &str,
+    value: viewer_core::Entered,
+) -> Result<viewer_core::Edit, String> {
+    if let (
+        Some(ControlKind::Entry {
+            file_select: true, ..
+        }),
+        viewer_core::Entered::Text(pathname),
+    ) = (control, &value)
+    {
+        let bytes = crate::policy::read_chosen(pathname)?;
+        return Ok(viewer_core::Edit::ChooseFile {
+            field: field.to_owned(),
+            pathname: pathname.clone(),
+            bytes: bytes.into(),
+            // Table 44's `/Subtype` is what an embedded file states and a path on a filesystem
+            // states nothing: HTML 4.01 section 17.13.4.2's own fallback is applied by
+            // `pdf_model::submission` rather than guessed at from an extension here.
+            mime: None,
+        });
+    }
+    Ok(viewer_core::Edit::SetField {
+        field: field.to_owned(),
+        value,
+    })
 }
 
 /// §12.7.5.4's choice field, which Table 233 bit 18 splits into two controls.

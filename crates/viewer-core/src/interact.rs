@@ -245,6 +245,22 @@ pub(crate) fn trigger(
     let Some(dict) = object.as_dict() else {
         return Outcome::default();
     };
+    // §12.7.8.3.2: "importing a field causes the values of the entries in the FDF field
+    // dictionary to replace those of the corresponding entries in the field with the same fully
+    // qualified name in the target document". Table 249's `/A` and `/AA` are two of those
+    // entries, and the corresponding ones are this widget's — so where an import stated either,
+    // it stands in the dictionary the trigger is read from. Table 197's own precedence between
+    // the two is still `for_annotation`'s to apply, which is why the composition is a dictionary
+    // rather than a second reading. The imported entries name no object of the FDF file:
+    // `pdf_model::forms_data` copied them when the file was read (ADR 1223).
+    let composed = open.view.imported_actions(annotation).map(|imported| {
+        let mut composed = dict.clone();
+        for (key, value) in imported.iter() {
+            composed.insert(key.clone(), value.clone());
+        }
+        composed
+    });
+    let dict = composed.as_ref().unwrap_or(dict);
     let actions = pdf_model::action::for_annotation(&open.document, dict, event);
     if actions.is_empty() {
         return Outcome::default();

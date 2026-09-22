@@ -1093,6 +1093,20 @@ pub trait ImageAtDeviceScale: std::fmt::Debug + Send + Sync {
     /// knows the answer from what it was built to combine — the kind is a fact about the
     /// masks, not about the grid.
     fn sample_alpha(&self) -> SampleAlpha;
+
+    /// ISO 32000-2 §11.6.4.2's *shape* alone, where [`Self::sample_alpha`] is
+    /// [`SampleAlpha::Both`] and the samples' alpha is therefore the product of a shape and an
+    /// opacity.
+    ///
+    /// §11.3.7.2 keeps shape and opacity as two quantities and §11.4.6's knockout reads the
+    /// first apart from the second, so a producer that multiplies them has to be able to hand
+    /// back the half it multiplied. `None` is the answer everywhere else and is the default:
+    /// a producer whose alpha is one quantity has nothing to separate.
+    ///
+    /// Answered without producing samples, for [`Self::sample_alpha`]'s reason. ADR 1218.
+    fn shape(&self) -> Option<ImageSource> {
+        None
+    }
 }
 
 /// A shared [`ImageAtDeviceScale`], so that a command carrying one stays cloneable.
@@ -1116,6 +1130,12 @@ impl DeferredImage {
     #[must_use]
     pub fn sample_alpha(&self) -> SampleAlpha {
         self.0.sample_alpha()
+    }
+
+    /// §11.6.4.2's shape alone, where the samples' alpha is a shape times an opacity.
+    #[must_use]
+    pub fn shape(&self) -> Option<ImageSource> {
+        self.0.shape()
     }
 }
 
@@ -1191,6 +1211,21 @@ impl ImageSource {
         match self {
             Self::Decoded(image) => image.sample_alpha,
             Self::AtDeviceScale(deferred) => deferred.sample_alpha(),
+        }
+    }
+
+    /// §11.6.4.2's shape alone, where [`Self::sample_alpha`] is [`SampleAlpha::Both`].
+    ///
+    /// `None` for a decoded source, whose one raster has already multiplied the two and cannot
+    /// be asked for either again; a deferred one asks its producer
+    /// ([`ImageAtDeviceScale::shape`]). That is why a stencil under a soft mask of its own is
+    /// routed to a producer rather than combined as it is read — the routing is
+    /// `pdf_model::image`'s and ADR 1218 is the argument.
+    #[must_use]
+    pub fn shape(&self) -> Option<Self> {
+        match self {
+            Self::Decoded(_) => None,
+            Self::AtDeviceScale(deferred) => deferred.shape(),
         }
     }
 }
