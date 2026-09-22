@@ -5450,3 +5450,57 @@ element of such a group as a `Command::Shaped`.
 group's own backdrop. The construction exists on the CPU oracle for correctness rather than for a
 page, and `crates/render-raster/tests/headless_quorra.rs::quorra_refuses_a_knockout_group_on_its_own_backdrop`
 holds the refusal so that it moves the day the vocabulary does.
+
+## 51. A clipping region that is the union of two fills — one outline and one rule cannot state it, and an alpha mask multiplies into a draw that already carries one
+
+**The clause.** ISO 32000-2 §10.7.4 defines a clipping region by a fill:
+
+> For clipping, the clipping region consists of the set of pixels that would be included by a
+> fill operation.
+
+§8.5.4 says the same from the operator's side — "For a given path definition, the same area that
+would be filled by the f operator is the area that would be used for a clip" — and §10.7.4's own
+EXAMPLE says what a fill of a flat rectangle includes: "A zero-width or zero-height rectangle
+paints a line 1 pixel wide".
+
+**What follows, and why it is not one fill.** A clipping path may hold subpaths that enclose an
+area *and* subpaths that do not. The first are filled under the operator's own rule; the second
+paint a line one device pixel wide each, and those have to be filled under the **non-zero** rule
+whatever the operator asked, because two of them that cross would cancel to a hole under the
+even-odd rule. So the region is the union of two fills taken under two different rules, and it is
+not in general a shape any single outline and rule name: a square with a rule across it admits the
+square *and* two whiskers.
+
+**Where this side stands.** `pdf_render::clip_region` hands the two fills to a backend as two.
+`render-cpu` owns its mask bytes, so it fills the first into the mask and adds the second into it,
+capped at the pixel. `render-raster` refuses the list by name and the frame falls back to that
+backend, because `SceneBuilder::clip` takes one `OutlineId` and one `FillRule`.
+
+**Why `MaskKind::Alpha` is not the answer today.** A group holding both fills does have the union
+as its alpha, and that is the right arithmetic. What stops it is where a mask attaches: a mask
+multiplies into a draw, and every command under this clip already carries the soft mask the
+document gave it (§11.6.5.1), so the clip's union and the document's mask would have to be
+composed into a third mask the scene has no vocabulary for — and composing them by drawing one
+group inside another changes what §11.4.5's initial backdrop is for the content.
+
+**The ask, in the scene's own nouns.** A clip that takes *two* outlines and two rules, unioned
+before the chain intersects it — the narrowest form that states it:
+
+```rust
+pub fn clip_union(&mut self, outlines: [OutlineId; 2], transform: Affine,
+                  rules: [FillRule; 2], parent: Option<ClipId>) -> Result<ClipId, SceneError>;
+```
+
+A wider form — a clip built from a list of (outline, rule) pairs, unioned — would take this and
+anything §8.5.3.3's two rules can put in one path.
+
+**How much of the corpus it is worth.** None of it, measured: no first page of the pdf.js corpus
+states a clipping path with a subpath collapsed along exactly one axis, so nothing this side draws
+today falls back for this reason. It is in this file because the refusal is a permanent hole in
+the cross-backend comparison rather than a page that is currently wrong, and because the same
+vocabulary would take every later clause that needs a region wider than its own path.
+
+**Reproducing it.** `cargo test -p render-raster --test clip_region_union_refusal` states the
+scene — a 30-unit square and a 55-unit rule across it, under `W n` — and asserts the refusal by
+name; `cargo test -p render-cpu --test zero_area_clip` draws the same geometry and measures the
+union against the fill of the same path, which is the answer a `clip_union` would have to match.

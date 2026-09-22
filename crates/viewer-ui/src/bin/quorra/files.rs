@@ -135,6 +135,28 @@ impl App {
         println!("note: {}", viewer_host::refused(notes));
     }
 
+    /// The bytes of §12.6.4.3's file, from a path `viewer_host::remote` has already decided on.
+    ///
+    /// Separate from [`Self::supply`] because the decision is separate: that one resolves and
+    /// reads in one step under the import policy, and this one is the read that follows a policy
+    /// with four levels, which may have put a question in between. Every failure is printed,
+    /// which is trap 5 on a path a person clicked (ADR 1227).
+    pub(crate) fn read_remote(name: &str, path: &Path) -> Option<Vec<u8>> {
+        match std::fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                println!(
+                    "note: {}",
+                    viewer_host::remote_note(
+                        name,
+                        Some(&format!("cannot read {}: {error}", path.display()))
+                    )
+                );
+                None
+            }
+        }
+    }
+
     /// §12.7.6.4's file, under the narrowest policy that still performs the action.
     ///
     /// The clause says a processor "shall import data … from a specified file" and specifies

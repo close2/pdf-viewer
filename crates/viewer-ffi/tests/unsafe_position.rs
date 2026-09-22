@@ -226,8 +226,12 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // answer. A fourth `QUORRA_RESTRICTED_*` number joins them,
     // `QUORRA_RESTRICTED_PRINT_QUALITY`, which an old caller never passes — so
     // `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADRs 1203, 1204).
-    assert_eq!(no_mangle, 201, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 187, "185 `unsafe` entry points and two helpers");
+    // **And one more for §10.8.3**: `quorra_separations` says whether this reader has asked for
+    // the separation simulation, which the clause conditions on a request no file makes and
+    // §10.8.1 leaves "up to the processing software". It takes no struct by value, so
+    // `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADR 1228).
+    assert_eq!(no_mangle, 202, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 188, "186 `unsafe` entry points and two helpers");
 }
 
 #[test]

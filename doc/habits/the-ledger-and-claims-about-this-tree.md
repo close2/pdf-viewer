@@ -344,3 +344,16 @@ optional, and its absence names a page in the associated file (ADR 1223).
 has no modal verb at all or because its modal verb binds somebody who is not a reader.** §9.8.3.3
 was `partial` on sentences that bind the producer's dictionary; §12.11.3 on a sentence with no verb
 and a condition one open document never meets (ADR 1220).
+
+**A move recorded in the map and never carried out in it is a seventh decay shape, and the sweep is
+the ledger's own status lines.** `doc/todo/65`'s closing section said three rows had moved to a
+bucket and named no bucket for any of them for several rounds; four `implemented` rows sat in its
+aggregate list and six `departed` rows in its buckets as owed work. The map's population is the
+ledger's open rows and nothing else: re-derive membership from `grep 'status ='` and assert the two
+lists agree (ADR 1237).
+
+**A ledger note's last sentence — the "what keeps this row `partial`" clause — is the one most
+likely to be stale, because every later round appends above it.** §11.7.2's had been half false
+since ADR 0263 made it so, and `doc/todo/65` carried the same sentence verbatim; §10.8.3's new note
+named an overprint departure two batches after overprint was built. A round that moves any row of a
+clause family re-reads that family's final sentences against the code (ADRs 1230, 1229).

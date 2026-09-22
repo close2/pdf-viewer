@@ -1325,14 +1325,24 @@ ISO 19005-4 Annex B.2.2 · PDF/A-4e · today `not-this-target`
   processor can render, which is the format's promise failing.
 
 #### `annotations/printable-and-visible`
-ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · today `not-built-yet`
+ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · **the `discard` built** (ADR 1234); `preserve`
+stays `not-built-yet`
 
+- **What was built.** `--authorise hidden-annotation`, `Loss::HiddenAnnotation` and
+  `Rewrite::HiddenAnnotationRemoved`: the annotation goes out of its page's `/Annots` array, its
+  popup with it, by the act the subtype rows are answered with. The population is
+  `pdf_archive::annotations_the_flags_forbid`, which is the requirement's own predicate read as a
+  population, and the report names each annotation, its page, its subtype, whether it drew a mark
+  and the `/F` its producer wrote. An annotation written directly into the array refuses the
+  document by name, as the subtype removal does.
 - **Mitigation** — the limits document's section 3.7 offers two futures, and both are real remedies
   rather than one being a fallback: `preserve` the annotation by clearing the hidden flags so it
   becomes visible and printable, or `discard` it. Section 3.7 of the limits document makes removal
-  the default of the two because a hidden annotation was hidden on purpose. The half already built
-  is the smaller one — an annotation stating no `/F` at all, where `--authorise annotation-printing`
-  writes bit 3.
+  the default of the two because a hidden annotation was hidden on purpose, and that is the half
+  built. `preserve` here is not a placement — nothing is kept anywhere else — so the configuration
+  vocabulary owes it a mechanism of its own before it can be carried out; `pdf_archive::
+  flags_permitting` is the value it would write. The other half already built is the smaller one —
+  an annotation stating no `/F` at all, where `--authorise annotation-printing` writes bit 3.
 - **By target** — none.
 - **From a configuration** — this is the profile question `doc/rfc/0007` section 5a.1 is built
   around, and the printing yardstick answers it per class without looking at any document: an
@@ -1345,8 +1355,13 @@ ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · today `not-built-yet`
   enforced.
 
 #### `annotations/appearance-dictionary-holds-only-normal`
-ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · today `not-built-yet`
+ISO 19005-2 6.3.3, ISO 19005-4 6.3.3 · all six · **the `discard` built** (ADR 1234)
 
+- **What was built.** `--authorise appearance-states`, `Loss::AppearanceStates` and
+  `Rewrite::ExtraAppearanceStatesRemoved`: the `/AP` is rewritten to hold `/N` alone. §12.5.5's
+  Table 170 gives `/R` and `/D` the default *the value of the N entry*, so a reader draws the
+  normal appearance where it drew the producer's — which is also why an appearance dictionary
+  stating no `/N` refuses the document by name instead: there is nothing there to fall back to.
 - **Mitigation** — `discard` the `/R` and `/D` entries. What goes is what §12.5.5 has a reader draw
   while the pointer is over the annotation or the mouse button is down — interaction states, which
   no printed page ever carried and no archive reader will trigger. It is the cheapest authorised
@@ -1878,8 +1893,14 @@ ISO 19005-2 6.9, ISO 19005-4 6.10 · all six · **the `/Order` row built in sess
   order. Neither departure is worth taking when the remedies cost this little.
 
 #### `optional-content/no-automatic-states`
-ISO 19005-2 6.9 · PDF/A-2b, 2u, 2a · today `not-built-yet`
+ISO 19005-2 6.9 · PDF/A-2b, 2u, 2a · **built** (ADR 1234)
 
+- **What was built.** `--authorise automatic-states`, `Loss::AutomaticStates` and
+  `Rewrite::AutomaticStatesRemoved`: the key goes from every configuration the walk reaches — one
+  that is an object of its own, one written directly inside an `/OCProperties` object, and one
+  inside an `/OCProperties` the catalog states directly. A configuration written inside a
+  `/Configs` array that is an object of its own refuses the document by name, which is where the
+  `/Order` completion stops for the same reason.
 - **Mitigation** — `discard` the `/AS` entry, which is the limits document's section 3.8 Ask: `/AS`
   is what switches layers by zoom, by print-versus-view or by user event, so removing it freezes the
   document into whatever the default configuration states — which is what both parts require a

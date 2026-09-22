@@ -311,6 +311,22 @@ sentence over one path would be six chances to be handed a string from a differe
 `m` puts it into the mode, a press puts a point down, and the answer goes where that window already
 puts a sentence. ADR 1191.
 
+**And the one-thousand-one-hundred-and-ninety-fifth added one `Command`, one `Purpose` value and
+one entry point**, on the pattern `Command::Trust` set. `Command::Separations(bool)` carries
+§10.8.3's answer, which is the reader's and not the document's: the clause conditions the whole
+simulation on what "is important for the colours of the display" and §10.8.1 says the choice is
+"up to the processing software", so no file states it and no renderer may invent it. The value
+joins `Trust`, `References`, `Audience` and `Clock` under their rule — every open document and
+every one opened afterwards. `Purpose::RemoteDocument` is the other half and is not a new message
+at all: §12.6.4.3's remote go-to asks a host for a file exactly as §12.6.4.4's embedded go-to and
+§12.7.6.4's import already do, so the existing `Event::NeedsFile` and `Command::Supply` carry it
+and only the enumeration grew. **Two consumers failed to compile**, `viewer-confined`'s wire
+(command kind 34, one bit; purpose 2 on both sides of `Supply` and `NeedsFile`) and `quorra`'s
+trace line; the C ABI gained `quorra_separations` and `QUORRA_PURPOSE_REMOTE_DOCUMENT`, and
+`QUORRA_ABI_VERSION` did not move, for the standing reason. **Every window gained two words and a
+key**: `--separations=on|off`, `--remote-documents=refuse|ask|warn|open`, and shifted `S`.
+ADRs 1227, 1228.
+
 **And the same round gave the key table a Control**, which is not a vocabulary change at all and is
 here because it changes what every window does on a keypress: `viewer_host::keys::meaning` took a
 `shift` and nothing else, so all three hosts discarded Control before asking and Ctrl + P entered

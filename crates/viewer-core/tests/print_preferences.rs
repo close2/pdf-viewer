@@ -42,7 +42,7 @@ use pdf_model::page::Boundary;
 use pdf_model::viewer_preferences::{Duplex, PrintScaling};
 use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
-use viewer_core::{Answer, Command, DocumentId, Event, Query, Rendered, Viewer};
+use viewer_core::{Answer, Command, DocumentId, Event, Printing, Query, Rendered, Sheet, Viewer};
 
 /// The document under test, and its control, differing in one catalog entry.
 ///
@@ -178,4 +178,43 @@ fn a_print_preference_changes_no_pixel_of_the_screen() {
         stating.2 == silent.2,
         "no sentence of §12.2 asks a print entry to mark the screen"
     );
+}
+
+/// And under a print operation the page *is* §12.2's print pair, which is what the entries are
+/// for.
+///
+/// The same two documents, printed rather than shown. `/PrintArea /MediaBox` names a boundary
+/// wider than the `/CropBox` this page states, so the region laid onto paper is 400 units square
+/// where the control's is 360 — and the control is the document whose catalog states nothing, so
+/// a reader that ignored the entry would produce the control's rectangle for both (trap 13).
+///
+/// The sheet is the page's own size at one pixel per unit, so nothing here is measuring
+/// §12.5.6.22's placement: what the target's width reports is which of §14.11.2's boxes the
+/// content stream was interpreted against.
+#[test]
+fn the_print_pair_decides_the_page_rendered_for_paper() {
+    for (stating, expected) in [(true, 400_u32), (false, 360_u32)] {
+        let (mut viewer, _) = opened(stating);
+        let _ = viewer
+            .handle(Command::Print(Printing::Start(Sheet {
+                media: Some([0.0, 0.0, 400.0, 400.0]),
+                scale: 1.0,
+                page_scale: 1.0,
+            })))
+            .count();
+        let Answer::PrintPage(printed) = viewer.query(Query::PrintPage(0)) else {
+            panic!("a print operation is running, so page one is answered");
+        };
+        let target = printed
+            .target
+            .expect("this page is well inside the pixel budget");
+        assert_eq!(
+            target.width,
+            expected,
+            "§12.2's /PrintArea decides the area rendered when printing, and this document \
+             states {}",
+            if stating { "/MediaBox" } else { "nothing" }
+        );
+        assert_eq!(target.height, expected, "the fixture's boxes are square");
+    }
 }

@@ -85,6 +85,12 @@ pub(crate) const DEFAULT_BACKEND: Option<Backend> = Some(Backend::Dx12);
 pub(crate) const DEFAULT_BACKEND: Option<Backend> = None;
 
 /// What the command line asked for.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent words a person typed, each read in one place and none of them a \
+              state: which backend to draw with, whether one was named at all, whether §12.8.4 \
+              material that settles nothing is acted on, and §10.8.3's answer"
+)]
 pub(crate) struct Arguments {
     /// The document to open.
     pub(crate) path: PathBuf,
@@ -120,6 +126,19 @@ pub(crate) struct Arguments {
     /// person said otherwise, which is the level that hands nothing over without a press and still
     /// performs the act the clause describes (ADR 1155).
     pub(crate) links: viewer_host::Links,
+    /// §12.6.4.3: what this window does when an action names another file, from
+    /// `--remote-documents=`.
+    ///
+    /// The same four levels as the entry above and a value of its own, because the two acts are
+    /// different: one starts another program on a URL, the other opens a PDF beside this one in
+    /// this reader. `viewer_host::RemoteDocuments::Ask` unless a person said otherwise (ADR 1227).
+    pub(crate) remote_documents: viewer_host::RemoteDocuments,
+    /// §10.8.3: whether this window asks for the separation simulation, from `--separations=`.
+    ///
+    /// A preference rather than a level: the clause conditions itself on a request no file makes
+    /// and §10.8.1 leaves it "up to the processing software". Off unless a person said otherwise
+    /// (ADR 1228).
+    pub(crate) separations: bool,
     /// The directory `--trust-anchors` named, or nothing, which is the default and means nobody.
     ///
     /// **§12.8.1's third question, as a host's input.** RFC 5280 section 6.1.1 makes the trust
@@ -202,6 +221,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut opens_at = None;
     let mut restrictions = RestrictionPolicy::default();
     let mut links = viewer_host::Links::default();
+    let mut remote_documents = viewer_host::RemoteDocuments::default();
+    let mut separations = false;
     let mut trust_anchors = None;
     let mut reference_files = None;
     let mut reader_names: Vec<String> = Vec::new();
@@ -361,6 +382,32 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                     std::process::exit(2);
                 }
             }
+        } else if let Some(level) = argument
+            .to_string_lossy()
+            .strip_prefix(viewer_host::REMOTE_DOCUMENTS)
+            .map(str::to_owned)
+        {
+            // §12.6.4.3's act, at four levels of its own (ADR 1227).
+            match viewer_host::remote_documents(&level) {
+                Ok(chosen) => remote_documents = chosen,
+                Err(complaint) => {
+                    eprintln!("{complaint}");
+                    std::process::exit(2);
+                }
+            }
+        } else if let Some(word) = argument
+            .to_string_lossy()
+            .strip_prefix(viewer_host::SEPARATIONS)
+            .map(str::to_owned)
+        {
+            // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
+            match viewer_host::separations(&word) {
+                Ok(chosen) => separations = chosen,
+                Err(complaint) => {
+                    eprintln!("{complaint}");
+                    std::process::exit(2);
+                }
+            }
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
             // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
             // prints has to name a word every host's parser takes — and for two hosts of three it
@@ -414,6 +461,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         fragment,
         restrictions,
         links,
+        remote_documents,
+        separations,
         trust_anchors,
         accept_unknown_revocation,
         reference_files,
@@ -618,6 +667,15 @@ fn policy_usage() {
     eprintln!("                starts whichever program this machine opens that scheme with, so");
     eprintln!("                ask is the default — nothing is handed over without a keypress —");
     eprintln!("                and only http, https and mailto are handed over at all.");
+    eprintln!("  {}L", viewer_host::REMOTE_DOCUMENTS);
+    eprintln!("                what §12.6.4.3's remote go-to does: L is refuse, ask, warn or");
+    eprintln!("                open. The file a document names is looked for beside the document");
+    eprintln!("                and nowhere else, at every level; ask is the default, so nothing");
+    eprintln!("                is opened in place of what you are reading without a keypress.");
+    eprintln!("  {}S", viewer_host::SEPARATIONS);
+    eprintln!("                §10.8.3's separation simulation: S is on or off. Off is what a");
+    eprintln!("                screen does — §10.8.2's alternate space and tint transform — and");
+    eprintln!("                on asks for the colours a press making separations would produce.");
 }
 
 /// What the program does when it is given nothing to open.

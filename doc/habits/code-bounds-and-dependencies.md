@@ -293,3 +293,19 @@ Five messages named a `--font` flag the program refused as a usage error (ADR 12
 existed, two of them still named it for cases it structurally cannot reach — a bare-CFF `Type1`
 dictionary and a composite font (ADR 1209). `tools/state.sh flags` catches the first shape; the
 second is read by hand at the call site that prints the message.
+
+## Before recording that a dependency cannot do something, read its public API in the pinned checkout
+
+§8.9.6.4's residue was "the JPX decoder's eight-bit hand-off" for seventy sessions; the decoder had
+exposed each component's samples at the codestream's precision the whole time, and this tree's own
+sandbox already used that path for palette indices. The narrowing was ours, at two named places
+(ADR 1232's finding). Trap 40 says a refused capability may be forty lines above the refusal; this
+is the same failure pointed at a dependency, and the convenience path is not the API.
+
+## A window that says something about an event owes the reply as well as the sentence
+
+`quorra-confined` printed a good refusal for a file a document asked for and never sent
+`Command::Supply`, so the worker kept the action pending for ever and the person's click reported
+nothing — the loud sentence was on the wrong side of the wire (ADR 1227). When a host declines an
+event the protocol gives a reply message, it declines by sending the reply; the greppable shape is a
+match arm that mentions an `Event` and pushes no `Command`.

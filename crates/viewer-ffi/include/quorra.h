@@ -203,6 +203,7 @@ extern "C" {
 /* What a file the document asks for is wanted for. */
 #define QUORRA_PURPOSE_IMPORT_DATA  0u
 #define QUORRA_PURPOSE_TARGET_ROOT  1u
+#define QUORRA_PURPOSE_REMOTE_DOCUMENT  2u
 
 /*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per
@@ -838,6 +839,15 @@ int32_t quorra_audience(quorra_viewer *viewer, const char *const *names, size_t 
                        const char *const *titles, size_t title_count,
                        const char *const *organisations, size_t organisation_count,
                        const char *language, quorra_events **events);
+
+/* §10.8.3's separation simulation: which of two pictures of the same document this reader wants.
+ *
+ * A preference rather than one of the four restriction levels: §10.8.3 conditions itself on a
+ * request no file makes, and §10.8.1 says "whether separations are produced is up to the
+ * processing software". A caller that never calls this gets §10.8.2's alternate colour space and
+ * tint transform, which is what a device that is not making separations does. Changing it
+ * re-interprets every page. */
+int32_t quorra_separations(quorra_viewer *viewer, bool simulate, quorra_events **events);
 
 /* ------------------------------------------------------------------------------------------- */
 /* Events. Owned, so that the viewer's borrow ends before the caller sees anything.               */

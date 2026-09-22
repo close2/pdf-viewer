@@ -509,7 +509,11 @@ where present its `Print` bit shall be 1 and its `Hidden`, `Invisible`, `ToggleN
   every other flag left at the default it already had — under `--authorise annotation-printing`.
   What it costs is bounded by the same table's next sentence: an annotation with no appearance
   stream ignores the flag entirely, so only one that *has* an appearance starts appearing on paper.
-  Removing an annotation, which is the second half's other future, is still not offered.
+- **The second half is built as the removal, which is this section's own default** (ADR 1234).
+  `--authorise hidden-annotation` takes the annotation out of its page's `/Annots` array, its popup
+  with it, and the report names each one with the `/F` its producer wrote. The other future —
+  clearing the hidden bits in place — is what a configuration's `preserve` would ask for, and the
+  word carries a placement or a tool today, so it has no mechanism yet.
 
 ### 3.8 Optional content whose states were automatic
 
@@ -521,9 +525,12 @@ carry a unique `/Name`, and an `/Order` array (where present) to reference every
   user event, and removing it freezes the document into one state.
 - **Default: keep the `/D` default configuration exactly as the producer set it** — which is what
   both parts require a reader to render anyway — and report which automatic behaviours stopped.
-- `/Name` and `/Order` are **Default** work: a missing name is synthesised (`Configuration 1`,
-  unique within the file) and a partial `/Order` is completed with the OCGs it omits, in the
-  file's own order.
+- **Built** (ADR 1234): `--authorise automatic-states` removes the key from every configuration the
+  object walk reaches, and refuses by name a configuration written directly inside a `/Configs`
+  array that is an object of its own. A PDF/A-4 target costs nothing here at all.
+- `/Order` is **Default** work and is built: a partial array is completed with the OCGs it omits, in
+  the file's own order. A missing `/Name` is not — `doc/pdf-a-mitigations.md` makes a synthesised
+  one a `supply` with the converter as the supplier, which is an argument of its own.
 
 ---
 

@@ -39,7 +39,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, PresentationMode, Printing, Query, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Printing, Purpose, Query, Viewer, Zoom,
 };
 
 use crate::controls::{FieldChange, Placed};
@@ -325,6 +325,19 @@ pub struct Host {
     /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
     /// `CLAUDE.md`'s four levels over the second (ADR 1155).
     links: viewer_host::Links,
+    /// §12.6.4.3: what this window does when an action names another file, per
+    /// `--remote-documents=`.
+    ///
+    /// A third value for a third subject, on the entry above's argument: starting another program
+    /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
+    /// for both would make each of them mean the other (ADR 1227).
+    remote_documents: viewer_host::RemoteDocuments,
+    /// §10.8.3: whether this window has asked for the separation simulation.
+    ///
+    /// Held here rather than asked of the core, because it is a preference a person toggles and
+    /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
+    /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
+    separations: bool,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -450,8 +463,7 @@ impl Host {
         path: &Path,
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
-        restrictions: viewer_core::RestrictionPolicy,
-        links: viewer_host::Links,
+        settings: viewer_host::Settings,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -509,8 +521,10 @@ impl Host {
                 needle: String::new(),
                 pages_left: 0,
                 widget_appearances,
-                restrictions: viewer_host::Restrictions::new(restrictions),
-                links,
+                restrictions: viewer_host::Restrictions::new(settings.restrictions),
+                links: settings.links,
+                remote_documents: settings.remote_documents,
+                separations: settings.separations,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
                 panel_wanted: true,
@@ -583,6 +597,10 @@ impl Host {
                 self.restrictions.window(),
             )),
             Command::Delegate(self.widget_appearances),
+            // §10.8.3's simulation on the same argument: it decides what colour every mark of the
+            // first interpretation is, so a preference applied after the page had been drawn
+            // would have drawn the other picture first (ADR 1228).
+            Command::Separations(self.separations),
             Command::Open {
                 id: DOCUMENT,
                 bytes,
@@ -621,6 +639,69 @@ impl Host {
                 host.say(&viewer_host::answered(&uri, proceed));
             }),
         );
+    }
+
+    /// §12.6.4.3's file, under the level this window was started at.
+    ///
+    /// The policy is `viewer_host::remote`'s and not this window's, so a level a reader sets is a
+    /// value there rather than three windows' worth of editing — ADR 1079's shape and ADR 1155's,
+    /// one clause along. What is this window's is the dialogue and the status line (ADR 1227).
+    fn remote(&mut self, name: &str, queue: &mut VecDeque<Command>) {
+        match viewer_host::remote(self.directory.as_deref(), name, self.remote_documents) {
+            viewer_host::Remote::Supply { path, note } => {
+                let bytes = self.read_remote(name, &path);
+                if bytes.is_some()
+                    && let Some(note) = note
+                {
+                    self.say(&note);
+                }
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes,
+                });
+            }
+            viewer_host::Remote::Ask { path, question } => {
+                let named = name.to_owned();
+                self.put_a_question(
+                    "Open this document?",
+                    &question,
+                    Rc::new(move |host: &mut Self, proceed| {
+                        let bytes = if proceed {
+                            host.read_remote(&named, &path)
+                        } else {
+                            host.say(&viewer_host::remote_declined(&named));
+                            None
+                        };
+                        host.dispatch(Command::Supply {
+                            purpose: Purpose::RemoteDocument,
+                            bytes,
+                        });
+                    }),
+                );
+            }
+            viewer_host::Remote::Refuse(why) => {
+                self.say(&why);
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes: None,
+                });
+            }
+        }
+    }
+
+    /// The bytes of a file `viewer_host::remote` has already decided on, or the sentence saying
+    /// why there are none.
+    fn read_remote(&self, name: &str, path: &Path) -> Option<Vec<u8>> {
+        match std::fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                self.say(&viewer_host::remote_note(
+                    name,
+                    Some(&format!("cannot read {}: {error}", path.display())),
+                ));
+                None
+            }
+        }
     }
 
     /// One question, two buttons, and whatever the person pressed handed to `answer`.
@@ -1060,6 +1141,17 @@ impl Host {
                 &submission,
                 viewer_host::policy::may_submit().err().as_deref(),
             )),
+            // §12.6.4.3's file is asked at one of four levels and §12.7.6.4's is not, and the
+            // difference is what each does: an import puts another file's *values* into the
+            // document being read, and a remote go-to opens another document in place of it —
+            // which is the act a person may want to be asked about (ADR 1227).
+            Event::NeedsFile {
+                purpose: Purpose::RemoteDocument,
+                name,
+                ..
+            } => {
+                self.remote(&name, queue);
+            }
             Event::NeedsFile { purpose, name, .. } => {
                 let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), &name)
                 {
@@ -2396,6 +2488,13 @@ impl Host {
             viewer_host::WindowAct::Measure => {
                 let on = self.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
+            }
+            // §10.8.3: the state is this window's, because it is a preference a person toggles
+            // and `viewer-core` holds none; what crosses is the answer (ADR 1228).
+            viewer_host::WindowAct::Separations => {
+                self.separations = !self.separations;
+                self.dispatch(Command::Separations(self.separations));
+                self.say(&viewer_host::separations_note(self.separations));
             }
             viewer_host::WindowAct::Notices => self.show_notices(),
             viewer_host::WindowAct::Restrictions => self.ui.menu.popup(),

@@ -39,6 +39,13 @@ pub(crate) enum Pending {
         /// The URI as `viewer_host::resolve_uri` left it.
         uri: String,
     },
+    /// §12.6.4.3's named file, answered by reading it and supplying it (ADR 1227).
+    RemoteDocument {
+        /// The file as the *document* named it, for the sentence a decline prints.
+        name: String,
+        /// Where `viewer_host::resolve_import` put it, which is what would be read.
+        path: PathBuf,
+    },
 }
 
 #[expect(
@@ -287,6 +294,14 @@ pub(crate) struct App {
     /// a seventh operation of the first: what a document *asserts over its reader* is one subject,
     /// and what a document asks **this machine to start** is the other (ADR 1155).
     pub(crate) links: viewer_host::Links,
+    /// §12.6.4.3: what this window does when an action names another file, per
+    /// `--remote-documents=`.
+    ///
+    /// A third value for a third subject, on the field above's argument: a document asking this
+    /// machine to *start another program* and a document asking this reader to *open a file
+    /// beside the one it is in* are two decisions, and one word for both would make each of them
+    /// mean the other (ADR 1227).
+    pub(crate) remote_documents: viewer_host::RemoteDocuments,
     /// What the standing question is about.
     ///
     /// Kept for [`App::locked`]'s reason one field down — the card is answered on a later turn of
@@ -438,6 +453,13 @@ pub(crate) struct App {
     /// bit 3 applied to the annotations, §8.11.4.5's `Print` event to the layers, §12.5.6.22's
     /// watermarks against the sheet — and the same key ends it.
     pub(crate) printing: bool,
+    /// Whether §10.8.3's separation simulation is on, which is this reader's preference.
+    ///
+    /// Held here rather than asked of the core for `printing`'s reason turned round: the core
+    /// holds the *answer* it was last given and this is the window's record of what it told it,
+    /// so a toggle knows which way to go and the menu knows what to show. `--separations=` sets
+    /// what it starts at (ADR 1228).
+    pub(crate) separations: bool,
     /// §12.3.4's tab: one entry per page, with its label and its decoded thumbnail.
     ///
     /// **Empty until that tab is first shown**, which is principle 2 with a clause behind it:

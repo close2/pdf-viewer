@@ -1663,9 +1663,22 @@ impl<'a> Encoder<'a> {
             def.transform.then(self.target.transform),
         );
         let (outline, rule) = match &region {
-            Some((region, rule)) => {
+            Some(pdf_render::ClipRegion::One(region, rule)) => {
                 self.consume_view();
                 (self.transient_outline(region)?, *rule)
+            }
+            // The region is the union of two fills under two different rules, and
+            // `SceneBuilder::clip` takes one outline and one rule. `MaskKind::Alpha` states the
+            // union — a group holding both fills has their combined alpha — but a mask
+            // *multiplies* into a draw and every command already carries the one the document
+            // gave it, so the two would have to be composed into a third the scene has no
+            // vocabulary for. `QUORRA_FEEDBACK.md` section 51 is the ask; until then the frame
+            // goes to the CPU backend, which composes the union into its own mask (ADR 1231).
+            Some(pdf_render::ClipRegion::Union { .. }) => {
+                return Err(QuorraRasterError::Unsupported(
+                    "a clipping path whose region is the union of two fills under two rules                      (ISO 32000-2 §10.7.4, §8.5.4): a clip takes one outline and one rule, and                      a mask multiplies into a draw that already carries one"
+                        .to_owned(),
+                ));
             }
             None => (self.transient_outline(&def.path)?, def.fill_rule),
         };

@@ -6,8 +6,9 @@
 //! the work itself in the module the arm names.
 
 use std::collections::VecDeque;
+use std::path::Path;
 
-use viewer_core::{Answer, Command, Event, Query};
+use viewer_core::{Answer, Command, Event, Purpose, Query};
 
 use crate::app::App;
 use crate::trace::{Topic, describe_command, describe_event};
@@ -203,7 +204,15 @@ answers in two places"
             // window's, so that a host with a network — or `doc/todo/38`'s ask and warn levels —
             // is a change in one place (ADR 1062). What this arm owns is saying it out loud.
             Event::Submit { submission, .. } => Self::submit(&submission),
+            // §12.6.4.3's file is asked at one of four levels and §12.7.6.4's is not, and the
+            // difference is what each does: an import puts another file's *values* into the
+            // document being read, and a remote go-to opens another document in place of it —
+            // which is the act a person may want to be asked about (ADR 1227).
             Event::NeedsFile { purpose, name, .. } => {
+                if purpose == Purpose::RemoteDocument {
+                    self.remote(&name, queue);
+                    return;
+                }
                 let bytes = self.supply(purpose, &name);
                 queue.push_back(Command::Supply { purpose, bytes });
             }
@@ -441,7 +450,68 @@ impl App {
             crate::app::Pending::Link { uri } => {
                 println!("{}", viewer_host::answered(&uri, proceed));
             }
+            // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
+            // nothing and the core says the link declined (ADR 1227).
+            crate::app::Pending::RemoteDocument { name, path } => {
+                if proceed {
+                    self.supply_remote(&name, &path);
+                } else {
+                    println!("note: {}", viewer_host::remote_declined(&name));
+                    self.dispatch(Command::Supply {
+                        purpose: Purpose::RemoteDocument,
+                        bytes: None,
+                    });
+                }
+            }
         }
+    }
+
+    /// §12.6.4.3's file, under the level this window was started at.
+    ///
+    /// The policy is `viewer_host::remote`'s and not this window's, so a level a reader sets is
+    /// a value there rather than three windows' worth of editing — which is ADR 1079's shape and
+    /// ADR 1155's, one clause along. What is this window's is where the question goes and where
+    /// the sentence is printed (ADR 1227).
+    fn remote(&mut self, name: &str, queue: &mut VecDeque<Command>) {
+        match viewer_host::remote(self.directory.as_deref(), name, self.remote_documents) {
+            viewer_host::Remote::Supply { path, note } => {
+                let bytes = App::read_remote(name, &path);
+                if bytes.is_some()
+                    && let Some(note) = note
+                {
+                    println!("note: {note}");
+                }
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes,
+                });
+            }
+            viewer_host::Remote::Ask { path, question } => {
+                self.put_a_question(
+                    crate::app::Pending::RemoteDocument {
+                        name: name.to_owned(),
+                        path,
+                    },
+                    &question,
+                );
+            }
+            viewer_host::Remote::Refuse(why) => {
+                println!("note: {why}");
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes: None,
+                });
+            }
+        }
+    }
+
+    /// The bytes of a file this window has just been given leave to open.
+    fn supply_remote(&mut self, name: &str, path: &Path) {
+        let bytes = App::read_remote(name, path);
+        self.dispatch(Command::Supply {
+            purpose: Purpose::RemoteDocument,
+            bytes,
+        });
     }
 
     /// Puts one question on the card, whatever it is about.

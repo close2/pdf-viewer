@@ -1321,6 +1321,197 @@ fn an_imported_appearance_is_written_into_the_saved_file() {
     assert!(reports.is_empty(), "{reports:?}");
 }
 
+/// The same one-page form with a push-button, and a §12.7.7 **named page** beside it.
+///
+/// The named page is in the catalog's `/Templates` tree, which §12.7.7 reserves for a page "not
+/// intended to be displayed by the PDF processor" — the state a page that exists to be used as a
+/// button's artwork is in. Its own content draws one word, so what an `/APRef` put on the widget
+/// is legible in the readback.
+fn form_with_a_button_and_a_named_page() -> Vec<u8> {
+    let original = "BT /Helv 12 Tf 0 g 2 8 Td (original) Tj ET\n";
+    let stamp = "BT /Helv 12 Tf 0 g 2 8 Td (stamped) Tj ET\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm \
+         << /Fields [5 0 R] /DR << /Font << /Helv 7 0 R >> >> >> \
+         /Names << /Templates << /Names [(stamp) 9 0 R] >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /Rect [20 40 180 70] /F 4 /FT /Btn \
+         /Ff 65536 /T (press) /DA (/Helv 12 Tf 0 g) /AP << /N 8 0 R >> >>\nendobj\n\
+         6 0 obj\nnull\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding /WinAnsiEncoding >>\nendobj\n\
+         8 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 160 30] \
+         /Resources << /Font << /Helv 7 0 R >> >> /Length {} >>\nstream\n\
+         {original}endstream\nendobj\n\
+         9 0 obj\n<< /Type /Template /MediaBox [0 0 160 30] \
+         /Resources << /Font << /Helv 7 0 R >> >> /Contents 10 0 R >>\nendobj\n\
+         10 0 obj\n<< /Length {} >>\nstream\n{stamp}endstream\nendobj\n",
+        original.len(),
+        stamp.len()
+    );
+    rebuilt(&format!("%PDF-1.7\n{body}"))
+}
+
+/// Table 249's `/APRef` with no Table 253 `/F`, end to end.
+///
+/// The entry holds "references to external PDF files containing the pages to use for the
+/// appearances of a push-button field", and Table 253 makes the file optional with a sentence
+/// about its absence: "[i]f this entry is absent, it shall be assumed that the page resides in
+/// the associated PDF file." So this branch names a page **this** document holds under §12.7.7,
+/// and what it costs is a name lookup and the conversion of that page into the form §12.5.5
+/// places. Nothing crosses between files and nothing is composed: the marks are the target
+/// document's own producer's. ADR 1235.
+#[test]
+fn an_apref_naming_a_page_of_this_document_becomes_the_widgets_appearance() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let (before, reports) = drawn(&document, &view);
+    assert!(
+        before.contains("original"),
+        "the file's own /AP: {before:?}"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+
+    let data = FormsData::read(&fdf(
+        "<< /Fields [ << /T (press) /APRef << /N << /Name (stamp) >> >> >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    assert!(data.owed.is_empty(), "{:?}", data.owed);
+    assert_eq!(
+        data.fields[0]
+            .appearance_reference
+            .iter()
+            .map(|(state, reference)| (*state, reference.name.clone()))
+            .collect::<Vec<_>>(),
+        [("N", "stamp".to_owned())]
+    );
+
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.widgets, 1);
+    assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+    let (after, reports) = drawn(&document, &view);
+    assert!(
+        after.contains("stamped"),
+        "the named page is what the widget draws: {after:?}"
+    );
+    assert!(
+        !after.contains("original"),
+        "replaced, not added: {after:?}"
+    );
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
+/// Table 249 ranks the two entries itself: "[t]his entry shall be ignored if an AP entry is
+/// present."
+#[test]
+fn an_apref_is_ignored_where_the_field_also_states_an_ap() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf_with_objects(
+        "<< /Fields [ << /T (press) /AP << /N 2 0 R >> \
+         /APRef << /N << /Name (stamp) >> >> >> ] >>",
+        &imported_appearance("imported"),
+    ))
+    .expect("an FDF catalog");
+    assert!(
+        data.fields[0].appearance_reference.is_empty(),
+        "the /APRef is not even read where an /AP is present"
+    );
+
+    view.import(&document, &data);
+    let (after, _) = drawn(&document, &view);
+    assert!(
+        after.contains("imported"),
+        "the /AP is what draws: {after:?}"
+    );
+    assert!(!after.contains("stamped"), "{after:?}");
+}
+
+/// The `/F` branch is a **host question** and is named rather than silently dropped: Table 253's
+/// entry puts the page in a second PDF file, which §12.7.6.4 makes a file a *document* named.
+#[test]
+fn an_apref_naming_another_file_is_named_as_the_host_question_it_is() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf("<< /Fields [ << /T (press) /APRef \
+         << /N << /Name (stamp) /F (library.pdf) >> >> >> ] >>"))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(
+        outcome.refused[0].contains("library.pdf"),
+        "{:?}",
+        outcome.refused
+    );
+    assert!(
+        outcome.refused[0].contains("§12.7.6.4"),
+        "{:?}",
+        outcome.refused
+    );
+
+    let (after, _) = drawn(&document, &view);
+    assert!(
+        after.contains("original"),
+        "the widget keeps its own artwork: {after:?}"
+    );
+}
+
+/// A name neither §12.7.7 tree holds is a file asking for something the document does not
+/// contain, which only somebody who can see both files can resolve.
+#[test]
+fn an_apref_naming_no_page_of_this_document_is_named() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Fields [ << /T (press) /APRef << /N << /Name (absent) >> >> >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(
+        outcome.refused[0].contains("names no page absent"),
+        "{:?}",
+        outcome.refused
+    );
+}
+
+/// The same import, written back by §7.5.6's incremental update and read again.
+///
+/// The form the conversion makes holds its content directly, so the save gives it a number —
+/// §7.3.8.1 requires a stream in a file to be an indirect object — and the widget's `/AP` names
+/// it. What the test asserts is the only thing that matters: the saved file draws what the
+/// screen showed.
+#[test]
+fn an_apref_appearance_is_written_into_the_saved_file() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Fields [ << /T (press) /APRef << /N << /Name (stamp) >> >> >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    view.import(&document, &data);
+
+    let written = view
+        .save(&document)
+        .expect("the fixture can take an update");
+    let reopened = Document::open(written.bytes.clone()).expect("the update is a valid PDF");
+    let (after, reports) = drawn(&reopened, &ViewState::of(&reopened));
+    assert!(
+        after.contains("stamped"),
+        "the saved file draws the named page: {after:?}"
+    );
+    assert!(!after.contains("original"), "{after:?}");
+    assert!(reports.is_empty(), "{reports:?}");
+}
+
 /// §12.7.8.3.4's one requirement: "[e]ach annotation dictionary in an FDF file shall have a Page
 /// entry … that shall indicate the page of the source document to which the annotation is
 /// attached", and Table 254 makes page 0 the first page.

@@ -2715,6 +2715,8 @@ mod tests {
             art_box: [0.0, 0.0, 400.0, 200.0],
             display_box: [0.0, 0.0, 400.0, 200.0],
             clip_box: [0.0, 0.0, 400.0, 200.0],
+            print_box: [0.0, 0.0, 400.0, 200.0],
+            print_clip_box: [0.0, 0.0, 400.0, 200.0],
             rotate,
             user_unit: 1.0,
         }

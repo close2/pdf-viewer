@@ -566,7 +566,7 @@ fn carry_out_the_requests(report: &Report, plan: &mut Plan) -> Result<bool, Fail
 /// **The rule is `doc/adr/1155`'s, and it is narrow on purpose**: a name a document wrote is
 /// resolved as a single path component against the directory the document itself is in, and
 /// nowhere else. `../`, an absolute path and a drive-relative one are all refused by the same
-/// check, and \u{a7}7.11.5's URL is refused because it is not a file name at all — fetching one
+/// check, and §7.11.5's URL is refused because it is not a file name at all — fetching one
 /// would be a network operation this program does not have and `CLAUDE.md` principle 3 will not
 /// acquire. Every refusal is said out loud rather than leaving a user with a conversion that
 /// quietly did nothing.
@@ -651,7 +651,7 @@ fn resolve_the_external_data(arguments: &Arguments, report: &Report, plan: &mut 
 /// no part of the viewer's vocabulary. What the two share is the *rule*, which is two sentences
 /// and is stated in both places with the ADR that decided it.
 ///
-/// **The components are \u{a7}7.11.2.1's rather than this platform's**, because the clause makes
+/// **The components are §7.11.2.1's rather than this platform's**, because the clause makes
 /// SOLIDUS "a generic component separator that shall be mapped to the appropriate
 /// platform-specific separator": a name the standard reads as three components is three
 /// components on a system whose own separator is something else, and splitting it here would ask

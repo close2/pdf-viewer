@@ -231,9 +231,14 @@ pub struct Reference {
     /// `/F`, "[t]he file containing the named page", where the reference names one.
     ///
     /// The table states the default itself — "[i]f this entry is absent, it shall be assumed
-    /// that the page resides in the associated PDF file" — so `None` means *this* document, and
-    /// `Some` is a second file this program has no filesystem to open, named rather than
-    /// silently ignored.
+    /// that the page resides in the associated PDF file" — so `None` means *this* document and is
+    /// what [`page_as_form`] and `crate::view::ViewState::import` answer, while `Some` names a
+    /// second PDF file.
+    ///
+    /// That second file is a file a **document** named, which is §12.7.6.4's hazard: its bytes
+    /// may come only from a directory a person supplied, which `viewer_host::policy::read_import`
+    /// answers and no part of this crate has (ADR 1155). It is a host question rather than an
+    /// impossibility, and it is named rather than silently ignored. ADR 1235.
     pub file: Option<String>,
 }
 
@@ -258,6 +263,123 @@ impl Reference {
             _ => None,
         };
         Some(Self { name, file })
+    }
+}
+
+/// A page this document holds, as the form `XObject` §12.5.5 places for a widget's appearance.
+///
+/// §12.7.7 states the two things naming a page is for, and this is the first of them:
+///
+/// > - An import-data action can add the named page to the document into which FDF is being
+/// >   imported, either as a page or as a button appearance.
+///
+/// *As a button appearance* is §12.7.8.3.2's `/APRef`, whose `/N`, `/R` and `/D` are Table 253
+/// named page references rather than streams. A widget's appearance is a form `XObject`: §12.5.5's
+/// algorithm maps from that form's own coordinate system, as its `/Matrix` defines it, onto the
+/// annotation's rectangle in default user space. So the conversion this needs is page to form, and
+/// Table 93 is what it is written into.
+///
+/// **The marks are the document's own producer's**, carried without reinterpretation: the content
+/// stream is §7.8.2's concatenation of the page's `/Contents` and the resources are the ones
+/// §7.7.3.4's inheritance puts in effect for it. Nothing is composed, which is `CLAUDE.md`'s
+/// provenance test (ADR 1120). ADR 1235.
+///
+/// Three entries are decided here rather than copied, and each follows a clause:
+///
+/// - **`/BBox`** is the page's crop box, which §14.11.2.1 makes "the region to which the contents
+///   of the page shall be clipped (cropped) when displayed or printed" — the same clipping Table
+///   93 gives a form's bounding box, already defaulted to the media box and intersected with it.
+/// - **`/Matrix`** carries Table 31's `/Rotate`, "[t]he number of degrees by which the page shall
+///   be rotated clockwise when displayed or printed", as the rotation about the origin that turns
+///   the page's space that way. §12.5.5's step 1 takes the bounding box *through* the matrix and
+///   bounds it upright, and its steps 2 and 3 then map that onto `/Rect`, so no translation is
+///   owed here: the algorithm supplies it.
+/// - **`/Group`** is copied where the page states one, because §11.4.7's page group and Table
+///   93's group attributes dictionary are the same dictionary — Table 31 points at §11.4.7 and
+///   §11.6.6 together — and a page whose marks the producer composited inside a group would
+///   composite differently without it.
+///
+/// `None` where the object is not a dictionary, or where a part of `/Contents` did not decode:
+/// half a page is a button drawn wrong, and a caller that gets `None` names it rather than
+/// showing marks the document did not state (trap 5).
+///
+/// **A page's `/Annots` are not part of this.** Table 31 keeps them beside `/Contents` rather than
+/// in it, and §12.5.5 draws an annotation against the page it is on; composing them into a form
+/// would be this program deciding a composition the producer did not write, which is the far side
+/// of the same fence. A page carrying them is named by the caller.
+#[must_use]
+pub fn page_as_form(
+    document: &Document,
+    pages: &crate::page::Pages<'_>,
+    id: ObjectId,
+) -> Option<Object> {
+    let object = document.get(id);
+    let dict = object.as_dict()?;
+    // A name in the `/Pages` tree is a page of the page tree, so §7.7.3.4's inheritance runs up
+    // its `/Parent`; a `/Templates` name is outside the tree and "shall have no Parent", so it
+    // inherits nothing. `Pages::get` is the first reading and `Pages::detached` the second.
+    let page = pages
+        .index_of(id)
+        .and_then(|index| pages.get(index))
+        .unwrap_or_else(|| pages.detached(dict));
+    let (content, issues) = page.content_with_report(document);
+    if !issues.is_empty() {
+        return None;
+    }
+    let mut form = pdf_syntax::Dictionary::new();
+    let name = |bytes: &[u8]| Object::Name(pdf_syntax::Name::new(bytes));
+    form.insert(pdf_syntax::Name::new(&b"Type"[..]), name(b"XObject"));
+    form.insert(pdf_syntax::Name::new(&b"Subtype"[..]), name(b"Form"));
+    form.insert(
+        pdf_syntax::Name::new(&b"BBox"[..]),
+        Object::Array(
+            page.crop_box
+                .iter()
+                .map(|edge| Object::Real(f64::from(*edge)))
+                .collect(),
+        ),
+    );
+    if let Some(matrix) = rotation(page.rotate) {
+        form.insert(
+            pdf_syntax::Name::new(&b"Matrix"[..]),
+            Object::Array(matrix.iter().map(|term| Object::Real(*term)).collect()),
+        );
+    }
+    form.insert(
+        pdf_syntax::Name::new(&b"Resources"[..]),
+        Object::Dictionary(page.resources.clone()),
+    );
+    if let Some(group) = dict.get("Group") {
+        form.insert(pdf_syntax::Name::new(&b"Group"[..]), group.clone());
+    }
+    // The bytes are written as they came out of the filters, so the stream states no `/Filter`
+    // and §7.3.8.2's `/Length` is their own count. `crate::view::ViewState` gives the stream an
+    // object number when it is saved, which §7.3.8.1 requires of a stream in a file.
+    form.insert(
+        pdf_syntax::Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(content.len()).ok()?),
+    );
+    Some(Object::Stream(std::sync::Arc::new(pdf_syntax::Stream {
+        dict: form,
+        data: content.into(),
+        decryption_failed: false,
+    })))
+}
+
+/// Table 31's `/Rotate` as the form matrix that turns a page's space that way, or `None` for a
+/// page stating no rotation.
+///
+/// The entry is "[t]he number of degrees by which the page shall be rotated clockwise", and
+/// `crate::page::Page::rotate` has already normalised it to one of the four multiples of 90 the
+/// table permits. A clockwise turn by `r` in a space whose y axis runs up is §8.3.3's rotation by
+/// `-r`, whose terms at these four angles are exactly 0, 1 and -1 — so no trigonometry is
+/// evaluated and the matrix carries no rounding.
+fn rotation(degrees: u16) -> Option<[f64; 6]> {
+    match degrees {
+        90 => Some([0.0, -1.0, 1.0, 0.0, 0.0, 0.0]),
+        180 => Some([-1.0, 0.0, 0.0, -1.0, 0.0, 0.0]),
+        270 => Some([0.0, 1.0, -1.0, 0.0, 0.0, 0.0]),
+        _ => None,
     }
 }
 

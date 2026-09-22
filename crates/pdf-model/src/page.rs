@@ -327,6 +327,21 @@ impl Boundary {
     }
 }
 
+/// The two pairs of §14.11.2 boundaries §12.2's Table 147 names, as a document states them.
+///
+/// A pair each because the table states two, and they differ only in which output they are
+/// about: `/ViewArea` and `/ViewClip` decide what a *screen* shows, `/PrintArea` and
+/// `/PrintClip` what is "rendered when printing the document". Carried together because they
+/// are read together, off one catalog, and a page built from one of them is the same page built
+/// from the other with two of its four rectangles swapped. ADR 1227.
+#[derive(Debug, Clone, Copy)]
+struct Boundaries {
+    /// Table 147's `/ViewArea` and `/ViewClip`, in that order.
+    view: (Boundary, Boundary),
+    /// Table 147's `/PrintArea` and `/PrintClip`, in that order.
+    print: (Boundary, Boundary),
+}
+
 /// How a reader knows that an object whose dictionary is damaged is a page at all.
 ///
 /// The two are different claims about the file and a reader owes the difference out loud, which
@@ -441,6 +456,20 @@ pub struct Page {
     /// screen". A document may display the media box while clipping to the trim box, and the
     /// margin between them is then blank rather than absent.
     pub clip_box: [f32; 4],
+    /// The region rendered onto paper: §12.2's `/PrintArea` boundary, the crop box by default.
+    ///
+    /// The print half of the pair above, and a separate field for the reason there are two
+    /// entries: Table 147 states `/PrintArea` as "[t]he name of the page boundary representing
+    /// the area of a page that shall be rendered when printing the document", against
+    /// `/ViewArea`'s "when viewing the document on the screen", so one page has both answers at
+    /// once and which of them is drawn is decided by what the output is for.
+    /// [`Self::render_for_printing`] is where that decision is carried out. ADR 1227.
+    pub print_box: [f32; 4],
+    /// The region paper contents are clipped to: §12.2's `/PrintClip` boundary.
+    ///
+    /// [`Self::clip_box`]'s print half, on the same footing: "[t]he name of the page boundary to
+    /// which the contents of a page shall be clipped when printing the document". ADR 1227.
+    pub print_clip_box: [f32; 4],
     /// Clockwise rotation in degrees, normalised to 0, 90, 180 or 270.
     pub rotate: u16,
     /// §7.7.3.3 Table 31's `/UserUnit`: how big a default user space unit is.
@@ -484,6 +513,31 @@ impl Page {
     #[must_use]
     pub fn height(&self) -> f32 {
         self.display_box[3] - self.display_box[1]
+    }
+
+    /// Puts this page onto Table 147's *print* pair of boundaries, for an operation rendering
+    /// it onto paper.
+    ///
+    /// §12.2 states two pairs of §14.11.2 boundaries and the difference between them is which
+    /// output each is about. `/ViewClip` is "[t]he name of the page boundary to which the
+    /// contents of a page shall be clipped when viewing the document on the screen" and
+    /// `/PrintClip` "[t]he name of the page boundary to which the contents of a page shall be
+    /// clipped when printing the document"; `/ViewArea` and `/PrintArea` are the same sentence
+    /// about the area displayed. So one page holds both answers and which of them
+    /// [`Self::display_box`] and [`Self::clip_box`] carry is decided by what the output is for
+    /// — `crate::optional_content::Purpose::Print` and nothing else.
+    ///
+    /// **The selection is here and the decision is the caller's**, which is `CLAUDE.md`'s rule
+    /// 1 in the shape every other host-stated fact takes: this crate is never told what a person
+    /// is doing and never infers it, so an operation that has said it is producing paper says so
+    /// again here. `pdf_transform`'s named-box render writes the two rectangles directly for the
+    /// same reason.
+    ///
+    /// Idempotent: [`Self::print_box`] and [`Self::print_clip_box`] are left where they are, so
+    /// a page put onto them twice is the page put onto them once. ADR 1227.
+    pub fn render_for_printing(&mut self) {
+        self.display_box = self.print_box;
+        self.clip_box = self.print_clip_box;
     }
 
     /// The rectangle one of §14.11.2's five boundaries names on this page.
@@ -561,21 +615,18 @@ pub struct Pages<'a> {
     /// entry has been checked against the descendants Table 30 defines it by and contradicted.
     /// [`Pages::new`] has the reading.
     count: usize,
-    /// §12.2's `/ViewArea` and `/ViewClip`, read once with the catalog.
+    /// §12.2's four boundary entries, read once with the catalog.
     ///
     /// Here rather than per page because they are a property of the *document*, and read at
     /// all because a page cannot say which boundary is displayed without them. The cost is
     /// one dictionary lookup in a catalog this function already holds — 58 of the 974 corpus
-    /// documents state a `/ViewerPreferences` at all and none of them states either entry.
+    /// documents state a `/ViewerPreferences` at all and none of them states any of the four.
     ///
-    /// **One pair and not two, deliberately.** Table 147 states `/PrintArea` and `/PrintClip`
-    /// beside these, of the same §14.11.2 boundaries and with the same Table 31 defaults, but of
-    /// a renderer producing *paper*: "[t]he name of the page boundary representing the area of a
-    /// page that shall be rendered when printing the document". Nothing in this program renders
-    /// one, so a second pair threaded through here would be a boundary no caller could ask for.
-    /// [`crate::viewer_preferences::ViewerPreferences`] reads all four and hands them over; §12.2's
-    /// ledger row is where the three parts of that debt are named.
-    view: (Boundary, Boundary),
+    /// **Two pairs, because Table 147 states two and this program now produces both outputs.**
+    /// `/PrintArea` and `/PrintClip` name the same §14.11.2 boundaries as `/ViewArea` and
+    /// `/ViewClip` and default the same way, of a renderer producing *paper*, and a page is
+    /// rendered for paper here since ADR 1180's print operation. ADR 1227.
+    boundaries: Boundaries,
     /// Pages found by scanning, where the page *tree* yielded none.
     ///
     /// Empty for every document whose tree yields a page, which is every well-formed file —
@@ -726,7 +777,10 @@ impl<'a> Pages<'a> {
             } else {
                 scanned.len()
             },
-            view: (preferences.view_area, preferences.view_clip),
+            boundaries: Boundaries {
+                view: (preferences.view_area, preferences.view_clip),
+                print: (preferences.print_area, preferences.print_clip),
+            },
             scanned,
         }
     }
@@ -783,7 +837,7 @@ impl<'a> Pages<'a> {
                 .fold(Inherited::default(), |so_far, node| {
                     so_far.overlay(self.document, Node::Direct(node, None))
                 });
-            let mut page = build_page(self.document, dict, &inherited, self.view, Some(id));
+            let mut page = build_page(self.document, dict, &inherited, self.boundaries, Some(id));
             page.damaged_dictionary = damage;
             return Some(page);
         }
@@ -797,7 +851,7 @@ impl<'a> Pages<'a> {
             &mut remaining,
             &mut visited,
             0,
-            self.view,
+            self.boundaries,
         )
     }
 
@@ -818,7 +872,7 @@ impl<'a> Pages<'a> {
             self.document,
             dict,
             &Inherited::default().overlay(self.document, Node::Direct(dict, None)),
-            self.view,
+            self.boundaries,
             None,
         )
     }
@@ -1325,7 +1379,7 @@ fn find_leaf(
     remaining: &mut usize,
     visited: &mut usize,
     depth: usize,
-    view: (Boundary, Boundary),
+    boundaries: Boundaries,
 ) -> Option<Page> {
     if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
         return None;
@@ -1347,7 +1401,13 @@ fn find_leaf(
         if *remaining == 0 {
             let dict = node.dictionary(document)?;
             let inherited = inherited.overlay(document, node);
-            return Some(build_page(document, &dict, &inherited, view, node.id()));
+            return Some(build_page(
+                document,
+                &dict,
+                &inherited,
+                boundaries,
+                node.id(),
+            ));
         }
         *remaining = remaining.saturating_sub(1);
         return None;
@@ -1393,7 +1453,7 @@ fn find_leaf(
             remaining,
             visited,
             depth.saturating_add(1),
-            view,
+            boundaries,
         ) {
             return Some(page);
         }
@@ -1407,7 +1467,7 @@ fn build_page(
     document: &Document,
     dict: &Dictionary,
     inherited: &Inherited,
-    view: (Boundary, Boundary),
+    boundaries: Boundaries,
     id: Option<ObjectId>,
 ) -> Page {
     // §7.7.3.4 puts a required inheritable entry in the page or in an ancestor; a page whose
@@ -1465,9 +1525,9 @@ fn build_page(
     let trim_box = production_box("TrimBox");
     let art_box = production_box("ArtBox");
 
-    // §12.2's `/ViewArea` and `/ViewClip`, which name boundaries rather than stating them.
-    // Both are `CropBox` for every document that says nothing, so this is the crop box in
-    // every corpus document and the rest of this crate reads `display_box` regardless.
+    // §12.2's four boundary entries, which name boundaries rather than stating them. All four
+    // are `CropBox` for every document that says nothing, so each is the crop box in every
+    // corpus document and the rest of this crate reads `display_box` regardless.
     let pick = |boundary| match boundary {
         Boundary::Media => media_box,
         Boundary::Crop => crop_box,
@@ -1475,7 +1535,8 @@ fn build_page(
         Boundary::Trim => trim_box,
         Boundary::Art => art_box,
     };
-    let (display_box, clip_box) = (pick(view.0), pick(view.1));
+    let (display_box, clip_box) = (pick(boundaries.view.0), pick(boundaries.view.1));
+    let (print_box, print_clip_box) = (pick(boundaries.print.0), pick(boundaries.print.1));
 
     // Rotation must be a multiple of 90. Negative and out-of-range values occur, so the
     // value is normalised rather than trusted.
@@ -1512,6 +1573,8 @@ fn build_page(
         art_box,
         display_box,
         clip_box,
+        print_box,
+        print_clip_box,
         rotate,
         user_unit,
     }

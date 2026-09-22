@@ -10,7 +10,7 @@
 //! two things this program cannot do itself — resolve a URI, read a file — leave as requests.
 
 use pdf_model::Pages;
-use pdf_model::action::{Action, EmbeddedGoTo, ImportData, TargetRoot, Trigger};
+use pdf_model::action::{Action, EmbeddedGoTo, ImportData, RemoteGoTo, TargetRoot, Trigger};
 use pdf_model::navigation::Transition;
 use pdf_model::submission::Click;
 use pdf_model::view::{Pointer, Request};
@@ -387,7 +387,7 @@ fn perform(
     if let Some(destination) = destination.as_ref() {
         jump.take(&open.document, &pages, destination);
     }
-    let (mut import, mut embedded) = (None, None);
+    let (mut import, mut embedded, mut remote) = (None, None, None);
     for request in &requests {
         match request {
             Request::Display(destination) => jump.take(&open.document, &pages, destination),
@@ -436,6 +436,7 @@ fn perform(
             }
             Request::Import(request) => import = Some(request.clone()),
             Request::Embedded(request) => embedded = Some(request.clone()),
+            Request::Remote(request) => remote = Some(request.clone()),
             Request::Transition(transition) => outcome.transitions.push(transition.clone()),
             Request::Thread(thread) => {
                 // §12.4.3's threads are read *here* rather than when the document opens: an
@@ -482,6 +483,11 @@ fn perform(
     // §12.6.4.4 last, because it replaces the document every earlier request was about.
     if let Some(embedded) = embedded {
         open_embedded(open, &embedded, &mut outcome);
+    }
+    // §12.6.4.3 after it, for the same reason and in the order §12.6.2's chain states: a chain
+    // holding both has asked for two documents and the later one is what a reader ends on.
+    if let Some(remote) = remote {
+        open_remote(open, &remote, &mut outcome);
     }
     outcome
 }
@@ -713,6 +719,118 @@ pub(crate) fn decline_root(open: &mut Open) -> Outcome {
         .map_or_else(String::new, |name| format!(" {name}"));
     outcome.notes.push(format!(
         "this link declines — GoToE:{named} was not supplied"
+    ));
+    outcome
+}
+
+/// §12.6.4.3's remote go-to, as far as a crate with no filesystem can take it.
+///
+/// > A remote go-to action is similar to an ordinary go-to action but jumps to a destination in
+/// > another PDF file instead of the current file.
+///
+/// Table 203's `/F` is "[t]he file in which the destination shall be located", and by rule 2 the
+/// question of whether this machine gives a document a file is never this crate's. So the walk
+/// suspends here and the *name* goes to whoever opened the document, which is exactly what
+/// [`open_embedded`] does with Table 204's `/F` and what §12.7.6.4's import does with Table
+/// 243's; [`resume_remote`] is where it continues against the bytes that come back. ADR 1227.
+fn open_remote(open: &mut Open, remote: &RemoteGoTo, outcome: &mut Outcome) {
+    match &remote.file {
+        // §7.11.2.2's forbidden relative URL is the one form nothing is asked for, because
+        // asking would mean having resolved it — which is the hazard that sentence is about.
+        TargetRoot::ForbiddenUrl(url) => outcome.notes.push(format!(
+            "this link declines — GoToR: §7.11.2.2 limits a relative URL file specification to a \
+             path, and {url} is not one"
+        )),
+        TargetRoot::Url {
+            url,
+            relative: true,
+        } => outcome.notes.push(format!(
+            "this link declines — GoToR: {url} is a partial URL and where this document itself \
+             is is not this reader's to know"
+        )),
+        TargetRoot::File(_) | TargetRoot::Url { .. } => {
+            open.opening = Some(remote.clone());
+            outcome
+                .needs_file
+                .push((Purpose::RemoteDocument, remote.file.name().to_owned()));
+        }
+    }
+}
+
+/// §12.6.4.3's jump made, against the document a host supplied.
+///
+/// **The bounds are the source document's, unchanged across the pause**, which is
+/// [`resume_root`]'s sentence for [`resume_root`]'s reason: a document reached through an action
+/// is held to the bounds of the one a person opened.
+///
+/// A host that declines is answered by [`decline_remote`] instead, and both say so out loud: a
+/// click that silently does nothing is indistinguishable from a click on nothing (trap 5).
+pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
+    let mut outcome = Outcome::default();
+    let Some(remote) = open.opening.take() else {
+        return outcome;
+    };
+    let name = remote.file.name().to_owned();
+    let opened = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+        Ok(opened) => opened,
+        Err(error) => {
+            outcome.notes.push(format!(
+                "this link declines — GoToR: cannot read {name}: {error}"
+            ));
+            return outcome;
+        }
+    };
+    let mut replacement = Open::around(opened);
+    if replacement.page_count == 0 {
+        outcome
+            .notes
+            .push(format!("this link declines — GoToR: {name} has no pages"));
+        return outcome;
+    }
+    // Read in the *remote* document, because that is the only document either entry is about:
+    // §12.3.2.2 makes an explicit destination's first element "an integer page number within the
+    // remote document", and Table 203's `/SD` names "a structure element ID in the remote
+    // document".
+    let pages = Pages::new(&replacement.document);
+    let page_index = remote
+        .page_in(&replacement.document, &pages)
+        .filter(|index| *index < replacement.page_count);
+    drop(pages);
+    let Some(page_index) = page_index else {
+        outcome.notes.push(format!(
+            "this link declines — GoToR: {name} holds no page this action names"
+        ));
+        return outcome;
+    };
+    replacement.page_index = page_index;
+    if remote.new_window == Some(true) {
+        // Table 203 states no `shall` about a new window and this program's preference — which
+        // the entry's own last sentence defers to when it is absent — is one document in one
+        // view, the same answer Table 204's identical entry already gets.
+        outcome.notes.push(
+            "this link asks for a new window; this view has one, so the remote document replaces \
+             what was open"
+                .to_owned(),
+        );
+    }
+    outcome.notes.push(format!(
+        "opened {name}, {} page(s), at page {}",
+        replacement.page_count,
+        page_index.saturating_add(1)
+    ));
+    outcome.replacement = Some(Box::new(replacement));
+    outcome
+}
+
+/// What is said when a host will not supply Table 203's `/F`.
+pub(crate) fn decline_remote(open: &mut Open) -> Outcome {
+    let mut outcome = Outcome::default();
+    let named = open
+        .opening
+        .take()
+        .map_or_else(String::new, |remote| format!(" {}", remote.file.name()));
+    outcome.notes.push(format!(
+        "this link declines — GoToR:{named} was not supplied"
     ));
     outcome
 }

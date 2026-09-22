@@ -217,6 +217,12 @@ pub(crate) struct Open {
     /// re-derived: `pdf_model::action::MAX_TARGET_DEPTH` bounded the path when the action was
     /// read, and the limits the target's children are decoded under are this document's.
     pub(crate) resuming: Option<EmbeddedGoTo>,
+    /// §12.6.4.3's remote go-to, suspended at Table 203's `/F` until the document arrives.
+    ///
+    /// The whole action rather than its destination, for `resuming`'s reason: both of the
+    /// entries that name a page — `/D` and `/SD` — are read in the document that has not arrived
+    /// yet, and neither means anything in this one. ADR 1227.
+    pub(crate) opening: Option<pdf_model::action::RemoteGoTo>,
     /// An edit the document restricts, held until the person answers `Event::Asking`.
     ///
     /// The *ask* level's whole state: resolved already, for [`Done`]'s reason — what goes ahead
@@ -853,6 +859,7 @@ impl Open {
             focus: None,
             importing: None,
             resuming: None,
+            opening: None,
             asking: None,
             printing: None,
             restrictions: crate::RestrictionOverride::NONE,
@@ -1068,16 +1075,30 @@ impl Open {
     /// choice: §12.7.8.3.3 says a template page is added to the document and states no place,
     /// and after the document's own pages is the only order that leaves every existing page
     /// index meaning what it meant.
+    ///
+    /// **And on §12.2's print pair of boundaries while a print operation stands.** Table 147
+    /// states `/PrintArea` and `/PrintClip` beside `/ViewArea` and `/ViewClip` — "[t]he name of
+    /// the page boundary representing the area of a page that shall be rendered when printing
+    /// the document" against the same sentence about the screen — so which pair a page carries
+    /// is decided by what the output is for, and this is the one place in this crate where a
+    /// page is built. The purpose is the one `begin_printing` stated, which is why nothing here
+    /// consults `printing` instead: `ViewState` is where an operation says what it is producing
+    /// and `Page::render_for_printing` is where that reaches a rectangle. ADR 1227.
     pub(crate) fn page(&self, index: usize) -> Option<Page> {
         let pages = Pages::new(&self.document);
-        if let Some(page) = pages.get(index) {
-            return Some(page);
+        let mut page = if let Some(page) = pages.get(index) {
+            page
+        } else {
+            let appended = index.checked_sub(pages.len())?;
+            let object = self
+                .document
+                .get(*self.view.appended_pages().get(appended)?);
+            pages.detached(object.as_dict()?)
+        };
+        if self.view.purpose() == pdf_model::optional_content::Purpose::Print {
+            page.render_for_printing();
         }
-        let appended = index.checked_sub(pages.len())?;
-        let object = self
-            .document
-            .get(*self.view.appended_pages().get(appended)?);
-        Some(pages.detached(object.as_dict()?))
+        Some(page)
     }
 
     /// Turns what a host asked for into what was done, or `None` where nothing was.

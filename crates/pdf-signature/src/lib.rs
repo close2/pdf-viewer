@@ -11,9 +11,9 @@
 //!
 //! [`signature`] is the clause: Table 255's dictionary, §12.8.2.2's `/DocMDP` level, §12.8.6's
 //! usage rights, §12.8.4's document security store, and the three questions §12.8.1 divides the
-//! subject into — has the document changed, does the signature verify, is the signer trusted —
-//! of which this program answers the first two and reports the third as unanswered. Its module
-//! documentation says what each answer proves, which is less than the words usually suggest.
+//! subject into — has the document changed, does the signature verify, is the signer trusted.
+//! Its module documentation says what each answer proves, which is less than the words usually
+//! suggest; the third is [`trust`]'s and [`verdict`]'s, under anchors a host supplies.
 //!
 //! [`cms`] reads RFC 5652's `SignedData` out of §12.8.3.3's signature value, [`x509`] reads RFC
 //! 5280's certificate out of that, [`trust`] builds and validates a certification path from them
@@ -41,12 +41,26 @@
 //! signature is a restriction on the reader, and `pdf_model::restriction` is where those are
 //! collected.
 //!
-//! # Nothing here is called valid
+//! # One type may say *valid*, and it cannot be made without the proof
 //!
-//! Deliberate, and stated in [`signature`] at length: this program has no trust store and no
-//! network, so §12.8.1's third question is not answered, and a word that implies it was answered
-//! is not used. ADR 0215 separated the three questions; ADRs 0229, 0314, 0322 and 0532 answered
-//! the second for each family in turn.
+//! §12.8.1's three questions all have an answer here, and the word that joins them is a type
+//! rather than a convention every module has to keep. [`verdict::Valid`] has no public
+//! constructor and no public field, [`verdict::Verdict::reached`] is the only function in this
+//! tree that makes one, and it takes a [`verdict::Anchored`] — which only a [`trust::Trust`] that
+//! reached an anchor can produce. So a caller holding no anchor cannot reach the word by any
+//! path, including a wrong one.
+//!
+//! The anchors are an input and never this crate's: RFC 5280 section 6.1.1 makes them input (d)
+//! and says the choice is the verifier's policy, so [`trust`] holds no certificate list, opens no
+//! socket and asks no clock. With none supplied the answer is [`trust::Trust::NoAnchorSupplied`],
+//! which is a statement about this program rather than about the signature. Every verdict is
+//! asserted as of an instant and carries which one, because *valid* with no instant reads as
+//! *valid now*, and that is the one thing this crate never establishes.
+//!
+//! [`verdict`] states what the word is claimed to mean and what it is not. ADR 0215 separated the
+//! three questions; ADRs 0229, 0314, 0322 and 0532 answered the second for each family in turn;
+//! ADR 1039 made the anchor a host's to supply, ADR 1067 the revocation material the document's
+//! own, and ADR 1076 the word a type.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

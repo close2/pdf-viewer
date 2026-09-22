@@ -395,6 +395,7 @@ pub const fn asked_for(purpose: Purpose) -> &'static str {
     match purpose {
         Purpose::ImportData => "import-data",
         Purpose::TargetRoot => "GoToE",
+        Purpose::RemoteDocument => "GoToR",
     }
 }
 
@@ -853,6 +854,279 @@ pub fn uri_note(uri: &str, refused: Option<&str>) -> String {
         Some(why) => format!("link: declined — {why}. The document asked for {uri}"),
         None => format!("link: {uri}"),
     }
+}
+
+/// The word a person types to ask for ISO 32000-2 §10.8.3's separation simulation.
+///
+/// `on` or `off`, and **not** one of `CLAUDE.md`'s four levels: those are for what a *document*
+/// asserts over its reader, and §10.8.3 is the reader asking for a different picture of their own
+/// document. There is nothing here to ask a person about and nothing to warn them of, so two
+/// words are the whole vocabulary (ADR 1189 section 2 draws the same line about `/SA`).
+///
+/// **Off unless a person says otherwise**, which is what §10.8.1 leaves it as — "[w]hether
+/// separations are produced is up to the processing software" — and what §10.8.2 describes a
+/// screen doing: the alternate colour space and its tint transform, with the overprint controls
+/// ignored. ADR 1228.
+pub const SEPARATIONS: &str = "--separations=";
+
+/// Reads [`SEPARATIONS`]'s word, or says what is wrong with it.
+///
+/// # Errors
+///
+/// The sentence to print, naming both words this option takes — [`links`]'s shape, because a
+/// person meets them on the same command line.
+pub fn separations(word: &str) -> Result<bool, String> {
+    match word {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(format!(
+            "{SEPARATIONS}{word}: no such setting. One of on, off"
+        )),
+    }
+}
+
+/// What a window says when §10.8.3's simulation is turned on or off.
+///
+/// One sentence in one place, for [`refused`]'s reason: three windows each writing it is where
+/// two of them stop agreeing. It names the clause because a person who has just seen every colour
+/// on the page change is owed what changed it.
+#[must_use]
+pub fn separations_note(simulating: bool) -> String {
+    if simulating {
+        format!(
+            "separation simulation is on ({SEPARATIONS}on): colours are drawn as a press making \
+             separations would produce them (ISO 32000-2 §10.8.3)"
+        )
+    } else {
+        format!(
+            "separation simulation is off ({SEPARATIONS}off): colours are drawn through each \
+             space's own alternate and tint transform (ISO 32000-2 §10.8.2)"
+        )
+    }
+}
+
+/// The values a person's command line sets, carried into a window as one thing.
+///
+/// **One argument rather than four, and `viewer-ui`'s own `Policies` is the precedent**: these are
+/// one subject — the decisions `CLAUDE.md` principle 3 says are a *reader's* rather than a
+/// document's — and a window's constructor taking them one by one is a signature that grows by one
+/// every time this module answers another clause. What is *not* here is anything a document states:
+/// each of these is a fact about the person at the keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Settings {
+    /// How much of what a document asserts over its reader this window obeys (`RESTRICTIONS`).
+    pub restrictions: viewer_core::RestrictionPolicy,
+    /// What §12.6.4.8's link does on this machine ([`LINKS`]).
+    pub links: Links,
+    /// What §12.6.4.3's remote go-to does ([`REMOTE_DOCUMENTS`]).
+    pub remote_documents: RemoteDocuments,
+    /// Whether §10.8.3's separation simulation is asked for ([`SEPARATIONS`]).
+    pub separations: bool,
+}
+
+/// The word a person types to say what this reader does with §12.6.4.3's remote go-to.
+///
+/// `CLAUDE.md`'s four levels over one act: `refuse`, `ask`, `warn` and `open`, the same four
+/// words and the same direction as [`LINKS`], because the permissive end is again the one where
+/// something the *document* named is acted on.
+///
+/// **A value of its own rather than [`Links`] reused, and the division is ADR 1155's own.** That
+/// ADR put `file` outside [`LINK_SCHEMES`] on the ground that opening a file a document named is
+/// a different question, decided by a person-supplied directory rather than by the link level —
+/// so a reader who set `{LINKS}open` said that their browser may be started on a URL, and has
+/// said nothing about which PDFs beside their document may be parsed; a reader who set
+/// `{LINKS}refuse` said they want no other program started, and has not said they may not follow
+/// a cross-reference inside their own set of documents. One value for both would make each of
+/// those two sentences mean the other. ADR 1227.
+pub const REMOTE_DOCUMENTS: &str = "--remote-documents=";
+
+/// What this reader does when §12.6.4.3's action names another file.
+///
+/// `CLAUDE.md` principle 3's four levels over the one decision [`remote`] takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemoteDocuments {
+    /// Open nothing: the action is declined and the file the document named said out loud.
+    Refuse,
+    /// Put the file to the person first, and open it on a `yes`.
+    ///
+    /// **The default, on [`Links::Ask`]'s argument applied to this act.** Two things have to hold
+    /// at once: a document never reaches a file on this disk by itself, and a reader is not
+    /// refused by their own viewer the jump §12.6.4.3 describes — a set of documents that
+    /// cross-reference each other is what the clause exists for. *Ask* is the only level that is
+    /// both. A face with no dialogue answers it with [`unanswerable`] and supplies nothing, which
+    /// is what keeps *ask* from behaving like *open* in silence. ADR 1227.
+    #[default]
+    Ask,
+    /// Open it, and say afterwards which file was opened.
+    Warn,
+    /// Open it without asking.
+    Open,
+}
+
+impl RemoteDocuments {
+    /// All four, in the order a person reads them: least permissive to most.
+    pub const ALL: [Self; 4] = [Self::Refuse, Self::Ask, Self::Warn, Self::Open];
+
+    /// The word [`REMOTE_DOCUMENTS`] takes for this level.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Ask => "ask",
+            Self::Warn => "warn",
+            Self::Open => "open",
+        }
+    }
+
+    /// The level a word names, or `None` for a word that names none.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.as_str() == word)
+    }
+}
+
+/// Reads [`REMOTE_DOCUMENTS`]'s word onto a level, or says what is wrong with it.
+///
+/// # Errors
+///
+/// The sentence to print, naming every word this option takes — [`links`]'s shape, because a
+/// person meets both on the same command line.
+pub fn remote_documents(word: &str) -> Result<RemoteDocuments, String> {
+    RemoteDocuments::parse(word).ok_or_else(|| {
+        format!(
+            "{REMOTE_DOCUMENTS}{word}: no such level. One of {}",
+            RemoteDocuments::ALL.map(RemoteDocuments::as_str).join(", ")
+        )
+    })
+}
+
+/// What a host does about one §12.6.4.3 file: a file to read, a question to put, or a refusal.
+///
+/// [`Link`]'s shape and for [`Link`]'s reason — the act, the level and every sentence around them
+/// are decided once here, and what a dialogue looks like is a toolkit's. The path is carried
+/// rather than the bytes because reading a file is input/output and this is a policy:
+/// [`resolve_import`] is the decision and `std::fs::read` is what follows it, which is the same
+/// split [`read_import`] is one half of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Remote {
+    /// Read this file and supply it. `note` is what [`RemoteDocuments::Warn`] adds afterwards.
+    Supply {
+        /// The file, resolved by [`resolve_import`]'s rule and nothing else.
+        path: PathBuf,
+        /// What to say once it has been opened, where the level asks for a sentence.
+        note: Option<String>,
+    },
+    /// Put this question to the person; on a `yes`, read `path` and supply it.
+    Ask {
+        /// The file the answer is about.
+        path: PathBuf,
+        /// The words, from [`asked_to_open_remote`].
+        question: crate::restriction::Question,
+    },
+    /// Supply nothing, and say this.
+    Refuse(String),
+}
+
+/// Whether §12.6.4.3's named file may be **opened in this reader**, and from where.
+///
+/// §12.6.4.3 describes an action that "jumps to a destination in another PDF file instead of the
+/// current file" and Table 203 makes `/F` "[t]he file in which the destination shall be located".
+/// Which files a document may name is a property of the *processor* and not of the format, which
+/// is the same sentence §12.7.6.4's import-data action is answered with — so the path is resolved
+/// by [`resolve_import`]'s two rules and by nothing looser, and the level decides the act that is
+/// left.
+///
+/// **The path rule comes before the level, and that order is the point.** A name outside the
+/// document's own directory is refused at every level including *open*: a reader who said their
+/// documents may cross-reference each other did not say that any file on this disk may be opened
+/// on a document's say-so, and ADR 1155 fixed that nothing may be looser than the import policy.
+/// What *open* turns on is the one act that is left. ADR 1227.
+#[must_use]
+pub fn remote(directory: Option<&Path>, name: &str, level: RemoteDocuments) -> Remote {
+    let path = match resolve_import(directory, name) {
+        Ok(path) => path,
+        Err(refusal) => {
+            return Remote::Refuse(supply_note(Purpose::RemoteDocument, &refusal.to_string()));
+        }
+    };
+    match level {
+        RemoteDocuments::Refuse => Remote::Refuse(remote_note(
+            name,
+            Some(&format!(
+                "this reader is set to open no file a document names ({REMOTE_DOCUMENTS}{}); \
+                 {REMOTE_DOCUMENTS}{} puts the file to you first",
+                RemoteDocuments::Refuse.as_str(),
+                RemoteDocuments::Ask.as_str()
+            )),
+        )),
+        RemoteDocuments::Ask => Remote::Ask {
+            question: asked_to_open_remote(name, &path),
+            path,
+        },
+        RemoteDocuments::Warn => Remote::Supply {
+            path,
+            note: Some(format!(
+                "it was opened without asking you first, because this reader is set to \
+                 {REMOTE_DOCUMENTS}{}",
+                RemoteDocuments::Warn.as_str()
+            )),
+        },
+        RemoteDocuments::Open => Remote::Supply { path, note: None },
+    }
+}
+
+/// What a window puts in front of a person at [`RemoteDocuments::Ask`].
+///
+/// [`asked_to_open`]'s two-string shape and for its reason: a reader who has met one of this
+/// program's questions has met the other, and no window may word either for itself. What differs
+/// is the subject — this one names the file the document asked for **and** the path it resolved
+/// to, because the second is the only thing that says which file on this disk would be read.
+#[must_use]
+pub fn asked_to_open_remote(name: &str, path: &Path) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "A link in this document asks to open {name}, which is {} beside the document. This \
+             reader would open that file in place of the one you are reading (ISO 32000-2 \
+             §12.6.4.3).",
+            path.display()
+        ),
+        choice: format!(
+            "You have set this reader to ask before opening a file a document names \
+             ({REMOTE_DOCUMENTS}{}). \"{}\" opens this one and leaves the level where it is; \
+             \"{}\" leaves it unopened. {REMOTE_DOCUMENTS}{} stops the question being asked, and \
+             {REMOTE_DOCUMENTS}{} stops such a file being opened at all.",
+            RemoteDocuments::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT,
+            RemoteDocuments::Open.as_str(),
+            RemoteDocuments::Refuse.as_str()
+        ),
+    }
+}
+
+/// What a host says about a remote go-to, whether it opens the file or declines.
+///
+/// [`uri_note`]'s shape, for [`uri_note`]'s reason: a person who clicked a link is owed *what it
+/// named* rather than the word "declined".
+#[must_use]
+pub fn remote_note(name: &str, refused: Option<&str>) -> String {
+    match refused {
+        Some(why) => format!("GoToR: declined — {why}. The document asked for {name}"),
+        None => format!("GoToR: {name}"),
+    }
+}
+
+/// What a host says about the answer to [`Remote::Ask`] when the person said no.
+///
+/// A decline is said out loud rather than passed over in silence, which is [`answered`]'s reason
+/// one clause over. A `yes` is said by whatever the core reports about the document it opened, so
+/// this has nothing to add to one.
+#[must_use]
+pub fn remote_declined(name: &str) -> String {
+    remote_note(
+        name,
+        Some(&format!("you answered \"{}\"", crate::restriction::DO_NOT)),
+    )
 }
 
 /// Whether §7.11.4's extracted bytes may be **opened as a document** in this reader.

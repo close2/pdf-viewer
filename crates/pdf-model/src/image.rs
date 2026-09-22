@@ -933,11 +933,11 @@ fn colour_space(
     // a fill that was the intent's (ADR 1001, ADR 1008). The intent travels in `into` because
     // that is what the interpreter already hands every route that converts after it.
     let intent = into.output_intent();
-    let resolved = crate::colour::ColourSpace::parse_with_output_intent(
+    let resolved = crate::colour::ColourSpace::parse_under(
         document,
         &space,
         resources,
-        intent.as_ref(),
+        crate::colour::Reading::new(intent.as_ref()).under_separations(into.separations()),
     )
     .ok_or_else(|| ImageError::UnsupportedColourSpace {
         space: String::from_utf8_lossy(&family).into_owned(),
@@ -1990,11 +1990,11 @@ fn decode_jpx(
         // and a `/DeviceCMYK` stated here means what it means on this page.
         let intent = into.output_intent();
         Some(
-            crate::colour::ColourSpace::parse_with_output_intent(
+            crate::colour::ColourSpace::parse_under(
                 document,
                 &declared,
                 resources,
-                intent.as_ref(),
+                crate::colour::Reading::new(intent.as_ref()).under_separations(into.separations()),
             )
             .ok_or_else(|| ImageError::UnsupportedColourSpace {
                 space: space_name(&declared),
@@ -3169,6 +3169,20 @@ fn convert_channels(
 /// larger for being a pair.
 const PREFER_DEVICE_SCALE_ABOVE: u64 = 1 << 24;
 
+/// The bound above also caps the grey plane a codec-carrying soft mask decodes to, and it has to
+/// admit the ones the corpus states — ISO 32000-2 §11.6.5.2, ADR 1232.
+///
+/// Reusing a measured constant for a third question costs one thing: a later round lowering it for
+/// the grid it was measured on would take a mask out of that route with nothing saying so, and the
+/// sentence §11.6.5.2's ledger row carries about the corpus would quietly stop being true. So the
+/// measurement is a compile-time assertion rather than a comment — 6 522 400 samples in
+/// `22060_A1_01_Plans.pdf`, the largest of the 16 masks standing behind an image codec over the
+/// 974 tracked documents (trap 38).
+const _: () = assert!(
+    PREFER_DEVICE_SCALE_ABOVE >= 6_522_400,
+    "the plane bound is under the corpus's largest codec-carrying soft mask"
+);
+
 /// The grid a mask and its image would be combined on, if it is one this will allocate.
 ///
 /// The bound is on how much the combination costs *beyond the image*, and it has to be: a
@@ -4277,22 +4291,20 @@ fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
 ///
 /// Three things decide it, and each is the clause's own restriction rather than a convenience:
 ///
-/// - **The stream carries no image codec.** [`unpack`]'s samples are packed rows in the file's
-///   own bytes, so any grid can be read out of them by indexing; a `DCTDecode` or `JPXDecode`
-///   codestream has to be decoded before a sample has a position at all, and decoding it whole
-///   is the cost this route exists to avoid. A `JPXDecode` *base image* over the worker's
-///   budget does decode at one of its own reduced levels now (§7.4.9 NOTE 3, `decode_jpx`),
-///   but that reduction answers a memory budget once, not a device's grid per draw — a
-///   codec-carrying mask on this route would decode per raster request, which is the cost the
-///   packed-bytes design refuses. **This sentence read "No corpus document states one" and was
-///   false in both populations, measured in the six-hundred-and-eighty-second session**
-///   (`examples/absence_audit --crawl`): 6 of the curated 1251 documents state a codec-carrying
-///   `/SMask` and 2882 of the `SafeDocs` crawl's 65 944 do. What survives is the sentence one
-///   condition narrower, and the narrowing is the point — this arm is reached only where
-///   [`worth_combining`] has already refused the finer grid, so a codec-carrying mask is
-///   *ordinarily* combined and drawn and only a large enough pair arrives here. That population
-///   is **6 documents of the 65 944 and none of the 1251**, and what they get is the eager
-///   combination rather than a refusal.
+/// - **A stream carrying an image codec states a grid [`PREFER_DEVICE_SCALE_ABOVE`] admits.**
+///   [`unpack`]'s samples are packed rows in the file's own bytes, so any grid can be read out
+///   of them by indexing and the file's own stream is the whole cost; a `DCTDecode` or
+///   `JPXDecode` codestream has a sample at no position until it is decoded, so the route's
+///   cost for one is the decoded plane instead. [`MaskCache`] is keyed by the mask's own
+///   `ObjectId`, so that plane is decoded once per document rather than once per raster
+///   request, and what the route then owes is a bound on it — which is this same constant, the
+///   one that already decides that a pair this large is better read at the device's grid and
+///   that already bounds the grey plane [`SoftMaskAtDeviceScale::cells`] produces. A grid past
+///   it takes the eager combination it took before, up to [`combined_grid`]'s ceiling. One byte
+///   per sample of plane and four of transient RGBA, so 2^24 samples is 16 MiB kept against
+///   `issue16263.pdf`'s 604 MB, which is the number this route exists for (ADR 1232).
+///   `22060_A1_01_Plans.pdf`'s 6 522 400-sample mask is the largest of the 16 that stand behind
+///   a codec over the 974 tracked documents, and it is inside the bound.
 /// - **The colour space is `DeviceGray`.** Table 143 requires it — "Required; shall be
 ///   `DeviceGray`" — and it is what makes a sample's opacity a lookup rather than a colour
 ///   conversion. `soft_mask_entry` tolerates any one-component space for the ordinary route,
@@ -4300,7 +4312,9 @@ fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
 /// - **The depth is one Table 87 names.** The same five [`unpack`] admits, for the same
 ///   reason: a depth the standard does not name says nothing about how the bytes are packed.
 fn eligible_for_the_device_scale(document: &Document, mask_dict: &Dictionary) -> bool {
-    if image_codec(document, mask_dict).is_some() {
+    if image_codec(document, mask_dict).is_some()
+        && !decodes_within_the_plane_bound(document, mask_dict)
+    {
         return false;
     }
     if !matches!(
@@ -4316,6 +4330,20 @@ fn eligible_for_the_device_scale(document: &Document, mask_dict: &Dictionary) ->
             .unwrap_or(8),
         1 | 2 | 4 | 8 | 16
     )
+}
+
+/// Whether a codec-carrying mask's grid is one this route will decode a grey plane for.
+///
+/// The plane is one byte per sample and [`MaskCache`] holds it for the document's life, so the
+/// bound is on the grid the file states rather than on anything a device asks for — a decode is
+/// a cost paid once and a raster request is not.
+fn decodes_within_the_plane_bound(document: &Document, mask_dict: &Dictionary) -> bool {
+    let dimension =
+        |key| crate::integer_entry::dimension(document, mask_dict, key).filter(|value| *value > 0);
+    let (Some(width), Some(height)) = (dimension("Width"), dimension("Height")) else {
+        return false;
+    };
+    u64::from(width).saturating_mul(u64::from(height)) <= PREFER_DEVICE_SCALE_ABOVE
 }
 
 /// §11.6.5.2's soft-mask image, kept in the file's own packed samples.
@@ -5084,6 +5112,16 @@ impl Parts {
 /// case [`unapplied_soft_mask`] does not cover and this does not either: an image visibly
 /// present and opaque beats one dropped entirely, which is the same choice
 /// [`apply_soft_mask`] makes for the same reason.
+///
+/// # Two shapes of sample, and one shape of answer
+///
+/// A stream whose filters all leave samples behind is kept as the file wrote it: packed rows,
+/// the file's own depth, and §8.9.5.2's map alongside. A stream carrying an image codec has no
+/// sample at any position until it is decoded, so it is decoded once here into an eight-bit
+/// grey plane and kept as that — the map already applied, which is why the map stored beside it
+/// is Table 88's identity for eight-bit `DeviceGray` rather than the dictionary's. Both shapes
+/// answer [`SoftMaskAtDeviceScale::raster`] the same way, and [`MaskCache`]'s key makes the
+/// decode a cost per document rather than per raster request (ADR 1232).
 fn device_scaled_soft_mask(
     document: &Document,
     dict: &Dictionary,
@@ -5094,6 +5132,9 @@ fn device_scaled_soft_mask(
     let dimension =
         |key| crate::integer_entry::dimension(document, mask_dict, key).filter(|value| *value > 0);
     let (width, height) = (dimension("Width")?, dimension("Height")?);
+    if image_codec(document, mask_dict).is_some() {
+        return decoded_grey_plane(document, mask);
+    }
     let bits = u32::try_from(
         document
             .get_key(mask_dict, "BitsPerComponent")
@@ -5112,6 +5153,43 @@ fn device_scaled_soft_mask(
         height,
         bits,
         decode: Arc::new(decode),
+    })
+}
+
+/// A codec-carrying soft mask decoded once, as one byte of opacity per sample.
+///
+/// The decode is [`apply_soft_mask`]'s, made on the same two terms and for the same reasons: no
+/// resource dictionary, so that §8.6.5.6's defaults cannot remap a mask value, and
+/// [`Conversion::device`], because "§11.6.5.2's mask is read for its one channel of opacity, not
+/// for colour". Table 143 required `DeviceGray` and [`eligible_for_the_device_scale`] checked
+/// it, so the three colour channels of a decoded sample hold one value and the first of them is
+/// it.
+///
+/// The grid comes back from the decode rather than from the dictionary, because a `JPXDecode`
+/// codestream may have been decoded at one of its own reduced levels (§7.4.9 NOTE 3) and the
+/// plane this keeps is the one that exists.
+fn decoded_grey_plane(document: &Document, mask: &Stream) -> Option<SoftMaskAtDeviceScale> {
+    let Flattened { image, .. } = decode(
+        document,
+        mask,
+        &Dictionary::new(),
+        pdf_render::Color::BLACK,
+        &Conversion::device(),
+    )
+    .ok()?;
+    let plane: Vec<u8> = image
+        .data
+        .chunks_exact(4)
+        .map(|sample| sample.first().copied().unwrap_or(0))
+        .collect();
+    Some(SoftMaskAtDeviceScale {
+        data: Arc::from(plane),
+        width: image.width,
+        height: image.height,
+        bits: 8,
+        // The decode above applied §8.9.5.2's map already, so what is left is Table 88's
+        // default pair for `DeviceGray` — the identity from an eight-bit sample to a component.
+        decode: Arc::new(Decode::from_pairs(&[], &ColourSpace::Gray, 8)),
     })
 }
 

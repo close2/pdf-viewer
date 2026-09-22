@@ -840,7 +840,15 @@ impl Configuration {
                 continue;
             }
             let built = match row.remedy {
-                Kind::Discard => losses.contains_key(row.site.as_str()),
+                // A `discard` is carried out where the loss table names the site — that is what
+                // the word authorises — **and equally where the site's answer needs nothing
+                // authorised at all**: a rewrite that loses nothing never stops the conversion,
+                // so *do not stop here* is already done and the note saying the site stays
+                // refused would be false (`doc/adr/1233`).
+                Kind::Discard => {
+                    losses.contains_key(row.site.as_str())
+                        || decision::answered_without_authorisation(&row.site)
+                }
                 Kind::Derive => self.derivation(row).is_some(),
                 Kind::Supply => supplied(row).is_some(),
                 // A `preserve` by appended page is built at the one site `PRESERVABLE_BY_PAGE`
@@ -1857,6 +1865,23 @@ remedy = \"discard\"
     }
 
     #[test]
+    fn a_discard_where_nothing_needs_authorising_is_carried_out_and_not_named() {
+        // `doc/adr/1233`: `discard` says *do not stop the conversion here*, and a site answered by
+        // a rewrite that loses nothing never stops it. So the instruction is carried out, nothing
+        // is authorised because nothing needs to be, and a note saying the site stays refused
+        // would be false. §12.8.6's permissions dictionary is the example because ADR 1007 made
+        // its answer mechanical: a key naming a handler the standard does not define is one no
+        // conforming processor can consult.
+        let text = "\
+[site.\"file-structure/permissions-dictionary-keys\"]
+remedy = \"discard\"
+";
+        let config = Configuration::read(text, TWO_B).expect("it reads");
+        assert_eq!(config.authorisations(TWO_B), Authorisations::default());
+        assert!(config.unbuilt(TWO_B).is_empty());
+    }
+
+    #[test]
     fn an_unknown_site_is_an_error_naming_it() {
         let text = "[site.\"graphics/not-a-requirement\"]\nremedy = \"discard\"\n";
         let error = Configuration::read(text, TWO_B).expect_err("unknown site");
@@ -1908,11 +1933,16 @@ remedy = \"preserve\"
     /// reader take from it, and a bare **name** the standard does not define has no answer at
     /// all. So an operator who answers the array half has not thereby answered the other, which
     /// is exactly what the qualifier exists to say (ADR 1211).
+    ///
+    /// **Asked with `preserve`**, which neither half carries out, so that the two answers differ
+    /// by the thing under test. A `discard` would be carried out at the answered half for a
+    /// reason of its own — that half needs nothing authorised (`doc/adr/1233`) — and both rows
+    /// would then come back empty, which is an instrument that cannot tell them apart.
     #[test]
     fn a_shape_qualifier_selects_the_half_the_converter_answers() {
         let answered = "\
 [site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"array\"]
-remedy = \"discard\"
+remedy = \"preserve\"
 ";
         let config = Configuration::read(answered, TWO_B).expect("a shape qualifier reads");
         assert_eq!(
@@ -1922,12 +1952,12 @@ remedy = \"discard\"
                 .map(|row| row.site.as_str())
                 .collect::<Vec<_>>(),
             vec!["graphics/graphics-state-blend-modes-are-defined"],
-            "the answered half's row applies, and is named because no discard is built there"
+            "the answered half's row applies, and is named because no preserve is built there"
         );
 
         let other = "\
 [site.\"graphics/graphics-state-blend-modes-are-defined\".shape.\"name\"]
-remedy = \"discard\"
+remedy = \"preserve\"
 ";
         let config = Configuration::read(other, TWO_B).expect("a shape qualifier reads");
         assert!(

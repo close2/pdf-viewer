@@ -42,6 +42,12 @@ pdf-syntax.workspace = true
 render-cpu.workspace = true
 viewer-core.workspace = true
 png.workspace = true
+# §12.5.6.23's removal is geometric where a redaction meets a painted path, and two of its
+# operations are this tree's own geometry vocabulary rather than a new one: expanding §8.5.3.2's
+# stroke into the outline it marks, and splitting a §8.5.2.2 cubic at the parameter where it
+# crosses the region's edge. `render-raster` already holds this library for the first of the two,
+# so what is taken here is a reading this tree has made once rather than a dependency (ADR 1236).
+kurbo.workspace = true
 rayon.workspace = true
 # `doc/rfc/0007` section 4.4 asks a tool-invoking conversion to record "a digest of what it
 # returned — so that a re-run can be *checked* even though it cannot be *guaranteed*". The same

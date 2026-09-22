@@ -191,11 +191,52 @@ pub enum Loss {
     /// boundary Table 31 requires, so there is nothing to fall back to and the requirement
     /// stays refused by name.
     PageBoundary,
+    /// section 3.7: an annotation whose producer hid it, removed from the page it was on.
+    ///
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require an annotation's `/F` to
+    /// set `Print` and to leave `Hidden`, `Invisible`, `NoView` and `ToggleNoView` clear, and
+    /// they offer nothing to put in the place of one that does otherwise. So the document has two
+    /// futures and no third — the annotation becomes visible and printable, or it goes — and
+    /// `doc/pdf-a-conversion-limits.md` section 3.7 makes removal the default of the two, because
+    /// an annotation somebody hid was hidden on purpose and showing it puts a mark on a page its
+    /// producer kept off.
+    ///
+    /// **This is the half that states flags.** An annotation stating no `/F` at all is
+    /// [`Self::AnnotationPrinting`] and is written rather than removed, because §12.5.2's Table
+    /// 166 default of 0 is an absence rather than a decision.
+    ///
+    /// What is lost is the annotation and everything only it reached; the report names each one,
+    /// its page, its subtype, the flags its producer wrote, and whether it drew a mark.
+    HiddenAnnotation,
+    /// section 3 of `doc/pdf-a-mitigations.md`'s annotation entry: a rollover or down appearance,
+    /// dropped.
+    ///
+    /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 admit `/N` in an appearance
+    /// dictionary and no other key. §12.5.5's Table 170 makes `/R` and `/D` optional and gives
+    /// each the same default — the value of the `/N` entry — so a reader of the output draws the
+    /// normal appearance where it drew the producer's rollover or down one, and the states the
+    /// clause describes are the states it still has.
+    ///
+    /// What is lost is the artwork itself: the marks §12.5.5 has a reader draw while the pointer
+    /// is over the annotation or the mouse button is held down are no longer in the file.
+    AppearanceStates,
+    /// section 3.8: an optional content configuration's automatic states, removed.
+    ///
+    /// ISO 19005-2 section 6.9 forbids the `/AS` entry. §8.11.4.3 makes it the array that has a
+    /// processor set group states from external factors — the viewing magnification, the system
+    /// language, whether the page is being printed — so removing it leaves the document in
+    /// whatever state the configuration's own `/BaseState`, `/ON` and `/OFF` put it in, and
+    /// nothing switches thereafter.
+    ///
+    /// **A PDF/A-4 target loses nothing here and the report says so**: ISO 19005-4 section 6.10
+    /// keeps the key and requires a conforming processor to ignore it, which is the same document
+    /// for a reader and the producer's array still in the file.
+    AutomaticStates,
 }
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
         Self::AnnotationPrinting,
@@ -205,6 +246,9 @@ impl Loss {
         Self::InteractiveBehaviour,
         Self::Encryption,
         Self::PageBoundary,
+        Self::HiddenAnnotation,
+        Self::AppearanceStates,
+        Self::AutomaticStates,
     ];
 
     /// The word a caller authorises it by.
@@ -220,6 +264,9 @@ impl Loss {
             Self::InteractiveBehaviour => "interactive-behaviour",
             Self::Encryption => "encryption",
             Self::PageBoundary => "page-boundary",
+            Self::HiddenAnnotation => "hidden-annotation",
+            Self::AppearanceStates => "appearance-states",
+            Self::AutomaticStates => "automatic-states",
         }
     }
 
@@ -284,6 +331,27 @@ impl Loss {
                  printing\" or \"no extraction\" is no longer in the file. The report names every \
                  flag the source stated, and the output's own xmpMM:History records them"
             }
+            Self::HiddenAnnotation => {
+                "an annotation whose F entry hides it, keeps it off the printed page or off the \
+                 screen is removed from the page it was on, and everything only that annotation \
+                 reached goes with it. The report names each one, the page it was on, its \
+                 subtype, the flags its producer wrote and whether it drew a mark; the \
+                 alternative is showing it, which puts a mark on a page its producer kept off"
+            }
+            Self::AppearanceStates => {
+                "an annotation loses the rollover and down appearances beside its normal one, so \
+                 the marks ISO 32000-2 \u{a7}12.5.5 has a reader draw while the pointer is over \
+                 it or the mouse button is held down are no longer in the file. Table 170 makes \
+                 the normal appearance what a reader draws in their place, and no page changes \
+                 until somebody points at the annotation"
+            }
+            Self::AutomaticStates => {
+                "an optional content configuration loses the AS array that had a reader switch \
+                 layers by viewing magnification, by system language or by printing, so the \
+                 archive shows the state the configuration itself sets and nothing switches \
+                 afterwards. A PDF/A-4 target costs nothing here: ISO 19005-4 section 6.10 keeps \
+                 the key and has a conforming processor ignore it"
+            }
         }
     }
 
@@ -325,6 +393,12 @@ pub struct Authorisations {
     pub encryption: bool,
     /// Whether [`Loss::PageBoundary`] was authorised.
     pub page_boundary: bool,
+    /// Whether [`Loss::HiddenAnnotation`] was authorised.
+    pub hidden_annotation: bool,
+    /// Whether [`Loss::AppearanceStates`] was authorised.
+    pub appearance_states: bool,
+    /// Whether [`Loss::AutomaticStates`] was authorised.
+    pub automatic_states: bool,
 }
 
 impl Authorisations {
@@ -341,6 +415,9 @@ impl Authorisations {
             Loss::InteractiveBehaviour => self.interactive_behaviour,
             Loss::Encryption => self.encryption,
             Loss::PageBoundary => self.page_boundary,
+            Loss::HiddenAnnotation => self.hidden_annotation,
+            Loss::AppearanceStates => self.appearance_states,
+            Loss::AutomaticStates => self.automatic_states,
         }
     }
 
@@ -356,6 +433,9 @@ impl Authorisations {
             Loss::InteractiveBehaviour => self.interactive_behaviour = true,
             Loss::Encryption => self.encryption = true,
             Loss::PageBoundary => self.page_boundary = true,
+            Loss::HiddenAnnotation => self.hidden_annotation = true,
+            Loss::AppearanceStates => self.appearance_states = true,
+            Loss::AutomaticStates => self.automatic_states = true,
         }
     }
 }
@@ -1187,6 +1267,29 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "annotations/flags-entry-present",
         answer: Answer::Loses(Loss::AnnotationPrinting, Rewrite::AnnotationFlags),
     },
+    // ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2, second sentence: the annotations
+    // whose producer *did* state flags and stated ones the parts forbid. The clause offers
+    // nothing to put in their place, so `doc/pdf-a-conversion-limits.md` section 3.7's two
+    // futures are the whole set, and it makes removal the default of the two — showing an
+    // annotation somebody hid puts a mark on a page its producer kept off, which is a larger act
+    // than taking the annotation out. `doc/adr/1234`.
+    Remedy {
+        requirement: "annotations/printable-and-visible",
+        answer: Answer::Loses(Loss::HiddenAnnotation, Rewrite::HiddenAnnotationRemoved),
+    },
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3: an appearance dictionary holds
+    // `/N` and nothing else. §12.5.5's Table 170 makes `/R` and `/D` optional and gives each the
+    // default "the value of the N entry", so the removal leaves a reader drawing in those states
+    // what the standard already has it draw for a dictionary that states neither — which is why
+    // this is the cheapest authorised loss in the catalogue rather than a `Mechanical` one: the
+    // artwork itself is gone from the file. `doc/adr/1234`.
+    Remedy {
+        requirement: "annotations/appearance-dictionary-holds-only-normal",
+        answer: Answer::Loses(
+            Loss::AppearanceStates,
+            Rewrite::ExtraAppearanceStatesRemoved,
+        ),
+    },
     // ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1, each clause's first sentence and
     // its struck names. The clause states a prohibition and no alternative, so the one rewrite
     // that meets it takes the annotation off the page — `doc/pdf-a-conversion-limits.md` section
@@ -1281,6 +1384,15 @@ pub(super) const REMEDIES: &[Remedy] = &[
     Remedy {
         requirement: "optional-content/order-lists-every-group",
         answer: Answer::Mechanical(Rewrite::OptionalContentOrder),
+    },
+    // ISO 19005-2 section 6.9, which ISO 19005-4 section 6.10 does not bind: part 4 keeps the key
+    // and requires a conforming processor to ignore it. §8.11.4.3's `/AS` is the array a
+    // processor sets group states from external factors by, so removing it leaves the document in
+    // the state the configuration's own entries put it in and nothing switches afterwards — a
+    // loss to authorise rather than a rewrite that costs nothing. `doc/adr/1234`.
+    Remedy {
+        requirement: "optional-content/no-automatic-states",
+        answer: Answer::Loses(Loss::AutomaticStates, Rewrite::AutomaticStatesRemoved),
     },
     // ISO 19005-2 section 6.2.2, ISO 19005-4 section 6.2.2 — the page half of A003's reading.
     Remedy {
@@ -1422,6 +1534,37 @@ pub fn conditional(requirement: &str) -> Option<Conditional> {
         .iter()
         .find(|(id, _)| *id == requirement)
         .map(|(_, held)| *held)
+}
+
+/// Whether this requirement's answer needs nothing authorised to be carried out.
+///
+/// The question `super::config::Configuration::unbuilt` asks of a `discard`. That word says *do
+/// not stop the conversion here; I accept what it costs* — so at a row answered by a rewrite that
+/// loses nothing, or by one that writes down an interpretation the standard defines, the
+/// instruction is already carried out and the site never refuses. Reporting such an answer as one
+/// this version does not carry out says the site stays refused, and it does not.
+///
+/// **Two rows are not these**, and each for its own reason. [`Answer::Loses`] is what a `discard`
+/// authorises, and it is built exactly where the loss table names it. [`Answer::AsUnderlying`]
+/// routes to rules whose answers are its own, so whether a `discard` here reaches them is a
+/// question about the other rows rather than about this one, and it keeps its name in the
+/// listing. A `Mechanical` answer waiting on bytes nobody in this program can fetch is not one
+/// either (`doc/adr/1199`).
+#[must_use]
+pub(super) fn answered_without_authorisation(requirement: &str) -> bool {
+    if matches!(
+        conditional(requirement),
+        Some(Conditional::CallerSuppliesTheBytes)
+    ) {
+        return false;
+    }
+    REMEDIES.iter().any(|remedy| {
+        remedy.requirement == requirement
+            && matches!(
+                remedy.answer,
+                Answer::Mechanical(_) | Answer::Stated(..) | Answer::CmykUnderPartTwo
+            )
+    })
 }
 
 /// The three rows ISO 19005-2 section 6.4.3 and ISO 19005-4 section 6.5.1 ask again of a
@@ -1895,19 +2038,6 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "annotations/file-attachment-only-in-embedded-file-files",
         Because::NotBuiltYet(ANNOTATION_FLAVOUR_NOT_BUILT),
     ),
-    // ISO 19005-2 section 6.3.2, ISO 19005-4 section 6.3.2: the half of section 3.7 that is not
-    // an annotation stating no flags at all.
-    (
-        "annotations/printable-and-visible",
-        Because::NotBuiltYet(HIDDEN_ANNOTATION_NOT_BUILT),
-    ),
-    // ISO 19005-2 section 6.3.3, ISO 19005-4 section 6.3.3. The neighbouring row of this
-    // subclause — a normal appearance that is a subdictionary of states — is answered by
-    // `REMEDIES` where the annotation's own `/AS` says which state it is in.
-    (
-        "annotations/appearance-dictionary-holds-only-normal",
-        Because::NotBuiltYet(EXTRA_APPEARANCE_STATES_NOT_BUILT),
-    ),
     // ISO 19005-4 section 6.1.3's two sentences about the document information dictionary.
     (
         "file-structure/document-information-dictionary-holds-only-a-modification-date",
@@ -2095,15 +2225,11 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "metadata/identification-amendment-form",
         Because::NotBuiltYet(AMENDMENT_IDENTIFIER_NOT_REMOVED),
     ),
-    // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the two of section 3.8's three rules
-    // that are still refused. The `/Order` rule is a row of `REMEDIES`.
+    // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the one of section 3.8's three rules
+    // still refused. The `/Order` rule and the `/AS` rule are both rows of `REMEDIES`.
     (
         "optional-content/configuration-names",
         Because::NotBuiltYet(CONFIGURATION_NAME_NOT_WRITTEN),
-    ),
-    (
-        "optional-content/no-automatic-states",
-        Because::NotBuiltYet(AUTOMATIC_STATES_NOT_REMOVED),
     ),
 ];
 
@@ -2282,24 +2408,6 @@ const ANNOTATION_FLAVOUR_NOT_BUILT: &str = "this annotation's subtype is one ISO
      --authorise forbidden-annotation; here that would also take the embedded file a \
      FileAttachment names out of the archive, which doc/pdf-a-mitigations.md says need not go, \
      and the rewrite that keeps it is not built";
-
-/// Why an annotation the producer hid is neither shown nor removed.
-const HIDDEN_ANNOTATION_NOT_BUILT: &str = "this annotation states flags ISO 19005 forbids — \
-     Hidden, Invisible, NoView or ToggleNoView set, or Print clear. \
-     doc/pdf-a-conversion-limits.md section 3.7: an annotation somebody hid has two futures and \
-     no third, becoming visible and printable or being removed, and both change the document. \
-     What is built is the smaller half, an annotation stating no F entry at all, which is not \
-     one anybody hid: --authorise annotation-printing writes the Print flag for that case. \
-     Un-hiding one that states a flag, and removing it, are the two rewrites owed, and section \
-     3.7 makes removal the default of the two";
-
-/// Why a rollover or down appearance is not dropped.
-const EXTRA_APPEARANCE_STATES_NOT_BUILT: &str = "this annotation's appearance dictionary states \
-     a rollover or a down appearance beside its normal one, and ISO 19005 admits only N. \
-     Dropping R and D loses what §12.5.5 has a reader draw while the pointer is over the \
-     annotation or the mouse button is down, which is a loss doc/pdf-a-conversion-limits.md \
-     section 3 would have a caller authorise before it happened. Neither the word nor the \
-     rewrite exists";
 
 /// Why a compound row is refused where none of the rules it names failed.
 ///
@@ -2581,14 +2689,6 @@ const CONFIGURATION_NAME_NOT_WRITTEN: &str = "an optional content configuration 
      rather than assumed. The neighbouring rule of the same subclause — an Order array that does \
      not reference every group in the file — is answered, because the groups and their order are \
      both the file's own";
-
-/// Why an automatic optional-content state is not removed.
-const AUTOMATIC_STATES_NOT_REMOVED: &str = "ISO 19005-2 section 6.9 forbids an AS entry in an \
-     optional content configuration; ISO 19005-4 section 6.10 permits it and has a conforming \
-     processor ignore it instead. AS is what switches layers by zoom, by print-versus-view or by \
-     user event, so removing it freezes the document into one state — \
-     doc/pdf-a-conversion-limits.md section 3.8's Ask, and not built. PDF/A-4 is the shorter \
-     route here, because it keeps the key and ignores it";
 
 /// The sentence a requirement absent from both tables is refused with.
 ///

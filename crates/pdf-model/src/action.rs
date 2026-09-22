@@ -18,13 +18,14 @@
 //! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
 //! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8, ISO 19444-1) |
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
+//! | `GoToR` | §12.6.4.3 | yes — read here; the file is named rather than opened, and a host supplies it |
 //! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
 //! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
 //! | `SubmitForm` | §12.7.6.2 | yes — read here, composed by [`crate::submission`], transmitted by whoever has a network |
 //! | everything else | | [`Action::Refused`], by name |
 //!
-//! The refusals are not laziness and they are not uniform. `GoToR` and `Launch` want a file
-//! system, which principle 3's sandbox
+//! The refusals are not laziness and they are not uniform. `Launch` wants a file system, which
+//! principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
 //! same list. A `Thread` action naming *another file* joins the first group, for the
@@ -119,6 +120,12 @@ pub enum Action {
     SubmitForm(SubmitForm),
     /// §12.6.4.4: go to a destination in a document embedded in this one.
     GoToE(EmbeddedGoTo),
+    /// §12.6.4.3: go to a destination in another file, which Table 203's `/F` names.
+    ///
+    /// Read whole here and opened nowhere: `CLAUDE.md` principle 3 gives this crate no
+    /// filesystem, so what this carries is what the *document* wrote, for whoever owns one to
+    /// resolve or to refuse (ADR 1227).
+    GoToR(RemoteGoTo),
     /// §12.6.4.5: show the page a document part begins at.
     GoToDp(DocumentPartJump),
     /// §12.6.4.15: show the page as it stands, using this transition.
@@ -500,7 +507,96 @@ pub struct EmbeddedGoTo {
     pub new_window: Option<bool>,
 }
 
-/// Table 204's `/F`, in whichever of the two forms §7.11 gives a file specification.
+/// §12.6.4.3's remote go-to action. Table 203.
+///
+/// > A remote go-to action is similar to an ordinary go-to action but jumps to a destination in
+/// > another PDF file instead of the current file.
+///
+/// **Named rather than opened, which is the whole of this crate's half.** Table 203 makes `/F`
+/// "[t]he file in which the destination shall be located" and §7.11 makes a file specification a
+/// name in the document's own words; `CLAUDE.md` principle 3 gives this process no filesystem,
+/// so the name crosses to whoever opened the document and the bytes come back — the same
+/// division [`EmbeddedGoTo::root`] takes one clause along, and the same one §12.7.6.4's
+/// import-data action takes. Which files a document may name is a host's decision and not a
+/// rendering one. ADR 1227.
+///
+/// The destination is deliberately unresolved, for [`EmbeddedGoTo`]'s reason and one more that
+/// is this clause's own: §12.3.2.2 states that in a remote go-to "the page parameter specifies an
+/// integer page number within the remote document instead of a page object in the current
+/// document", so an explicit destination read here would name an object of the wrong file.
+/// [`Self::page_in`] is where it is read, in the document it is about.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteGoTo {
+    /// Table 203's `/F`: "[t]he file in which the destination shall be located."
+    ///
+    /// Required by the table, so an action without one is not one: [`crate::action`]'s reader
+    /// answers `None` rather than producing an action naming no file.
+    pub file: TargetRoot,
+    /// Table 203's `/D`, "[t]he destination to jump to", as the file states it.
+    pub destination: Object,
+    /// Table 203's `/SD`'s first element, where the action states one.
+    ///
+    /// §12.6.4.3, Table 203:
+    ///
+    /// > The first element in the array shall be a byte string representing a structure element
+    /// > ID in the remote document, instead of an indirect reference to a structure element
+    /// > dictionary.
+    ///
+    /// The identifier only, because the identifier is what names the page: §12.3.2.3 makes a
+    /// structure destination "the same view mechanism as a destination" over an element rather
+    /// than a page, and the element is found in the *remote* document through §14.7.2's
+    /// `/IDTree`. The table's precedence — "[i]f present, the structure destination should take
+    /// precedence over destination in the D entry" — is applied by [`Self::page_in`], and it is
+    /// a `should`, so an identifier that document does not hold falls back to `/D`.
+    pub structure_destination: Option<Vec<u8>>,
+    /// Table 203's `/NewWindow`.
+    ///
+    /// §12.6.4.3, Table 203:
+    ///
+    /// > A flag specifying whether to open the destination document in a new window. If this
+    /// > flag is false , the destination document replaces the current document in the same
+    /// > window. If this entry is absent, the interactive PDF processor should behave in
+    /// > accordance with its preference.
+    ///
+    /// Not one `shall` in the three sentences, and the one with force is the `false` case. This
+    /// program's preference is one document in one view, which is what [`EmbeddedGoTo::new_window`]
+    /// already says about Table 204's identical entry — so the destination document replaces the
+    /// current one, and a request for a new window is said out loud rather than passed over.
+    pub new_window: Option<bool>,
+}
+
+impl RemoteGoTo {
+    /// The zero-based index of the page this action names, in the document it names.
+    ///
+    /// Table 203's `/SD` first, because the table says so — "[i]f present, the structure
+    /// destination should take precedence over destination in the D entry" — and `/D` behind it,
+    /// which is where a `should` leaves a reader when the identifier names nothing: §14.7.2's
+    /// `/IDTree` is optional and an untagged remote document holds none.
+    ///
+    /// `/D`'s explicit form is read as §12.3.2.2 states it for this action: "[t]he first page
+    /// shall be numbered 0", which is [`crate::destination::Destination::page_index_in_target`].
+    /// A named destination is looked up in the remote document's own tables, for the same reason.
+    ///
+    /// `None` where neither names a page there, which is a document pointing into a file that
+    /// does not hold what it said; the caller says so rather than guessing.
+    #[must_use]
+    pub fn page_in(&self, target: &Document, pages: &crate::page::Pages<'_>) -> Option<usize> {
+        if let Some(id) = &self.structure_destination
+            && let Some(tree) = crate::structure::Tree::of(target)
+            && let Some(element) = tree.element_by_id(target, id)
+            && let Some(page) = crate::destination::structure_element_page(target, &element, pages)
+        {
+            return Some(page);
+        }
+        Destination::read(target, &self.destination)?.page_index_in_target(target, pages)
+    }
+}
+
+/// A file a document names, in whichever of the two forms §7.11 gives a file specification.
+///
+/// Table 204's `/F` and Table 203's `/F` alike: the two entries name a file the same way and
+/// raise the same question of the same party, so they are read by one function and carried by
+/// one type (ADR 1227).
 ///
 /// **Never a path on this machine.** §7.11.1's specification "shall be" — §7.11.2.1 — a name in
 /// the document's own words, and [`crate::file_spec`] opens nothing; what this carries is what
@@ -815,6 +911,34 @@ fn embedded_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
         destination,
         path,
         root: target_root(document, dict),
+        new_window: match document.get_key(dict, "NewWindow") {
+            Object::Boolean(value) => Some(value),
+            _ => None,
+        },
+    }))
+}
+
+/// Table 203, read into [`RemoteGoTo`].
+///
+/// `None` where `/F` or `/D` is absent, which the table makes both of: an action naming no file
+/// has stated nowhere to go, and one naming no destination has stated nothing to go to. Either
+/// way what is there is a dictionary rather than an action.
+fn remote_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
+    let file = target_root(document, dict)?;
+    let destination = dict.get("D").cloned()?;
+    if destination.is_null() {
+        return None;
+    }
+    Some(Action::GoToR(RemoteGoTo {
+        file,
+        destination,
+        // The array's first element and nothing else: the rest of a structure destination is
+        // Table 149's view, and §12.3.2.3 makes the element decide the page.
+        structure_destination: document
+            .get_key(dict, "SD")
+            .as_array()
+            .and_then(|array| array.first().cloned())
+            .and_then(|first| document.resolve(&first).as_string().map(<[u8]>::to_vec)),
         new_window: match document.get_key(dict, "NewWindow") {
             Object::Boolean(value) => Some(value),
             _ => None,
@@ -1239,6 +1363,7 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
         b"ImportData" => import_data(document, dict)?,
         b"SubmitForm" => submit_form(document, dict)?,
         b"GoToE" => embedded_go_to(document, dict)?,
+        b"GoToR" => remote_go_to(document, dict)?,
         // Table 219 makes `/Trans` required, so an action without one has stated no transition
         // and is a dictionary rather than an action.
         b"Trans" => Action::Trans(crate::navigation::transition(document, dict)?),
@@ -1380,9 +1505,10 @@ pub fn data_format(name: &str) -> DataFormat {
 /// Table 209's `/D` and `/B`, with `/F` deciding that this is another file's thread.
 ///
 /// `None` where `/D` is absent or is none of its three types: the entry is required, and an
-/// action naming no thread has stated nothing to jump to. A `/F` produces the refusal instead
-/// of a jump, for `GoToR`'s reason — the thread is in a file this reader has no filesystem to
-/// open — and it is a *refusal* rather than a silence because the file said where it was.
+/// action naming no thread has stated nothing to jump to. A `/F` produces the refusal instead of
+/// a jump — §12.4.3's beads are read in the document this reader opened and nothing here asks a
+/// host for another one — and it is a *refusal* rather than a silence because the file said
+/// where it was.
 fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
     if dict.get("F").is_some() {
         return Some(Action::Refused(refused(b"Thread")?));
@@ -1614,9 +1740,6 @@ fn launch(document: &Document, dict: &Dictionary) -> &'static str {
 /// standard defines, and reporting it as a refused action would claim knowledge of it.
 fn refused(kind: &[u8]) -> Option<&'static str> {
     Some(match kind {
-        b"GoToR" => {
-            "GoToR: a destination in another file, which this reader has no filesystem to open"
-        }
         b"Thread" => {
             "Thread: a thread in another file, which this reader has no filesystem to open"
         }

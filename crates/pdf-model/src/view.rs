@@ -185,6 +185,30 @@ pub struct ViewState {
         reason = "verbatim quotations: Table 193 and Table 194 spell MediaBox without backticks"
     )]
     paper: Option<TargetMedia>,
+    /// Whether §10.8.3's separation simulation is what the output being produced is to look like.
+    ///
+    /// The sixth thing in this struct that is a property of the *host* rather than of the
+    /// document, and it is here for `magnification`'s reason: the clause conditions the whole
+    /// simulation on something no file states —
+    ///
+    /// > If it is important for the colours of the display for a PDF, on a device that normally
+    /// > would not be used to produce separations, to more closely match those produced when
+    /// > using separations, then a simulation of the separation process can be performed for the
+    /// > output to the non-separation device.
+    ///
+    /// — and rule 1 makes this state the only channel by which anything outside the file may
+    /// decide a mark.
+    ///
+    /// **A preference and not one of `CLAUDE.md`'s four restriction levels**, on ADR 1189
+    /// section 2's division: those four are for the permissions a *document* asserts over the
+    /// person reading it, and no entry of any table asks for this. §12.11's
+    /// `SeparationSimulation` requirement names the subclause, but a requirement states what a
+    /// processor must be able to do rather than what this reader is being asked for now.
+    ///
+    /// `false` until a person says otherwise, under which §10.8.2's alternate colour space and
+    /// its tint transform are what a `Separation` or `DeviceN` colour is drawn through — the
+    /// behaviour that clause states as the expected one for a screen. ADR 1228.
+    separation_simulation: bool,
     /// Annotations a person has **added**, in the order they added them.
     ///
     /// The fifth thing in this struct that comes from outside the document, and the first that
@@ -469,6 +493,13 @@ pub enum Request {
     /// window's business rather than this state's.
     /// [`crate::action::EmbeddedGoTo::target_in`] opens it.
     Embedded(EmbeddedGoTo),
+    /// §12.6.4.3: show a destination in the file Table 203's `/F` names.
+    ///
+    /// Unresolved for [`Self::Embedded`]'s reason and one more: the document is not in this file
+    /// at all, so a party with a filesystem has to supply it before there is anything to read a
+    /// destination in. [`crate::action::RemoteGoTo::page_in`] is where it is read once there is.
+    /// ADR 1227.
+    Remote(crate::action::RemoteGoTo),
     /// §12.7.6.2: submit the form to the URL Table 239 names, which means transmitting it.
     ///
     /// The same division as [`Self::Resolve`] and for the same reason, one step further on:
@@ -640,8 +671,114 @@ pub struct Imported {
     pub pages: usize,
     /// How many §12.7.8.3.4 annotations were placed on the pages Table 254's `/Page` names.
     pub annotations: usize,
-    /// Templates the file named and this document could not add, each with the reason.
+    /// What the FDF file asked for and this document did not do, each with the reason.
+    ///
+    /// Templates it could not add, `/APRef` appearances it could not make, and the entries whose
+    /// value lies in a second file a person would have to supply (ADRs 1070, 1235).
     pub refused: Vec<String>,
+}
+
+/// Turns §12.7.8.3.2's `/APRef` into the appearance §12.5.5 places, once per named page.
+///
+/// Table 249's entry is "[a] dictionary holding references to external PDF files containing the
+/// pages to use for the appearances of a push-button field", and Table 253 makes its `/F`
+/// optional with a sentence about the absence: "[i]f this entry is absent, it shall be assumed
+/// that the page resides in the associated PDF file." So the entry has two branches. The one with
+/// no `/F` names a page **this** document holds under §12.7.7, which is a name lookup and a page
+/// converted to a form ([`crate::named_page::page_as_form`]); the one with a `/F` names a second
+/// PDF file, which is §12.7.6.4's hazard and a host's question rather than this crate's.
+///
+/// The result is written into [`Import::appearance`], so a resolved `/APRef` and a stated `/AP`
+/// reach the widget, the saved file and the display list by exactly one route — Table 249 makes
+/// them the same entry of Table 170 and ranks them itself ("[t]his entry shall be ignored if an
+/// AP entry is present"), so a second route could only disagree with the first. ADR 1235.
+///
+/// The name trees and the page tree are read **on first use**, which for every document anybody
+/// has opened is never: `CLAUDE.md`'s "nothing eager" reaches an import as much as a launch.
+#[derive(Default)]
+struct NamedPageAppearances<'a> {
+    /// §12.7.7's two trees and this document's page tree, read the first time a reference needs
+    /// them.
+    read: Option<(crate::named_page::NamedPages, crate::page::Pages<'a>)>,
+    /// One form per page, because a form a hundred widgets name is one page converted once.
+    forms: BTreeMap<ObjectId, Option<Object>>,
+}
+
+impl<'a> NamedPageAppearances<'a> {
+    /// Replaces one import's `/APRef` with the appearance it names, and says what it could not.
+    ///
+    /// What is left on [`Import::appearance_reference`] afterwards is the references that did not
+    /// resolve, each of which has put its reason on `refused` (trap 5): a person importing the
+    /// file is told which button kept its own artwork and why.
+    fn resolve(&mut self, document: &'a Document, import: &mut Import, refused: &mut Vec<String>) {
+        if import.appearance_reference.is_empty() {
+            return;
+        }
+        // Destructured so that the trees and the per-page cache are two borrows rather than one:
+        // a form is looked up while the trees are held.
+        let Self { read, forms } = self;
+        let (named, pages) = read.get_or_insert_with(|| {
+            (
+                crate::named_page::NamedPages::read(document),
+                crate::page::Pages::new(document),
+            )
+        });
+        let mut appearance = Dictionary::new();
+        let mut unresolved = Vec::new();
+        for (state, reference) in std::mem::take(&mut import.appearance_reference) {
+            if let Some(file) = &reference.file {
+                refused.push(format!(
+                    "/APRef /{state}: the page {} is in {file}, which §12.7.6.4 makes a file a                      document named; its bytes may come only from a directory a person supplied,                      which this reader has not got",
+                    reference.name
+                ));
+                unresolved.push((state, reference));
+                continue;
+            }
+            let Some(id) = named.lookup(&reference.name) else {
+                refused.push(format!(
+                    "/APRef /{state}: this document names no page {}, in either §12.7.7 tree",
+                    reference.name
+                ));
+                unresolved.push((state, reference));
+                continue;
+            };
+            let form = forms
+                .entry(id)
+                .or_insert_with(|| crate::named_page::page_as_form(document, pages, id))
+                .clone();
+            let Some(form) = form else {
+                refused.push(format!(
+                    "/APRef /{state}: the page {} is not a dictionary, or a part of its                      /Contents did not decode, so the appearance would be short of the marks the                      document states",
+                    reference.name
+                ));
+                unresolved.push((state, reference));
+                continue;
+            };
+            // Table 31 keeps `/Annots` beside `/Contents` rather than in it, and §12.5.5 draws an
+            // annotation against the page it is on; a form has no counterpart, so composing them
+            // in would be a composition this program decided rather than the producer.
+            if let Some(count) = annotation_count(document, id) {
+                refused.push(format!(
+                    "/APRef /{state}: the page {} carries {count} annotation(s), which are not                      part of its content stream and are not drawn into the appearance",
+                    reference.name
+                ));
+            }
+            appearance.insert(Name::new(state.as_bytes()), form);
+        }
+        import.appearance_reference = unresolved;
+        if !appearance.is_empty() {
+            import.appearance = Some(appearance);
+        }
+    }
+}
+
+/// How many annotations a page's `/Annots` holds, or `None` where it holds none.
+fn annotation_count(document: &Document, page: ObjectId) -> Option<usize> {
+    let object = document.get(page);
+    let dict = object.as_dict()?;
+    let annots = document.get_key(dict, "Annots");
+    let count = annots.as_array()?.len();
+    (count > 0).then_some(count)
 }
 
 /// Everything this state contributes to one annotation's decision, gathered in one walk.
@@ -885,6 +1022,7 @@ impl ViewState {
             audience: Audience::NONE,
             purpose: Purpose::View,
             paper: None,
+            separation_simulation: false,
             added: Vec::new(),
             retyped: BTreeMap::new(),
             filed: Vec::new(),
@@ -1037,6 +1175,33 @@ impl ViewState {
     #[must_use]
     pub fn paper(&self) -> Option<TargetMedia> {
         self.paper
+    }
+
+    /// Says whether §10.8.3's separation simulation is being asked for.
+    ///
+    /// **A person's request, which is what the clause conditions itself on**: the simulation is
+    /// for when "it is important for the colours of the display for a PDF, on a device that
+    /// normally would not be used to produce separations, to more closely match those produced
+    /// when using separations", and no document states that. So it arrives the way
+    /// [`Self::set_audience`] and [`Self::set_purpose`] do and never by inference here, which is
+    /// `CLAUDE.md` principle 3's rule: the policy is asked once, in a place a host can supply.
+    ///
+    /// Returns whether the answer moved, which is what a caller needs — §10.8.3 decides what
+    /// colour every mark on the page is, so an answer that changes supersedes the ink already
+    /// produced. ADR 1228.
+    pub fn set_separation_simulation(&mut self, simulate: bool) -> bool {
+        if self.separation_simulation == simulate {
+            return false;
+        }
+        self.separation_simulation = simulate;
+        true
+    }
+
+    /// Whether §10.8.3's separation simulation is being asked for; see
+    /// [`Self::set_separation_simulation`].
+    #[must_use]
+    pub fn separation_simulation(&self) -> bool {
+        self.separation_simulation
     }
 
     /// What a host's clock says, for Table 166's `/M` on what [`Self::save`] writes.
@@ -1238,17 +1403,20 @@ impl ViewState {
     pub fn import(&mut self, document: &Document, data: &crate::forms_data::FormsData) -> Imported {
         let table = widgets_by_field_name(document);
         let (matched, unmatched) = crate::forms_data::match_to_document(data, &table);
-        for (widget, import) in &matched {
-            // The two sets answer the same question, so a widget belongs to exactly one of
-            // them: an import after a reset is the later statement about this field's value.
-            self.reset.remove(widget);
-            self.imported.insert(*widget, import.clone());
-        }
         let mut outcome = Imported {
             widgets: matched.len(),
             unmatched,
             ..Imported::default()
         };
+        let mut named = NamedPageAppearances::default();
+        for (widget, import) in &matched {
+            let mut import = import.clone();
+            named.resolve(document, &mut import, &mut outcome.refused);
+            // The two sets answer the same question, so a widget belongs to exactly one of
+            // them: an import after a reset is the later statement about this field's value.
+            self.reset.remove(widget);
+            self.imported.insert(*widget, import);
+        }
         self.append_templates(document, data, &table, &mut outcome);
         self.place_annotations(document, data, &mut outcome);
         outcome
@@ -2810,6 +2978,7 @@ impl ViewState {
             return;
         }
         let named = crate::named_page::NamedPages::read(document);
+        let mut appearances = NamedPageAppearances::default();
         for page in pages {
             for template in &page.templates {
                 let reference = &template.reference;
@@ -2845,8 +3014,10 @@ impl ViewState {
                 let (matched, unmatched) =
                     crate::forms_data::match_fields(&template.fields, widgets);
                 for (widget, import) in &matched {
+                    let mut import = import.clone();
+                    appearances.resolve(document, &mut import, &mut outcome.refused);
                     self.reset.remove(widget);
-                    self.imported.insert(*widget, import.clone());
+                    self.imported.insert(*widget, import);
                 }
                 outcome.widgets = outcome.widgets.saturating_add(matched.len());
                 outcome.unmatched.extend(unmatched);
@@ -2919,6 +3090,7 @@ impl ViewState {
             Action::ImportData(import) => return Some(Request::Import(import.clone())),
             Action::SubmitForm(submit) => return Some(Request::Submit(submit.clone())),
             Action::GoToE(target) => return Some(Request::Embedded(target.clone())),
+            Action::GoToR(remote) => return Some(Request::Remote(remote.clone())),
             Action::Trans(transition) => {
                 return Some(Request::Transition(transition.clone()));
             }

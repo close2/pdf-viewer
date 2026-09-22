@@ -3712,11 +3712,17 @@ struct Shape<'a> {
     /// is (ADR 0476). It cannot be asked in the loop that builds this, because the band the mask
     /// covers is not known until every clip in the chain has been measured.
     source: &'a Path,
-    /// The region §10.7.4 asks for where `source` rules a line, which is a *wider* shape than
-    /// the path — [`pdf_render::clip_region`]. `None` for every ordinary clip, which is all but
-    /// a handful: the substitution costs an allocation and is made only where the path states a
-    /// subpath with no extent. It is what [`rectangular_mark`] and the mask fill both read.
-    region: Option<Path>,
+    /// Whether `path` is §10.7.4's region for `source` rather than `source` itself, which is a
+    /// *wider* shape — [`pdf_render::clip_region`]. False for every ordinary clip, which is all
+    /// but a handful: the substitution costs an allocation and is made only where the path states
+    /// a subpath with no extent. It is what [`rectangular_mark`] reads.
+    substituted: bool,
+    /// The second fill of §10.7.4's region, where that region is a union of two.
+    ///
+    /// The marks the clause leaves for the subpaths that enclose no area, scan-converted under
+    /// the non-zero rule and composed into the same mask as `path`. `None` wherever one path
+    /// under one rule states the whole region, which is every clip in the corpus.
+    union_marks: Option<tiny_skia::Path>,
     /// The clip's own transform; the target and band transforms are applied later,
     /// because the band is not known until every clip in the chain has been measured.
     transform: Transform,
@@ -4507,7 +4513,8 @@ impl MaskCache {
             shapes.push(Shape {
                 path,
                 source: &clip.path,
-                region: None,
+                substituted: false,
+                union_marks: None,
                 transform: clip.transform,
                 rule: clip.fill_rule,
                 fill_rule: convert::fill_rule(clip.fill_rule),
@@ -4575,39 +4582,7 @@ impl MaskCache {
                 value: None,
             }));
         };
-        // One accumulator for the whole chain, on [`scan::Scratch`]'s own terms: `crate::area`
-        // clears it per mark and grows it to the largest the chain holds.
-        let mut cells: Vec<f32> = Vec::new();
-        scan::mask_fill(
-            &mut mask,
-            &mut cells,
-            &root.path,
-            root.fill_rule,
-            self.anti_alias,
-            (convert::transform(root.at), &root.mark),
-        );
-        if !nested.is_empty() {
-            // One scratch mask for the whole chain, allocated from the same width and height as
-            // the mask above so that the two are the same size by construction. `tiny-skia`
-            // allocates one per `intersect_path` call; the chain needs only one, and the
-            // difference is 3554 allocations rather than 7108 on the corpus's worst page.
-            let mut scratch = tiny_skia::Mask::new(self.surface.width(), band.height).ok_or(
-                CpuRasterError::Allocation {
-                    width: self.surface.width(),
-                    height: band.height,
-                },
-            )?;
-            for shape in nested {
-                scan::mask_intersect(
-                    &mut mask,
-                    (&mut scratch, &mut cells),
-                    &shape.path,
-                    shape.fill_rule,
-                    self.anti_alias,
-                    (convert::transform(shape.at), &shape.mark),
-                );
-            }
-        }
+        self.compose(&mut mask, (root, nested), band)?;
 
         Ok(Some(Built {
             mask,
@@ -4619,6 +4594,90 @@ impl MaskCache {
             // A clip on its own is already the set §10.7.4 states; nothing multiplies it.
             value: None,
         }))
+    }
+
+    /// Fills a resolved chain's shapes into `mask`: the root opens it, each nested step
+    /// intersects — ISO 32000-2 §8.5.4, §10.7.4.
+    ///
+    /// §10.7.4:
+    ///
+    /// > Subsequent painting operations shall affect a region that is the intersection of the
+    /// > set of pixels defined by the clipping region with the set of pixels for the region to
+    /// > be painted.
+    ///
+    /// A step whose region is §10.7.4's union of two fills contributes both, composed before the
+    /// intersection rather than after it, because the clipping region *is* the union (ADR 1231).
+    fn compose(
+        &self,
+        mask: &mut tiny_skia::Mask,
+        (root, nested): (&Shape<'_>, &[Shape<'_>]),
+        band: Band,
+    ) -> Result<(), CpuRasterError> {
+        // One accumulator for the whole chain, on [`scan::Scratch`]'s own terms: `crate::area`
+        // clears it per mark and grows it to the largest the chain holds.
+        let mut cells: Vec<f32> = Vec::new();
+        // One scratch mask for the whole chain, allocated from the same width and height as
+        // the mask above so that the two are the same size by construction. `tiny-skia`
+        // allocates one per `intersect_path` call; the chain needs only one, and the
+        // difference is 3554 allocations rather than 7108 on the corpus's worst page. A chain
+        // of one step needs it only where that step states §10.7.4's union of two fills.
+        let mut scratch = if nested.is_empty() && root.union_marks.is_none() {
+            None
+        } else {
+            Some(self.band_mask(band)?)
+        };
+        // A second one only where a *nested* step states that union, because there the first is
+        // already holding the step's own fill while the union is composed.
+        let mut second = if nested.iter().any(|shape| shape.union_marks.is_some()) {
+            Some(self.band_mask(band)?)
+        } else {
+            None
+        };
+        scan::mask_fill(
+            mask,
+            &mut cells,
+            &root.path,
+            root.fill_rule,
+            self.anti_alias,
+            (convert::transform(root.at), &root.mark),
+        );
+        if let (Some(marks), Some(scratch)) = (root.union_marks.as_ref(), scratch.as_mut()) {
+            scan::mask_union(
+                mask,
+                (scratch, &mut cells),
+                marks,
+                self.anti_alias,
+                convert::transform(root.at),
+            );
+        }
+        let Some(scratch) = scratch.as_mut() else {
+            return Ok(());
+        };
+        for shape in nested {
+            let union = shape
+                .union_marks
+                .as_ref()
+                .zip(second.as_mut())
+                .map(|(marks, second)| (marks, &mut *second));
+            scan::mask_intersect(
+                mask,
+                (scratch, &mut cells),
+                &shape.path,
+                shape.fill_rule,
+                self.anti_alias,
+                (convert::transform(shape.at), &shape.mark),
+                union,
+            );
+        }
+        Ok(())
+    }
+
+    /// A clear mask the width of this surface and the height of `band`.
+    fn band_mask(&self, band: Band) -> Result<tiny_skia::Mask, CpuRasterError> {
+        tiny_skia::Mask::new(self.surface.width(), band.height).ok_or(CpuRasterError::Allocation {
+            width: self.surface.width(),
+            height: band.height,
+        })
     }
 
     /// Whether a device rectangle reaches every pixel of this surface.
@@ -4724,12 +4783,24 @@ fn state_regions(
     let mut stated = Vec::with_capacity(shapes.len());
     for mut shape in shapes {
         shape.at = to_band.of(shape.transform);
-        if let Some((region, rule)) = pdf_render::clip_region(shape.source, shape.rule, shape.at) {
-            shape.path = convert::path(&region).ok_or(CpuRasterError::InvalidPath)?;
-            shape.fill_rule = convert::fill_rule(rule);
-            shape.region = Some(region);
+        match pdf_render::clip_region(shape.source, shape.rule, shape.at) {
+            Some(pdf_render::ClipRegion::One(region, rule)) => {
+                shape.path = convert::path(&region).ok_or(CpuRasterError::InvalidPath)?;
+                shape.fill_rule = convert::fill_rule(rule);
+                shape.substituted = true;
+            }
+            Some(pdf_render::ClipRegion::Union {
+                filled: (filled, rule),
+                marks,
+            }) => {
+                shape.path = convert::path(&filled).ok_or(CpuRasterError::InvalidPath)?;
+                shape.fill_rule = convert::fill_rule(rule);
+                shape.union_marks = Some(convert::path(&marks).ok_or(CpuRasterError::InvalidPath)?);
+                shape.substituted = true;
+            }
+            None => {}
         }
-        shape.mark = if shape.region.is_some() {
+        shape.mark = if shape.substituted {
             scan::Exact::default()
         } else {
             rectangular_mark(shape.source, shape.at)

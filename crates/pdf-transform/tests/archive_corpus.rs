@@ -164,9 +164,9 @@ struct Tally {
     /// How each stream that keeps its data outside the file says where those bytes are.
     ///
     /// ISO 19005-2 section 6.1.7.1 and ISO 19005-4 section 6.1.6.1 are answered by embedding the
-    /// bytes, and who may resolve them depends on which form \u{a7}7.11 the producer used: a
+    /// bytes, and who may resolve them depends on which form of §7.11 the producer used: a
     /// name beside the document is a file this program reads under `doc/adr/1155`'s rule, and
-    /// \u{a7}7.11.5's URL is a fetch it does not perform. **Counted rather than written down**,
+    /// §7.11.5's URL is a fetch it does not perform. **Counted rather than written down**,
     /// because which form the world's files use is the fact that decides whether the built
     /// resolution reaches any of them (`doc/adr/1199`).
     external: BTreeMap<&'static str, usize>,

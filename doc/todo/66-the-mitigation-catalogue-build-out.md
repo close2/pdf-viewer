@@ -82,9 +82,18 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
 - **Graphics state keys** (`graphics/no-transfer-function-*`, `no-halftone-*`,
   `second-transfer-function-is-default`, `rendering-intent-*`): a key removed from an `ExtGState`
   or a halftone dictionary, each a `discard`; at 4f the sampled function may be attached.
-- **Annotations** (`printable-and-visible`, `appearance-dictionary-holds-only-normal`): the `/F`
-  bits set as the part requires, the `/D` and `/R` appearances dropped.
-- **Optional content** (two sites): `/AS` removed, configuration names supplied.
+- **Annotations** (`printable-and-visible`, `appearance-dictionary-holds-only-normal`): **built** as
+  two authorised losses (ADR 1234). The `discard` at the flag site removes the annotation — §12.5.3's
+  Table 167 offers no fallback and `doc/pdf-a-conversion-limits.md` section 3.7 makes removal the
+  default of its two futures — and the `discard` at the appearance site reduces the `/AP` to `/N`,
+  which §12.5.5's Table 170 already makes what a reader draws in the other two states. What is left
+  here is `preserve` at the flag site, the un-hiding `keep-everything` asks for: the word today
+  carries a placement or a tool and this one keeps the annotation where it is, so the configuration
+  vocabulary owes it a mechanism. `pdf_archive::flags_permitting` is the value it would write.
+- **Optional content** (two sites): `/AS` removed is **built** (ADR 1234), a part 2 target's loss
+  alone because ISO 19005-4 section 6.10 keeps the key and has a processor ignore it. Configuration
+  names are what is left, and the catalogue's entry makes them a `supply` with the converter as the
+  supplier — a different argument, and one no shipped profile answers yet.
 - **Embedded files** (four): the 4f `preserve` (catalogue section 1.2) for anything a byte string
   can hold, and the media-type `supply` already built.
 - **Fonts, content-stream marks**: the catalogue's *none* — leave them, and say so; ADR 0816's

@@ -1296,6 +1296,49 @@ fn level_of(coverage: f32) -> u8 {
 /// exact one there is the area of the intersection of the paths, which needs a conflation-free
 /// rasteriser. `min` is the composition that never moves away from the clause, and the bound on
 /// what it does not reach is [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md).
+/// Adds §10.7.4's second fill into a mask the first is already in — ISO 32000-2 §10.7.4.
+///
+/// A clipping path whose subpaths do not all enclose an area states a region that is the *union*
+/// of two fills under two different rules: the area-enclosing subpaths under the operator's own
+/// rule, and the marks the clause leaves for the rest under the non-zero rule
+/// ([`pdf_render::clip_region`]). This backend is where that union is composed rather than
+/// approximated, because its mask is bytes it owns (ADR 1231).
+///
+/// # Why the two coverages are summed
+///
+/// A pixel the two fills both reach partly is covered by the area of their *union* there, and
+/// neither `max` nor the source-over `a + b - ab` a second `fill_path` would perform is that
+/// area. The sum, capped at the whole pixel, is the bound §10.7.4 states the direction of: "The
+/// area covered by painted pixels shall always be at least as large as the area of the original
+/// shape", and the clause's own answer for a region is larger still — "a filling region is
+/// considered to intersect every pixel through which its boundary passes, even if the interior of
+/// the filling region is empty", which admits such a pixel whole. So the sum is between this
+/// backend's anti-aliased departure and the clause's own set, and it is exact wherever the two
+/// fills do not overlap inside one pixel, which is everywhere the two shapes do not cross.
+///
+/// The second fill goes into `scratch` rather than on top of `mask`, so that the composition is
+/// this function's and not whichever of three scan-conversion routes [`mask_fill`] took.
+pub(crate) fn mask_union(
+    mask: &mut tiny_skia::Mask,
+    (scratch, cells): (&mut tiny_skia::Mask, &mut Vec<f32>),
+    marks: &tiny_skia::Path,
+    anti_alias: bool,
+    at: tiny_skia::Transform,
+) {
+    scratch.clear();
+    mask_fill(
+        scratch,
+        cells,
+        marks,
+        tiny_skia::FillRule::Winding,
+        anti_alias,
+        (at, &Exact::Unknown),
+    );
+    for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
+        *kept = (*kept).saturating_add(added);
+    }
+}
+
 pub(crate) fn mask_intersect(
     mask: &mut tiny_skia::Mask,
     (scratch, cells): (&mut tiny_skia::Mask, &mut Vec<f32>),
@@ -1303,9 +1346,17 @@ pub(crate) fn mask_intersect(
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
     (at, exact): (tiny_skia::Transform, &Exact),
+    union: Option<(&tiny_skia::Path, &mut tiny_skia::Mask)>,
 ) {
     scratch.clear();
     mask_fill(scratch, cells, path, fill_rule, anti_alias, (at, exact));
+    // §10.7.4's region for this step is the union of two fills, composed before it is
+    // intersected with the chain above it: "Subsequent painting operations shall affect a region
+    // that is the intersection of the set of pixels defined by the clipping region with the set
+    // of pixels for the region to be painted", and the clipping region is the whole union.
+    if let Some((marks, second)) = union {
+        mask_union(scratch, (second, cells), marks, anti_alias, at);
+    }
     for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
         *kept = (*kept).min(added);
     }
@@ -1347,6 +1398,7 @@ mod tests {
                 tiny_skia::FillRule::Winding,
                 true,
                 (tiny_skia::Transform::identity(), &Exact::Unknown),
+                None,
             );
         }
         mask.data().to_vec()

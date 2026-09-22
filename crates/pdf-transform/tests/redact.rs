@@ -467,11 +467,74 @@ fn a_painted_path_clear_of_the_region_is_byte_identical() {
     assert_eq!(paths, 0, "nothing was cut");
 }
 
-/// A stroked path meeting the region is refused by name: §8.5.3.2's marks are the *outline* of
-/// the path, so cutting the path would place caps and joins the producer never wrote.
+/// A stroked path meeting the region is cut as the **outline** it marks (§8.5.3.2), and the
+/// proof is in pixels: outside the region the page is identical, inside it nothing is drawn.
+///
+/// The one fixture property that carries the argument is that the outline here is *exact*. A
+/// straight segment offset by half the line width, closed by butt caps and turned by miter
+/// joins, is computed in closed form — so the marks outside the region are the producer's own
+/// and not an approximation of them, which is what `redact::stroke_outline` admits and what
+/// `paths::is_polygonal` checks of the expansion's output.
 #[test]
-fn a_stroked_path_in_the_region_refuses_the_page() {
-    let content = "0 0 0 RG 2 w 20 50 m 120 50 l S";
+fn a_stroked_path_is_cut_as_the_outline_it_marks() {
+    let content = "0 0 0 RG 2 w 0 J 0 j 20 50 m 120 50 l S";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let Some(Origin::Redacted { paths, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("a redacted origin");
+    };
+    assert_eq!(paths, 1, "one stroked path was cut");
+    assert!(
+        !contains(&out, b"20 50 m 120 50 l S"),
+        "the centre line that described the removed marks is gone from the file"
+    );
+    no_mark_meets(&out, [60.0, 30.0, 140.0, 80.0]);
+
+    let before = pixels(&bytes);
+    let after = pixels(&out);
+    let scale = 150.0_f32 / 72.0;
+    let (left, right) = (60.0 * scale, 140.0 * scale);
+    let (top, bottom) = ((200.0 - 80.0) * scale, (200.0 - 30.0) * scale);
+    let stride = before.width as usize * 4;
+    let mut marked = false;
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let at = y as usize * stride + x as usize * 4;
+            let (fx, fy) = (x as f32, y as f32);
+            if fx > left + 1.0 && fx < right - 1.0 && fy > top + 1.0 && fy < bottom - 1.0 {
+                marked |= before.data[at] != 0xFF;
+                assert_eq!(
+                    &after.data[at..at + 3],
+                    &[0xFF, 0xFF, 0xFF],
+                    "a pixel at ({x}, {y}) inside the region is still marked"
+                );
+            } else if fx < left - 1.0 || fx > right + 1.0 || fy < top - 1.0 || fy > bottom + 1.0 {
+                assert_eq!(
+                    &after.data[at..at + 4],
+                    &before.data[at..at + 4],
+                    "a pixel at ({x}, {y}) outside the region changed"
+                );
+            }
+        }
+    }
+    assert!(
+        marked,
+        "the original stroke marks the region, so the test can fail"
+    );
+}
+
+/// A stroke whose outline holds an arc is refused by name: §8.4.3.3's round cap and §8.4.3.4's
+/// round join are circular, an expansion can only approximate them, and replacing the producer's
+/// marks *outside* the region with an approximation is what the refusal exists to prevent.
+#[test]
+fn a_stroke_with_a_round_cap_in_the_region_refuses_the_page() {
+    let content = "0 0 0 RG 2 w 1 J 20 50 m 120 50 l S";
     let bytes = build(
         content,
         &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
@@ -489,12 +552,12 @@ fn a_stroked_path_in_the_region_refuses_the_page() {
     );
 }
 
-/// A path with a Bézier segment meeting the region is refused by name: the crossing parameter is
-/// a root this build does not solve, and flattening the curve would approximate the producer's
-/// geometry rather than cut it.
+/// §8.4.3.2's zero line width is refused: it "shall denote the thinnest line that can be
+/// rendered at device resolution", which is a width in device pixels and not one an outline in
+/// user space can be written from.
 #[test]
-fn a_curved_path_in_the_region_refuses_the_page() {
-    let content = "0 0 0 rg 20 40 m 60 90 100 90 120 40 c h f";
+fn a_zero_width_stroke_in_the_region_refuses_the_page() {
+    let content = "0 0 0 RG 0 w 0 J 20 50 m 120 50 l S";
     let bytes = build(
         content,
         &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
@@ -502,9 +565,173 @@ fn a_curved_path_in_the_region_refuses_the_page() {
     let (report, _out) = redact(&bytes);
     assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
     assert!(
-        report.refused[0].detail.contains("§8.5.2.2"),
+        report.refused[0].detail.contains("§8.4.3.2"),
         "the refusal names the clause: {}",
         report.refused[0].detail
+    );
+}
+
+/// The surviving outline is painted in the **stroking** colour, replayed under Table 74's
+/// non-stroking operator with the producer's own operand bytes.
+#[test]
+fn the_surviving_outline_is_filled_in_the_stroking_colour() {
+    let content = "1 0 0 rg 0 0 1 RG 2 w 0 J 0 j 20 50 m 120 50 l S";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"0 0 1 rg"),
+        "the stroking colour is replayed as the non-stroking one"
+    );
+    // And it is balanced, so the fill colour the producer set is what comes back afterwards.
+    assert!(contains(&out, b"q\n0 0 1 rg"), "the replay is inside a q");
+
+    // In pixels: what survives is blue, which is the stroke's colour and not the fill's.
+    let after = pixels(&out);
+    // 150 dpi over 72 units to the inch, and y measured down from the top of a 200-unit page
+    // (trap 12a). A point in the surviving half of the bar, left of the region.
+    let stride = after.width as usize * 4;
+    let x = 40 * 150 / 72;
+    let y = (200 - 50) * 150 / 72;
+    let at = y * stride + x * 4;
+    assert_eq!(
+        &after.data[at..at + 3],
+        &[0x00, 0x00, 0xFF],
+        "the survivor is the stroke's blue"
+    );
+}
+
+/// §8.4.3.6's dash pattern is applied **before** the outline is cut: a dashed stroke marks the
+/// on-stretches alone, so the outline that is cut is the dashes' and each is its own contour.
+#[test]
+fn a_dashed_stroke_is_dashed_before_the_outline_is_cut() {
+    let content = "0 0 0 RG 2 w 0 J 0 j [10 10] 0 d 20 50 m 120 50 l S";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    no_mark_meets(&out, [60.0, 30.0, 140.0, 80.0]);
+
+    // Two dashes lie clear of the region — 20..30 and 40..50 — so the cut outline is two
+    // contours, and a solid stroke would have been one.
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let extents = mark_extents(
+        pdf_model::interpret(&document, &page)
+            .display_list
+            .commands(),
+    );
+    assert_eq!(extents.len(), 1, "one painted mark: {extents:?}");
+    let content = String::from_utf8_lossy(&page.content(&document)).to_string();
+    assert_eq!(
+        content.matches(" m\n").count(),
+        2,
+        "two dashes survive as two contours: {content}"
+    );
+}
+
+/// A path with a §8.5.2.2 Bézier segment is cut at the parameters where the curve meets the
+/// region's edges, which is a root rather than a sample: the surviving piece is still a curve,
+/// and it is the producer's own curve restricted to a sub-interval of itself.
+#[test]
+fn a_curved_path_is_cut_at_the_roots_where_it_meets_the_region() {
+    let content = "0 0 0 rg 20 40 m 60 90 100 90 120 40 c h f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        !contains(&out, b"60 90 100 90 120 40 c"),
+        "the control points that described the removed marks are gone from the file"
+    );
+    no_mark_meets(&out, [60.0, 30.0, 140.0, 80.0]);
+
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let content = String::from_utf8_lossy(&page.content(&document)).to_string();
+    assert!(
+        content.contains(" c\n"),
+        "what survives is still a curve, not a chord: {content}"
+    );
+}
+
+/// The curved cut proved in pixels: inside the region nothing is drawn, and outside it no mark
+/// has moved.
+///
+/// **What "no mark has moved" is asserted as, and why it is not byte equality.** The cut writes
+/// back the producer's own curve restricted to a sub-interval of itself, which is the same curve
+/// — but the rasteriser flattens a cubic adaptively, and its subdivision of a sub-curve is not
+/// the same subdivision it gave that stretch of the whole curve. So a pixel *on the curve's own
+/// edge* can resolve one eight-bit step differently. The assertion is therefore the property
+/// that discriminates a moved mark from a re-subdivided one: a pixel the original painted fully,
+/// or left untouched, is identical, and a pixel that differs had **partial coverage** in the
+/// original and differs by at most one step. A mark that actually moved would turn a white pixel
+/// grey or a black one lighter, and both of those fail here. The stroke's cut is byte-identical
+/// outside the region, because its outline is made of straight lines and has nothing to flatten.
+#[test]
+fn no_mark_moves_outside_the_region_when_a_curve_is_cut() {
+    let content = "0 0 0 rg 20 40 m 60 90 100 90 120 40 c h f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let before = pixels(&bytes);
+    let after = pixels(&out);
+    let scale = 150.0_f32 / 72.0;
+    let (left, right) = (60.0 * scale, 140.0 * scale);
+    let (top, bottom) = ((200.0 - 80.0) * scale, (200.0 - 30.0) * scale);
+    let stride = before.width as usize * 4;
+    let mut marked = false;
+    let mut differing = 0usize;
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let at = y as usize * stride + x as usize * 4;
+            let (fx, fy) = (x as f32, y as f32);
+            if fx > left + 1.0 && fx < right - 1.0 && fy > top + 1.0 && fy < bottom - 1.0 {
+                marked |= before.data[at] != 0xFF;
+                assert_eq!(
+                    &after.data[at..at + 3],
+                    &[0xFF, 0xFF, 0xFF],
+                    "a pixel at ({x}, {y}) inside the region is still marked"
+                );
+            } else if fx < left - 1.0 || fx > right + 1.0 || fy < top - 1.0 || fy > bottom + 1.0 {
+                for channel in 0..4 {
+                    let delta =
+                        i32::from(after.data[at + channel]) - i32::from(before.data[at + channel]);
+                    if delta == 0 {
+                        continue;
+                    }
+                    differing += 1;
+                    assert!(
+                        delta.abs() <= 1,
+                        "a pixel at ({x}, {y}) outside the region moved by {delta}"
+                    );
+                    let coverage = before.data[at];
+                    assert!(
+                        coverage > 0 && coverage < 0xFF,
+                        "a pixel at ({x}, {y}) the original painted whole changed"
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        differing > 0,
+        "the two rasters are not identical, which is what the bound above is about"
+    );
+    assert!(
+        marked,
+        "the original curve marks the region, so the test can fail"
     );
 }
 

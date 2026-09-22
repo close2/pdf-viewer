@@ -8,7 +8,7 @@ use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
 use crate::black_generation::BlackGeneration;
-use crate::colour::{ColourSpace, Compositing, Conversion};
+use crate::colour::{ColourSpace, Compositing, Conversion, Reading, Separations};
 use crate::icc::{A2b, Rendering};
 
 use super::report::Unsupported;
@@ -156,6 +156,22 @@ impl Interpreter<'_> {
         // press beside a fill drawn through the document's own (ADR 1008).
         Conversion::new(self.compositing.clone(), rendering)
             .under_output_intent(self.output_intent.as_ref())
+            .under_separations(self.separations())
+    }
+
+    /// §10.8.3's separation simulation as the reader of this interpretation asked for it.
+    ///
+    /// The clause conditions itself on a person's request — "[i]f it is important for the
+    /// colours of the display for a PDF, on a device that normally would not be used to
+    /// produce separations, to more closely match those produced when using separations" — and
+    /// no document states one, so the answer comes from the view state and from nowhere else
+    /// (ADR 1228, ADR 1229).
+    pub(super) fn separations(&self) -> Separations {
+        if self.view.separation_simulation() {
+            Separations::Simulated
+        } else {
+            Separations::Alternate
+        }
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
@@ -191,11 +207,11 @@ impl Interpreter<'_> {
             return;
         }
 
-        let space = ColourSpace::parse_with_output_intent(
+        let space = ColourSpace::parse_under(
             self.document,
             &Object::Name(name.clone()),
             resources,
-            self.output_intent.as_ref(),
+            Reading::new(self.output_intent.as_ref()).under_separations(self.separations()),
         );
         if let (Some(id), Some(parsed)) = (stated, space.as_ref())
             && is_icc_based(self.document, id)
@@ -345,11 +361,11 @@ impl Interpreter<'_> {
     /// output intent (ADR 1001).
     pub(super) fn device_space(&self, name: &str, resources: &Dictionary) -> ColourSpace {
         let named = Object::Name(Name::new(name.as_bytes().to_vec()));
-        ColourSpace::parse_with_output_intent(
+        ColourSpace::parse_under(
             self.document,
             &named,
             resources,
-            self.output_intent.as_ref(),
+            Reading::new(self.output_intent.as_ref()).under_separations(self.separations()),
         )
         .unwrap_or(match name {
             // A family name always resolves, so this arm answers only a caller naming

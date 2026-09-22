@@ -372,6 +372,14 @@ pub enum WindowAct {
     /// three windows take the thread back in three different places — `viewer_host::Drawing` in
     /// the two native ones and the composing thread in `viewer-ui`'s.
     AbortDrawing,
+    /// Turn §10.8.3's separation simulation on, or off again.
+    ///
+    /// **A window act rather than a [`Command`] although it ends in one**, for this half of the
+    /// table's standing reason: the *state* — which of the two pictures this reader has asked
+    /// for — is the host's, because `viewer_core` holds no preference a person can toggle and a
+    /// window is what shows them which one is on. What crosses the boundary is
+    /// [`viewer_core::Command::Separations`] with the answer. ADR 1228.
+    Separations,
 }
 
 /// Whether a draw the window has already warned about is still running.
@@ -484,6 +492,10 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
         Key::Escape if presenting => Meaning::Window(WindowAct::LeaveFullScreen),
         Key::Escape if warned => Meaning::Window(WindowAct::AbortDrawing),
         Key::Escape => Meaning::Send(Command::Select(Selection::None)),
+        // §10.8.3's simulation, on the letter it is named after and on Shift for `Print`'s
+        // reason: unshifted `S` is `Command::Save` and has been since this table existed, and
+        // the clause names no key at all.
+        Key::S if shift => Meaning::Window(WindowAct::Separations),
         Key::S => Meaning::Send(Command::Save),
         Key::Z => Meaning::Send(Command::Undo),
         Key::Y => Meaning::Send(Command::Redo),
@@ -868,15 +880,17 @@ mod tests {
         );
     }
 
-    /// Shift changes two rows, and the pair is named here so that a third cannot arrive quietly.
+    /// Shift changes three rows, and they are named here so that a fourth cannot arrive quietly.
     ///
     /// §12.5.1's tab key is the first: the clause gives it a direction and winit reports one key
     /// for both, so the modifier is the only thing separating them. The second is `P`, where the
     /// letter a print job is named after was already §12.4.4's presentation — the argument is at
-    /// the binding and in ADR 1180. Every other key means one thing, and the loop below is what
-    /// keeps that true: a row that started reading Shift without saying so fails here.
+    /// the binding and in ADR 1180. The third is `S`, where §10.8.3's simulation meets
+    /// `Command::Save` on the same letter (ADR 1228). Every other key means one thing, and the
+    /// loop below is what keeps that true: a row that started reading Shift without saying so
+    /// fails here.
     #[test]
-    fn shift_separates_the_two_directions_of_the_tab_key_and_the_print_job_from_the_presentation() {
+    fn shift_separates_the_tab_key_the_print_job_and_the_separation_simulation() {
         assert!(matches!(
             meaning(Key::Tab, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
@@ -897,8 +911,16 @@ mod tests {
             meaning(Key::P, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::Print))
         ));
+        assert!(matches!(
+            meaning(Key::S, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Send(Command::Save))
+        ));
+        assert!(matches!(
+            meaning(Key::S, Modifiers::SHIFT, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Separations))
+        ));
         for key in Key::ALL {
-            if matches!(key, Key::Tab | Key::P) {
+            if matches!(key, Key::Tab | Key::P | Key::S) {
                 continue;
             }
             for mode in [Mode::Reading, Mode::Presenting] {

@@ -1577,3 +1577,117 @@ fn a_collection_lists_its_files_in_the_order_table_153_states() {
         ["<3>report.pdf", "readme.txt"]
     );
 }
+
+/// ISO 32000-2 §12.6.4.3's file, at each of the four levels a reader may set.
+///
+/// Table 203 makes `/F` "[t]he file in which the destination shall be located", and which files a
+/// document may name is a property of the processor rather than of the format — the same sentence
+/// §12.7.6.4's import-data is answered with. So the **path rule comes before the level**, which is
+/// the half this test exists for: a name outside the document's own directory is refused at every
+/// level including the permissive one, because a reader who said their documents may
+/// cross-reference each other did not say that any file on this disk may be opened on a
+/// document's say-so (ADR 1155's position, ADR 1227).
+#[test]
+fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
+    use viewer_host::{Remote, RemoteDocuments, remote, remote_documents};
+
+    let directory = Path::new("/documents");
+    for level in RemoteDocuments::ALL {
+        for hostile in ["../secrets.pdf", "/etc/passwd", "sub/next.pdf", ""] {
+            assert!(
+                matches!(remote(Some(directory), hostile, level), Remote::Refuse(_)),
+                "{hostile} is not a plain file name beside the document, {level:?} or not"
+            );
+        }
+        assert!(
+            matches!(remote(None, "next.pdf", level), Remote::Refuse(_)),
+            "a document with no directory has no neighbourhood to resolve against"
+        );
+    }
+
+    // And the neighbour is admitted at three of the four, in three different shapes: the level
+    // decides the act that is left rather than the path.
+    let beside = PathBuf::from("/documents/next.pdf");
+    assert_eq!(
+        remote(Some(directory), "next.pdf", RemoteDocuments::Open),
+        Remote::Supply {
+            path: beside.clone(),
+            note: None
+        }
+    );
+    let Remote::Supply { path, note } = remote(Some(directory), "next.pdf", RemoteDocuments::Warn)
+    else {
+        panic!("warn opens the file and says so afterwards");
+    };
+    assert_eq!(path, beside);
+    assert!(
+        note.is_some_and(|note| note.contains(RemoteDocuments::Warn.as_str())),
+        "the sentence names the level that produced it"
+    );
+    let Remote::Ask { path, question } = remote(Some(directory), "next.pdf", RemoteDocuments::Ask)
+    else {
+        panic!("ask is the default and puts the question");
+    };
+    assert_eq!(path, beside);
+    assert!(
+        question.reasons.contains("next.pdf") && question.reasons.contains("/documents/next.pdf"),
+        "a person judging this is owed both the name the document wrote and the file it resolved \
+         to: {}",
+        question.reasons
+    );
+    let Remote::Refuse(refused) = remote(Some(directory), "next.pdf", RemoteDocuments::Refuse)
+    else {
+        panic!("refuse opens nothing");
+    };
+    assert!(
+        refused.contains("next.pdf"),
+        "and a refusal still says what the document asked for (trap 5): {refused}"
+    );
+
+    // Every level round-trips through the word a person types, and the complaint names all four —
+    // `Links`'s rule, because a reader meets both options on one command line.
+    for level in RemoteDocuments::ALL {
+        assert_eq!(remote_documents(level.as_str()), Ok(level));
+    }
+    let complaint =
+        remote_documents("on").expect_err("`on` is RESTRICTIONS's word and means the other end");
+    for level in RemoteDocuments::ALL {
+        assert!(
+            complaint.contains(level.as_str()),
+            "the complaint names every level this option takes: {complaint}"
+        );
+    }
+}
+
+/// ISO 32000-2 §10.8.3's simulation is a preference with two words, and §10.8.1 says whose it is.
+///
+/// > Whether separations are produced is up to the processing software.
+///
+/// Two words rather than `CLAUDE.md`'s four levels, and that is the decision this test pins: the
+/// four levels are for what a *document* asserts over its reader, and nothing in any file asks for
+/// this — so there is nobody to ask and nothing to warn about (ADR 1189 section 2's division,
+/// ADR 1228).
+#[test]
+fn the_separation_simulation_is_a_preference_with_two_words() {
+    use viewer_host::{SEPARATIONS, separations, separations_note};
+
+    assert_eq!(separations("on"), Ok(true));
+    assert_eq!(separations("off"), Ok(false));
+    for word in ["ask", "warn", "refuse", "", "yes"] {
+        let complaint = separations(word).expect_err("{word} is not one of the two");
+        assert!(
+            complaint.contains("on, off") && complaint.contains(SEPARATIONS),
+            "the complaint names the option and both its words: {complaint}"
+        );
+    }
+    // The sentence says which clause the reader is now looking at, because every colour on the
+    // page has just changed and nothing else on the screen says why.
+    assert!(
+        separations_note(true).contains("§10.8.3"),
+        "on names the simulation's own clause"
+    );
+    assert!(
+        separations_note(false).contains("§10.8.2"),
+        "off names the clause that describes what a screen does instead"
+    );
+}

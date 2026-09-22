@@ -161,18 +161,14 @@ Two lines are left, and neither is the one that was owed:
   performs — a deliberate cost on a population of one shape (a windowed widget appearance with
   variable text), recorded in the ADR rather than owed here.
 
-**And one thing this cache is asked for and cannot do, asked again and answered in code.**
-§11.6.5.2's remaining residue is a soft mask behind an image codec, which `pdf-model` declines to
-read at device scale because it would decode the codestream per raster request. That is not this
-cache's to take, and the reason is the key rather than the budget: this cache holds the output of
-§7.4's filter chain keyed by the *encoded* allocation, and `Document::image_stream` runs and
-memoises only the chain **in front of** the codec — `codec_position` takes that prefix and hands
-the codec's own bytes back untouched — so a codec's output is not a chain product and
-`DecodedStreams` never sees one. The key that would take it already exists one level up:
-`pdf_model::image::MaskCache` is keyed by the `/SMask`'s `ObjectId` and holds a
-`SoftMaskAtDeviceScale`, so a codec'd mask decoded once into an eight-bit grey plane would be
-memoised with no new key at all. What is owed is a **bound** on that plane, and it is a decision of
-its own: the packed route exists because `issue16263.pdf`'s mask is 151 million samples where its
-`FlateDecode` stream is 19 MB. The population is small — of 1099 image `/SMask`s over the 974
-tracked documents, 16 stand behind a codec, 27 189 055 samples between them, the largest 6 522 400
-in `22060_A1_01_Plans.pdf` — so a bound around one mask's plane would admit every one of them.
+**And one thing this cache was asked for and could not do, answered one level up instead.**
+§11.6.5.2's soft mask behind an image codec was never this cache's to take, and the reason is the
+key rather than the budget: this cache holds the output of §7.4's filter chain keyed by the
+*encoded* allocation, and `Document::image_stream` runs and memoises only the chain **in front of**
+the codec — `codec_position` takes that prefix and hands the codec's own bytes back untouched — so
+a codec's output is not a chain product and `DecodedStreams` never sees one. The key that took it
+already existed one level up: `pdf_model::image::MaskCache` is keyed by the `/SMask`'s `ObjectId`
+and holds a `SoftMaskAtDeviceScale`, so the plane is decoded once per document and memoised with no
+new key at all. The bound it needed is `PREFER_DEVICE_SCALE_ABOVE`, the constant that already sent
+the pair down that route and already caps the grid it produces — one byte of plane per sample, so
+2^24 samples is 16 MiB kept. ADR 1232, and §11.6.5.2's ledger row.

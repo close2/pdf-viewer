@@ -1351,3 +1351,76 @@ fn a_stencil_under_its_own_soft_mask_states_its_shape_to_a_knockout() {
         combined.unsupported
     );
 }
+
+/// A §11.6.5.2 soft mask behind an image codec is read at the device's grid like any other.
+///
+/// The clause's own routing is what this is about rather than the filter. §11.6.4.2 gives a
+/// stencil its *shape* — "For image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0
+/// for painted areas and 0.0 for masked areas" — and §11.6.4.3 makes an `/SMask` its opacity, so
+/// the two are kept apart on the way to the display list and combined where the device scale is
+/// known (ADR 1218). That route reads the mask's samples at a grid the device chooses, which for
+/// a codestream means decoding it: a `JPXDecode` sample has no position until it is.
+///
+/// So the mask is decoded **once**, into an eight-bit grey plane `MaskCache` holds under the
+/// `/SMask`'s own `ObjectId`, under the same bound that sent the pair down this route (ADR 1232).
+/// The assertion is the stencil test's above: the shape arrives as a `Decoded` source of its own,
+/// which is only possible if the pair was never multiplied together. Before the bound existed the
+/// codec was refused outright here and the same fixture reported "could not be kept apart".
+///
+/// The control is the same page with the mask's filter taken off, so that a reader which had
+/// stopped keeping any pair apart would fail both halves rather than one.
+#[test]
+fn a_stencil_under_a_codec_carrying_soft_mask_still_states_its_shape() {
+    sandbox_or_panic();
+
+    let mask = stream_object(
+        7,
+        "/Type /XObject /Subtype /Image /Width 8 /Height 8 /Filter /JPXDecode \
+         /ColorSpace /DeviceGray",
+        JPX_ONE_COMPONENT,
+    );
+    let stencil = "/Width 4 /Height 2 /ImageMask true /SMask 7 0 R";
+    let kept = interpret(knockout_group_drawing(
+        stencil,
+        PATTERN,
+        std::slice::from_ref(&mask),
+    ));
+    let reported = format!("{:?}", kept.unsupported);
+    assert!(
+        !reported.contains("could not be kept apart"),
+        "a codec-carrying mask is decoded once and read at the device's grid: {reported}"
+    );
+    let shapes: Vec<_> = commands_of(&kept)
+        .into_iter()
+        .filter_map(|command| match command {
+            pdf_render::Command::Shaped { shape, .. } => Some(*shape),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shapes.len(), 2, "two elements, each stating its shape");
+    for shape in &shapes {
+        let pdf_render::Command::Image { image: shape, .. } = shape else {
+            panic!("the shape half draws the image: {shape:?}");
+        };
+        assert_eq!(
+            shape.sample_alpha(),
+            pdf_render::SampleAlpha::Shape,
+            "the shape beside the object is the stencil alone"
+        );
+    }
+
+    // The control: the same mask with no codec at all, which took this route before and still
+    // does. A reader that had stopped keeping any pair apart fails here too.
+    let unfiltered = stream_object(
+        7,
+        "/Type /XObject /Subtype /Image /Width 4 /Height 2 /BitsPerComponent 8 \
+         /ColorSpace /DeviceGray",
+        b"\x00\x40\x80\xff\xff\x80\x40\x00",
+    );
+    let plain = interpret(knockout_group_drawing(stencil, PATTERN, &[unfiltered]));
+    assert!(
+        !format!("{:?}", plain.unsupported).contains("could not be kept apart"),
+        "the control keeps its pair apart: {:?}",
+        plain.unsupported
+    );
+}

@@ -369,6 +369,7 @@ impl Reader {
             // either is a change to something other than the field's value.
             icon_fit: None,
             appearance: None,
+            appearance_reference: Vec::new(),
             actions: None,
             owed: Vec::new(),
         });

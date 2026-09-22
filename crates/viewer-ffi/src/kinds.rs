@@ -886,6 +886,8 @@ pub enum PurposeKind {
     ImportData = 0,
     /// §12.6.4.4's embedded go-to: Table 204's `/F`, the target's root document, which is a PDF.
     TargetRoot = 1,
+    /// §12.6.4.3's remote go-to: Table 203's `/F`, the file the destination is in, also a PDF.
+    RemoteDocument = 2,
 }
 
 impl PurposeKind {
@@ -895,6 +897,7 @@ impl PurposeKind {
         Some(match code {
             0 => Self::ImportData,
             1 => Self::TargetRoot,
+            2 => Self::RemoteDocument,
             _ => return None,
         })
     }
@@ -905,6 +908,7 @@ impl PurposeKind {
         match purpose {
             Purpose::ImportData => Self::ImportData,
             Purpose::TargetRoot => Self::TargetRoot,
+            Purpose::RemoteDocument => Self::RemoteDocument,
         }
     }
 
@@ -914,6 +918,7 @@ impl PurposeKind {
         match self {
             Self::ImportData => Purpose::ImportData,
             Self::TargetRoot => Purpose::TargetRoot,
+            Self::RemoteDocument => Purpose::RemoteDocument,
         }
     }
 

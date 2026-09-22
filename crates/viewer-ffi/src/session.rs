@@ -915,6 +915,11 @@ impl Session {
         self.handle(Command::Audience(audience))
     }
 
+    /// ISO 32000-2 §10.8.3's separation simulation, as this reader has asked for it.
+    pub fn separations(&mut self, simulate: bool) -> Events {
+        self.handle(Command::Separations(simulate))
+    }
+
     /// How many pages on the screen this viewer has anything to say about.
     ///
     /// **The entry point a C caller could not have deduced**, and it exists for

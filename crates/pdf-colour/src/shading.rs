@@ -20,7 +20,7 @@ use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
-use crate::colour::{ColourSpace, Compositing, Conversion};
+use crate::colour::{ColourSpace, Compositing, Conversion, Reading, Separations};
 use crate::function::{Function, Value};
 use crate::transfer::Transfer;
 
@@ -141,7 +141,7 @@ pub struct Cache {
     /// interpretation has one intent, so the second half of the key never varies within a
     /// cache's life; it is there so that the table is exact by construction rather than by
     /// that argument.
-    spaces: BTreeMap<(ObjectId, Option<u128>), ColourSpace>,
+    spaces: BTreeMap<(ObjectId, Option<u128>, Separations), ColourSpace>,
 }
 
 /// The half of a shading [`Cache`] can remember: everything but the caller's transform.
@@ -292,15 +292,21 @@ impl Cache {
         let dict = dictionary_of(document, object)?;
         let id = dict.get("ColorSpace")?.as_reference()?;
         let intent = into.output_intent();
-        let key = (id, intent.as_ref().and_then(ColourSpace::profile_identity));
+        // §10.8.3's preference is in the key because it decides what a `DeviceN` space means:
+        // two interpretations of one page under the two answers are two spaces (ADR 1229).
+        let key = (
+            id,
+            intent.as_ref().and_then(ColourSpace::profile_identity),
+            into.separations(),
+        );
         if let Some(space) = self.spaces.get(&key) {
             return Some(space.clone());
         }
-        let space = ColourSpace::parse_with_output_intent(
+        let space = ColourSpace::parse_under(
             document,
             &Object::Reference(id),
             resources,
-            intent.as_ref(),
+            Reading::new(intent.as_ref()).under_separations(into.separations()),
         )?;
         self.spaces.insert(key, space.clone());
         Some(space)
@@ -411,11 +417,11 @@ fn kind_of(
         space
     } else {
         let intent = colouring.into.output_intent();
-        ColourSpace::parse_with_output_intent(
+        ColourSpace::parse_under(
             document,
             &document.get_key(&dict, "ColorSpace"),
             resources,
-            intent.as_ref(),
+            Reading::new(intent.as_ref()).under_separations(colouring.into.separations()),
         )
         .ok_or_else(|| ShadingError::Malformed {
             detail: "unsupported /ColorSpace".to_owned(),

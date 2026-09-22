@@ -336,6 +336,30 @@ pub enum Command {
     /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
     /// fact about the *reader's machine* rather than about any one file. ADR 1160.
     Clock(Option<pdf_syntax::Date>),
+    /// Whether ISO 32000-2 §10.8.3's separation simulation is what this reader is asking for.
+    ///
+    /// **The tenth host-supplied policy value, and the same shape as [`Self::Trust`],
+    /// [`Self::References`], [`Self::Audience`] and [`Self::Clock`] for the same reason.**
+    /// §10.8.3 conditions the whole simulation on a request no file makes — "[i]f it is
+    /// important for the colours of the display for a PDF, on a device that normally would not
+    /// be used to produce separations, to more closely match those produced when using
+    /// separations, then a simulation of the separation process can be performed" — and
+    /// §10.8.1 says whose choice that is: "[w]hether separations are produced is up to the
+    /// processing software." Neither sentence is answerable from the bytes, so it arrives here.
+    ///
+    /// **A preference and not a restriction level.** `CLAUDE.md`'s four levels are for what a
+    /// *document* asserts over its reader; this is the reader asking for a different picture of
+    /// their own document, so it is one value with two states and no question to put.
+    ///
+    /// **Nothing changes for a host that never sends this**, which is every host by default:
+    /// §10.8.2's alternate colour space and its tint transform are what a `Separation` or
+    /// `DeviceN` colour is drawn through, which that clause states as the expected behaviour for
+    /// a device that is not making separations.
+    ///
+    /// Applies to every open document and to every one opened afterwards, until it is sent
+    /// again, which is [`Self::Restrict`]'s rule and for [`Self::Restrict`]'s reason: it is a
+    /// fact about the *reader* rather than about any one file. ADR 1228.
+    Separations(bool),
     /// The person's answer to [`crate::Event::Asking`].
     ///
     /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing
@@ -1299,6 +1323,15 @@ pub enum Purpose {
     /// destination the action names inside it, so a host that supplies the wrong file has
     /// answered a different question rather than made a mistake this crate can see.
     TargetRoot,
+    /// §12.6.4.3's remote go-to: Table 203's `/F`, "[t]he file in which the destination shall be
+    /// located".
+    ///
+    /// The bytes are a **PDF**: §12.6.4.3's own NOTE says a remote go-to "cannot be used with
+    /// embedded files", and §12.3.2.2's NOTE says why the destination needs that file rather
+    /// than this one — "the page parameter specifies an integer page number within the remote
+    /// document instead of a page object in the current document". What comes back replaces the
+    /// document on the screen, at the page the action names inside it. ADR 1227.
+    RemoteDocument,
 }
 
 /// What a worker did with a [`crate::RenderRequest`].

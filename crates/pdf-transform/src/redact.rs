@@ -617,20 +617,43 @@ enum ArrayElement {
     Str(Vec<u8>),
 }
 
+/// One subpath of a path object, with whether the producer closed it.
+///
+/// The distinction is §8.5.3.1's: a fill closes every subpath implicitly — "any subpaths that
+/// are open shall be implicitly closed before being filled" — and a stroke does not, because an
+/// open subpath is stroked with §8.4.3.3's caps at its two ends and a closed one with a join.
+struct BuiltSubPath {
+    path: kurbo::BezPath,
+    closed: bool,
+}
+
+/// What state the subpath under construction is in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Building {
+    /// None has been begun since the last was finished.
+    Nothing,
+    /// One is being built and the producer has not closed it.
+    Open,
+    /// One is being built and an `h` or an `re` closed it.
+    Closed,
+}
+
 /// A path object under construction (§8.2): §8.5.2's construction operators accumulate here until
 /// a painting operator decides what becomes of it.
 struct PathObject {
-    /// The closed subpaths, in the content stream's own user space.
-    subpaths: Vec<paths::SubPath>,
-    /// The subpath still being built, flushed into `subpaths` by `h`, `re`, a fresh `m`, or the
-    /// painting operator.
-    current: paths::SubPath,
+    /// The subpaths finished so far, in the content stream's own user space.
+    subpaths: Vec<BuiltSubPath>,
+    /// The subpath still being built, finished by `h`, `re`, a fresh `m`, or the painting
+    /// operator.
+    current: kurbo::BezPath,
+    /// What state the subpath under construction is in.
+    building: Building,
+    /// §8.5.2's current point, which `v` uses as its first control point.
+    current_point: kurbo::Point,
     /// Every point named so far, in the display list's space — the box the region is tested
     /// against. A curve contributes its control points, which contain the curve, so the box
     /// over-approximates and never misses a region.
     bbox: Option<[f32; 4]>,
-    /// Whether §8.5.2.2's `c`, `v` or `y` contributed: a segment this build does not cut.
-    curved: bool,
     /// Whether §8.5.4's `W` or `W*` made this path the clipping boundary as well as a mark.
     clips: bool,
     /// Whether an operator that is not path construction ran while the path was open, so the
@@ -647,9 +670,10 @@ impl PathObject {
     fn new(start: usize, ctm: Transform) -> Self {
         Self {
             subpaths: Vec::new(),
-            current: Vec::new(),
+            current: kurbo::BezPath::new(),
+            building: Building::Nothing,
+            current_point: kurbo::Point::ZERO,
             bbox: None,
-            curved: false,
             clips: false,
             interrupted: false,
             start,
@@ -657,13 +681,12 @@ impl PathObject {
         }
     }
 
-    /// Adds one user-space point to the subpath under construction and to the device-space box.
+    /// Notes one user-space point in the device-space box, without adding to the geometry.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a content-stream path coordinate is far inside f32"
     )]
-    fn push(&mut self, x: f64, y: f64) {
-        self.current.push((x, y));
+    fn mark(&mut self, x: f64, y: f64) {
         let point = self.ctm.apply(Point::new(x as f32, y as f32));
         let bbox = self
             .bbox
@@ -674,13 +697,111 @@ impl PathObject {
         bbox[3] = bbox[3].max(point.y);
     }
 
-    /// Closes the subpath under construction, if it has one, and starts a fresh one. A fill
-    /// closes every subpath implicitly (§8.5.3.1), so a subpath the producer left open and one
-    /// it closed with `h` are the same region and are flushed the same way.
-    fn flush(&mut self) {
-        if !self.current.is_empty() {
-            self.subpaths.push(std::mem::take(&mut self.current));
+    /// Begins a new subpath at a point, finishing whatever was being built.
+    fn begin(&mut self, x: f64, y: f64) {
+        self.finish();
+        self.current.move_to(kurbo::Point::new(x, y));
+        self.building = Building::Open;
+        self.current_point = kurbo::Point::new(x, y);
+        self.mark(x, y);
+    }
+
+    /// Appends a straight segment. A file stating one with no current point has begun the
+    /// subpath there, which is the reading that loses nothing.
+    fn line(&mut self, x: f64, y: f64) {
+        if self.building == Building::Nothing {
+            self.begin(x, y);
+            return;
         }
+        self.current.line_to(kurbo::Point::new(x, y));
+        self.current_point = kurbo::Point::new(x, y);
+        self.mark(x, y);
+    }
+
+    /// Appends a §8.5.2.2 cubic Bézier by its three remaining control points.
+    ///
+    /// Every control point is marked as well as drawn, so the device-space box covers the curve's
+    /// control polygon — which contains the curve — and a curve near the region is never missed.
+    fn curve(&mut self, one: kurbo::Point, two: kurbo::Point, three: kurbo::Point) {
+        if self.building == Building::Nothing {
+            return;
+        }
+        self.current.curve_to(one, two, three);
+        self.current_point = three;
+        for point in [one, two, three] {
+            self.mark(point.x, point.y);
+        }
+    }
+
+    /// `re` (§8.5.2.1): a complete rectangular subpath, which closes itself.
+    fn rectangle(&mut self, x: f64, y: f64, width: f64, height: f64) {
+        self.finish();
+        self.current.move_to(kurbo::Point::new(x, y));
+        self.current.line_to(kurbo::Point::new(x + width, y));
+        self.current
+            .line_to(kurbo::Point::new(x + width, y + height));
+        self.current.line_to(kurbo::Point::new(x, y + height));
+        self.current.close_path();
+        self.building = Building::Closed;
+        for corner in [
+            (x, y),
+            (x + width, y),
+            (x + width, y + height),
+            (x, y + height),
+        ] {
+            self.mark(corner.0, corner.1);
+        }
+        self.finish();
+    }
+
+    /// `h` (§8.5.2.1): closes the subpath under construction.
+    fn close(&mut self) {
+        if self.building != Building::Nothing {
+            self.current.close_path();
+            self.building = Building::Closed;
+            self.finish();
+        }
+    }
+
+    /// Finishes the subpath under construction, if it has one, and starts a fresh one.
+    fn finish(&mut self) {
+        if self.building != Building::Nothing {
+            self.subpaths.push(BuiltSubPath {
+                path: std::mem::take(&mut self.current),
+                closed: self.building == Building::Closed,
+            });
+        }
+        self.current = kurbo::BezPath::new();
+        self.building = Building::Nothing;
+    }
+
+    /// The subpaths as §8.5.3.1's fill sees them: "any subpaths that are open shall be
+    /// implicitly closed before being filled".
+    fn filled_rings(&self) -> Vec<paths::SubPath> {
+        self.subpaths
+            .iter()
+            .map(|subpath| {
+                let mut ring = subpath.path.clone();
+                if !subpath.closed {
+                    ring.close_path();
+                }
+                ring
+            })
+            .collect()
+    }
+
+    /// The whole path as §8.5.3.2's stroke sees it, with `closes` applying §8.5.3.1's `s` — "the
+    /// same effect as the sequence h S", which closes the *current* subpath and so the last one.
+    fn stroked_path(&self, closes: bool) -> kurbo::BezPath {
+        let mut out = kurbo::BezPath::new();
+        let last = self.subpaths.len().saturating_sub(1);
+        for (index, subpath) in self.subpaths.iter().enumerate() {
+            out.extend(subpath.path.elements().iter().copied());
+            if !subpath.closed && closes && index == last {
+                out.close_path();
+            }
+        }
+        out
     }
 }
 
@@ -696,6 +817,160 @@ struct Frame {
     ctm: Transform,
     ctm_stack: Vec<Transform>,
     path: Option<PathObject>,
+    graphics: GraphicsState,
+    graphics_stack: Vec<GraphicsState>,
+}
+
+/// The parts of §8.4's graphics state a cut of a §8.5.3.2 stroke needs, and nothing else.
+///
+/// Three groups, each for one question the cut has to answer:
+///
+/// - **§8.4.3's line parameters** decide the outline the stroke marks: `w`, `J`, `j`, `M` and
+///   `d`, together with the `/LW`, `/LC`, `/LJ`, `/ML` and `/D` an `ExtGState` may state.
+/// - **§8.6.8's stroking colour** decides what the outline is painted with. The cut writes the
+///   surviving outline back as a *fill*, because §8.5.3.2's marks are the region the outline
+///   encloses and `f` is the operator that paints one — so the fill has to be given the stroking
+///   colour, which is done by replaying the producer's own colour operands under the
+///   corresponding non-stroking operator of Table 74. What is held is the operand **bytes** the
+///   file wrote, so no number is reformatted and no colour is reinterpreted.
+/// - **§11.6.4.4's two constant alphas**, because a fill takes `/ca` where a stroke takes `/CA`.
+///   Where an `ExtGState` has made them differ the substitution would change what is drawn,
+///   the page is refused instead.
+///
+/// Saved and restored by `q` and `Q` (§8.4.2), like the transform beside it. ADR 1236.
+#[derive(Clone, Debug)]
+struct GraphicsState {
+    /// §8.4.3.2's line width, "in user space units". Table 51's initial value is 1.0.
+    width: f64,
+    /// §8.4.3.3's line cap style, Table 52: 0 butt, 1 round, 2 projecting square.
+    cap: i64,
+    /// §8.4.3.4's line join style, Table 53: 0 miter, 1 round, 2 bevel.
+    join: i64,
+    /// §8.4.3.5's miter limit, whose initial value Table 51 gives as 10.0.
+    miter_limit: f64,
+    /// §8.4.3.6's dash array, in user space units; empty is the solid line Table 51 starts with.
+    dashes: Vec<f64>,
+    /// §8.4.3.6's dash phase.
+    dash_phase: f64,
+    /// The operand bytes of the last `CS`, to be replayed as `cs`, where one has run.
+    space: Option<Vec<u8>>,
+    /// The operand bytes of the last `SC`, `SCN`, `G`, `RG` or `K`, with the non-stroking
+    /// operator of Table 74 they are replayed under.
+    value: Option<(Vec<u8>, &'static str)>,
+    /// §11.6.4.4's `/CA`, the stroking alpha constant. Table 58's initial value is 1.0.
+    stroking_alpha: f64,
+    /// §11.6.4.4's `/ca`, the non-stroking alpha constant.
+    fill_alpha: f64,
+}
+
+impl Default for GraphicsState {
+    /// Table 51's initial values, which are what a content stream starts with (§8.4.1).
+    fn default() -> Self {
+        Self {
+            width: 1.0,
+            cap: 0,
+            join: 0,
+            miter_limit: 10.0,
+            dashes: Vec::new(),
+            dash_phase: 0.0,
+            space: None,
+            value: None,
+            stroking_alpha: 1.0,
+            fill_alpha: 1.0,
+        }
+    }
+}
+
+impl GraphicsState {
+    /// How far past a path's own control points its marks reach when it is stroked in this
+    /// state.
+    ///
+    /// Half the line width by §8.4.3.2, and a miter join reaches further: §8.4.3.5 makes the limit
+    /// "the maximum length of a miter as a ratio of the line width", so the limit times half the
+    /// width bounds every join. Used to widen the box the region is tested against, so that a
+    /// centre line outside the region whose *stroke* reaches in is not missed.
+    fn stroke_reach(&self) -> f64 {
+        self.width / 2.0 * self.miter_limit.max(1.0)
+    }
+
+    /// The `kurbo` style that expands this state's stroke into the outline §8.5.3.2 marks.
+    fn stroke_style(&self) -> kurbo::Stroke {
+        kurbo::Stroke::new(self.width)
+            .with_caps(match self.cap {
+                1 => kurbo::Cap::Round,
+                2 => kurbo::Cap::Square,
+                _ => kurbo::Cap::Butt,
+            })
+            .with_join(match self.join {
+                1 => kurbo::Join::Round,
+                2 => kurbo::Join::Bevel,
+                _ => kurbo::Join::Miter,
+            })
+            // §8.4.3.5 defines the limit as a ratio of at least 1; a smaller value from a
+            // malformed file behaves as the smallest legal one.
+            .with_miter_limit(self.miter_limit.max(1.0))
+            .with_dashes(self.dash_phase, self.dashes.iter().copied())
+    }
+
+    /// The operators that give a fill this state's **stroking** colour, or `None` where no
+    /// stroking colour operator has run.
+    ///
+    /// Table 74 pairs each stroking operator with the non-stroking one that sets the same thing,
+    /// and the operands written are the file's own bytes rather than numbers this program
+    /// re-formatted. A `CS` with no `SC` or `SCN` after it is enough on its own: §8.6.8 has that
+    /// operator "set the colour to its initial value" for the space it names, and `cs` sets the
+    /// same initial value for the same space.
+    fn non_stroking_colour(&self) -> Option<Vec<u8>> {
+        if self.space.is_none() && self.value.is_none() {
+            return None;
+        }
+        let mut out = Vec::new();
+        if let Some(space) = &self.space {
+            out.extend_from_slice(space);
+            out.extend_from_slice(b" cs\n");
+        }
+        if let Some((operands, operator)) = &self.value {
+            out.extend_from_slice(operands);
+            out.push(b' ');
+            out.extend_from_slice(operator.as_bytes());
+            out.push(b'\n');
+        }
+        Some(out)
+    }
+
+    /// Records one stroking colour operator's operands under the non-stroking operator that sets
+    /// the same thing (§8.6.8, Table 74).
+    ///
+    /// `G`, `RG` and `K` name a device colour space as well as a colour, so they clear whatever
+    /// `CS` had stated; `SC` and `SCN` set a colour inside the space `CS` named and leave it.
+    fn record_colour(&mut self, keyword: &[u8], operands: Vec<u8>) {
+        match keyword {
+            b"CS" => {
+                self.space = Some(operands);
+                self.value = None;
+            }
+            b"SC" => self.value = Some((operands, "sc")),
+            b"SCN" => self.value = Some((operands, "scn")),
+            b"G" => {
+                self.space = None;
+                self.value = Some((operands, "g"));
+            }
+            b"RG" => {
+                self.space = None;
+                self.value = Some((operands, "rg"));
+            }
+            b"K" => {
+                self.space = None;
+                self.value = Some((operands, "k"));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether an operator sets §8.6.8's **stroking** colour, which the cut of a stroke replays.
+fn is_stroking_colour_operator(keyword: &[u8]) -> bool {
+    matches!(keyword, b"CS" | b"SC" | b"SCN" | b"G" | b"RG" | b"K")
 }
 
 /// Whether an operator belongs inside a path object (§8.2): §8.5.2's construction operators,
@@ -722,6 +997,110 @@ fn is_path_operator(keyword: &[u8]) -> bool {
             | b"b*"
             | b"n"
     )
+}
+
+/// How closely `kurbo::stroke` is asked to follow the true outline of a stroke.
+///
+/// A tenth of [`paths::REGION_PAD`], the widening the cut is proven against — and the honest
+/// statement of the number is that it decides nothing this build admits. The tolerance governs
+/// the approximation of arcs, and [`paths::is_polygonal`] refuses every expansion that produced
+/// one; what is left is the straight-segment case, whose offsets, butt and projecting-square caps
+/// and miter and bevel joins the expansion computes in closed form. A later round that admits an
+/// arc owes the margin arithmetic for this value too, carried into the display list's space by
+/// the mapping's norm the way [`paths::Cut::margin_holds`] carries the other two roundings.
+/// ADR 1236.
+const STROKE_TOLERANCE: f64 = paths::REGION_PAD / 10.0;
+
+/// Tables 52 and 53 each state three integer codes for a line style.
+///
+/// A value outside them is a malformed file and takes code 0 — butt caps and miter joins, which
+/// is the initial value Table 51 gives both.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Table 52 and Table 53 state the codes 0, 1 and 2; everything else falls to 0"
+)]
+fn style_code(value: f64) -> i64 {
+    match value as i64 {
+        code @ (1 | 2) => code,
+        _ => 0,
+    }
+}
+
+/// One expanded outline split into the closed subpaths a cut takes one at a time.
+///
+/// `kurbo::stroke` returns every contour of the outline in one path, each begun by a `MoveTo`;
+/// the cut's Sutherland–Hodgman construction is stated per subpath, so they are separated here.
+fn split_subpaths(outline: &kurbo::BezPath) -> Vec<paths::SubPath> {
+    let mut out: Vec<paths::SubPath> = Vec::new();
+    for element in outline.elements() {
+        if matches!(element, kurbo::PathEl::MoveTo(_)) {
+            out.push(kurbo::BezPath::new());
+        }
+        if let Some(current) = out.last_mut() {
+            current.push(*element);
+        }
+    }
+    for subpath in &mut out {
+        if !matches!(subpath.elements().last(), Some(kurbo::PathEl::ClosePath)) {
+            subpath.close_path();
+        }
+    }
+    out
+}
+
+/// Whether this path object's own bytes are a cut's to replace, or the refusal by name.
+///
+/// Three questions, none of them about the geometry: whether cutting would move something other
+/// than the marks (§8.5.4's clipping boundary), whether the byte range the replacement occupies
+/// is the path's alone (§8.2's path object), and whether the path has any area in device space
+/// at all (§8.3.4).
+fn admits_a_cut(path: &PathObject) -> Result<(), String> {
+    if path.clips {
+        return Err(
+            "§8.5.4: the path meeting the region is also the clipping path (W or W*), which \
+             bounds every mark after the painting operator; cutting its geometry would move that \
+             boundary and change content the annotation did not identify; the page is refused"
+                .to_owned(),
+        );
+    }
+    if path.interrupted {
+        return Err(
+            "§8.2: an operator that is not path construction ran inside the path object meeting \
+             the region, so the bytes the cut would replace are not the path's alone; the page \
+             is refused"
+                .to_owned(),
+        );
+    }
+    if path.ctm.determinant() == 0.0 {
+        return Err(
+            "§8.3.4: the transform in force where a painted path meets the region is singular, \
+             so the path has no area in device space to cut; the page is refused"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+/// One set of subpaths cut to the complement of every region, or the refusal by name.
+fn cut_to_complement(
+    subpaths: &[paths::SubPath],
+    regions: &[[f64; 4]],
+    to_display: paths::Mapping,
+) -> Result<Vec<paths::SubPath>, String> {
+    let cut = paths::subtract(subpaths, regions, to_display).ok_or_else(|| {
+        "§12.5.6.23: cutting a painted path against these regions exceeds this build's bound on \
+         the surviving pieces; the page is refused rather than truncated"
+            .to_owned()
+    })?;
+    if !cut.margin_holds() {
+        return Err(
+            "§7.3.3: a coordinate of the cut path is large enough that writing it back and \
+             reading it as a single-precision real could move the cut edge inside the region; \
+             the page is refused rather than leave a sliver of the removed marks"
+                .to_owned(),
+        );
+    }
+    Ok(cut.polygons)
 }
 
 /// The transform as the double-precision mapping [`paths`] takes its decisions in.
@@ -758,6 +1137,10 @@ struct Walk<'a> {
     width: Option<CodeWidth>,
     /// The path object under construction (§8.5.2), or `None` between path objects.
     path: Option<PathObject>,
+    /// §8.4's graphics state, as far as cutting a §8.5.3.2 stroke needs it.
+    graphics: GraphicsState,
+    /// What `q` saved and `Q` restores (§8.4.2).
+    graphics_stack: Vec<GraphicsState>,
     code_index: usize,
     removed: usize,
     edits: Vec<(usize, usize, Vec<u8>)>,
@@ -808,6 +1191,8 @@ impl<'a> Walk<'a> {
             word_spacing: 0.0,
             width: None,
             path: None,
+            graphics: GraphicsState::default(),
+            graphics_stack: Vec::new(),
             code_index: 0,
             removed: 0,
             edits: Vec::new(),
@@ -876,6 +1261,19 @@ impl<'a> Walk<'a> {
                     if keyword == b"BI" {
                         self.inline_image(content, &mut lexer, start)?;
                     } else {
+                        // §8.6.8's stroking colour is recorded as the **bytes** the producer
+                        // wrote, because a cut stroke is painted as a fill and the fill has to
+                        // be given that colour without any number being re-formatted. The
+                        // operands run from the first of them to this keyword.
+                        if is_stroking_colour_operator(keyword)
+                            && let Some((_, from)) = operands.first()
+                        {
+                            let bytes = content.get(*from..start).unwrap_or_default();
+                            let bytes = bytes.trim_ascii_end();
+                            if !bytes.is_empty() {
+                                self.graphics.record_colour(keyword, bytes.to_vec());
+                            }
+                        }
                         self.operator(keyword, start, &operands)?;
                     }
                     operands.clear();
@@ -898,10 +1296,16 @@ impl<'a> Walk<'a> {
             path.interrupted = true;
         }
         match keyword {
-            b"q" => self.ctm_stack.push(self.ctm),
+            b"q" => {
+                self.ctm_stack.push(self.ctm);
+                self.graphics_stack.push(self.graphics.clone());
+            }
             b"Q" => {
                 if let Some(previous) = self.ctm_stack.pop() {
                     self.ctm = previous;
+                }
+                if let Some(previous) = self.graphics_stack.pop() {
+                    self.graphics = previous;
                 }
             }
             b"cm" => {
@@ -932,9 +1336,31 @@ impl<'a> Walk<'a> {
             b"Tj" | b"'" => self.show_one(operands, keyword, keyword_start)?,
             b"\"" => self.show_quote(operands)?,
             b"TJ" => self.show_array(operands, keyword_start)?,
+            // §8.4.3's line parameters, which decide the outline a stroke marks.
+            b"w" => {
+                if let Some(width) = plain_numbers(operands).first() {
+                    self.graphics.width = *width;
+                }
+            }
+            b"J" => {
+                if let Some(cap) = plain_numbers(operands).first() {
+                    self.graphics.cap = style_code(*cap);
+                }
+            }
+            b"j" => {
+                if let Some(join) = plain_numbers(operands).first() {
+                    self.graphics.join = style_code(*join);
+                }
+            }
+            b"M" => {
+                if let Some(limit) = plain_numbers(operands).first() {
+                    self.graphics.miter_limit = *limit;
+                }
+            }
+            b"d" => self.set_dash(operands),
             b"m" => self.begin_subpath(operands),
             b"l" => self.extend_subpath(operands),
-            b"c" | b"v" | b"y" => self.curve_subpath(operands),
+            b"c" | b"v" | b"y" => self.curve_subpath(keyword, operands),
             b"re" => self.add_rectangle(operands),
             b"h" => self.close_subpath(),
             b"W" | b"W*" => {
@@ -1279,8 +1705,7 @@ impl<'a> Walk<'a> {
         if let Some(path) = self.path.as_mut()
             && let [x, y] = numbers.as_slice()
         {
-            path.flush();
-            path.push(*x, *y);
+            path.begin(*x, *y);
         }
     }
 
@@ -1291,22 +1716,43 @@ impl<'a> Walk<'a> {
         if let Some(path) = self.path.as_mut()
             && let [x, y] = numbers.as_slice()
         {
-            path.push(*x, *y);
+            path.line(*x, *y);
         }
     }
 
-    /// `c`, `v`, `y` (§8.5.2.2): a cubic Bézier. Every operand is taken as a point so the
-    /// device-space box covers the curve's control polygon, which contains the curve — an
-    /// over-approximation, so a curve near the region is never missed — and the path is marked
-    /// curved, which refuses it where it meets the region.
-    fn curve_subpath(&mut self, operands: &[(Operand, usize)]) {
+    /// `c`, `v`, `y` (§8.5.2.2): a cubic Bézier, in the three spellings the clause gives it.
+    ///
+    /// `c` states all three remaining control points, and the curve runs from the current point
+    /// to the last of them.
+    /// `v` states two pairs and uses the current point as its first control point; `y` states two
+    /// pairs and uses the final point as its second. All three are one curve, and the cut splits
+    /// it at the parameter where it crosses the region's edge rather than flattening it
+    /// (`paths::crossings`, ADR 1236).
+    fn curve_subpath(&mut self, keyword: &[u8], operands: &[(Operand, usize)]) {
         self.open_path(operands);
         let numbers = plain_numbers(operands);
-        if let Some(path) = self.path.as_mut() {
-            path.curved = true;
-            for pair in numbers.chunks_exact(2) {
-                path.push(pair[0], pair[1]);
+        let Some(path) = self.path.as_mut() else {
+            return;
+        };
+        match (keyword, numbers.as_slice()) {
+            (b"c", [x1, y1, x2, y2, x3, y3]) => path.curve(
+                kurbo::Point::new(*x1, *y1),
+                kurbo::Point::new(*x2, *y2),
+                kurbo::Point::new(*x3, *y3),
+            ),
+            (b"v", [x2, y2, x3, y3]) => {
+                let current = path.current_point;
+                path.curve(
+                    current,
+                    kurbo::Point::new(*x2, *y2),
+                    kurbo::Point::new(*x3, *y3),
+                );
             }
+            (b"y", [x1, y1, x3, y3]) => {
+                let end = kurbo::Point::new(*x3, *y3);
+                path.curve(kurbo::Point::new(*x1, *y1), end, end);
+            }
+            _ => {}
         }
     }
 
@@ -1317,20 +1763,42 @@ impl<'a> Walk<'a> {
         if let Some(path) = self.path.as_mut()
             && let [x, y, w, h] = numbers.as_slice()
         {
-            path.flush();
-            path.push(*x, *y);
-            path.push(*x + *w, *y);
-            path.push(*x + *w, *y + *h);
-            path.push(*x, *y + *h);
-            path.flush();
+            path.rectangle(*x, *y, *w, *h);
         }
     }
 
     /// `h` (§8.5.2.1): closes the subpath under construction.
     fn close_subpath(&mut self) {
         if let Some(path) = self.path.as_mut() {
-            path.flush();
+            path.close();
         }
+    }
+
+    /// `d` (§8.4.3.6): the dash pattern and phase.
+    ///
+    /// The pattern decides which stretches of a path are marked at all, so it is applied
+    /// **before** the outline is cut: `kurbo::stroke` takes it in the style and emits each dash
+    /// as its own contour of the outline, which the cut then treats like any other geometry.
+    /// A malformed array — one with a negative entry, or one whose entries are all zero — leaves
+    /// the solid line §8.4.3.6 says a conforming file would have written.
+    fn set_dash(&mut self, operands: &[(Operand, usize)]) {
+        let Some((Operand::Array(items), _)) = operands.first() else {
+            return;
+        };
+        let dashes: Vec<f64> = items
+            .iter()
+            .filter_map(|item| match item {
+                ArrayElement::Number(value) => Some(*value),
+                ArrayElement::Str(_) => None,
+            })
+            .collect();
+        if dashes.iter().any(|dash| *dash < 0.0) || dashes.iter().all(|dash| *dash == 0.0) {
+            self.graphics.dashes = Vec::new();
+            self.graphics.dash_phase = 0.0;
+            return;
+        }
+        self.graphics.dashes = dashes;
+        self.graphics.dash_phase = plain_numbers(operands).first().copied().unwrap_or_default();
     }
 
     /// Opens a path object if none is open, remembering where its first operand starts — the
@@ -1350,90 +1818,161 @@ impl<'a> Walk<'a> {
     /// its painting operator — so the coordinates that described the removed marks are gone from
     /// the file rather than clipped away. [`paths`] is the construction and its exactness
     /// argument; what is decided here is which paths it may be applied to.
+    ///
+    /// **A painting operator states up to two marks and each is cut on its own.** §8.5.3 gives
+    /// `B` and its three relatives a fill *and* a stroke, and the two are different regions in
+    /// different colours: the fill is the path's interior with §8.5.3.1's implicit close, the
+    /// stroke is the outline §8.5.3.2 marks along it. So the replacement is the cut fill painted
+    /// first and the cut outline second, which is the clause's own order — "[f]ill and then
+    /// stroke the path". ADR 1236.
     fn paint_path(&mut self, keyword: &[u8], keyword_start: usize) -> Result<(), String> {
         let Some(mut path) = self.path.take() else {
             return Ok(());
         };
-        path.flush();
+        path.finish();
         let Some(bbox) = path.bbox else {
             return Ok(());
         };
-        if !self.regions.iter().any(|region| overlaps(*region, bbox)) {
+        // §8.5.3.1 and §8.5.3.2: which of the two marks this operator makes, and whether it
+        // closes the current subpath first ("s … the same effect as the sequence h S").
+        let (fill, stroked, closes) = match keyword {
+            b"f" | b"F" => (Some("f"), false, false),
+            b"f*" => (Some("f*"), false, false),
+            b"S" => (None, true, false),
+            b"s" => (None, true, true),
+            b"B" => (Some("f"), true, false),
+            b"B*" => (Some("f*"), true, false),
+            b"b" => (Some("f"), true, true),
+            b"b*" => (Some("f*"), true, true),
+            _ => return Ok(()),
+        };
+        // A stroke's marks reach past the path's own points by half the line width and by what a
+        // join adds, so the box the region is tested against is widened by that much first.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a line width carried into device space is a page coordinate, inside f32"
+        )]
+        let widened = {
+            let reach = if stroked {
+                (self.graphics.stroke_reach() * mapping(path.ctm).norm()) as f32
+            } else {
+                0.0
+            };
+            [
+                bbox[0] - reach,
+                bbox[1] - reach,
+                bbox[2] + reach,
+                bbox[3] + reach,
+            ]
+        };
+        if !self.regions.iter().any(|region| overlaps(*region, widened)) {
             // The path is nowhere near a redaction: its bytes cross the output untouched.
             return Ok(());
         }
-        let fill = match keyword {
-            b"f" | b"F" => "f",
-            b"f*" => "f*",
-            other => {
-                return Err(format!(
-                    "§8.5.3.2: a stroked path ({}) meets the region; a stroke's marks are the \
-                     outline of the path, so cutting the path would place caps and joins the \
-                     producer did not write; the page is refused rather than draw a mark the \
-                     file does not state",
-                    String::from_utf8_lossy(other)
-                ));
+        admits_a_cut(&path)?;
+        let regions = self.region_bounds();
+        let to_display = mapping(path.ctm);
+        let mut replacement: Vec<u8> = Vec::new();
+        if let Some(fill) = fill {
+            let cut = cut_to_complement(&path.filled_rings(), &regions, to_display)?;
+            if !cut.is_empty() {
+                let mut text = String::new();
+                paths::write_polygons(&mut text, &cut);
+                text.push_str(fill);
+                text.push('\n');
+                replacement.extend_from_slice(text.as_bytes());
             }
-        };
-        if path.curved {
-            return Err(
-                "§8.5.2.2: a path with a cubic Bézier segment meets the region; cutting a curve \
-                 at the region's edge needs the crossing parameter, which this build does not \
-                 solve, and flattening it would approximate the producer's geometry; the page is \
-                 refused"
-                    .to_owned(),
-            );
         }
-        if path.clips {
-            return Err(
-                "§8.5.4: the path meeting the region is also the clipping path (W or W*), which \
-                 bounds every mark after the painting operator; cutting its geometry would move \
-                 that boundary and change content the annotation did not identify; the page is \
-                 refused"
-                    .to_owned(),
-            );
-        }
-        if path.interrupted {
-            return Err(
-                "§8.2: an operator that is not path construction ran inside the path object \
-                 meeting the region, so the bytes the cut would replace are not the path's \
-                 alone; the page is refused"
-                    .to_owned(),
-            );
-        }
-        if path.ctm.determinant() == 0.0 {
-            return Err(
-                "§8.3.4: the transform in force where a painted path meets the region is \
-                 singular, so the path has no area in device space to cut; the page is refused"
-                    .to_owned(),
-            );
-        }
-        let cut = paths::subtract(&path.subpaths, &self.region_bounds(), mapping(path.ctm))
-            .ok_or_else(|| {
-                "§12.5.6.23: cutting a painted path against these regions exceeds this build's \
-                 bound on the surviving pieces; the page is refused rather than truncated"
-                    .to_owned()
-            })?;
-        if !cut.margin_holds() {
-            return Err(
-                "§7.3.3: a coordinate of the cut path is large enough that writing it back and \
-                 reading it as a single-precision real could move the cut edge inside the \
-                 region; the page is refused rather than leave a sliver of the removed marks"
-                    .to_owned(),
-            );
-        }
-        let mut replacement = String::new();
-        if !cut.polygons.is_empty() {
-            paths::write_polygons(&mut replacement, &cut.polygons);
-            replacement.push_str(fill);
+        if stroked {
+            let outline = self.stroke_outline(&path, closes)?;
+            let cut = cut_to_complement(&outline, &regions, to_display)?;
+            if !cut.is_empty() {
+                let colour = self.graphics.non_stroking_colour().ok_or_else(|| {
+                    "§8.6.8: a stroked path meets the region and no stroking colour operator has \
+                     run in this content stream before it, so the colour the surviving outline \
+                     would be filled with is one this walk has not seen stated; the page is \
+                     refused rather than painted a colour the file does not state"
+                        .to_owned()
+                })?;
+                if (self.graphics.stroking_alpha - self.graphics.fill_alpha).abs() > 0.0 {
+                    return Err(
+                        "§11.6.4.4: an ExtGState has made the stroking alpha constant /CA differ \
+                         from the non-stroking /ca, and a surviving outline is painted as a \
+                         fill, which takes the second; the page is refused rather than drawn at \
+                         an opacity the file does not state for it"
+                            .to_owned(),
+                    );
+                }
+                let mut text = String::new();
+                paths::write_polygons(&mut text, &cut);
+                // Balanced inside the replacement (§8.4.2), so the fill colour the producer set
+                // for whatever comes next is the one that comes back.
+                replacement.extend_from_slice(b"q\n");
+                replacement.extend_from_slice(&colour);
+                replacement.extend_from_slice(text.as_bytes());
+                // §8.5.3.2's marks are the region the outline encloses, and `kurbo::stroke` winds
+                // every contour of that outline the same way — so the nonzero rule is the one
+                // that paints it, and `f*` would put holes where the outline overlaps itself.
+                replacement.extend_from_slice(b"f\nQ\n");
+            }
         }
         self.paths_cut = self.paths_cut.saturating_add(1);
         self.edits.push((
             path.start,
             keyword_start.saturating_add(keyword.len()),
-            replacement.into_bytes(),
+            replacement,
         ));
         Ok(())
+    }
+
+    /// The outline §8.5.3.2's stroke marks, as the subpaths a fill of it would paint.
+    ///
+    /// > The S operator shall paint a line along the current path.
+    ///
+    /// That line is the region a pen of the current width sweeps along the path, closed off by
+    /// §8.4.3.3's caps and turned by §8.4.3.4's joins, with §8.4.3.6's dash pattern deciding
+    /// which stretches are marked at all. `kurbo::stroke` computes it, dashes included, and what
+    /// comes back is geometry the cut takes exactly as it takes a fill's.
+    ///
+    /// **Admitted only where the expansion is exact**, which [`paths::is_polygonal`] decides from
+    /// the output rather than from this tree's model of the input: offsetting a straight segment
+    /// and closing it with a butt or projecting-square cap and a miter or bevel join is computed
+    /// in closed form, while a round cap, a round join and the offset of a curved segment are
+    /// *approximations* of arcs. Cutting an approximation would replace the producer's marks
+    /// outside the region with marks this program computed, which is the far side of
+    /// `CLAUDE.md`'s provenance line, so those are refused by name.
+    fn stroke_outline(
+        &self,
+        path: &PathObject,
+        closes: bool,
+    ) -> Result<Vec<paths::SubPath>, String> {
+        if self.graphics.width <= 0.0 {
+            return Err(
+                "§8.4.3.2: a stroked path meets the region with a line width of 0, which shall \
+                 denote the thinnest line that can be rendered at device resolution, one device \
+                 pixel wide — a width in device pixels rather than in the user space an outline \
+                 is written in; the page is refused"
+                    .to_owned(),
+            );
+        }
+        let source = path.stroked_path(closes);
+        let outline = kurbo::stroke(
+            source.elements().iter().copied(),
+            &self.graphics.stroke_style(),
+            &kurbo::StrokeOpts::default(),
+            STROKE_TOLERANCE,
+        );
+        if !paths::is_polygonal(&outline) {
+            return Err(
+                "§8.5.3.2: the outline of a stroked path meeting the region came back with an \
+                 arc in it — a round cap or join (§8.4.3.3, §8.4.3.4), or the offset of a \
+                 §8.5.2.2 curve — which an expansion can only approximate; the page is refused \
+                 rather than have the producer's marks outside the region replaced by an \
+                 approximation of them"
+                    .to_owned(),
+            );
+        }
+        Ok(split_subpaths(&outline))
     }
 
     /// The region boxes as double-precision numbers, which the cut's decisions are taken in.
@@ -1587,6 +2126,10 @@ impl<'a> Walk<'a> {
             ctm: std::mem::replace(&mut self.ctm, inner_ctm),
             ctm_stack: std::mem::take(&mut self.ctm_stack),
             path: self.path.take(),
+            // §8.10.1: a form inherits the graphics state, and its own `q`/`Q` nesting is its
+            // own — so the state carries in and the stack is set aside.
+            graphics: self.graphics.clone(),
+            graphics_stack: std::mem::take(&mut self.graphics_stack),
         };
         let shared = !form_id.is_some_and(|id| self.owns(id));
         if let Some(id) = form_id {
@@ -1607,6 +2150,8 @@ impl<'a> Walk<'a> {
         self.ctm = saved.ctm;
         self.ctm_stack = saved.ctm_stack;
         self.path = saved.path;
+        self.graphics = saved.graphics;
+        self.graphics_stack = saved.graphics_stack;
         walked?;
 
         if edits.is_empty() {
@@ -1867,7 +2412,7 @@ impl<'a> Walk<'a> {
     }
 
     /// `gs`: a soft mask in the named graphics state is refused (§11.6.4.3 over the region).
-    fn ext_gstate(&self, operands: &[(Operand, usize)]) -> Result<(), String> {
+    fn ext_gstate(&mut self, operands: &[(Operand, usize)]) -> Result<(), String> {
         let Some(name) = operands.iter().find_map(|(operand, _)| match operand {
             Operand::Name(bytes) => Some(bytes.clone()),
             _ => None,
@@ -1894,6 +2439,54 @@ impl<'a> Walk<'a> {
                         than redact under a mask the removal does not model"
                     .to_owned(),
             );
+        }
+        let Some(dict) = state.as_ref().and_then(Object::as_dict) else {
+            return Ok(());
+        };
+        // Table 58 states these in §8.4.3's own terms — `/LW` "[t]he line width", `/LC` "[t]he
+        // line cap style", `/LJ` "[t]he line join style", `/ML` "[t]he miter limit", `/D` "[t]he
+        // line dash pattern" — so they set exactly what the operators beside them set and are
+        // read into the same state. `/CA` and `/ca` are §11.6.4.4's two alpha constants, which
+        // decide whether a stroke's outline may be painted as a fill at all.
+        let number = |key: &str| self.document.get_key(dict, key).as_number();
+        if let Some(width) = number("LW") {
+            self.graphics.width = width;
+        }
+        if let Some(cap) = number("LC") {
+            self.graphics.cap = style_code(cap);
+        }
+        if let Some(join) = number("LJ") {
+            self.graphics.join = style_code(join);
+        }
+        if let Some(limit) = number("ML") {
+            self.graphics.miter_limit = limit;
+        }
+        if let Some(alpha) = number("CA") {
+            self.graphics.stroking_alpha = alpha;
+        }
+        if let Some(alpha) = number("ca") {
+            self.graphics.fill_alpha = alpha;
+        }
+        let dash = self.document.get_key(dict, "D");
+        if let Some([array, phase]) = dash.as_array() {
+            let array = self.document.resolve(array);
+            let dashes: Vec<f64> = array
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| self.document.resolve(item).as_number())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if dashes.iter().any(|dash| *dash < 0.0) || dashes.iter().all(|dash| *dash == 0.0) {
+                self.graphics.dashes = Vec::new();
+                self.graphics.dash_phase = 0.0;
+            } else {
+                self.graphics.dashes = dashes;
+                self.graphics.dash_phase =
+                    self.document.resolve(phase).as_number().unwrap_or_default();
+            }
         }
         Ok(())
     }

@@ -132,7 +132,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        201,
+        202,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -421,6 +421,10 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("QUORRA_PURPOSE_IMPORT_DATA", PurposeKind::ImportData),
         ("QUORRA_PURPOSE_TARGET_ROOT", PurposeKind::TargetRoot),
+        (
+            "QUORRA_PURPOSE_REMOTE_DOCUMENT",
+            PurposeKind::RemoteDocument,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

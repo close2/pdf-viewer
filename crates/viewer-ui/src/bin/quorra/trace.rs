@@ -330,6 +330,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
             Some(at) => format!("clock {}", pdf_model::attachment::filing::pdf_date(*at)),
             None => "clock: nothing stated".to_owned(),
         },
+        Command::Separations(simulate) => format!("separation simulation {simulate}"),
         Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
@@ -415,7 +416,9 @@ pub(crate) fn describe_event(event: &Event) -> String {
             submission.url,
             submission.body.len()
         ),
-        Event::NeedsFile { name, .. } => format!("needs file {name}"),
+        Event::NeedsFile { purpose, name, .. } => {
+            format!("needs file {name} for {}", viewer_host::asked_for(*purpose))
+        }
         Event::Transition { .. } => "a transition".to_owned(),
         Event::Dirty { dirty, .. } => format!("dirty {dirty}"),
         Event::Saved { bytes, .. } => format!("saved, {} bytes", bytes.len()),

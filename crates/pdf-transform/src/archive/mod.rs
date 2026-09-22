@@ -867,6 +867,16 @@ fn apply_the_decisions(
             .removed_annotations
             .clone_from(&forbidden.removed);
     }
+    // The section 6.3.2 removal names its annotations in the same list and for the same reason,
+    // each carrying the `/F` its producer wrote so that a reader of the report can see which of
+    // Table 167's bits took it off the page (`doc/adr/1234`).
+    if wanted.contains(&Rewrite::HiddenAnnotationRemoved)
+        && let Ok(hidden) = &prepared.hidden_annotations
+    {
+        conversion
+            .removed_annotations
+            .extend(hidden.removed.iter().cloned());
+    }
     // `doc/pdf-a-conversion-limits.md` section 3.3's condition on its own loss: an action that is
     // gone leaves nothing in the output to notice, so what went is named one row at a time — the
     // holder, the entry it was reached through and the action's own type — and only the rows

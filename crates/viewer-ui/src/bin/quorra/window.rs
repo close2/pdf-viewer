@@ -620,6 +620,13 @@ impl App {
                 }
             }
             viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
+            // §10.8.3: the state is this window's, because it is a preference a person toggles
+            // and `viewer-core` holds none; what crosses is the answer (ADR 1228).
+            viewer_host::WindowAct::Separations => {
+                self.separations = !self.separations;
+                self.dispatch(Command::Separations(self.separations));
+                println!("note: {}", viewer_host::separations_note(self.separations));
+            }
             viewer_host::WindowAct::FreeText => {
                 self.drawing = if self.drawing.is_some() {
                     println!("note: not drawing a free text annotation after all");

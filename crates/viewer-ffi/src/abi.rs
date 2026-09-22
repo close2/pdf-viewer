@@ -3526,6 +3526,39 @@ pub unsafe extern "C" fn quorra_audience(
     Status::Ok.code()
 }
 
+/// §10.8.3's separation simulation: which of two pictures of the same document this reader wants.
+///
+/// **A preference and not a restriction level.** §10.8.3 conditions itself on something no file
+/// states — "[i]f it is important for the colours of the display for a PDF, on a device that
+/// normally would not be used to produce separations, to more closely match those produced when
+/// using separations" — and §10.8.1 says whose choice that is: "[w]hether separations are produced
+/// is up to the processing software." So it is one value a caller supplies, with two states and
+/// nothing to ask anybody.
+///
+/// A caller that never calls this gets what it got before this entry point existed: §10.8.2's
+/// alternate colour space and its tint transform, which that clause states as what a device not
+/// making separations does. Changing it re-interprets every page, because the answer decides what
+/// colour every mark on them is.
+///
+/// **This takes no struct by value**, so [`crate::abi::QUORRA_ABI_VERSION`] does not move: an
+/// entry point *added* is one an old caller never calls.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_separations(
+    viewer: *mut Session,
+    simulate: bool,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.separations(simulate)));
+    Status::Ok.code()
+}
+
 /// §6.3.2.2's "unless otherwise instructed": who draws §12.7's widget appearances.
 ///
 /// `QUORRA_DELEGATE_DELEGATED` removes from the page **exactly the widgets [`quorra_fields_read`]

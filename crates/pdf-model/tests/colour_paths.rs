@@ -1438,3 +1438,259 @@ fn flatness_changes_nothing_because_the_clause_permits_ignoring_it() {
         "a flatness tolerance, by either of the clause's two routes, must change no pixel"
     );
 }
+
+/// The colour a fill comes out under ISO 32000-2 §10.8.3's separation simulation.
+///
+/// The clause conditions itself on a reader's request, so the request is what this passes:
+/// `ViewState::set_separation_simulation` is where a host's answer arrives, and
+/// `pdf_model::interpret_with` is the interpretation that carries one.
+fn simulated_fill(extra: &str, operands: &str) -> (u8, u8, u8) {
+    let bytes = pdf_with(
+        extra,
+        "/ColorSpace << /Sep 5 0 R >>",
+        &format!("/Sep cs {operands} scn 0 0 20 20 re f"),
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let mut state = pdf_model::view::ViewState::of(&document);
+    assert!(
+        state.set_separation_simulation(true),
+        "the default is off, so turning it on is a change"
+    );
+    let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+    assert!(
+        interpretation.is_complete(),
+        "the fixture should draw completely: {:?}",
+        interpretation.unsupported
+    );
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let at = ((10 * raster.width) + 10) as usize * 4;
+    (raster.data[at], raster.data[at + 1], raster.data[at + 2])
+}
+
+/// Two spot colourants whose `/Colorants` entries state blue and green, over a tint transform
+/// that states red — the space `a_spot_components_own_separation_is_stated_and_not_taken`
+/// measures the departure on.
+fn two_spot_colourants() -> String {
+    let program = "{ pop pop 1 0 0 }";
+    format!(
+        "5 0 obj\n[/DeviceN [/Spot1 /Spot2] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] \
+         /Spot2 [/Separation /Spot2 /DeviceRGB 10 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >>\nendobj\n\
+         10 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 1 0] /N 1 >>\nendobj\n",
+        program.len().saturating_add(1)
+    )
+}
+
+/// A spot colourant is rendered through its own `Separation` once the simulation is asked for.
+///
+/// ISO 32000-2 §8.6.6.5 states the per-component evaluation:
+///
+/// > For NChannel colour spaces, the components shall be evaluated individually; that is, only
+/// > the ones not present on the output device shall use the alternate colour space of that
+/// > component.
+///
+/// and Table 70 says which space a spot component's is: each `/Colorants` value "shall be an
+/// array defining a Separation colour space for that colourant". `/Spot1`'s states blue, and
+/// blue is what comes out — against the red the tint transform states, which is what the same
+/// space draws with the preference off (`a_spot_components_own_separation_is_stated_and_not_taken`).
+///
+/// **`/Spot2` at a tint of zero is the second half of the assertion and not a spare operand.**
+/// §10.8.3 step b) converts each separation "using a background matte of all white", and its
+/// step c)'s multiply is Table 136's, whose NOTE 3 says what white does in it: "multiplying
+/// with white leaves the original colour unchanged". So the second separation is the identity
+/// here, exactly — and a reader that multiplied the two separations' XYZ without dividing by
+/// the matte's white would scale every axis by that white and answer a colour the clause's own
+/// NOTE forbids.
+#[test]
+fn a_spot_colourants_own_separation_is_what_the_simulation_renders() {
+    assert_eq!(simulated_fill(&two_spot_colourants(), "1 0"), (0, 0, 255));
+    assert_eq!(
+        devicen_fill(&two_spot_colourants(), "1 0"),
+        (255, 0, 0),
+        "with the preference off the space still reverts through its tint transform"
+    );
+}
+
+/// §10.8.3 step c)'s multiply, on two separations whose arithmetic is checkable by hand.
+///
+/// > - b) Convert each separation into "flat XYZ" (no gamma) and using a background matte of
+/// >   all white.
+/// > - c) Blend the resulting separations into a single result using a multiply blend (see
+/// >   "Table 133 -Variables used in the basic compositing formula").
+///
+/// Both colourants state a neutral ramp from white to sRGB 0.5, so the multiply is one number
+/// rather than three and the D50 white divides out of both sides. Flat XYZ means linear, so
+/// each separation at full tint is sRGB's transfer function inverted at 0.5 —
+/// `((0.5 + 0.055) / 1.055)^2.4 = 0.214041` of the matte — the product is `0.214041² =
+/// 0.045814`, and the device colour is that linearity gammaed back: `1.055 × 0.045814^(1/2.4)
+/// − 0.055 = 0.237012`, which is **60** of 255.
+///
+/// Table 136's own NOTE 3 is the check on the direction: "[t]he result colour is always at
+/// least as dark as either of the two constituent colours", and 60 is darker than the 128 each
+/// separation carries alone.
+#[test]
+fn two_separations_multiply_in_flat_xyz() {
+    let program = "{ pop pop 1 0 0 }";
+    let space = format!(
+        "5 0 obj\n[/DeviceN [/Spot1 /Spot2] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] \
+         /Spot2 [/Separation /Spot2 /DeviceRGB 9 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.5 0.5 0.5] /N 1 >>\
+         \nendobj\n",
+        program.len().saturating_add(1)
+    );
+    assert_eq!(simulated_fill(&space, "1 1"), (60, 60, 60));
+    // One separation alone is its own colour, to within the XYZ round trip step b) and step
+    // d) make of it: 128 through the tint transform, (127, 127, 128) through the simulation.
+    // `a_separation_space_is_the_same_colour_under_the_simulation` is where that round trip
+    // does not happen at all, because a `Separation` space is not read as separations.
+    assert_eq!(simulated_fill(&space, "1 0"), (127, 127, 128));
+}
+
+/// A `Separation` space is the same colour under the simulation, because it is one separation.
+///
+/// §10.8.3's step c) blends the separations "into a single result", and a product of one term
+/// is that term. So the preference cannot move a page whose spot colours are `Separation`
+/// spaces — which is most of them — and this is the assertion that says so rather than the
+/// hope: the same space, the same tint, the two answers to §10.8.3's condition.
+#[test]
+fn a_separation_space_is_the_same_colour_under_the_simulation() {
+    let space = "5 0 obj\n[/Separation /Spot /DeviceRGB 6 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0.25 0.75] /N 1 >>\
+         \nendobj\n";
+    assert_eq!(simulated_fill(space, "1"), devicen_fill(space, "1"));
+    assert_eq!(simulated_fill(space, "0.5"), devicen_fill(space, "0.5"));
+}
+
+/// An `NChannel` space of process components alone is unmoved by the preference.
+///
+/// Its components share one alternate space — Table 71's `/ColorSpace` — so §8.6.6.5's
+/// per-component evaluation is already complete for it without §10.8.3 combining anything
+/// (ADR 1103), and there is nothing for the simulation to do. Running §10.8.3 over it would
+/// replace the process space's own account of its four colourants with a multiply of four
+/// filters in series, which is a different picture and a worse one.
+#[test]
+fn a_process_only_nchannel_is_unmoved_by_the_simulation() {
+    let space = nchannel("/Yellow /Cyan", 2, "NChannel", CMYK_PROCESS);
+    assert_eq!(
+        simulated_fill(&space, "1 0.5"),
+        devicen_fill(&space, "1 0.5")
+    );
+    assert_eq!(devicen_fill(&space, "1 0.5"), cmyk_fill("0.5 0 1 0"));
+}
+
+/// A `/None` component contributes no separation, under the simulation as without it.
+///
+/// §8.6.6.5 is why: the name "indicates that the corresponding colour component shall never be
+/// painted on the page". A separation carrying no colourant is the matte's own white, which
+/// Table 136's NOTE 3 makes the identity of step c)'s multiply, so the page shows the other
+/// colourant's colour and the operand attached to `/None` changes nothing.
+#[test]
+fn a_none_component_adds_no_separation_to_the_simulation() {
+    let program = "{ pop pop 1 0 0 }";
+    let space = format!(
+        "5 0 obj\n[/DeviceN [/Spot1 /None] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >>\nendobj\n",
+        program.len().saturating_add(1)
+    );
+    assert_eq!(simulated_fill(&space, "1 0"), (0, 0, 255));
+    assert_eq!(simulated_fill(&space, "1 1"), (0, 0, 255));
+}
+
+/// A spot colourant with no `/Colorants` entry keeps the whole tint transform, not half of it.
+///
+/// §8.6.6.5 makes the dictionary the only place a spot component's own space can come from —
+/// Table 70 has it "[r]equired if Subtype is NChannel and the colour space includes spot
+/// colourants" — and the clause's own guideline is what decides the fallback: a processor
+/// "should apply either the specified tint transformation function or invoke the same
+/// alternative blending algorithm for all DeviceN instances in the document". Half a space
+/// evaluated one way and half the other is the mixture that warns against, so the space reverts
+/// whole and the preference changes nothing.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.6.6.5 and Table 70 verbatim, and a quotation is not marked up"
+)]
+#[test]
+fn a_spot_component_without_its_separation_keeps_the_tint_transform() {
+    let program = "{ pop pop 1 0 0 }";
+    let space = format!(
+        "5 0 obj\n[/DeviceN [/Spot1 /Spot2] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >>\nendobj\n",
+        program.len().saturating_add(1)
+    );
+    assert_eq!(simulated_fill(&space, "1 0"), (255, 0, 0));
+}
+
+/// A process component and a spot colourant are two separations, and they multiply.
+///
+/// This is the shape §8.6.6.5's sentence is written for and the one ADR 1103's process route
+/// cannot answer: the `/Process` dictionary accounts for `/Cyan` and says nothing about
+/// `/Spot1`, so "[a]ny component not specified in the process dictionary shall be considered
+/// to be a spot colourant" and the two have different alternate spaces. Step c) multiplies
+/// them. The assertion is the clause's ordering rather than a constant: full cyan alone, full
+/// `/Spot1` alone, and the two together, where the last is at least as dark as either in every
+/// channel — Table 136's NOTE 3, "[t]he result colour is always at least as dark as either of
+/// the two constituent colours".
+///
+/// **`/Spot1` states a neutral ramp, and that is what makes the NOTE readable at the raster.**
+/// The multiply happens in XYZ, where the product is componentwise no larger than either term
+/// by construction; the conversion to sRGB after it is a matrix with negative coefficients, so
+/// a *chromatic* pair can come out of it with an sRGB component larger than one of its terms
+/// had while every XYZ component fell. A neutral separation scales all three axes by one
+/// factor, which no matrix can undo, so the NOTE's ordering survives step d) and the test is
+/// about step c) rather than about the gamut.
+#[test]
+fn a_process_component_and_a_spot_colourant_multiply() {
+    let program = "{ pop pop 1 0 0 }";
+    let space = format!(
+        "5 0 obj\n[/DeviceN [/Cyan /Spot1] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Process 10 0 R /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.5 0.5 0.5] /N 1 >>\
+         \nendobj\n\
+         10 0 obj\n<< {CMYK_PROCESS} >>\nendobj\n",
+        program.len().saturating_add(1)
+    );
+    let cyan = simulated_fill(&space, "1 0");
+    let spot = simulated_fill(&space, "0 1");
+    let both = simulated_fill(&space, "1 1");
+    assert!(
+        both.0 <= cyan.0 && both.1 <= cyan.1 && both.2 <= cyan.2,
+        "the product is at least as dark as the cyan separation: {both:?} against {cyan:?}"
+    );
+    assert!(
+        both.0 <= spot.0 && both.1 <= spot.1 && both.2 <= spot.2,
+        "and at least as dark as the spot separation: {both:?} against {spot:?}"
+    );
+    assert!(
+        both.1 < cyan.1 && both.1 < spot.1,
+        "and strictly darker than either where both colourants absorb: {both:?}"
+    );
+    assert_eq!(
+        devicen_fill(&space, "1 1"),
+        (255, 0, 0),
+        "with the preference off the same space is its tint transform's red"
+    );
+}

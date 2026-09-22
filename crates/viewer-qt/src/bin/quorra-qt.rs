@@ -46,6 +46,17 @@ struct Arguments {
     /// person said otherwise, which is the level that hands nothing over without a press and still
     /// performs the act the clause describes (ADR 1155).
     links: viewer_host::Links,
+    /// §12.6.4.3: what this window does when an action names another file, per
+    /// [`viewer_host::REMOTE_DOCUMENTS`].
+    ///
+    /// The same four levels as the entry above and a value of its own: one starts another program
+    /// on a URL, the other opens a PDF beside this one in this reader (ADR 1227).
+    remote_documents: viewer_host::RemoteDocuments,
+    /// §10.8.3: whether this window asks for the separation simulation, per
+    /// [`viewer_host::SEPARATIONS`].
+    ///
+    /// A preference rather than a level, and off unless a person said otherwise (ADR 1228).
+    separations: bool,
     /// How many milliseconds to run for before quitting, or zero to run until closed.
     ///
     /// A window under `Xvfb` has nobody to close it, and a test that killed the process could not
@@ -64,6 +75,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut quit_after = 0;
     let mut restrictions = RestrictionPolicy::default();
     let mut links = viewer_host::Links::default();
+    let mut remote_documents = viewer_host::RemoteDocuments::default();
+    let mut separations = false;
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
@@ -77,6 +90,12 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else if let Some(level) = word.strip_prefix(viewer_host::LINKS) {
             // §12.6.4.8's act, at one of the same four levels (ADR 1155).
             links = viewer_host::links(level)?;
+        } else if let Some(level) = word.strip_prefix(viewer_host::REMOTE_DOCUMENTS) {
+            // §12.6.4.3's act, at four levels of its own (ADR 1227).
+            remote_documents = viewer_host::remote_documents(level)?;
+        } else if let Some(setting) = word.strip_prefix(viewer_host::SEPARATIONS) {
+            // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
+            separations = viewer_host::separations(setting)?;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -107,7 +126,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         format!(
             "usage: quorra-qt [--trace[=topics]] [--draw-widget-appearances] \
              [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
-             [--links=refuse|ask|warn|open] [--quit-after=<ms>] <file.pdf>"
+             [--links=refuse|ask|warn|open] [--remote-documents=refuse|ask|warn|open] \
+             [--separations=on|off] [--quit-after=<ms>] <file.pdf>"
         )
     })?;
     Ok(Arguments {
@@ -117,6 +137,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         widget_appearances,
         restrictions,
         links,
+        remote_documents,
+        separations,
         quit_after,
     })
 }
@@ -141,8 +163,12 @@ fn main() -> std::process::ExitCode {
         &arguments.path,
         arguments.fragment,
         arguments.widget_appearances,
-        arguments.restrictions,
-        arguments.links,
+        viewer_host::Settings {
+            restrictions: arguments.restrictions,
+            links: arguments.links,
+            remote_documents: arguments.remote_documents,
+            separations: arguments.separations,
+        },
         trace,
     ) {
         Ok(host) => host,

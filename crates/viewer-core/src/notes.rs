@@ -1341,6 +1341,7 @@ fn about_one(
                     }
                 ));
             }
+            signature_policy(signature, &cms, notes);
             // §12.8.3.4.5 (a)'s first sentence, said whether or not the signature verifies and
             // whatever the `/SubFilter` is: RFC 5035 section 5.4.1 puts the same rule on any CMS
             // object carrying the attribute, and `Signature::authenticity` already refuses on a
@@ -1375,6 +1376,136 @@ fn about_one(
                 });
             }
         }
+    }
+}
+
+/// The signature policy a signer committed to, said to the person reading the document.
+///
+/// §12.8.3.4.4 requires a signature-policy-identifier as a signed attribute and hands the rules
+/// for it to ETSI EN 319 122-1 clause 5.2.9, whose text this project cites by clause and never
+/// reproduces (ADR 1085). [`pdf_signature::policy`] reads what those clauses define; this is the
+/// half a reader is owed, and it is three sentences rather than one. **Which** policy: the
+/// identifier names one particular version of a set of rules, and it is the whole of what can be
+/// said about which rules were agreed. **Whether this file carries that policy**: clause 5.2.10's
+/// store may hold the document itself, and the digest beside the identifier is what binds the two
+/// — decisive when it agrees, and not an alteration when it does not, because the digest's input
+/// depends on the specification the policy is written under. **The notice**: clause 5.2.9.2 lets
+/// a signer attach a notice meant to be shown whenever the signature is validated, and a notice
+/// nobody displays is a requirement unmet rather than an attribute unread.
+///
+/// What is *not* here is enforcement of the policy's own constraints, which §12.8.3.4.4 also
+/// requires: a constraint lives inside the policy document, in a syntax whichever specification
+/// the signature itself names defines, so the block is one file at a time and the sentence below
+/// names the specification that file pointed at. ADR 1219.
+fn signature_policy(
+    signature: &pdf_signature::signature::Signature,
+    cms: &pdf_signature::cms::SignedData<'_>,
+    notes: &mut Vec<String>,
+) {
+    use pdf_signature::policy::Binding;
+
+    let policy = match signature.signature_policy(cms) {
+        Ok(Some(policy)) => policy,
+        // §12.8.3.4.4's basic profile: a signature under no explicit policy owes this nothing.
+        Ok(None) => return,
+        Err(refusal) => {
+            notes.push(format!(
+                "that signature states §12.8.3.4.4's signature-policy-identifier and this program \
+                 will not read what is in it: {refusal}"
+            ));
+            return;
+        }
+    };
+    notes.push(format!(
+        "that signature was made under signature policy {}, which is the one version of a set of \
+         rules its signer committed to (§12.8.3.4.4's signature-policy-identifier)",
+        policy.identifier
+    ));
+    notes.push(match policy.binding() {
+        Binding::Matches { digest } => format!(
+            "the copy of that policy's document this file carries is the one the signer committed \
+             to: it hashes to the {} digest they signed over it",
+            digest.name()
+        ),
+        // Reported as a difference rather than as a substitution, which is the module's own
+        // reading: the octets hashed here are the document as it stands, and a specification that
+        // prescribes a canonicalisation first would digest the same document to something else.
+        Binding::DoesNotMatchTheStoredOctets {
+            digest,
+            specification,
+        } => format!(
+            "the copy of that policy's document this file carries does not hash to the {} digest \
+             the signer signed over it. That is not by itself an altered policy — what goes into \
+             the digest is decided by the specification the document is written under, which this \
+             file names as {}",
+            digest.name(),
+            named(&specification)
+        ),
+        Binding::PolicyHashNotKnown => "that signature commits to the policy by name and to no \
+             particular copy of its document, so there is nothing here to compare a stored copy \
+             with"
+            .to_owned(),
+        Binding::UnderAnotherFunction { algorithm } => format!(
+            "the digest that would bind that policy's document to the signature is under {algorithm}, \
+             which this program does not compute, so the two were not compared"
+        ),
+        Binding::NoStoredDocument => "this file carries no copy of that policy's document, so what \
+             its rules say is not in the file"
+            .to_owned(),
+    });
+    // Clause 5.2.9.2's notice is addressed to whoever validates, so a reader gets it whatever the
+    // rest of the policy came to. The signer may write the words out, or name an organisation and
+    // the numbered statements of theirs it means, and both halves are said because a reader
+    // holding that organisation's notices can look the second up.
+    for notice in policy.notices() {
+        let mut said = String::from(
+            "that signature's policy carries a notice its signer meant to be shown whenever the \
+             signature is validated (ETSI EN 319 122-1 clause 5.2.9.2)",
+        );
+        if let Some(text) = &notice.text {
+            said.push_str(": ");
+            said.push_str(text);
+        }
+        if let Some(organization) = &notice.organization {
+            said.push_str(" — it refers to ");
+            said.push_str(organization);
+            if !notice.numbers.is_empty() {
+                said.push_str("'s statement(s) ");
+                said.push_str(
+                    &notice
+                        .numbers
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+        }
+        notes.push(said);
+    }
+    // The block, named per file rather than as one missing document. Silent where the signer named
+    // no specification: clause 5.2.9.1 leaves it to the context there, and a reader outside that
+    // context has nothing to name.
+    if let Some(specification) = policy.specification() {
+        notes.push(format!(
+            "§12.8.3.4.4 also requires a signature handler to enforce that policy's constraints, \
+             and this program does not: the constraints are written in {}, a specification it does \
+             not hold. Everything the signature itself states about the policy is above",
+            named(specification)
+        ));
+    }
+}
+
+/// How a signature named the specification its policy document's syntax is defined by.
+///
+/// ETSI EN 319 122-1 clause 5.2.9.2 lets a signer name it either way and neither is a name a
+/// person would recognise, so the sentence says which kind it is rather than printing a bare
+/// string.
+fn named(specification: &pdf_signature::policy::Specification) -> String {
+    use pdf_signature::policy::Specification;
+    match specification {
+        Specification::ObjectIdentifier(oid) => format!("the specification identified by {oid}"),
+        Specification::Uri(uri) => format!("the specification at {uri}"),
     }
 }
 

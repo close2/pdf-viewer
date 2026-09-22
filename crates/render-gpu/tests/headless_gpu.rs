@@ -1592,6 +1592,97 @@ fn cpu_and_gpu_agree_on_a_clip_with_no_area() {
     }
 }
 
+/// A clipping region that is the **union** of two fills is refused here, by name.
+///
+/// §10.7.4 defines the region by the fill — "For clipping, the clipping region consists of the
+/// set of pixels that would be included by a fill operation" — and §8.5.4 says the same from the
+/// operator's side. A path that encloses an area *and* rules a line is filled as both, under two
+/// different rules, so its region is a union; `push_clip_layer` takes one path and one rule, and
+/// compositing a second layer `DestIn` needs the layer read back, which a scene under composition
+/// cannot do. `render-cpu` composes the union into its own mask and this backend says what it
+/// cannot state, so the frame falls back rather than admitting the square without its whiskers
+/// (ADR 1231).
+///
+/// The control is the same square with the rule taken out, which this backend draws.
+#[test]
+fn a_clip_whose_region_is_a_union_of_two_fills_is_refused_and_the_square_alone_is_drawn() {
+    use pdf_render::{
+        BlendMode, Clip, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point,
+        Size, Transform,
+    };
+    use std::sync::Arc;
+
+    let page = 64.0_f32;
+    let scene = |with_a_rule: bool| {
+        let mut clip_path = Path::new();
+        for command in [
+            PathCommand::MoveTo(Point::new(10.0, 10.0)),
+            PathCommand::LineTo(Point::new(40.0, 10.0)),
+            PathCommand::LineTo(Point::new(40.0, 40.0)),
+            PathCommand::LineTo(Point::new(10.0, 40.0)),
+            PathCommand::Close,
+        ] {
+            clip_path.push(command);
+        }
+        if with_a_rule {
+            for command in [
+                PathCommand::MoveTo(Point::new(5.0, 20.5)),
+                PathCommand::LineTo(Point::new(60.0, 20.5)),
+                PathCommand::LineTo(Point::new(60.0, 20.5)),
+                PathCommand::LineTo(Point::new(5.0, 20.5)),
+                PathCommand::Close,
+            ] {
+                clip_path.push(command);
+            }
+        }
+        let mut list = DisplayList::new(Size::new(page, page));
+        let clip = list
+            .add_clip(Clip {
+                path: clip_path,
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("a clip");
+        let mut whole = Path::new();
+        for command in [
+            PathCommand::MoveTo(Point::new(0.0, 0.0)),
+            PathCommand::LineTo(Point::new(page, 0.0)),
+            PathCommand::LineTo(Point::new(page, page)),
+            PathCommand::LineTo(Point::new(0.0, page)),
+            PathCommand::Close,
+        ] {
+            whole.push(command);
+        }
+        list.push(Command::Fill {
+            path: Arc::new(whole),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: Some(clip),
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+        list
+    };
+
+    let refused = scene(true);
+    let target = TargetSpec::for_page(&refused, 1.0, GENEROUS).expect("valid target");
+    let error = gpu()
+        .rasterize(&refused, target)
+        .expect_err("a clipping region that is a union of two fills is refused");
+    assert!(
+        format!("{error}").contains("union of two fills"),
+        "the refusal names what it refused, was: {error}"
+    );
+
+    let drawn = scene(false);
+    let target = TargetSpec::for_page(&drawn, 1.0, GENEROUS).expect("valid target");
+    gpu()
+        .rasterize(&drawn, target)
+        .expect("an ordinary clip is drawn");
+}
+
 /// A stencil's edges smooth without pulling the painted colour towards black.
 ///
 /// ISO 32000-2 §8.9.6.2's last sentence, which is a `shall` and is about a different noun

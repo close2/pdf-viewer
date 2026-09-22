@@ -1268,9 +1268,12 @@ fn a_page_whose_marks_cross_is_shipped_without_being_drawn() {
 /// How long the **host's** draw has to still be going before the interrupt is raised.
 ///
 /// One-sided, exactly as [`UNFINISHED`] is one level up: what it establishes is that there was a
-/// draw to interrupt. Two seconds against the 27.6 s that draw takes in release, so a machine
-/// under load moves it in the safe direction.
-const HOST_UNFINISHED: Duration = Duration::from_secs(2);
+/// draw to interrupt, and a machine under load moves it in the safe direction. The draw is ten
+/// thousand page-covering fills, and the CPU rasteriser takes 0.61 s over them in release and
+/// 1.18 s in debug on this machine, alone (measured 2026-09-22; ADR 0650 measured 27.6 s, before
+/// ADR 1082's scan converter and the rectangle fast path). A deeper document would cross as pixels
+/// rather than marks and leave this arm, so the wait is a third of the quicker figure instead.
+const HOST_UNFINISHED: Duration = Duration::from_millis(200);
 
 /// How long the drawing thread may take to come back once the interrupt is raised.
 ///

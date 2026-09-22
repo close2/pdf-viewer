@@ -693,6 +693,9 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -833,6 +836,9 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -900,6 +906,9 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3334,6 +3343,9 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3914,6 +3926,9 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3954,6 +3969,9 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3992,6 +4010,9 @@ fn two_specifications_marked_best_stay_refused() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4023,6 +4044,9 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4303,6 +4327,9 @@ fn a_signed_source_asks_before_it_is_rewritten_even_where_no_row_names_the_signa
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -4402,6 +4429,9 @@ fn the_digest_keys_a_certification_signature_states_go_with_the_signature() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
         ..Authorisations::default()
     };
     let (report, output) = convert(&source, target, authorised);
@@ -5538,6 +5568,9 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6024,6 +6057,9 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6332,6 +6368,9 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6356,6 +6395,9 @@ fn every_loss() -> Authorisations {
         interactive_behaviour: false,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
     }
 }
 
@@ -6503,6 +6545,9 @@ fn behaviour_authorised() -> Authorisations {
         interactive_behaviour: true,
         encryption: false,
         page_boundary: false,
+        hidden_annotation: false,
+        appearance_states: false,
+        automatic_states: false,
         ..Authorisations::default()
     }
 }
@@ -7931,5 +7976,258 @@ fn a_composite_font_whose_producer_wrote_its_own_cid_to_gid_map_is_refused_by_na
         because.sentence().contains("CIDToGIDMap"),
         "the refusal names the entry it will not honour: {}",
         because.sentence()
+    );
+}
+
+/// A page carrying one annotation with the flags and appearance dictionary a test wants.
+///
+/// The same shape as [`a_sound_annotation`] with a subtype every part admits, so the only
+/// requirement a test's own entries make fail is the one it is about.
+fn an_annotation_stating(flags: &str, appearance: &str) -> Vec<u8> {
+    let marks = b"0 0 40 40 re f\n";
+    Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![format!(
+            "<< /Type /Annot /Subtype /Square /Rect [20 30 60 70] /F {flags} /AP {appearance} >>"
+        )],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                marks.len()
+            ),
+            marks,
+        )],
+        ..Conforming::default()
+    }
+    .build()
+}
+
+#[test]
+fn an_annotation_its_producer_hid_goes_only_with_authorisation() {
+    // ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require the Print flag set and
+    // Hidden, Invisible, NoView and ToggleNoView clear, and offer nothing to write in place of an
+    // /F that says otherwise. `doc/adr/1234`: the other future is showing the annotation, which
+    // puts a mark on a page its producer kept it off, so removal is what is built.
+    // §12.5.3's Table 167 makes 2 the Hidden bit, and with Print clear this /F fails both halves.
+    let source = an_annotation_stating("2", "<< /N 7 0 R >>");
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/printable-and-visible";
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == row),
+        "the fixture fails the flag rule before anything is converted"
+    );
+
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::HiddenAnnotation,
+            rewrite: Rewrite::HiddenAnnotationRemoved,
+        }
+    );
+
+    let authorised = Authorisations {
+        hidden_annotation: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::HiddenAnnotation,
+            rewrite: Rewrite::HiddenAnnotationRemoved,
+        }
+    );
+    let output = output.expect("the authorised loss converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    // What went is named, with the flags its producer wrote, because an annotation that is gone
+    // leaves nothing in the output to notice.
+    let removed = &conversion(&report).removed_annotations;
+    assert_eq!(removed.len(), 1, "one annotation went: {removed:?}");
+    let gone = removed.first().expect("the removed annotation");
+    assert_eq!(gone.subtype, "Square");
+    assert_eq!(gone.page, 0);
+    assert_eq!(gone.flags, Some(2), "the /F its producer wrote");
+
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    assert!(
+        held.get_key(&page.dict, "Annots").is_null(),
+        "the page's only annotation was the one its producer hid"
+    );
+}
+
+#[test]
+fn an_annotation_whose_flags_the_parts_admit_is_not_removed() {
+    // Trap 13's calibration at this fixture: the test above says the removal fires on an /F of 2,
+    // and this says it does not fire on an /F of 4, which §12.5.3's Table 167 makes Print alone —
+    // exactly what both parts' section 6.3.2 asks for.
+    let source = an_annotation_stating("4", "<< /N 7 0 R >>");
+    let target = Target::Four(Flavour::Plain);
+    assert!(
+        !holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == "annotations/printable-and-visible"),
+        "/F 4 sets Print and none of the four the parts forbid"
+    );
+    let (_, output) = to_part_four(&source);
+    let output = output.expect("the colour requirement is answered without an authorisation");
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    assert!(
+        !held.get_key(&page.dict, "Annots").is_null(),
+        "so the annotation is still on the page"
+    );
+}
+
+#[test]
+fn a_rollover_appearance_goes_only_with_authorisation() {
+    // ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 admit /N in an appearance
+    // dictionary and no other key. §12.5.5's Table 170 gives /R and /D the default "the value of
+    // the N entry", so a reader draws the normal appearance where it drew the producer's — and
+    // the artwork is what is lost. `doc/adr/1234`.
+    let source = an_annotation_stating("4", "<< /N 7 0 R /R 7 0 R /D 7 0 R >>");
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/appearance-dictionary-holds-only-normal";
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == row),
+        "the fixture fails the appearance-dictionary rule before anything is converted"
+    );
+
+    let (report, output) = to_part_four(&source);
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::AppearanceStates,
+            rewrite: Rewrite::ExtraAppearanceStatesRemoved,
+        }
+    );
+
+    let authorised = Authorisations {
+        appearance_states: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::AppearanceStates,
+            rewrite: Rewrite::ExtraAppearanceStatesRemoved,
+        }
+    );
+    let output = output.expect("the authorised loss converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let annotation = held.get(ObjectId::new(6, 0));
+    let annotation = annotation.as_dict().expect("the annotation is still there");
+    let appearance = held.get_key(annotation, "AP");
+    let appearance = appearance.as_dict().expect("and still has an /AP");
+    assert!(
+        appearance.get("N").is_some(),
+        "the normal appearance stays, which is what a reader now draws in the other two states"
+    );
+    assert!(
+        appearance.get("R").is_none() && appearance.get("D").is_none(),
+        "and the two keys the parts forbid are gone"
+    );
+}
+
+#[test]
+fn an_appearance_dictionary_with_nothing_to_fall_back_to_is_refused() {
+    // §12.5.5's Table 170 makes the normal appearance the default of both keys the parts forbid,
+    // so where the dictionary states no /N the removal falls back to nothing — and this converter
+    // says so rather than leaving an appearance dictionary that describes no appearance.
+    let source = an_annotation_stating("4", "<< /D 7 0 R >>");
+    let target = Target::Four(Flavour::Plain);
+    let row = "annotations/appearance-dictionary-holds-only-normal";
+    let authorised = Authorisations {
+        appearance_states: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert!(output.is_none(), "refused, so nothing is written");
+    let Decision::Refused(because) = decision(&report, row) else {
+        panic!("the refusal is the decision: {:?}", decision(&report, row));
+    };
+    assert!(
+        because
+            .sentence()
+            .contains("nothing here for a reader to fall back to"),
+        "the sentence says why: {}",
+        because.sentence()
+    );
+}
+
+/// A part 2 fixture whose one optional content configuration states the `/AS` section 6.9 forbids.
+fn an_automatic_state(catalog: &str) -> Vec<u8> {
+    Conforming {
+        catalog: catalog.to_owned(),
+        objects: vec!["<< /Type /OCG /Name (Layer) >>".to_owned()],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn an_automatic_optional_content_state_goes_only_with_authorisation() {
+    // ISO 19005-2 section 6.9 forbids the entry; ISO 19005-4 section 6.10 keeps it and has a
+    // conforming processor ignore it, which is why this is a part 2 target's rewrite alone.
+    // §8.11.4.3 makes /AS the array a processor sets group states from external factors by, so
+    // what is lost is the switching. `doc/adr/1234`.
+    let source = an_automatic_state(
+        "/OCProperties << /OCGs [6 0 R] /D << /Name (Default) /Order [6 0 R] \
+         /AS [ << /Event /View /Category [/View] /OCGs [6 0 R] >> ] >> >>",
+    );
+    let target = Target::Two(Level::B);
+    let row = "optional-content/no-automatic-states";
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == row),
+        "the fixture fails the /AS rule before anything is converted"
+    );
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, row),
+        Decision::Unauthorised {
+            loss: Loss::AutomaticStates,
+            rewrite: Rewrite::AutomaticStatesRemoved,
+        }
+    );
+
+    let authorised = Authorisations {
+        automatic_states: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, row),
+        Decision::Authorised {
+            loss: Loss::AutomaticStates,
+            rewrite: Rewrite::AutomaticStatesRemoved,
+        }
+    );
+    let output = output.unwrap_or_else(|| {
+        panic!(
+            "the authorised loss converts: {:?}",
+            conversion(&report).decided
+        )
+    });
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        !String::from_utf8_lossy(&output).contains("/Event /View"),
+        "the usage application dictionary the /AS held is not in the output"
     );
 }

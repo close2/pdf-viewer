@@ -64,10 +64,12 @@ pub use crate::requirement::{Applies, Check, Clauses, Requirement};
 pub use crate::table::fonts::type3_encoding;
 pub use crate::table::graphics::same_parameter;
 pub use crate::table::interaction::{
-    ActionHolder, ActionSite, AdditionalActions, ForbiddenSubtype, MissingAppearance,
-    action_admitted, action_entry_admitted, action_sites, additional_actions_admitted,
-    annotation_subtype_permitted, annotation_trigger, annotations_of_a_forbidden_subtype,
-    annotations_without_an_appearance,
+    ActionHolder, ActionSite, AdditionalActions, ExtraAppearances, ForbiddenFlags,
+    ForbiddenSubtype, MissingAppearance, action_admitted, action_entry_admitted, action_sites,
+    additional_actions_admitted, annotation_subtype_permitted, annotation_trigger,
+    annotations_of_a_forbidden_subtype, annotations_the_flags_forbid,
+    annotations_with_extra_appearance_states, annotations_without_an_appearance, flags_permitted,
+    flags_permitting,
 };
 pub use crate::table::metadata::{
     ContainerField, MisusedProperty, REQUIRED_PREFIXES, dates_stated, extension_container_fields,

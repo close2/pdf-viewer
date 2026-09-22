@@ -1043,6 +1043,11 @@ mod command_kind {
     // query could not be asked, held or refused — and because the interpretation the whole print
     // path rests on is the worker's (ADR 1180).
     pub(super) const PRINT: u8 = 33;
+    // §10.8.3's simulation, asked for by a person. It crosses for the reason every other
+    // host-supplied policy value does: the confined worker holds the document and therefore
+    // decides what colour every mark is, and only the host was told which of the two pictures
+    // this reader asked for (ADR 1228).
+    pub(super) const SEPARATIONS: u8 = 34;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1310,6 +1315,11 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 .bool(at.offset.is_some())
                 .i64(i64::from(at.offset.unwrap_or_default()));
         }
+        // §10.8.3's simulation: one bit, because the preference has two states and the algorithm
+        // is the worker's — it holds the document and therefore every colour on the page.
+        Command::Separations(simulate) => {
+            writer.u8(k::SEPARATIONS).bool(*simulate);
+        }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
         // them lands, and only the host knows what the person reading has chosen.
@@ -1400,6 +1410,7 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::SUPPLY).u8(match purpose {
                 Purpose::ImportData => 0,
                 Purpose::TargetRoot => 1,
+                Purpose::RemoteDocument => 2,
             });
             match bytes {
                 Some(bytes) => {
@@ -1618,6 +1629,7 @@ pub(crate) fn decode_command_holding(
                 offset: zoned.then_some(offset),
             }))
         }
+        k::SEPARATIONS => Command::Separations(reader.bool("whether separations are simulated")?),
         k::PRINT => {
             let tag = reader.u8("which end of a print operation")?;
             if tag == 0 {
@@ -1817,6 +1829,7 @@ pub(crate) fn decode_command_holding(
             purpose: match reader.u8("a purpose")? {
                 0 => Purpose::ImportData,
                 1 => Purpose::TargetRoot,
+                2 => Purpose::RemoteDocument,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -2290,6 +2303,7 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .u8(match purpose {
                     Purpose::ImportData => 0,
                     Purpose::TargetRoot => 1,
+                    Purpose::RemoteDocument => 2,
                 })
                 .str(name);
         }
@@ -2524,6 +2538,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             purpose: match reader.u8("a purpose")? {
                 0 => Purpose::ImportData,
                 1 => Purpose::TargetRoot,
+                2 => Purpose::RemoteDocument,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -4316,6 +4331,19 @@ mod tests {
                 purpose: Purpose::TargetRoot,
                 bytes: None,
             },
+            // §12.6.4.3's Table 203 `/F`: the third purpose, on the same argument.
+            Command::Supply {
+                purpose: Purpose::RemoteDocument,
+                bytes: Some(b"%PDF-2.0".to_vec()),
+            },
+            Command::Supply {
+                purpose: Purpose::RemoteDocument,
+                bytes: None,
+            },
+            // §10.8.3's simulation, in both of its answers: one bit, and a bit is where an
+            // encoding that wrote the wrong byte would look like the other answer.
+            Command::Separations(true),
+            Command::Separations(false),
             // §8.11.4.4's answers about the reader, in both the shapes that differ on the wire:
             // three lists of names with a language, and the empty answer whose language is
             // *unstated* rather than empty (§14.9.2.2 gives the empty tag its own meaning).
@@ -4532,6 +4560,11 @@ mod tests {
                 document,
                 purpose: Purpose::TargetRoot,
                 name: "target.pdf".to_owned(),
+            },
+            Event::NeedsFile {
+                document,
+                purpose: Purpose::RemoteDocument,
+                name: "chapter2.pdf".to_owned(),
             },
             Event::Transition {
                 document,

@@ -877,7 +877,7 @@ fn crypt_filter_is_identity(exam: &Examination<'_>, findings: &mut Findings) {
 ///
 /// **Four key names for three keys, and the fourth is the part's own misprint.** Both parts
 /// forbid the *presence* of the keys they list, and the third name they list is spelled
-/// `FDecodeParams`, which names nothing in ISO 32000: \u{a7}7.3.8.2's Table 5 spells it
+/// `FDecodeParams`, which names nothing in ISO 32000: §7.3.8.2's Table 5 spells it
 /// `FDecodeParms`, and both parts' section 5.1 makes the base standard what a conforming file is
 /// read against. So a stream stating `FDecodeParms` is stating the key the part means — the one
 /// carrying the decode parameters for data outside the file — and its presence is what the

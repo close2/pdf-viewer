@@ -23,8 +23,9 @@ use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
 use super::jpeg2000::Specifications;
 use super::prepare::{
-    Appearances, Cleaned, DefaultCmyk, ForbiddenAnnotations, Headers, Intent, Metadata, Prepared,
-    Respelled, intent_dictionary, metadata_stream, output_intent_entries,
+    Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, ForbiddenAnnotations, Headers,
+    HiddenAnnotations, Intent, Metadata, Prepared, Respelled, intent_dictionary, metadata_stream,
+    output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -218,6 +219,55 @@ pub enum Rewrite {
     /// how: [`Self::PreservedAsPage`] then holds the same stream object on an appended page, so
     /// it stays reachable and the producer's marks stay in the archive.
     ForbiddenAnnotationRemoved,
+    /// Every annotation whose stated `/F` fails ISO 19005 is taken out of the `/Annots` array of
+    /// the page it is on.
+    ///
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require the `Print` flag set and
+    /// `Hidden`, `Invisible`, `NoView` and `ToggleNoView` clear, and offer nothing to write in
+    /// the place of an `/F` that says otherwise. The other future is writing the flags the
+    /// requirement asks for, and `doc/pdf-a-conversion-limits.md` section 3.7 makes removal the
+    /// default of the two: an annotation somebody hid was hidden on purpose, and showing it puts
+    /// a mark on a page its producer kept off — which is a larger act than taking the annotation
+    /// out. The decision is a `Decision::Authorised` carrying [`super::Loss::HiddenAnnotation`];
+    /// `doc/adr/1234` is the argument.
+    ///
+    /// **An annotation stating no `/F` at all is not this rewrite's**: §12.5.2's Table 166 gives
+    /// the entry a default of 0, so its producer decided nothing, and [`Self::AnnotationFlags`]
+    /// writes the one bit the requirement is about.
+    ///
+    /// The reference is what goes, on [`Self::ForbiddenAnnotationRemoved`]'s reading and for its
+    /// reason: the walk copies what the converted document reaches, so the annotation's own
+    /// objects leave the file without this rewrite naming any of them.
+    HiddenAnnotationRemoved,
+    /// Every appearance dictionary states its normal appearance and nothing else.
+    ///
+    /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 admit `/N` and no other key.
+    /// §12.5.5's Table 170 makes `/R` and `/D` optional and gives each the same default — the
+    /// value of the `/N` entry — so what a reader draws with the pointer over the annotation or
+    /// the mouse button down becomes the normal appearance, which is what the standard already
+    /// has it draw for a dictionary stating neither. The artwork itself is gone from the file,
+    /// which is why the decision carries [`super::Loss::AppearanceStates`] rather than being
+    /// mechanical.
+    ///
+    /// **A dictionary stating no `/N` is refused rather than emptied.** Table 170's default for
+    /// the keys being removed *is* the `/N` entry, so where there is none the removal falls back
+    /// to nothing and would leave an annotation with an appearance dictionary that describes no
+    /// appearance; `super::sites` says so by name.
+    ExtraAppearanceStatesRemoved,
+    /// Every optional content configuration dictionary loses its `/AS` entry.
+    ///
+    /// ISO 19005-2 section 6.9 forbids it, and ISO 19005-4 section 6.10 does not — part 4 keeps
+    /// the key and requires a conforming processor to ignore it, so this rewrite is a part 2
+    /// target's alone. §8.11.4.3 makes `/AS` the array by which a processor sets group states
+    /// from external factors, so the document is left in the state the configuration's own
+    /// `/BaseState`, `/ON` and `/OFF` put it in and nothing switches afterwards: the decision
+    /// carries [`super::Loss::AutomaticStates`].
+    ///
+    /// **The entry is removed where the walk can reach it**, which is a configuration that is an
+    /// object of its own, the `/OCProperties` dictionary that holds one directly, and the catalog
+    /// that holds that dictionary directly. A configuration written inside a `/Configs` array
+    /// that is an object of its own is what `super::sites` refuses by name.
+    AutomaticStatesRemoved,
     /// Every annotation requiring an appearance dictionary and stating none gains an `/AP` whose
     /// `/N` names a form `XObject` constructed from the annotation's own entries.
     ///
@@ -756,6 +806,21 @@ impl Rewrite {
                  Annots array, and everything only that annotation reached — its media stream, \
                  its 3D artwork, its popup — leaves the file with it"
             }
+            Self::HiddenAnnotationRemoved => {
+                "an annotation whose F entry ISO 19005 forbids — Print clear, or Hidden, \
+                 Invisible, NoView or ToggleNoView set — is taken out of its page's Annots \
+                 array, rather than being shown on a page its producer kept it off"
+            }
+            Self::ExtraAppearanceStatesRemoved => {
+                "an appearance dictionary loses every key but N, so the rollover and down \
+                 appearances go and ISO 32000-2 \u{a7}12.5.5's Table 170 leaves a reader drawing \
+                 the normal one in their place"
+            }
+            Self::AutomaticStatesRemoved => {
+                "an optional content configuration loses the AS array ISO 19005-2 section 6.9 \
+                 forbids, so the document stays in the state that configuration's own entries \
+                 set and no external factor switches a layer"
+            }
             Self::AppearanceDictionary => {
                 "an annotation stating no appearance dictionary is given an /AP whose /N names a \
                  form XObject constructed from the entries its own subtype clause states"
@@ -937,6 +1002,9 @@ impl Rewrite {
             Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
             Self::AnnotationFlags => "annotation-flags",
             Self::ForbiddenAnnotationRemoved => "forbidden-annotation-removed",
+            Self::HiddenAnnotationRemoved => "hidden-annotation-removed",
+            Self::ExtraAppearanceStatesRemoved => "extra-appearance-states-removed",
+            Self::AutomaticStatesRemoved => "automatic-states-removed",
             Self::AppearanceDictionary => "appearance-dictionary",
             Self::SubstituteFontProgram => "substitute-font-program",
             Self::RestateFontMetrics => "restate-font-metrics",
@@ -1015,6 +1083,9 @@ pub(super) fn convert(
         respelled: prepared.respelled.as_ref().ok(),
         appearances: prepared.appearances.as_ref().ok(),
         forbidden_annotations: prepared.forbidden_annotations.as_ref().ok(),
+        hidden_annotations: prepared.hidden_annotations.as_ref().ok(),
+        extra_appearance_states: prepared.extra_appearance_states.as_ref().ok(),
+        automatic_states: prepared.automatic_states.as_ref().ok(),
         substitutes: prepared.substitutes.as_ref().ok(),
         metrics: prepared.metrics.as_ref().ok(),
         rendering_intents: prepared.owed.rendering_intents.as_ref().ok(),
@@ -1756,6 +1827,12 @@ struct Rewriter<'a> {
     appearances: Option<&'a Appearances>,
     /// The annotations to take out of their pages' `/Annots`, where any are being removed.
     forbidden_annotations: Option<&'a ForbiddenAnnotations>,
+    /// The annotations whose stated `/F` ISO 19005 forbids, where any are being removed.
+    hidden_annotations: Option<&'a HiddenAnnotations>,
+    /// The annotations whose `/AP` is reduced to `/N`, where any are.
+    extra_appearance_states: Option<&'a ExtraAppearanceStates>,
+    /// The optional content configurations losing their `/AS`, where any are.
+    automatic_states: Option<&'a sites::AutomaticStates>,
     /// The `/FontFile` entry each font descriptor is to gain, where any are being embedded.
     substitutes: Option<&'a Substitutes>,
     /// The font program stream to write in place of each one being restated.
@@ -1913,9 +1990,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::PresentationSteps);
             changed = true;
         }
-        if self.sites.pages.contains(&id) && self.wants(Rewrite::ForbiddenAnnotationRemoved) {
-            changed |= self.remove_the_forbidden_annotations(&mut out, applied);
-        }
+        changed |= self.remove_the_annotations(id, &mut out, applied);
         changed |= self.relocate_onto_page(id, &mut out, applied);
         if self.wants(Rewrite::AnnotationFlags)
             && self.sites.annotations.contains(&id)
@@ -2042,7 +2117,12 @@ impl Rewriter<'_> {
         changed |= self.restate_rendering_intent(id, out, applied);
         changed |= self.restate_blend_mode(id, out, applied);
         changed |= self.collapse_appearance_states(id, out, applied);
+        changed |= self.reduce_appearance_dictionary(id, out, applied);
         changed |= self.complete_order(id, out, applied);
+        // After `complete_order`, which replaces an `/OCProperties` dictionary wholesale with the
+        // one its own preparation built: this removal edits whatever `out` now holds, so the two
+        // compose on a document that needs both rather than one undoing the other.
+        changed |= self.remove_automatic_states(id, out, applied);
         changed |= self.attach_page_resources(id, out, applied);
         changed |= self.remove_descriptor_sets(id, out, applied);
         changed |= self.remove_page_boundaries(id, out, applied);
@@ -2343,6 +2423,143 @@ impl Rewriter<'_> {
         out.insert(Name::new(&b"AP"[..]), Object::Dictionary(appearance));
         count(applied, Rewrite::NormalAppearanceFromState);
         true
+    }
+
+    /// One annotation's appearance dictionary, reduced to the normal appearance alone.
+    ///
+    /// ISO 19005-2 section 6.3.3 and ISO 19005-4 section 6.3.3 admit `/N` and no other key, and
+    /// §12.5.5's Table 170 makes the normal appearance the default of both `/R` and `/D` — so
+    /// what a reader draws in those states after this is what it already draws for an annotation
+    /// whose producer stated neither. The artwork is what goes, which is why the decision carries
+    /// a loss (`doc/adr/1234`).
+    ///
+    /// The `/AP` is written **direct** whatever the source stated it as, on
+    /// [`Self::collapse_appearance_states`]' reading and for its reason.
+    fn reduce_appearance_dictionary(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let reduced = self
+            .extra_appearance_states
+            .filter(|_| self.wants(Rewrite::ExtraAppearanceStatesRemoved));
+        if reduced.is_none_or(|states| !states.at.contains(&id)) {
+            return false;
+        }
+        let Some(appearance) = self.document.get_key(out, "AP").as_dict().cloned() else {
+            return false;
+        };
+        let Some(normal) = appearance.get("N").cloned() else {
+            return false;
+        };
+        let mut only_normal = Dictionary::new();
+        only_normal.insert(Name::new(&b"N"[..]), normal);
+        out.insert(Name::new(&b"AP"[..]), Object::Dictionary(only_normal));
+        count(applied, Rewrite::ExtraAppearanceStatesRemoved);
+        true
+    }
+
+    /// The `/AS` entry ISO 19005-2 section 6.9 forbids, gone from wherever this object holds one.
+    ///
+    /// Three shapes, because §8.11.4.3's configuration dictionaries are written at three places
+    /// and `super::sites` found which: the configuration that is this object, and the
+    /// `/OCProperties` object holding one directly. The third — an `/OCProperties` the catalog
+    /// states directly — is [`Self::rewrite_catalog`]'s, since the catalog is what holds it.
+    fn remove_automatic_states(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(states) = self
+            .automatic_states
+            .filter(|_| self.wants(Rewrite::AutomaticStatesRemoved))
+        else {
+            return false;
+        };
+        if states.at.contains(&id) && out.remove("AS").is_some() {
+            count(applied, Rewrite::AutomaticStatesRemoved);
+            return true;
+        }
+        if states.properties == Some(id) {
+            return Self::strip_automatic_states(out, applied);
+        }
+        false
+    }
+
+    /// The `/AS` entries of an `/OCProperties` dictionary the catalog states directly.
+    ///
+    /// The third of [`Self::remove_automatic_states`]' three places, here rather than there
+    /// because the catalog is the object that holds it. Run after the `/Order` completion, which
+    /// may have just written this dictionary: the removal edits what the catalog now states
+    /// rather than what the source did.
+    fn remove_the_catalogs_automatic_states(
+        &self,
+        catalog: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.wants(Rewrite::AutomaticStatesRemoved)
+            || !self
+                .automatic_states
+                .is_some_and(|states| states.in_catalog)
+        {
+            return false;
+        }
+        let Some(Object::Dictionary(properties)) = catalog.get("OCProperties") else {
+            return false;
+        };
+        let mut properties = properties.clone();
+        if !Self::strip_automatic_states(&mut properties, applied) {
+            return false;
+        }
+        catalog.insert(
+            Name::new(&b"OCProperties"[..]),
+            Object::Dictionary(properties),
+        );
+        true
+    }
+
+    /// Every `/AS` written directly inside one `/OCProperties` dictionary, gone.
+    ///
+    /// §8.11.4.1's Table 98 gives the dictionary a `/D` holding one configuration and a
+    /// `/Configs` holding an array of them, and a configuration reached by reference is edited in
+    /// its own object instead — so what this touches is the ones written in place.
+    fn strip_automatic_states(
+        properties: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if let Some(Object::Dictionary(default)) = properties.get("D") {
+            let mut default = default.clone();
+            if default.remove("AS").is_some() {
+                properties.insert(Name::new(&b"D"[..]), Object::Dictionary(default));
+                count(applied, Rewrite::AutomaticStatesRemoved);
+                changed = true;
+            }
+        }
+        if let Some(Object::Array(items)) = properties.get("Configs") {
+            let mut rebuilt = Vec::with_capacity(items.len());
+            let mut any = false;
+            for item in items {
+                match item {
+                    Object::Dictionary(configuration) => {
+                        let mut configuration = configuration.clone();
+                        if configuration.remove("AS").is_some() {
+                            count(applied, Rewrite::AutomaticStatesRemoved);
+                            any = true;
+                        }
+                        rebuilt.push(Object::Dictionary(configuration));
+                    }
+                    other => rebuilt.push(other.clone()),
+                }
+            }
+            if any {
+                properties.insert(Name::new(&b"Configs"[..]), Object::Array(rebuilt));
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// An optional content configuration's completed `/Order`, or the `/OCProperties` object
@@ -2720,6 +2937,26 @@ impl Rewriter<'_> {
         changed
     }
 
+    /// The two removals ISO 19005's annotation clauses ask of one page's `/Annots` array.
+    ///
+    /// Section 6.3.1's subtype rule and section 6.3.2's flag rule are two authorisations and two
+    /// counts, and they are one pass because each reads the array the other left: a page that
+    /// loses its last annotation to either loses the array itself, and a page whose annotations
+    /// both rules name loses them together.
+    fn remove_the_annotations(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        if !self.sites.pages.contains(&id) {
+            return false;
+        }
+        let mut changed = self.remove_the_forbidden_annotations(out, applied);
+        changed |= self.remove_the_hidden_annotations(out, applied);
+        changed
+    }
+
     /// Takes every annotation the target's part does not admit out of one page's `/Annots`.
     ///
     /// ISO 19005-2 section 6.3.1 and ISO 19005-4 section 6.3.1 forbid the subtype and offer
@@ -2736,9 +2973,52 @@ impl Rewriter<'_> {
         out: &mut Dictionary,
         applied: &mut BTreeMap<Rewrite, usize>,
     ) -> bool {
-        let Some(forbidden) = self.forbidden_annotations else {
+        let Some(forbidden) = self
+            .forbidden_annotations
+            .filter(|_| self.wants(Rewrite::ForbiddenAnnotationRemoved))
+        else {
             return false;
         };
+        self.take_out_of_the_page(
+            out,
+            applied,
+            &forbidden.at,
+            Rewrite::ForbiddenAnnotationRemoved,
+        )
+    }
+
+    /// Takes every annotation whose stated `/F` ISO 19005 forbids out of one page's `/Annots`.
+    ///
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2's second sentence, by the same act
+    /// the subtype rows are answered with and for the reason `doc/adr/1234` states: the clause
+    /// offers nothing to write in place of the flags, and the other future — writing the ones it
+    /// asks for — shows a mark on a page its producer kept it off.
+    fn remove_the_hidden_annotations(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let Some(hidden) = self
+            .hidden_annotations
+            .filter(|_| self.wants(Rewrite::HiddenAnnotationRemoved))
+        else {
+            return false;
+        };
+        self.take_out_of_the_page(out, applied, &hidden.at, Rewrite::HiddenAnnotationRemoved)
+    }
+
+    /// One page's `/Annots` without the annotations named, counted against the rewrite that asked.
+    ///
+    /// **An array left empty is removed rather than written empty.** §7.7.3.3's Table 31 makes
+    /// `/Annots` optional, so a page whose every annotation goes ends up saying what it now means
+    /// — this page has no annotations — rather than stating an empty array.
+    fn take_out_of_the_page(
+        &self,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+        at: &BTreeSet<ObjectId>,
+        rewrite: Rewrite,
+    ) -> bool {
         let Some(listed) = self
             .document
             .get_key(out, "Annots")
@@ -2749,11 +3029,7 @@ impl Rewriter<'_> {
         };
         let kept: Vec<Object> = listed
             .iter()
-            .filter(|entry| {
-                entry
-                    .as_reference()
-                    .is_none_or(|id| !forbidden.at.contains(&id))
-            })
+            .filter(|entry| entry.as_reference().is_none_or(|id| !at.contains(&id)))
             .cloned()
             .collect();
         let removed = listed.len().saturating_sub(kept.len());
@@ -2761,7 +3037,7 @@ impl Rewriter<'_> {
             return false;
         }
         for _ in 0..removed {
-            count(applied, Rewrite::ForbiddenAnnotationRemoved);
+            count(applied, rewrite);
         }
         if kept.is_empty() {
             out.remove("Annots");
@@ -2923,6 +3199,7 @@ impl Rewriter<'_> {
             count(applied, Rewrite::OptionalContentOrder);
             changed = true;
         }
+        changed |= self.remove_the_catalogs_automatic_states(catalog, applied);
         if self.wants(Rewrite::AlternatePresentations)
             && let Some(Object::Dictionary(names)) = catalog.get("Names")
         {

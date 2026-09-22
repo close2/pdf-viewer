@@ -259,13 +259,16 @@ the rule being broken. What that window owes is decided by the operation instead
 control for an operation exactly when it can perform that operation.** Today it performs none of
 the six a restriction decides, supplies no files and follows no links, so it owes nothing and the
 three gaps a reader notices are each answered — no `--restrictions=` because there is nothing to
-decide, `Event::Asking` refused out loud because nobody could answer (ADR 0814), `--links=` pinned
-to `refuse` because there is no dialogue and no click handling (ADR 1155). What arrives with each
-future feature, in the feature's own round:
+decide, `Event::Asking` refused out loud because nobody could answer (ADR 0814), `--links=` and
+`--remote-documents=` both pinned to `refuse` because there is no dialogue and no click handling
+(ADRs 1155, 1227). What it does do for a file a document names is **answer**: `Command::Supply`
+with no bytes, so the worker stops holding an action nobody will ever answer for and the person is
+told by name (ADR 1227). What arrives with each future feature, in the feature's own round:
 
 - **selection or copy** → `--restrictions=` with that row, and the ask dialogue on the modal
   machinery ADR 0718 already loads lazily;
-- **click handling** → `--links=` with a real `Ask` arm, replacing the pin;
+- **click handling** → `--links=` and `--remote-documents=` with real `Ask` arms, replacing the
+  pins;
 - **anything that writes a file** → the save question. The confinement is no excuse here: the
   *worker* has no filesystem, but the host holds one by design and opens the document itself;
 - **§12.7.5.3's file-select control** → a file *chooser*. The contents cross since ADR 1216 —

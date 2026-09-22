@@ -167,6 +167,8 @@ struct Policies {
     reference_files: Option<PathBuf>,
     /// Who is reading and in what language: §8.11.4.4's two categories about this reader.
     audience: pdf_model::optional_content::Audience,
+    /// Whether §10.8.3's separation simulation is what this reader asked for.
+    separations: bool,
 }
 
 /// Reads the file and opens it, wherever this is called from.
@@ -193,6 +195,7 @@ fn open_document(
         accept_unknown_revocation,
         reference_files,
         audience,
+        separations,
     } = policies;
     let (trust_anchors, reference_files) = (trust_anchors.as_deref(), reference_files.as_deref());
     // Open on disk rather than read whole: the core reads the trailer, the table and the objects
@@ -247,6 +250,10 @@ fn open_document(
     // the first interpretation draws. Nothing is read off this machine — the words a person typed
     // are the whole of it (ADR 1106).
     drop(viewer.handle(Command::Audience(audience)));
+    // **§10.8.3's simulation, before the document for `Command::Restrict`'s reason**: it decides
+    // what colour every mark of the first interpretation is, and a preference applied after the
+    // page has been drawn would have drawn the other picture first (ADR 1228).
+    drop(viewer.handle(Command::Separations(separations)));
     let mut events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
@@ -283,6 +290,8 @@ fn main() {
         fragment,
         restrictions,
         links,
+        remote_documents,
+        separations,
         trust_anchors,
         accept_unknown_revocation,
         reference_files,
@@ -301,6 +310,7 @@ fn main() {
         accept_unknown_revocation,
         reference_files,
         audience,
+        separations,
     };
     launch.mark("arguments");
 
@@ -395,6 +405,7 @@ fn main() {
         menu: viewer_ui::chrome::RestrictionsCard::default(),
         restrictions: standing,
         links,
+        remote_documents,
         asked: None,
         refused: viewer_ui::chrome::Refusal::default(),
         locked: None,
@@ -417,6 +428,7 @@ fn main() {
         platform_clipboard: viewer_ui::clipboard::Clipboard::new(),
         drawing: None,
         printing: false,
+        separations,
         pages: viewer_host::Miniatures::new(),
         page_count: 0,
         information: pdf_model::metadata::Information::default(),

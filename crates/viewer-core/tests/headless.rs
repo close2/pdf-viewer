@@ -1504,15 +1504,16 @@ fn a_file_newer_than_this_program_says_so_when_it_is_asked() {
 #[test]
 fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
     // The action types whose ledger rows are `reported` rather than `silent`, which is a claim
-    // that the refusal reaches a person: §12.6.4.3's `GoToR`, §12.6.4.6's `Launch`, §12.6.4.9's
-    // `Sound` and §12.6.4.10's `Movie`. **Nothing in the tree reached it.** All the rows cited
+    // that the refusal reaches a person: §12.6.4.6's `Launch`, §12.6.4.9's `Sound`, §12.6.4.10's
+    // `Movie`, and §12.6.4.7's `Thread` where Table 209's `/F` names another file.
+    // **Nothing in the tree reached it.** All the rows cited
     // `action.rs::a_name_the_table_does_not_hold_is_not_an_action`, which asserts that `/Teleport`
     // produces *no* action at all and therefore never touches `action::refused`; the only other
     // test that came near was `a_next_chain_is_flattened_in_execution_order`, which reaches
     // `Launch`'s refusal and splits the sentence off at the colon.
     //
     // **Three were covered here in the six-hundred-and-twenty-sixth session and two were left
-    // behind**, still citing the test that cannot reach them, which is why `GoToR` joins the
+    // behind**, still citing the test that cannot reach them, which is why a fourth joins the
     // table below. `refused`'s arms are the population: every name it
     // answers either has a row that owes this assertion or an `out-of-scope` one that owes
     // nothing, and those two were the remainder.
@@ -1592,12 +1593,14 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
             "<< /S /Movie /Operation /Play >>",
             "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         ),
-        // Table 203's two required entries, so that the refusal is the clause's rather than a
-        // malformed dictionary's: a `GoToR` naming neither a file nor a destination would be
-        // refused by the same arm and would prove nothing about a well-formed one.
+        // Table 209's `/D` beside its `/F`, so that the refusal is the clause's rather than a
+        // malformed dictionary's: a `Thread` naming no bead would be refused by a different arm
+        // and would prove nothing about a well-formed one. §12.6.4.3's `GoToR` used to stand
+        // here and has left the table because it is performed: the file it names is asked of the
+        // host and the jump made against what comes back (ADR 1227).
         (
-            "<< /S /GoToR /F (other.pdf) /D [0 /Fit] >>",
-            "GoToR: a destination in another file, which this reader has no filesystem to open",
+            "<< /S /Thread /F (other.pdf) /D 0 >>",
+            "Thread: a thread in another file, which this reader has no filesystem to open",
         ),
     ] {
         let notes = said(action);

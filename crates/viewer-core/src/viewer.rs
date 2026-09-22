@@ -91,6 +91,12 @@ pub struct RenderToken(u64);
 /// constructs one has to say how large its window is before anything can appear, and
 /// [`Viewer::new`] taking the size is what makes that impossible to forget.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent facts about one viewer, each read in one place and none of them a \
+              state: whether a trigger is being raised, whether a step is under way, whether this \
+              host takes rasters at all, and §10.8.3's answer"
+)]
 pub struct Viewer {
     /// Every open document.
     documents: BTreeMap<DocumentId, Open>,
@@ -176,6 +182,15 @@ pub struct Viewer {
     /// `None` until a host says otherwise, under which no annotation this program writes carries
     /// the entry. ADR 1160.
     clock: Option<pdf_syntax::Date>,
+    /// Whether §10.8.3's separation simulation is what this reader has asked for.
+    ///
+    /// The tenth host-supplied policy value, held here for `clock`'s reason — it is a fact about
+    /// the *reader* and not about any one file — and pushed into each document's
+    /// [`pdf_model::view::ViewState`] by [`Command::Separations`], which is the only channel
+    /// into interpretation rule 1 allows. `false` until a host says otherwise, under which
+    /// §10.8.2's alternate space and tint transform are what every colour is drawn through.
+    /// ADR 1228.
+    separations: bool,
     /// §8.10.4's target documents, parsed once for every document this viewer holds.
     ///
     /// Handed to each [`Open`] as it is created, so that a document opened after
@@ -212,6 +227,7 @@ impl Viewer {
             delegated: pdf_model::view::WidgetAppearances::default(),
             audience: pdf_model::optional_content::Audience::NONE,
             clock: None,
+            separations: false,
             references: Arc::new(pdf_model::reference::Supply::none()),
             reference_refusals: Vec::new(),
         }
@@ -576,6 +592,17 @@ impl Viewer {
                     open.view.set_modification_time(at);
                 }
             }
+            // §10.8.3's simulation, applied to every open document and to every one opened
+            // afterwards — `Command::Restrict`'s rule, for its reason. Every page already
+            // interpreted was interpreted for the other answer, so all of them are superseded.
+            Command::Separations(simulate) => {
+                self.separations = simulate;
+                for open in self.documents.values_mut() {
+                    if open.view.set_separation_simulation(simulate) {
+                        open.stale();
+                    }
+                }
+            }
             Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -665,6 +692,10 @@ impl Viewer {
                 // document it will show. No entry where nothing was said, which is every host by
                 // default.
                 open.view.set_modification_time(self.clock);
+                // §10.8.3's simulation, on the same rule: a reader who asked for it asked about
+                // every document this window will show. Off where nothing was said, which is
+                // every host by default.
+                open.view.set_separation_simulation(self.separations);
                 // A document opened *during* a presentation arrives in the mode the host is in:
                 // §12.4.4.2's node is a property of the page being shown and NOTE 2's saved groups
                 // of the document, so both are taken here rather than only on `Command::Present`.
@@ -1194,6 +1225,8 @@ impl Viewer {
             (Purpose::ImportData, Some(bytes)) => interact::import(open, bytes),
             // §12.6.4.4's suspended walk, resumed against the root that arrived.
             (Purpose::TargetRoot, Some(bytes)) => interact::resume_root(open, bytes),
+            // §12.6.4.3's jump, made against the file Table 203's `/F` named.
+            (Purpose::RemoteDocument, Some(bytes)) => interact::resume_remote(open, bytes),
             // Trap 5 on the one path where a *host* declines: a click that silently does
             // nothing is indistinguishable from a click on nothing.
             (Purpose::ImportData, None) => {
@@ -1208,6 +1241,7 @@ impl Viewer {
                 outcome
             }
             (Purpose::TargetRoot, None) => interact::decline_root(open),
+            (Purpose::RemoteDocument, None) => interact::decline_remote(open),
         };
         self.apply(id, outcome, events);
     }

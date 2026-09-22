@@ -643,9 +643,31 @@ impl Host {
                 );
             }
             // A file the document asks for is a question about *this* machine's filesystem
-            // (rule 2), and this window supplies none: said, not swallowed.
-            Event::NeedsFile { .. } => {
-                eprintln!("this window does not supply files a document asks for");
+            // (rule 2), and this window supplies none: said, not swallowed — and **answered**,
+            // which is the half that was missing. `Command::Supply` with no bytes is what tells
+            // the confined viewer that nobody will supply it, so the action it is holding is
+            // dropped and the person is told the link declined; without it the worker waits for
+            // an answer that never comes and the click reports nothing (trap 5).
+            //
+            // §12.6.4.3 is refused at `RemoteDocuments::Refuse` and for `Links::Refuse`'s reason
+            // one clause over: this window has no dialogue, so it could not put the *ask* level's
+            // question, and a window that opened a file a document named without being able to
+            // ask would be the one face where that happens with nobody consulted (ADR 1227).
+            Event::NeedsFile { purpose, name, .. } => {
+                eprintln!(
+                    "{}",
+                    viewer_host::policy::supply_note(
+                        purpose,
+                        &format!(
+                            "this window supplies no file a document names, and has no dialogue \
+                             to ask you about one. The document asked for {name}"
+                        )
+                    )
+                );
+                self.dispatch(&Command::Supply {
+                    purpose,
+                    bytes: None,
+                });
             }
             Event::Saved { .. } | Event::Extracted { .. } => {
                 eprintln!("note: the confined viewer sent bytes this window never asked for");

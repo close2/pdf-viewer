@@ -47,14 +47,19 @@ commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with
 processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
-JPEG 2000 in a confined worker. Encryption at every revision Table 21 lists and every method Table 25 names, in both
+JPEG 2000 in a confined worker, and Table 13's `/ColorTransform` read where the clause states it —
+the entry, the `APP14` segment that silences it, and the component count, ranked in the order
+§7.4.8 gives them (ADR 1183). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing eleven of §12.6's actions, §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — the Table 164 transition styles whose frame the table's own words determine,
 drawn frame by frame, and the rest reported by name for the quantity the clause does not state
 (ADR 0230), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode
-a host states because that clause conditions its whole state machine on one (ADR 0316) — and
+a host states because that clause conditions its whole state machine on one (ADR 0316), and
+§12.6.4.15's transition action played **outside** a presentation too, because that clause says the
+transition is the action's and not the mode's — the same two faces and the same clock, driven for
+one effect instead of a slide show (ADR 1216) — and
 everything a document says *about itself*: §14.7's logical structure, §14.8's
 tagged-PDF vocabulary, §7.11.4's embedded files, §14.13's associated files in **both** of
 §14.13.2's forms — the embedded one listed, and the one that lives outside the document named
@@ -91,17 +96,25 @@ the same fully qualified names a field carries, so an import means one thing whi
 and an FDF carrying Table 246's `/EmbeddedFDFs` carries FDF *files*, each read as one and applied
 in the array's order, with only the encrypted form refused because only that is deprecated
 (ADR 1185). **An FDF file's annotations are placed on the pages Table 254's ordinals name**, and
-Table 249's `/AP`, `/A` and `/AA` replace the widget's own: a value that lives in the other file
+Table 249's `/AP`, `/A`, `/AA` and `/IF` replace the widget's own: a value that lives in the other file
 crosses as a *value*, copied rather than referred to, so the interpreter still holds one document
 and the imported appearance goes back into §7.5.6's update as the FDF producer's own marks (ADRs
-1223, 1224) —
+1223, 1224); and Table 249's **`/APRef` naming a page of the target document** becomes that widget's
+appearance, because Table 253 makes its `/F` optional and its absence puts the page in the file
+being read — §12.7.7's own second purpose for naming a page, "either as a page or as a button
+appearance" — so the page's content stream, its inherited resources, its crop box as the `/BBox` and
+its `/Rotate` as the `/Matrix` are the Table 93 form §12.5.5 places, and a reference that *does*
+name a second file is said out loud as the host question it is (ADR 1235) —
 XFDF against ISO 19444-1, which ISO 32000-2 names and defines nowhere, with an `<annots>` element
 **counted and said out loud rather than read**, because the grammar that would let it create an
 annotation is in sections of that standard this tree does not hold (ADR 1108); a person can **fill
 in a form field** — where the host keeps the *point* it
 clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR
 0201), with a caret that says where the next character goes so that correcting the middle of a
-value is not deleting back to it (ADR 0211) — undo it and redo it; **a file-select control takes a
+value is not deleting back to it (ADR 0211) — undo it and redo it; **a rich text field's value is
+drawn as characters**, because Table 228's `/RV` and Table 231 bit 26 are ISO 32000-2's own rich
+text string and not the XFA template architecture `CLAUDE.md` excludes, so the text is laid out and
+only the *formatting* is reported (ADR 1197); **a file-select control takes a
 file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
 whose contents shall be submitted as the field's value" and only a host has a filesystem to read
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
@@ -119,11 +132,13 @@ what goes in it (ADR 0613) — **with the subject and the creation date beside t
 text**, and the two dates kept apart, because Table 172 states when an annotation was made and
 Table 166 when it was last changed (ADR 1224); a **cursor changes over §12.5.6.5's activation region** in all three,
 which no clause states and which is therefore recorded as this program's convention; a person can
-**measure a drawing** — §12.9's viewports, with the path traced in the window and the arithmetic and
+**measure a drawing** — §12.9's viewports, traced by pointer in all three windows on the key `m`
+and over the C ABI's `quorra_measure`, with the arithmetic and
 §12.9.2's five formatting steps the document's, so a length, an area, an angle and a slope come back
 in the units and the labels the producer chose rather than in any this program invented; a geospatial
 viewport says which system the map is in and states outright that §12.10 defines no position between
-its registration points (ADR 1191); a person can **add an annotation** — §12.5.6.10's four markups over what is
+its registration points (ADR 1191). No window draws the path it is measuring; each takes the points
+and shows the answer; a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
@@ -135,7 +150,9 @@ the page under the point it was dropped on, which draws its icon before anything
 0814) — with §7.9.6's one namespace over both homes, an undo that forgets it and a list that
 answers the log rather than the file; and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
-writing `CLAUDE.md` permits. Every annotation that update writes carries Table 166's `/M` where a
+writing `CLAUDE.md` permits. Where a document states `/NeedAppearances`, the save names every widget
+whose appearance this program did not construct, by §12.7.4.2's fully qualified name, rather than
+leaving the reader to find out from the file (ADR 1159). Every annotation that update writes carries Table 166's `/M` where a
 host has said what time it is, and none where none has: the renderer has no clock, so the instant
 arrives as `Command::Clock` the way every other fact about the reader's machine does (ADR 1160).
 **No window has a gesture for the attach yet**, by the owner's word
@@ -169,7 +186,11 @@ processor backend drew — the same backend the oracle certifies — into the to
 winit host has no toolkit dialogue at all and shows what would print, saying so (ADRs 1179, 1180,
 1203). The resolution is the printer's, clamped to 150–600 dots per inch with 300 where none is
 reported, and §12.2's half of Table 147 — scaling, duplex, tray, page range, copies — is what a
-dialogue opens on.
+dialogue opens on. **And the two entries of it that decide pixels decide them**: a page carries
+§14.11.2's boundaries twice, `Page::print_box` and `Page::print_clip_box` beside `display_box` and
+`clip_box`, and `Page::render_for_printing` selects between the pairs where the print operation
+stated `Purpose::Print` — so a document naming `/PrintArea /MediaBox` lays a wider square onto paper
+than it shows on the screen (ADR 1227).
 
 **Table 22's bit 12 is a second operation beside bit 3, at four levels of its own**, because the
 cell states two consequences: bit 3 clear withholds printing, and bit 12 clear limits a print that
@@ -195,7 +216,32 @@ nothing reaches another program without a keypress, and only `http`, `https` and
 handed over at all, whatever the level, because a document free to name a scheme would be choosing
 which of this machine's handlers runs. The words are not the restriction menu's four: there *off*
 is the permissive end and here it would be `open`, and one vocabulary for two directions is a trap
-with a tick beside it (ADR 1155).
+with a tick beside it (ADR 1155). **§12.6.4.3's remote go-to is a second such value and not the
+same one**, `--remote-documents=refuse|ask|warn|open`, `ask` by default: a document that names
+another file is asking this reader to open a PDF in place of the one being read rather than to
+start another program, and the file is looked for beside the open document and nowhere else at
+every level, including the permissive one — Table 203's `/D` and `/SD` are then read in the
+document that came back, because §12.3.2.2 makes an explicit destination's first element a page
+number *there*. A request for a new window is said out loud rather than obeyed, which the entry's
+own wording permits: its only sentence with force is the `false` case (ADR 1227).
+
+**§10.8.3's separation simulation has a control, which is the one thing the clause conditioned
+itself on.** The simulation is for when the colours of a display matter "on a device that normally
+would not be used to produce separations", and §10.8.1 says whose choice that is; so
+`--separations=on|off` and a key in all three windows, `Command::Separations` across the confined
+wire, `quorra_separations` for a C caller, and `ViewState::separation_simulation` where it reaches
+the colour route. A preference rather than one of the four levels, because nothing in any file asks
+for it and there is nobody to ask on the reader's behalf (ADR 1228).
+
+**And under that control §10.8.3's four steps are performed, which is what §8.6.6.5's per-component
+sentence needed.** A `DeviceN` space whose `/Subtype` is `NChannel` and which names a spot colourant
+is read as separations rather than as one tint transform: each spot colourant through the
+`Separation` colour space Table 70's `/Colorants` holds for it, the process components together
+through Table 71's process space, and the results converted to flat XYZ against a white matte and
+multiply-blended in that matte's own white. Every other space is the same space under both answers —
+a `Separation` is one separation and a product of one term, and a `DeviceN` of process components
+alone is what its process space already says — so the preference moves only the spaces the clause's
+sentence is about. Off by default, at 0.010% of an interpretation and no moved pixel (ADR 1229).
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the
@@ -208,13 +254,45 @@ tiling's cells still take the function where they are made, reported by name (AD
 reader, the functions, shadings, meshes and transfer, below the interpreter with no cycle and
 re-exported by `pdf-model` under the paths its callers knew (ADR 1131).
 
+**A page paints under §11.7.4's overprinting, and it is not a seventeenth blend mode.** Table 57's
+`/OP`, `/op` and `/OPM` are read, §8.6.7's zero test is made before quantisation, and §11.7.4.3's
+special mode is two Porter-Duff operators chosen per channel — so `render-cpu` computes it and
+`DisplayList::overprints` carries it, with §11.7.4.3's and §11.7.4.4's implicit groups established
+where those clauses say (ADRs 1157, 1158, 1169, 1170, 1182). The other two backends refuse a display
+list carrying the mode by name and the frame falls back, which is the largest by-name coverage loss
+either carries: 2.7% of the crawled documents that open paint under it, counted rather than guessed
+(ADRs 1178, 1181; `doc/questions/Q76` asks who builds it in quorra). **And where the file states a
+black generation, it replaces the device's default**: Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`
+reach both routes into a subtractive space — the graphics state's and §11.6.7's pattern dictionary's
+— so §10.4.2.4's conversion runs the producer's functions instead of this device's, `/BG2 /Default`
+puts the default back on Table 57's own precedence, and a function this tree cannot evaluate is
+`Unsupported::BlackGeneration` rather than a silent substitution (ADR 1207).
+
+**A mesh patch travels to the backend rather than being tessellated in the model**, because the
+fineness a patch needs is a number of device pixels and `pdf-model` has no device: `pdf_render::
+SurfacePatch` carries §8.7.4.5's control net, its corner values and a tolerance, and the backend
+derives the subdivision from the net's second differences against half a device pixel and
+§10.7.3's colour tolerance — three times cheaper on the corpus page that states the most of them
+(ADR 1217). **And a stencil keeps its shape apart from its mask's opacity**: an image that is
+§8.9.6.2's stencil *and* carries §11.6.5.2's soft mask used to reach one raster holding their
+product, and now reaches the display list as a `Command::Shaped` whose two halves are §11.6.4.2's
+shape and §11.6.4.3's opacity (ADR 1218) — including where the mask is behind an image codec,
+which is decoded once per document into a grey plane under the bound that routed it there
+(ADR 1232). **A clipping path that encloses an area and rules a line admits both**: §10.7.4's
+region is the union of two fills under two rules, which the processor composes into its own mask
+and the two graphics backends refuse by name rather than admitting a smaller set (ADR 1231).
+
 **A document is opened on disk and read where its own offsets point** — `startxref` from the
 last two kilobytes, each cross-reference section from where the chain names it, each object from
 its entry, through a window the parser grows until nothing at its end was examined — so what a
 file costs to open is its trailer, its table and page one's objects rather than its length, and a
 six-gigabyte document opens in the time a small one does; a damaged file, which a scan reads whole,
 costs on disk what it cost in memory (ADR 0809) — and a scan the process cannot hold the file for
-is refused by name and said once on the document's report. **The confined viewer opens the same
+is refused by name and said once on the document's report. **Every revision in the chain of updates
+can be read**: `/Prev` is walked forwards, each section laid over the one before it, so the version
+a chain reached is the version its last update states and any earlier revision can be opened by
+substituting its table — carrying the file encryption key, which does not change between them
+(ADR 1171). **The confined viewer opens the same
 way**: the file crosses to its worker as an open descriptor beside `Command::Open`, read behind the
 filter through `pread64` and nothing else, so the host holds no byte of it and the six-gigabyte
 document opens through the confinement too (ADR 0812). A signature's `/ByteRange` is digested
@@ -225,7 +303,10 @@ costs is [`doc/performance.md`](performance.md)'s first section, and the open ha
 [todo 42](todo/42-the-launch-path.md).
 
 **And it has chrome, and all three windows have the same six panels**, because the *list* of them is one value every host matches exhaustively on
-(`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press. A sidebar of
+(`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press — and a key
+press carries `viewer_host::Modifiers`, so **Control means something** rather than falling through
+to the unmodified row: four conventional bindings are held in one place and an unbound Control means
+nothing at all, threaded through GTK, the Qt bridge's own signature and winit alike (ADR 1192). A sidebar of
 six tabs, drawn in `viewer-ui` with `pdf-font`'s compiled-in Helvetica and a `pdf-render` display
 list so that every rasteriser draws it, and in the two native hosts with a `GtkNotebook` of
 `GtkListView`s and a `QTabWidget` of `QTreeView`s: §12.3.3's outline, where a click
@@ -448,7 +529,7 @@ ambiguity by itself. The approved PDF Association errata are an input beside the
 which *withdraws* a rule from part 4. `tools/state.sh archive` prints where the comparison
 stands, and `doc/todo/02` §2 runs it every whole-sequence round (ADR 1015).
 
-**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one sentence decided against with its cost recorded, so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119).
+**And a separate ledger says how much of the *standard* the viewer implements**, clause by clause, one row per subclause in `doc/conformance/ledger.toml`. Its statuses gained a word in answer to `doc/questions/Q63`: `departed`, for a clause every requirement of which is executed except one sentence decided against with its cost recorded, so a deliberate departure stops wearing `partial`'s word for unfinished work and `tools/state.sh` counts it as its own figure (ADR 1119). Three of that script's sections read the tree rather than the ledger: `departures` prints each `departed` row's deciding ADR and what has cited it since, `remedies` prints per profile and target how many answers sit at a site the target's own listing does not name, and `flags` holds at zero the rule that **every command-line flag a message names is one the program accepts** — both populations derived, the programs from the workspace's manifests and the flags from each binary's own source (ADRs 1166, 1213).
 
 **And it can *make* one.** `pdf-transform`'s `archive` verb brings a document to a stated target in
 three stages — validate with `pdf-archive`, decide each failed requirement as a refusal, an
@@ -505,6 +586,17 @@ refuses is answered by the base standard's own default rather than by rescaling 
 that is another box in the same file, and its intersection sentence says whether the removal costs
 a reader anything — mechanical where it does not, `--authorise page-boundary` where it does, and
 refused at the media box, which Table 31 requires (ADR 1210).
+**And three losses the base standard states the fallback for are asked for by name.** ISO 19005's
+annotation and optional-content clauses each forbid something and offer nothing to write in its
+place, so each is an authorised loss: `--authorise hidden-annotation` takes out an annotation whose
+`/F` the parts forbid, because writing the flags they ask for would put a mark on a page its
+producer kept it off; `--authorise appearance-states` reduces an appearance dictionary to `/N`,
+which §12.5.5's Table 170 already makes what a reader draws in the rollover and down states; and
+`--authorise automatic-states` removes the `/AS` ISO 19005-2 section 6.9 forbids, leaving the
+document in the state the configuration's own entries set — a PDF/A-4 target costing nothing there,
+because its own clause keeps the key and has a processor ignore it (ADR 1234). **A configuration's
+answer that needs nothing authorised is counted as carried out**, so `--remedy-sites` no longer
+reports a site as refused that the conversion answers by a rewrite losing nothing (ADR 1233).
 A refusal is a question answered in advance: a configuration names each refusal site and its
 remedy, `--remedy-sites` prints every site a target binds with what this version carries out and its
 own total of what is not built yet — and, given a profile, the answers that profile gives which this
@@ -521,14 +613,22 @@ DCT or CCITT image decoded in the confined codec, cleared and re-encoded Flate, 
 its own one bit; a **painted path cut** to the region's complement — the region's four edge lines
 tile the plane into nine cells and the difference is the union of the eight outer clips, so the
 coordinates that described the removed marks are gone rather than clipped, with a margin that
-proves §7.3.3's single precision cannot round the cut edge back inside; and a **form entered**, its
+proves §7.3.3's single precision cannot round the cut edge back inside; a **§8.5.2.2 Bézier split**
+at the parameters where it meets those lines, solved as roots of the cubic whose Bernstein
+coefficients are the control points' own depths and cut by de Casteljau, so the survivor is still a
+curve and nothing is flattened; a **§8.5.3.2 stroke cut as the outline it marks**, expanded with the
+graphics state's line parameters and §8.4.3.6's dash applied first, then painted as a fill in the
+**stroking** colour — replayed under Table 74's non-stroking operator from the producer's own
+operand bytes inside a §8.4.2-balanced `q`/`Q`; and a **form entered**, its
 own content stream edited under §8.10.1's `/Matrix`. An object another page also draws is **copied**
 for the redacted page rather than replaced, because the other placement's marks are content the
 annotation did not identify. It refuses rather than cuts wrong — a Type 3 font, a composite font not
-`Identity-H`, `sh`, a soft mask over the region, a stroked, curved or clipping path, a JPX image, an
+`Identity-H`, `sh`, a soft mask over the region, a clipping path, a stroke whose outline came back
+with an arc in it (a round cap or join, or a curved offset, which an expansion can only
+approximate), a zero line width, a JPX image, an
 image stating `/Alternates` — each with its sentence, and the overlay text and fill it does not
 compose (A65's fence), said as a departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195,
-1196).
+1196, 1236).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
@@ -687,9 +787,10 @@ worker does not, measured under `strace` rather than assumed, and six probes say
 asking the filesystem anything. The wire under the two *confined* workers — `pdf-view-worker` and `pdf-vfs-worker`, which is not
 all three of this tree's workers — is one crate, `confined-transport`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
-(one as consumed by nothing, saying why), the six operations — a field filled, an
-annotation added, a page printed or rendered, a file extracted, a file written in, a document
-assembled out of another's pages — each read their bit at
+(one as consumed by nothing, saying why), the eight operations — a field filled, an
+annotation added, a page printed or rendered, a page printed faithfully rather than degraded, a
+file extracted, a file written in, a document assembled out of another's pages, and the document
+processed at all — each read their bit at
 the document's revision and §12.8.2.2's certification besides — and §12.7.5.5's Table 236 `/P`,
 the permission a signed signature field's lock states over the document, whose several instances
 compose as the minimum its own words make them (ADR 1156) — and the four levels are one type

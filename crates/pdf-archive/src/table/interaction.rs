@@ -668,6 +668,134 @@ pub fn annotations_of_a_forbidden_subtype(
         .collect()
 }
 
+/// One annotation whose stated flags ISO 19005 section 6.3.2 forbids.
+///
+/// The population [`flags_permitted`] rejects, read as a population rather than as a verdict for
+/// [`ForbiddenSubtype`]'s reason: a converter acting on these has to be handed exactly the
+/// annotations the requirement reported, and a findings list is capped where a document's
+/// annotations are not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForbiddenFlags {
+    /// The object the annotation is, where it is an indirect one.
+    ///
+    /// `None` for an annotation written directly into a page's `/Annots` array, which nothing
+    /// that rewrites objects can reach.
+    pub at: Option<ObjectId>,
+    /// The zero-based page it is on.
+    pub page: usize,
+    /// Its `/Subtype`, where it states one.
+    pub subtype: Option<String>,
+    /// The `/F` value the producer wrote, for a report that says what the file said.
+    pub flags: i64,
+    /// The object its `/AP` `/N` names, where that is a stream of its own.
+    ///
+    /// [`ForbiddenSubtype::normal_appearance`]'s reading, for the same reason: it is what a
+    /// removal takes off the page, and `None` where the annotation drew nothing of its own.
+    pub normal_appearance: Option<ObjectId>,
+}
+
+/// Whether a `/F` value meets what ISO 19005-2 and ISO 19005-4 section 6.3.2 require of one.
+///
+/// Both parts require the `Print` flag set and the `Hidden`, `Invisible`, `NoView` and
+/// `ToggleNoView` flags clear. ISO 32000-2 §12.5.3 states the numbering the values are read by —
+/// bits "from low-order to high-order, with the lowest-order bit numbered 1" — and every other
+/// bit of Table 167 is the producer's and says nothing this requirement is about.
+#[must_use]
+pub const fn flags_permitted(flags: i64) -> bool {
+    flags & PRINT != 0 && flags & (HIDDEN | INVISIBLE | NO_VIEW | TOGGLE_NO_VIEW) == 0
+}
+
+/// The `/F` value that meets section 6.3.2 and changes the fewest of the producer's other bits.
+///
+/// The `Print` bit set and the four forbidden ones cleared, with every remaining bit of Table 167
+/// — `NoZoom`, `NoRotate`, `ReadOnly`, `Locked`, `LockedContents` — carried across untouched,
+/// because none of them is what either part's section 6.3.2 is about.
+#[must_use]
+pub const fn flags_permitting(flags: i64) -> i64 {
+    (flags | PRINT) & !(HIDDEN | INVISIBLE | NO_VIEW | TOGGLE_NO_VIEW)
+}
+
+/// Every annotation whose stated `/F` fails section 6.3.2, in page order.
+///
+/// **An annotation stating no `/F` at all is not here.** §12.5.2's Table 166 gives the entry a
+/// default of 0, and the row about an absent entry is its own requirement with its own remedy;
+/// this population is the annotations whose producer wrote flags the parts forbid.
+#[must_use]
+pub fn annotations_the_flags_forbid(document: &Document, target: Target) -> Vec<ForbiddenFlags> {
+    let exam = Examination::new(document, target);
+    exam.annotations()
+        .iter()
+        .filter_map(|annotation| {
+            let flags = document.get_key(&annotation.dict, "F").as_integer()?;
+            if flags_permitted(flags) {
+                return None;
+            }
+            Some(ForbiddenFlags {
+                at: annotation.id,
+                page: annotation.page,
+                subtype: name_at(document, &annotation.dict, "Subtype"),
+                flags,
+                normal_appearance: normal_appearance_stream(document, &annotation.dict),
+            })
+        })
+        .collect()
+}
+
+/// One annotation whose appearance dictionary states more than the normal appearance.
+///
+/// The population [`appearance_dictionary_holds_only_normal`] reports, read as a population for
+/// [`ForbiddenSubtype`]'s reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtraAppearances {
+    /// The object the annotation is, where it is an indirect one.
+    pub at: Option<ObjectId>,
+    /// The zero-based page it is on.
+    pub page: usize,
+    /// The keys the appearance dictionary states beside `/N`, in the order it states them.
+    ///
+    /// ISO 32000-2 §12.5.5's Table 170 defines `/R` and `/D` and nothing else, so in a file whose
+    /// producer wrote only what that table defines this is those two; a key neither the table nor
+    /// either part admits is here as well, because both parts' section 6.3.3 name `/N` and
+    /// exclude every other key by naming it.
+    pub states: Vec<String>,
+    /// Whether the dictionary states an `/N` at all.
+    ///
+    /// §12.5.5's Table 170 makes the default of both `/R` and `/D` "the value of the N entry", so
+    /// a dictionary that states one is a dictionary a reader already falls back from — and one
+    /// that states none has nothing to fall back to.
+    pub normal: bool,
+}
+
+/// Every annotation whose appearance dictionary states a key other than `/N`, in page order.
+#[must_use]
+pub fn annotations_with_extra_appearance_states(
+    document: &Document,
+    target: Target,
+) -> Vec<ExtraAppearances> {
+    let exam = Examination::new(document, target);
+    exam.annotations()
+        .iter()
+        .filter_map(|annotation| {
+            let Object::Dictionary(appearance) = document.get_key(&annotation.dict, "AP") else {
+                return None;
+            };
+            let states: Vec<String> = keys(&appearance)
+                .into_iter()
+                .filter(|key| key != "N")
+                .collect();
+            if states.is_empty() {
+                return None;
+            }
+            Some(ExtraAppearances {
+                at: annotation.id,
+                page: annotation.page,
+                states,
+                normal: appearance.get("N").is_some(),
+            })
+        })
+        .collect()
+}
+
 /// The object an annotation's `/AP` `/N` names, where that object is a stream.
 fn normal_appearance_stream(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
     let appearances = document.get_key(annotation, "AP");

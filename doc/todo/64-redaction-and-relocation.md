@@ -6,14 +6,15 @@ afterwards as single clean rounds — redaction application (ADR 1124), then its
 design below is what the two aborted drafts established and the builds followed; it stays here as
 *what is* for the cases still owed.
 
-**What a redaction still refuses**, each an owed capability with its own sentence: a stroked path
-(§8.5.3.2's marks are the path's outline, so cutting the path would place caps and joins the
-producer never wrote), a path carrying a §8.5.2.2 Bézier segment (the crossing parameter is a root
-this build does not solve), a path that is also §8.5.4's clipping boundary; a `JPXDecode` image (an
-over-budget decode is a reduced-resolution level, §7.4.9 NOTE 3), an image stating §8.9.5.4
-`/Alternates` (ADR 1174), a codec image carrying transparency the opaque re-encode cannot preserve;
-an inline image behind a codec or whose colour space resolves to a resource object; a Type 3 font,
-a composite font not `Identity-H`, `sh`, and a soft-mask group.
+**What a redaction still refuses**, each an owed capability with its own sentence: a stroke whose
+*outline* an expansion can only approximate — a round cap or join, or the offset of a curved
+segment (ADR 1236) — a stroke with a zero line width, one this walk has seen no stroking colour
+operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a path that is
+also §8.5.4's clipping boundary; a `JPXDecode` image (an over-budget decode is a reduced-resolution
+level, §7.4.9 NOTE 3), an image stating §8.9.5.4 `/Alternates` (ADR 1174), a codec image carrying
+transparency the opaque re-encode cannot preserve; an inline image behind a codec or whose colour
+space resolves to a resource object; a Type 3 font, a composite font not `Identity-H`, `sh`, and a
+soft-mask group.
 
 ## Redaction application — §12.5.6.23, the owner's A64 ("Owed.")
 
@@ -46,6 +47,16 @@ where "within the region" is under-specified the choice is documented as a choic
   windows — taken subpath by subpath, so both fill rules survive it. Surviving vertices are the
   producer's own, copied; created ones are checked against a margin that proves §7.3.3's single
   precision cannot round the cut edge back inside the region.
+- **The cut is stated over segments, so a §8.5.2.2 Bézier is split rather than refused**
+  (ADR 1236): a half-plane's depth is affine in the point and the mapping into the display list's
+  space is affine, so the depth along a segment is a polynomial whose Bernstein coefficients are
+  the depths of its own control points; its roots are solved in closed form and the segment is
+  split there by de Casteljau. Nothing is flattened.
+- **A §8.5.3.2 stroke is cut as the outline it marks** (ADR 1236): expanded with the graphics
+  state's line parameters — §8.4.3.6's dash pattern applied *before* the outline is taken — cut as
+  a fill, and painted with `f` in the **stroking** colour, replayed under Table 74's non-stroking
+  operator from the producer's own operand bytes inside a §8.4.2-balanced `q`/`Q`. Admitted only
+  where the expansion came back polygonal, which is decided from its output.
 - **A form is entered, always** (ADR 1196): the interpreter runs a form's content inline, so its
   codes are in the placed-code count the walk is calibrated against, and a walk that skipped the
   form refused every page whose text is inside one. An object the page does not own — a form or an

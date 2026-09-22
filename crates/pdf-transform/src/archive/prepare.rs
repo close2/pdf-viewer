@@ -714,6 +714,12 @@ pub(super) struct Prepared {
     /// keeps the normal appearances of exactly these annotations: the population is the removal's
     /// and the pages are composed from it.
     pub(super) forbidden_annotations: Result<ForbiddenAnnotations, Because>,
+    /// Every annotation whose stated `/F` section 6.3.2 forbids, or why none can be removed.
+    pub(super) hidden_annotations: Result<HiddenAnnotations, Because>,
+    /// The appearance dictionaries that lose every key but `/N`, or why none do.
+    pub(super) extra_appearance_states: Result<ExtraAppearanceStates, Because>,
+    /// The optional content configurations that lose their `/AS`, or why none do.
+    pub(super) automatic_states: Result<sites::AutomaticStates, Because>,
     /// The pages a `preserve` remedy appends, or why none can be.
     ///
     /// `doc/adr/1014`, and the field is `Err(NOT_ASKED_FOR)` for every conversion whose caller
@@ -837,6 +843,17 @@ impl Prepared {
         // appearances, so the removal's population is what the composition is built from.
         let forbidden_annotations = asked(wanted(Rewrite::ForbiddenAnnotationRemoved), || {
             prepare_forbidden_annotations(document, plan.target)
+        });
+        // The three section 6.3.2 and 6.3.3 losses, each over the population its own requirement
+        // reported, so that none of them can act on an annotation that requirement passed.
+        let hidden_annotations = asked(wanted(Rewrite::HiddenAnnotationRemoved), || {
+            prepare_hidden_annotations(document, plan.target)
+        });
+        let extra_appearance_states = asked(wanted(Rewrite::ExtraAppearanceStatesRemoved), || {
+            prepare_extra_appearance_states(document, plan.target)
+        });
+        let automatic_states = asked(wanted(Rewrite::AutomaticStatesRemoved), || {
+            sites::automatic_states(document)
         });
         let preserved = the_preserved_pages(
             plan,
@@ -990,6 +1007,9 @@ impl Prepared {
             boundaries,
             actions,
             forbidden_annotations,
+            hidden_annotations,
+            extra_appearance_states,
+            automatic_states,
             preserved,
             recorded_provenance,
         }
@@ -1039,6 +1059,11 @@ impl Prepared {
             Rewrite::ForbiddenAnnotationRemoved => {
                 self.forbidden_annotations.as_ref().err().copied()
             }
+            Rewrite::HiddenAnnotationRemoved => self.hidden_annotations.as_ref().err().copied(),
+            Rewrite::ExtraAppearanceStatesRemoved => {
+                self.extra_appearance_states.as_ref().err().copied()
+            }
+            Rewrite::AutomaticStatesRemoved => self.automatic_states.as_ref().err().copied(),
             Rewrite::HexadecimalDigitCompleted => self.hexadecimal.as_ref().err().copied(),
             Rewrite::ExternalDataEmbedded => self.external_data.as_ref().err().copied(),
             Rewrite::PageBoundaryRemoved => self.boundaries.as_ref().err().copied(),
@@ -1754,20 +1779,34 @@ pub struct RemovedAnnotation {
     /// `Some` means the page loses a mark when the annotation goes — the marks
     /// `remedy = "preserve"` keeps. `None` means it drew nothing of its own.
     pub appearance: Option<ObjectId>,
+    /// The `/F` value its producer wrote, where the flags are why it was removed.
+    ///
+    /// §12.5.3's Table 167 numbers the bits, and a report that says which of them the file set is
+    /// what lets a reader see whether the annotation was hidden, kept off paper or kept off the
+    /// screen. `None` where the removal was about the subtype rather than the flags.
+    pub flags: Option<i64>,
 }
 
 impl RemovedAnnotation {
     /// One removed annotation as JSON.
     pub(super) fn to_json(&self) -> Value {
-        Value::Object(vec![
-            ("page".to_owned(), Value::count(self.page)),
-            ("subtype".to_owned(), Value::text(self.subtype.clone())),
-            (
-                "object".to_owned(),
-                Value::text(format!("{} {}", self.at.number, self.at.generation)),
-            ),
-            ("drew".to_owned(), Value::Bool(self.appearance.is_some())),
-        ])
+        Value::Object(
+            vec![
+                ("page".to_owned(), Value::count(self.page)),
+                ("subtype".to_owned(), Value::text(self.subtype.clone())),
+                (
+                    "object".to_owned(),
+                    Value::text(format!("{} {}", self.at.number, self.at.generation)),
+                ),
+                ("drew".to_owned(), Value::Bool(self.appearance.is_some())),
+            ]
+            .into_iter()
+            .chain(
+                self.flags
+                    .map(|flags| ("flags".to_owned(), Value::Integer(flags))),
+            )
+            .collect(),
+        )
     }
 }
 
@@ -1808,9 +1847,109 @@ fn prepare_forbidden_annotations(
                 .subtype
                 .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
             appearance: forbidden.normal_appearance,
+            flags: None,
         });
     }
     Ok(ForbiddenAnnotations { at, removed })
+}
+
+/// The annotations whose stated `/F` ISO 19005 forbids, and what removing each costs.
+///
+/// [`ForbiddenAnnotations`]' shape over ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2's
+/// population rather than section 6.3.1's, and a type of its own because the two removals are two
+/// authorisations: an operator who accepts losing a `Movie` annotation has said nothing about the
+/// review comment its producer hid.
+#[derive(Debug)]
+pub(super) struct HiddenAnnotations {
+    /// The objects to take out of their pages' `/Annots` arrays.
+    ///
+    /// The popup of a removed annotation is in here beside it, on
+    /// [`ForbiddenAnnotations::at`]'s reading of §12.5.6.14.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// Every annotation removed, in page order, for the report.
+    pub(super) removed: Vec<RemovedAnnotation>,
+}
+
+/// Why an annotation nothing can name is not removed for its flags.
+///
+/// [`REMOVAL_OF_A_DIRECT_ANNOTATION`]'s case at the other removal's site: §7.7.3.3's Table 31
+/// requires `/Annots` to hold indirect references, files exist that write a dictionary straight
+/// into the array, and a rewrite that acts on objects has nothing to take out.
+const REMOVAL_OF_A_DIRECT_HIDDEN_ANNOTATION: &str = "an annotation whose F entry ISO 19005 \
+     forbids is written directly into its page's Annots array rather than being an object of its \
+     own, and the rewrite that removes one acts on objects. Nothing here can reach it";
+
+/// The annotations the two section 6.3.2 flag rows are about, read off the document once.
+fn prepare_hidden_annotations(
+    document: &Document,
+    target: Target,
+) -> Result<HiddenAnnotations, Because> {
+    let mut at = BTreeSet::new();
+    let mut removed = Vec::new();
+    for hidden in pdf_archive::annotations_the_flags_forbid(document, target) {
+        let annotation = hidden
+            .at
+            .ok_or(Because::NotBuiltYet(REMOVAL_OF_A_DIRECT_HIDDEN_ANNOTATION))?;
+        at.insert(annotation);
+        if let Some(dict) = document.get(annotation).as_dict()
+            && let Some(popup) = dict.get("Popup").and_then(Object::as_reference)
+        {
+            at.insert(popup);
+        }
+        removed.push(RemovedAnnotation {
+            at: annotation,
+            page: hidden.page,
+            subtype: hidden
+                .subtype
+                .unwrap_or_else(|| "an annotation stating no subtype".to_owned()),
+            appearance: hidden.normal_appearance,
+            flags: Some(hidden.flags),
+        });
+    }
+    Ok(HiddenAnnotations { at, removed })
+}
+
+/// The appearance dictionaries that lose every key but `/N`.
+#[derive(Debug, Default)]
+pub(super) struct ExtraAppearanceStates {
+    /// The annotation objects whose `/AP` is rewritten to hold `/N` alone.
+    pub(super) at: BTreeSet<ObjectId>,
+}
+
+/// Why an appearance dictionary with nothing to fall back to is not reduced.
+///
+/// §12.5.5's Table 170 gives `/R` and `/D` the default "the value of the N entry", which is what
+/// makes dropping them a loss of artwork rather than of behaviour. Where the dictionary states no
+/// `/N`, that default names nothing, and the reduction would leave an annotation carrying an
+/// appearance dictionary that describes no appearance.
+const NO_NORMAL_APPEARANCE_TO_FALL_BACK_TO: &str = "this annotation's appearance dictionary \
+     states a rollover or down appearance and no normal one. ISO 32000-2 Table 170 makes the \
+     normal appearance the default of both keys ISO 19005 section 6.3.3 forbids, so there is \
+     nothing here for a reader to fall back to and dropping them would leave an appearance \
+     dictionary describing no appearance";
+
+/// Why an appearance dictionary nothing can name is not reduced.
+const REDUCTION_OF_A_DIRECT_ANNOTATION: &str = "an annotation whose appearance dictionary states \
+     more than the normal appearance is written directly into its page's Annots array rather \
+     than being an object of its own, and this rewrite acts on objects. Nothing here can reach it";
+
+/// The annotations the two section 6.3.3 appearance-dictionary rows are about.
+fn prepare_extra_appearance_states(
+    document: &Document,
+    target: Target,
+) -> Result<ExtraAppearanceStates, Because> {
+    let mut at = BTreeSet::new();
+    for extra in pdf_archive::annotations_with_extra_appearance_states(document, target) {
+        if !extra.normal {
+            return Err(Because::NotBuiltYet(NO_NORMAL_APPEARANCE_TO_FALL_BACK_TO));
+        }
+        at.insert(
+            extra
+                .at
+                .ok_or(Because::NotBuiltYet(REDUCTION_OF_A_DIRECT_ANNOTATION))?,
+        );
+    }
+    Ok(ExtraAppearanceStates { at })
 }
 
 /// Whether this annotation is the widget of a button field.

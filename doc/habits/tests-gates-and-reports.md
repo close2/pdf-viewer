@@ -246,3 +246,20 @@ uses, so the plant runs on every gate run and there is nothing to remember to re
 assembled from two pieces so the calibrating crate's own source does not carry the defect its sweep
 reports (ADR 1213). On a worktree six rounds share, a plant written into a file is a file somebody
 else may be editing — and a whole-file `cp` restore of it is the move the brief forbids.
+
+## An instrument that counts what is owed is calibrated against a site where nothing is owed
+
+`Configuration::unbuilt` counted a `discard` as not carried out unless the loss table named the
+site; a site that costs nothing is in no loss table, so four answers were reported owed for two
+batches, and the mismatch column already printing the evidence was read as a wrinkle rather than a
+defect (ADR 1233). Trap 13 plants a defect when a sweep comes back clean; this is its other half —
+plant an absence and confirm the count stays quiet.
+
+## A one-sided timing premise decays when the code under it gets faster
+
+`a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw` waited two seconds against a
+draw ADR 0650 measured at 27.6 s; ADR 1082's scan converter and the rectangle fast path brought
+that draw to 0.61 s, and the test failed alone and passed only under a neighbour's load for several
+batches. A wait that establishes "there was something to interrupt" is a ratchet in disguise: its
+constant states the measured figure it is a fraction of, and a round that speeds the path it waits
+on re-measures it.

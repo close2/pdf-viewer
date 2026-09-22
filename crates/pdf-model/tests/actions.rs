@@ -629,6 +629,7 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
             A::ImportData(_) => "ImportData",
             A::SubmitForm(_) => "SubmitForm",
             A::GoToE(_) => "GoToE",
+            A::GoToR(_) => "GoToR",
             A::GoToDp(_) => "GoToDp",
             A::Trans(_) => "Trans",
             A::Refused(_) => "Refused",
@@ -640,7 +641,11 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
     // fixture's rather than this tree's.
     let cases: &[(&str, &str, Disposition)] = &[
         ("GoTo", "/S /GoTo /D [3 0 R /Fit]", Performed("GoTo")),
-        ("GoToR", "/S /GoToR /F (other.pdf) /D [0 /Fit]", Refused),
+        (
+            "GoToR",
+            "/S /GoToR /F (other.pdf) /D [0 /Fit]",
+            Performed("GoToR"),
+        ),
         ("GoToE", "/S /GoToE /D [0 /Fit]", Performed("GoToE")),
         ("GoToDp", "/S /GoToDp /Dp 4 0 R", Performed("GoToDp")),
         ("Launch", "/S /Launch /F (other.pdf)", Refused),

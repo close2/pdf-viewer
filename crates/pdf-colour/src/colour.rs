@@ -890,6 +890,14 @@ pub struct Conversion {
     /// image's samples, a shading's ramp and a mesh's vertices need the state to travel with
     /// them. ADR 1207.
     black_generation: Option<Arc<BlackGeneration>>,
+    /// Whether §10.8.3's separation simulation is in force for this page.
+    ///
+    /// Here for the same reason the output intent is: it decides what a `DeviceN` colour
+    /// space *means*, and an image's, a shading's and a mesh's colour spaces are parsed where
+    /// their samples are converted, after the interpreter has handed the work over. A reader
+    /// who asks for the simulation and gets it on fills but not on images has been given two
+    /// pages at once. ADR 1229.
+    separations: Separations,
 }
 
 /// What distinguishes one [`Conversion`] from another, for the caches keyed on one.
@@ -897,7 +905,13 @@ pub struct Conversion {
 /// Written out for [`Compositing`]'s reason: the intent is behind an `Arc`, and two `Arc`s of
 /// one profile — one per interpretation of the same page — are one intent. Every derived trait
 /// below goes through here, which keeps them agreeing with equality.
-type ConversionKey<'a> = (&'a Compositing, Rendering, Option<u128>, Option<usize>);
+type ConversionKey<'a> = (
+    &'a Compositing,
+    Rendering,
+    Option<u128>,
+    Option<usize>,
+    Separations,
+);
 
 impl Conversion {
     /// This value as the tuple every trait below is defined on.
@@ -911,6 +925,7 @@ impl Conversion {
             self.black_generation
                 .as_ref()
                 .map(BlackGeneration::identity),
+            self.separations,
         )
     }
 
@@ -928,6 +943,7 @@ impl Conversion {
             rendering,
             output_intent: None,
             black_generation: None,
+            separations: Separations::Alternate,
         }
     }
 
@@ -985,6 +1001,7 @@ impl Conversion {
             rendering: self.rendering,
             output_intent: self.output_intent.clone(),
             black_generation: self.black_generation.clone(),
+            separations: self.separations,
         }
     }
 
@@ -1004,6 +1021,23 @@ impl Conversion {
     pub fn under_black_generation(mut self, generation: Option<Arc<BlackGeneration>>) -> Self {
         self.black_generation = generation;
         self
+    }
+
+    /// The same conversion under §10.8.3's separation simulation, or without it.
+    ///
+    /// `pdf_model::content` is the only caller: the request is a person's, it reaches the
+    /// interpreter as a `ViewState` input, and this is how it reaches the three routes that
+    /// parse a colour space after the interpreter has handed the work over.
+    #[must_use]
+    pub fn under_separations(mut self, separations: Separations) -> Self {
+        self.separations = separations;
+        self
+    }
+
+    /// Whether §10.8.3's separation simulation is in force for this page.
+    #[must_use]
+    pub fn separations(&self) -> Separations {
+        self.separations
     }
 
     /// §10.4.2.4's pair this conversion carries, if the state stated one.
@@ -1171,6 +1205,33 @@ pub enum ColourSpace {
         /// What turns the tints into the alternate space's components.
         tints: Tints,
     },
+    /// ISO 32000-2 §10.8.3's separation simulation of an `NChannel` space that has a spot
+    /// colourant: each colourant rendered as its own separation and the separations combined
+    /// by that clause's four steps, rather than the whole space reverting through one tint
+    /// transform.
+    ///
+    /// Built only under [`Separations::Simulated`], which is a host's answer to §10.8.3's own
+    /// condition; without it such a space is a [`Self::Separation`]. ADR 1229.
+    Simulated {
+        /// Table 71's process colour space, carrying every process component's tint at once,
+        /// where the space has process components.
+        ///
+        /// One separation rather than one per process component, and that is §8.6.6.5's own
+        /// sentence read closely: a component "not present on the output device shall use the
+        /// alternate colour space of **that component**", and the alternate of every process
+        /// component is the *same* space — Table 71's `/ColorSpace`. A colour space is what
+        /// states what its own colourants do together, so evaluating the process components
+        /// individually *into* it and reading it once is the per-component evaluation, which
+        /// is [`Tints::Process`]'s reading one clause over (ADR 1103). Each spot colourant, by
+        /// contrast, has an alternate space of its own, and §10.8.3 is what combines those.
+        process: Option<Box<ColourSpace>>,
+        /// One entry per component of the space's `names` array, in that order: the
+        /// `Separation` colour space Table 70's `/Colorants` holds for that spot colourant —
+        /// "the value shall be an array defining a Separation colour space for that colourant"
+        /// — or `None` where the component is a process one, carried by `process`, or `/None`,
+        /// which "shall never be painted on the page".
+        spots: Vec<Option<ColourSpace>>,
+    },
     /// The `/All` colourant of ISO 32000-2 §8.6.6.4, which marks every colourant at once.
     ///
     /// > When outputting to an additive device, such as a computer monitor, the subtractive
@@ -1294,6 +1355,97 @@ impl Tints {
     }
 }
 
+/// Whether ISO 32000-2 §10.8.3's separation simulation is in force for a colour space being
+/// read.
+///
+/// §10.8.3's condition is a *reader's* request, not anything a document states:
+///
+/// > If it is important for the colours of the display for a PDF, on a device that normally
+/// > would not be used to produce separations, to more closely match those produced when
+/// > using separations, then a simulation of the separation process can be performed for the
+/// > output to the non-separation device.
+///
+/// So the choice belongs to the host, and [`Self::Alternate`] is the default because the
+/// condition is not met until somebody says it is. §10.8.1 puts the decision in the same
+/// place — "Whether separations are produced is up to the processing software" — and §10.8.2
+/// states the default route as the expected one for a display: "Alternate colour spaces are
+/// supplied for DeviceN and Separation colour spaces so that files prepared for generation of
+/// separations can be displayed on other devices".
+///
+/// What the choice changes is which reading of §8.6.6.5 an `NChannel` space gets, and only
+/// that: every other space is the same space under both. ADR 1229.
+///
+/// **What it costs when it is `Alternate`**, which is the answer almost every page gets: the
+/// off path is the path that was here before, with one `Copy` comparison per `DeviceN` space
+/// parsed and a two-word [`Reading`] travelling where a one-word intent did. Measured under
+/// callgrind on `examples/callgrind_interpret`'s fifty interpretations of page 101 of the
+/// standard, in one sitting against the same tree with this enum's route removed:
+/// **1 253 064 426 instructions against 1 252 937 239, +0.010%** — about 2500 instructions a
+/// page, and none of them per pixel.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §10.8.1, §10.8.2 and §10.8.3 verbatim, and a quotation is not \
+              marked up"
+)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Separations {
+    /// §8.6.6.4's and §8.6.6.5's alternate colour space and tint transform, which is what
+    /// those clauses require of a device with none of the named colourants.
+    #[default]
+    Alternate,
+    /// §10.8.3's four steps: each colourant rendered as its own separation, the separations
+    /// converted to flat XYZ against a white matte, multiply-blended, and the result
+    /// converted to the device's space.
+    Simulated,
+}
+
+/// What a colour space is read *under*: the page's output intent, and whether §10.8.3's
+/// separation simulation is in force.
+///
+/// The two travel together for [`Conversion`]'s reason one level down — a colour space is
+/// parsed at four places in this tree (an operator's `cs`, an image's `/ColorSpace`, a
+/// shading's, and a `/Default` standing in for a device family), and a parameter that only
+/// some of them pass is a parameter some page silently loses. Bundling them makes adding a
+/// third a change to this type rather than to seven signatures.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Reading<'a> {
+    /// The space §14.11.5's `/DestOutputProfile` describes for this page, where the document
+    /// states one this tree reads.
+    intent: Option<&'a ColourSpace>,
+    /// Whether §10.8.3's simulation is in force.
+    separations: Separations,
+}
+
+impl<'a> Reading<'a> {
+    /// A reading under `intent`, with no separation simulation.
+    #[must_use]
+    pub fn new(intent: Option<&'a ColourSpace>) -> Self {
+        Self {
+            intent,
+            separations: Separations::Alternate,
+        }
+    }
+
+    /// The same reading with `separations` deciding §10.8.3.
+    #[must_use]
+    pub fn under_separations(mut self, separations: Separations) -> Self {
+        self.separations = separations;
+        self
+    }
+
+    /// The output intent this reading carries.
+    #[must_use]
+    pub fn output_intent(&self) -> Option<&'a ColourSpace> {
+        self.intent
+    }
+
+    /// Whether §10.8.3's simulation is in force.
+    #[must_use]
+    pub fn separations(&self) -> Separations {
+        self.separations
+    }
+}
+
 impl ColourSpace {
     /// Resolves a colour space object.
     ///
@@ -1325,14 +1477,31 @@ impl ColourSpace {
         resources: &Dictionary,
         output_intent: Option<&Self>,
     ) -> Option<Self> {
-        Self::parse_at(document, object, resources, output_intent, 0)
+        Self::parse_under(document, object, resources, Reading::new(output_intent))
+    }
+
+    /// Resolves a colour space object under everything that decides what it means on this
+    /// page: §14.11.5's output intent, and whether ISO 32000-2 §10.8.3's separation
+    /// simulation is in force.
+    ///
+    /// The general form of [`Self::parse`] and [`Self::parse_with_output_intent`], which are
+    /// this with [`Reading::new`] and no simulation. See [`Separations`] for why the second
+    /// half of a [`Reading`] is the host's answer rather than the document's.
+    #[must_use]
+    pub fn parse_under(
+        document: &Document,
+        object: &Object,
+        resources: &Dictionary,
+        reading: Reading<'_>,
+    ) -> Option<Self> {
+        Self::parse_at(document, object, resources, reading, 0)
     }
 
     fn parse_at(
         document: &Document,
         object: &Object,
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
         if depth > MAX_DEPTH {
@@ -1341,7 +1510,7 @@ impl ColourSpace {
         let resolved = document.resolve(object);
 
         if let Some(name) = resolved.as_name() {
-            return Self::by_name(document, name, resources, intent, depth);
+            return Self::by_name(document, name, resources, reading, depth);
         }
 
         let items = resolved.as_array()?;
@@ -1358,7 +1527,7 @@ impl ColourSpace {
             // "[r]egardless of how the colour space is specified". The array form therefore
             // takes the name's route, which it did not until session 980 (ADR 1001).
             b"DeviceGray" | b"G" | b"DeviceRGB" | b"RGB" | b"DeviceCMYK" | b"CMYK" => {
-                Self::device_family(document, &family, resources, intent, depth)
+                Self::device_family(document, &family, resources, reading, depth)
             }
             b"CalGray" => Some(Self::parse_cal_gray(document, items.get(1))),
             b"CalRGB" => Some(Self::parse_cal_rgb(document, items.get(1))),
@@ -1371,12 +1540,12 @@ impl ColourSpace {
             // an unsupported colour space, which is a *refusal* where the standard states
             // an answer. "As if … DeviceCMYK" includes what a `/DefaultCMYK` or an output
             // intent says that space means.
-            b"CalCMYK" => Self::device_family(document, b"DeviceCMYK", resources, intent, depth),
+            b"CalCMYK" => Self::device_family(document, b"DeviceCMYK", resources, reading, depth),
             b"Pattern" => Some(Self::Pattern {
                 base: items
                     .get(1)
                     .and_then(|item| {
-                        Self::parse_at(document, item, resources, intent, depth.saturating_add(1))
+                        Self::parse_at(document, item, resources, reading, depth.saturating_add(1))
                     })
                     .map(Box::new),
             }),
@@ -1396,79 +1565,12 @@ impl ColourSpace {
                     .unwrap_or([-100.0, 100.0, -100.0, 100.0]);
                 Some(Self::Lab { range })
             }
-            b"ICCBased" => Self::parse_icc_based(document, items.get(1)?, resources, intent, depth),
-            b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, intent, depth),
+            b"ICCBased" => {
+                Self::parse_icc_based(document, items.get(1)?, resources, reading, depth)
+            }
+            b"Indexed" | b"I" => Self::parse_indexed(document, items, resources, reading, depth),
             b"Separation" | b"DeviceN" => {
-                let is_separation = family.as_slice() == b"Separation";
-                let names = colourant_names(document, items.get(1), is_separation);
-                let inputs = if is_separation { 1 } else { names.len() };
-
-                // §8.6.6.4's two special names are decided *before* the alternate space and
-                // the tint transform, because the clause requires both to be ignored: "A PDF
-                // processor shall support Separation colour spaces with the colourant names
-                // All and None on all devices, even if the devices are not capable of
-                // supporting any others. When processing Separation spaces with either of
-                // these colourant names PDF processors shall ignore the alternateSpace and
-                // tintTransform parameters … although valid values shall still be provided."
-                // Reading them first is what makes that true even where they are unreadable.
-                if is_separation {
-                    match names.first().map(Vec::as_slice) {
-                        Some(b"All") => return Some(Self::AllColourants),
-                        Some(b"None") => return Some(Self::NoColourant { inputs: 1 }),
-                        _ => {}
-                    }
-                } else if inputs > 0 && names.iter().all(|name| name.as_slice() == b"None") {
-                    // §8.6.6.5: "A DeviceN colour space whose component colourant names are
-                    // all None shall always discard its output, just the same as a Separation
-                    // colour space for None; it shall never revert to the alternate colour
-                    // space."
-                    return Some(Self::NoColourant { inputs });
-                }
-
-                if inputs == 0 {
-                    // §8.6.6.5's `names` array decides how many operands `scn` takes, so an
-                    // empty or missing one leaves the space undefined rather than degenerate.
-                    return None;
-                }
-                // §8.6.6.5's per-component evaluation, asked before the `alternateSpace` and
-                // `tintTransform` parameters are even read. That order is the clause's:
-                // "PDF processors need not use the alternateSpace and tintTransform
-                // parameters, and may instead use custom blending algorithms, along with
-                // other information provided in the attributes dictionary if present. (If
-                // the value of the Subtype entry in the attributes dictionary is NChannel ,
-                // such information shall be present.)" So an `NChannel` space whose process
-                // dictionary answers for every one of its components is complete without
-                // them — including where the tint transform is one this tree cannot read,
-                // which used to take the whole space with it.
-                if !is_separation
-                    && let Some((alternate, from)) = Self::nchannel_process(
-                        document,
-                        items.get(4),
-                        &names,
-                        resources,
-                        intent,
-                        depth,
-                    )
-                {
-                    return Some(Self::Separation {
-                        inputs,
-                        alternate: Box::new(alternate),
-                        tints: Tints::Process(from),
-                    });
-                }
-                let alternate = Self::parse_at(
-                    document,
-                    items.get(2)?,
-                    resources,
-                    intent,
-                    depth.saturating_add(1),
-                )?;
-                let transform = Function::parse(document, items.get(3)?).ok()?;
-                Some(Self::Separation {
-                    inputs,
-                    alternate: Box::new(alternate),
-                    tints: Tints::Transform(Box::new(transform)),
-                })
+                Self::parse_separation(document, &family, items, resources, reading, depth)
             }
             _ => None,
         }
@@ -1522,7 +1624,7 @@ impl ColourSpace {
         attributes: Option<&Object>,
         names: &[Vec<u8>],
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<(Self, Vec<Option<usize>>)> {
         let attributes = document.resolve(attributes?);
@@ -1543,7 +1645,7 @@ impl ColourSpace {
             document,
             &stated,
             resources,
-            intent,
+            reading,
             depth.saturating_add(1),
         )?;
         let components = document.get_key(process, "Components");
@@ -1562,18 +1664,355 @@ impl ColourSpace {
             let component = components.iter().position(|component| component == name)?;
             from[component] = Some(tint);
         }
-        // Which spaces are "a CMYK colour space" in the clause's sense, and it is the space
-        // rather than the entry that answers: §8.6.5.6's `/DefaultCMYK` and §14.11.5's intent
-        // can make `/DeviceCMYK` a four-channel profile, and a process dictionary may name
-        // that same profile outright. §8.6.5.5's Table 67 admits four ICC data colour spaces
-        // and `CMYK` is the only one with four components, so the channel count tells them
-        // apart here.
-        let cmyk = matches!(space, Self::Cmyk)
-            || matches!(&space, Self::Icc { profile } if profile.channels() == 4);
-        if from.iter().any(Option::is_none) && !cmyk {
+        if from.iter().any(Option::is_none) && !Self::is_cmyk_process(&space) {
             return None;
         }
         Some((space, from))
+    }
+
+    /// Reads a `Separation` or a `DeviceN` space: ISO 32000-2 §8.6.6.4 and §8.6.6.5.
+    ///
+    /// Four readings, in the order the two clauses rank them — §8.6.6.4's two special
+    /// colourant names, §10.8.3's separation simulation where a reader has asked for it,
+    /// Table 71's process dictionary where it answers for every component, and the
+    /// `alternateSpace` and `tintTransform` the clauses require of a display.
+    fn parse_separation(
+        document: &Document,
+        family: &[u8],
+        items: &[Object],
+        resources: &Dictionary,
+        reading: Reading<'_>,
+        depth: usize,
+    ) -> Option<Self> {
+        let is_separation = family == b"Separation";
+        let names = colourant_names(document, items.get(1), is_separation);
+        let inputs = if is_separation { 1 } else { names.len() };
+
+        // §8.6.6.4's two special names are decided *before* the alternate space and
+        // the tint transform, because the clause requires both to be ignored: "A PDF
+        // processor shall support Separation colour spaces with the colourant names
+        // All and None on all devices, even if the devices are not capable of
+        // supporting any others. When processing Separation spaces with either of
+        // these colourant names PDF processors shall ignore the alternateSpace and
+        // tintTransform parameters … although valid values shall still be provided."
+        // Reading them first is what makes that true even where they are unreadable.
+        if is_separation {
+            match names.first().map(Vec::as_slice) {
+                Some(b"All") => return Some(Self::AllColourants),
+                Some(b"None") => return Some(Self::NoColourant { inputs: 1 }),
+                _ => {}
+            }
+        } else if inputs > 0 && names.iter().all(|name| name.as_slice() == b"None") {
+            // §8.6.6.5: "A DeviceN colour space whose component colourant names are
+            // all None shall always discard its output, just the same as a Separation
+            // colour space for None; it shall never revert to the alternate colour
+            // space."
+            return Some(Self::NoColourant { inputs });
+        }
+
+        if inputs == 0 {
+            // §8.6.6.5's `names` array decides how many operands `scn` takes, so an
+            // empty or missing one leaves the space undefined rather than degenerate.
+            return None;
+        }
+        // §10.8.3's simulation, where the host has asked for it. Asked first
+        // because it is the reading of §8.6.6.5's per-component sentence that reaches
+        // a spot colourant, and the two below are what is left when it does not
+        // apply: a space of process components alone, and the tint transform.
+        if !is_separation
+            && reading.separations() == Separations::Simulated
+            && let Some((process, spots)) = Self::nchannel_separations(
+                document,
+                items.get(4),
+                &names,
+                resources,
+                reading,
+                depth,
+            )
+        {
+            return Some(Self::Simulated {
+                process: process.map(Box::new),
+                spots,
+            });
+        }
+        // §8.6.6.5's per-component evaluation, asked before the `alternateSpace` and
+        // `tintTransform` parameters are even read. That order is the clause's:
+        // "PDF processors need not use the alternateSpace and tintTransform
+        // parameters, and may instead use custom blending algorithms, along with
+        // other information provided in the attributes dictionary if present. (If
+        // the value of the Subtype entry in the attributes dictionary is NChannel ,
+        // such information shall be present.)" So an `NChannel` space whose process
+        // dictionary answers for every one of its components is complete without
+        // them — including where the tint transform is one this tree cannot read,
+        // which used to take the whole space with it.
+        if !is_separation
+            && let Some((alternate, from)) =
+                Self::nchannel_process(document, items.get(4), &names, resources, reading, depth)
+        {
+            return Some(Self::Separation {
+                inputs,
+                alternate: Box::new(alternate),
+                tints: Tints::Process(from),
+            });
+        }
+        let alternate = Self::parse_at(
+            document,
+            items.get(2)?,
+            resources,
+            reading,
+            depth.saturating_add(1),
+        )?;
+        let transform = Function::parse(document, items.get(3)?).ok()?;
+        Some(Self::Separation {
+            inputs,
+            alternate: Box::new(alternate),
+            tints: Tints::Transform(Box::new(transform)),
+        })
+    }
+
+    /// Whether a space is "a CMYK colour space" in ISO 32000-2 §8.6.6.5's sense, which is the
+    /// sense §10.8.1's "subtractive colourants" needs too.
+    ///
+    /// It is the space rather than the entry that answers: §8.6.5.6's `/DefaultCMYK` and
+    /// §14.11.5's intent can make `/DeviceCMYK` a four-channel profile, and a process
+    /// dictionary may name that same profile outright. §8.6.5.5's Table 67 admits four ICC
+    /// data colour spaces and `CMYK` is the only one with four components, so the channel
+    /// count tells them apart here (trap 6).
+    fn is_cmyk_process(space: &Self) -> bool {
+        matches!(space, Self::Cmyk)
+            || matches!(space, Self::Icc { profile } if profile.channels() == 4)
+    }
+
+    /// Table 71's process colour space and the component names that index it, checked against
+    /// the correspondence ISO 32000-2 §8.6.6.5's own table requires.
+    ///
+    /// > An array of component names that correspond, in order, to the components of the
+    /// > process colour space specified in ColorSpace
+    ///
+    /// A count that disagrees is a dictionary no reader can index by, whatever else it says,
+    /// so it answers `None` and the space keeps its tint transform.
+    fn process_components(
+        document: &Document,
+        process: &Dictionary,
+        resources: &Dictionary,
+        reading: Reading<'_>,
+        depth: usize,
+    ) -> Option<(Self, Vec<Vec<u8>>)> {
+        let stated = document.get_key(process, "ColorSpace");
+        let space = Self::parse_at(
+            document,
+            &stated,
+            resources,
+            reading,
+            depth.saturating_add(1),
+        )?;
+        let components = document.get_key(process, "Components");
+        let components: Vec<Vec<u8>> = components
+            .as_array()?
+            .iter()
+            .map(|entry| document.resolve(entry))
+            .map(|entry| Some(entry.as_name()?.as_bytes().to_vec()))
+            .collect::<Option<_>>()?;
+        if components.len() != space.components() {
+            return None;
+        }
+        Some((space, components))
+    }
+
+    /// The separations §10.8.3 combines, which are ISO 32000-2 §8.6.6.5's per-component
+    /// evaluation of an `NChannel` space.
+    ///
+    /// > For NChannel colour spaces, the components shall be evaluated individually; that is,
+    /// > only the ones not present on the output device shall use the alternate colour space
+    /// > of that component.
+    ///
+    /// On a display no component is present — §8.6.6.4 states that outright, "[f]or an
+    /// additive device such as a computer display, a Separation colour space never applies a
+    /// process colourant directly; it always reverts to the alternate colour space" — so every
+    /// component takes its own alternate, and what this answers is which space that is for
+    /// each. `None` wherever the clause leaves one of them unanswered, and the space then
+    /// keeps its tint transform *whole* rather than half of it, which is the clause's own
+    /// guideline: a processor "should apply either the specified tint transformation function
+    /// or invoke the same alternative blending algorithm for all DeviceN instances in the
+    /// document".
+    ///
+    /// The conditions, each a sentence of the standard:
+    ///
+    /// - **`/Subtype` is `NChannel`.** Table 70 defaults it to `DeviceN`, and "[a] value of
+    ///   DeviceN for the Subtype entry, or no value, shall mean that only the previous
+    ///   features shall be supported" — the previous features being the tint transform. The
+    ///   sentence quoted above is stated for `NChannel` spaces and no other.
+    /// - **A process dictionary, where there is one, is consistent and subtractive.** §10.8.1
+    ///   makes separations a subtractive device's output — "[i]f those are subtractive
+    ///   colourants … then the output for the device may take a form called separations" — and
+    ///   §10.8.3 step a)'s simulated device "supports subtractive process colourants". A
+    ///   process space whose zero is black is not a separation, and §8.6.6.5 says such spaces
+    ///   exist here: "[f]or NChannel colour spaces, values for additive process colours (such
+    ///   as RGB) shall be specified in their natural form, where 1.0 shall represent maximum
+    ///   intensity of colour."
+    /// - **Every component that is not a process one has a `/Colorants` entry.** "[A]ny
+    ///   component not specified in the process dictionary shall be considered to be a spot
+    ///   colourant", and Table 70 makes the dictionary "[r]equired if Subtype is NChannel and
+    ///   the colour space includes spot colourants", each value "an array defining a
+    ///   Separation colour space for that colourant". `/None` is the exception: it names no
+    ///   colourant and "shall never be painted on the page".
+    /// - **At least one component is a spot colourant.** Where they are all process ones the
+    ///   combination does not arise, the space is complete as [`Tints::Process`], and running
+    ///   §10.8.3 over it would replace a colour space's own account of its colourants with a
+    ///   multiply of four filters in series. ADR 1103 is that reading and this preference does
+    ///   not disturb it.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §8.6.6.5, §8.6.6.4, §10.8.1, §10.8.3 and Table 70 \
+                  verbatim, and a quotation is not marked up"
+    )]
+    fn nchannel_separations(
+        document: &Document,
+        attributes: Option<&Object>,
+        names: &[Vec<u8>],
+        resources: &Dictionary,
+        reading: Reading<'_>,
+        depth: usize,
+    ) -> Option<(Option<Self>, Vec<Option<Self>>)> {
+        let attributes = document.resolve(attributes?);
+        let attributes = attributes.as_dict()?;
+        if document
+            .get_key(attributes, "Subtype")
+            .as_name()?
+            .as_bytes()
+            != b"NChannel"
+        {
+            return None;
+        }
+
+        // Absent is not a failure here, unlike in `nchannel_process`: Table 70 makes
+        // `/Process` "[r]equired if Subtype is NChannel and the colour space includes
+        // components of a process colour space", so a space of spot colourants alone has none.
+        let stated = document.get_key(attributes, "Process");
+        let process = match stated.as_dict() {
+            Some(dict) => Some(Self::process_components(
+                document, dict, resources, reading, depth,
+            )?),
+            None => None,
+        };
+        if let Some((space, _)) = &process
+            && !Self::is_cmyk_process(space)
+        {
+            return None;
+        }
+
+        let stated = document.get_key(attributes, "Colorants");
+        let colorants = stated.as_dict();
+
+        let mut from = process
+            .as_ref()
+            .map(|(_, components)| vec![None; components.len()]);
+        let mut spots = Vec::with_capacity(names.len());
+        let mut any_spot = false;
+        for (tint, name) in names.iter().enumerate() {
+            if name.as_slice() == b"None" {
+                spots.push(None);
+                continue;
+            }
+            if let Some((_, components)) = &process
+                && let Some(component) = components.iter().position(|entry| entry == name)
+            {
+                if let Some(from) = from.as_mut()
+                    && let Some(slot) = from.get_mut(component)
+                {
+                    *slot = Some(tint);
+                }
+                spots.push(None);
+                continue;
+            }
+            let entry = colorants?.get_by_name(&Name::new(name.clone()))?;
+            let space =
+                Self::parse_at(document, entry, resources, reading, depth.saturating_add(1))?;
+            any_spot = true;
+            spots.push(Some(space));
+        }
+        if !any_spot {
+            return None;
+        }
+
+        let process = process.map(|(space, _)| Self::Separation {
+            inputs: names.len(),
+            alternate: Box::new(space),
+            tints: Tints::Process(from.unwrap_or_default()),
+        });
+        Some((process, spots))
+    }
+
+    /// ISO 32000-2 §10.8.3's steps b) and c) over the separations of a [`Self::Simulated`]
+    /// space, answering the flat XYZ its step d) converts to the device.
+    ///
+    /// > - b) Convert each separation into "flat XYZ" (no gamma) and using a background matte
+    /// >   of all white.
+    /// > - c) Blend the resulting separations into a single result using a multiply blend
+    /// >   (see "Table 133 -Variables used in the basic compositing formula").
+    ///
+    /// **The arithmetic, because the clause states the steps and not the algebra.** Step b)
+    /// gives separation *i* at its tints an XYZ `Xᵢ` — flat meaning linear and ungammaed,
+    /// which is what every XYZ in this crate already is, and the white matte meaning the
+    /// separation is white where its colourant is absent, which is where a tint of zero puts a
+    /// well-formed `Separation` (§8.6.6.4: "a tint value of 0.0 denotes the lightest colour
+    /// that can be achieved with the given colourant"). Step c)'s multiply is Table 136's
+    /// `B(cb, cs) = cb × cs`, and that entry's own NOTE 3 fixes the unit the product is taken
+    /// in: "multiplying any colour with black produces black while multiplying with white
+    /// leaves the original colour unchanged". So the matte's white `W` is the 1.0 of the
+    /// formula and the product is of the ratios to it:
+    ///
+    /// ```text
+    /// result = W × Π (Xᵢ / W)        componentwise over X, Y and Z
+    /// ```
+    ///
+    /// Multiplying the `Xᵢ` themselves instead would darken the result by a factor of `W` for
+    /// every separation past the first and leave blank paper at `W²` rather than at `W`, which
+    /// is NOTE 3's sentence failing on its own terms. `W` is D50 because that is the white
+    /// every XYZ in this crate is relative to.
+    ///
+    /// A separation whose space states no XYZ of its own — a tint transform into a device
+    /// space — is taken in through this processor's CIE definition of that space (§10.3.2,
+    /// ADR 0009), which is the one route trap 6 allows.
+    fn simulated_xyz(
+        process: Option<&Self>,
+        spots: &[Option<Self>],
+        values: &[f32],
+        depth: usize,
+        rendering: Rendering,
+    ) -> [f32; 3] {
+        let deeper = depth.saturating_add(1);
+        let mut product = [1.0_f32; 3];
+        let multiply = |product: &mut [f32; 3], xyz: [f32; 3]| {
+            for (axis, value) in product.iter_mut().enumerate() {
+                *value *= xyz[axis] / D50[axis];
+            }
+        };
+        if let Some(process) = process {
+            multiply(
+                &mut product,
+                Self::flat_xyz(process, values, deeper, rendering),
+            );
+        }
+        for (index, spot) in spots.iter().enumerate() {
+            if let Some(spot) = spot {
+                let tint = [channel(values.get(index).copied().unwrap_or(0.0))];
+                multiply(&mut product, Self::flat_xyz(spot, &tint, deeper, rendering));
+            }
+        }
+        [
+            product[0] * D50[0],
+            product[1] * D50[1],
+            product[2] * D50[2],
+        ]
+    }
+
+    /// One separation's flat XYZ: the space's own where it states one, and this processor's
+    /// CIE definition of a device space where it does not.
+    fn flat_xyz(space: &Self, values: &[f32], depth: usize, rendering: Rendering) -> [f32; 3] {
+        space
+            .cie_xyz_at(values, depth, rendering)
+            .unwrap_or_else(|| srgb_to_xyz_d50(space.to_rgb_at(values, depth, rendering)))
     }
 
     /// Reads an `ICCBased` space: ISO 32000-2 §8.6.5.5, Table 65.
@@ -1585,7 +2024,7 @@ impl ColourSpace {
         document: &Document,
         object: &Object,
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
         let stream = document.resolve(object);
@@ -1640,7 +2079,7 @@ impl ColourSpace {
                 document,
                 alternate,
                 resources,
-                intent,
+                reading,
                 depth.saturating_add(1),
             )
         {
@@ -1695,14 +2134,14 @@ impl ColourSpace {
         document: &Document,
         items: &[Object],
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
         let base = Self::parse_at(
             document,
             items.get(1)?,
             resources,
-            intent,
+            reading,
             depth.saturating_add(1),
         )?;
         let high = usize::try_from(
@@ -1813,11 +2252,11 @@ impl ColourSpace {
         document: &Document,
         name: &Name,
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
         if let Some(space) =
-            Self::device_family(document, name.as_bytes(), resources, intent, depth)
+            Self::device_family(document, name.as_bytes(), resources, reading, depth)
         {
             return Some(space);
         }
@@ -1831,7 +2270,7 @@ impl ColourSpace {
         let table = document.get_key(resources, "ColorSpace");
         let table = table.as_dict()?;
         let entry = table.get_by_name(name)?;
-        Self::parse_at(document, entry, resources, intent, depth.saturating_add(1))
+        Self::parse_at(document, entry, resources, reading, depth.saturating_add(1))
     }
 
     /// What a device colour space family means on this page: three sources, in the order
@@ -1860,7 +2299,7 @@ impl ColourSpace {
         document: &Document,
         family: &[u8],
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
         let (default, device) = match family {
@@ -1869,10 +2308,10 @@ impl ColourSpace {
             b"DeviceCMYK" | b"CMYK" => ("DefaultCMYK", Self::Cmyk),
             _ => return None,
         };
-        if let Some(space) = Self::named_default(document, default, resources, intent, depth) {
+        if let Some(space) = Self::named_default(document, default, resources, reading, depth) {
             return Some(space);
         }
-        if let Some(intent) = intent
+        if let Some(intent) = reading.intent
             && intent.components() == device.components()
         {
             return Some(intent.clone());
@@ -1888,7 +2327,7 @@ impl ColourSpace {
         document: &Document,
         key: &str,
         resources: &Dictionary,
-        intent: Option<&Self>,
+        reading: Reading<'_>,
         depth: usize,
     ) -> Option<Self> {
         if depth > MAX_DEPTH {
@@ -1896,7 +2335,7 @@ impl ColourSpace {
         }
         let table = document.get_key(resources, "ColorSpace");
         let entry = table.as_dict()?.get(key)?;
-        Self::parse_at(document, entry, resources, intent, depth.saturating_add(1))
+        Self::parse_at(document, entry, resources, reading, depth.saturating_add(1))
     }
 
     /// The identity of this space's profile, where the space is an [`Self::Icc`].
@@ -1970,6 +2409,7 @@ impl ColourSpace {
             Self::Rgb | Self::Lab { .. } | Self::CalRgb { .. } => 3,
             Self::Cmyk => 4,
             Self::Separation { inputs, .. } | Self::NoColourant { inputs } => *inputs,
+            Self::Simulated { spots, .. } => spots.len(),
         }
     }
 
@@ -2010,6 +2450,9 @@ impl ColourSpace {
             // for all colourants." `/All` and `/None` are Separation spaces too, so they
             // start at full ink like any other — which for `/All` is black.
             Self::Separation { inputs, .. } | Self::NoColourant { inputs } => vec![1.0; *inputs],
+            // The same sentence reaches §10.8.3's reading of the same space: the initial tint
+            // is the space's, not the route's.
+            Self::Simulated { spots, .. } => vec![1.0; spots.len()],
             Self::AllColourants => vec![1.0],
             // A pattern has no colour of its own until `scn` names one.
             Self::Pattern { .. } => Vec::new(),
@@ -2123,6 +2566,9 @@ impl ColourSpace {
             | Self::CalRgb { .. }
             | Self::Icc { .. }
             | Self::Separation { .. }
+            // The clause names the *space*, not the route out of it: a `DeviceN` read under
+            // §10.8.3 is still the designated `DeviceN` colour space its tints interpolate in.
+            | Self::Simulated { .. }
             | Self::AllColourants
             | Self::NoColourant { .. } => Some(self),
         }
@@ -2476,6 +2922,14 @@ impl ColourSpace {
             Self::Separation {
                 alternate, tints, ..
             } => alternate.cie_xyz_at(&tints.eval(values), depth.saturating_add(1), rendering),
+            // §10.8.3's steps b) and c), which end in an XYZ; step d) is in `to_rgb_at`.
+            Self::Simulated { process, spots } => Some(Self::simulated_xyz(
+                process.as_deref(),
+                spots,
+                values,
+                depth,
+                rendering,
+            )),
             _ => None,
         }
     }
@@ -2534,6 +2988,15 @@ impl ColourSpace {
                 let converted = tints.eval(values);
                 alternate.to_rgb_at(&converted, depth.saturating_add(1), rendering)
             }
+            // §10.8.3 step d): "Convert the result to the actual device colour space and
+            // output it." This device's is sRGB (ADR 0009).
+            Self::Simulated { process, spots } => xyz_d50_to_srgb(Self::simulated_xyz(
+                process.as_deref(),
+                spots,
+                values,
+                depth,
+                rendering,
+            )),
             // §8.6.6.4's `/All`, complemented for an additive device: a tint of 1.0 is every
             // colourant at maximum, which on a monitor is black.
             Self::AllColourants => {
@@ -4516,6 +4979,67 @@ mod tests {
                 .initial_colour()
                 .is_empty()
         );
+    }
+
+    /// ISO 32000-2 §10.8.3's multiply is taken in the matte's own white, so white is its
+    /// identity.
+    ///
+    /// Table 136's Multiply is `B(cb, cs) = cb × cs`, and its NOTE 3 states what the unit is:
+    /// "multiplying any colour with black produces black while multiplying with white leaves
+    /// the original colour unchanged". Step b) makes the matte "all white", so a separation
+    /// carrying no colourant is that white and must fall out of step c) exactly. Built here
+    /// rather than in `colour_paths.rs` because it is the *arithmetic* that is under test:
+    /// three separations, two of them white, against the one that is not, with no document and
+    /// no rasteriser between.
+    ///
+    /// The planted defect it is calibrated against is the one this reading is about —
+    /// multiplying the flat XYZ values without dividing by the matte's white. That scales the
+    /// answer by D50 once per extra separation, which here is `0.9642 × 0.9642 = 0.9297` of X
+    /// against `1.0` of Y, so a grey stops being grey and the assertion below fails on every
+    /// axis at once.
+    #[test]
+    fn the_white_matte_is_the_identity_of_the_multiply() {
+        // A separation carrying no colourant at all: every component of its subtractive
+        // alternate is §8.6.4.4's "complete absence of a process colourant", which is the
+        // matte's white whatever tint it is handed.
+        let white = ColourSpace::Separation {
+            inputs: 1,
+            alternate: Box::new(ColourSpace::Cmyk),
+            tints: Tints::Process(vec![None, None, None, None]),
+        };
+        // And one that carries black, so that a tint of 0.0 is the lightest colour it can
+        // achieve and 1.0 the darkest, which is §8.6.6.4's own convention.
+        let ink = ColourSpace::Separation {
+            inputs: 1,
+            alternate: Box::new(ColourSpace::Cmyk),
+            tints: Tints::Process(vec![None, None, None, Some(0)]),
+        };
+        let alone = ColourSpace::Simulated {
+            process: None,
+            spots: vec![Some(ink.clone())],
+        };
+        let with_white = ColourSpace::Simulated {
+            process: None,
+            spots: vec![Some(ink), Some(white.clone()), Some(white)],
+        };
+        // Compared as the eight bits a pixel holds, because the two routes differ by the
+        // rounding of one XYZ round trip — 1.3e-4 of a component, a fortieth of a level —
+        // while the defect this is calibrated against was planted and measured: the matte
+        // comes out (245, 255, 207) rather than white, 48 levels of blue.
+        let levels = |colour: Color| {
+            [
+                (colour.r * 255.0).round(),
+                (colour.g * 255.0).round(),
+                (colour.b * 255.0).round(),
+            ]
+        };
+        for tint in [0.0_f32, 0.25, 0.5, 1.0] {
+            assert_eq!(
+                levels(with_white.to_rgb(&[tint, 0.0, 0.0])),
+                levels(alone.to_rgb(&[tint])),
+                "two white separations changed the colour at tint {tint}"
+            );
+        }
     }
 
     /// §8.6.5.1's `CalCMYK`: a family the standard withdrew and still says what to do with.

@@ -80,13 +80,18 @@
 //! - **`/Differences`** is the target document's own incremental updates, carried for a server;
 //!   applying it would mean *writing* the target file, which principle 5 puts outside this
 //!   project.
-//! - **`/RV`** and **`/APRef`** on a field: XFA rich text, which is excluded, and appearances in
-//!   *other* PDF files, which is a file a *document* named and therefore §12.7.6.4's hazard —
-//!   the bytes may come only from a directory a person supplied (ADR 1155). `read_field` argues
-//!   each. Table 249's `/IF`, `/AP`, `/A` and `/AA` are **not** among them any more: an icon fit
-//!   dictionary states names, numbers and a boolean and nothing else, so it crosses whole and
-//!   replaces Table 192's `/IF` on the widget (ADR 1186); the other three cross by [`carry`],
-//!   which is the rule below (ADR 1223).
+//! - **`/RV`** on a field: XFA rich text, which is excluded. `read_field` argues it. Table 249's
+//!   `/IF`, `/AP`, `/A` and `/AA` are **not** among them: an icon fit dictionary states names,
+//!   numbers and a boolean and nothing else, so it crosses whole and replaces Table 192's `/IF`
+//!   on the widget (ADR 1186); the other three cross by [`carry`], which is the rule below
+//!   (ADR 1223).
+//! - **`/APRef` naming another file**: Table 253's `/F` makes the page a *document* named, which
+//!   is §12.7.6.4's hazard — the bytes may come only from a directory a person supplied
+//!   (ADR 1155) — and this crate has no filesystem and must not acquire one. A reference stating
+//!   **no** `/F` is a different entry: Table 253 says "[i]f this entry is absent, it shall be
+//!   assumed that the page resides in the associated PDF file", so the page is one *this*
+//!   document holds under §12.7.7, and `crate::view::ViewState::import` makes the widget's
+//!   appearance out of it (ADR 1235).
 //!
 //! # How an entry whose value lives in the other file crosses
 //!
@@ -360,6 +365,18 @@ pub struct FdfField {
     /// `None` where the field states no `/AP`, and also where the copy exceeded its budget, which
     /// [`FdfField::owed`] names.
     pub appearance: Option<Dictionary>,
+    /// Table 249's `/APRef`, as the Table 253 named page references its `/N`, `/R` and `/D` hold.
+    ///
+    /// The entry is "[a] dictionary holding references to external PDF files containing the pages
+    /// to use for the appearances of a push-button field", "similar to an appearance dictionary …
+    /// except that the values of the N, R , and D entries shall all be named page reference
+    /// dictionaries". So what is read here is a name per appearance state, and resolving it is
+    /// `crate::view::ViewState::import`'s — the name is looked up in the **target** document's
+    /// §12.7.7 trees, which this reader of the FDF file has not got.
+    ///
+    /// Empty where the field states no `/APRef`, and **also where it states an `/AP`**: Table 249
+    /// says "[t]his entry shall be ignored if an AP entry is present." ADR 1235.
+    pub appearance_reference: Vec<(&'static str, crate::named_page::Reference)>,
     /// Table 249's `/A` and `/AA`, carried by [`carry`] and held under those two key names.
     ///
     /// A dictionary rather than two fields because that is exactly what §12.6.3 and Table 197
@@ -1127,27 +1144,35 @@ fn read_field(
             }
         }
     }
-    // The two entries of Table 249 that still state something of *another file*, each named
-    // rather than skipped. `/APRef` is "[a] dictionary holding references to external PDF files
-    // containing the pages to use for the appearances of a push-button field", which is a file a
-    // *document* named and therefore §12.7.6.4's hazard: the bytes may come only from a directory
-    // a person supplied, which no part of this crate has (ADR 1155). `/RV` is a rich text string,
-    // whose formatting no part of this tree applies — §12.7.4.3's own departure, reported on the
-    // field it is drawn for rather than here — so importing it would change nothing a reader
-    // sees. ADRs 1186, 1197, 1223.
-    for (key, why) in [
-        (
-            "APRef",
-            "/APRef: appearances in PDF files this reader has no filesystem to open",
-        ),
-        (
-            "RV",
-            "/RV: a rich text string whose XFA 3.3 formatting §12.7.4.3 does not apply here",
-        ),
-    ] {
-        if !document.get_key(field, key).is_null() {
-            owed.push(why);
+    // Table 249's `/APRef`, read only where the table lets it be reached: "[t]his entry shall be
+    // ignored if an AP entry is present." Its `/N`, `/R` and `/D` are Table 253 named page
+    // references, whose names belong to the *target* document's §12.7.7 trees — so what is read
+    // here is the reference and the resolving is `crate::view::ViewState::import`'s. ADR 1235.
+    let mut appearance_reference = Vec::new();
+    if stated_appearance.is_null() {
+        let references = document.get_key(field, "APRef");
+        if let Some(references) = references.as_dict() {
+            for key in APPEARANCE_STATES {
+                let state = document.get_key(references, key);
+                let Some(state) = state.as_dict() else {
+                    continue;
+                };
+                if let Some(reference) = crate::named_page::Reference::read(document, state) {
+                    appearance_reference.push((key, reference));
+                }
+            }
         }
+        if !references.is_null() && appearance_reference.is_empty() {
+            owed.push(
+                "/APRef: no /N, /R or /D holding a Table 253 named page reference with a /Name",
+            );
+        }
+    }
+    // `/RV` is a rich text string, whose formatting no part of this tree applies — §12.7.4.3's
+    // own departure, reported on the field it is drawn for rather than here — so importing it
+    // would change nothing a reader sees. ADRs 1186, 1197, 1223.
+    if !document.get_key(field, "RV").is_null() {
+        owed.push("/RV: a rich text string whose XFA 3.3 formatting §12.7.4.3 does not apply here");
     }
     FdfField {
         name,
@@ -1157,10 +1182,17 @@ fn read_field(
         options: options(document, field, encoding),
         icon_fit: document.get_key(field, "IF").as_dict().cloned(),
         appearance,
+        appearance_reference,
         actions: (!actions.is_empty()).then_some(actions),
         owed,
     }
 }
+
+/// Table 170's three appearance states, which Table 249's `/AP` and `/APRef` both key on.
+///
+/// In §12.5.5's own order of preference — the normal appearance first, which is the one a widget
+/// that is neither under the pointer nor pressed is drawn from.
+const APPEARANCE_STATES: [&str; 3] = ["N", "R", "D"];
 
 /// Table 249's `/Opt`, in both the forms the table gives an element.
 fn options(document: &Document, field: &Dictionary, encoding: &Encoding) -> Option<Vec<String>> {
@@ -1305,6 +1337,15 @@ pub struct Import {
     /// and it replaces. The streams in it are the FDF producer's own marks, copied rather than
     /// referenced. ADR 1223.
     pub appearance: Option<Dictionary>,
+    /// Table 249's `/APRef`, as the named pages it holds per appearance state.
+    ///
+    /// Read from the FDF file and resolved against the **target** document, which is where
+    /// §12.7.7's name trees are: [`crate::view::ViewState::import`] turns each name that resolves
+    /// into a form `XObject` made from that page ([`crate::named_page::page_as_form`]) and writes
+    /// the result into [`Self::appearance`], so that a resolved `/APRef` and a stated `/AP` reach
+    /// the widget by one route. What is left here afterwards is what did not resolve, which the
+    /// import names. ADR 1235.
+    pub appearance_reference: Vec<(&'static str, crate::named_page::Reference)>,
     /// Table 249's `/A` and `/AA`, carried, under those two key names.
     ///
     /// Read by `crate::action::for_annotation` as though it were the widget's own dictionary,
@@ -1365,6 +1406,7 @@ pub fn match_fields(
                     field_flags: field.flags,
                     icon_fit: field.icon_fit.clone(),
                     appearance: field.appearance.clone(),
+                    appearance_reference: field.appearance_reference.clone(),
                     actions: field.actions.clone(),
                 },
             ));

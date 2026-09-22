@@ -632,6 +632,106 @@ pub(super) fn completed_orders(document: &Document) -> Result<CompletedOrders, B
     Ok(found)
 }
 
+/// Why an `/AS` entry could not be removed.
+const AUTOMATIC_STATE_NOT_REACHABLE: &str = "an optional content configuration here states the AS \
+     entry ISO 19005-2 section 6.9 forbids, and the configuration is not in a place this \
+     conversion can rewrite \u{2014} the catalog states no OCProperties dictionary, or a Configs \
+     array is an object of its own holding the configuration directly inside it, where this walk \
+     rewrites dictionaries rather than arrays";
+
+/// The optional content configurations whose `/AS` entry goes, and where each one is.
+///
+/// Three places rather than one, because §8.11.4.3's configuration dictionaries may be written at
+/// any of them: an object of their own, directly inside an `/OCProperties` that is an object, or
+/// directly inside an `/OCProperties` the catalog itself states. The rewrite reaches each by
+/// editing the dictionary it is in, which is what lets it compose with
+/// [`completed_orders`]' edits to the same dictionaries rather than overwriting them.
+#[derive(Debug, Default)]
+pub(super) struct AutomaticStates {
+    /// Each configuration that is an object of its own and states `/AS`.
+    pub(super) at: BTreeSet<ObjectId>,
+    /// The `/OCProperties` object holding a configuration that states `/AS` directly inside it.
+    pub(super) properties: Option<ObjectId>,
+    /// Whether the catalog states such an `/OCProperties` dictionary directly.
+    pub(super) in_catalog: bool,
+}
+
+/// Every optional content configuration that states the `/AS` ISO 19005-2 section 6.9 forbids.
+///
+/// A structural read rather than a findings one, for [`completed_orders`]' reason: the edit is the
+/// removal of one key, and a findings list is capped where a document's configurations are not.
+pub(super) fn automatic_states(document: &Document) -> Result<AutomaticStates, Because> {
+    let Ok(catalog) = document.catalog() else {
+        return Err(Because::NotBuiltYet(AUTOMATIC_STATE_NOT_REACHABLE));
+    };
+    let Some(properties) = document
+        .get_key(&catalog, "OCProperties")
+        .as_dict()
+        .cloned()
+    else {
+        return Err(Because::NotBuiltYet(AUTOMATIC_STATE_NOT_REACHABLE));
+    };
+    let mut found = AutomaticStates::default();
+    let mut any_direct = false;
+    for key in ["D", "Configs"] {
+        let Some(entry) = properties.get(key) else {
+            continue;
+        };
+        match (key, entry) {
+            ("D", entry) => any_direct |= one_automatic_state(document, entry, &mut found),
+            (_, Object::Array(items)) => {
+                for item in items {
+                    any_direct |= one_automatic_state(document, item, &mut found);
+                }
+            }
+            (_, entry) => {
+                // A `/Configs` stated as another object. A configuration it names by reference is
+                // rewritten in its own object; one written directly inside that array is what the
+                // refusal is for, because this walk edits dictionaries and the array is neither.
+                let resolved = document.resolve(entry);
+                for item in resolved
+                    .as_array()
+                    .map(<[Object]>::to_vec)
+                    .unwrap_or_default()
+                {
+                    if one_automatic_state(document, &item, &mut found) {
+                        return Err(Because::NotBuiltYet(AUTOMATIC_STATE_NOT_REACHABLE));
+                    }
+                }
+            }
+        }
+    }
+    if any_direct {
+        match catalog.get("OCProperties") {
+            Some(Object::Reference(at)) => found.properties = Some(*at),
+            Some(Object::Dictionary(_)) => found.in_catalog = true,
+            _ => return Err(Because::NotBuiltYet(AUTOMATIC_STATE_NOT_REACHABLE)),
+        }
+    }
+    Ok(found)
+}
+
+/// One configuration entry: `true` where it states `/AS` and is written directly.
+///
+/// A configuration reached by reference is recorded in [`AutomaticStates::at`] and the entry that
+/// names it is left exactly as its producer wrote it.
+fn one_automatic_state(document: &Document, entry: &Object, found: &mut AutomaticStates) -> bool {
+    let resolved = document.resolve(entry);
+    let Some(configuration) = resolved.as_dict() else {
+        return false;
+    };
+    if configuration.get("AS").is_none() {
+        return false;
+    }
+    match entry.as_reference() {
+        Some(at) => {
+            found.at.insert(at);
+            false
+        }
+        None => true,
+    }
+}
+
 /// One configuration entry: the completed value where it is direct, and `None` otherwise.
 ///
 /// A configuration reached by reference is recorded in [`CompletedOrders::at`] and the entry that

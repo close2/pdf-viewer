@@ -21,6 +21,7 @@
 //! the Rust side installs, and this host needs neither because the callbacks are C++ lambdas.
 //! Two ownership models, one vocabulary — ADR 0246.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use pdf_model::view::WidgetAppearances;
@@ -28,7 +29,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, PresentationMode, Printing, Query, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Printing, Purpose, Query, Viewer, Zoom,
 };
 use viewer_host::ControlFit;
 use viewer_host::arrangement::next_layout;
@@ -141,6 +142,13 @@ enum Pending {
         /// The URI as `viewer_host::resolve_uri` left it.
         uri: String,
     },
+    /// §12.6.4.3's named file, answered by reading it and supplying it (ADR 1227).
+    RemoteDocument {
+        /// The file as the *document* named it, for the sentence a decline prints.
+        name: String,
+        /// Where `viewer_host::resolve_import` put it, which is what would be read.
+        path: PathBuf,
+    },
 }
 
 /// One document, one viewer, and the loop between them.
@@ -206,6 +214,19 @@ pub struct Host {
     /// and what a document asks **this machine to start** is the other. `viewer_host::Links` holds
     /// `CLAUDE.md`'s four levels over the second (ADR 1155).
     links: viewer_host::Links,
+    /// §12.6.4.3: what this window does when an action names another file, per
+    /// `--remote-documents=`.
+    ///
+    /// A third value for a third subject, on the entry above's argument: starting another program
+    /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
+    /// for both would make each of them mean the other (ADR 1227).
+    remote_documents: viewer_host::RemoteDocuments,
+    /// §10.8.3: whether this window has asked for the separation simulation.
+    ///
+    /// Held here rather than asked of the core, because it is a preference a person toggles and
+    /// `viewer-core` holds none: this is the window's record of the answer it last sent, so the
+    /// toggle knows which way to go. `--separations=` sets what it starts at (ADR 1228).
+    separations: bool,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -376,8 +397,7 @@ impl Host {
         path: &Path,
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
-        restrictions: viewer_core::RestrictionPolicy,
-        links: viewer_host::Links,
+        settings: viewer_host::Settings,
         trace: Trace,
     ) -> Result<Self, HostError> {
         // Open on disk rather than read whole: the core reads what page one needs through the
@@ -404,8 +424,10 @@ impl Host {
             warned: None,
             trace,
             widget_appearances,
-            restrictions: viewer_host::Restrictions::new(restrictions),
-            links,
+            restrictions: viewer_host::Restrictions::new(settings.restrictions),
+            links: settings.links,
+            remote_documents: settings.remote_documents,
+            separations: settings.separations,
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
@@ -752,6 +774,13 @@ impl Host {
                 let on = self.measuring.toggle();
                 self.say(&viewer_host::measuring::switched(on));
             }
+            // §10.8.3: the state is this window's, because it is a preference a person toggles
+            // and `viewer-core` holds none; what crosses is the answer (ADR 1228).
+            viewer_host::WindowAct::Separations => {
+                self.separations = !self.separations;
+                self.dispatch(Command::Separations(self.separations));
+                self.say(&viewer_host::separations_note(self.separations));
+            }
             viewer_host::WindowAct::Notices => self.update.notices = true,
             viewer_host::WindowAct::Restrictions => self.update.menu = true,
             viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
@@ -811,7 +840,7 @@ impl Host {
     /// cycles from — see `viewer-gtk`, which does the same. `/PageMode` is "how the document shall
     /// be displayed when opened", which since ADR 0470 includes a full-screen window for the one
     /// name that used to get a note saying this program had no such thing.
-    fn obey_the_catalog(&mut self, queue: &mut std::collections::VecDeque<Command>) {
+    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>) {
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
             return;
         };
@@ -939,7 +968,7 @@ impl Host {
         if events.is_empty() {
             return;
         }
-        let mut queue = std::collections::VecDeque::new();
+        let mut queue = VecDeque::new();
         for event in events {
             self.react(event, &mut queue);
         }
@@ -1342,6 +1371,73 @@ impl Host {
         }
     }
 
+    /// §12.7.6.4's file, under the narrowest policy that performs the action.
+    ///
+    /// No level: the clause makes performing an import a `shall` and what is admitted is the one
+    /// rule `viewer_host::resolve_import` states — a single path component beside the open
+    /// document. A refusal is said rather than swallowed (trap 5).
+    fn import(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
+        let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), name) {
+            Ok(bytes) => Some(bytes),
+            Err(refusal) => {
+                self.say(&viewer_host::policy::supply_note(purpose, &refusal));
+                None
+            }
+        };
+        queue.push_back(Command::Supply { purpose, bytes });
+    }
+
+    /// §12.6.4.3's file, under the level this window was started at.
+    ///
+    /// The policy is `viewer_host::remote`'s and not this window's, so a level a reader sets is a
+    /// value there rather than three windows' worth of editing — ADR 1079's shape and ADR 1155's,
+    /// one clause along. What is this window's is the dialogue and the status line (ADR 1227).
+    fn remote(&mut self, name: &str, queue: &mut VecDeque<Command>) {
+        match viewer_host::remote(self.directory.as_deref(), name, self.remote_documents) {
+            viewer_host::Remote::Supply { path, note } => {
+                let bytes = self.read_remote(name, &path);
+                if bytes.is_some()
+                    && let Some(note) = note
+                {
+                    self.say(&note);
+                }
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes,
+                });
+            }
+            viewer_host::Remote::Ask { path, question } => self.put_the_question(
+                Pending::RemoteDocument {
+                    name: name.to_owned(),
+                    path,
+                },
+                &question,
+            ),
+            viewer_host::Remote::Refuse(why) => {
+                self.say(&why);
+                queue.push_back(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes: None,
+                });
+            }
+        }
+    }
+
+    /// The bytes of a file `viewer_host::remote` has already decided on, or the sentence saying
+    /// why there are none.
+    fn read_remote(&mut self, name: &str, path: &Path) -> Option<Vec<u8>> {
+        match std::fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                self.say(&viewer_host::remote_note(
+                    name,
+                    Some(&format!("cannot read {}: {error}", path.display())),
+                ));
+                None
+            }
+        }
+    }
+
     /// `CLAUDE.md`'s *ask* level: holds the question and asks C++ for a window to put it in.
     ///
     /// The two paragraphs are joined here because this bridge carries one string per dialogue and
@@ -1383,6 +1479,20 @@ impl Host {
             // §12.6.4.8: the act is this host's own rather than an edit the core is holding, so
             // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
             Pending::Link { uri } => self.say(&viewer_host::answered(&uri, proceed)),
+            // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
+            // nothing and the core says the link declined (ADR 1227).
+            Pending::RemoteDocument { name, path } => {
+                let bytes = if proceed {
+                    self.read_remote(&name, &path)
+                } else {
+                    self.say(&viewer_host::remote_declined(&name));
+                    None
+                };
+                self.dispatch(Command::Supply {
+                    purpose: Purpose::RemoteDocument,
+                    bytes,
+                });
+            }
         }
     }
 
@@ -2089,6 +2199,10 @@ impl Host {
                 self.restrictions.window(),
             )),
             Command::Delegate(self.widget_appearances),
+            // §10.8.3's simulation on the same argument: it decides what colour every mark of the
+            // first interpretation is, so a preference applied after the page had been drawn
+            // would have drawn the other picture first (ADR 1228).
+            Command::Separations(self.separations),
             Command::Open {
                 id: DOCUMENT,
                 bytes,
@@ -2110,7 +2224,7 @@ impl Host {
     /// — so the queue is drained again rather than the answer waiting for the next turn of the
     /// timer.
     fn pump(&mut self, queue: Vec<Command>) {
-        let mut queue: std::collections::VecDeque<Command> = queue.into();
+        let mut queue: VecDeque<Command> = queue.into();
         loop {
             while let Some(command) = queue.pop_front() {
                 // Table 166's `/M` is what §7.5.6's update writes it into, so this window reads
@@ -2137,7 +2251,7 @@ impl Host {
     /// The body of [`Host::pump`]'s inner loop, named so that a command run *ahead* of another —
     /// Table 166's clock before a save — goes through the same trace and the same reactions as
     /// one a person sent.
-    fn run(&mut self, command: Command, queue: &mut std::collections::VecDeque<Command>) {
+    fn run(&mut self, command: Command, queue: &mut VecDeque<Command>) {
         let described = self
             .trace
             .on(Topic::Events)
@@ -2203,7 +2317,7 @@ impl Host {
     /// that put it there is GTK's — Qt's own launch was not the one that lost 44 ms — and it is
     /// here for levelness and because a `QTimer` is no more dispatchable than a `glib` one while a
     /// toolkit is inside its own first frame.
-    fn take_the_drawn(&mut self, queue: &mut std::collections::VecDeque<Command>) {
+    fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
         let drawn = if self.presented {
             self.drawing.collect()
         } else {
@@ -2316,7 +2430,7 @@ impl Host {
     /// second, and rebuilding this window's `QImage` at that rate would copy megabytes for a
     /// picture that has not changed.
     pub(crate) fn drawing_pump(&mut self) {
-        let mut queue = std::collections::VecDeque::new();
+        let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         if queue.is_empty() {
             return;
@@ -2325,7 +2439,7 @@ impl Host {
     }
 
     /// Does what one event asks.
-    fn react(&mut self, event: Event, queue: &mut std::collections::VecDeque<Command>) {
+    fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
             Event::Opened { pages, .. } => {
                 self.trace
@@ -2391,17 +2505,16 @@ impl Host {
                 &submission,
                 viewer_host::policy::may_submit().err().as_deref(),
             )),
-            Event::NeedsFile { purpose, name, .. } => {
-                let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), &name)
-                {
-                    Ok(bytes) => Some(bytes),
-                    Err(refusal) => {
-                        self.say(&viewer_host::policy::supply_note(purpose, &refusal));
-                        None
-                    }
-                };
-                queue.push_back(Command::Supply { purpose, bytes });
-            }
+            // §12.6.4.3's file is asked at one of four levels and §12.7.6.4's is not, and the
+            // difference is what each does: an import puts another file's *values* into the
+            // document being read, and a remote go-to opens another document in place of it —
+            // which is the act a person may want to be asked about (ADR 1227).
+            Event::NeedsFile {
+                purpose: Purpose::RemoteDocument,
+                name,
+                ..
+            } => self.remote(&name, queue),
+            Event::NeedsFile { purpose, name, .. } => self.import(purpose, &name, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
             // A transition outside a presentation is not drawn at all — there is no clock to draw
@@ -3095,8 +3208,12 @@ mod tests {
             path,
             None,
             WidgetAppearances::Delegated,
-            restrictions,
-            viewer_host::Links::Refuse,
+            viewer_host::Settings {
+                restrictions,
+                links: viewer_host::Links::Refuse,
+                remote_documents: viewer_host::RemoteDocuments::Refuse,
+                separations: false,
+            },
             Trace::off(std::time::Instant::now()),
         )
         .expect("the document is readable");

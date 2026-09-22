@@ -432,6 +432,35 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
     })
 }
 
+/// What a **clipping** path whose subpaths do not all enclose an area admits:
+/// ISO 32000-2 §10.7.4.
+///
+/// Two fills, because the clause defines the region by a fill and the path's two kinds of
+/// subpath are not filled under one rule: the subpaths that enclose an area take the operator's
+/// own rule, and the marks §10.7.4 leaves for the ones that do not take the **non-zero** rule,
+/// for [`split_collapsed_fill`]'s reason — the marks are separate shapes rather than parts of
+/// one winding, and two of them that cross would cancel to a hole under the even-odd rule.
+///
+/// [`One`] is the case where that union is also one path under one rule, which is every clip
+/// vocabulary this tree draws through; [`Union`] is the case where it is not, and a backend that
+/// cannot compose two fills refuses it by name rather than admitting the wrong set of pixels.
+///
+/// [`One`]: ClipRegion::One
+/// [`Union`]: ClipRegion::Union
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClipRegion {
+    /// One path scan-converted under one rule, which `vello`'s `push_clip_layer`, raster's
+    /// `SceneBuilder::clip` and `tiny_skia::Mask` each state directly.
+    One(Path, crate::paint::FillRule),
+    /// The union of two fills, which no backend's clip vocabulary states as one clip.
+    Union {
+        /// The subpaths that enclose an area, under the operator's own rule.
+        filled: (Path, crate::paint::FillRule),
+        /// The marks §10.7.4 leaves for the subpaths that do not, under the non-zero rule.
+        marks: Path,
+    },
+}
+
 /// The region a **clipping** path encloses, where some subpath of it encloses no area:
 /// ISO 32000-2 §10.7.4.
 ///
@@ -440,7 +469,9 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
 /// > For clipping, the clipping region consists of the set of pixels that would be included by
 /// > a fill operation.
 ///
-/// — and two paragraphs earlier it says what a fill of a flat rectangle includes:
+/// — §8.5.4 says the same thing from the operator's side, "For a given path definition, the same
+/// area that would be filled by the f operator is the area that would be used for a clip", and
+/// two paragraphs earlier §10.7.4 says what a fill of a flat rectangle includes:
 ///
 /// > A zero-width or zero-height rectangle paints a line 1 pixel wide.
 ///
@@ -451,35 +482,31 @@ pub(crate) fn subpath_extents(path: &Path) -> impl Iterator<Item = Extent> + '_ 
 /// clip, so that the answer cannot differ between the two operations or between backends.
 ///
 /// Returns `None` where the path states no collapsed subpath, which is every ordinary clip and
-/// costs one memoised walk; otherwise the path and the rule the region is to be scan-converted
-/// with, in the clipping path's **own** space, which is where `to_device` maps from.
+/// costs one memoised walk; otherwise the region, in the clipping path's **own** space, which is
+/// where `to_device` maps from.
 ///
-/// # What the rule becomes, and why it is not always the path's own
+/// # When the two fills are one, and when they are not
 ///
-/// Where every subpath collapsed, the region is the marks alone and they are scan-converted
-/// under the **non-zero** rule whatever the operator asked, for [`split_collapsed_fill`]'s own
-/// reason: the marks are separate shapes rather than parts of one winding, and two of them that
-/// cross — a ruled grid clipped rather than filled — would cancel to a hole under the even-odd
-/// rule.
+/// Where every subpath collapsed, the region is the marks alone, under the non-zero rule whatever
+/// the operator asked.
 ///
-/// # The mixed path, and the one thing this does not reach
+/// Where the path also encloses an area, appending a mark to that path *is* the union exactly
+/// where the mark's own rectangle lies outside every area-enclosing subpath's rectangle: a point
+/// outside a subpath's bounds has winding number zero and crossing count zero from that subpath,
+/// so both rules read the appended rectangle as itself there. Under the even-odd rule a mark is
+/// also kept apart from another mark it overlaps, for the crossing reason above. Where a mark
+/// fails either test the region is a [`ClipRegion::Union`] and the caller composes the two fills
+/// — exactly, on a backend that can, and by name on one that cannot. ADRs 1064 and 1231.
 ///
-/// Where the path *also* encloses an area, the region is the union of two fills taken under two
-/// different rules, and no backend's clip vocabulary can state a union: vello and raster
-/// each take one path and one rule, and so does `tiny-skia`'s mask. A mark is therefore appended
-/// to the path only where appending it *is* the union — where its rectangle lies outside the
-/// hull of every subpath that encloses an area, so that the winding and the parity of the rest of
-/// the path are both zero there and the appended rectangle adds exactly itself. Under the
-/// even-odd rule a mark is also dropped where it meets another mark, for the crossing reason
-/// above. A dropped mark leaves the region the rest of the path encloses, which is the union
-/// exactly when the mark lies inside it; §10.7.4's ledger row records the remainder as a
-/// departure, and ADR 1064 argues it.
+/// The rectangles are compared for a **positive** overlap rather than for a shared edge: a mark
+/// whose rectangle merely touches an area subpath's has its whole interior outside that subpath,
+/// which is what makes appending it the union.
 #[must_use]
 pub fn clip_region(
     path: &Path,
     rule: crate::paint::FillRule,
     to_device: Transform,
-) -> Option<(Path, crate::paint::FillRule)> {
+) -> Option<ClipRegion> {
     use crate::geom::Rect;
     use crate::paint::FillRule;
 
@@ -487,31 +514,46 @@ pub fn clip_region(
     if marks.is_empty() {
         return None;
     }
-    if filled.is_empty() {
-        return Some((marks, FillRule::NonZero));
+    // A path whose remaining commands name no point at all encloses nothing, so there the marks
+    // are the whole of the region.
+    if filled.is_empty() || filled.hull().is_none() {
+        return Some(ClipRegion::One(marks, FillRule::NonZero));
     }
-    // The hull is the control-point bound, so it contains the area-enclosing subpaths exactly as
-    // `subpath_extents` bounds them: outside it the rest of the path has winding zero and
-    // crossing count zero, which is the whole of what makes appending a rectangle a union. A path
-    // whose remaining commands name no point at all encloses nothing, so there the marks are the
-    // whole of the region and take the answer above.
-    let Some(hull) = filled.hull() else {
-        return Some((marks, FillRule::NonZero));
-    };
-    let mut region = filled;
+    let areas: Vec<Rect> = subpath_extents(&filled)
+        .map(|extent| Rect::from_corners(extent.min, extent.max))
+        .collect();
     let mut kept: Vec<Rect> = Vec::new();
+    let mut appendable = true;
     for extent in subpath_extents(&marks) {
         let rect = Rect::from_corners(extent.min, extent.max);
-        if hull.intersection(rect).is_some() {
-            continue;
-        }
-        if rule == FillRule::EvenOdd && kept.iter().any(|k| k.intersection(rect).is_some()) {
-            continue;
+        let meets_an_area = areas.iter().any(|area| overlap_has_area(*area, rect));
+        let meets_a_mark =
+            rule == FillRule::EvenOdd && kept.iter().any(|other| overlap_has_area(*other, rect));
+        if meets_an_area || meets_a_mark {
+            appendable = false;
+            break;
         }
         kept.push(rect);
-        region.extend(&marks.commands()[extent.range()]);
     }
-    Some((region, rule))
+    if !appendable {
+        return Some(ClipRegion::Union {
+            filled: (filled, rule),
+            marks,
+        });
+    }
+    let mut region = filled;
+    region.extend(marks.commands());
+    Some(ClipRegion::One(region, rule))
+}
+
+/// Whether two rectangles share more than a boundary.
+///
+/// [`crate::geom::Rect::intersection`] answers `Some` for rectangles that only touch, which is
+/// the right answer for a bound and the wrong one here: a mark abutting an area subpath's
+/// rectangle has every interior point of its own outside that subpath, so appending it to the
+/// path adds exactly itself.
+fn overlap_has_area(a: crate::geom::Rect, b: crate::geom::Rect) -> bool {
+    a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y
 }
 
 #[cfg(test)]
@@ -557,12 +599,15 @@ mod tests {
     /// two marks that cross are two shapes rather than one winding.
     #[test]
     fn a_clip_whose_subpaths_all_collapse_is_its_marks_under_the_non_zero_rule() {
-        let (region, rule) = super::clip_region(
+        let region = super::clip_region(
             &zero_height_rectangle(50.3),
             crate::paint::FillRule::EvenOdd,
             Transform::IDENTITY,
         )
         .expect("a region");
+        let super::ClipRegion::One(region, rule) = region else {
+            panic!("a wholly collapsed clipping path is one fill");
+        };
         assert_eq!(rule, crate::paint::FillRule::NonZero);
         assert_eq!(
             region.commands(),
@@ -584,34 +629,85 @@ mod tests {
         );
     }
 
-    /// A mark beside the area the rest of the path encloses is appended; one *inside* it is not.
+    /// A mark beside the area the rest of the path encloses is appended; one *meeting* it makes
+    /// the region a union of two fills instead.
     ///
-    /// The union of two fills taken under two different rules is what §10.7.4 asks a mixed
-    /// clipping path for, and no backend's clip vocabulary states a union — so a mark joins the
-    /// path only where the rest of the path has winding zero and crossing count zero, which is
-    /// outside its hull, and appending it there adds exactly itself. Inside, the union is the
-    /// area and the mark is the departure §10.7.4's row records (ADR 1064).
+    /// §10.7.4 asks a mixed clipping path for the union of two fills taken under two different
+    /// rules, and no backend's clip vocabulary states a union — so a mark joins the path only
+    /// where the rest of the path has winding zero and crossing count zero, which is outside
+    /// every area-enclosing subpath's own rectangle, and appending it there adds exactly itself.
+    /// Where it does not, the two fills are handed over as two (ADRs 1064, 1231).
     #[test]
-    fn a_mark_inside_the_area_a_mixed_clip_encloses_is_left_out_of_it() {
+    fn a_mark_meeting_the_area_a_mixed_clip_encloses_makes_the_region_a_union() {
         let rule = crate::paint::FillRule::EvenOdd;
         let mut inside = path(&rectangle(Point::new(0.0, 0.0), Point::new(100.0, 100.0)));
         inside.extend(zero_height_rectangle(50.3).commands());
-        let (region, kept) =
-            super::clip_region(&inside, rule, Transform::IDENTITY).expect("a region");
+        let super::ClipRegion::Union { filled, marks } =
+            super::clip_region(&inside, rule, Transform::IDENTITY).expect("a region")
+        else {
+            panic!("a mark crossing the square is not one fill");
+        };
+        assert_eq!(filled.1, rule, "the operator's own rule fills the area");
         assert_eq!(
-            kept, rule,
-            "the operator's own rule is kept for a mixed path"
+            filled.0.commands(),
+            rectangle(Point::new(0.0, 0.0), Point::new(100.0, 100.0))
         );
         assert_eq!(
-            region.commands(),
-            rectangle(Point::new(0.0, 0.0), Point::new(100.0, 100.0)),
-            "a mark inside the square would punch a hole in it under the even-odd rule"
+            marks.commands(),
+            rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0))
         );
 
         let mut beside = path(&rectangle(Point::new(0.0, 0.0), Point::new(5.0, 5.0)));
         beside.extend(zero_height_rectangle(50.3).commands());
-        let (region, _) = super::clip_region(&beside, rule, Transform::IDENTITY).expect("a region");
+        let super::ClipRegion::One(region, _) =
+            super::clip_region(&beside, rule, Transform::IDENTITY).expect("a region")
+        else {
+            panic!("a mark clear of the square is one fill");
+        };
         let mut expected = rectangle(Point::new(0.0, 0.0), Point::new(5.0, 5.0)).to_vec();
+        expected.extend_from_slice(&rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0)));
+        assert_eq!(region.commands(), expected.as_slice());
+    }
+
+    /// The two over-drops the substitute used to carry, each one measured against §10.7.4's own
+    /// definition of the region.
+    ///
+    /// **A mark in the gap between two separated area subpaths is appended.** The bound the
+    /// appending test asks about is each area subpath's own rectangle, because a point outside
+    /// *that* has winding zero and crossing count zero from *that* subpath; one rectangle drawn
+    /// around every area subpath at once spans the gap between them and dropped a mark the union
+    /// contains.
+    ///
+    /// **A mark that only abuts an area subpath is appended.** Every interior point of a mark
+    /// whose rectangle shares an edge with an area subpath's lies outside that subpath, so
+    /// appending it still adds exactly itself.
+    #[test]
+    fn a_mark_between_two_areas_and_one_that_only_abuts_are_both_appended() {
+        let rule = crate::paint::FillRule::NonZero;
+        let mut gap = path(&rectangle(Point::new(0.0, 0.0), Point::new(5.0, 100.0)));
+        gap.extend(&rectangle(Point::new(200.0, 0.0), Point::new(205.0, 100.0)));
+        gap.extend(zero_height_rectangle(50.3).commands());
+        let super::ClipRegion::One(region, _) =
+            super::clip_region(&gap, rule, Transform::IDENTITY).expect("a region")
+        else {
+            panic!("a mark in the gap between two areas is one fill");
+        };
+        assert_eq!(
+            region.commands().len(),
+            15,
+            "the two areas and the mark are all three in the region"
+        );
+
+        // The mark runs from x = 10 to x = 110 in row 50, so a square ending at x = 10 shares
+        // its left edge and nothing else.
+        let mut abutting = path(&rectangle(Point::new(0.0, 40.0), Point::new(10.0, 60.0)));
+        abutting.extend(zero_height_rectangle(50.3).commands());
+        let super::ClipRegion::One(region, _) =
+            super::clip_region(&abutting, rule, Transform::IDENTITY).expect("a region")
+        else {
+            panic!("a mark that only abuts an area is one fill");
+        };
+        let mut expected = rectangle(Point::new(0.0, 40.0), Point::new(10.0, 60.0)).to_vec();
         expected.extend_from_slice(&rectangle(Point::new(10.0, 50.0), Point::new(110.0, 51.0)));
         assert_eq!(region.commands(), expected.as_slice());
     }

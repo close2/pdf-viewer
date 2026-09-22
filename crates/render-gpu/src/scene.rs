@@ -1214,7 +1214,19 @@ fn reconcile_layers(
         // them, so that the clip and the fill of one path cannot disagree here (ADR 1064).
         let region = pdf_render::clip_region(&clip.path, clip.fill_rule, at);
         let (shape, rule) = match &region {
-            Some((region, rule)) => (bez_path(region), fill_rule(*rule)),
+            Some(pdf_render::ClipRegion::One(region, rule)) => (bez_path(region), fill_rule(*rule)),
+            // The region is the union of two fills under two different rules, and
+            // `push_clip_layer` takes one path and one rule. Compositing a second layer
+            // `DestIn` is the soft-mask route and needs the layer read back, which a scene
+            // under composition cannot do — so the frame goes to the CPU backend, which
+            // composes the union into its own mask, rather than admitting the wrong set of
+            // pixels here (ADR 1231).
+            Some(pdf_render::ClipRegion::Union { .. }) => {
+                return Err(GpuRasterError::UnsupportedCommand(
+                    "a clipping path whose region is the union of two fills under two rules                      (ISO 32000-2 §10.7.4, §8.5.4): a clip layer takes one path and one rule"
+                        .to_owned(),
+                ));
+            }
             None => (bez_path(&clip.path), fill_rule(clip.fill_rule)),
         };
         scene.push_clip_layer(rule, affine(at), &shape);
