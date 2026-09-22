@@ -222,7 +222,7 @@ struct GraphicsState {
     ///
     /// ISO 32000-2 §8.6.5.9. `Default` is the initial value and leaves the choice to the
     /// processor; this one compensates, which is what makes blacks black. Read through
-    /// [`GraphicsState::black_point`] rather than directly, because the rendering intent can
+    /// [`GraphicsState::black_point_under`] rather than directly, because the rendering intent can
     /// override it.
     use_black_pt_comp: BlackPoint,
     /// Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` — §10.4.2.4's black-generation and
@@ -759,44 +759,12 @@ fn interpreted(
     // get right — and `examples/press_census` says how rare such a page is. So a page in this
     // branch keeps no replacement and a zoom of it re-interprets, at the price this branch
     // already pays twice over. `doc/todo/46` asked for this decision and for its cost in writing.
-    if let PagePress::In(press) = page_press(document, page, &presses) {
-        let (chromatic, drawable, _) = interpret_into(
-            document,
-            page,
-            state,
-            Compositing::Subtractive(crate::colour::Half::Chromatic, Arc::clone(&press)),
-            &presses,
-            fonts,
-            references,
-            Keep::Nothing,
-            ledger,
-        );
-        if drawable {
-            let (black, _, _) = interpret_into(
-                document,
-                page,
-                state,
-                Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press)),
-                &presses,
-                fonts,
-                references,
-                Keep::Nothing,
-                ledger,
-            );
-            // The two runs differ only in what a colour resolves to, so their geometry is
-            // identical by construction — and this is what checks it, because the halves are
-            // put together per pixel and a command in one and not the other would be
-            // composited against a shape that never drew it. A mismatch falls through to the
-            // device's components and the report, which is the answer that was right before
-            // this round and is still right.
-            let mut chromatic = chromatic;
-            if chromatic.display_list.geometry_digest() == black.display_list.geometry_digest() {
-                chromatic
-                    .display_list
-                    .set_blending(press.blending_space(), black.display_list);
-                return (chromatic, None);
-            }
-        }
+    if let PagePress::In(press) = page_press(document, page, &presses)
+        && let Some(separated) = in_planes(
+            document, page, state, &press, &presses, fonts, references, ledger,
+        )
+    {
+        return (separated, None);
     }
     // §11.3.4's one-component case, and it is one interpretation rather than two: a page
     // whose group states `/DeviceGray`, `CalGray` or a one-component profile composites one
@@ -852,6 +820,74 @@ fn interpreted(
             presses,
         });
     (interpretation, replacement)
+}
+
+/// §11.4.7's page interpreted once per plane of its separations and the runs put together, or
+/// `None` where the page cannot be drawn in them.
+///
+/// The planes are [`crate::colour::Plane::PROCESS`], interpreted in that order. They differ only
+/// in what a colour resolves to, so the first run's answer to whether the page can be drawn in the
+/// blending space is every run's, and the page stops there rather than interpreting the rest. And
+/// their geometry is identical by construction — which is what this checks, because the planes
+/// are put together per pixel and a command in one and not another would be composited against a
+/// shape that never drew it. A mismatch falls through to the device's components and the report,
+/// which is the answer a page with no press is given. ADRs 0262, 1281.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the inputs `interpret_into` threads, one parameter each, as `Interpreter::for_page` \
+              takes them"
+)]
+fn in_planes(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    press: &Arc<crate::colour::Press>,
+    presses: &crate::colour::Presses,
+    fonts: &FontCache,
+    references: &Supply,
+    ledger: Option<&std::cell::RefCell<Ledger>>,
+) -> Option<Interpretation> {
+    let [first, rest @ ..] = crate::colour::Plane::PROCESS;
+    let (mut separated, drawable, _) = interpret_into(
+        document,
+        page,
+        state,
+        Compositing::Subtractive(first, Arc::clone(press)),
+        presses,
+        fonts,
+        references,
+        Keep::Nothing,
+        ledger,
+    );
+    if !drawable {
+        return None;
+    }
+    let digest = separated.display_list.geometry_digest();
+    let mut companions = Vec::with_capacity(rest.len());
+    for plane in rest {
+        let (run, _, _) = interpret_into(
+            document,
+            page,
+            state,
+            Compositing::Subtractive(plane, Arc::clone(press)),
+            presses,
+            fonts,
+            references,
+            Keep::Nothing,
+            ledger,
+        );
+        if run.display_list.geometry_digest() != digest {
+            return None;
+        }
+        companions.push(run.display_list);
+    }
+    // `pdf_render` holds a page's planes as the list itself and one companion, which is the
+    // shape `Plane::PROCESS` has; a plane it has no place for is ADR 1281's next stage.
+    let [black] = <[DisplayList; 1]>::try_from(companions).ok()?;
+    separated
+        .display_list
+        .set_blending(press.blending_space(), black);
+    Some(separated)
 }
 
 impl<'a> Interpreter<'a> {
@@ -2331,8 +2367,8 @@ struct Interpreter<'a> {
     blending: Option<transparency::Departure>,
     /// Whether the space in force changed anywhere below the page group, on the page itself.
     ///
-    /// §11.4.7's page group is drawn in its own space by running the page twice, once per half
-    /// of its four components (`crate::colour::Half`), and that answers the *page*: a group
+    /// §11.4.7's page group is drawn in its own space by running the page twice, once per plane
+    /// of its four components (`crate::colour::Plane`), and that answers the *page*: a group
     /// inside it that introduces a different space would need its own pair of rasters and a
     /// conversion between the two spaces at its `Do`. Where one does, the page is drawn on the
     /// device's components and reported instead — narrowing the page's own condition until it
@@ -2606,7 +2642,7 @@ mod tests {
     /// - Against a `FontCache::get` that answers with *any* held font instead of the keyed one,
     ///   the comparison fails on page 2 of the first document. So the equality catches a key
     ///   confusion **inside** a document, which is what it is for.
-    /// - Against a `FontCache::bind` stubbed never to rebind, it **passes**, and only the
+    /// - Against a `Kept::bind` stubbed never to rebind, it **passes**, and only the
     ///   `rebound` assertion fails. Four documents' font dictionaries simply do not land on the
     ///   same object numbers, so a cache that answered across files would not be caught by
     ///   comparing pictures — which is exactly why the binding is asserted directly rather than

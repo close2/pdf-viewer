@@ -195,7 +195,8 @@ impl Device {
                 return Err(RenderError::UnknownImage { image: ImageId(id) });
             };
             let spec = stored.spec.clone();
-            let pair = self.rgba_texture("raster image", spec.width, spec.height, &spec.data);
+            let texels = super::textures::premultiplied(&spec.data);
+            let pair = self.rgba_texture("raster image", spec.width, spec.height, &texels);
             bytes = bytes.saturating_add(spec.data.len() as u64);
             self.image_textures.insert(id, pair);
         }
@@ -217,8 +218,8 @@ impl Device {
                 smoothed: false, // the op carries the resolved filter; unused here
             };
             let spec = crate::raster::reduce::area_averaged(&stored.spec, reduced);
-            let pair =
-                self.rgba_texture("raster reduced image", spec.width, spec.height, &spec.data);
+            let texels = super::textures::premultiplied(&spec.data);
+            let pair = self.rgba_texture("raster reduced image", spec.width, spec.height, &texels);
             bytes = bytes.saturating_add(spec.data.len() as u64);
             self.reduced_textures.insert((id, fx, fy), pair);
         }

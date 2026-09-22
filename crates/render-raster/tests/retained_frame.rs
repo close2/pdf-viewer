@@ -237,7 +237,7 @@ fn a_new_page_misses_and_draws_the_new_page() {
 /// A page turn to a page that happens to look the same must not replay the previous one's encode:
 /// the two are one clause apart from being different pages, and a key that could not tell them
 /// apart would be a key that had stopped being about identity at all. This is also the case an
-/// address-only key gets wrong in the other direction — see `PresentFrame::page` on why the
+/// address-only key gets wrong in the other direction — see `PresentFrame::pages` on why the
 /// address is *pinned* rather than merely remembered.
 #[test]
 fn the_same_picture_at_a_new_identity_misses() {

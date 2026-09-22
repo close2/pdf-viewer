@@ -136,8 +136,8 @@ impl Resuming {
     /// - [`ConfinedError::WorkerMissing`] and [`ConfinedError::Spawn`] are about starting one, so
     ///   starting one is exactly what will not help.
     /// - [`ConfinedError::Connection`] is a pipe failure with the worker still alive
-    ///   (`Confined::explain` returns `WorkerDied` when it is not), so it is this side's channel
-    ///   and a second worker would inherit the same one.
+    ///   (`confined_transport::Host::explain` returns `WorkerDied` when it is not), so it is this
+    ///   side's channel and a second worker would inherit the same one.
     /// - [`ConfinedError::Malformed`], [`ConfinedError::UnrecognisedFrame`],
     ///   [`ConfinedError::Uncarried`], [`ConfinedError::Refused`] and [`ConfinedError::NoRoom`]
     ///   all leave the worker **alive and answering** — each is a message refused, not a process

@@ -90,6 +90,13 @@ pub(crate) struct Showing {
     /// window: `viewer_core` already keeps the departures beside the document they are about
     /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
     pub(crate) departures: viewer_core::RestrictionOverride,
+    /// The pages of this document the core asked this window to draw, which is what its tab shows
+    /// when it comes back to the front.
+    ///
+    /// A document's rather than the window's: `viewer_core` asks once per page and does not ask
+    /// again for a page it was told is on the screen, so a list left in the window's fields when a
+    /// tab went behind would be drawn under the next tab's name (ADR 1275).
+    pub(crate) requests: Vec<viewer_core::RenderRequest>,
 }
 
 #[expect(
@@ -110,6 +117,23 @@ pub(crate) struct App {
     /// Set when this window offers a name for a document Table 203's `/NewWindow true` might open
     /// beside the one showing, and taken on the `Event::Opened` that names it (ADR 1263).
     pub(crate) reserved: Option<(viewer_core::DocumentId, PathBuf)>,
+    /// The documents a reader named that are still to open beside this one — the command line's
+    /// later paths and the ones typed after Ctrl + O — one at a time (`viewer_host::Arrivals`).
+    pub(crate) arrivals: viewer_host::Arrivals,
+    /// Whether the next of [`App::arrivals`] may start, which the loop answers when it next waits.
+    ///
+    /// A flag rather than a call because every place a document settles is inside a pump, and
+    /// opening the next from there would be a second command loop inside the first.
+    pub(crate) arrival_due: bool,
+    /// The line Ctrl + O puts over the page, where a person types the path of a document to open
+    /// beside this one — this window's counterpart of the other two's file dialogue (ADR 1275).
+    pub(crate) opener: FindBar,
+    /// Whether the panel's lists are to be asked again when the pump now running has finished,
+    /// because a `Command::Focus` on its queue has moved the front (`App::give_back_the_front`).
+    pub(crate) lists_due: bool,
+    /// Whether the first frame has reached the window, which is when the command line's later
+    /// documents may start.
+    pub(crate) launched: bool,
     /// The strip of tabs this window draws for itself, rebuilt whenever the list moves.
     pub(crate) strip: viewer_ui::chrome::DocumentStrip,
     /// Whether the last document was closed, so the window goes with it.
@@ -687,6 +711,7 @@ impl App {
             report_due: std::mem::take(&mut self.report_due),
             layout: self.layout,
             departures: self.restrictions.document(),
+            requests: std::mem::take(&mut self.requests),
         }
     }
 
@@ -706,6 +731,7 @@ impl App {
             report_due,
             layout,
             departures,
+            requests,
         } = showing;
         self.title = title;
         self.path = path;
@@ -720,6 +746,7 @@ impl App {
         self.report_due = report_due;
         self.layout = layout;
         self.restrictions.depart(departures);
+        self.requests = requests;
     }
 
     /// Brings the strip's own picture level with what this window holds.
@@ -746,6 +773,9 @@ impl App {
         self.unpark(parked);
         self.restrip();
         self.dispatch(Command::Focus(id));
+        // The panel's lists are the document's, so a tab brought to the front brings its own —
+        // the outline, the files, the threads and Table 349 are all asked of the focused document.
+        self.take_the_lists();
         self.retitle();
         self.redraw();
     }
@@ -780,9 +810,22 @@ impl App {
     /// The core has already made it the focused document — a person who followed a link asking for
     /// a new window asked to be reading the destination — so what is left here is the tab, the
     /// swap of this window's own per-document state, and the sentence.
-    pub(crate) fn opened_beside(&mut self, id: viewer_core::DocumentId) {
-        let Some((_, path)) = self.reserved.take().filter(|(name, _)| *name == id) else {
-            return;
+    ///
+    /// A document a *reader* named arrives here too, under the name `viewer_host::Arrivals` reserved
+    /// for it; what comes back is the tab to put in front again, for one named behind the first.
+    pub(crate) fn opened_beside(
+        &mut self,
+        id: viewer_core::DocumentId,
+    ) -> Option<viewer_core::DocumentId> {
+        let (path, fragment, behind) = if let Some(arriving) = self.arrivals.settle(id) {
+            (
+                arriving.named.path,
+                arriving.named.fragment,
+                arriving.behind,
+            )
+        } else {
+            let (_, path) = self.reserved.take().filter(|(name, _)| *name == id)?;
+            (path, None, None)
         };
         let label = viewer_host::documents::label(&path);
         let fresh = Showing {
@@ -790,7 +833,7 @@ impl App {
             directory: path.parent().map(std::path::Path::to_path_buf),
             path,
             embedded: None,
-            fragment: None,
+            fragment,
             caption: String::new(),
             measuring: viewer_host::Measuring::default(),
             measured: String::new(),
@@ -799,6 +842,7 @@ impl App {
             report_due: viewer_host::report::Due::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
+            requests: Vec::new(),
         };
         // Added parked and then focused, which is the one order that keeps `Documents`' invariant:
         // the state of the document in front lives in this window's fields and nowhere else.
@@ -813,6 +857,25 @@ impl App {
             "note: {}",
             viewer_host::documents::opened_beside(&label, self.documents.len())
         );
+        behind
+    }
+
+    /// Takes the front back for a document, inside the pump that is settling the command which
+    /// opened another: this window's swap here, and the core's focus on the pump's own queue.
+    pub(crate) fn give_back_the_front(
+        &mut self,
+        id: viewer_core::DocumentId,
+        queue: &mut std::collections::VecDeque<Command>,
+    ) {
+        let mut parked = self.park();
+        let moved = self.documents.focus(id, &mut parked);
+        self.unpark(parked);
+        if moved {
+            self.restrip();
+            queue.push_back(Command::Focus(id));
+            self.lists_due = true;
+            self.redraw();
+        }
     }
 
     /// Closes the document in front, or the window where it is the only one.
@@ -1002,6 +1065,29 @@ impl App {
     /// properties of an immutable document, so what the panel holds is a copy that cannot go
     /// stale. §8.11's layers are *not* here for exactly that reason.
     pub(crate) fn gather(&mut self) {
+        self.take_the_lists();
+        // §12.2 names XMP's `dc:title` and this program now reads it; see `named`. What is left
+        // to say out loud is the case where it *could not* — a document that asks for its title
+        // and whose metadata stream this reader refused, which is the one situation where the
+        // fallback to §14.3.3's `/Info /Title` is still a substitution rather than the clause.
+        if let Some(Err(error)) = self.metadata.as_ref() {
+            println!("note: this document's §14.3.2 metadata stream could not be read: {error}");
+            if self.display_doc_title() {
+                println!(
+                    "note: it also asks for its title in the title bar (§12.2's \
+                     /DisplayDocTitle), which names XMP's dc:title; §14.3.3's /Info /Title is \
+                     shown instead"
+                );
+            }
+        }
+        self.retitle();
+        self.obey_page_mode();
+        self.say_what_the_panel_holds();
+    }
+
+    /// The lists the panel shows and the dictionary the tab is named from, asked of the document
+    /// in front: once when it opens and again whenever its tab is brought to the front.
+    pub(crate) fn take_the_lists(&mut self) {
         if let Answer::Outline(outline) = self.viewer.query(Query::Outline) {
             self.outline = outline;
         }
@@ -1027,22 +1113,14 @@ impl App {
             self.information = information;
             self.metadata = metadata;
         }
-        // §12.2 names XMP's `dc:title` and this program now reads it; see `named`. What is left
-        // to say out loud is the case where it *could not* — a document that asks for its title
-        // and whose metadata stream this reader refused, which is the one situation where the
-        // fallback to §14.3.3's `/Info /Title` is still a substitution rather than the clause.
-        if let Some(Err(error)) = self.metadata.as_ref() {
-            println!("note: this document's §14.3.2 metadata stream could not be read: {error}");
-            if self.display_doc_title() {
-                println!(
-                    "note: it also asks for its title in the title bar (§12.2's \
-                     /DisplayDocTitle), which names XMP's dc:title; §14.3.3's /Info /Title is \
-                     shown instead"
-                );
-            }
-        }
-        self.retitle();
-        self.obey_page_mode();
+        // The tab's name, from the answer just taken rather than from a second decode (ADR 1275).
+        let label = viewer_host::documents::titled(&self.information, &self.path);
+        self.documents.relabel(self.documents.focused(), label);
+        self.restrip();
+    }
+
+    /// The one line a terminal is told about what the panel holds, when a document opens.
+    fn say_what_the_panel_holds(&self) {
         let layers = self.layers().len();
         if !self.outline.items.is_empty()
             || !self.attachments.is_empty()

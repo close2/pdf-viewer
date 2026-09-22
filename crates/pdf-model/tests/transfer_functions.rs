@@ -2,29 +2,25 @@
 //!
 //! # Why this file exists
 //!
-//! The function itself has been implemented since the three-hundred-and-fifty-eighth session and
-//! the corpus cannot say anything about it: `examples/transfer_function_census` finds one document
-//! in the whole of `doc/pdf.js` that states a `/TR` which is not `/Identity` or `/Default`, and
-//! that one draws a single image at full alpha under the Normal blend mode with no mask anywhere.
-//! So every rule below is defended by a fixture or by nothing — trap 8 — and the two departures
-//! these tests pin were both *silent* until the six-hundred-and-thirty-seventh session.
+//! The corpus cannot say anything about either clause: `examples/transfer_function_census` finds
+//! one document in the whole of `doc/pdf.js` that states a `/TR` which is not `/Identity` or
+//! `/Default`, and that one draws a single image at full alpha under the Normal blend mode with no
+//! mask anywhere. So every rule below is defended by a fixture or by nothing — trap 8.
 //!
 //! The two are different clauses and are tested apart:
 //!
 //! - **§11.7.5.2** makes the parameter a property of a *region*. The transfer function at a point
 //!   is the topmost object's "but only if the object is fully opaque", and the page's default
-//!   otherwise. Half of that is a per-object rule in disguise and is implemented: an object the
-//!   clause does not call fully opaque is never the one whose function is chosen anywhere, so it
-//!   is handed the page's default — which is the identity on this device — and the tests below
-//!   pin that for a `ca`, for an ancestry and for a soft mask's group. What is left needs a
-//!   *point*: a fully opaque transferred mark seen through a later translucent one, where the
-//!   clause maps the whole composite and this tree has already mapped the colour underneath.
-//!   That one is reported rather than drawn, and `doc/todo/13` prices it.
-//! - **§10.5** applies the function to every component value on its way to the device, and a
-//!   shading's colours reach the backend as a ramp, a mesh or a sampled grid. Those are built in
-//!   `shading::kind_of`, so that is where the function is applied — *inside* the sampling rather
-//!   than to the samples, which is what `a_ramp_is_the_composition_and_not_its_endpoints` is
-//!   about and what nothing else in this tree can see.
+//!   otherwise — the identity on this device. Every elementary mark carries the function in force
+//!   when it was painted onto the display list's transfer channel, beside §11.6.4.2's shape for
+//!   its kind of object, and a backend maps each finished pixel once through the function of the
+//!   topmost object whose shape there is nonzero (ADRs 1125, 1255, 1266, 1279). So the fixtures
+//!   read the answer off the rendered pixel, and each expected value is the clause's.
+//! - **§10.5** applies the function to every component value on its way to the device, a shading's
+//!   and a pattern's included. §11.7.5.3's NOTE puts that "only when all colour compositing has
+//!   been completed and rasterization is being performed", so a ramp is sampled raw and its curve
+//!   is evaluated at the pixel — `a_ramps_pixel_is_the_composition_and_not_the_chord` is what
+//!   nothing else in this tree can see.
 
 #![expect(
     clippy::expect_used,
@@ -58,10 +54,15 @@ const INVERT: &str = "<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>";
 
 /// A one-page fixture: `resources` goes in the page's resource dictionary, `extra` after object 4.
 fn fixture(resources: &str, content: &str, extra: &str) -> Vec<u8> {
+    page_fixture("", resources, content, extra)
+}
+
+/// [`fixture`], with `page` added to the page dictionary's own entries.
+fn page_fixture(page: &str, resources: &str, content: &str, extra: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page} \
          /Resources << {resources} >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n{extra}",
         content.len() + 1
@@ -163,19 +164,16 @@ fn through(map: &pdf_render::TransferMap, colour: pdf_render::Color) -> pdf_rend
     }
 }
 
-/// Every [`pdf_model::Unsupported::TransferFunction`] this page raises, in the order they sort.
-fn transfer_reports(bytes: Vec<u8>) -> Vec<String> {
+/// Everything this page raises as [`pdf_model::Unsupported`].
+///
+/// §11.7.5.2 has no report of its own: every mark states its shape to the channel, so a page this
+/// file draws is drawn as the clause asks or not at all. What these fixtures assert is therefore
+/// that the page raises **nothing**, which excludes every report a regression could reintroduce
+/// rather than one sentence of it (trap 27).
+fn reports(bytes: Vec<u8>) -> Vec<pdf_model::Unsupported> {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
-    interpretation
-        .unsupported
-        .iter()
-        .filter_map(|item| match item {
-            pdf_model::Unsupported::TransferFunction { detail } => Some(detail.clone()),
-            _ => None,
-        })
-        .collect()
+    pdf_model::interpret(&document, &page).unsupported
 }
 
 /// A mark the clause does not call fully opaque is drawn with the page's **default** function.
@@ -321,14 +319,14 @@ fn a_translucent_mark_over_a_transferred_shading_takes_the_pages_default() {
          force, so the clause maps the composite through the inverting function"
     );
 
-    let reports = transfer_reports(fixture(
+    let raised = reports(fixture(
         &resources,
         &format!("{shading} /Half gs 0 0 1 rg 10 10 50 50 re f"),
         "",
     ));
     assert!(
-        reports.is_empty(),
-        "the departure is drawn rather than named: {reports:?}"
+        raised.is_empty(),
+        "the page is drawn as the clause asks, and nothing is named: {raised:?}"
     );
 }
 
@@ -378,7 +376,7 @@ fn a_group_invoked_translucently_takes_the_transfer_function_off_the_marks_insid
          the one the clause chooses: {painted:?}"
     );
     assert!(
-        transfer_reports(fixture(resources, "/Half gs /Fm Do", &form)).is_empty(),
+        reports(fixture(resources, "/Half gs /Fm Do", &form)).is_empty(),
         "and with the page drawn as the clause asks there is nothing to report"
     );
 
@@ -730,17 +728,13 @@ fn a_pattern_is_painted_under_the_transfer_function_the_mark_states() {
         at(&gained, 98, 1)
     );
 
-    // Nothing is left for §10.5 to report about a pattern, and the page below is the one that
-    // used to raise it.
-    let reports = transfer_reports(fixture(
+    // Nothing is left for §10.5 to report about a pattern.
+    let raised = reports(fixture(
         &resources,
         "/On gs /Pattern cs /P scn /Off gs 0 0 100 100 re f",
         "",
     ));
-    assert!(
-        reports.is_empty(),
-        "the departure is closed rather than named: {reports:?}"
-    );
+    assert!(raised.is_empty(), "nothing is named: {raised:?}");
 }
 
 /// The colour of the one solid fill a page paints as a device receives it, or a panic if the
@@ -1109,5 +1103,163 @@ fn a_tilings_pixels_take_the_function_the_painting_mark_states() {
         at(&default, 80, 20),
         "and away from it the tiling is the topmost object and is fully opaque, so its function \
          is the one the clause names"
+    );
+}
+
+/// A white page under an inverting function, with a red §8.9.6.2 stencil drawn over all of it
+/// whose four cells are painted, painted, painted and masked, and whose opacity is 0, 1, ½ and 1.
+///
+/// `stencil` is the stencil's dictionary beyond its type, and `extra` the objects it names.
+fn stencil_over_a_transferred_page(stencil: &str, data: &str, extra: &str) -> Vec<u8> {
+    fixture(
+        "/ExtGState << /G1 << /TR [INVERT INVERT INVERT INVERT] >> >> /XObject << /Im 5 0 R >>"
+            .replace("INVERT", INVERT)
+            .as_str(),
+        "q /G1 gs 1 1 1 rg 0 0 100 100 re f Q 1 0 0 rg q 100 0 0 100 0 0 cm /Im Do Q",
+        &format!(
+            "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 4 /Height 1 /ImageMask true \
+             {stencil} /Length {} >>\nstream\n{data}\nendstream\nendobj\n{extra}",
+            data.len() + 1
+        ),
+    )
+}
+
+/// The four cells of [`stencil_over_a_transferred_page`], asserted against the clause.
+///
+/// §11.6.4.2 gives a stencil its shape and nothing else —
+///
+/// > For image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted areas and
+/// > 0.0 for masked areas.
+///
+/// — and §11.7.5.2's topmost object is the one with "a nonzero object shape value ( f j) at that
+/// point". So the three painted cells have the stencil topmost whatever their opacity, and the
+/// masked cell has the white square topmost. In both fixtures the stencil is painted under no
+/// function (the `/G1` is inside `q … Q`), so wherever it is topmost the pixel is the composite
+/// unmapped; where the square is topmost the square's function maps it:
+///
+/// - opacity 0: nothing of the red reaches the composite, which is the white square, unmapped —
+///   **255, 255, 255**. A shape read off the multiplied alpha would put nothing there and let the
+///   square's function turn it black, which is the assertion that decides the construction;
+/// - opacity 1: red, **255, 0, 0**;
+/// - opacity ½ (128 of 255): red over white at `α = 128/255`, so green and blue are
+///   `255 × (1 − 128/255) = 127`;
+/// - masked: the white square, inverted — **0, 0, 0**.
+fn assert_the_stencils_shape_decides(page: &pdf_render::Raster) {
+    assert_eq!(
+        at(page, 12, 50),
+        [255, 255, 255],
+        "a painted cell of opacity 0 is inside the stencil, which is topmost and unmapped"
+    );
+    assert_eq!(at(page, 37, 50), [255, 0, 0], "a fully opaque painted cell");
+    let half = at(page, 62, 50);
+    assert!(
+        half[0] == 255 && half[1].abs_diff(127) <= 1 && half[2].abs_diff(127) <= 1,
+        "a painted cell of opacity one half: {half:?}"
+    );
+    assert_eq!(
+        at(page, 87, 50),
+        [0, 0, 0],
+        "the masked cell is outside the stencil, so the square under it is topmost and inverted"
+    );
+}
+
+/// A stencil under an `/SMask` the device-scale route declines states its shape to §11.7.5.2's
+/// channel all the same.
+///
+/// The `/Matte` is what sends the mask down the eager route. It is no reason to multiply the
+/// pair: Table 144 counts a matte's numbers in the components of the parent image's
+/// `/ColorSpace`, and Table 87 does not permit a stencil one, so there is no pre-blending to undo
+/// and the stencil's samples are its shape as they stand (ADR 1279).
+#[test]
+fn a_stencil_under_its_own_soft_mask_takes_the_topmost_point_by_its_shape() {
+    let page = rendered(stencil_over_a_transferred_page(
+        "/SMask 6 0 R /Filter /ASCIIHexDecode",
+        "10>",
+        "6 0 obj\n<< /Type /XObject /Subtype /Image /Width 4 /Height 1 /BitsPerComponent 8 \
+         /ColorSpace /DeviceGray /Matte [0] /Filter /ASCIIHexDecode /Length 10 >>\nstream\n\
+         00FF80FF>\nendstream\nendobj\n",
+    ));
+    assert_the_stencils_shape_decides(&page);
+}
+
+/// A four-by-one `JPXDecode` codestream of two eight-bit components: a stencil `0 0 0 255` and an
+/// opacity `0 255 128 255`, hex-encoded so that the fixture stays text.
+///
+/// A bare codestream, lossless (reversible 5/3, no decomposition), generated rather than written
+/// and with its `COM` marker removed so that no encoder version is baked in:
+///
+/// ```sh
+/// python3 -c "import numpy as np
+/// np.array([0, 0, 0, 255, 0, 255, 128, 255], np.uint8).tofile('st.raw')"
+/// opj_compress -i st.raw -o st.j2k -F 4,1,2,8,u -n 1 -r 1
+/// ```
+///
+/// §7.4.9 asks a stencil's codestream for "a single colour channel with 1-bit samples", and this
+/// one's is eight bits holding only 0 and 255 — the encoder states one depth for every component.
+/// `pdf_model::image`'s stencil reading thresholds a sample at its midpoint, so the two read the
+/// same, and the fixture's subject is the opacity channel beside it.
+const JPX_STENCIL_WITH_OPACITY: &str = "FF4FFF51002C000000000004000000010000000000000000000000040000\
+    000100000000000000000002070101070101FF52000C00000001000004040001FF5C00044040FF90000A00000000\
+    001E0001FF93DF802808B801A75FDF802806292384D7FFD9>";
+
+/// A stencil whose opacity arrived inside its `JPXDecode` codestream keeps that opacity and states
+/// its shape apart from it.
+///
+/// Table 87's `/SMaskInData` code 1: "The image's data stream includes encoded soft -mask values.
+/// A PDF processor shall create a soft-mask image from the information to be used as a source of
+/// mask shape or mask opacity in the transparency imaging model." The opacity is therefore the
+/// cell's, and §11.6.4.2 still makes the stencil's painted areas its shape, so the expected pixels
+/// are [`assert_the_stencils_shape_decides`]'s. The fourth condition of §11.7.5.2 names `/SMask`
+/// and not this entry, so the stencil is fully opaque here and its own function — none — is used.
+#[test]
+fn a_stencil_whose_opacity_came_in_its_codestream_keeps_it_apart_from_its_shape() {
+    if let Err(error) = pdf_sandbox::Sandbox::shared().confinement() {
+        panic!("the sandboxed image decoder is not available: {error}");
+    }
+    let page = rendered(stencil_over_a_transferred_page(
+        "/SMaskInData 1 /Filter [/ASCIIHexDecode /JPXDecode]",
+        JPX_STENCIL_WITH_OPACITY,
+        "",
+    ));
+    assert_the_stencils_shape_decides(&page);
+}
+
+/// §11.7.5.2's last paragraph: a mark whose overprinting keeps a backdrop component is opaque for
+/// no component of this device, so the page's default applies where it is topmost.
+///
+/// > An object is opaque for a given component only if overprinting yields the source colour (not
+/// > the backdrop colour) for that component.
+///
+/// The page composites in `DeviceCMYK` (§11.4.7), a yellow fill covers it, and a magenta square
+/// under `OP true`, `OPM 1` and an inverting function is painted over the middle. §11.7.4.3's first
+/// bullet keeps the three zero tints from the backdrop, so the composite there is `0 1 1 0` — the
+/// ink cube's red corner, 237 28 36 — and every device component of it carries the backdrop's
+/// yellow, so the square is opaque for none of them and the default, the identity, maps it
+/// (ADR 1279). The control is the same page under `OPM 0`, where nothing is kept, the square is
+/// fully opaque, and its own function maps its own magenta, 236 0 140, to 19 255 115.
+#[test]
+fn a_mark_that_overprints_a_backdrop_component_takes_the_pages_default() {
+    let page = |mode: u8| {
+        rendered(page_fixture(
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            &format!("/ExtGState << /Over << /TR {INVERT} /OP true /op true /OPM {mode} >> >>"),
+            "0 0 1 0 k 0 0 100 100 re f /Over gs 0 1 0 0 k 25 25 50 50 re f",
+            "",
+        ))
+    };
+    let kept = page(1);
+    let red = at(&kept, 50, 50);
+    assert!(
+        red[0].abs_diff(237) <= 2 && red[1].abs_diff(28) <= 2 && red[2].abs_diff(36) <= 2,
+        "the overprinted composite is unmapped: {red:?}"
+    );
+    let replaced = page(0);
+    let inverted = at(&replaced, 50, 50);
+    assert!(
+        inverted[0].abs_diff(19) <= 2
+            && inverted[1].abs_diff(255) <= 2
+            && inverted[2].abs_diff(115) <= 2,
+        "without the special mode the square is fully opaque and its function maps it: \
+         {inverted:?}"
     );
 }

@@ -80,7 +80,7 @@ impl App {
     /// Why there is no document at all, where there is none.
     ///
     /// Beside the password card for the same reason it is: both are chrome this host draws over a
-    /// window with no page in it, and `Surface::without_a_page` is the path that gets either of
+    /// window with no page in it, and `App::without_a_page` is the path that gets either of
     /// them onto the screen (ADR 0545).
     pub(crate) fn refusal_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
         let chrome = self.chrome.as_ref()?;

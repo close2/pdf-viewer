@@ -64,11 +64,12 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
   wants a plane per colourant. Overprint is not what is missing — §8.6.7 is implemented and
   §11.7.4.3's special blend mode draws §10.8.2's cyan-over-yellow example green on the four process
   planes — so what is missing is a plane for a **spot** ink, which reverts to the group's process
-  components as it is painted (§11.7.3). That plane is now designed and priced in `doc/todo/23`:
-  `ceil(S / 3)` rasters beside the chromatic and black halves, one run of the content stream per
-  plane, the colourants enumerated from the page's resources before the first mark lands — and 87
-  call sites across seven crates where "two rasters" is written into a type, which is why it is
-  several rounds rather than one. Table 275's requirement is still answered by
+  components as it is painted (§11.7.3). That plane is a staged build in `doc/todo/23`:
+  `ceil(S / 3)` planes beside the two process ones, one run of the content stream per plane.
+  Stage one is built (ADR 1281): the page's spot colourants are enumerated before the first mark
+  lands (`pdf_model::colourants`) and the page is interpreted as a sequence of `Plane`s, with no
+  spot plane yet made; the model's plane, the render vocabulary and the backends are the three
+  stages left. Table 275's requirement is still answered by
   `requirements::unmet` by name. §10.8.3 itself still requires nothing: its verb is a permission and
   its four steps are a `should` conditional on performing one.
 
@@ -132,14 +133,6 @@ unblock them:** focused multi-round work on a shape channel, a per-pixel second-
 colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
 pixels.
 
-- §11.7.5.2 — the two paints whose function is still inside their colour rather than on the mark.
-  The channel is built and both CPU backends map the finished pixel through it, reading §11.6.4.2's
-  shape for each kind of mark; `Unsupported::TransferFunction` is narrowed to a shading pattern's
-  sampled ramp and a tiling cell interpreted once and copied to every site. The shading half is two
-  hunks in `content/pattern.rs` and is designed (ADR 1255); the tiling half is a change to the
-  replication rather than to the channel. `render-gpu` has no pass over a Vello scene's result and
-  refuses such a list by name; a page carrying the channel crosses the confinement as pixels
-  (`doc/todo/13`, ADRs 1125, 1255).
 - §11.4.4, §11.4.6 — a knockout element whose one alpha is the product of shape and opacity. A bare
   constant is read as opacity at every shape, not only where the two readings agree; what is left is
   the element whose two quantities reach the compositor as one number. §11.4.4's recurrence and
@@ -195,12 +188,14 @@ a normal round extending the existing code.
   path is cut to the region's complement, a §8.5.2.2 Bézier is split at the root where it crosses
   the region's edge, a §8.5.3.2 stroke is cut as the outline it marks, and a form is entered. The
   clipping path keeps its boundary while its marks are cut, an image's `/Alternates` is dropped with
-  its variants, and a JPEG 2000 image on its own grid is cleared and re-encoded. The cases still
-  owed are a stroke whose outline holds an arc, a codec image whose decode is not on the grid its
-  dictionary states, a `JPXDecode` image stating a non-zero `/SMaskInData` or more than eight bits
-  per component, a codec image carrying transparency, and an inline image whose codec or resource
-  colour space the splice cannot re-encode. The overlay is a decided departure inside the row
-  (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236, 1248).
+  its variants, and a JPEG 2000 image on its own grid is cleared and re-encoded. A picture's
+  `/SMask` and `/Mask` are cleared on their own grids, a `JPXDecode` opacity channel becomes the
+  soft mask Table 87 names, and an inline image behind `DCTDecode` or `CCITTFaxDecode` or naming a
+  colour-space resource is spliced (ADR 1277). The cases still owed are a stroke whose outline
+  holds an arc, a codec image whose decode is not on the grid its dictionary states, a `JPXDecode`
+  image stating more than eight bits per component, and a codec picture whose `/Mask` is a colour
+  key or whose soft mask states a `/Matte`. The overlay is a decided departure inside the row
+  (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236, 1248, 1277).
 - §12.7.4.3 — variable text whose `/DA` matrix states a linear part with **no inverse**: it sends
   the whole plane onto one line, so the box has no preimage that is a region and the glyph outlines
   enclose no area. Every invertible linear part is laid out, in the chord the box leaves the line
@@ -270,7 +265,7 @@ They are not independently actionable — do not brief a round to *take* one. `t
 counts them among `partial`; they flip when the last binding row flips.
 
 §7.6, §8.9.6, §10.7, §11.3.7, §11.4, §11.6,
-§11.6.4, §11.7, §11.7.4, §11.7.5, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
+§11.6.4, §11.7, §11.7.4, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
 §12.7.5, §12.7.6, §12.8, §12.8.3, §12.8.3.4.
 
 

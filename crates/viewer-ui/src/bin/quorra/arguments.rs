@@ -94,6 +94,9 @@ pub(crate) const DEFAULT_BACKEND: Option<Backend> = None;
 pub(crate) struct Arguments {
     /// The document to open.
     pub(crate) path: PathBuf,
+    /// Every document named after the first, each to open as a tab of its own behind it once the
+    /// first page is on the screen (ADR 1275).
+    pub(crate) also: Vec<viewer_host::Named>,
     /// What to say about what is happening, from `--trace` and `--trace=<topics>`.
     pub(crate) trace: Trace,
     /// Whether to draw with `render-cpu` rather than the graphics device, from `--cpu`.
@@ -212,7 +215,7 @@ pub(crate) struct Arguments {
     reason = "one loop, one arm per flag: the length is the option count, and a split would put half the command line out of sight of the other"
 )]
 pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
-    let mut path = None;
+    let mut documents: Vec<std::ffi::OsString> = Vec::new();
     let mut sandbox = true;
     let mut trace = Trace::off(began);
     let mut processor = false;
@@ -425,18 +428,20 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                 eprintln!("--page wants a page number, counting from 1");
                 std::process::exit(2);
             }
-        } else if path.is_none() {
-            path = Some(argument);
         } else {
-            eprintln!("unexpected argument: {}", argument.to_string_lossy());
-            std::process::exit(2);
+            documents.push(argument);
         }
     }
-    let Some(argument) = path else {
+    // `viewer_host::Named` is the one reading of a document word for three windows, Annex O's
+    // fragment and a file with a `#` in its name included.
+    let mut documents = documents
+        .iter()
+        .map(|word| viewer_host::Named::from_argument(word));
+    let Some(viewer_host::Named { path, fragment }) = documents.next() else {
         usage();
         std::process::exit(2);
     };
-    let (path, fragment) = split_fragment(&argument);
+    let also = documents.collect();
 
     say_what_this_build_cannot_do();
 
@@ -453,6 +458,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
 
     Arguments {
         path,
+        also,
         trace,
         processor,
         backend,
@@ -612,34 +618,6 @@ pub(crate) fn backend_names() -> String {
         .join(", ")
 }
 
-/// Splits `document.pdf#page=5` into the file and ISO 32000-2 Annex O's fragment identifier.
-///
-/// **The filesystem decides, not the punctuation**, and that is this host's choice rather than
-/// anything the annex says. A `#` is an ordinary character in a file name on every system this
-/// program runs on, so an argument that names an existing file is taken whole; only when it does
-/// not is it read as a URI-shaped reference and split at its first `#`, which is where RFC 3986
-/// puts the boundary. The cost is one `stat` on the launch path and a file called `a#b.pdf` that
-/// still opens; the alternative — splitting first — makes that file unopenable and says nothing.
-///
-/// `viewer-core` never sees this decision: what crosses is the fragment alone, undecoded, because
-/// splitting a URI is the host's job and percent-decoding belongs to whoever knows which component
-/// it is decoding.
-fn split_fragment(argument: &std::ffi::OsStr) -> (PathBuf, Option<String>) {
-    let whole = PathBuf::from(argument);
-    if whole.exists() {
-        return (whole, None);
-    }
-    let text = argument.to_string_lossy();
-    match text.split_once('#') {
-        Some((path, fragment)) if !path.is_empty() => {
-            (PathBuf::from(path), Some(fragment.to_owned()))
-        }
-        // No `#`, or nothing before it. Hand the whole thing on and let the read fail by name:
-        // a path that does not exist is a better message than a fragment nobody asked for.
-        _ => (whole, None),
-    }
-}
-
 /// The two policies a reader sets over a document, worded for a person.
 ///
 /// Its own function because they are one subject and they run in two directions: what a document
@@ -680,7 +658,7 @@ fn policy_usage() {
 
 /// What the program does when it is given nothing to open.
 fn usage() {
-    eprintln!("usage: quorra [--no-sandbox] <document.pdf>");
+    eprintln!("usage: quorra [--no-sandbox] <document.pdf>...");
     eprintln!("       quorra --licences");
     eprintln!();
     // The bindings are `viewer_host::keys`', shared with the two native hosts since ADR 0526,
@@ -696,6 +674,8 @@ fn usage() {
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");
     eprintln!("                round trip; appropriate only for documents you trust.");
     eprintln!("  --page N      open at page N, counting from 1 as the title bar does.");
+    eprintln!("  a.pdf b.pdf   every document after the first opens as a tab beside it, once the");
+    eprintln!("                first page is on the screen; Ctrl + O types the path of another.");
     eprintln!("  doc.pdf#...   ISO 32000-2 Annex O's fragment identifier, which says where to");
     eprintln!("                open: page=5, nameddest=Chapter3, zoom=150,0,792, view=FitH,700,");
     eprintln!("                viewrect=..., comment=..., structelem=.... Parameters are");

@@ -236,6 +236,27 @@ fn unicode_pair_maps(names: (&'static str, &'static str)) -> Option<CMapPair> {
     built
 }
 
+/// The program of a predefined `CMap` exactly as Adobe publishes it, where this binary carries one.
+///
+/// The bytes [`cmap`] parses, before they are parsed — header comments, copyright notice and
+/// all — for a caller that has to *carry* the `CMap` rather than read it: §9.7.5.3 asks a file to
+/// contain a stream defining any `CMap` a reader will not supply, and "[t]he data shall follow
+/// the syntax defined in Adobe Technical Note #5014", which is the syntax these files are in.
+/// Inflates the one entry and caches nothing, since a caller embedding it wants it once.
+#[must_use]
+pub fn program(name: &str) -> Option<Vec<u8>> {
+    inflate(name)
+}
+
+/// The name a predefined `CMap`'s own program builds on through `usecmap`, where it builds on one.
+///
+/// §9.7.5.4 a)'s relationship, read off the file this binary carries: a caller embedding the
+/// program has to name the same `CMap` in the stream dictionary's `/UseCMap`.
+#[must_use]
+pub fn builds_on(program: &[u8]) -> Option<String> {
+    used_by(program)
+}
+
 /// The names this binary carries, in order, for a test that wants to walk them all.
 pub fn names() -> impl Iterator<Item = &'static str> {
     PREDEFINED.iter().map(|(name, ..)| *name)

@@ -25,9 +25,10 @@
 //!   program the configuration declares made from it. `A55` is the permission and its four terms;
 //!   [`super::remedies`] carries them out and `A54`'s request-and-executor shape is why nothing
 //!   here starts a process.
-//! - **`supply`** at [`SUPPLIABLE`]'s one: the operator states the media type of their own
-//!   attachments, which nothing in a file specification states and which this converter may not
-//!   infer from an extension.
+//! - **`supply`** at [`SUPPLIABLE`]'s sites: the operator states a fact the document does not —
+//!   the media type of their own attachments, which nothing in a file specification states and
+//!   which this converter may not infer from an extension, or which of the file's own disagreeing
+//!   statements its producer meant.
 //! - **`preserve`**, in either of the two mechanisms `doc/rfc/0007` section 4.6.1 separates and
 //!   the owner's answer of 2026-09-11 is the reason for: `placement = "append"` lays the content
 //!   out on pages appended to the document, which every target admits and which `doc/adr/1014`'s
@@ -129,7 +130,7 @@ impl Kind {
     ///
     /// `stop` is a no-op, `discard` is an authorised loss, `derive` runs a declared tool over one
     /// of [`DERIVABLE`]'s two sites, `supply` writes the operator's own fact at [`SUPPLIABLE`]'s
-    /// one, and `preserve` moves content the target will not admit — onto pages appended to the
+    /// sites, and `preserve` moves content the target will not admit — onto pages appended to the
     /// document ([`PRESERVABLE_BY_PAGE`], under `doc/adr/1014`'s amendment) or into an attachment
     /// the target does admit ([`DERIVABLE`], through the same derivation `derive` uses).
     ///
@@ -501,6 +502,44 @@ pub enum Supplied {
     /// that reaches the output is the producer's own bytes, and what the operator contributed is
     /// which of them survives.
     SeparationWinner(Winner),
+    /// `fonts/embedded-cmap-states-its-own-write-mode`: which of an embedded `CMap`'s two
+    /// statements of its writing mode is the one its producer meant.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3 require a `CMap` stream's
+    /// `/WMode` to be the value its program states, and ISO 32000-2 Table 118 already asks the
+    /// dictionary's entry to be the program's own value. Between them the two decide whether the text runs across the page or down it, and nothing
+    /// in the file says which statement is the mistake. A person looking at one rendered page can
+    /// tell; the operator states it once for a producer's output, and every value written is one
+    /// the file already held (`doc/adr/1286`).
+    WriteMode(WriteModeSource),
+}
+
+/// Which of an embedded `CMap`'s two statements of its writing mode stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteModeSource {
+    /// The program's `/WMode`, which the stream dictionary is made to state.
+    Program,
+    /// The stream dictionary's `/WMode`, which the program's own `/WMode … def` is made to state.
+    Stream,
+}
+
+impl WriteModeSource {
+    /// The word a configuration names it by.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Program => "program",
+            Self::Stream => "stream",
+        }
+    }
+
+    /// The source a configuration's word names.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::Program, Self::Stream]
+            .into_iter()
+            .find(|source| source.word() == word)
+    }
 }
 
 /// Which of a colourant's disagreeing definitions the archive keeps.
@@ -697,9 +736,10 @@ pub struct Preservation {
     pub site: String,
     /// Whether the content is kept on a page appended to the document.
     ///
-    /// `false` for the one `preserve` whose mechanism is neither a page nor an attachment: ISO
+    /// `false` for the `preserve`s whose mechanism is neither a page nor an attachment: ISO
     /// 19005-2 section 6.6.2.3.2's container keeps the properties *where they are*, by describing
-    /// the schema they use. [`super::preserve`] never hears about such a row.
+    /// the schema they use, and [`PRESERVABLE_IN_PLACE`]'s two keep the object on its page.
+    /// [`super::preserve`] never hears about such a row.
     pub by_page: bool,
     /// Whether the content is kept as a file embedded in the document.
     ///
@@ -783,6 +823,86 @@ const PRESERVABLE_INFORMATION: [&str; 2] = [
 /// `keep-xfa` rather than `placement` because the `/XFA` removal is a `discard` at the same site
 /// for an operator who does not want it kept. `doc/adr/1270`.
 const PRESERVABLE_XFA: [&str; 1] = ["forms/no-xfa-key"];
+
+/// The requirements a built `preserve` answers by keeping the content where it already is.
+///
+/// Neither of `doc/rfc/0007` section 4.6.1's two mechanisms, and so neither a `placement` nor an
+/// attachment key: at each of these the clause leaves one way to make the object conform that
+/// takes nothing out of the document, and `preserve` is the word for choosing it over the
+/// removal. [`in_place_preservation`] is the sentence `--remedy-sites` prints for each.
+///
+/// - ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2: the annotation stays and its `/F`
+///   is written with the bits both parts require, every other bit its producer's
+///   (`pdf_archive::flags_permitting`). `doc/pdf-a-conversion-limits.md` section 3.7 names this
+///   as the second of the two futures and `doc/adr/1285` is the build.
+/// - ISO 19005-2 section 6.2.9.2 and ISO 19005-4 section 6.2.8.2: the form stays and its `Ref`
+///   goes, which is §8.10.4.1's proxy — what a processor draws "when the referenced content is not
+///   available", and an archive is that case (`doc/adr/1285`).
+const PRESERVABLE_IN_PLACE: [&str; 2] = [
+    "annotations/printable-and-visible",
+    "graphics/no-reference-xobjects",
+];
+
+/// What a `preserve` that moves nothing does at one site, where it is built there.
+///
+/// [`PRESERVABLE_IN_PLACE`]'s two, and [`EMBEDDABLE_CMAP`], where what is kept is the mapping a
+/// name already meant and nothing leaves the page it was on.
+///
+/// The sentence `--remedy-sites` prints beside the site, so an operator reads what the word
+/// buys and what it costs in the listing they configure from.
+#[must_use]
+fn in_place_preservation(requirement: &str) -> Option<&'static str> {
+    match requirement {
+        "annotations/printable-and-visible" => Some(
+            "preserve — the annotation stays on its page and its F entry is written with the Print \
+             bit set and Hidden, Invisible, NoView and ToggleNoView clear, every other bit its \
+             producer's; a mark its producer kept off the page or off paper is then on both, and \
+             the report names each annotation shown with the flags it had (doc/adr/1285)",
+        ),
+        EMBEDDABLE_CMAP => Some(
+            "preserve, with `source = \"shipped-cmaps\"` — the CMap the font names is embedded \
+             from Adobe's published program, byte for byte, when that program builds on nothing \
+             off the base standard's list and describes the font's own character collection; a \
+             name no published program has keeps the refusal, and the report names each CMap \
+             embedded (doc/adr/1286)",
+        ),
+        "graphics/no-reference-xobjects" => Some(
+            "preserve — the form XObject stays and its Ref entry goes, so every reader draws the \
+             proxy ISO 32000-2 8.10.4.1 has a processor draw when the imported page is not \
+             available; what goes is the pointer to the other file, which the report names \
+             (doc/adr/1285)",
+        ),
+        _ => None,
+    }
+}
+
+/// The requirement a built `preserve` answers by embedding a `CMap` from the published set.
+///
+/// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3's first sentence: a `CMap`
+/// the base standard does not predefine is embedded. Adobe's published program is the mapping the
+/// name already meant, so embedding it keeps everything and invents nothing (`doc/adr/1286`).
+const EMBEDDABLE_CMAP: &str = "fonts/cmap-embedded-or-predefined";
+
+/// The requirement at which the same answer cannot be carried out.
+///
+/// The clause's second sentence: a `CMap` may reference only `CMaps` on the base standard's list.
+/// The site's subject is an embedded `CMap` that references one elsewhere, and embedding that one
+/// too leaves the reference in place, pointing at a `CMap` still not on the list.
+const UNEMBEDDABLE_CHAIN: &str = "fonts/cmap-uses-only-predefined-cmaps";
+
+/// Why `source = "shipped-cmaps"` cannot answer the chain site.
+const A_CHAIN_STAYS_A_CHAIN: &str = "ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section \
+     6.2.10.3.3 let a CMap reference only the CMaps the base standard predefines, and what this \
+     site reports is an embedded CMap that references another. Embedding that other one from \
+     the published set leaves the reference where it was, now pointing at an embedded CMap that \
+     is still not on the list, so the requirement would fail as before. Writing the two programs \
+     as one is not built, and the answer is refused rather than accepted and not carried out \
+     (doc/adr/1286)";
+
+/// Why a `preserve` that keeps the object on its page takes no `placement`.
+const KEPT_IN_PLACE_TAKES_NO_PLACEMENT: &str = "at this site `preserve` keeps the object where it \
+     is — the clause leaves one way to make it conform that takes nothing out of the document — so \
+     there is nothing for a page or an attachment to hold. Remove the placement key (doc/adr/1285)";
 
 /// Whether this target admits an embedded file that is not itself a conforming PDF.
 ///
@@ -895,15 +1015,18 @@ const ONLY_STOP_UNLISTED: &str = "the only unlisted this version carries out is 
      what `stop` is. Naming its extension is the answer, and guessing the type would be the one \
      thing `supply` exists to avoid";
 
-/// The one requirement a built `supply` may name.
+/// The requirements a built `supply` may name.
 ///
 /// `doc/pdf-a-mitigations.md` section 11's `embedded-files/associated-file-media-type`, which its own
 /// entry calls "a good test of the owner's question" and says passes cleanly: the operator needs to
 /// know what their own attachments are, types nothing about any individual document, and can read
-/// the cost in one line — *the archive asserts these media types on our authority*.
-const SUPPLIABLE: [&str; 2] = [
+/// the cost in one line — *the archive asserts these media types on our authority*. Beside it,
+/// [`Supplied`]'s two choices among a file's own disagreeing statements: which definition of an
+/// ink, and which statement of a `CMap`'s writing mode.
+const SUPPLIABLE: [&str; 3] = [
     "embedded-files/associated-file-media-type",
     "graphics/separations-of-one-name-agree",
+    "fonts/embedded-cmap-states-its-own-write-mode",
 ];
 
 /// One remedy configuration, read from a file and validated against a target.
@@ -958,12 +1081,16 @@ struct Row {
     keep_xfa: Option<Placement>,
     /// `winner` — which of a colourant's disagreeing definitions the archive keeps.
     winner: Option<Winner>,
+    /// `write-mode` — which of an embedded `CMap`'s two write-mode statements stands.
+    write_mode: Option<WriteModeSource>,
     /// `construct` — whether the field appearances a removed `/NeedAppearances` asked for are
     /// built first. `true` where the row states none, which is the catalogue's *owed, not
     /// optional*.
     construct: bool,
     /// `dynamic` — what happens at `forms/no-xfa-key` to a form the document says is dynamic.
     dynamic: Kind,
+    /// `source = "shipped-cmaps"` — a `CMap` is embedded from the published set (`doc/adr/1286`).
+    shipped_cmaps: bool,
     /// The 1-based line its header sits on, for an error a person can find.
     line: usize,
 }
@@ -1121,6 +1248,11 @@ impl Configuration {
                 // saying the site stays refused would be false. What the row adds is
                 // `undeterminable`, which [`Configuration::preservations`] carries.
                 Kind::Preserve if DESCRIBABLE.contains(&row.site.as_str()) => true,
+                // Keeping the object where it is has no mechanism key to state: the word is the
+                // whole of the answer ([`PRESERVABLE_IN_PLACE`]).
+                Kind::Preserve if PRESERVABLE_IN_PLACE.contains(&row.site.as_str()) => true,
+                // A `CMap` embedded from the published set, which the row asks for by its source.
+                Kind::Preserve if row.site == EMBEDDABLE_CMAP => row.shipped_cmaps,
                 // ISO 19005-4 section 6.1.3's two rows: the move is built, and the one answer
                 // this version recognises and does not carry out is the container over a
                 // namespace no file states ([`UNMAPPED_NEEDS_A_NAMESPACE`]).
@@ -1270,6 +1402,11 @@ impl Configuration {
                     || preserves_a_packet(row)
                     || (row.remedy == Kind::Preserve && DESCRIBABLE.contains(&row.site.as_str()))
                     || (row.remedy == Kind::Preserve
+                        && PRESERVABLE_IN_PLACE.contains(&row.site.as_str()))
+                    || (row.remedy == Kind::Preserve
+                        && row.site == EMBEDDABLE_CMAP
+                        && row.shipped_cmaps)
+                    || (row.remedy == Kind::Preserve
                         && PRESERVABLE_INFORMATION.contains(&row.site.as_str()))
                     || (row.remedy == Kind::Preserve
                         && PRESERVABLE_XFA.contains(&row.site.as_str())
@@ -1283,6 +1420,8 @@ impl Configuration {
                     Some(original) => original.pages_it(),
                     None => {
                         !DESCRIBABLE.contains(&row.site.as_str())
+                            && !PRESERVABLE_IN_PLACE.contains(&row.site.as_str())
+                            && row.site != EMBEDDABLE_CMAP
                             && !PRESERVABLE_INFORMATION.contains(&row.site.as_str())
                             && !PRESERVABLE_XFA.contains(&row.site.as_str())
                     }
@@ -1399,6 +1538,7 @@ fn check_rows(
                 why: PRESERVE_WITHOUT_PLACEMENT,
             });
         }
+        check_what_moves_nothing(row)?;
         // **`doc/rfc/0007` section 4.6's error naming both.** At a target that admits an
         // embedded file only where the file itself conforms, keeping the attachment *as* an
         // attachment means attaching a conforming one derived from it — which is `derive`'s
@@ -1473,6 +1613,34 @@ fn check_rows(
                 why: ONLY_STOP_UNLISTED,
             });
         }
+    }
+    Ok(())
+}
+
+/// The two answers `doc/adr/1285` and `doc/adr/1286` refuse by name rather than read and ignore.
+///
+/// A `preserve` that keeps the object where it is has no second mechanism, so a row naming a
+/// placement asked for something this converter would not do; and `source = "shipped-cmaps"` at
+/// the chain site cannot be carried out at all, for [`A_CHAIN_STAYS_A_CHAIN`]'s reason.
+fn check_what_moves_nothing(row: &Row) -> Result<(), ConfigError> {
+    if row.shipped_cmaps && row.site == UNEMBEDDABLE_CHAIN {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: "source = \"shipped-cmaps\"".to_owned(),
+            why: A_CHAIN_STAYS_A_CHAIN,
+        });
+    }
+    if row.remedy == Kind::Preserve
+        && row.placement.is_some()
+        && PRESERVABLE_IN_PLACE.contains(&row.site.as_str())
+    {
+        return Err(ConfigError::NotBuiltThatWay {
+            line: row.line,
+            site: row.site.clone(),
+            asked: "remedy = \"preserve\" with a placement".to_owned(),
+            why: KEPT_IN_PLACE_TAKES_NO_PLACEMENT,
+        });
     }
     Ok(())
 }
@@ -1580,6 +1748,8 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         .and_then(Kind::parse)
         .unwrap_or(Kind::Stop);
     let keep_xfa = keeps_the_xfa(tbl, &site)?;
+    let write_mode = write_mode_key(tbl, &site)?;
+    let shipped_cmaps = source_key(tbl, &site)?;
     let unmapped = unmapped_key(tbl, &site)?;
     let media_types = tbl
         .get("media-types")
@@ -1612,6 +1782,8 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         unmapped,
         keep_xfa,
         winner,
+        shipped_cmaps,
+        write_mode,
         line: tbl.line,
     })
 }
@@ -1631,6 +1803,39 @@ fn keeps_the_xfa(tbl: &toml::Table, site: &str) -> Result<Option<Placement>, Con
             site: site.to_owned(),
             key: "keep-xfa".to_owned(),
             wanted: "the string \"attach\"",
+            found: "another word",
+        }),
+    }
+}
+
+/// `write-mode`, whose two words are [`WriteModeSource`]'s.
+fn write_mode_key(tbl: &toml::Table, site: &str) -> Result<Option<WriteModeSource>, ConfigError> {
+    match tbl.get("write-mode").and_then(Value::as_text) {
+        None => Ok(None),
+        Some(word) => {
+            WriteModeSource::parse(word)
+                .map(Some)
+                .ok_or_else(|| ConfigError::WrongValue {
+                    line: tbl.line,
+                    site: site.to_owned(),
+                    key: "write-mode".to_owned(),
+                    wanted: "either \"program\" or \"stream\"",
+                    found: "another word",
+                })
+        }
+    }
+}
+
+/// `source`, whose one word is `shipped-cmaps` (`doc/adr/1286`).
+fn source_key(tbl: &toml::Table, site: &str) -> Result<bool, ConfigError> {
+    match tbl.get("source").and_then(Value::as_text) {
+        None => Ok(false),
+        Some("shipped-cmaps") => Ok(true),
+        Some(_) => Err(ConfigError::WrongValue {
+            line: tbl.line,
+            site: site.to_owned(),
+            key: "source".to_owned(),
+            wanted: "the string \"shipped-cmaps\"",
             found: "another word",
         }),
     }
@@ -1662,6 +1867,7 @@ fn supplied(row: &Row) -> Option<Supply> {
     }
     let fact = match row.site.as_str() {
         "graphics/separations-of-one-name-agree" => Supplied::SeparationWinner(row.winner?),
+        "fonts/embedded-cmap-states-its-own-write-mode" => Supplied::WriteMode(row.write_mode?),
         _ if row.media_types.is_empty() => return None,
         _ => Supplied::MediaTypes {
             by_extension: row.media_types.clone(),
@@ -2177,6 +2383,10 @@ pub struct Site {
     /// `/FS` `/URL` names a locator, and fetching one is a network operation `CLAUDE.md`
     /// principle 3 will not acquire.
     pub takes_a_fetched_file: bool,
+    /// What a `preserve` keeping the object where it is does at this site, where one is built.
+    ///
+    /// [`in_place_preservation`]'s sentence, carried so the listing names it (`doc/adr/1285`).
+    pub preserves_in_place: Option<&'static str>,
     /// What this site's built answer waits on, where the decision table does not settle it.
     ///
     /// `doc/adr/1209`: a `Mechanical` row whose answer depends on the document's own geometry or
@@ -2235,6 +2445,7 @@ pub fn sites(target: Target) -> Vec<Site> {
                 takes_a_supplied_fact: SUPPLIABLE.contains(&requirement.id),
                 takes_a_page: PRESERVABLE_BY_PAGE.contains(&requirement.id),
                 takes_a_fetched_file: FETCHABLE.contains(&requirement.id),
+                preserves_in_place: in_place_preservation(requirement.id),
                 conditional: decision::conditional(requirement.id),
             })
         })

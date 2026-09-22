@@ -149,6 +149,11 @@ impl ApplicationHandler for App {
     /// event, so a still window spends no tick, wakes for nothing and presents nothing. The rate
     /// is a ceiling on latency and never a duty to draw.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // The next document named beside this one, outside every pump: a document that settles
+        // does so inside one, and starting the next from there would nest a second (ADR 1275).
+        if std::mem::take(&mut self.arrival_due) {
+            self.open_the_next();
+        }
         // **A reprojection may not be what this loop comes to rest on** (`doc/todo/37` rule 1,
         // ADR 0378), and since `doc/todo/36` the frame that replaces one arrives *on the
         // cadence* rather than at once. The difference is the whole feature: an immediate
@@ -502,6 +507,11 @@ impl App {
         if self.find.shown && self.find_key(key) {
             return;
         }
+        // And the line Ctrl + O opened, for the same reason: a path is typed into it.
+        if self.opener.shown {
+            self.open_key(key);
+            return;
+        }
         let stated = press(key);
         // **And the notices card is modal**, so the only keys that reach the page while it is up
         // are the two that take it down. A key press that turned a page nobody can see would be
@@ -577,6 +587,7 @@ impl App {
                 self.show_document(next);
             }
             viewer_host::WindowAct::CloseDocument => self.close_document(),
+            viewer_host::WindowAct::OpenDocument => self.choose_a_document(),
             // Only ever *opens*. While the bar is shown it has the keyboard, so neither `f` nor
             // `/` reaches the table at all (see [`App::pressed`]), and Escape inside the bar is
             // what closes it and sends `Find::Stop`.

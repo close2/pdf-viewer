@@ -36,6 +36,12 @@ gives which this version does not carry out and `N of M sites answered with a re
 yet` — and `tools/state.sh remedies` filters those two sentences per target and per shipped profile.
 It runs in `quick`; `section_archive` calls it, so one section prints both halves.
 
+**`keep-everything` at the four targets holding no file** states `stop` where its only way of keeping
+something is an attachment — six rows, each qualified to 4f and 4e for the attachment — because ISO
+19005-2 section 6.8 and ISO 19005-4 section 6.9 admit an embedded file only where it is itself
+PDF/A (ADR 1285). What it still answers there with a remedy this version does not carry out is what
+`--remedy-sites --to 2b --config doc/profiles/keep-everything.toml` prints, and not a number here.
+
 **The profile half needs no corpus, which is a property of the question rather than a shortcut.**
 The note comes from `Configuration::unbuilt`, which reads the answers a profile gives and asks which
 of them have code behind them; both are properties of the profile and the target, so a conversion
@@ -111,10 +117,20 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   two authorised losses (ADR 1234). The `discard` at the flag site removes the annotation — §12.5.3's
   Table 167 offers no fallback and `doc/pdf-a-conversion-limits.md` section 3.7 makes removal the
   default of its two futures — and the `discard` at the appearance site reduces the `/AP` to `/N`,
-  which §12.5.5's Table 170 already makes what a reader draws in the other two states. What is left
-  here is `preserve` at the flag site, the un-hiding `keep-everything` asks for: the word today
-  carries a placement or a tool and this one keeps the annotation where it is, so the configuration
-  vocabulary owes it a mechanism. `pdf_archive::flags_permitting` is the value it would write.
+  which §12.5.5's Table 170 already makes what a reader draws in the other two states. `preserve` at
+  the flag site is **built** too (ADR 1285): the word alone is the mechanism, the annotation stays
+  and its `/F` becomes `pdf_archive::flags_permitting`'s value, and the report names every
+  annotation shown with the flags it had.
+- **Reference XObjects** (`graphics/no-reference-xobjects`): **built** as `preserve` (ADR 1285) —
+  §8.10.4.1's proxy is what an archive's reader draws anyway, so the `Ref` entry goes, the form
+  stays, and the report names the file and page it pointed at.
+- **CMaps** (three sites): `fonts/cmap-embedded-or-predefined` is **built** as `preserve` with
+  `source = "shipped-cmaps"` (ADR 1286) — Adobe's published program for the name, byte for byte,
+  refused by name where it builds on a CMap off the list or describes another collection than the
+  font's; `fonts/embedded-cmap-states-its-own-write-mode` is **built** as `supply` with
+  `write-mode = "program" | "stream"`. `fonts/cmap-uses-only-predefined-cmaps` **cannot take** the
+  shipped-CMap answer — embedding the CMap a chain names leaves the reference to it — and the
+  configuration refuses that answer by name.
 - **Optional content** (two sites): `/AS` removed is **built** (ADR 1234), a part 2 target's loss
   alone because ISO 19005-4 section 6.10 keeps the key and has a processor ignore it. Configuration
   names are what is left, and the catalogue's entry makes them a `supply` with the converter as the

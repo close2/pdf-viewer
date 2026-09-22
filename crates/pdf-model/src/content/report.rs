@@ -225,39 +225,6 @@ pub enum Unsupported {
         /// What could not be decided.
         detail: String,
     },
-    /// A §10.5 transfer function is inside a composited colour §11.7.5.2 keeps it out of.
-    ///
-    /// The function itself is implemented — read from Table 57's `/TR2` or `/TR`, or from a
-    /// halftone dictionary's `TransferFunction`, and applied on the way to the device to every
-    /// component value a mark carries, a shading's samples and an image's included.
-    ///
-    /// **§11.7.5.2 makes the parameter a property of a *region* rather than of an object.**
-    ///
-    /// > The halftone and transfer function to be used at any given point on the page shall be
-    /// > those in effect at the time of painting the last (topmost) elementary graphics object
-    /// > enclosing that point, but only if the object is fully opaque.
-    ///
-    /// and, closing the same paragraph:
-    ///
-    /// > For portions of the page whose topmost object is not fully opaque or that are never
-    /// > painted at all, the default halftone and transfer function for the page shall be used
-    ///
-    /// Half of that is a per-object rule wearing a per-region one's clothes, and is implemented:
-    /// an object the clause does not call fully opaque is never the one whose function is chosen
-    /// at any point, so it is handed the page's default instead —
-    /// [`Interpreter::transfer_for_mark`] carries the deduction, the six conditions and the
-    /// ancestry they rest on.
-    ///
-    /// **What is left needs a point, and it is what this reports.** The clause composites raw
-    /// colours and maps the result once, per point, with the topmost object's function; this tree
-    /// maps each fully opaque contributor's colour before compositing. So where a mark the clause
-    /// does not call fully opaque covers an earlier one that *was* fully opaque and carried a
-    /// function, the composite this tree builds has that function already inside it and the clause
-    /// asks for a composite without it.
-    TransferFunction {
-        /// Which clause, which condition matched, and what it costs the page.
-        detail: String,
-    },
     /// Table 57's black generation is stated, and this tree converts where it has no step to act.
     ///
     /// ISO 32000-2 §11.7.5.3, and the report is the *whole* of what this tree owes the entry —

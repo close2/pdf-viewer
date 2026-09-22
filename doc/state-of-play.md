@@ -241,9 +241,13 @@ Ctrl + W closes; closing the last one closes the window; the strip hides itself 
 so a window that opened one file is the window it was. What travels with a tab is what is about the
 *file* — the path, the caption, whether anything is unsaved, §7.6.4.1's attempts, Table 29's
 arrangement, §12.9's points, and the document's own departure from the window's restriction levels
-— and what stays is what is about the *window*. The second document comes from an action today:
-there is no file chooser and no second path on a command line (`doc/todo/30`). `quorra-confined`
-holds one, on ADR 1190's rule. ADRs 1263, 1264.
+— and what stays is what is about the *window*. **A person opens one too**: Ctrl + O is a
+`gtk4::FileDialog`, a `QFileDialog` and a line `quorra` draws for a typed path, and every path
+after the first on a command line opens as a tab behind it once page one is on the screen — all of
+them through `viewer_host::open_chosen` and one at a time, and each under `Command::Open`, so every
+answer the reader gave reaches the second document as it did the first. A tab says §14.3.3's
+`/Title` where the document states one and otherwise the file's name. `quorra-confined` holds one
+document, on ADR 1190's rule. ADRs 1263, 1264, 1275.
 
 **And §12.9's measurement is drawn as well as said.** The traced path is over the page in all three
 windows, each press marked, in each platform's own colour — the points have been the host's since
@@ -276,8 +280,10 @@ backends resolve the runs top down over their own read-back, so the rule is stat
 agree by construction; a page stating no function records nothing. **No colour anywhere in this
 tree carries a transfer function**: a shading's ramp is sampled raw and rides its function on the
 mark, and a tiling's function is the one in force at the mark that paints the pattern, which the
-finished tiling carries as one run (ADR 1125, ADR 1266). What is left unstated is one shape, a
-stencil under an `/SMask` of its own, and it is named by `Unsupported::TransferFunction`. **Colour is its own crate**: `pdf-colour` holds the colour spaces, the ICC
+finished tiling carries as one run (ADR 1125, ADR 1266). Every mark states the clause's shape to
+the channel, a stencil under a soft mask of its own included, and a mark whose overprinting keeps a
+backdrop component takes the page's default, so §11.7.5.2 is `implemented` with nothing reported
+(ADR 1279). **Colour is its own crate**: `pdf-colour` holds the colour spaces, the ICC
 reader, the functions, shadings, meshes and transfer, below the interpreter with no cycle and
 re-exported by `pdf-model` under the paths its callers knew (ADR 1131). **§8.6.5.9's black point
 compensation is performed rather than reported**, on the `ON` case the clause states by reference:
@@ -644,7 +650,12 @@ producer kept it off; `--authorise appearance-states` reduces an appearance dict
 which §12.5.5's Table 170 already makes what a reader draws in the rollover and down states; and
 `--authorise automatic-states` removes the `/AS` ISO 19005-2 section 6.9 forbids, leaving the
 document in the state the configuration's own entries set — a PDF/A-4 target costing nothing there,
-because its own clause keeps the key and has a processor ignore it (ADR 1234). **A configuration's
+because its own clause keeps the key and has a processor ignore it (ADR 1234). A configuration's
+`preserve` at the flag site takes the other future and shows the annotation, Print set and the four
+forbidden bits clear, every other bit the producer's; the same word keeps a reference XObject's
+proxy by dropping its `Ref` (ADR 1285), and embeds the Adobe CMap a composite font names from the
+published programs, byte for byte, where the program builds on nothing off the base standard's list
+(ADR 1286). **A configuration's
 answer that needs nothing authorised is counted as carried out**, so `--remedy-sites` no longer
 reports a site as refused that the conversion answers by a rewrite losing nothing (ADR 1233).
 **And a metadata packet this tree cannot read is replaced rather than repaired.** ISO 19005-2
@@ -723,15 +734,20 @@ annotation did not identify. A path that is also §8.5.4's **clipping boundary**
 boundary and loses its marks — the cut marks first, then the producer's own bytes for the path
 closed with `n` — and an image's §8.9.5.4 **`/Alternates`** is dropped from the redacted page's
 copy, so the variants are reached from nothing and never written. A **JPEG 2000** image is cleared
-and re-encoded like the other three codecs where its decode is on the grid its dictionary states,
-its Table 87 `/SMaskInData` is absent or zero, and no component is deeper than eight bits.
+and re-encoded like the other three codecs where its decode is on the grid its dictionary states
+and no component is deeper than eight bits, its §7.4.9 opacity channel written as the soft-mask
+image Table 87 names. A picture's **masks are image data too**: its `/SMask` and `/Mask` are cleared
+on their own grids under its placement, a codec picture decoded with them set aside and its fresh
+dictionary naming the cleared ones, and an image mask behind a codec written back as a one-bit
+stencil. An inline image behind `DCTDecode` or `CCITTFaxDecode` is decoded and spliced, and one
+naming a colour-space resource keeps the name.
 It refuses rather than cuts wrong — a Type 3 font, a composite font not
 `Identity-H`, `sh`, a soft mask over the region, a stroke whose outline came back
 with an arc in it (a round cap or join, or a curved offset, which an expansion can only
 approximate), a zero line width, a codec image whose decode is not on its stated grid, a JPX image
-carrying opacity or stating more than eight bits — each with its sentence, and the overlay text and
-fill it does not compose (A65's fence), said as a departure in the report (ADRs 1124, 1126, 1132,
-1133, 1143, 1195, 1196, 1236, 1248).
+stating more than eight bits, a codec picture with a colour-key `/Mask` or a matted soft mask —
+each with its sentence, and the overlay text and fill it does not compose (A65's fence), said as a
+departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

@@ -697,28 +697,10 @@ impl Viewer {
     ) {
         match Open::new(bytes, password) {
             Ok(mut open) => {
-                // §8.10.4's target documents are the reader's policy rather than any document's,
-                // so a document opened after `Command::References` gets the same supply as one
-                // opened before it — `Command::Restrict`'s rule for every host-supplied value.
-                open.references = Arc::clone(&self.references);
-                // §8.11.4.4's two categories about this reader, on the same rule: a host that
-                // said who is reading said it about every document it will show. Free where
-                // nothing was said, which is every host by default.
-                open.view.set_audience(self.audience.clone());
-                // Table 166's `/M`, on the same rule: a host with a clock has one for every
-                // document it will show. No entry where nothing was said, which is every host by
-                // default.
-                open.view.set_modification_time(self.clock);
-                // §10.8.3's simulation, on the same rule: a reader who asked for it asked about
-                // every document this window will show. Off where nothing was said, which is
-                // every host by default.
-                open.view.set_separation_simulation(self.separations);
-                // A document opened *during* a presentation arrives in the mode the host is in:
-                // §12.4.4.2's node is a property of the page being shown and NOTE 2's saved groups
-                // of the document, so both are taken here rather than only on `Command::Present`.
-                if self.presenting == crate::PresentationMode::On {
-                    crate::presentation::enter(&mut open);
-                }
+                // Every answer this reader has given, before anything reads the document — the
+                // same list a document reached through an action is handed, so that a host naming
+                // a file and a link naming one cannot come to hold two different documents.
+                self.adopt(&mut open);
                 // §12.11.6, and this is the moment the clause names: "Document requirements shall
                 // be evaluated before execution of any document ECMAScripts. If requirements
                 // cannot be met … then the processing of the document shall not continue."
@@ -784,16 +766,31 @@ impl Viewer {
 
     /// Hands a document this window has just acquired every answer its reader has already given.
     ///
-    /// [`Self::open`] does this inline for a document a host asked for by name; a document reached
-    /// through §12.6.4.3's or §12.6.4.4's action arrives without passing through it, and every one
-    /// of these values is documented as applying to "every open document and to every one opened
-    /// afterwards". A document shown in this window by this reader is one of those, whether they
-    /// named it or a link did. ADR 1263.
+    /// The one list, asked by [`Self::open`] for a document a host named — the first file, a
+    /// second on the command line, a file a person chose — and where an action's replacement is
+    /// taken in, for a document §12.6.4.3's or §12.6.4.4's action reached. Every one of these
+    /// values is documented as applying to "every open document and to every one opened
+    /// afterwards", and a document shown in this window by this reader is one of those whoever
+    /// named it. ADR 1263.
     fn adopt(&self, open: &mut Open) {
+        // §8.10.4's target documents are the reader's policy rather than any document's, so a
+        // document opened after `Command::References` gets the same supply as one opened before
+        // it — `Command::Restrict`'s rule for every host-supplied value.
         open.references = Arc::clone(&self.references);
+        // §8.11.4.4's two categories about this reader, on the same rule: a host that said who is
+        // reading said it about every document it will show. Free where nothing was said, which
+        // is every host by default.
         open.view.set_audience(self.audience.clone());
+        // Table 166's `/M`, on the same rule: a host with a clock has one for every document it
+        // will show. No entry where nothing was said, which is every host by default.
         open.view.set_modification_time(self.clock);
+        // §10.8.3's simulation, on the same rule: a reader who asked for it asked about every
+        // document this window will show. Off where nothing was said, which is every host by
+        // default.
         open.view.set_separation_simulation(self.separations);
+        // A document opened *during* a presentation arrives in the mode the host is in: §12.4.4.2's
+        // node is a property of the page being shown and NOTE 2's saved groups of the document, so
+        // both are taken here rather than only on `Command::Present`.
         if self.presenting == crate::PresentationMode::On {
             crate::presentation::enter(open);
         }
@@ -904,20 +901,30 @@ impl Viewer {
 
     /// Records what a worker did with a request, or drops it for being about the past.
     fn rendered(&mut self, token: RenderToken, rendered: Rendered, events: &mut Vec<Event>) {
-        let viewport = self.viewport;
-        let Some(id) = self.focused else { return };
-        let Some(open) = self.focused_mut() else {
-            return;
-        };
         // A token that is not one of those outstanding answers a question that has been asked
         // again since. Dropping it is the whole reason the token exists — and an arrangement has
         // one outstanding request per page on the screen rather than one, so the token is what
         // says *which* page an answer is about.
-        let Some(index) = open.on_screen.iter().position(|on_screen| {
-            on_screen
-                .pending
-                .as_ref()
-                .is_some_and(|pending| pending.token == token)
+        //
+        // **Of which document, too**: tokens are issued from one counter for every document this
+        // viewer holds, and a document opened beside the one showing is asked for its first page
+        // and may be given back the front before the answer lands. Looked up in the focused
+        // document alone, that answer was dropped, the request stayed outstanding and the tab never
+        // drew (ADR 1275). The damage is the window's only where the page is the front's.
+        let damage_of = |id: DocumentId, focused: Option<DocumentId>, viewport| {
+            (focused == Some(id)).then(|| damage(viewport))
+        };
+        let (viewport, focused) = (self.viewport, self.focused);
+        let Some((id, open, index)) = self.documents.iter_mut().find_map(|(id, open)| {
+            open.on_screen
+                .iter()
+                .position(|on_screen| {
+                    on_screen
+                        .pending
+                        .as_ref()
+                        .is_some_and(|pending| pending.token == token)
+                })
+                .map(|index| (*id, open, index))
         }) else {
             return;
         };
@@ -929,7 +936,7 @@ impl Viewer {
             Rendered::Raster(raster) => {
                 on_screen.shown = Some((pending.target, pending.revision));
                 on_screen.frame = Some(raster);
-                events.push(damage(viewport));
+                events.extend(damage_of(id, focused, viewport));
             }
             // Tier 2: the host drew it onto its own surface, so there is nothing here to hold
             // and nothing to repaint from — but it *is* on the screen, and saying so is what
@@ -954,7 +961,7 @@ impl Viewer {
             Rendered::Listed => {
                 on_screen.shown = Some((pending.target, pending.revision));
                 on_screen.frame = None;
-                events.push(damage(viewport));
+                events.extend(damage_of(id, focused, viewport));
             }
             // **A refusal is recorded as an answer**, and it has to be: the scheduler's question
             // is "is what is on the screen what should be", and a host that cannot draw this page
@@ -3540,8 +3547,8 @@ impl Viewer {
     /// > presentation
     ///
     /// *This* page, so it is the page arrived at whose `/Trans` plays, and the page is fetched
-    /// from the tree rather than read from `Open::current`, because `current` is filled during
-    /// interpretation and interpretation happens in `settle` — after this. Reading it here would
+    /// from the tree rather than read from `Open::shown_page`, because the arrangement it reads
+    /// is built in `settle` — after this. Reading it here would
     /// name the transition of the page just *left*, which is the same off-by-one §12.4.4.1's own
     /// wording rules out. One page-tree walk per advance.
     fn play_transition(&mut self, events: &mut Vec<Event>) {
@@ -3794,7 +3801,7 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
 /// Both are keyed by the annotation, which is what an object reference names, and both are the
 /// same readings the rest of this crate uses — `form::fields` with **this view's** state, so a
 /// check box a person has just ticked answers `on` in the accessibility tree exactly as it does
-/// in [`Answer::Form`].
+/// in [`Answer::Fields`].
 ///
 /// **Keyed by the annotation means answering for the annotation**, which is what
 /// [`this_widgets_control`] is for and what this function did not do for a hundred and thirty
@@ -4480,4 +4487,135 @@ fn attached_files(open: &Open, annotation: ObjectId) -> Vec<pdf_model::attachmen
         out.push(file);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Command, DocumentId, Viewer};
+
+    /// A document of one page and nothing else.
+    fn one_page() -> Vec<u8> {
+        let objects: [&[u8]; 3] = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        ];
+        let mut out = b"%PDF-2.0\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        out
+    }
+
+    /// Every document a host names gets this reader's answers, the second as well as the first.
+    ///
+    /// **Written against the defect `Open::around` had**, which lost §8.10.4's target documents,
+    /// §8.11.4.4's audience, Table 166's clock, §10.8.3's simulation and §12.4.4's presentation on
+    /// the action path (ADR 1263). A window now opens a second document by name — a second path on
+    /// its command line, a file a person chose — and each of those values is documented as
+    /// applying "to every one opened afterwards", so a document opened *after* the answers were
+    /// given is the case this asserts, beside the first.
+    #[test]
+    fn a_second_document_a_host_names_gets_every_answer_the_first_did() {
+        let mut viewer = Viewer::new(100, 100, 1.0);
+        let audience = pdf_model::optional_content::Audience {
+            language: Some("de".to_owned()),
+            ..pdf_model::optional_content::Audience::NONE
+        };
+        let clock = pdf_syntax::Date::parse("D:20260922120000Z");
+        assert!(clock.is_some(), "a §7.9.4 date this test can write");
+        for command in [
+            Command::Audience(audience.clone()),
+            Command::Clock(clock),
+            Command::Separations(true),
+            Command::Present(crate::PresentationMode::On),
+        ] {
+            viewer.handle(command).for_each(drop);
+        }
+        for id in [DocumentId(1), DocumentId(2)] {
+            viewer
+                .handle(Command::Open {
+                    id,
+                    bytes: one_page().into(),
+                    password: None,
+                    fragment: None,
+                })
+                .for_each(drop);
+        }
+        for id in [DocumentId(1), DocumentId(2)] {
+            let Some(open) = viewer.documents.get(&id) else {
+                panic!("{id:?} did not open");
+            };
+            assert!(
+                std::sync::Arc::ptr_eq(&open.references, &viewer.references),
+                "{id:?}: §8.10.4's supply is the reader's"
+            );
+            assert_eq!(open.view.audience(), &audience, "{id:?}: §8.11.4.4");
+            assert_eq!(open.view.modification_time(), clock, "{id:?}: Table 166");
+            assert!(open.view.separation_simulation(), "{id:?}: §10.8.3");
+        }
+        assert_eq!(
+            viewer.focused,
+            Some(DocumentId(2)),
+            "the document named last is the one in front, which a host's tab strip follows"
+        );
+    }
+
+    /// A page drawn for a tab behind the front is that tab's answer, and it is kept.
+    ///
+    /// The shape a window's command line makes: the second document opens and asks for its first
+    /// page, the first is given the front back, and the drawing lands afterwards. Looked up in the
+    /// focused document alone, the answer was dropped and the second tab never drew (ADR 1275).
+    #[test]
+    fn an_answer_for_a_document_behind_the_front_is_kept() {
+        let mut viewer = Viewer::new(100, 100, 1.0);
+        let mut asked = None;
+        for id in [DocumentId(1), DocumentId(2)] {
+            let events: Vec<crate::Event> = viewer
+                .handle(Command::Open {
+                    id,
+                    bytes: one_page().into(),
+                    password: None,
+                    fragment: None,
+                })
+                .collect();
+            asked = events.into_iter().find_map(|event| match event {
+                crate::Event::NeedsRender(request) if request.document == id => Some(request.token),
+                _ => None,
+            });
+        }
+        let Some(token) = asked else {
+            panic!("the second document asked for its first page");
+        };
+        viewer.handle(Command::Focus(DocumentId(1))).for_each(drop);
+        let events: Vec<crate::Event> = viewer
+            .handle(Command::RenderReady {
+                token,
+                rendered: crate::Rendered::Presented,
+            })
+            .collect();
+        assert!(
+            events.is_empty(),
+            "nothing is damaged in the front for a page of the tab behind it: {events:?}"
+        );
+        let behind = &viewer.documents[&DocumentId(2)].on_screen;
+        assert!(
+            behind
+                .iter()
+                .all(|page| page.pending.is_none() && page.shown.is_some()),
+            "the second document's page is recorded as drawn rather than still outstanding"
+        );
+    }
 }

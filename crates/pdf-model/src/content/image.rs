@@ -245,15 +245,6 @@ impl Interpreter<'_> {
                 name: format!("{name}: {detail}"),
             });
         }
-        // §7.4.8 puts a JPEG's dimensions in the codestream and this tree draws them from
-        // there, so an image whose dictionary says something else is *drawn* rather than
-        // refused — and said out loud all the same, because the picture on the page is then
-        // not the one the file described. `image::contradicted_frame` has the reading.
-        if let Some(detail) = crate::image::contradicted_frame(self.document, stream) {
-            self.note(Unsupported::Image {
-                name: format!("{name}: {detail}"),
-            });
-        }
         // §7.3.8.2 infers an image's extent from its own dictionary, so a stream that decodes to
         // fewer bytes than the grid needs is a picture the file describes and does not carry.
         // The samples it does carry are drawn and the rest of the grid is left unpainted, which
@@ -307,7 +298,21 @@ impl Interpreter<'_> {
             &conversion,
             &mut self.image_masks,
         ) {
-            Ok(crate::image::Parts { picture, shortfall }) => {
+            Ok(crate::image::Parts {
+                picture,
+                shortfall,
+                contradiction,
+            }) => {
+                // §7.4.8 puts a JPEG's dimensions in the codestream and this tree draws them from
+                // there, so an image whose dictionary says something else is *drawn* rather than
+                // refused — and said out loud all the same, because the picture on the page is
+                // then not the one the file described. The decode read the frame, so the sentence
+                // travels with the raster: `image::Parts::contradiction` has the reading.
+                if let Some(detail) = contradiction {
+                    self.note(Unsupported::Image {
+                        name: format!("{name}: {detail}"),
+                    });
+                }
                 // A filter that stopped on damaged data delivered the rows before it, and the
                 // report travels with the raster rather than being made here, so a second `Do`
                 // answered from the cache says it too: `image::Parts::shortfall` has the reading.
@@ -325,12 +330,6 @@ impl Interpreter<'_> {
                 // what makes the image's own antialiased edge take the clause's value rather than
                 // the composite of an already-transferred colour.
                 let image = picture.source(|image| image);
-                if image.sample_alpha() == pdf_render::SampleAlpha::Both
-                    && image.shape().is_none()
-                    && self.transfers.is_live()
-                {
-                    self.note_unstatable_shape();
-                }
                 self.draw_mark(
                     Command::Image {
                         image,
@@ -419,15 +418,15 @@ impl Interpreter<'_> {
         // The stencil carries no colour of its own — §11.5.2 derives the mask "from the
         // alpha of the group" — so what is composited into decides nothing here, and
         // `Conversion::device()` says that rather than borrowing an answer from the state.
-        let image = match crate::image::decode(
+        let image = match crate::image::decode_reporting_frame(
             self.document,
             stream,
             resources,
             Color::BLACK,
             &Conversion::device(),
         ) {
-            Ok(crate::image::Flattened { image, shortfall }) => {
-                if let Some(detail) = shortfall {
+            Ok((crate::image::Flattened { image, shortfall }, contradiction)) => {
+                for detail in contradiction.into_iter().chain(shortfall) {
                     self.note(Unsupported::Image {
                         name: format!("{name}: {detail}"),
                     });

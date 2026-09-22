@@ -739,27 +739,48 @@ and no pixel moves.
 
 ## A plane per spot ink, which is the other half of §10.8.3's step a)
 
-**Designed and priced, not built.** §10.8.2's worked example needs a buffer per colourant: two spot
-inks over one area cannot combine while a spot reverts to the group's four process components as it
-is painted (§11.7.3). The shape follows ADR 0262's two rasters for four process components —
-§11.3.4 composites per component and a raster holds three, so `S` spot colourants need
-`ceil(S / 3)` rasters beside the chromatic and black halves, `Half` becomes a plane index, and the
-content stream is interpreted once per plane: `2 + ceil(S / 3)` runs where there are two today.
+**Stage one is built; three stages are left** (ADR 1281). §10.8.2's worked example needs a buffer
+per colourant: two spot inks over one area cannot combine while a spot reverts to the group's four
+process components as it is painted (§11.7.3). The shape follows ADR 0262's two rasters for four
+process components — §11.3.4 composites per component and a raster holds three, so `S` spot
+colourants need `ceil(S / 3)` planes beside the two process ones, and the content stream is
+interpreted once per plane: `2 + ceil(S / 3)` runs where there are two today.
 
-Which colourants the simulated device has is step a)'s own sentence — "[t]he PDF processor
-determines what process colours and possible spot colours the simulated device is to have" — so it
-is the page's own named `Separation` and `DeviceN` colourants less §8.6.6.4's `All` and `None` and
-less Table 71's process names, enumerated before the first mark lands by a walk of the page's
-resources. A mark in a colourant the device has paints its **tint** on that plane and leaves the
-process planes at their backdrop, which is §11.7.4.3's first bullet one plane wider; one it does
-not have keeps §8.6.6.4's reversion. Steps b) to d) are `colour::simulate` unchanged (ADR 1229),
-its inputs coming from planes rather than from one painting operation.
+**What stage one built.** `pdf_model::colourants::spot_colourants` is step a)'s "[t]he PDF
+processor determines what process colours and possible spot colours the simulated device is to
+have": the page's `Separation` and `DeviceN` colourants, read off its resources, patterns,
+shadings, forms, images, Type 3 fonts and annotation appearances before the first mark, less
+§8.6.6.4's `All` and `None`, the four reserved process names and an `NChannel` space's Table 71
+components, and never through a soft mask's group (§11.7.3). `SpotColourants::plane_count` is
+`2 + ceil(S / 3)`. `pdf_colour::colour::Plane` is what `Half` was, with `Plane::PROCESS` and
+`Plane::COLOURANTS`, and `content::in_planes` interprets the page as a sequence of planes rather
+than a pair. `S` is zero on every path that draws, and nothing moved; the two-plane path's
+instruction count is unchanged in every function of this tree (ADR 1281 section 5).
 
-The bound is this tree's: §8.6.6.5 says a `DeviceN` "may contain an arbitrary number of colour
-components" and no clause bounds how many colourants a page names, so trap 38's question has the
-answer *the standard states none* and the shape to take is `MAX_PRESSES`'s — a measured population
-with the refusal reported by name.
+**What is left, by stage, priced by what stage one found:**
 
-**The price**: `Half` has 18 call sites and `BlendingSpace` or `GroupBlending::FourComponents` 69
-across seven crates, three of them backends, and each is a place where "two rasters" is written
-into a type. Several rounds, and a census that sizes `S` over the crawl before any of them.
+- **Two, the model.** `ColourSpace::Separation` carries its colourant names — it does not today, and
+  `grep -rn 'Separation {' crates --include=*.rs` lists what constructs or matches it.
+  `Plane::Spot(index)`, and the device's spot colourants beside the press in
+  `Compositing::Subtractive`, whose key widens with them. `Compositing::paint`'s arms are §11.7.3's
+  paragraph: a mark paints its colourant's tint on its plane and "an additive value of 1.0"
+  everywhere else, a mark in a colourant the device has paints 1.0 on the process planes, and `All`
+  paints every plane. Groups pass a spot plane through with no conversion and no black run
+  (§11.7.3's first bullet); `content/overprint.rs`'s kept channels become one plane wider
+  (§11.7.4.3). `grep -rnw Plane crates --include=*.rs` lists where the type is matched. Whether a
+  mark reaches the picture differently for want of a plane is known here, which is where a report
+  belongs if one is owed at all (ADR 1281 section 4).
+- **Three, the render vocabulary.** `DisplayList`'s and `GroupBlending::FourComponents`' spot lists,
+  each with its colourants' tint-to-flat-XYZ curves; `viewer-confined`'s wire; `grep -rn
+  'BlendingSpace\|FourComponents' crates --include=*.rs` lists every site that writes "two rasters"
+  into a type. `raster_golden` digests the list's `Debug`, so every row compositing in four
+  components moves list-only when the field arrives (trap 41): count them as the variant's users
+  before reading any as a change.
+- **Four, the backends.** `render-cpu` resolves the process planes as it does and multiplies each
+  spot separation in — steps b) to d), `colour::simulate` unchanged (ADR 1229); `render-raster` and
+  `render-gpu` refuse a list with spot planes by name. A page not composited in four components
+  needs no process planes for this: its own composite in flat XYZ is its one process separation.
+- **Before stage two's bound**, a census sizing `S` over the crawl. §8.6.6.5 says a `DeviceN` "may
+  contain an arbitrary number of colour components" and no clause bounds how many colourants a page
+  names, so trap 38's question has the answer *the standard states none* and the shape to take is
+  `MAX_PRESSES`'s — a measured population with the refusal reported by name.

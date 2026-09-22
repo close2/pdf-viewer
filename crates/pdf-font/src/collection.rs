@@ -23,7 +23,7 @@
 //! Both corpus documents were opened and their collections listed, and each pays for one half
 //! of [`same_face`]. `issue9262_reduced.pdf` names `MSMincho` and holds `MS-Mincho` and
 //! `MS-PMincho`: the hyphen has to go, and `MS-PMincho` must *not* match. `issue13193.pdf`
-//! names `DCWGQU+CambriaMath` and holds `Cambria` and `CambriaMath`: §9.6.4's subset prefix has
+//! names `DCWGQU+CambriaMath` and holds `Cambria` and `CambriaMath`: §9.9.2's subset tag has
 //! to go, and **face zero would be the wrong face** — which is what makes the match load-bearing
 //! rather than a nicety.
 //!
@@ -77,8 +77,8 @@ fn postscript_name(font: &FontRef<'_>) -> Option<String> {
 
 /// Whether two PostScript names name the same face.
 ///
-/// Two normalisations, each with a reason in a file rather than in a style guide. §9.6.4's
-/// subset prefix — "six uppercase letters, followed by a plus sign" — is part of the name the
+/// Two normalisations, each with a reason in a file rather than in a style guide. §9.9.2's
+/// subset tag — exactly six uppercase letters and then a plus sign — is part of the name the
 /// *document* writes and never part of the name the *font* carries. And a hyphen is written
 /// inconsistently between the two: `issue9262_reduced.pdf` asks for `MSMincho` and its
 /// collection offers `MS-Mincho`.
@@ -168,7 +168,7 @@ mod tests {
         assert!(same_face("MS-Mincho", "MSMincho"));
         assert!(same_face("MS-Mincho", "ABCDEF+MSMincho"));
         assert!(same_face("MSGothic", "MS-Gothic"));
-        // A prefix that is not §9.6.4's is part of the name.
+        // A prefix that is not §9.9.2's tag is part of the name.
         assert!(!same_face("MS-Mincho", "ABC+MSMincho"));
         assert!(!same_face("MS-Mincho", "MS-Gothic"));
     }

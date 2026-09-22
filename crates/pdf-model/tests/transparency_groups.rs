@@ -795,8 +795,9 @@ fn a_filled_and_stroked_path_is_one_object() {
 /// reported until ADR 1017, which decides which of the two an image's alpha is and states a
 /// shading's shape as where it paints (`Shading::opaque`); ADR 1022 made the first of those a
 /// field of the raster (`pdf_render::Image::sample_alpha`), so §11.7.4.4's and §9.3.8's
-/// implicit groups read it too. `content/transparency.rs`'s own tests hold each to the pixel.
-/// What is left is a stencil under an `/SMask` of its own, whose one alpha is the product.
+/// implicit groups read it too. `content/transparency.rs`'s own tests hold each to the pixel,
+/// and a stencil under an `/SMask` of its own states its shape apart from the mask's opacity
+/// (ADRs 1218, 1279).
 ///
 /// The second half of the condition is older and still stands: where the upper of two
 /// elements is opaque and blends Normal it overwrites the lower one under either model, and

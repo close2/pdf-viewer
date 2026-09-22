@@ -157,7 +157,9 @@ struct Done {
     function_refusals: Vec<String>,
     /// What compiling the pipelines cost, once raster's own background thread has finished.
     pipelines: Option<Duration>,
-    /// When the render thread finished this frame — the end of [`Landed::waited`]'s span.
+    /// When the render thread took this frame up — the start of [`Landed::drew`]'s span.
+    started: Instant,
+    /// When the render thread finished this frame — the end of [`Landed::drew`]'s span.
     ///
     /// Taken on the thread that drew, not at collection: a finished frame sits in the
     /// channel until the next tick reads it, and measuring to *that* moment quantised
@@ -249,9 +251,17 @@ pub(crate) struct Landed {
     pub(crate) pages: Vec<crate::stale::Placed>,
     /// What the whole frame cost on the render thread, in the parts raster measures it in.
     pub(crate) cost: FrameCost,
-    /// How long the frame took from the ask to the render thread finishing it — which is
-    /// what rule 5 predicts the next one by. Not "until collected": see [`Done::finished`].
-    pub(crate) waited: Duration,
+    /// How long the render thread spent drawing it, from taking the job up to finishing it —
+    /// which is what rule 5 predicts the next render by.
+    ///
+    /// **Neither "until collected" nor "since the ask"** (ADR 1289). A finished frame sits in the
+    /// channel until the next tick reads it ([`Done::finished`]), and a job asked for while the
+    /// thread is drawing the sharp pass or a retained page waits behind that pass before it is
+    /// begun — so a span from the ask charges a view change's render with a picture nobody asked
+    /// for, and on the owner's 890M a page drawn in 5 ms predicts 9 ms against an 8.3 ms refresh
+    /// and is stood in for. A render that is late because the thread is busy is still known to
+    /// be late: rule 5's *observation* reads how long the ask has been out.
+    pub(crate) drew: Duration,
     pub(crate) fell_back: Option<String>,
     pub(crate) refused: Option<String>,
     pub(crate) function_refusals: Vec<String>,
@@ -604,9 +614,8 @@ impl Window {
             self.sharp = None;
         }
         self.pipelines = self.pipelines.or(done.pipelines);
-        let waited = self.in_flight.take().map_or(Duration::ZERO, |began| {
-            done.finished.saturating_duration_since(began)
-        });
+        self.in_flight = None;
+        let drew = done.finished.saturating_duration_since(done.started);
         // The pair being displaced goes back to the render thread with the next job; the one
         // displaced before it, if the host never asked again, is simply dropped.
         self.spare = self
@@ -619,7 +628,7 @@ impl Window {
         Some(Landed {
             pages: done.pages,
             cost: done.cost,
-            waited,
+            drew,
             fell_back: done.fell_back,
             refused: done.refused,
             function_refusals: done.function_refusals,
@@ -913,6 +922,27 @@ fn draw_until_told_to_stop(
         // seam drawn at full width rather than half (ADR 0699), not a wrong pixel. The flag
         // is set either way, so a declined view is not re-asked until the view changes.
         if supersample >= 2 && !sharpened && !showing.is_empty() {
+            // **The view has to have been still for as long as the pass will take before the
+            // pass may begin** (ADR 1289). It cannot be taken back once begun, so a view change
+            // arriving during it waits for all of it, and on the owner's 890M the worst page's
+            // pass costs what a zoom step does (57–63 ms against 55–62): begun the moment the
+            // thread is idle, it puts a whole step in front of every step of a gesture, and the
+            // window shows a stand-in from the first notch to the last. Waiting out the pass's
+            // own predicted length first is the rent-or-buy bound: a view change is delayed by
+            // the pass only after the person has already been still for at least as long as the
+            // delay, and never by a pass begun in a pause shorter than itself.
+            if let Some(stillness) =
+                sharp_pass_cost(last_built).filter(|pass| *pass <= SHARP_STALL_BUDGET)
+            {
+                match jobs.recv_timeout(stillness) {
+                    Ok(job) => {
+                        waiting = Some(job);
+                        continue;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
             sharpened = true;
             if sharp_pass_affordable(last_built)
                 && let Some(sharp) = draw_sharp(&mut renderer, &showing, shown_size, coverage)
@@ -985,7 +1015,20 @@ const SHARP_STALL_BUDGET: Duration = Duration::from_millis(400);
 /// starting with no evidence it is affordable; in practice the pass is only reachable
 /// after a first job, which always builds.
 fn sharp_pass_affordable(last_built: Option<Duration>) -> bool {
-    last_built.is_some_and(|frame| frame.saturating_mul(4) <= SHARP_STALL_BUDGET)
+    sharp_pass_cost(last_built).is_some_and(|pass| pass <= SHARP_STALL_BUDGET)
+}
+
+/// What the sharp pass is predicted to cost: four times the last frame this thread built,
+/// because it draws the same commands at four times the pixels (ADR 0761). `None` before any
+/// frame has been built.
+///
+/// It is both the number [`SHARP_STALL_BUDGET`] bounds and how long the view must have been
+/// still before the pass begins (ADR 1289), and the prediction is an over-estimate on the
+/// compute lane — the worst page's pass measured 57–63 ms against frames of 55–62 — which
+/// errs towards waiting longer, the side that costs a picture nobody asked for a little later
+/// rather than a picture somebody did.
+fn sharp_pass_cost(last_built: Option<Duration>) -> Option<Duration> {
+    last_built.map(|frame| frame.saturating_mul(4))
 }
 
 /// The settled view again, at twice the window's resolution, for the presenter to show
@@ -1116,6 +1159,7 @@ fn draw_whole_page(
 
 /// One job, drawn — on the device, or on the processor where the device refused.
 fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
+    let started = Instant::now();
     let Job {
         width,
         height,
@@ -1193,6 +1237,7 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         refused,
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
         pipelines: renderer.startup().pipeline_compilation,
+        started,
         finished: Instant::now(),
     }
 }
@@ -1221,5 +1266,435 @@ mod tests {
     #[test]
     fn the_sharp_pass_waits_for_a_built_frame_to_predict_from() {
         assert!(!sharp_pass_affordable(None));
+    }
+}
+
+/// What a zoom gesture's frames are, measured on the real render thread and the real adapter.
+///
+/// **A measurement rather than a gate**, and ignored for the reason every measurement on a real
+/// device is: it needs one, and it prints durations rather than asserting them. It drives the
+/// render thread this window uses — [`spawn`], the sharp pass and the retained pages included —
+/// from a clock that ticks at the owner's 120 Hz, asks [`crate::stale::Stale::plan`] the question
+/// `crate::surface` asks at every tick, and counts what each tick would have put up: a rendering
+/// of the view asked for, a stand-in, or the picture already there held for one more refresh.
+///
+/// ```sh
+/// cargo test --release -p viewer-ui --bin quorra -- --ignored --nocapture a_zoom_gesture
+/// GESTURE_PDF=tmp/Entwurf.pdf GESTURE_EVERY=12 cargo test … a_zoom_gesture
+/// ```
+///
+/// `GESTURE_EVERY` is how many refreshes lie between two wheel notches (4 by default, which is a
+/// hand turning a wheel briskly), `GESTURE_SUPERSAMPLE` is `--supersample`'s factor.
+#[cfg(test)]
+mod gesture {
+    use super::*;
+    use crate::stale::{Placed, Plan, Stale, Standing};
+
+    /// What one tick put up, in the words the frame line uses.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Put {
+        Fresh,
+        StoodIn,
+        Held,
+        Refused,
+    }
+
+    fn variable(name: &str) -> Option<String> {
+        std::env::var(name).ok().filter(|value| !value.is_empty())
+    }
+
+    /// The arrangement `crate::surface`'s `arrangement` builds, for a window with no panel.
+    fn arrangement(
+        viewer: &viewer_core::Viewer,
+        requests: &mut Vec<viewer_core::RenderRequest>,
+        (width, height): (u32, u32),
+    ) -> Vec<Placed> {
+        let mut placed = Vec::new();
+        for request in requests.iter() {
+            let viewer_core::Answer::Geometry(geometry) =
+                viewer.query(viewer_core::Query::PageGeometry(request.page))
+            else {
+                continue;
+            };
+            placed.push(Placed {
+                of: crate::stale::Picture::new(request.document, request.page, request.ink),
+                list: Arc::clone(&request.list),
+                target: TargetSpec {
+                    width,
+                    height,
+                    transform: request
+                        .target
+                        .transform
+                        .then(Transform::translate(geometry.origin.0, geometry.origin.1)),
+                },
+            });
+        }
+        requests.retain(|request| placed.iter().any(|one| one.of.page() == request.page));
+        placed
+    }
+
+    fn fold(
+        events: impl Iterator<Item = viewer_core::Event>,
+        into: &mut Vec<viewer_core::RenderRequest>,
+    ) {
+        for event in events {
+            if let viewer_core::Event::NeedsRender(request) = event {
+                into.retain(|held| held.page != request.page);
+                into.push(request);
+            }
+        }
+    }
+
+    /// The committed document every headless test opens, laid out in a window of `size`.
+    fn opened(size: (u32, u32)) -> (viewer_core::Viewer, Vec<viewer_core::RenderRequest>) {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|error| panic!("{} is committed: {error}", path.display()));
+        let mut viewer = viewer_core::Viewer::new(size.0, size.1, 1.0);
+        let mut requests = Vec::new();
+        fold(
+            viewer.handle(viewer_core::Command::Open {
+                id: viewer_core::DocumentId(1),
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            }),
+            &mut requests,
+        );
+        (viewer, requests)
+    }
+
+    fn job(pages: &[Placed], size: (u32, u32)) -> Job {
+        Job {
+            width: size.0,
+            height: size.1,
+            pages: pages.to_vec(),
+            overlays: Vec::new(),
+            coverage: raster_gpu::Coverage::Compute,
+            reuse: None,
+        }
+    }
+
+    /// **A zoom step is drawn before the sharp pass of the view it replaced, and the sharp pass
+    /// still comes once the view is still** (ADR 1289).
+    ///
+    /// The owner's report was a zoom gesture that showed a stand-in throughout on a device quick
+    /// enough to draw every step: each step's render waited behind the previous view's sharp
+    /// pass, which the render thread began the moment it was idle and which nothing can take
+    /// back. The shape asserted is the order of what comes back, never a duration: a view change
+    /// sent the instant the first frame lands must be answered by its own frame, and the
+    /// sharpened picture that follows must be of the *new* view.
+    #[test]
+    fn a_zoom_step_is_drawn_before_the_sharp_pass_of_the_view_it_replaced() {
+        let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+            println!("skipped: no adapter on this machine");
+            return;
+        };
+        let size = (800_u32, 1000_u32);
+        let (mut viewer, mut requests) = opened(size);
+        let first = arrangement(&viewer, &mut requests, size);
+        fold(
+            viewer.handle(viewer_core::Command::Zoom {
+                zoom: viewer_core::Zoom::Out,
+                at: None,
+            }),
+            &mut requests,
+        );
+        let second = arrangement(&viewer, &mut requests, size);
+        assert!(
+            !first.is_empty() && !second.is_empty(),
+            "the document shows a page"
+        );
+
+        let link = spawn(renderer, 0, 2, crate::arguments::CoverageChoice::Auto, None);
+        let patience = Duration::from_mins(2);
+        let next = || {
+            link.done
+                .recv_timeout(patience)
+                .expect("the render thread answers")
+        };
+        link.jobs
+            .send(job(&first, size))
+            .expect("the thread is running");
+        let Finished::Frame(landed) = next() else {
+            panic!("the first answer is the frame asked for");
+        };
+        assert!(landed.refused.is_none(), "{:?}", landed.refused);
+        // The step, sent the moment the first frame is in hand — the tightest a gesture can be.
+        link.jobs
+            .send(job(&second, size))
+            .expect("the thread is running");
+        match next() {
+            Finished::Frame(done) => assert!(
+                same_pages(&done.pages, &second),
+                "the frame that answered is of the view asked for"
+            ),
+            Finished::Sharp(_) => panic!(
+                "the previous view's sharp pass was drawn in front of the zoom step that \
+                 replaced it"
+            ),
+            Finished::Page(_) => panic!("no retained page was asked for"),
+        }
+        let Finished::Sharp(sharp) = next() else {
+            panic!("a still view is sharpened");
+        };
+        assert!(
+            same_pages(&sharp.pages, &second),
+            "the sharp pass is of the view that stayed"
+        );
+    }
+
+    /// **A frame that waited behind other work is charged only its own drawing** (ADR 1289).
+    ///
+    /// Rule 5 predicts the next render from this one, and time spent queued behind a pass
+    /// nobody asked for is not something the next render will cost. Two jobs sent together are
+    /// drawn one after the other, so the second waits for the whole of the first — and the span
+    /// [`Landed::drew`] is measured over has to begin after the first has finished.
+    #[test]
+    fn a_frame_that_waited_behind_another_is_charged_only_its_own_drawing() {
+        let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+            println!("skipped: no adapter on this machine");
+            return;
+        };
+        let size = (800_u32, 1000_u32);
+        let (mut viewer, mut requests) = opened(size);
+        let first = arrangement(&viewer, &mut requests, size);
+        fold(
+            viewer.handle(viewer_core::Command::Zoom {
+                zoom: viewer_core::Zoom::Out,
+                at: None,
+            }),
+            &mut requests,
+        );
+        let second = arrangement(&viewer, &mut requests, size);
+        let link = spawn(renderer, 0, 1, crate::arguments::CoverageChoice::Auto, None);
+        let asked = Instant::now();
+        link.jobs
+            .send(job(&first, size))
+            .expect("the thread is running");
+        link.jobs
+            .send(job(&second, size))
+            .expect("the thread is running");
+        let mut frames = Vec::new();
+        while frames.len() < 2 {
+            if let Finished::Frame(done) = link
+                .done
+                .recv_timeout(Duration::from_mins(2))
+                .expect("the render thread answers")
+            {
+                frames.push(done);
+            }
+        }
+        assert!(
+            frames[1].started >= frames[0].finished,
+            "the second began after the first"
+        );
+        assert!(
+            frames[1]
+                .finished
+                .saturating_duration_since(frames[1].started)
+                < frames[1].finished.saturating_duration_since(asked),
+            "what the second is charged excludes the first it waited behind"
+        );
+    }
+
+    #[test]
+    #[ignore = "a measurement on the real adapter; prints what a gesture's refreshes put up"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one simulated event loop, read top to bottom as the tick it models"
+    )]
+    fn a_zoom_gesture_out_counts_what_each_refresh_put_up() {
+        let Ok(renderer) = QuorraWindowRenderer::new_headless() else {
+            eprintln!("no adapter: nothing to measure");
+            return;
+        };
+        let adapter = renderer.adapter_description().to_owned();
+        let path = variable("GESTURE_PDF").map_or_else(
+            || {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../doc/PDF20_AN001-BPC.pdf")
+            },
+            |named| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join(named)
+            },
+        );
+        let every: u32 = variable("GESTURE_EVERY")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4);
+        let notches: u32 = variable("GESTURE_NOTCHES")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6);
+        let supersample: u32 = variable("GESTURE_SUPERSAMPLE")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2);
+        let size = (1200_u32, 1500_u32);
+        let period = Duration::from_micros(8_333);
+
+        let bytes = std::fs::read(&path).expect("the document named is readable");
+        let mut viewer = viewer_core::Viewer::new(size.0, size.1, 1.0);
+        let mut requests = Vec::new();
+        fold(
+            viewer.handle(viewer_core::Command::Open {
+                id: viewer_core::DocumentId(1),
+                bytes: bytes.into(),
+                password: None,
+                fragment: None,
+            }),
+            &mut requests,
+        );
+
+        let link = spawn(
+            renderer,
+            2,
+            supersample,
+            crate::arguments::CoverageChoice::Auto,
+            None,
+        );
+        let mut stale = Stale::default();
+        let mut proxies: crate::stale::Proxies<Arc<wgpu::Texture>> = crate::stale::Proxies::new(2);
+        let mut shown: Option<Vec<Placed>> = None;
+        let mut spare: Option<Pair> = None;
+        let mut in_flight: Option<Instant> = None;
+        let mut lane: Option<raster_gpu::Coverage> = None;
+        let mut puts = Vec::new();
+        let mut first_notch_at: Option<u32> = None;
+        let settle_ticks = 90;
+        let ticks = every * notches + settle_ticks;
+        let began = Instant::now();
+        for tick in 0..ticks {
+            let due = began + period * tick;
+            if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                std::thread::sleep(wait);
+            }
+            let now = Instant::now();
+            let mut landed = String::new();
+            while let Ok(finished) = link.done.try_recv() {
+                match finished {
+                    Finished::Frame(done) => {
+                        // Exactly what `Window::collect` hands `crate::surface`'s `adopt`.
+                        let waited = in_flight.take().map_or(Duration::ZERO, |asked| {
+                            done.finished.saturating_duration_since(asked)
+                        });
+                        let drew = done.finished.saturating_duration_since(done.started);
+                        let built = !matches!(
+                            done.cost.encode_source,
+                            Some(raster_gpu::EncodeSource::Replayed)
+                        );
+                        stale.settled(&done.pages, drew, built);
+                        landed = format!(
+                            "landed: waited {:.1} ms, drawn {:.1} ms",
+                            waited.as_secs_f64() * 1e3,
+                            done.cost.total.as_secs_f64() * 1e3
+                        );
+                        spare = Some(done.textures);
+                        shown = Some(done.pages);
+                    }
+                    Finished::Page(page) => proxies.keep(page),
+                    Finished::Sharp(sharp) => {
+                        landed = format!("{landed} sharp {:.1} ms", sharp.took.as_secs_f64() * 1e3);
+                    }
+                }
+            }
+            // The gesture: a notch every `every` refreshes, after a still start that lets the
+            // launch frame, its sharp pass and the retained pages land.
+            let warm = 60;
+            let notch =
+                tick >= warm && (tick - warm) % every == 0 && (tick - warm) / every < notches;
+            if notch {
+                first_notch_at.get_or_insert(tick);
+                fold(
+                    viewer.handle(viewer_core::Command::Zoom {
+                        zoom: viewer_core::Zoom::Out,
+                        at: None,
+                    }),
+                    &mut requests,
+                );
+            }
+            let pages = arrangement(&viewer, &mut requests, size);
+            let was_out = in_flight.map(|asked| asked.elapsed());
+            let of_this_view = shown.as_ref().is_some_and(|drawn| {
+                drawn.len() == pages.len()
+                    && drawn.iter().zip(&pages).all(|(drawn, asked)| {
+                        Arc::ptr_eq(&drawn.list, &asked.list) && drawn.target == asked.target
+                    })
+            });
+            if !of_this_view && in_flight.is_none() && !pages.is_empty() {
+                let coverage = crate::surface::lane_for(
+                    pages[0].target.transform,
+                    shown
+                        .as_ref()
+                        .and_then(|drawn| Some(drawn.first()?.target.transform)),
+                    lane,
+                    &[],
+                    false,
+                    crate::arguments::CoverageChoice::Auto,
+                );
+                lane = Some(coverage);
+                let job = Job {
+                    width: size.0,
+                    height: size.1,
+                    pages: pages.clone(),
+                    overlays: Vec::new(),
+                    coverage,
+                    reuse: spare.take(),
+                };
+                if link.jobs.send(job).is_ok() {
+                    in_flight = Some(now);
+                }
+            }
+            if !stale.has_rendering() || first_notch_at.is_none() {
+                continue;
+            }
+            let under = proxies.placements(&pages).len();
+            let put = match stale.plan(&pages, under, period, was_out, Standing::Quads) {
+                Plan::Render => Put::Fresh,
+                Plan::Approximate(_) => Put::StoodIn,
+                Plan::Refused(crate::stale::Refusal::InsideTheRefresh { .. }) => Put::Held,
+                Plan::Refused(_) => Put::Refused,
+            };
+            puts.push((tick, notch, put));
+            if notch || put != Put::Fresh || !landed.is_empty() {
+                println!(
+                    "tick {tick:>3}{} {put:?} {landed}",
+                    if notch { " notch" } else { "      " }
+                );
+            }
+        }
+        let count = |what: Put| puts.iter().filter(|(.., put)| *put == what).count();
+        println!(
+            "{adapter}; {notches} notches every {every} refresh(es) at 120 Hz, supersample \
+             {supersample}"
+        );
+        println!(
+            "refreshes from the first notch on: {} a rendering of the view asked for, {} stood in, \
+             {} held the picture already up, {} refused",
+            count(Put::Fresh),
+            count(Put::StoodIn),
+            count(Put::Held),
+            count(Put::Refused)
+        );
+        // How long after each notch the first rendering of *its* view was put up.
+        let mut after = Vec::new();
+        let notch_ticks: Vec<u32> = puts
+            .iter()
+            .filter(|(_, notch, _)| *notch)
+            .map(|(t, ..)| *t)
+            .collect();
+        for (at, next) in notch_ticks
+            .iter()
+            .zip(notch_ticks.iter().skip(1).map(Some).chain([None]))
+        {
+            let fresh = puts
+                .iter()
+                .find(|(t, _, put)| t >= at && next.is_none_or(|n| t < n) && *put == Put::Fresh);
+            after.push(fresh.map(|(t, ..)| t - at));
+        }
+        println!(
+            "refreshes from each notch to a rendering of its view (None: never before the next notch): {after:?}"
+        );
     }
 }

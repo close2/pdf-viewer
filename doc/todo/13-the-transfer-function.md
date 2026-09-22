@@ -33,11 +33,12 @@ itself states.
 (ADR 0570): a mark the clause does not call fully opaque is never the object whose function it
 chooses, anywhere, so it is handed the page's default — which is a per-object rule, and the
 "rasteriser change" this file priced was a price for two things at once. That half is implemented
-and §11.7.5.2 is `partial`. **The overlap below is closed too** — the channel carries every mark's
-function to the backends, which map the finished pixel once — and **two paints are owed here now**:
-a shading pattern's, whose ramp is still sampled under the function, and a tiling cell's, which is
-interpreted once and copied to every site. ADR 1255 designs the first and prices the second.
-Priority: 13 — a defect: a wrong picture with nothing said about it
+and the overlap below is closed too — the channel carries every mark's function to the backends,
+which map the finished pixel once. **Nothing is owed here now**: both paints ride the channel (ADR
+1266), every mark states §11.6.4.2's shape to it — a stencil under a soft mask of its own included —
+and §11.7.5.2's overprinting paragraph is read (ADR 1279), so §10.5 and §11.7.5.2 are both
+`implemented`. The file stays because `CLAUDE.md` points at its reading of §10.5.
+Priority: 13 — done; kept as the reading `CLAUDE.md` cites
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, how
 many paint a shading on a page that states one, and — since the six-hundred-and-seventy-seventh —
@@ -231,7 +232,7 @@ sessions before §10.4.2.5 turned out to answer it outright.
 - **Measured in the three-hundred-and-fifty-eighth session, by the census this bullet asked for**:
   `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
 
-## What is still owed: §11.7.5.2's *last* shape, which really does need a point
+## §11.7.5.2's *last* shape, which really did need a point
 
 **Found in the six-hundred-and-thirty-second session, reading the ledger's unread rows.** §11.7.5.2
 was `inapplicable` on an argument the clause does not make. Its rule is not about two functions
@@ -251,7 +252,7 @@ constant below 1.0, a blend mode other than Normal, a soft mask, an image XObjec
 `/SMask`, the same four at the enclosing `Do`s, and the same again for every object in a tiling
 pattern's cell — decide which marks the first sentence hands a function to.
 
-**Three pieces of work, in this order. The first two are done; the third is what this file owes.**
+**Three pieces of work, in this order, and all three are done.**
 
 1. **The report — built in the six-hundred-and-thirty-seventh.** `Unsupported::TransferFunction`,
    on a condition derived from the clause rather than approximated from the code. The *ancestry*
@@ -371,13 +372,16 @@ pattern's cell — decide which marks the first sentence hands a function to.
    six-hundred-and-fifty-fifth session and the code did not. `Interpreter::record_tiling` puts the
    mark's function on every tile of the finished tiling as one run.
 
-   **What is left is one shape and it is ADR 1218's pair**: `SampleAlpha::Both`, a stencil under an
-   `/SMask` of its own, whose single alpha channel is §11.6.4.2's shape multiplied by §11.6.4.3's
-   opacity and cannot be separated again, so such an image occludes only where its mask is non-zero
-   where the clause gives it the whole rectangle. `Interpreter::note_unstatable_shape` names it,
-   asked at `draw_image` rather than at `draw_mark` because a never-taken branch in the latter cost
-   0.12% of an interpretation of page 101 and the same test at the former costs 0.002% (ADR 1266
-   section 6).
+   **The last shape is stated too, and the report is gone** (ADR 1279). `SampleAlpha::Both`, a
+   stencil under an `/SMask` of its own, reaches every command as a pair — the stencil's samples
+   beside the opacity — on every route: the device-scale one ADR 1218 built, an `/SMask` that route
+   declines, which is decoded eagerly and carried as a plane rather than multiplied in, and an
+   `/SMaskInData` opacity, read out of the codestream into a plane of its own. So the channel reads
+   the stencil's painted areas as the shape, which is what §11.6.4.2 says it is, and nothing is left
+   for `Unsupported::TransferFunction` to name; the variant is deleted rather than kept unreachable.
+   §11.7.5.2's last paragraph, on overprinting, is read in the same ADR: a mark whose §11.7.4.3
+   special mode keeps a backdrop component is opaque for none of this device's three components and
+   takes the page's default.
 
    **The build's pricing was corrected in the one-thousand-one-hundred-and-thirty-seventh session,
    and the "matching pass in all three backends" above is where it was wrong.** `render-raster` is
@@ -398,16 +402,12 @@ pattern's cell — decide which marks the first sentence hands a function to.
    does and that the two *agree* on it, so the witness flips both backends together when the carrier
    lands.
 
-**The population, measured rather than assumed**, and it is why this is a `doc/todo` entry rather
-than a round's work: run `examples/transfer_function_census` over `doc/pdf.js` and over the SafeDocs
+**The population, measured rather than assumed**, and it is why every step above was defended by a
+fixture rather than by the corpus: run `examples/transfer_function_census` over `doc/pdf.js` and over the SafeDocs
 crawl. One document of the first states a function that is not `/Identity` or `/Default`, and it
-draws its one image fully opaque; the corpus gate raises no `TransferFunction` report at all. **Zero
-corpus pages are drawn wrong by what is left.** A round that changes it therefore has no oracle
-witness and owes a fixture (trap 8) — `tests/transfer_functions.rs` is where the existing ones are,
-each with its mutation. What makes the deferral honest is that the *reason* is a measurement rather
-than a claim about the clause, so a document that turns up painting a translucent mark over a
-transferred opaque one moves this straight to the top — and since the six-hundred-and-thirty-seventh
-such a document says so out loud instead of being drawn wrong in silence.
+draws its one image fully opaque. A round that changes any of it therefore has no oracle witness and
+owes a fixture (trap 8) — `tests/transfer_functions.rs` is where the existing ones are, each with its
+mutation.
 
 ## Closed in the six-hundred-and-sixtieth: the pattern whose colours were resolved before the mark
 

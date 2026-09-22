@@ -6220,6 +6220,32 @@ fn a_packet_this_tree_cannot_read_is_replaced_only_with_authorisation() {
 }
 
 #[test]
+fn keep_everything_keeps_an_unreadable_packet_on_a_page_at_a_part_two_target() {
+    // The shipped profile's own rows rather than a test's: at PDF/A-2b the attachment its order
+    // prefers is not admitted — ISO 19005-2 section 6.8 holds only PDF/A files — so the row that
+    // answers is the page one, and the output has to validate (`doc/adr/1245`).
+    let source = a_document_carrying(a_packet_that_will_not_parse(), String::new());
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Configured { rewrite, .. } =
+        decision(&report, "metadata/xmp-packets-well-formed")
+    else {
+        panic!("the profile's preserve answers the site");
+    };
+    assert_eq!(rewrite, Rewrite::FreshMetadataPacket);
+    let output = output.expect("a fresh packet is written and the original kept");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    assert!(
+        conversion(&report)
+            .preserved
+            .iter()
+            .any(|row| row.site == "metadata/xmp-packets-well-formed"),
+        "the producer's packet went onto an appended page"
+    );
+}
+
+#[test]
 fn a_packet_this_tree_cannot_read_is_kept_on_a_page_when_the_configuration_asks() {
     // `doc/pdf-a-mitigations.md` section 9's third route, which nobody had written down: write a
     // fresh conforming packet and keep the original. `doc/adr/1014`'s appended page is where the
@@ -9301,6 +9327,444 @@ fn an_annotation_whose_flags_the_parts_admit_is_not_removed() {
     assert!(
         !held.get_key(&page.dict, "Annots").is_null(),
         "so the annotation is still on the page"
+    );
+}
+
+/// The shipped `keep-everything` profile, read as an operator installs it.
+fn keep_everything() -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/profiles/keep-everything.toml");
+    std::fs::read_to_string(&path).expect("the shipped profile is readable")
+}
+
+/// A part 2 page carrying one annotation with the flags and appearance dictionary a test wants.
+fn a_part_two_annotation_stating(flags: &str, appearance: &str) -> Vec<u8> {
+    let marks = b"0 0 40 40 re f\n";
+    Conforming {
+        page: "/Annots [6 0 R]".to_owned(),
+        objects: vec![format!(
+            "<< /Type /Annot /Subtype /Square /Rect [20 30 60 70] /F {flags} /AP {appearance} >>"
+        )],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 40 40] /Length {}",
+                marks.len()
+            ),
+            marks,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn keep_everything_shows_an_annotation_its_producer_hid_and_the_output_validates() {
+    // ISO 19005-2 section 6.3.2 requires the Print flag set and Hidden, Invisible, NoView and
+    // ToggleNoView clear. `doc/pdf-a-conversion-limits.md` section 3.7's second future is showing
+    // the annotation, and `preserve` at the site is how a configuration chooses it
+    // (`doc/adr/1285`). §12.5.3's Table 167 makes 2 the Hidden bit, 4 Print and 64 ReadOnly, so
+    // /F 66 is Hidden and ReadOnly with Print clear, and the value written keeps ReadOnly:
+    // (66 | 4) with 2 cleared is 68.
+    let source = a_part_two_annotation_stating("66", "<< /N 7 0 R >>");
+    let target = Target::Two(Level::B);
+    let row = "annotations/printable-and-visible";
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == row),
+        "the fixture fails the flag rule before anything is converted"
+    );
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!("the profile's preserve answers the site");
+    };
+    assert_eq!(rewrite, Rewrite::HiddenAnnotationShown);
+    let output = output.expect("the annotation is shown and the file is written");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "the validator is the converter's oracle"
+    );
+    let shown = &conversion(&report).shown_annotations;
+    assert_eq!(shown.len(), 1, "one annotation was shown: {shown:?}");
+    assert_eq!((shown[0].stated, shown[0].written), (66, 68));
+    assert!(
+        conversion(&report).removed_annotations.is_empty(),
+        "and nothing was removed"
+    );
+
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    let annotations = held.get_key(&page.dict, "Annots");
+    let annotation = annotations
+        .as_array()
+        .and_then(|listed| listed.first())
+        .and_then(pdf_syntax::Object::as_reference)
+        .expect("the annotation is still on the page");
+    assert_eq!(
+        held.get_key_of(annotation, "F"),
+        Some(pdf_syntax::Object::Integer(68))
+    );
+}
+
+#[test]
+fn a_preserve_at_the_flag_site_with_a_placement_is_an_error_naming_it() {
+    // `doc/adr/1285`: at this site the word is the whole answer, so a placement key would be one
+    // this converter read and ignored.
+    let text = "[site.\"annotations/printable-and-visible\"]\nremedy = \"preserve\"\n\
+                placement = \"append\"\n";
+    let error = pdf_transform::archive::Configuration::read(text, Target::Two(Level::B))
+        .expect_err("a placement here is not built");
+    assert!(error.to_string().contains("placement"), "{error}");
+}
+
+/// A part 2 page drawing one form `XObject` that names a page of another file through `/Ref`.
+fn a_reference_xobject() -> Vec<u8> {
+    let proxy = b"0 0 50 50 re f\n";
+    Conforming {
+        resources: "/XObject << /X 6 0 R >>".to_owned(),
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /XObject /Subtype /Form /BBox [0 0 50 50] \
+                 /Ref << /F (imported.pdf) /Page 0 >> /Length {}",
+                proxy.len()
+            ),
+            proxy,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn keep_everything_keeps_a_reference_xobjects_proxy_and_the_output_validates() {
+    // ISO 19005-2 section 6.2.9.2 forbids a reference XObject; §8.10.4.1 makes the form "serve as
+    // a proxy that should be processed by a PDF processor when the referenced content is not
+    // available". So the entry goes, the form stays, and the report names what it pointed at.
+    let source = a_reference_xobject();
+    let target = Target::Two(Level::B);
+    let row = "graphics/no-reference-xobjects";
+    assert!(
+        holds(&source, target)
+            .failures()
+            .any(|failed| failed.id == row),
+        "the fixture fails the rule before anything is converted"
+    );
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(
+        output.is_none(),
+        "with no configuration the site is refused"
+    );
+    assert!(matches!(decision(&report, row), Decision::Refused(_)));
+
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!("the profile's preserve answers the site");
+    };
+    assert_eq!(rewrite, Rewrite::ReferenceXObjectProxied);
+    let output = output.expect("the proxy is kept and the file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let proxied = &conversion(&report).proxied_references;
+    assert_eq!(proxied.len(), 1, "{proxied:?}");
+    assert_eq!(proxied[0].file.as_deref(), Some("imported.pdf"));
+    assert_eq!(proxied[0].page.as_deref(), Some("0"));
+
+    // The form is still drawn, with the producer's own proxy bytes.
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("the output opens");
+    let pages = pdf_model::Pages::new(&held);
+    let page = pages.get(0).expect("the one page");
+    let resources = held.get_key(&page.dict, "Resources");
+    let xobjects = resources
+        .as_dict()
+        .map(|dict| held.get_key(dict, "XObject"))
+        .expect("the page's resources");
+    let form = xobjects
+        .as_dict()
+        .and_then(|dict| dict.get("X"))
+        .and_then(pdf_syntax::Object::as_reference)
+        .expect("the form is still a resource");
+    let pdf_syntax::Object::Stream(form) = held.get(form) else {
+        panic!("the form is a stream");
+    };
+    assert!(form.dict.get("Ref").is_none(), "the pointer went");
+    assert_eq!(
+        held.get_key(&form.dict, "Subtype"),
+        pdf_syntax::Object::Name(pdf_syntax::object::Name::new(&b"Form"[..]))
+    );
+}
+
+/// A part 2 page showing text, in rendering mode 3, through a composite font naming `cmap`.
+///
+/// Mode 3 because ISO 19005-2 section 6.2.11.4.1's NOTE 2 exempts a font used only there from
+/// being embedded, so the only requirement the fixture's font fails is the `CMap` one it is about.
+/// The descendant describes Adobe-Japan1 at `supplement`.
+fn a_composite_font_naming(cmap: &str, supplement: u32) -> Vec<u8> {
+    Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT 3 Tr /F1 12 Tf 10 100 Td <00003042> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /KozMinPr6N-Regular /Encoding /{cmap} \
+                 /DescendantFonts [8 0 R] >>"
+            ),
+            "<< /Type /FontDescriptor /FontName /KozMinPr6N-Regular /Flags 4 \
+             /FontBBox [-437 -340 1147 1317] /ItalicAngle 0 /Ascent 880 /Descent -120 \
+             /CapHeight 742 /StemV 80 >>"
+                .to_owned(),
+            format!(
+                "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /KozMinPr6N-Regular \
+                 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement {supplement} >> \
+                 /FontDescriptor 7 0 R /DW 1000 >>"
+            ),
+        ],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+/// The `CMap` a converted document's one composite font names, as its output holds it.
+fn encoding_of_the_font(bytes: Vec<u8>) -> pdf_syntax::Object {
+    let held = Document::open_with_limits(bytes, Limits::DEFAULT).expect("the output opens");
+    let font = font_resource(&held);
+    held.get_key(&font, "Encoding")
+}
+
+#[test]
+fn keep_everything_embeds_a_published_cmap_the_file_names_and_the_output_validates() {
+    // ISO 19005-2 section 6.2.11.3.3 requires a CMap off the base standard's list to be embedded.
+    // `UniJIS-UTF32-H` is Adobe's, published and carried in `data/cmaps`, and builds on nothing,
+    // so its program is the mapping the name meant and §9.7.5.3's stream is written from it
+    // unchanged (`doc/adr/1286`).
+    let source = a_composite_font_naming("UniJIS-UTF32-H", 7);
+    let target = Target::Two(Level::B);
+    let row = "fonts/cmap-embedded-or-predefined";
+    let before: Vec<&str> = holds(&source, target)
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert_eq!(
+        before,
+        vec![row],
+        "the fixture fails the CMap rule and nothing else"
+    );
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(
+        output.is_none(),
+        "with no configuration the site is refused"
+    );
+    assert!(matches!(decision(&report, row), Decision::Refused(_)));
+
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!(
+            "the profile's preserve answers the site: {:?}",
+            decision(&report, row)
+        );
+    };
+    assert_eq!(rewrite, Rewrite::ShippedCMapEmbedded);
+    let output = output.expect("the CMap is embedded and the file is written");
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "the validator is the converter's oracle: {:?}",
+        holds(&output, target)
+            .failures()
+            .map(|failed| failed.id)
+            .collect::<Vec<_>>()
+    );
+    let embedded = &conversion(&report).embedded_cmaps;
+    assert_eq!(embedded.len(), 1, "{embedded:?}");
+    assert_eq!(embedded[0].name, "UniJIS-UTF32-H");
+
+    let pdf_syntax::Object::Stream(cmap) = encoding_of_the_font(output.clone()) else {
+        panic!("the font's Encoding is now a stream");
+    };
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let program = held.decoded_stream_data(&cmap).expect("the stream decodes");
+    assert_eq!(
+        program.as_ref(),
+        pdf_font::predefined::program("UniJIS-UTF32-H")
+            .expect("the published program")
+            .as_slice(),
+        "the program is Adobe's, byte for byte, its copyright notice with it"
+    );
+    assert_eq!(
+        held.get_key(&cmap.dict, "CMapName"),
+        pdf_syntax::Object::Name(pdf_syntax::object::Name::new(&b"UniJIS-UTF32-H"[..]))
+    );
+}
+
+#[test]
+fn a_published_cmap_is_not_embedded_under_a_font_whose_collection_it_does_not_describe() {
+    // ISO 19005-2 section 6.2.11.3.1 holds an embedded CMap and its CIDFont to one character
+    // collection, the font's supplement at least the CMap's. `UniJIS-UTF32-H` states Adobe-Japan1
+    // supplement 7, so under a descendant stating 6 the embedding would fail there instead — and
+    // the refusal names why rather than writing a file the validator then rejects.
+    let source = a_composite_font_naming("UniJIS-UTF32-H", 6);
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "nothing is written");
+    let Decision::Refused(because) = decision(&report, "fonts/cmap-embedded-or-predefined") else {
+        panic!("refused by name");
+    };
+    assert!(
+        because.sentence().contains("6.2.11.3.1"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn a_published_cmap_that_builds_on_an_unlisted_one_is_not_embedded() {
+    // The clause's second sentence: a CMap references only CMaps on the list. `UniJIS-UTF32-V`'s
+    // program builds on `UniJIS-UTF32-H`, which is not on it, so embedding it would write a
+    // reference the clause forbids.
+    let source = a_composite_font_naming("UniJIS-UTF32-V", 7);
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert!(output.is_none(), "nothing is written");
+    let Decision::Refused(because) = decision(&report, "fonts/cmap-embedded-or-predefined") else {
+        panic!("refused by name");
+    };
+    assert!(
+        because.sentence().contains("usecmap"),
+        "{}",
+        because.sentence()
+    );
+}
+
+#[test]
+fn shipped_cmaps_at_the_chain_site_is_an_error_naming_why() {
+    // `doc/adr/1286`: at `fonts/cmap-uses-only-predefined-cmaps` the embedded CMap already
+    // references one off the list, and embedding that one leaves the reference in place.
+    let text = "[site.\"fonts/cmap-uses-only-predefined-cmaps\"]\nremedy = \"preserve\"\n\
+                source = \"shipped-cmaps\"\n";
+    let error = pdf_transform::archive::Configuration::read(text, Target::Two(Level::B))
+        .expect_err("the answer cannot be carried out");
+    assert!(error.to_string().contains("6.2.11.3.3"), "{error}");
+}
+
+/// A part 2 page whose composite font embeds a `CMap` stating `WMode` 0 in its program and 1 in
+/// its dictionary, shown in rendering mode 3 for [`a_composite_font_naming`]'s reason.
+fn a_cmap_whose_two_write_modes_disagree() -> Vec<u8> {
+    let program = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+        /CIDSystemInfo 3 dict dup begin\n/Registry (Adobe) def\n/Ordering (Japan1) def\n\
+        /Supplement 0 def\nend def\n/CMapName /Test-H def\n/CMapType 1 def\n/WMode 0 def\n\
+        1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+        1 begincidrange\n<0000> <FFFF> 0\nendcidrange\nendcmap\n\
+        CMapName currentdict /CMap defineresource pop\nend\nend\n";
+    Conforming {
+        resources: "/Font << /F1 6 0 R >>".to_owned(),
+        contents: Some((
+            String::new(),
+            b"BT 3 Tr /F1 12 Tf 10 100 Td <0001> Tj ET".to_vec(),
+        )),
+        objects: vec![
+            "<< /Type /Font /Subtype /Type0 /BaseFont /KozMinPr6N-Regular /Encoding 9 0 R \
+             /DescendantFonts [8 0 R] >>"
+                .to_owned(),
+            "<< /Type /FontDescriptor /FontName /KozMinPr6N-Regular /Flags 4 \
+             /FontBBox [-437 -340 1147 1317] /ItalicAngle 0 /Ascent 880 /Descent -120 \
+             /CapHeight 742 /StemV 80 >>"
+                .to_owned(),
+            "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /KozMinPr6N-Regular \
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 0 >> \
+             /FontDescriptor 7 0 R /DW 1000 >>"
+                .to_owned(),
+        ],
+        binary_objects: vec![stream(
+            &format!(
+                "/Type /CMap /CMapName /Test-H /CIDSystemInfo << /Registry (Adobe) \
+                 /Ordering (Japan1) /Supplement 0 >> /WMode 1 /Length {}",
+                program.len()
+            ),
+            program,
+        )],
+        ..Conforming::part_two()
+    }
+    .build()
+}
+
+#[test]
+fn keep_everything_makes_a_cmaps_dictionary_state_its_programs_write_mode() {
+    // ISO 19005-2 section 6.2.11.3.3: an embedded CMap's dictionary WMode is the value its program
+    // states. The two disagree here and the file does not say which is the mistake, so it is the
+    // operator's to state; `keep-everything` says `write-mode = "program"` (`doc/adr/1286`).
+    let source = a_cmap_whose_two_write_modes_disagree();
+    let target = Target::Two(Level::B);
+    let row = "fonts/embedded-cmap-states-its-own-write-mode";
+    let before: Vec<&str> = holds(&source, target)
+        .failures()
+        .map(|failed| failed.id)
+        .collect();
+    assert_eq!(
+        before,
+        vec![row],
+        "the fixture fails the write-mode rule and nothing else"
+    );
+
+    let plan = plan_from(&keep_everything(), target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let Decision::Configured { rewrite, .. } = decision(&report, row) else {
+        panic!(
+            "the profile's supply answers the site: {:?}",
+            decision(&report, row)
+        );
+    };
+    assert_eq!(rewrite, Rewrite::WriteModeAgreed);
+    let output = output.expect("the file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let pdf_syntax::Object::Stream(cmap) = encoding_of_the_font(output) else {
+        panic!("the font still names its embedded CMap");
+    };
+    assert_eq!(
+        cmap.dict.get("WMode"),
+        Some(&pdf_syntax::Object::Integer(0))
+    );
+    assert!(
+        conversion(&report)
+            .supplied
+            .iter()
+            .any(|fact| fact.site == row && fact.value.contains("program's 0")),
+        "the report says whose statement it was"
+    );
+}
+
+#[test]
+fn write_mode_stream_restates_the_programs_own_entry_and_the_output_validates() {
+    // The other answer: the dictionary's 1 stands, and the program's `/WMode 0 def` becomes
+    // `/WMode 1 def` — one digit of the producer's bytes, every other byte theirs.
+    let source = a_cmap_whose_two_write_modes_disagree();
+    let target = Target::Two(Level::B);
+    let text = "[site.\"fonts/embedded-cmap-states-its-own-write-mode\"]\nremedy = \"supply\"\n\
+                write-mode = \"stream\"\n";
+    let plan = plan_from(text, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the file is written");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let pdf_syntax::Object::Stream(cmap) = encoding_of_the_font(output.clone()) else {
+        panic!("the font still names its embedded CMap");
+    };
+    let held = Document::open_with_limits(output, Limits::DEFAULT).expect("it opens");
+    let program = held.decoded_stream_data(&cmap).expect("it decodes");
+    let program = String::from_utf8_lossy(&program);
+    assert!(program.contains("/WMode 1 def"), "{program}");
+    assert!(!program.contains("/WMode 0 def"));
+    assert!(
+        conversion(&report)
+            .supplied
+            .iter()
+            .any(|fact| fact.value.contains("dictionary's 1"))
     );
 }
 

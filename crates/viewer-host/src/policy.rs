@@ -420,6 +420,43 @@ pub fn read_chosen(pathname: &str) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
 
+/// The document a **person** chose or named, held open where the core reads it.
+///
+/// Every route by which a reader asks for a document ends here: a file dialogue in a window, a
+/// typed path, a second path on a command line. It is the one place those paths become bytes, so
+/// that `CLAUDE.md`'s four levels and `doc/todo/38`'s controls attach to a single function rather
+/// than to three windows' key handlers — [`may_choose_file`]'s argument, for the chooser that opens
+/// a document rather than the one that fills a field (ADR 1275).
+///
+/// **Taken as given, which is [`read_chosen`]'s rule and not [`read_import`]'s**: the path is the
+/// reader's own, so it is not confined to anybody's directory. What is refused is what this
+/// program cannot open — a path that names nothing, or names something that is not a regular file —
+/// and it is refused here, by name, rather than as a parser's complaint about the bytes of a
+/// directory. No size bound, and the difference from [`CHOSEN_FILE_LIMIT`] is where the bytes go:
+/// a document is opened on disk and read where its offsets point (ADR 0809), so its size is not
+/// what this process holds.
+///
+/// Opening a document is no restriction any document asserts — Table 22's `/P` is about what may
+/// be done to a document once it is open, and §12.11.6's requirements are asked by
+/// `viewer_core::Viewer` as the document opens, under the window's levels.
+///
+/// # Errors
+///
+/// The sentence to say to the person: the path names nothing, names something that is not a
+/// file, or names one this process may not open.
+pub fn open_chosen(path: &Path) -> Result<pdf_syntax::FileBytes, String> {
+    let stated = std::fs::metadata(path)
+        .map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+    if !stated.is_file() {
+        return Err(format!(
+            "{} is not a file, so there is no document to open",
+            path.display()
+        ));
+    }
+    pdf_syntax::FileBytes::on_disk(path)
+        .map_err(|error| format!("cannot open {}: {error}", path.display()))
+}
+
 /// Which clause asked for a file, in the word a host prints in front of its sentence.
 ///
 /// **One function rather than a literal at each call site**, for the reason [`refused`] records:

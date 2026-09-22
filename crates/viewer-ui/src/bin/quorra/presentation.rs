@@ -148,6 +148,9 @@ impl App {
         if !chrome.other_windows {
             self.panel.shown = false;
             self.about.shown = false;
+            if self.opener.shown {
+                self.opener.toggle();
+            }
             if self.find.shown {
                 self.find.toggle();
                 self.pages_left = 0;
@@ -337,7 +340,7 @@ impl App {
     /// [`viewer_core::transition`] — so it draws at the identity transform where a page draws
     /// through its own placement.
     /// **The frame is handed over in an `Arc` because that is the identity the presenter reuses
-    /// a scene by** (ADR 0351): `render_raster::PresentFrame::page` pins what it is given, so a
+    /// a scene by** (ADR 0351): `render_raster::PresentFrame::pages` pins what it is given, so a
     /// display list drawn once and dropped cannot have its address recycled under the entry
     /// keyed on it. A transition frame is a fresh list on every frame of the animation, so each
     /// one is a fresh `Arc` and each one rebuilds — which is what a moving picture is.

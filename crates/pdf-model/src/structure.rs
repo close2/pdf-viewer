@@ -4789,7 +4789,7 @@ pub fn document_language(document: &Document) -> Option<String> {
 /// **Public because a second reader needs the same test and may not have a second grammar.**
 /// ISO 19005-2 section 6.7.4's only `shall` is that a `/Lang` which is present be a language
 /// identifier as §14.9.2 defines, and `crates/pdf-archive` judges that for a *structure element*
-/// and a marked-content property list where [`Tree::document_language`] answers only for the
+/// and a marked-content property list where [`document_language`] answers only for the
 /// catalog. Duplicating ninety lines of RFC 5646 ABNF and the grandfathered list into that crate
 /// would give this project two grammars to keep in step, and would contradict `pdf-archive`'s own
 /// design, which is to add no reader of its own.

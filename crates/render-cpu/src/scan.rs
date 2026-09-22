@@ -501,7 +501,7 @@ pub(crate) fn fill_rectangles(
 ///   the source where it applies a path's coverage by interpolating towards the destination.
 ///   The two agree for every mode whose result has Porter-Duff's form — scaling a premultiplied
 ///   source by `c` and interpolating the blend by `c` are the same function there, which is
-///   what `BlendMode::should_pre_scale_coverage` says of the modes it names and what the
+///   what `tiny_skia::BlendMode::should_pre_scale_coverage` says of the modes it names and what the
 ///   algebra says of the rest — and they part for Source, where the destination does not enter
 ///   the result at all. §11.4.6's knockout is the one place this backend states that mode.
 fn intersected(

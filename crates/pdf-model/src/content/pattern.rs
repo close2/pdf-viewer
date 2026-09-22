@@ -148,8 +148,8 @@ impl PatternInitial {
 
     /// Whether §8.6.5.9's black point compensation applies to the colours built under this.
     ///
-    /// The same combination [`GraphicsState::black_point`] makes, for the same reason: the clause
-    /// states the override over an object's intent rather than over the entry.
+    /// The same combination [`GraphicsState::black_point_under`] makes, for the same reason: the
+    /// clause states the override over an object's intent rather than over the entry.
     fn black_point(&self) -> BlackPoint {
         if self.intent == Intent::Absolute {
             return BlackPoint::Off;
@@ -1479,10 +1479,10 @@ impl Interpreter<'_> {
         // constants §11.7.5.2's first condition reads.
         let transfer = self.mark_transfer(state, Painted::Shading { stroking: false });
         let conversion = self.conversion(state);
-        // `None`: §11.7.5.3's NOTE puts §10.5's values "only when all colour compositing has
-        // been completed and rasterization is being performed", so the ramp is sampled raw and
-        // the function rides on the mark below (ADR 1266).
-        let colouring = crate::shading::Colouring::new(state.smoothness, &conversion, None);
+        // §11.7.5.3's NOTE puts §10.5's values "only when all colour compositing has been
+        // completed and rasterization is being performed", so the ramp is sampled raw and the
+        // function rides on the mark below (ADR 1266).
+        let colouring = crate::shading::Colouring::new(state.smoothness, &conversion);
         match self.shadings.build(
             self.document,
             &object,
@@ -1790,14 +1790,10 @@ impl Interpreter<'_> {
             &definition.object,
             &definition.resources,
             definition.transform,
-            crate::shading::Colouring::new(
-                definition.initial.smoothness,
-                &colouring.conversion,
-                // §11.7.5.3's NOTE: §10.5's values "are used only when all colour compositing
-                // has been completed and rasterization is being performed", so no colour built
-                // here carries one and §11.7.5.2's channel maps the device pixel (ADR 1266).
-                None,
-            ),
+            // §11.7.5.3's NOTE: §10.5's values "are used only when all colour compositing has
+            // been completed and rasterization is being performed", so no colour built here
+            // carries one and §11.7.5.2's channel maps the device pixel (ADR 1266).
+            crate::shading::Colouring::new(definition.initial.smoothness, &colouring.conversion),
         )?;
         // Raised here rather than at one of the two callers because both of them paint: the
         // `scn` builds the colours and every later mark rebuilds them, and a mesh the bound cut

@@ -147,10 +147,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
         let texel = vec2i(clamp(floor(tex_uv * dims), vec2f(0.0), dims - vec2f(1.0)));
         sample = textureLoad(image_tex, texel, 0);
     }
-    // Straight-alpha samples premultiply here (§3: premultiplied internally); the
-    // constant alpha (§11.6.4.4), the soft mask (§11.6.4.3) and the image's own alpha
-    // are opacity, so all three multiply into the source alpha and none into `shape`.
-    return vec4f(sample.rgb * sample.a, sample.a) * (shape * params.inv1.z * soft_mask_at(p));
+    // The texture is premultiplied at realisation (`device::textures::premultiplied`),
+    // so the linear filter above never lends a transparent texel's colour to its
+    // neighbours. The constant alpha (§11.6.4.4), the soft mask (§11.6.4.3) and the
+    // image's own alpha are opacity, so all three scale the premultiplied source and
+    // none enters `shape`.
+    return sample * (shape * params.inv1.z * soft_mask_at(p));
 }
 
 // The knockout erase pass wants the shape alone (§11.4.6 with ADR 0010's algebra).

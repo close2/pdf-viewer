@@ -115,7 +115,7 @@ fn page(mode: u8, descriptor: &str) -> pdf_model::Interpretation {
 /// The top and bottom edge of a placement's box, in default user space.
 ///
 /// The fixture's text is unrotated, so the quadrilateral's first corner is its lower left and
-/// its third its upper right (`content::glyph_quad`).
+/// its third its upper right (`content::text::glyph_quad`).
 fn edges(placed: &Placed) -> (f32, f32) {
     (placed.quad[5], placed.quad[1])
 }

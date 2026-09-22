@@ -578,6 +578,24 @@ pub struct Conversion {
     /// intersection with the media box. Empty for every conversion whose pages met the limit
     /// (`doc/adr/1210`).
     pub removed_boundaries: Vec<super::RemovedBoundary>,
+    /// Every annotation this conversion kept on its page and showed, rather than removing it.
+    ///
+    /// ISO 19005-2 section 6.3.2's other future, reached by `preserve` at the flag site: the page
+    /// now carries a mark its producer kept off the screen or off paper, and each row names the
+    /// flags it had and the flags it has (`doc/adr/1285`).
+    pub shown_annotations: Vec<super::ShownAnnotation>,
+    /// Every reference `XObject` whose `Ref` entry this conversion removed, keeping its proxy.
+    ///
+    /// ISO 19005-2 section 6.2.9.2, answered with `preserve`: what goes is a pointer to a page of
+    /// another file, and nothing in the output says it was there, so each row names the file and
+    /// the page (`doc/adr/1285`).
+    pub proxied_references: Vec<super::ProxiedReference>,
+    /// Every `CMap` this conversion embedded from Adobe's published programs.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.3, answered with `preserve`: the mapping is the one the name
+    /// meant, and the bytes are Adobe's under the licence their own header carries, so the report
+    /// names which font now holds which program (`doc/adr/1286`).
+    pub embedded_cmaps: Vec<super::EmbeddedCMap>,
     /// Every font this conversion embedded a face for, with what was asked for and what was used.
     ///
     /// `doc/pdf-a-conversion-limits.md` section 4.9's condition, in its own words: report per
@@ -728,6 +746,33 @@ impl Conversion {
                     self.removed_boundaries
                         .iter()
                         .map(boundary_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "shown_annotations".to_owned(),
+                Value::Array(
+                    self.shown_annotations
+                        .iter()
+                        .map(super::ShownAnnotation::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "embedded_cmaps".to_owned(),
+                Value::Array(
+                    self.embedded_cmaps
+                        .iter()
+                        .map(super::EmbeddedCMap::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "proxied_reference_xobjects".to_owned(),
+                Value::Array(
+                    self.proxied_references
+                        .iter()
+                        .map(super::ProxiedReference::to_json)
                         .collect(),
                 ),
             ),
@@ -1133,6 +1178,60 @@ impl Conversion {
                     } else {
                         "drew nothing of its own"
                     }
+                );
+            }
+        }
+        if !self.shown_annotations.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} annotation(s) its producer hid or kept off paper are shown instead of \
+                 removed, each with the Print flag set and the four ISO 19005 forbids clear:",
+                self.shown_annotations.len()
+            );
+            for shown in &self.shown_annotations {
+                let _ = writeln!(
+                    out,
+                    "      a {} annotation on page {}, whose F was {} and is {}",
+                    shown.subtype,
+                    shown.page.saturating_add(1),
+                    shown.stated,
+                    shown.written
+                );
+            }
+        }
+        if !self.embedded_cmaps.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} CMap(s) embedded from Adobe's published programs, byte for byte, their \
+                 copyright notice with them:",
+                self.embedded_cmaps.len()
+            );
+            for embedded in &self.embedded_cmaps {
+                let _ = writeln!(
+                    out,
+                    "      {} for the font in object {} {}",
+                    embedded.name, embedded.font.number, embedded.font.generation
+                );
+            }
+        }
+        if !self.proxied_references.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {} reference XObject(s) keep the proxy their producer drew and no longer name \
+                 a page of another file:",
+                self.proxied_references.len()
+            );
+            for proxied in &self.proxied_references {
+                let _ = writeln!(
+                    out,
+                    "      object {} {}, which named page {} of {}",
+                    proxied.at.number,
+                    proxied.at.generation,
+                    proxied.page.as_deref().unwrap_or("(none stated)"),
+                    proxied
+                        .file
+                        .as_deref()
+                        .unwrap_or("a file it did not name readably")
                 );
             }
         }

@@ -48,8 +48,7 @@ use pdf_syntax::{Dictionary, Document, Stream};
 
 use crate::colour::ColourSpace;
 use crate::function::{BitReader, Function};
-use crate::shading::{Colouring, transferred};
-use crate::transfer::Transfer;
+use crate::shading::Colouring;
 
 /// How finely a Bézier patch is evaluated along each axis.
 ///
@@ -143,10 +142,6 @@ pub const MAX_PATCHES: usize = 1 << 14;
 /// calls the function afterwards, so the function crosses into the display list as the
 /// samples of itself that [`Ramp`] already is for an axial or a radial shading.
 ///
-/// `colouring` carries ISO 32000-2 §10.5's transfer function where the graphics state states one;
-/// see [`transferred_corners`] for where it reaches a mesh's own colours and [`MeshReader::ramp`]
-/// for where it reaches a parametric one's.
-///
 /// Returns `None` when the stream is unreadable or describes no triangles, which the
 /// caller reports rather than drawing an empty shading.
 pub(crate) fn read(
@@ -231,20 +226,13 @@ pub(crate) fn read(
             Some(reader.ramp()),
         )
     } else if interpolation.is_some() {
-        // §10.5's transfer is inside `Components`'s conversion, so it is inside the tolerance.
         (
             reader.triangles::<Components>(&mut bits, kind, per_row, &mut refinement)?,
             None,
         )
     } else {
-        let (triangles, patches, truncated) =
-            reader.triangles::<Color>(&mut bits, kind, per_row, &mut refinement)?;
         (
-            (
-                transferred_corners(triangles, colouring.transfer),
-                patches,
-                truncated,
-            ),
+            reader.triangles::<Color>(&mut bits, kind, per_row, &mut refinement)?,
             None,
         )
     };
@@ -300,49 +288,6 @@ pub(crate) struct Mesh {
 struct Refinement {
     /// A bound stopped a subdivision short of the tolerance; see [`Mesh::coarse`].
     coarse: bool,
-}
-
-/// Every corner colour through ISO 32000-2 §10.5's transfer function, on the device-space route.
-///
-/// A mesh in a space §8.7.4.4 has the gradient calculated in does not come this way: its
-/// [`Components`] are converted after the subdivision and the transfer is inside that
-/// conversion, so the tolerance the subdivision is measured against includes it.
-///
-/// **After the subdivision rather than before it**, which is the whole reason this is a pass over
-/// the finished triangles instead of a line inside `Corner::read`. §8.7.4.5.7 makes the colour
-/// inside a Coons or tensor patch a bilinear mix of the patch's four stated corner colours, so the
-/// colours mapped here are [`PATCH_STEPS`]² samples of that mix rather than the four the file
-/// wrote down — and the clause's input is "the value of a colour component" at a point, not the
-/// corners a point's colour was mixed from. For types 4 and 5, which state their triangles
-/// directly, the two orders are the same arithmetic.
-///
-/// **What remains approximate, and it is §8.7.4.4's own approximation.** A rasteriser interpolates
-/// linearly between the three corners of each triangle it is given, so what is drawn between them
-/// is a mix of transferred colours where the clause asks for the transfer of the mixed colour. The
-/// clause that permits it is the one that permits interpolating a shading at all: "PDF processors
-/// may actually compute colour values only for some subset of the points in the target area, with
-/// the colours of the intervening points determined by interpolation between the ones computed."
-/// Closing it entirely would need a per-pixel pass, which is `doc/todo/13`'s per-region model and
-/// is priced there.
-///
-/// A corner holding §8.7.4.5.5's parameter has no colour to map; the function that turns it into
-/// one is the ramp, and `MeshReader::ramp` maps that.
-fn transferred_corners(triangles: Vec<Triangle>, transfer: Option<&Transfer>) -> Vec<Triangle> {
-    let Some(transfer) = transfer else {
-        return triangles;
-    };
-    triangles
-        .into_iter()
-        .map(|triangle| Triangle {
-            points: triangle.points,
-            corners: match triangle.corners {
-                Corners::Colours(colours) => {
-                    Corners::Colours(colours.map(|colour| transfer.apply(colour)))
-                }
-                parameters @ Corners::Parameters(_) => parameters,
-            },
-        })
-        .collect()
 }
 
 /// Reads a bit width, checking it against the values the specification permits.
@@ -530,14 +475,10 @@ impl Corner for Color {
         });
     }
 
-    fn deferred(reader: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
-        // §10.5's transfer, which the device-space route applies to the finished triangles,
-        // applied to the four corners instead — and that is the same arithmetic here and not
-        // merely near it, because a patch carried whole is mixed by the *device*, so the four
-        // colours a device mixes are the four the file states.
-        Some(PatchCorners::Colours(corners.map(|colour| {
-            transferred(colour, reader.colouring.transfer)
-        })))
+    fn deferred(_: &MeshReader<'_>, corners: &[Self; 4]) -> Option<PatchCorners> {
+        // A patch carried whole is mixed by the *device*, so the four colours a device mixes
+        // are the four the file states.
+        Some(PatchCorners::Colours(*corners))
     }
 }
 
@@ -860,12 +801,7 @@ struct MeshReader<'a> {
     /// the other two routes.
     interpolation: &'a ColourSpace,
     functions: &'a [Function],
-    /// §10.7.3's resolution, §8.6.5.9's conversion and §10.5's transfer, which every colour a
-    /// mesh produces needs.
-    ///
-    /// The transfer is read by [`MeshReader::ramp`] alone: a mesh that states colours at its
-    /// vertices has them mapped by [`transferred_corners`], after the patch subdivision this
-    /// reader does.
+    /// §10.7.3's resolution and §8.6.5.9's conversion, which every colour a mesh produces needs.
     colouring: Colouring<'a>,
 }
 
@@ -910,12 +846,9 @@ impl MeshReader<'_> {
     }
 
     /// The device colour a set of components in [`Self::interpolation`] becomes: §8.6.5.9's
-    /// conversion, then §10.5's transfer.
+    /// conversion.
     fn colour_of(&self, components: &Components) -> Color {
-        transferred(
-            self.colouring.into.paint(self.interpolation, &components.0),
-            self.colouring.transfer,
-        )
+        self.colouring.into.paint(self.interpolation, &components.0)
     }
 
     /// Emits `vertices` as one triangle where a rasteriser's linear interpolation between
@@ -1093,20 +1026,12 @@ impl MeshReader<'_> {
     }
 
     /// The colour the shading's functions give one parametric value.
-    ///
-    /// §10.5's transfer is applied here, which is inside the sampling: the ramp is a sampling of
-    /// the composition rather than a composition applied to the samples, so [`Ramp`]'s own
-    /// simplifier measures the colours a rasteriser will draw. `crate::shading::kind_of` has the
-    /// argument, and it is the same one for every ramp in this tree.
     fn colour_of_parameter(&self, parameter: f32) -> Color {
         let mut components = Vec::new();
         for function in self.functions {
             components.extend(function.eval(&[parameter]));
         }
-        transferred(
-            self.colouring.into.paint(self.space, &components),
-            self.colouring.transfer,
-        )
+        self.colouring.into.paint(self.space, &components)
     }
 
     /// Reads a vertex, including the byte padding each one carries in a triangle mesh.

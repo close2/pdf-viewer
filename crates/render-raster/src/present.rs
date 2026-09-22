@@ -771,6 +771,23 @@ impl QuorraWindowRenderer {
         Ok(Self::around(device))
     }
 
+    /// A window renderer on a device with no surface, on the best adapter raster can find.
+    ///
+    /// **For a host's own tests of how its frames are scheduled**, which is the one question
+    /// the window's two textures answer without a window: the render thread, the order in which
+    /// it takes jobs and the passes it draws while idle can all be driven and timed on the real
+    /// adapter by a process that has no display. [`Self::detach_presenter`] answers `None` on
+    /// it, because there is no surface to hand over.
+    ///
+    /// # Errors
+    ///
+    /// [`QuorraRasterError::Device`] when no adapter yields a device.
+    pub fn new_headless() -> Result<Self, QuorraRasterError> {
+        let device =
+            raster_gpu::Device::headless_with_instance(&Self::instance(), &crate::options())?;
+        Ok(Self::around(device))
+    }
+
     /// The renderer around a device, however that device was brought up.
     fn around(device: raster_gpu::Device) -> Self {
         // wgpu reports validation failures and lost devices to a handler whose

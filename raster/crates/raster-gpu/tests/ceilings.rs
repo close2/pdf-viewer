@@ -147,7 +147,7 @@ fn a_viewport_transform_at_the_coordinate_bound_still_draws() {
 /// The path below sits at the top of what the contract admits, and every factor is one the
 /// boundary checks: the outline's far point is `MAX_COORDINATE`, the command transform
 /// scales by `MAX_COORDINATE`, and so does the viewport — so the device delta is `1e27`.
-/// `raster::direction` computed a length as `(dx*dx + dy*dy).sqrt()`, and `dx * dx`
+/// `raster::stroke::direction` computed a length as `(dx*dx + dy*dy).sqrt()`, and `dx * dx`
 /// overflows to infinity above `1.9e19` — eight orders of magnitude below the contract's
 /// own ceiling. The length was then infinite, the normal `(0, 0)`, and the stroke's quad
 /// had no width: a mark asked for and drawn as nothing, which §5 calls worse than a

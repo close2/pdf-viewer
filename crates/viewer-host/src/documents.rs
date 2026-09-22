@@ -48,7 +48,8 @@ use viewer_core::DocumentId;
 struct Tab<T> {
     /// What this window calls the document, and what every message about it names.
     id: DocumentId,
-    /// What the tab says — a file's name rather than its path, so that a strip of them fits.
+    /// What the tab says — [`titled`]'s answer, a document's own title or its file's name, and
+    /// never a path, so that a strip of them fits.
     label: String,
     /// What the host keeps about this document while somebody else is in front.
     ///
@@ -242,6 +243,17 @@ impl<T> Documents<T> {
         }
     }
 
+    /// What the host keeps about a document that is not in front, to add to while it waits.
+    ///
+    /// `None` for the focused document — whose state is the host's own fields — and for a name
+    /// that is not open here. What a host puts here is something the core sent *about* a tab
+    /// behind the front: a page drawn for a document opened beside the one showing that was given
+    /// the front back before the drawing arrived (ADR 1275).
+    pub fn parked_mut(&mut self, id: DocumentId) -> Option<&mut T> {
+        let index = self.index_of(id)?;
+        self.tabs[index].parked.as_mut()
+    }
+
     /// The document in front, which is the one every message this window sends is about.
     #[must_use]
     pub fn focused(&self) -> DocumentId {
@@ -312,6 +324,183 @@ pub fn label(path: &std::path::Path) -> String {
         || path.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
+}
+
+/// What a tab says: ISO 32000-2 §14.3.3's `/Title`, where the document states one, and otherwise
+/// the file's name.
+///
+/// Table 349's row is "[t]he document's title", a text string, and the clause states what makes a
+/// value one:
+///
+/// > Where a document information dictionary contains keys other than CreationDate and ModDate ,
+/// > the value associated with any such key shall be a text string.
+///
+/// So a `/Title` that is not a string has stated no title, and [`pdf_model::metadata::Information`]
+/// has already answered `None` for it; the §7.9.2.2 decoding — `PDFDocEncoding`, or UTF-16 behind a
+/// byte order mark — is `pdf_syntax::text_string`, which that type reads through, so there is one
+/// decoder in the tree and this is not a second.
+///
+/// **What no clause states, and is a choice**: that a tab shows this at all. §12.2's
+/// `/DisplayDocTitle` is about the window's *title bar* and names XMP's `dc:title`; a strip of
+/// tabs is a user interface the standard does not describe. The title bar keeps obeying
+/// `/DisplayDocTitle` where a window has one, and the tab is the cheaper of the two tables —
+/// Table 349 is a dictionary lookup where §14.3.2's stream is a decode and a parse — so a name on
+/// the strip costs no document anything to show. A title that is empty or only white space names
+/// nothing a person can read on a tab, and gets the file's name, which is also what every document
+/// stating no `/Info` gets (ADR 1275).
+#[must_use]
+pub fn titled(information: &pdf_model::metadata::Information, path: &std::path::Path) -> String {
+    information
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map_or_else(|| label(path), str::to_owned)
+}
+
+/// A document named on a command line or chosen by a person: the file, and Annex O's fragment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Named {
+    /// The file.
+    pub path: std::path::PathBuf,
+    /// Annex O's fragment — the text after `#`, undecoded, because splitting a URI is the host's
+    /// and percent-decoding belongs to whoever knows which component it is decoding (ADR 0209).
+    pub fragment: Option<String>,
+}
+
+impl Named {
+    /// A file with no fragment, which is what a file dialogue answers.
+    #[must_use]
+    pub fn file(path: std::path::PathBuf) -> Self {
+        Self {
+            path,
+            fragment: None,
+        }
+    }
+
+    /// One document word from a command line, with Annex O's fragment split off.
+    ///
+    /// Annex O's fragment is the text after `#` in the URI the bytes came from. A path is not a
+    /// URI, but a path with a `#` in it is how a person types one on a command line.
+    ///
+    /// **The filesystem decides, not the punctuation**, and that is this program's choice rather
+    /// than anything the annex says. A `#` is an ordinary character in a file name on every system
+    /// this program runs on, so a word that names an existing file is taken whole; only when it
+    /// does not is it split at its first `#`, which is where RFC 3986 puts the boundary. The cost
+    /// is one `stat` per document named and a file called `a#b.pdf` that still opens; splitting
+    /// first would make that file unopenable and say nothing. A `#` with nothing before it is
+    /// handed on whole, so the read fails by name: a path that does not exist is a better message
+    /// than a fragment nobody asked for. One reading for three windows, which is the argument
+    /// every function in this crate is here on.
+    #[must_use]
+    pub fn from_argument(argument: &std::ffi::OsStr) -> Self {
+        let whole = std::path::PathBuf::from(argument);
+        if whole.exists() {
+            return Self::file(whole);
+        }
+        let text = argument.to_string_lossy();
+        match text.split_once('#') {
+            Some((path, fragment)) if !path.is_empty() => Self {
+                path: std::path::PathBuf::from(path),
+                fragment: Some(fragment.to_owned()),
+            },
+            _ => Self::file(whole),
+        }
+    }
+}
+
+/// A document a reader named, on its way to a tab of its own.
+///
+/// Everything a window needs to answer the events that come back about a document that is not yet
+/// in its strip: which name it was opened under, the file (for the sentence, and for §7.6.4.1's
+/// second attempt), and its own count of password prompts — the one in the window's fields belongs
+/// to the document in front.
+#[derive(Debug)]
+pub struct Arriving {
+    /// The name it is being opened under, handed out by [`Documents::reserve`].
+    pub id: DocumentId,
+    /// The file and its fragment.
+    pub named: Named,
+    /// The document that goes back in front once this one has opened, where it was named *behind*
+    /// the one showing — a second path on a command line, whose first path is the one the launch
+    /// was for.
+    pub behind: Option<DocumentId>,
+    /// §7.6.4.1's prompts, counted for this document.
+    pub asking: crate::Asking,
+}
+
+/// The documents a window has been asked to open beside the one showing, one at a time.
+///
+/// **One at a time because a document may ask a question on its way in** — §7.6.4.1's password,
+/// §12.11.6's requirements at the *ask* level — and a window asking about two documents at once
+/// would be asking a person to know which prompt is which. So each waits until the one before it
+/// has opened, failed or been declined, and [`Self::start`] is what a window calls at each of those
+/// three moments and once after its first frame.
+#[derive(Debug, Default)]
+pub struct Arrivals {
+    /// What is still to be opened, in the order it was named, and whether each goes behind.
+    waiting: std::collections::VecDeque<(Named, bool)>,
+    /// The one being opened.
+    now: Option<Arriving>,
+}
+
+impl Arrivals {
+    /// A window with nothing to open.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds a document to the end of the queue.
+    ///
+    /// `behind` is whether the tab in front stays in front once it has opened: `true` for the
+    /// command line's later paths, `false` for a file a person has just chosen, who asked to read it.
+    pub fn wait(&mut self, named: Named, behind: bool) {
+        self.waiting.push_back((named, behind));
+    }
+
+    /// The next document to open, where nothing is being opened and something is waiting.
+    ///
+    /// Reserves its name from the window's strip, which is what makes the name one no other tab
+    /// has or will have.
+    pub fn start<T>(&mut self, documents: &mut Documents<T>) -> Option<&Arriving> {
+        if self.now.is_some() {
+            return None;
+        }
+        let (named, behind) = self.waiting.pop_front()?;
+        let arriving = Arriving {
+            id: documents.reserve(),
+            named,
+            behind: behind.then(|| documents.focused()),
+            asking: crate::Asking::new(),
+        };
+        Some(self.now.insert(arriving))
+    }
+
+    /// The document being opened, where one is.
+    #[must_use]
+    pub fn current(&self) -> Option<&Arriving> {
+        self.now.as_ref()
+    }
+
+    /// Whether this is the name of the document being opened.
+    #[must_use]
+    pub fn is(&self, id: DocumentId) -> bool {
+        self.now.as_ref().is_some_and(|now| now.id == id)
+    }
+
+    /// The document being opened, where the name is its name.
+    pub fn named_mut(&mut self, id: DocumentId) -> Option<&mut Arriving> {
+        self.now.as_mut().filter(|now| now.id == id)
+    }
+
+    /// Takes the document being opened out of the queue, where the name is its name.
+    ///
+    /// Called when it has opened, when it failed, and when a person declined it; the next one
+    /// waiting is then [`Self::start`]'s.
+    pub fn settle(&mut self, id: DocumentId) -> Option<Arriving> {
+        if self.is(id) { self.now.take() } else { None }
+    }
 }
 
 /// What a window says when a document opens beside the one that was showing.
@@ -467,6 +656,92 @@ mod tests {
         let mut current = ();
         documents.focus(DocumentId(2), &mut current);
         assert_eq!(documents.next_id(), DocumentId(1));
+    }
+
+    /// Table 349's `/Title` is what a tab says where the document states one it can show.
+    ///
+    /// §14.3.3's own EXAMPLE is the second case: its document information dictionary holds "just
+    /// the creation and last modification date", and its title is in the metadata stream only —
+    /// so the tab is the file's name, and a reader that read `dc:title` for the strip would have
+    /// written a different function.
+    #[test]
+    fn a_tab_says_the_documents_title_and_otherwise_its_file_name() {
+        use pdf_model::metadata::Information;
+        let path = std::path::Path::new("/tmp/a/report.pdf");
+        let stated = Information {
+            title: Some("Annual report 2014".to_owned()),
+            ..Information::default()
+        };
+        assert_eq!(super::titled(&stated, path), "Annual report 2014");
+
+        let example = Information {
+            created: Some("D:20140314124211+01'00".to_owned()),
+            modified: Some("D:20140924212303+02'00".to_owned()),
+            ..Information::default()
+        };
+        assert_eq!(super::titled(&example, path), "report.pdf");
+
+        for nothing in ["", "   "] {
+            let blank = Information {
+                title: Some(nothing.to_owned()),
+                ..Information::default()
+            };
+            assert_eq!(
+                super::titled(&blank, path),
+                "report.pdf",
+                "a title with nothing to read on it is not a name for a tab"
+            );
+        }
+    }
+
+    /// A fragment is split off a command-line word, undecoded, unless the whole word is a file.
+    #[test]
+    fn a_fragment_is_split_off_a_path_that_does_not_exist_whole() {
+        use super::Named;
+        let read = Named::from_argument(std::ffi::OsStr::new("doc/x.pdf#nameddest=A%26B"));
+        assert_eq!(read.path, std::path::PathBuf::from("doc/x.pdf"));
+        assert_eq!(read.fragment.as_deref(), Some("nameddest=A%26B"));
+        let bare = Named::from_argument(std::ffi::OsStr::new("#page=2"));
+        assert_eq!(bare, Named::file(std::path::PathBuf::from("#page=2")));
+
+        let directory = std::env::temp_dir().join(format!("named-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory");
+        let odd = directory.join("a#b.pdf");
+        std::fs::write(&odd, b"%PDF-2.0").expect("a scratch file");
+        assert_eq!(
+            Named::from_argument(odd.as_os_str()),
+            Named::file(odd.clone()),
+            "a file whose name has a # in it is that file"
+        );
+        std::fs::remove_dir_all(&directory).expect("scratch removed");
+    }
+
+    /// Documents are opened one at a time, each under a name nobody else has.
+    #[test]
+    fn documents_named_beside_arrive_one_at_a_time() {
+        use super::{Arrivals, Named};
+        let mut documents: Documents<()> = Documents::new(DocumentId(1), "first.pdf".to_owned());
+        let mut arrivals = Arrivals::new();
+        assert!(arrivals.start(&mut documents).is_none(), "nothing waits");
+        arrivals.wait(Named::file("b.pdf".into()), true);
+        arrivals.wait(Named::file("c.pdf".into()), false);
+
+        let first = arrivals.start(&mut documents).map(|a| (a.id, a.behind));
+        assert_eq!(first, Some((DocumentId(2), Some(DocumentId(1)))));
+        assert!(
+            arrivals.start(&mut documents).is_none(),
+            "a second does not start while the first is on its way"
+        );
+        assert!(arrivals.is(DocumentId(2)));
+        assert!(arrivals.settle(DocumentId(9)).is_none(), "not its name");
+        assert!(arrivals.settle(DocumentId(2)).is_some());
+
+        let second = arrivals.start(&mut documents).map(|a| (a.id, a.behind));
+        assert_eq!(
+            second,
+            Some((DocumentId(3), None)),
+            "a chosen file is not put behind: the person asked to read it"
+        );
     }
 
     /// A tab says the file's name and the sentences name the count.

@@ -39,7 +39,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use pdf_model::colour::{Compositing, Conversion, Half};
+use pdf_model::colour::{Compositing, Conversion, Plane};
 use pdf_model::image::{
     MaskCache, NamedStream, Parts, Picture, RasterCache, StreamIdentity, decode_parts,
 };
@@ -643,7 +643,7 @@ fn a_raster_is_not_shared_across_compositing() {
     let resources = resources_naming("DeviceRGB");
     let mut cache = RasterCache::default();
     let press = Conversion::new(
-        Compositing::Subtractive(Half::Black, pdf_model::colour::assumed_press()),
+        Compositing::Subtractive(Plane::Black, pdf_model::colour::assumed_press()),
         pdf_model::icc::Rendering::compensating(),
     );
 

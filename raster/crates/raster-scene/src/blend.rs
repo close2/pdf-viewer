@@ -126,7 +126,7 @@ impl BlendMode {
 /// the fraction is the element's **shape**. For a rasteriser, shape is the coverage the
 /// element was drawn with — and a raster of premultiplied samples carries opacity, not
 /// shape. Vello's layers composite over the layer's whole *bounding box*, so its
-/// `Compose::Copy` erased a row of pixels outside the shape entirely, and no arrangement
+/// `peniko::Compose::Copy` erases a row of pixels outside the shape entirely, and no arrangement
 /// of an SVG-shaped API recovers the difference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Compose {

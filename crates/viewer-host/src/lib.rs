@@ -144,7 +144,7 @@ pub mod trace;
 pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
-pub use documents::{Close, Documents};
+pub use documents::{Arrivals, Arriving, Close, Documents, Named};
 pub use drawing::{DrawRequest, Drawing, Finished};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};
@@ -163,9 +163,10 @@ pub use policy::{
     RESTRICTIONS, ReferenceRefusal, Remote, RemoteDocuments, SEPARATIONS, Settings, TRUST_ANCHORS,
     URI_HANDLER, answered, asked_for, asked_to_open, asked_to_open_remote, audience, link, links,
     may_choose_file, may_open_extracted, may_open_uri, may_write_extracted, offers_machine_fonts,
-    open_uri, read_import, reference_files, refused, remote, remote_declined, remote_documents,
-    remote_note, resolve_import, resolve_uri, restrictions, separations, separations_note,
-    supply_note, trust_anchors, unanswerable, under_remote_documents, uri_note, warned,
+    open_chosen, open_uri, read_import, reference_files, refused, remote, remote_declined,
+    remote_documents, remote_note, resolve_import, resolve_uri, restrictions, separations,
+    separations_note, supply_note, trust_anchors, unanswerable, under_remote_documents, uri_note,
+    warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};

@@ -555,13 +555,9 @@ depends on nothing but `thiserror`.
   `viewer-ui`'s. Three rungs are counted rather than listed, each a reason the sweep is not being
   asked: a relative or generic prefix (`Self::`, a type parameter), a path opening with or prefixed
   by a dependency's name, and a prefix this tree declares nowhere the comment can reach. What is
-  left is the finding, and the gate holds it to a **named population** rather than a count —
-  `tests/names.rs`'s `STANDING`, one line per path — so a path that arrives fails and a path that
-  is fixed fails too. Calibrated per trap 13 by a plant in the function, never in the tree: a
-  module of `conformance` and a function nothing declares. ADR 1273. **The list it left** is the
-  round's own finding and is the reading: each entry is a renamed item, a name a round meant to
-  write and did not, or a library's type named without its crate, and the day it empties this
-  becomes a zero.
+  left is the finding, and the gate holds it to **zero**: `tests/names.rs` fails on any path it
+  finds and prints its file, line and sentence. Calibrated per trap 13 by a plant in the function,
+  never in the tree: a module of `conformance` and a function nothing declares. ADR 1273.
 - **One asks whether a file that cites a clause is a file that clause's row names**: `cargo run
   --release -p conformance --bin cited`, seconds, over the source roots and `ledger.toml` —
   `tools/state.sh cited` is the same run. A row's `code` array is the ledger's index into the tree

@@ -120,9 +120,20 @@ use viewer_core::{RenderRequest, Rendered};
 /// So the *request* is the parameter and the arrangement is not: implement this for whatever a
 /// host queues, and [`Drawing`] treats it exactly as it treats the viewer's own.
 pub trait DrawRequest: Send + 'static {
-    /// Which page this drawing is of — the identity [`Drawing::ask`] replaces a queued request by,
-    /// and the one it raises the interrupt for.
+    /// Which page this drawing is of — with [`Self::document`], the identity [`Drawing::ask`]
+    /// replaces a queued request by, and the one it raises the interrupt for.
     fn page(&self) -> usize;
+    /// Which document that page is of, for a window holding more than one.
+    ///
+    /// **Page zero of two documents is two pages**, and a window with tabs asks for both: the
+    /// document opened beside the first is drawn, and the first is asked for again the moment it is
+    /// given back the front. Keyed by page alone, the second request took the first's place, the
+    /// viewer went on holding the first's token, and the tab it belonged to never drew — found by
+    /// driving a window with three documents open (ADR 1275). `None` for a host that draws one
+    /// document, which is every host this trait had before tabs.
+    fn document(&self) -> Option<viewer_core::DocumentId> {
+        None
+    }
     /// The marks to draw.
     fn list(&self) -> &Arc<DisplayList>;
     /// The pixels to draw them into, and the transform to them.
@@ -132,6 +143,10 @@ pub trait DrawRequest: Send + 'static {
 impl DrawRequest for RenderRequest {
     fn page(&self) -> usize {
         self.page
+    }
+
+    fn document(&self) -> Option<viewer_core::DocumentId> {
+        Some(self.document)
     }
 
     fn list(&self) -> &Arc<DisplayList> {
@@ -166,6 +181,8 @@ struct Done<R> {
 struct InFlight {
     /// Which request, so that [`Drawing::ask`] can tell a newer one for the same page.
     page: usize,
+    /// Which document that page is of, for the same reason ([`DrawRequest::document`]).
+    document: Option<viewer_core::DocumentId>,
     /// When it was handed over, which is what [`Finished::waited`] is measured from.
     asked: Instant,
     /// Raised where the viewer has stopped wanting the answer, and never otherwise.
@@ -346,12 +363,15 @@ impl<R: DrawRequest> Drawing<R> {
     pub fn ask(&mut self, request: R) {
         if let Some(in_flight) = self.in_flight.as_ref()
             && in_flight.page == request.page()
+            && in_flight.document == request.document()
         {
             in_flight.interrupt.raise();
         }
         // A queued request for the same page is dead for the same reason and has not cost anything
         // yet; it is replaced rather than drawn and thrown away.
-        self.queued.retain(|queued| queued.page() != request.page());
+        self.queued.retain(|queued| {
+            queued.page() != request.page() || queued.document() != request.document()
+        });
         self.queued.push_back(request);
         self.dispatch();
     }
@@ -364,6 +384,18 @@ impl<R: DrawRequest> Drawing<R> {
     #[must_use]
     pub fn inside(&self) -> Option<usize> {
         self.in_flight.as_ref().map(|in_flight| in_flight.page)
+    }
+
+    /// Which document the page [`Self::inside`] names is of, where the request said.
+    ///
+    /// Asked beside it because `viewer_core::Query::PageGeometry` answers about the *focused*
+    /// document: a draw for a tab behind it is not measured against the front's arrangement, and
+    /// taking the thread back from one would leave its tab with a request nothing answers.
+    #[must_use]
+    pub fn inside_document(&self) -> Option<viewer_core::DocumentId> {
+        self.in_flight
+            .as_ref()
+            .and_then(|in_flight| in_flight.document)
     }
 
     /// The second half of the rule: takes the thread back from a page the arrangement has stopped
@@ -553,6 +585,7 @@ impl<R: DrawRequest> Drawing<R> {
             let interrupt = Interrupt::new();
             let asked = Instant::now();
             let page = request.page();
+            let document = request.document();
             let job = Job {
                 request,
                 interrupt: interrupt.clone(),
@@ -564,6 +597,7 @@ impl<R: DrawRequest> Drawing<R> {
             let Some(job) = returned else {
                 self.in_flight = Some(InFlight {
                     page,
+                    document,
                     asked,
                     interrupt,
                 });
@@ -1117,5 +1151,38 @@ mod tests {
             std::thread::sleep(POLL);
         }
         assert_eq!(pages, vec![0, 1], "page 1 was drawn twice");
+    }
+
+    /// Page zero of two documents is two pages: neither takes the other's place, and both draw.
+    ///
+    /// Written against what driving a window with three tabs found (ADR 1275): the document opened
+    /// beside the first asked for its page zero, the first was given the front back and asked for
+    /// its own, and a queue keyed by page alone dropped one of the two — so one tab never drew.
+    #[test]
+    fn the_same_page_of_two_documents_is_two_requests() {
+        let request = a_real_request();
+        let slow = amplified(&request, 20_000);
+        let mut drawing = Drawing::new();
+        let beside = RenderRequest {
+            document: DocumentId(2),
+            ..like(&request, 0, &slow)
+        };
+        drawing.ask(beside);
+        drawing.ask(like(&request, 0, &request.list));
+        assert_eq!(drawing.inside_document(), Some(DocumentId(2)));
+        let mut drawn = Vec::new();
+        let began = Instant::now();
+        while drawn.len() < 2 {
+            for finished in drawing.collect() {
+                assert!(
+                    matches!(finished.outcome, Some(Rendered::Raster(_))),
+                    "a draw for the other document was taken back"
+                );
+                drawn.push(finished.request.document);
+            }
+            assert!(began.elapsed() < GIVE_UP, "the queue never drained");
+            std::thread::sleep(POLL);
+        }
+        assert_eq!(drawn, vec![DocumentId(2), DocumentId(1)]);
     }
 }

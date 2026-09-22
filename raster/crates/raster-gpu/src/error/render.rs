@@ -61,7 +61,7 @@ pub enum RenderError {
     /// `MAX_COORDINATE`) through this one, so bounding all three keeps the product
     /// inside `f32` with thirty orders of magnitude to spare. Leave this one unbounded
     /// and the composition reaches infinity, and an infinite coordinate does not stop a
-    /// frame — it paints a row of a coverage tile solid (`raster::accumulate_edge`).
+    /// frame — it paints a row of a coverage tile solid (`raster::fill::accumulate_edge`).
     #[error("viewport transform coefficient {coefficient} exceeds the limit of {limit}")]
     ViewportTransformTooLarge {
         /// The largest coefficient magnitude the transform carries.

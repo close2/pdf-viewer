@@ -466,7 +466,7 @@ fn parsed_program(
 }
 
 /// A CID-keyed CFF whose Font DICTs cannot be read, given ones that can be before anything
-/// reads the program — and what that cost, for [`LoadedFont::program_shortfall`].
+/// reads the program — and what that cost, for [`LoadedFont::repair_shortfall`].
 ///
 /// A program that does not open at all is left as it is, for `cid_to_glyph` to refuse with
 /// the reader's own words; an `sfnt` or a Type 1 has no CFF Font DICTs. See

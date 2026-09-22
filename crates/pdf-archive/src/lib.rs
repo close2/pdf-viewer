@@ -61,8 +61,8 @@ pub use crate::finding::{Finding, Findings, Where};
 pub use crate::reach::{Arrival, Entry, Exempt, Limit, Reach};
 pub use crate::report::{Judgement, Outcome, Report, Verdict};
 pub use crate::requirement::{Applies, Check, Clauses, Requirement};
-pub use crate::table::fonts::type3_encoding;
-pub use crate::table::graphics::same_parameter;
+pub use crate::table::fonts::{cmap_is_predefined, fonts_naming_an_undefined_cmap, type3_encoding};
+pub use crate::table::graphics::{reference_xobjects, same_parameter};
 pub use crate::table::interaction::{
     ActionHolder, ActionSite, AdditionalActions, ExtraAppearances, ForbiddenFlags,
     ForbiddenSubtype, MissingAppearance, VisibleWidget, action_admitted, action_entry_admitted,
@@ -81,7 +81,7 @@ pub use crate::withdrawal::{Reaches, Subject, subjects};
 
 /// Holds one document to one target, and reports what it found.
 ///
-/// Every requirement in [`table::REQUIREMENTS`] that binds the target is judged, in table
+/// Every requirement [`table::requirements`] yields that binds the target is judged, in table
 /// order, and the ones that do not bind it are absent rather than passed — an inapplicable
 /// requirement is not a met one, and a report that conflated them would overstate what it had
 /// established.

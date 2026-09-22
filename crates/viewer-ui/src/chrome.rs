@@ -2099,6 +2099,23 @@ impl FindBar {
     /// (a `GtkSearchBar` above the pane, a `QToolBar` under the title).
     #[must_use]
     pub fn draw(&self, chrome: &Chrome, width: u32, scale: f32) -> Option<DisplayList> {
+        self.draw_labelled(chrome, width, scale, "Find:")
+    }
+
+    /// The same bar with another word in front of the box.
+    ///
+    /// **One line a person types into, for two jobs**: the find bar's string, and the path Ctrl + O
+    /// asks for where the two native windows put a file dialogue (ADR 1275). A typed line is the
+    /// control this host has, and ADR 1240 section 4 is the argument that a path typed is the
+    /// control a chooser is a convenience over rather than a lesser one.
+    #[must_use]
+    pub fn draw_labelled(
+        &self,
+        chrome: &Chrome,
+        width: u32,
+        scale: f32,
+        label: &str,
+    ) -> Option<DisplayList> {
         if !self.shown {
             return None;
         }
@@ -2117,7 +2134,6 @@ impl FindBar {
 
         let size = TEXT_SIZE * scale;
         let baseline = f32::midpoint(tall, size * 0.72);
-        let label = "Find:";
         let mut x = 10.0 * scale;
         x = chrome.text(
             &mut list,
@@ -3440,7 +3456,7 @@ fn dimmed(wide: f32, tall: f32) -> DisplayList {
 /// [`viewer_host::cannot_open`] and [`viewer_host::no_pages`] so that the three say one thing.
 ///
 /// No keyboard, no buttons, and nothing to dismiss: there is no page behind it to get back to. It
-/// is drawn over `pdf_render::SURROUND` by `Surface::without_a_page`, which is the path
+/// is drawn over `pdf_render::SURROUND` by the `quorra` binary's `App::without_a_page`, the path
 /// ADR 0545 built for a window that has not authenticated and which this is the second user of.
 #[derive(Debug, Clone, Default)]
 pub struct Refusal {

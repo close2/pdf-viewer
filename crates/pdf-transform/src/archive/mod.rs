@@ -136,11 +136,13 @@ mod actions;
 mod attach;
 mod boundaries;
 mod census;
+mod cmaps;
 mod config;
 mod decision;
 mod external;
 mod fonts;
 mod hexadecimal;
+mod in_place;
 mod jpeg2000;
 mod prepare;
 mod preserve;
@@ -169,15 +171,17 @@ use crate::{Declined, Origin, Output, Refusal, Report, Sinks};
 pub use actions::RemovedAction;
 pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
+pub use cmaps::EmbeddedCMap;
 pub use config::{
     ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Original,
     Placement, Preservation, Resolution, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt,
-    Unmapped, Winner, sites,
+    Unmapped, Winner, WriteModeSource, sites,
 };
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
 };
 pub use fonts::{FaceAuthority, MetricRoute, RestatedFont, SubstitutedFont};
+pub use in_place::{ProxiedReference, ShownAnnotation};
 pub use prepare::{DestinationProfile, ProfileSource, RemovedAnnotation, WrittenAppearance};
 pub use protection::{PERMISSIONS_NO_LONGER_ASSERTED, SourceProtection};
 pub use report::{
@@ -577,6 +581,9 @@ fn decide_every_failure(
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
         removed_boundaries: Vec::new(),
+        shown_annotations: Vec::new(),
+        embedded_cmaps: Vec::new(),
+        proxied_references: Vec::new(),
         // What this file keeps outside itself, named whether or not anything was resolved: the
         // caller reads it to know what to resolve, exactly as it reads `Report::requested` to
         // know what to run (`doc/adr/1199`).
@@ -762,6 +769,9 @@ fn configured(
             Err(because) => Decision::Refused(*because),
         });
     }
+    if let Some(kept) = kept_where_it_is(plan, id, prepared) {
+        return Some(kept);
+    }
     let kind = if remedies.derive_sites.contains(id) {
         Some((
             RemedyKind::Derive,
@@ -804,6 +814,49 @@ fn configured(
         .then_some(Decision::Refused(Because::NotBuiltYet(
             DERIVATION_DID_NOT_ANSWER,
         )))
+}
+
+/// The decision a `preserve` that moves nothing takes, where one answers this requirement.
+///
+/// **`doc/adr/1285` and `doc/adr/1286`.** The clause at each of these sites leaves one way to
+/// conform that takes nothing out of the document, so the answer is a rewrite of its own rather
+/// than a page or a file beside the table's removal — and a preparation that cannot reach the
+/// object refuses with its own sentence rather than falling through to the removal the operator
+/// did not choose.
+fn kept_where_it_is(plan: &ArchivePlan, id: &'static str, prepared: &Prepared) -> Option<Decision> {
+    if !plan
+        .preservations
+        .iter()
+        .any(|preservation| preservation.site == id)
+    {
+        return None;
+    }
+    let (obstacle, rewrite, warns) = match id {
+        in_place::PRINTABLE_AND_VISIBLE => (
+            prepared.hidden_annotations.as_ref().err().copied(),
+            Rewrite::HiddenAnnotationShown,
+            in_place::SHOWN,
+        ),
+        cmaps::SITE => (
+            prepared.shipped_cmaps.as_ref().err().copied(),
+            Rewrite::ShippedCMapEmbedded,
+            cmaps::EMBEDDED,
+        ),
+        in_place::NO_REFERENCE_XOBJECTS => (
+            prepared.reference_xobjects.as_ref().err().copied(),
+            Rewrite::ReferenceXObjectProxied,
+            in_place::PROXIED,
+        ),
+        _ => return None,
+    };
+    Some(match obstacle {
+        Some(because) => Decision::Refused(because),
+        None => Decision::Configured {
+            kind: RemedyKind::Preserve,
+            rewrite,
+            warns,
+        },
+    })
 }
 
 /// ISO 19005-4 Annex A.2's row: a PDF/A-4f file states an `/EmbeddedFiles` key.
@@ -1012,6 +1065,30 @@ fn apply_the_decisions(
         conversion
             .removed_annotations
             .extend(hidden.removed.iter().cloned());
+    }
+    // The other future of the same population: an annotation shown rather than removed is named
+    // with the flags it had and the flags it has, because the page now carries a mark its
+    // producer kept off it (`doc/adr/1285`).
+    if wanted.contains(&Rewrite::HiddenAnnotationShown)
+        && let Ok(hidden) = &prepared.hidden_annotations
+    {
+        conversion.shown_annotations = hidden
+            .removed
+            .iter()
+            .filter_map(ShownAnnotation::of)
+            .collect();
+    }
+    if wanted.contains(&Rewrite::ShippedCMapEmbedded)
+        && let Ok(shipped) = &prepared.shipped_cmaps
+    {
+        conversion.embedded_cmaps.clone_from(&shipped.embedded);
+    }
+    if wanted.contains(&Rewrite::ReferenceXObjectProxied)
+        && let Ok(references) = &prepared.reference_xobjects
+    {
+        conversion
+            .proxied_references
+            .clone_from(&references.proxied);
     }
     // `doc/pdf-a-conversion-limits.md` section 3.3's condition on its own loss: an action that is
     // gone leaves nothing in the output to notice, so what went is named one row at a time — the

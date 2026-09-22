@@ -1,11 +1,11 @@
 //! Where the graphics device's cold bring-up time actually goes.
 //!
 //! `CLAUDE.md` puts GPU bring-up on the critical path by choice — page one goes to the
-//! device — and makes what it costs a number to keep small. `--trace` prints the three
-//! parts raster reports; this example takes the *first* of them apart, because a host
-//! cannot: `StartupTimings::adapter_enumeration` is measured from before
-//! `wgpu::Instance::new`, so instance creation, surface creation and the adapter request
-//! are one figure.
+//! device — and makes what it costs a number to keep small. `--trace` prints the steps
+//! raster reports, `StartupTimings::instance_creation` and `StartupTimings::adapter_selection`
+//! among them, over every backend the instance loads; this example times the same three calls
+//! one backend set at a time, because a host cannot choose which drivers the loader brings up
+//! and instance creation is where that choice is paid.
 //!
 //! **One measurement per process, deliberately.** Everything here loads drivers, and a
 //! second instance in the same process is measured with the loader already warm — the
@@ -46,9 +46,9 @@ fn document_work() -> usize {
 ///
 /// The question `doc/QUORRA_FEEDBACK.md` section 8 asks, measured rather than argued: an instance needs
 /// no window and no surface, so a host that could create one on a thread of its own would pay
-/// `max(instance, document)` instead of `instance + document`. It cannot today —
-/// `Device::for_surface` creates the instance itself — so this measures what that would be worth
-/// using `wgpu` directly, which is the same call raster makes.
+/// `max(instance, document)` instead of `instance + document`. `Device::for_surface_with_instance`
+/// takes an instance the host created, and this measures what doing so on a thread is worth using
+/// `wgpu` directly, which is the same call raster makes.
 fn overlap() {
     let serial = Instant::now();
     let read = document_work();

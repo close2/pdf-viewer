@@ -79,13 +79,15 @@
 // **`#[path]` on every one of them, and cargo is why.** A binary's crate root resolves `mod x`
 // against its *own* directory, which here is `src/bin` — where cargo also discovers one binary
 // target per file. So the modules of this program would each become a program, and naming the
-// directory explicitly is what keeps fourteen modules from becoming fourteen binaries.
+// directory explicitly is what keeps these modules from becoming as many binaries.
 #[path = "quorra/access.rs"]
 mod access;
 #[path = "quorra/app.rs"]
 mod app;
 #[path = "quorra/arguments.rs"]
 mod arguments;
+#[path = "quorra/arrivals.rs"]
+mod arrivals;
 #[path = "quorra/cadence.rs"]
 mod cadence;
 #[path = "quorra/composer.rs"]
@@ -283,6 +285,7 @@ fn main() {
     let mut launch = Launch::new();
     let Arguments {
         path,
+        also,
         trace,
         processor,
         backend,
@@ -366,6 +369,19 @@ fn main() {
             viewer_host::documents::label(std::path::Path::new(&path)),
         ),
         reserved: None,
+        // The command line's later documents wait here until page one is on the screen
+        // (`CLAUDE.md` section 2): each goes behind the first, which is the one this launch is for.
+        arrivals: {
+            let mut arrivals = viewer_host::Arrivals::new();
+            for named in also {
+                arrivals.wait(named, true);
+            }
+            arrivals
+        },
+        arrival_due: false,
+        opener: FindBar::default(),
+        lists_due: false,
+        launched: false,
         strip: viewer_ui::chrome::DocumentStrip::default(),
         leaving: false,
         previews: viewer_host::panel::Previews::new(),

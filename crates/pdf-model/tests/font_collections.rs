@@ -83,7 +83,7 @@ fn a_collection_embedded_as_a_font_program_yields_glyphs() {
 /// The face is the one the document asked for, and it is not the first in the container.
 ///
 /// `issue13193.pdf` embeds a collection of `Cambria` and `CambriaMath` and its descriptor names
-/// `DCWGQU+CambriaMath` — so §9.6.4's subset prefix has to come off and the *second* face has to
+/// `DCWGQU+CambriaMath` — so §9.9.2's subset tag has to come off and the *second* face has to
 /// be chosen. **Face zero would be the wrong face**, which is what makes this document worth a
 /// test of its own rather than a line in the first one.
 ///

@@ -139,10 +139,10 @@ pub enum Compositing {
     /// three components "shall be the CIE-based space of the nearest such ancestor" for
     /// compositing purposes, so a `DeviceRGB` mark keeps its numbers. ADR 0797.
     Additive(Arc<RgbRoute>),
-    /// A page §11.4.7 composites in four components, painted in the half of them this raster
-    /// carries. See [`Half`] for which half, [`Press`] for whose four, and
+    /// A page §11.4.7 composites in four components, painted in the plane of them this raster
+    /// carries. See [`Plane`] for which plane, [`Press`] for whose four, and
     /// `pdf_render::blending`.
-    Subtractive(Half, Arc<Press>),
+    Subtractive(Plane, Arc<Press>),
 }
 
 /// What distinguishes one [`Compositing`] from another, for the caches keyed on one.
@@ -153,7 +153,7 @@ pub enum Compositing {
 type CompositingKey = (
     u8,
     Option<InkScale>,
-    Option<Half>,
+    Option<Plane>,
     Option<PressIdentity>,
     Option<GreyIdentity>,
     Option<RgbIdentity>,
@@ -165,8 +165,8 @@ impl Compositing {
         match self {
             Self::Device => (0, None, None, None, None, None),
             Self::Luminosity(scale) => (1, Some(*scale), None, None, None, None),
-            Self::Subtractive(half, press) => {
-                (2, None, Some(*half), Some(press.identity), None, None)
+            Self::Subtractive(plane, press) => {
+                (2, None, Some(*plane), Some(press.identity), None, None)
             }
             Self::Grey => (3, None, None, None, None, None),
             Self::Calibrated(route) => (4, None, None, None, Some(route.identity), None),
@@ -201,17 +201,18 @@ impl std::hash::Hash for Compositing {
     }
 }
 
-/// Which of a `DeviceCMYK` blending space's four components one raster carries.
+/// Which plane of a page's separations one raster carries: three of a `DeviceCMYK` blending
+/// space's four components, or the fourth.
 ///
 /// §11.3.3's compositing formula is a vector function applied **per component** — §11.3.4:
 /// "[t]he i th component of the result colour 𝐶𝑟 shall be obtained by applying the
 /// compositing formula to the i th components of the constituent colours" — and §11.3.5.2's
 /// separable blend functions are per component too. So a rasteriser with three channels
-/// composites four components by drawing the page twice, and this says which three it is
-/// drawing.
+/// composites four components by drawing the page once per plane, and this says which plane it
+/// is drawing.
 ///
-/// Both halves are painted in §11.3.4's **additive** form, the complement of the ink, because
-/// that clause requires the blend functions to see additive values:
+/// Both process planes are painted in §11.3.4's **additive** form, the complement of the ink,
+/// because that clause requires the blend functions to see additive values:
 ///
 /// > When performing blending operations in subtractive colour spaces ( DeviceCMYK , ICCBased
 /// > 'CMYK', Separation , and DeviceN ), the colour component values shall be complemented
@@ -220,12 +221,28 @@ impl std::hash::Hash for Compositing {
 ///
 /// Storing the complement is that requirement met by construction rather than by an arithmetic
 /// step around every blend.
+///
+/// **A spot colourant has no plane here**, so each one reverts to its alternate colour space as
+/// it is painted — §11.7.3's second bullet, "[t]he spot colour shall be converted to its
+/// alternate colour space" — and lands on these two. The planes a page's spot colourants would
+/// take are counted by `pdf_model::colourants`, [`Self::COLOURANTS`] to a plane; ADR 1281 is the
+/// design that adds them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Half {
+pub enum Plane {
     /// Cyan, magenta and yellow, one per channel.
     Chromatic,
     /// The black component, in every channel, so a backend may read any of them.
     Black,
+}
+
+impl Plane {
+    /// The planes §11.4.7's four process components take, in the order a page is interpreted
+    /// into them.
+    pub const PROCESS: [Self; 2] = [Self::Chromatic, Self::Black];
+
+    /// How many colourants one plane carries: a raster's three channels, each composited on
+    /// its own under §11.3.4.
+    pub const COLOURANTS: usize = 3;
 }
 
 impl Compositing {
@@ -287,12 +304,12 @@ impl Compositing {
                     ..Color::rgb(a, b, c)
                 }
             }
-            Self::Subtractive(half, press) => {
+            Self::Subtractive(plane, press) => {
                 let [cyan, magenta, yellow, black] =
                     space.to_cmyk_under(values, rendering, press, generation);
-                let painted = match *half {
-                    Half::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
-                    Half::Black => Color::grey(1.0 - black),
+                let painted = match *plane {
+                    Plane::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
+                    Plane::Black => Color::grey(1.0 - black),
                 };
                 Color {
                     a: colour.a,

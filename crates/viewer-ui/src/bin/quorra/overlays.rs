@@ -587,8 +587,11 @@ impl Overlays {
             self.popups.as_ref(),
             self.choices.as_ref(),
             self.panel.as_ref(),
-            self.find.as_ref(),
+            // The strip under the bar rather than over it: both are a band across the top, and a
+            // bar a person is typing into that the strip covered would take keys it did not show
+            // (ADR 1275).
             self.documents.as_ref(),
+            self.find.as_ref(),
             self.about.as_ref(),
             self.menu.as_ref(),
             self.question.as_ref(),

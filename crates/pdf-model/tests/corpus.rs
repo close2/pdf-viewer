@@ -1014,7 +1014,6 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         | Unsupported::CompositedInParts { .. }
         | Unsupported::TransparencyGroup { .. }
         | Unsupported::SoftMask { .. }
-        | Unsupported::TransferFunction { .. }
         | Unsupported::BlackGeneration { .. }
         | Unsupported::Overprint { .. } => (
             Whose::NeitherOne,

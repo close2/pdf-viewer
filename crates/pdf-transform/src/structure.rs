@@ -154,12 +154,13 @@ enum Child {
     /// promise is that "[e]very kept element is given its slot here, before any page is built,
     /// so that a reference to one from anywhere in the closure maps to the rebuilt element
     /// rather than dragging the source's whole subtree in behind it" — and carrying a content
-    /// item's values inside [`Carry::keep_child`] broke it, because `keep_child` runs while the
+    /// item's values inside [`Carry::child`] would break it, because `child` runs while the
     /// hierarchy is still being decided and [`Carry::number`] has not handed out a slot yet. A
-    /// document that writes a `/P` back-reference on its object references then copied the
+    /// document that writes a `/P` back-reference on its object references would then copy the
     /// containing element through the closure walk, and the element's own `replace` a moment
-    /// later was [`AssemblyError::AlreadyPlaced`] — which the whole of ISO 32000-2 itself does,
-    /// on every one of its 1023 pages. Carried in [`Carry::element`] instead, after `number`.
+    /// later would be [`AssemblyError::AlreadyPlaced`] — and ISO 32000-2 itself is such a
+    /// document, on every one of its 1023 pages. Carried in [`Carry::element`] instead, after
+    /// `number`.
     Reference {
         /// The source's dictionary, every value still in the source's numbering.
         dictionary: Dictionary,

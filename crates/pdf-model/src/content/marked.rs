@@ -129,53 +129,6 @@ impl Accessible {
 }
 
 impl Interpreter<'_> {
-    /// Appends a drawing command, and records what it contributes to the sequence enclosing it.
-    ///
-    /// **The one route from the interpreter into the display list.** ISO 32000-2 §14.8.3.3 gives
-    /// every block- and inline-level structure element a content rectangle and says where it comes
-    /// from:
-    ///
-    /// > The content rectangle shall be derived from the shape of the enclosed content and defines
-    /// > the bounds used for the layout of any included child elements.
-    ///
-    /// §14.8.5.4.5 states the derivation for the two cases that are marks rather than layout — a
-    /// table cell's is "determined from the bounding box of all graphics objects in the cell's
-    /// content", an illustration's the same — so unioning each command's bound as it is emitted is
-    /// the standard's own construction and not an invention of this program. What it yields is
-    /// recorded as [`super::report::MarkedSpan::drawn`], which is a *derived* extent and stays
-    /// separate from Table 379's `/BBox`, the producer's own statement.
-    ///
-    /// # Two things the union is narrowed by, and one it is not
-    ///
-    /// The command's bound is intersected with its clip chain, because §14.8.5.4.3's rectangle
-    /// encloses "visible" content and a mark outside the clip is painted nowhere. It is **not**
-    /// narrowed by the page boundary here: §14.11.2.1's crop box is a fact about the page rather
-    /// than about the command, and `viewer_core` already applies it to the stated rectangle in the
-    /// one place that holds both (ADR 0301).
-    ///
-    /// And it is a **bound**: [`Command::device_bounds`] counts a curve's control points and a
-    /// mitre's reach, so the rectangle is never smaller than the ink. That is the direction a
-    /// focus ring has to err in.
-    ///
-    /// # What it costs
-    ///
-    /// One `Vec::is_empty` per command on an untagged page, which is nearly every page, and that
-    /// is the whole of what 885 of the corpus's 974 documents pay.
-    ///
-    /// On a tagged one it is a rectangle per command, and the A/B is this function with its body
-    /// short-circuited, rebuilt, under callgrind — a stopwatch is the wrong instrument for a
-    /// change this size (ADR 0312). Fifty interpretations of ISO 32000-2's page 101, a dense
-    /// tagged page of text and vector graphics: **1236.7 M instructions without it and 1294.3 M
-    /// with**, which is **1.15 M per page, 4.7% of what interpreting that page costs**. The same
-    /// page interpreted once is 184.7 M against 185.8 M, and page *one* of the same document —
-    /// the launch page, and the number `CLAUDE.md`'s startup rules bind — is 170.69 M against
-    /// 170.93 M, **+0.14%**.
-    ///
-    /// Two thirds of the 1.15 M is the command's own bound and one third was the clip chain,
-    /// before [`Interpreter::clip_extent`] stopped re-walking one that three hundred consecutive
-    /// runs of a page share: with the chain walked per command it was 1.46 M rather than 1.15 M.
-    /// The walk under both is [`pdf_render::geom::Path::hull`], computed once per distinct path
-    /// and kept, so a page repeating one glyph outline pays for it once.
     /// One elementary mark, with the §11.7.5.2 function in force when it was painted.
     ///
     /// The transfer is *not* applied to the mark's colour: ISO 32000-2 §11.7.5.3's NOTE puts the
@@ -189,44 +142,41 @@ impl Interpreter<'_> {
     /// mark inside one is the topmost object anywhere on the page — it neither chooses a function
     /// nor occludes one (`Interpreter::transfer_for_mark` withholds the function for the same
     /// reason, ADR 0570).
+    ///
+    /// # A mark painted with overprinting that keeps a backdrop component
+    ///
+    /// §11.7.5.2's last paragraph:
+    ///
+    /// > If a graphics object is painted with overprinting enabled -that is, if the applicable
+    /// > (stroking or nonstroking) overprint parameter in the graphics state is true -the
+    /// > halftone and transfer function to use at a given point shall be determined
+    /// > independently for each colour component. An object is opaque for a given component only
+    /// > if overprinting yields the source colour (not the backdrop colour) for that component.
+    ///
+    /// Overprinting yields a backdrop component in this tree exactly where the mark carries
+    /// §11.7.4.3's special mode, [`pdf_render::BlendMode::Overprint`]: a page or isolated group
+    /// composited in `DeviceCMYK`, `OPM` 1 and a zero tint among the four
+    /// (`Interpreter::overprint_blend`). Everywhere else §8.6.7 NOTE 1 has the parameter ignored
+    /// on this device, which yields the source colour for every component. The components
+    /// §10.5's function maps are the device's three, and §11.7.4.2 says the group's four "are not
+    /// the device's actual process colourants": each device component is converted from all
+    /// four through §10.3's route — a profile's table, or the ink cube standing in for one, in
+    /// which each of the four inks moves all three device components — so a component taken
+    /// from the backdrop reaches all three. Asked
+    /// independently for each, the answer is the same for all of them — opaque for none — and
+    /// the page's default is used wherever such a mark is topmost. It still occludes, because
+    /// its shape is unchanged. ADR 1279.
+    ///
+    /// Asked only of a mark that carries a function, so a page that states none pays the one
+    /// `Option` test it already paid.
     pub(super) fn draw_mark(&mut self, command: Command, transfer: Option<Arc<Transfer>>) {
         if self.soft_mask_depth == 0 {
-            let map = transfer.map(|transfer| self.transfer_map(&transfer));
+            let map = transfer
+                .filter(|_| !matches!(command.blend(), pdf_render::BlendMode::Overprint(_)))
+                .map(|transfer| self.transfer_map(&transfer));
             self.transfers.push(map, &command);
         }
         self.draw(command);
-    }
-
-    /// The one mark whose §11.6.4.2 shape §11.7.5.2's channel cannot state.
-    ///
-    /// The clause picks the topmost object at a point by its shape — "the topmost elementary
-    /// object in the entire page stack that has a nonzero object shape value ( f j) at that
-    /// point" — so a mark whose shape the channel cannot state may take a pixel that belongs to
-    /// something under it, or leave one it owns. Every mark states it except a stencil under an
-    /// `/SMask` of its own ([`pdf_render::SampleAlpha::Both`]), whose one alpha channel is
-    /// §11.6.4.2's shape multiplied by §11.6.4.3's opacity and cannot be separated again — the
-    /// same residue §11.3.7.2's knockout shape leaves (ADR 1218, ADR 1255).
-    ///
-    /// Asked at the one call site that already knows the mark is an image
-    /// ([`Interpreter::draw_image`]) rather than of every mark in [`Interpreter::draw_mark`],
-    /// which is hot enough that the discriminant test alone cost **0.12%** of an interpretation
-    /// there although the branch is never taken on a page of text: fifty interpretations of
-    /// ISO 32000-2's own page 101 under callgrind, one sitting, are 1 250 655 524 instructions
-    /// with no check at all, 1 252 185 325 with it in `draw_mark`, and **1 250 681 793** where it
-    /// is now — +0.002% (ADR 1266). Asked only while the channel is
-    /// **live**, which is the geometric over-approximation of what such an image can draw wrong:
-    /// with no mark on the page carrying a function every run maps nothing, so which run owns a
-    /// pixel changes no colour. It cannot under-report, since a point drawn wrong has a
-    /// transferred mark and this image on the page in that order.
-    pub(super) fn note_unstatable_shape(&mut self) {
-        self.note(Unsupported::TransferFunction {
-            detail: "§11.7.5.2 chooses the function at a point by the topmost object with a \
-                     nonzero shape there, and a stencil under an /SMask of its own carries \
-                     §11.6.4.2's shape multiplied by §11.6.4.3's opacity in one alpha channel — \
-                     so this image's shape in the channel is that product, and it occludes only \
-                     where its mask is non-zero"
-                .to_owned(),
-        });
     }
 
     /// One [`pdf_render::TransferMap`] per distinct [`Transfer`] the page has stated.
@@ -281,6 +231,53 @@ impl Interpreter<'_> {
         map
     }
 
+    /// Appends a drawing command, and records what it contributes to the sequence enclosing it.
+    ///
+    /// **The one route from the interpreter into the display list.** ISO 32000-2 §14.8.3.3 gives
+    /// every block- and inline-level structure element a content rectangle and says where it comes
+    /// from:
+    ///
+    /// > The content rectangle shall be derived from the shape of the enclosed content and defines
+    /// > the bounds used for the layout of any included child elements.
+    ///
+    /// §14.8.5.4.5 states the derivation for the two cases that are marks rather than layout — a
+    /// table cell's is "determined from the bounding box of all graphics objects in the cell's
+    /// content", an illustration's the same — so unioning each command's bound as it is emitted is
+    /// the standard's own construction and not an invention of this program. What it yields is
+    /// recorded as [`super::report::MarkedSpan::drawn`], which is a *derived* extent and stays
+    /// separate from Table 379's `/BBox`, the producer's own statement.
+    ///
+    /// # Two things the union is narrowed by, and one it is not
+    ///
+    /// The command's bound is intersected with its clip chain, because §14.8.5.4.3's rectangle
+    /// encloses "visible" content and a mark outside the clip is painted nowhere. It is **not**
+    /// narrowed by the page boundary here: §14.11.2.1's crop box is a fact about the page rather
+    /// than about the command, and `viewer_core` already applies it to the stated rectangle in the
+    /// one place that holds both (ADR 0301).
+    ///
+    /// And it is a **bound**: [`Command::device_bounds`] counts a curve's control points and a
+    /// mitre's reach, so the rectangle is never smaller than the ink. That is the direction a
+    /// focus ring has to err in.
+    ///
+    /// # What it costs
+    ///
+    /// One `Vec::is_empty` per command on an untagged page, which is nearly every page, and that
+    /// is the whole of what 885 of the corpus's 974 documents pay.
+    ///
+    /// On a tagged one it is a rectangle per command, and the A/B is this function with its body
+    /// short-circuited, rebuilt, under callgrind — a stopwatch is the wrong instrument for a
+    /// change this size (ADR 0312). Fifty interpretations of ISO 32000-2's page 101, a dense
+    /// tagged page of text and vector graphics: **1236.7 M instructions without it and 1294.3 M
+    /// with**, which is **1.15 M per page, 4.7% of what interpreting that page costs**. The same
+    /// page interpreted once is 184.7 M against 185.8 M, and page *one* of the same document —
+    /// the launch page, and the number `CLAUDE.md`'s startup rules bind — is 170.69 M against
+    /// 170.93 M, **+0.14%**.
+    ///
+    /// Two thirds of the 1.15 M is the command's own bound and one third was the clip chain,
+    /// before [`Interpreter::clip_extent`] stopped re-walking one that three hundred consecutive
+    /// runs of a page share: with the chain walked per command it was 1.46 M rather than 1.15 M.
+    /// The walk under both is [`pdf_render::geom::Path::hull`], computed once per distinct path
+    /// and kept, so a page repeating one glyph outline pays for it once.
     pub(super) fn draw(&mut self, command: Command) {
         if !self.marking.is_empty() {
             let bounds = command.device_bounds(Transform::IDENTITY);

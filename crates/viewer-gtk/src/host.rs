@@ -327,6 +327,15 @@ pub struct Host {
     /// beside the one showing, and taken on the `Event::Opened` that names it. `None` where the
     /// last offer was not used, which is what an action stating nothing about a new window leaves.
     reserved: Option<(DocumentId, PathBuf)>,
+    /// The documents a reader named that are still to open beside this one — the command line's
+    /// later paths and the files chosen with Ctrl + O — one at a time (`viewer_host::Arrivals`).
+    arrivals: viewer_host::Arrivals,
+    /// Whether the panels are to be built again when the pump now running has finished.
+    ///
+    /// A tab brought to the front sends `Command::Focus` on the pump's queue, and every panel is an
+    /// answer about the *focused* document — so building them before that command has run would
+    /// fill the new tab's panels from the document that was in front.
+    panels_due: bool,
     /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
     /// §12.4.4.1's two transition faces.
     ///
@@ -601,6 +610,8 @@ impl Host {
                 needle: String::new(),
                 pages_left: 0,
                 reserved: None,
+                arrivals: viewer_host::Arrivals::new(),
+                panels_due: false,
                 rasterizer: CpuRasterizer::new(),
                 // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule
                 // that nothing page one does not need happens before page one.
@@ -932,6 +943,11 @@ impl Host {
             self.say(&viewer_host::declined(operation));
         }
         self.dispatch(Command::Answer { document, proceed });
+        // §12.11.6's `no` puts the document down unopened, so one on its way to a tab never
+        // arrives and the next may start.
+        if !proceed && operation == pdf_model::restriction::Operation::Process {
+            self.given_up(document);
+        }
     }
 
     /// Fills the restrictions menu in, immediately before it is shown.
@@ -984,6 +1000,9 @@ impl Host {
                 break;
             }
         }
+        if std::mem::take(&mut self.panels_due) {
+            self.build_panels();
+        }
         self.refresh();
         self.pump_search();
         self.pump_presentation();
@@ -1031,6 +1050,14 @@ impl Host {
         let Some(page) = self.drawing.inside() else {
             return;
         };
+        // A draw for a tab behind this one is still wanted, and the geometry below is the front's.
+        if self
+            .drawing
+            .inside_document()
+            .is_some_and(|document| document != self.documents.focused())
+        {
+            return;
+        }
         let shown = matches!(
             self.viewer.query(Query::PageGeometry(page)),
             Answer::Geometry(_)
@@ -1204,36 +1231,59 @@ impl Host {
         self.pump(queue);
     }
 
+    /// A document opened: the first, one beside it, or one a reader named on its way to a tab.
+    fn opened(&mut self, document: DocumentId, pages: usize, queue: &mut VecDeque<Command>) {
+        self.trace
+            .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+        // A document that arrived under the name this window held out for
+        // `/NewWindow true` is a *second* document rather than this one reopened, so it
+        // gets a tab of its own before anything else is said about it (ADR 1263).
+        let behind = self.opened_beside(document, queue);
+        // Trap 5: a page tree with no leaves is a *correctly read* document with nothing
+        // to show, and a blank window is what a broken file looks like too. Said in all
+        // three hosts since the seven-hundred-and-fourth session; it was said in none.
+        if pages == 0 {
+            self.say(&viewer_host::no_pages(&named(&self.showing.path)));
+        }
+        self.showing.asking.opened();
+        // A document opens at the window's levels, so the menu's ticks go back to them
+        // too — the core's `Open` forgets the departures and a menu that did not would
+        // tick the last document's (ADR 1145).
+        self.restrictions.opened();
+        self.showing.report_due.opened();
+        self.obey_the_catalog(queue);
+        // The core has already focused this document, so its panels are built now rather than
+        // after the pump — unless a front given back below asks for them again.
+        self.build_panels();
+        self.panels_due = false;
+        // A document named behind the first gives the front back once it has its tab, and
+        // the next one waiting starts. The first document's own start is its first frame,
+        // unless it has no page to put in one (ADR 1275).
+        if let Some(front) = behind {
+            self.show_document(front, queue);
+        }
+        if document != DOCUMENT || pages == 0 {
+            self.later_open_the_next();
+        }
+    }
+
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
-            Event::Opened { document, pages } => {
-                self.trace
-                    .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
-                // A document that arrived under the name this window held out for
-                // `/NewWindow true` is a *second* document rather than this one reopened, so it
-                // gets a tab of its own before anything else is said about it (ADR 1263).
-                self.opened_beside(document, queue);
-                // Trap 5: a page tree with no leaves is a *correctly read* document with nothing
-                // to show, and a blank window is what a broken file looks like too. Said in all
-                // three hosts since the seven-hundred-and-fourth session; it was said in none.
-                if pages == 0 {
-                    self.say(&viewer_host::no_pages(&named(&self.showing.path)));
+            Event::Opened { document, pages } => self.opened(document, pages, queue),
+            Event::OpenFailed { document, reason } => {
+                if let Some(arriving) = self.arrivals.settle(document) {
+                    self.say(&viewer_host::cannot_open(
+                        &viewer_host::documents::label(&arriving.named.path),
+                        &reason,
+                    ));
+                } else {
+                    self.say(&viewer_host::cannot_open(
+                        &named(&self.showing.path),
+                        &reason,
+                    ));
                 }
-                self.showing.asking.opened();
-                // A document opens at the window's levels, so the menu's ticks go back to them
-                // too — the core's `Open` forgets the departures and a menu that did not would
-                // tick the last document's (ADR 1145).
-                self.restrictions.opened();
-                self.showing.report_due.opened();
-                self.obey_the_catalog(queue);
-                self.build_panels();
-            }
-            Event::OpenFailed { reason, .. } => {
-                self.say(&viewer_host::cannot_open(
-                    &named(&self.showing.path),
-                    &reason,
-                ));
+                self.later_open_the_next();
             }
             // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
             // is a window, and a window is a host's — which is the whole reason this event exists
@@ -1241,10 +1291,23 @@ impl Host {
             // the clause states no number and three hosts held three copies of the same three.
             //
             // Exhaustive over `Ask` on purpose: a case added there fails to compile here.
-            Event::PasswordRequired { .. } => match self.showing.asking.required() {
-                viewer_host::Ask::Prompt { attempt, of } => self.ask_for_a_password(attempt, of),
-                viewer_host::Ask::Exhausted => self.say(viewer_host::password::EXHAUSTED),
-            },
+            // A document on its way to a tab of its own counts its own prompts, because the count in
+            // this window's fields is the one in front's.
+            Event::PasswordRequired { document } => {
+                let asked = match self.arrivals.named_mut(document) {
+                    Some(arriving) => arriving.asking.required(),
+                    None => self.showing.asking.required(),
+                };
+                match asked {
+                    viewer_host::Ask::Prompt { attempt, of } => {
+                        self.ask_for_a_password(document, attempt, of);
+                    }
+                    viewer_host::Ask::Exhausted => {
+                        self.say(viewer_host::password::EXHAUSTED);
+                        self.given_up(document);
+                    }
+                }
+            }
             // Two events with nothing to do here, for two different reasons. A close drops
             // everything derived from the document and this host opens one document and never
             // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the
@@ -1426,6 +1489,9 @@ impl Host {
                         self.trace.since_start()
                     ),
                 );
+                // The command line's later documents, and not one moment sooner: nothing page one
+                // does not need happens before page one (`CLAUDE.md` section 2).
+                self.later_open_the_next();
             }
         }
         let fields = match self.viewer.query(Query::Fields) {
@@ -1720,7 +1786,7 @@ impl Host {
     /// [`viewer_host::Key`]'s mechanism applied to the other thing a window shows (ADR 0526).
     ///
     /// [`viewer_host::Key`]: viewer_host::Key
-    fn panel_of(&self, tab: Tab) -> Panel {
+    fn panel_of(&mut self, tab: Tab) -> Panel {
         match tab {
             Tab::Contents => Panel::Rows(match self.viewer.query(Query::Outline) {
                 Answer::Outline(outline) if !outline.items.is_empty() => {
@@ -1745,13 +1811,32 @@ impl Host {
                 Answer::Articles(threads) => panel::article_rows(&threads),
                 _ => panel::article_rows(&[]),
             }),
+            // The one moment this window reads Table 349, so the tab's name is taken from the same
+            // answer rather than from a second decode of §14.3.2's stream (ADR 1275).
             Tab::Document => Panel::Rows(match self.viewer.query(Query::Properties) {
                 Answer::Properties {
                     information,
                     metadata,
-                } => panel::property_rows(&information, metadata.as_ref()),
+                } => {
+                    self.name_the_tab(&information);
+                    panel::property_rows(&information, metadata.as_ref())
+                }
                 _ => panel::property_rows(&pdf_model::metadata::Information::default(), None),
             }),
+        }
+    }
+
+    /// What the tab in front says: §14.3.3's `/Title`, or the file's name
+    /// (`viewer_host::documents::titled`).
+    fn name_the_tab(&mut self, information: &pdf_model::metadata::Information) {
+        let label = viewer_host::documents::titled(information, &self.showing.path);
+        self.documents
+            .relabel(self.documents.focused(), label.clone());
+        if let Some(page) = u32::try_from(self.documents.focused_index())
+            .ok()
+            .and_then(|index| self.ui.documents.nth_page(Some(index)))
+        {
+            self.ui.documents.set_tab_label_text(&page, &label);
         }
     }
 
@@ -1840,6 +1925,11 @@ impl Host {
                 // `viewer-qt` makes with `Busy`.
                 let (slot, count, row, show) = (slot.clone(), *count, row.clone(), show.clone());
                 glib::idle_add_local_once(move || {
+                    // Emptied here as well as above: two builds inside one pump queue two of
+                    // these, and the slot holds one list rather than one per build.
+                    while let Some(child) = slot.first_child() {
+                        slot.remove(&child);
+                    }
                     slot.append(&pages::page_list(count, &row, &show));
                 });
             }
@@ -2005,7 +2095,7 @@ impl Host {
     /// The words are [`viewer_host::password`]'s so that three hosts ask the same question; the
     /// `gtk4::PasswordEntry` is this toolkit's answer to *what a password entry is* and is the
     /// whole of what this method adds.
-    fn ask_for_a_password(&mut self, attempt: u32, of: u32) {
+    fn ask_for_a_password(&mut self, document: DocumentId, attempt: u32, of: u32) {
         let dialog = gtk4::Window::new();
         dialog.set_title(Some("Password"));
         dialog.set_modal(true);
@@ -2016,7 +2106,11 @@ impl Host {
         column.set_margin_bottom(12);
         column.set_margin_start(12);
         column.set_margin_end(12);
-        let words = viewer_host::password::prompt(&named(&self.showing.path), attempt, of);
+        let asked_about = match self.arrivals.named_mut(document) {
+            Some(arriving) => viewer_host::documents::label(&arriving.named.path),
+            None => named(&self.showing.path),
+        };
+        let words = viewer_host::password::prompt(&asked_about, attempt, of);
         let label = gtk4::Label::new(Some(&words.question));
         label.set_xalign(0.0);
         label.set_wrap(true);
@@ -2049,7 +2143,7 @@ impl Host {
             let password = taken_from(&typed);
             done.set(true);
             dialogue.close();
-            with(&me, |host| host.supply_password(password));
+            with(&me, |host| host.supply_password(document, password));
         });
         let me = self.me.clone();
         let dialogue = dialog.clone();
@@ -2058,7 +2152,7 @@ impl Host {
             let password = taken_from(typed);
             done.set(true);
             dialogue.close();
-            with(&me, |host| host.supply_password(password));
+            with(&me, |host| host.supply_password(document, password));
         });
         // Escape is the platform's own way out of a modal window, and closing it without typing has
         // to be a *decline* rather than silence — trap 5, in a window a person walked away from.
@@ -2067,7 +2161,10 @@ impl Host {
         let me = self.me.clone();
         dialog.connect_close_request(move |_| {
             if !answered.get() {
-                with(&me, |host| host.say(viewer_host::password::CANCELLED));
+                with(&me, |host| {
+                    host.say(viewer_host::password::CANCELLED);
+                    host.given_up(document);
+                });
             }
             glib::Propagation::Proceed
         });
@@ -2093,10 +2190,16 @@ impl Host {
     /// §7.6.4.1: a person typed a password, or dismissed the prompt with nothing in it.
     ///
     /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
-    fn supply_password(&mut self, password: viewer_core::Secret) {
+    fn supply_password(&mut self, document: DocumentId, password: viewer_core::Secret) {
         match viewer_host::password::supplied(password) {
+            viewer_host::Supplied::Open(secret) if self.arrivals.is(document) => {
+                self.open_arriving(Some(secret));
+            }
             viewer_host::Supplied::Open(secret) => self.open_document(Some(secret)),
-            viewer_host::Supplied::Cancelled => self.say(viewer_host::password::CANCELLED),
+            viewer_host::Supplied::Cancelled => {
+                self.say(viewer_host::password::CANCELLED);
+                self.given_up(document);
+            }
         }
     }
 
@@ -2247,6 +2350,12 @@ impl Host {
     /// which is what makes this safe to reach from both a click and this host's own
     /// `set_current_page` — the second is a no-op that costs one idle callback (ADR 1264).
     fn tab_chosen(&mut self, index: usize) {
+        // A switch the idle queue carried past a later one is stale: the notebook's current page is
+        // the one last chosen, and answering the older index would swap two tabs back and forth
+        // for as long as the loop ran — which is what two documents opened in one pump did.
+        if self.ui.documents.current_page() != u32::try_from(index).ok() {
+            return;
+        }
         let Some(id) = self.documents.id_at(index) else {
             return;
         };
@@ -2276,7 +2385,7 @@ impl Host {
         // gets new widgets and one whose do not keeps the widgets it would have been given.
         queue.push_back(Command::Focus(id));
         self.retitle();
-        self.build_panels();
+        self.panels_due = true;
     }
 
     /// Moves the one view this window has into the notebook page that should be showing it.
@@ -2327,9 +2436,19 @@ impl Host {
     /// The core has already made it the focused document — a person who followed a link asking for
     /// a new window asked to be reading the destination — so what is left here is the tab, the
     /// swap of this window's own per-document state, and the sentence.
-    fn opened_beside(&mut self, id: DocumentId, queue: &mut VecDeque<Command>) {
-        let Some((_, path)) = self.reserved.take().filter(|(name, _)| *name == id) else {
-            return;
+    ///
+    /// A document a *reader* named arrives here too, under the name `viewer_host::Arrivals` reserved
+    /// for it; what comes back is the tab to put in front again, for one named behind the first.
+    fn opened_beside(
+        &mut self,
+        id: DocumentId,
+        queue: &mut VecDeque<Command>,
+    ) -> Option<DocumentId> {
+        let (path, behind) = if let Some(arriving) = self.arrivals.settle(id) {
+            (arriving.named.path, arriving.behind)
+        } else {
+            let (_, path) = self.reserved.take().filter(|(name, _)| *name == id)?;
+            (path, None)
         };
         // The bytes are read again rather than kept from the supply, because what this field is
         // for is §7.6.4.1's second attempt with a password — and a document that opened without
@@ -2342,7 +2461,7 @@ impl Host {
                     "cannot keep {} open for a second attempt: {error}",
                     path.display()
                 ));
-                return;
+                return None;
             }
         };
         let label = viewer_host::documents::label(&path);
@@ -2360,6 +2479,130 @@ impl Host {
             &label,
             self.documents.len(),
         ));
+        behind
+    }
+
+    /// A person asked for a document: `gtk4::FileDialog`, and the file it answers opens beside the
+    /// one showing.
+    ///
+    /// The dialogue decides nothing — it spells a path, which is ADR 1240's rule for the other
+    /// chooser in this window — and what the path becomes is `viewer_host::open_chosen`'s, asked
+    /// when its turn comes in `viewer_host::Arrivals` (ADR 1275).
+    fn choose_a_document(&self) {
+        let dialog = gtk4::FileDialog::new();
+        dialog.set_title("Open a document beside this one");
+        dialog.set_modal(true);
+        // Beside the document already showing, which is where a person reaching for a second one
+        // most often looks; GTK's own default where this is not a directory.
+        // A path named relative to the working directory has an empty parent, which is no folder
+        // GIO can list, so that one is left to GTK too.
+        if let Some(directory) = self
+            .showing
+            .directory
+            .as_deref()
+            .filter(|directory| !directory.as_os_str().is_empty())
+        {
+            dialog.set_initial_folder(Some(&gio::File::for_path(directory)));
+        }
+        let me = self.me.clone();
+        dialog.open(
+            Some(&self.ui.window),
+            gio::Cancellable::NONE,
+            move |chosen| {
+                // A person who dismissed the chooser has asked for nothing: `Err` here is that
+                // dismissal as much as it is a failure, and either way there is no path.
+                if let Ok(file) = chosen
+                    && let Some(path) = file.path()
+                {
+                    with(&me, |host| host.chose(path));
+                }
+            },
+        );
+    }
+
+    /// A file a person chose, which goes to the front when it opens: they asked to read it.
+    fn chose(&mut self, path: PathBuf) {
+        self.arrivals.wait(viewer_host::Named::file(path), false);
+        self.open_the_next();
+    }
+
+    /// The command line's later paths, each to open as a tab behind the first once page one is up.
+    pub fn open_behind(&mut self, named: Vec<viewer_host::Named>) {
+        for one in named {
+            self.arrivals.wait(one, true);
+        }
+    }
+
+    /// Starts the next document waiting to open, where none is on its way.
+    ///
+    /// `viewer_core::Command::Open` under the name `viewer_host::Arrivals` reserved, so the core
+    /// hands the document every answer this reader has given exactly as it did the first
+    /// (`Viewer::adopt`, ADR 1263); the tab is added when `Event::Opened` names it.
+    fn open_the_next(&mut self) {
+        loop {
+            let Some(arriving) = self.arrivals.start(&mut self.documents) else {
+                return;
+            };
+            let id = arriving.id;
+            let fragment = arriving.named.fragment.clone();
+            match viewer_host::open_chosen(&arriving.named.path) {
+                Ok(bytes) => {
+                    self.dispatch(Command::Open {
+                        id,
+                        bytes,
+                        password: None,
+                        fragment,
+                    });
+                    return;
+                }
+                Err(sentence) => {
+                    self.say(&sentence);
+                    self.arrivals.settle(id);
+                }
+            }
+        }
+    }
+
+    /// §7.6.4.1's second attempt, for the document on its way to a tab rather than the one in front.
+    fn open_arriving(&mut self, password: Option<viewer_core::Secret>) {
+        let Some((id, path, fragment)) = self.arrivals.current().map(|arriving| {
+            (
+                arriving.id,
+                arriving.named.path.clone(),
+                arriving.named.fragment.clone(),
+            )
+        }) else {
+            return;
+        };
+        match viewer_host::open_chosen(&path) {
+            Ok(bytes) => self.dispatch(Command::Open {
+                id,
+                bytes,
+                password,
+                fragment,
+            }),
+            Err(sentence) => {
+                self.say(&sentence);
+                self.given_up(id);
+            }
+        }
+    }
+
+    /// A document on its way to a tab that will not arrive — cancelled, refused, declined — and the
+    /// next one waiting, which may now start. Nothing for any other name.
+    fn given_up(&mut self, id: DocumentId) {
+        if self.arrivals.settle(id).is_some() || id == DOCUMENT {
+            self.later_open_the_next();
+        }
+    }
+
+    /// [`Self::open_the_next`], from the main loop rather than from inside the event being answered.
+    ///
+    /// Every place a document settles is inside a `pump`, and opening the next from there would be
+    /// a second command loop inside the first.
+    fn later_open_the_next(&self) {
+        let me = self.me.clone();
+        glib::idle_add_local_once(move || with(&me, Self::open_the_next));
     }
 
     /// Closes the document in front, or the window where it is the only one.
@@ -2864,6 +3107,7 @@ impl Host {
                 }
             }
             viewer_host::WindowAct::CloseDocument => self.close_document(),
+            viewer_host::WindowAct::OpenDocument => self.choose_a_document(),
             // The find bar is revealed by a key this host binds rather than by
             // `gtk_search_bar_set_key_capture_widget`, which forwards *every* letter to the entry
             // and would take `a`, `s`, `z` and `y` away from the rest of the table.
@@ -4029,6 +4273,25 @@ fn listen(
         glib::Propagation::Proceed
     });
     window.add_controller(keys);
+
+    // **Ctrl + Tab is taken before the focused widget sees it**, and only that press. GTK binds it
+    // to moving the keyboard focus out of whatever holds it, so on its way up to the controller
+    // above it was spent on a button and the strip of documents never moved — found by driving
+    // this window with three documents open. The capture phase is kept to the one binding the
+    // toolkit would otherwise take; every other key still reaches the focused widget first, which
+    // is what a §12.7 field being typed into needs (ADR 1275).
+    let tabs = gtk4::EventControllerKey::new();
+    tabs.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let listener = me.clone();
+    tabs.connect_key_pressed(move |_, key, _, held| {
+        let tab = matches!(key, gtk4::gdk::Key::Tab | gtk4::gdk::Key::ISO_Left_Tab);
+        if !tab || !held.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+            return glib::Propagation::Proceed;
+        }
+        with(&listener, |host| host.key(key, modifiers(held)));
+        glib::Propagation::Stop
+    });
+    window.add_controller(tabs);
 
     // **The wheel, which this host had no binding for until Table 29's `/PageLayout` was
     // obeyed.** Under `SinglePage` at `Zoom::FitPage` there is nothing to scroll, so the gap was

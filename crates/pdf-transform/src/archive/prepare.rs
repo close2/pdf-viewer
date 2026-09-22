@@ -759,6 +759,17 @@ pub(super) struct Prepared {
     pub(super) forbidden_annotations: Result<ForbiddenAnnotations, Because>,
     /// Every annotation whose stated `/F` section 6.3.2 forbids, or why none can be removed.
     pub(super) hidden_annotations: Result<HiddenAnnotations, Because>,
+    /// The reference `XObject`s whose `Ref` entry a `preserve` removes, or why none can be.
+    ///
+    /// `Err(NOT_ASKED_FOR)` unless the requirement failed **and** a configuration answered it with
+    /// `preserve`: the decision table refuses the site, so nothing but the operator's answer asks
+    /// for this (`doc/adr/1285`).
+    pub(super) reference_xobjects: Result<super::in_place::ReferenceXObjects, Because>,
+    /// The `CMap` streams a `preserve` embeds from the published set, or why none can be.
+    ///
+    /// `Err(NOT_ASKED_FOR)` unless the requirement failed and a configuration answered it with
+    /// `source = "shipped-cmaps"` (`doc/adr/1286`).
+    pub(super) shipped_cmaps: Result<super::cmaps::ShippedCMaps, Because>,
     /// The appearance dictionaries that lose every key but `/N`, or why none do.
     pub(super) extra_appearance_states: Result<ExtraAppearanceStates, Because>,
     /// The optional content configurations that lose their `/AS`, or why none do.
@@ -967,6 +978,23 @@ impl Prepared {
         let hidden_annotations = asked(wanted(Rewrite::HiddenAnnotationRemoved), || {
             prepare_hidden_annotations(document, plan.target)
         });
+        // `doc/adr/1286`: the table refuses the site, so only an operator's `preserve` asks for
+        // this, and the streams take object numbers from the same spare range as every addition.
+        let shipped_cmaps = asked(
+            failed.contains(super::cmaps::SITE)
+                && plan
+                    .preservations
+                    .iter()
+                    .any(|preservation| preservation.site == super::cmaps::SITE),
+            || super::cmaps::prepare(document, plan.target, &mut spare),
+        );
+        let reference_xobjects = asked(
+            failed.contains(super::in_place::NO_REFERENCE_XOBJECTS)
+                && plan.preservations.iter().any(|preservation| {
+                    preservation.site == super::in_place::NO_REFERENCE_XOBJECTS
+                }),
+            || super::in_place::prepare_reference_xobjects(document, plan.target),
+        );
         let extra_appearance_states = asked(wanted(Rewrite::ExtraAppearanceStatesRemoved), || {
             prepare_extra_appearance_states(document, plan.target)
         });
@@ -1207,6 +1235,8 @@ impl Prepared {
             actions,
             forbidden_annotations,
             hidden_annotations,
+            reference_xobjects,
+            shipped_cmaps,
             extra_appearance_states,
             automatic_states,
             form,
@@ -1268,7 +1298,11 @@ impl Prepared {
             Rewrite::ForbiddenAnnotationRemoved => {
                 self.forbidden_annotations.as_ref().err().copied()
             }
-            Rewrite::HiddenAnnotationRemoved => self.hidden_annotations.as_ref().err().copied(),
+            Rewrite::HiddenAnnotationRemoved | Rewrite::HiddenAnnotationShown => {
+                self.hidden_annotations.as_ref().err().copied()
+            }
+            Rewrite::ReferenceXObjectProxied => self.reference_xobjects.as_ref().err().copied(),
+            Rewrite::ShippedCMapEmbedded => self.shipped_cmaps.as_ref().err().copied(),
             Rewrite::ExtraAppearanceStatesRemoved => {
                 self.extra_appearance_states.as_ref().err().copied()
             }
@@ -1356,6 +1390,11 @@ impl Prepared {
         }
         if let Ok(attached) = &self.attached {
             for (id, object) in &attached.written {
+                out.insert(*id, object.clone());
+            }
+        }
+        if let Ok(shipped) = &self.shipped_cmaps {
+            for (id, object) in &shipped.written {
                 out.insert(*id, object.clone());
             }
         }
@@ -2219,7 +2258,7 @@ pub(super) struct HiddenAnnotations {
 /// into the array, and a rewrite that acts on objects has nothing to take out.
 const REMOVAL_OF_A_DIRECT_HIDDEN_ANNOTATION: &str = "an annotation whose F entry ISO 19005 \
      forbids is written directly into its page's Annots array rather than being an object of its \
-     own, and the rewrite that removes one acts on objects. Nothing here can reach it";
+     own, and the rewrites that remove one or show it act on objects. Nothing here can reach it";
 
 /// The annotations the two section 6.3.2 flag rows are about, read off the document once.
 fn prepare_hidden_annotations(

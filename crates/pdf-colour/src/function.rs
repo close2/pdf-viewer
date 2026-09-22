@@ -1645,7 +1645,7 @@ impl Slot {
 /// the operand *has* a reading that loses least; here there is nothing to read. Trap 5's test says
 /// which way that falls: the invented answer does not add a mark, it **substitutes** for the branch
 /// the producer wrote, so the wrong colour is painted over the whole region the branch decides. The
-/// same test refuses a type 0 function whose sample array is short (see [`Function::sample_extent`]).
+/// same test refuses a type 0 function whose sample array is short (see `holds_the_sample_array`).
 ///
 /// # Why it is decided here and not where the operator runs
 ///

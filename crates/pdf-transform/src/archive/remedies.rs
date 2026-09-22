@@ -39,10 +39,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use pdf_archive::{Outcome, Target};
 use pdf_syntax::Document;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
+use pdf_syntax::serialize::flate_encode;
 
 use crate::tool::{Tool, ToolOutcome, ToolOutputs, ToolRequest, ToolResult};
 
-use super::config::{Derivation, Resolution, Supplied, Supply, Winner, specification_name};
+use super::config::{
+    Derivation, Resolution, Supplied, Supply, Winner, WriteModeSource, specification_name,
+};
 use super::external::{ExternalData, external_stream_data};
 use super::report::{Derived, DerivedOutcome, Resolved, SuppliedFact};
 use super::rewrite::Rewrite;
@@ -88,6 +91,12 @@ pub(super) struct Remedies {
     pub(super) supplied: BTreeMap<ObjectId, String>,
     /// The definition every `Separation` array naming one colourant is to agree on.
     pub(super) separations: BTreeMap<Vec<u8>, (Object, Object)>,
+    /// The `/WMode` each embedded `CMap` stream's dictionary is to state, where the operator said
+    /// the program's statement stands (`doc/adr/1286`).
+    pub(super) stated_write_modes: BTreeMap<ObjectId, i64>,
+    /// The whole replacement stream for each embedded `CMap` whose program is to state what its
+    /// dictionary does, where the operator said the dictionary's statement stands.
+    pub(super) restated_programs: BTreeMap<ObjectId, Object>,
     /// The requirements a supplied fact answered, each with the rewrite that carries it out.
     pub(super) supply_sites: BTreeMap<&'static str, Rewrite>,
     /// What was derived, from what, and by which tool — `A55`'s per-document report.
@@ -108,6 +117,8 @@ impl Remedies {
             external: BTreeMap::new(),
             supplied: BTreeMap::new(),
             separations: BTreeMap::new(),
+            stated_write_modes: BTreeMap::new(),
+            restated_programs: BTreeMap::new(),
             supply_sites: BTreeMap::new(),
             derived_report: Vec::new(),
             supplied_report: Vec::new(),
@@ -348,6 +359,10 @@ impl Remedies {
                 self.agree_on_one_definition(document, judgement.id, *winner);
                 return;
             }
+            Supplied::WriteMode(source) => {
+                self.agree_on_one_write_mode(document, judgement, *source);
+                return;
+            }
         };
         let streams = embedded_streams(document, judgement);
         if streams.is_empty() {
@@ -444,6 +459,151 @@ impl Remedies {
         self.separations = agreed;
         self.supply_sites.insert(site, Rewrite::SeparationAgreed);
     }
+}
+
+impl Remedies {
+    /// `fonts/embedded-cmap-states-its-own-write-mode`, answered by the operator's choice of which
+    /// of a `CMap`'s two statements stands.
+    ///
+    /// The population is the requirement's findings: each names the `CMap` stream whose dictionary
+    /// and program disagree. The program's value is read the way the requirement reads it,
+    /// through `pdf_font`'s `CMap` parser, so the value written is the one the validator compares.
+    ///
+    /// **`stream` edits the producer's program, and only where it already states its mode.** The
+    /// `/WMode … def` entry's digit is replaced by the dictionary's, which is a same-length edit
+    /// inside the bytes the producer wrote; a program stating no mode states 0 by §9.7.5.1's
+    /// default, and giving it an entry would be writing a line of `CMap` syntax this converter
+    /// composed, so that `CMap` is left refused. Every value written is one the file already held.
+    fn agree_on_one_write_mode(
+        &mut self,
+        document: &Document,
+        judgement: &pdf_archive::Judgement,
+        source: WriteModeSource,
+    ) {
+        let Outcome::Failed { places, total } = &judgement.outcome else {
+            return;
+        };
+        if places.len() != *total {
+            // A finding list the validator shortened names fewer CMaps than failed, and answering
+            // those alone would leave the rest failing: the requirement keeps its refusal.
+            return;
+        }
+        let mut answered = true;
+        for finding in places {
+            let Some(at) = finding.place.object else {
+                answered = false;
+                continue;
+            };
+            let Object::Stream(stream) = document.get(at) else {
+                answered = false;
+                continue;
+            };
+            let Some(program) = document.decoded_stream_data(&stream) else {
+                answered = false;
+                continue;
+            };
+            let programs = i64::from(pdf_font::cmap::CMap::parse(&program, None).wmode());
+            let stated = document
+                .get_key(&stream.dict, "WMode")
+                .as_integer()
+                .unwrap_or(0);
+            let subject = format!(
+                "the CMap in object {} {}, whose dictionary states WMode {stated} and whose \
+                 program states {programs}",
+                at.number, at.generation
+            );
+            match source {
+                WriteModeSource::Program => {
+                    self.stated_write_modes.insert(at, programs);
+                    self.supplied_report.push(SuppliedFact {
+                        site: judgement.id,
+                        subject,
+                        value: format!("the program's {programs}, which the dictionary now states"),
+                    });
+                }
+                WriteModeSource::Stream => {
+                    let Some(restated) = restate_program_write_mode(&program, stated)
+                        .and_then(|bytes| restated_stream(&stream.dict, &bytes))
+                    else {
+                        answered = false;
+                        continue;
+                    };
+                    self.restated_programs.insert(at, restated);
+                    self.supplied_report.push(SuppliedFact {
+                        site: judgement.id,
+                        subject,
+                        value: format!("the dictionary's {stated}, which the program now states"),
+                    });
+                }
+            }
+        }
+        if answered {
+            self.supply_sites
+                .insert(judgement.id, Rewrite::WriteModeAgreed);
+        }
+    }
+}
+
+/// A `CMap` program with its `/WMode … def` entry's value replaced, where it states exactly one.
+///
+/// A same-length edit of one digit: Table 118 makes the value 0 or 1, and the program's own entry
+/// is the only place it is written. `None` where the program states no entry, or more than one.
+fn restate_program_write_mode(program: &[u8], mode: i64) -> Option<Vec<u8>> {
+    let digit = match mode {
+        0 => b'0',
+        1 => b'1',
+        _ => return None,
+    };
+    let key = b"/WMode";
+    let mut found = None;
+    let mut from = 0;
+    while let Some(offset) = program
+        .get(from..)?
+        .windows(key.len())
+        .position(|window| window == key)
+    {
+        let at = from.checked_add(offset)?;
+        if found.is_some() {
+            return None;
+        }
+        found = Some(at);
+        from = at.checked_add(key.len())?;
+    }
+    let after = found?.checked_add(key.len())?;
+    let value = after.checked_add(
+        program
+            .get(after..)?
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())?,
+    )?;
+    let current = *program.get(value)?;
+    let next = program.get(value.checked_add(1)?).copied();
+    if !matches!(current, b'0' | b'1') || next.is_some_and(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let mut out = program.to_vec();
+    *out.get_mut(value)? = digit;
+    Some(out)
+}
+
+/// The `CMap` stream with its program replaced, re-encoded as one `FlateDecode`.
+///
+/// The dictionary is the producer's but for the three entries the new data changes together:
+/// `/Filter`, `/DecodeParms` and `/Length`.
+fn restated_stream(dict: &Dictionary, program: &[u8]) -> Option<Object> {
+    let encoded = flate_encode(program, super::COMPRESSION_LEVEL)?;
+    let mut dict = dict.clone();
+    dict.remove("DecodeParms");
+    dict.remove("Length");
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    Some(Object::Stream(std::sync::Arc::new(Stream {
+        dict,
+        data: encoded.into(),
+        decryption_failed: false,
+    })))
 }
 
 /// Whether two uses of one colourant define it the same way.

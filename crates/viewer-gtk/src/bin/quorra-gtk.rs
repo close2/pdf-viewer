@@ -1,4 +1,4 @@
-//! The GTK4 viewer: `quorra-gtk [--trace[=topics]] <file.pdf[#fragment]>`.
+//! The GTK4 viewer: `quorra-gtk [--trace[=topics]] <file.pdf[#fragment]>...`.
 //!
 //! A second program beside `quorra`, and deliberately not a flag on it: the two differ in
 //! their *toolkit* and in nothing else, which is the claim `viewer-core` exists to make and which
@@ -10,7 +10,6 @@
 
 #![forbid(unsafe_code)]
 
-use std::path::PathBuf;
 use std::time::Instant;
 
 use pdf_model::view::WidgetAppearances;
@@ -24,11 +23,11 @@ use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 /// What the command line asked for.
 #[derive(Debug)]
 struct Arguments {
-    /// The document.
-    path: PathBuf,
-    /// Annex O's fragment — the text after `#`, undecoded, because splitting a URI is the host's
-    /// and percent-decoding belongs to whoever knows which component it is decoding (ADR 0209).
-    fragment: Option<String>,
+    /// The document, with Annex O's fragment where the word carried one.
+    document: viewer_host::Named,
+    /// Every document named after the first, each to open as a tab of its own behind it once the
+    /// first page is on the screen (ADR 1275).
+    also: Vec<viewer_host::Named>,
     /// The topics `--trace` asked for, zero for a run without it.
     topics: u8,
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
@@ -63,8 +62,7 @@ struct Arguments {
 
 /// Reads the command line, or says what is wrong with it.
 fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
-    let mut path: Option<PathBuf> = None;
-    let mut fragment = None;
+    let mut documents: Vec<viewer_host::Named> = Vec::new();
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
     let mut restrictions = RestrictionPolicy::default();
@@ -95,31 +93,25 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
                 .map_err(|unknown| format!("--trace: {unknown} names no topic"))?;
         } else if word.starts_with("--") {
             return Err(format!("{word} is not an option this program has"));
-        } else if path.is_some() {
-            return Err("one document at a time".to_owned());
         } else {
-            // Annex O: the fragment is the text after `#` in the URI the bytes came from. A path
-            // is not a URI, but a path with a `#` in it is how a person types one on a command
-            // line, and `quorra` reads it the same way.
-            match word.split_once('#') {
-                Some((before, after)) => {
-                    path = Some(PathBuf::from(before));
-                    fragment = Some(after.to_owned());
-                }
-                None => path = Some(PathBuf::from(word)),
-            }
+            // `viewer_host::Named` is the one reading of a document word for three windows,
+            // Annex O's fragment and a file with a `#` in its name included.
+            documents.push(viewer_host::Named::from_argument(std::ffi::OsStr::new(
+                &word,
+            )));
         }
     }
-    let path = path.ok_or_else(|| {
+    let mut documents = documents.into_iter();
+    let document = documents.next().ok_or_else(|| {
         format!(
             "usage: quorra-gtk [--trace[=topics]] [--draw-widget-appearances] \
              [{IGNORE_RESTRICTIONS}] [--links=refuse|ask|warn|open] \
-             [--remote-documents=refuse|ask|warn|open] [--separations=on|off] <file.pdf>"
+             [--remote-documents=refuse|ask|warn|open] [--separations=on|off] <file.pdf>..."
         )
     })?;
     Ok(Arguments {
-        path,
-        fragment,
+        document,
+        also: documents.collect(),
         topics,
         widget_appearances,
         restrictions,
@@ -159,8 +151,8 @@ fn main() -> glib::ExitCode {
         trace.say(Topic::Launch, format_args!("GTK ready"));
         match Host::open(
             app,
-            &arguments.path,
-            arguments.fragment.clone(),
+            &arguments.document.path,
+            arguments.document.fragment.clone(),
             arguments.widget_appearances,
             viewer_host::Settings {
                 restrictions: arguments.restrictions,
@@ -170,7 +162,10 @@ fn main() -> glib::ExitCode {
             },
             trace,
         ) {
-            Ok(host) => held.borrow_mut().push(host),
+            Ok(host) => {
+                host.borrow_mut().open_behind(arguments.also.clone());
+                held.borrow_mut().push(host);
+            }
             Err(error) => {
                 eprintln!("{error}");
                 watched.set(true);
@@ -197,8 +192,41 @@ mod tests {
         // because percent-decoding belongs to whoever knows which component it is decoding.
         let read = arguments(["doc/x.pdf#nameddest=A%26B".to_owned()].into_iter())
             .expect("a path with a fragment is a document");
-        assert_eq!(read.path.to_string_lossy(), "doc/x.pdf");
-        assert_eq!(read.fragment.as_deref(), Some("nameddest=A%26B"));
+        assert_eq!(read.document.path.to_string_lossy(), "doc/x.pdf");
+        assert_eq!(read.document.fragment.as_deref(), Some("nameddest=A%26B"));
+    }
+
+    /// Every document word after the first is a tab of its own, in the order it was typed.
+    #[test]
+    fn every_path_after_the_first_is_a_document_beside_it() {
+        let read = arguments(
+            [
+                "a.pdf".to_owned(),
+                "--trace".to_owned(),
+                "b.pdf#page=2".to_owned(),
+                "c.pdf".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect("three documents");
+        assert_eq!(read.document.path.to_string_lossy(), "a.pdf");
+        let also: Vec<_> = read
+            .also
+            .iter()
+            .map(|named| {
+                (
+                    named.path.to_string_lossy().into_owned(),
+                    named.fragment.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            also,
+            [
+                ("b.pdf".to_owned(), Some("page=2".to_owned())),
+                ("c.pdf".to_owned(), None)
+            ]
+        );
     }
 
     #[test]

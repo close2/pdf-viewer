@@ -22,7 +22,6 @@ use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{ColourSpace, Compositing, Conversion, Reading, Separations};
 use crate::function::{Function, Value};
-use crate::transfer::Transfer;
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
 ///
@@ -57,25 +56,25 @@ pub enum ShadingError {
 
 /// How a shading's colours are made, beyond the shading's own dictionary.
 ///
-/// The three travel together because every colour a shading produces needs all three and none of
-/// them is a property of the shading: ISO 32000-2 §10.7.3's smoothness tolerance decides how finely
-/// a colour function is sampled, §8.6.5.9's and §11.4.7's [`Conversion`] decides what a set of
-/// components becomes, and §10.5's [`Transfer`] decides what the device is finally handed. They
-/// arrived as three separate arguments until the six-hundred-and-fiftieth session added the third,
-/// at which point four functions took eight arguments apiece and the lint said what a reader would
-/// have: these are one thing.
+/// The two travel together because every colour a shading produces needs both and neither is a
+/// property of the shading: ISO 32000-2 §10.7.3's smoothness tolerance decides how finely a colour
+/// function is sampled, and §8.6.5.9's and §11.4.7's [`Conversion`] decides what a set of
+/// components becomes.
+///
+/// **§10.5's transfer function is not among them.** §11.7.5.3's NOTE says its values "are used
+/// only when all colour compositing has been completed and rasterization is being performed", and
+/// §11.7.5.2 chooses it by the topmost object at a point rather than by the object whose colour is
+/// being made — so no colour this module makes carries one, and the display list's transfer
+/// channel maps the finished device pixel instead (ADRs 1266, 1279).
 ///
 /// The fields are `pub(crate)` rather than private because [`crate::mesh`] makes a mesh's colours
-/// and is a sibling module. Nothing outside this crate can build one with a transfer in it, since
-/// a [`Transfer`] comes from an `/ExtGState` and there is no other constructor for one.
+/// and is a sibling module.
 #[derive(Debug, Clone, Copy)]
 pub struct Colouring<'a> {
     /// How many samples §10.7.3's tolerance asks a colour function for.
     pub(crate) resolution: usize,
     /// What a set of colour components becomes on the way to what is being painted into.
     pub(crate) into: &'a Conversion,
-    /// §10.5's transfer function, where the graphics state states one.
-    pub(crate) transfer: Option<&'a Transfer>,
 }
 
 impl<'a> Colouring<'a> {
@@ -85,15 +84,10 @@ impl<'a> Colouring<'a> {
     /// here rather than at each call site, so that the two paths a shading can take through this
     /// module cannot read the tolerance differently.
     #[must_use]
-    pub fn new(
-        smoothness: Option<f32>,
-        into: &'a Conversion,
-        transfer: Option<&'a Transfer>,
-    ) -> Self {
+    pub fn new(smoothness: Option<f32>, into: &'a Conversion) -> Self {
         Self {
             resolution: Ramp::resolution_for(smoothness),
             into,
-            transfer,
         }
     }
 }
@@ -225,28 +219,16 @@ impl Cache {
         // painted under two `/SM` values is two sets of colours, and a page that changes it
         // between paintings has said so.
         let resolution = colouring.resolution;
-        let key = object
-            .as_reference()
-            .filter(|_| {
-                // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
-                // not a property of the object alone: §8.6.5.1 resolves it through the resource
-                // dictionary in force, and even the device names go through §8.6.5.6's
-                // `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` there. So a named space is
-                // not cached at all, which is exact; an array or a stream is the object's own.
-                let space = dictionary_of(document, object)
-                    .map(|dict| document.get_key(&dict, "ColorSpace"));
-                !matches!(space, Some(Object::Name(_)))
-            })
-            // §10.5's transfer function is applied to every colour a shading produces, so a
-            // shading built under one is a different set of colours from the same object built
-            // without it. It is *not* made part of the key: a `Transfer` is a group of parsed
-            // functions with no identity a key could be built from, and inventing one would put
-            // a pointer address in a `BTreeMap`. Not caching at all is the same answer this
-            // table already gives a named `/ColorSpace`, and it is exact rather than
-            // approximately right — at a cost measured at nothing, since
-            // `examples/transfer_function_census` finds no corpus document that paints a
-            // shading under a stated transfer.
-            .filter(|_| colouring.transfer.is_none());
+        let key = object.as_reference().filter(|_| {
+            // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
+            // not a property of the object alone: §8.6.5.1 resolves it through the resource
+            // dictionary in force, and even the device names go through §8.6.5.6's
+            // `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` there. So a named space is
+            // not cached at all, which is exact; an array or a stream is the object's own.
+            let space =
+                dictionary_of(document, object).map(|dict| document.get_key(&dict, "ColorSpace"));
+            !matches!(space, Some(Object::Name(_)))
+        });
         if let Some(id) = key
             && let Some(built) = self.built.get(&(id, resolution, colouring.into.clone()))
         {
@@ -327,9 +309,7 @@ pub(crate) fn dictionary_of(document: &Document, object: &Object) -> Option<Dict
 /// `transform` maps the shading's own coordinates into the space the caller will draw in.
 ///
 /// Callers that paint many shadings should hold a [`Cache`] and use [`Cache::build`]; this
-/// is the uncached spelling, kept for callers with one shading to build. It has no graphics
-/// state to read, so §10.5's transfer function is not in force here — the entry that states one
-/// is Table 57's, which only a content stream's `gs` can reach.
+/// is the uncached spelling, kept for callers with one shading to build.
 ///
 /// # Errors
 ///
@@ -345,7 +325,7 @@ pub fn build(
         object,
         resources,
         None,
-        Colouring::new(None, &Conversion::device(), None),
+        Colouring::new(None, &Conversion::device()),
     )?;
     Ok(Shaded {
         shading: Shading {
@@ -360,25 +340,9 @@ pub fn build(
 
 /// The half of a shading that depends on the object alone: its colours and its own matrix.
 ///
-/// `colouring.transfer` is ISO 32000-2 §10.5's function where the graphics state states one, and it
-/// reaches every colour below because the clause's subject is the component value without
-/// qualification:
-///
-/// > The input shall be the value of a colour component in the device's native colour space,
-/// > either specified directly or produced by conversion from some other colour space. The output
-/// > shall be the transformed component value to be transmitted to the device (after halftoning,
-/// > if necessary).
-///
-/// # Why it is applied *here* rather than to the finished shading
-///
-/// A shading's colours are not a value the display list can map afterwards. §10.7.3's simplifier
-/// (ADR 0068) drops every ramp stop within half an eight-bit level of the line its neighbours
-/// draw, so a `/FunctionType 2` interpolation with `/N 1` — the commonest shading there is —
-/// reaches the display list as **two** stops. Mapping those two and letting a rasteriser
-/// interpolate between them would draw a straight line where the clause asks for the transfer's
-/// own curve. Applying it inside the sampling instead makes the ramp a sampling of the
-/// composition, at the resolution §10.7.3's tolerance asked for, and the simplifier then measures
-/// the colours that will actually be drawn.
+/// Every colour below is the shading's own, converted and nothing more: §10.5's function is applied
+/// to the finished device pixel rather than here (see [`Colouring`]), so a ramp is a sampling of
+/// the shading's colour function and §10.7.3's simplifier measures the colours the function makes.
 ///
 /// # Errors
 ///
@@ -523,9 +487,8 @@ pub fn background_components(document: &Document, object: &Object) -> Option<usi
 /// colour and this answers `None` — the same answer as an absent entry, which is why
 /// [`background_components`] exists beside it for the caller that has to report the difference.
 ///
-/// It goes through the same [`Conversion`] and the same §10.5 transfer function as every colour
-/// the shading's ramp carries, for the reason [`kind_of`] gives: the wash is painted by the same
-/// operation, into the same group, as the shading it surrounds.
+/// It goes through the same [`Conversion`] as every colour the shading's ramp carries: the wash is
+/// painted by the same operation, into the same group, as the shading it surrounds.
 fn background_of(
     document: &Document,
     dict: &Dictionary,
@@ -541,10 +504,7 @@ fn background_of(
     if components.len() != space.components() {
         return None;
     }
-    Some(transferred(
-        colouring.into.paint(space, &components),
-        colouring.transfer,
-    ))
+    Some(colouring.into.paint(space, &components))
 }
 
 /// Reads `/Coords` as a fixed number of values.
@@ -594,16 +554,6 @@ fn domain(document: &Document, dict: &Dictionary) -> (f32, f32) {
     (at(0, 0.0), at(1, 1.0))
 }
 
-/// One shading colour through ISO 32000-2 §10.5's transfer function, or unchanged where the
-/// graphics state states none.
-///
-/// The clause puts it "after performing any needed conversions between colour spaces", which is
-/// where every caller of this is: the colour has already been through [`Conversion::paint`] and is
-/// the value the device would receive.
-pub(crate) fn transferred(colour: Color, transfer: Option<&Transfer>) -> Color {
-    transfer.map_or(colour, |transfer| transfer.apply(colour))
-}
-
 /// Samples a shading's colour function across its domain into a ramp.
 fn ramp(
     document: &Document,
@@ -627,10 +577,7 @@ fn ramp(
 
     Ok(Ramp::sample_across_at(colouring.resolution, &breaks, |t| {
         let parameter = low + t * (high - low);
-        transferred(
-            colour_from(&functions, &[parameter], space, colouring.into),
-            colouring.transfer,
-        )
+        colour_from(&functions, &[parameter], space, colouring.into)
     }))
 }
 
@@ -846,22 +793,15 @@ fn function_based(
     // whose colours are not opaque, §8.6.6.4's `/None` colourant, discards its output for
     // *every* tint — so one evaluation at the domain's corner answers §11.4.6's opacity
     // question for the whole domain, without the function being evaluated anywhere else
-    // before a device asks for its grid. §10.5's transfer is not asked here and does not
-    // change the answer: it maps colour components and leaves the alpha alone.
+    // before a device asks for its grid.
     let [x0, _, y0, _] = rectangle;
     let opaque = colour_from(&functions, &[x0, y0], space, colouring.into).a >= 1.0;
 
-    // §10.5 and the device's own statement of the same colours cannot both be had.
     // `ShadingProgram` is §7.10.5's function lowered to instructions a device evaluates, and a
-    // device evaluating it produces the colour and nothing else — there is nowhere on that path
-    // to put the transfer, exactly as there is nowhere to put §11.6.4.4's constant alpha
-    // (`Shading::with_alpha` drops the program for that reason). Composing the transfer into the
-    // instruction stream would mean lowering three more §7.10 functions of a type the stream
-    // cannot express. So the producer, which carries the transfer, is what draws.
-    let program = match colouring.transfer {
-        Some(_) => None,
-        None => device_program(&functions, space, colouring.into, rectangle),
-    };
+    // device evaluating it produces the colour and nothing else. That is the whole of what is
+    // asked of it: §10.5's function is applied to the finished pixel by the display list's
+    // transfer channel, not to the colours a shading makes (see [`Colouring`]).
+    let program = device_program(&functions, space, colouring.into, rectangle);
 
     Ok(ShadingKind::Sampled {
         domain: rectangle,
@@ -871,7 +811,6 @@ fn function_based(
             into: colouring.into.clone(),
             domain: rectangle,
             opaque,
-            transfer: colouring.transfer.cloned(),
         })),
         program,
     })
@@ -963,13 +902,6 @@ struct FunctionColours {
     domain: [f32; 4],
     /// Whether every colour the space can produce is opaque; see `function_based`.
     opaque: bool,
-    /// §10.5's transfer function, where the graphics state painting this shading states one.
-    ///
-    /// It travels with the producer for the reason the producer exists at all: the colours do
-    /// not exist until a device says how many cells the domain covers, and the clause maps the
-    /// colour rather than the function that made it. The same shape as
-    /// `pdf_render::shading::Faded` one clause over.
-    transfer: Option<Transfer>,
 }
 
 impl std::fmt::Debug for FunctionColours {
@@ -1115,18 +1047,12 @@ impl FunctionColours {
                 .0
                 .saturating_add(u32::try_from(column).unwrap_or(u32::MAX));
             let x = x0 + centre(column, block.lattice.width) * (x1 - x0);
-            // §10.5 per cell, which is per point of the grid the device asked for: the clause's
-            // input is "the value of a colour component in the device's native colour space",
-            // and `colour_into` has just produced one.
-            *cell = transferred(
-                colour_into(
-                    &self.functions,
-                    &[x, y],
-                    &self.space,
-                    &self.into,
-                    &mut scratch,
-                ),
-                self.transfer.as_ref(),
+            *cell = colour_into(
+                &self.functions,
+                &[x, y],
+                &self.space,
+                &self.into,
+                &mut scratch,
             );
         }
     }

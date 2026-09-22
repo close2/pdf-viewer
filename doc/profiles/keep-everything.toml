@@ -84,13 +84,26 @@ remedy = "preserve"
 keep-attachment = true     # the file stays in the name tree; only the on-page marker goes
 
 [site."annotations/printable-and-visible"]
-remedy = "preserve"        # un-hide rather than remove: this profile keeps marks, even hidden ones
+remedy = "preserve"        # built: un-hide rather than remove; this profile keeps marks, even hidden
+                           # ones. The F entry gets Print set and the four forbidden bits cleared,
+                           # every other bit the producer's, and the report names each (ADR 1285).
 # The cost is the surprising one and an operator of this profile has to accept it: review comments
 # and conditional stamps the producer hid become visible and printable.
 
+# The rollover and down appearances can be kept only as attached files, and ISO 19005-2 section 6.8
+# and ISO 19005-4 section 6.9 admit an embedded file only where it is itself PDF/A; PDF/A-4f and
+# PDF/A-4e lift that. So everywhere else this profile's rule — never discard — leaves `stop`.
 [site."annotations/appearance-dictionary-holds-only-normal"]
+remedy = "stop"
+
+[site."annotations/appearance-dictionary-holds-only-normal".target."4f"]
 remedy = "preserve"
-keep = ["attach"]          # 4f/4e only; elsewhere this site stops, which is the profile's rule
+keep = ["attach"]
+on-failure = "stop"
+
+[site."annotations/appearance-dictionary-holds-only-normal".target."4e"]
+remedy = "preserve"
+keep = ["attach"]
 on-failure = "stop"
 
 # ---------------------------------------------------------------------------------------------
@@ -98,19 +111,23 @@ on-failure = "stop"
 # PDF/A-4f can hold (ISO 19005-4 section 6.4.1, and section 6.9 for why it is 4f alone).
 # ---------------------------------------------------------------------------------------------
 
+# XFDF is XML rather than PDF/A, so ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9 leave only
+# PDF/A-4f able to hold it (doc/pdf-a-mitigations.md section 7). Everywhere else the behaviour has
+# nowhere to go, and this profile stops rather than discarding it.
 [site."forms/no-action-on-widget-or-field"]
+remedy = "stop"
+
+[site."forms/no-action-on-widget-or-field".target."4f"]
 remedy = "preserve"
-as = "xfdf"                # an error naming both site and target under 2b/2u/2a/4/4e
+as = "xfdf"
 on-failure = "stop"
 
 # Qualified by target, because the mechanism is: ISO 19005-4 Annex A lifts the
 # conforming-embedded-file rule for 4f and Annex B for 4e, and those two are the only targets that
-# can hold an XFA resource at all. The unqualified row states the intent and nothing this version
-# can carry out, which `--remedy-sites` names rather than hiding.
+# can hold an XFA resource at all. Everywhere else ISO 19005-2 section 6.8 has nowhere to keep the
+# resource, so the unqualified row is this profile's `stop`.
 [site."forms/no-xfa-key"]
-remedy = "preserve"
-dynamic = "stop"
-on-failure = "stop"
+remedy = "stop"
 
 [site."forms/no-xfa-key".target."4f"]
 remedy = "preserve"
@@ -182,19 +199,49 @@ remedy = "preserve"
 via = "alternate"
 keep-rejected = "attach"
 
+# A transfer function decides what a screen shows (ISO 32000-2 10.5), so removing one can change the
+# page, and this profile never discards. The function itself is data that PDF/A-4f and PDF/A-4e can
+# hold as an attached file; ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9 hold no such file,
+# so everywhere else the three transfer-function rows stop.
 [site."graphics/no-transfer-function-in-a-graphics-state"]
+remedy = "stop"
+
+[site."graphics/no-transfer-function-in-a-graphics-state".target."4f"]
 remedy = "preserve"
-keep = "attach"            # the function is data; 4f/4e keep it, elsewhere this stops
-evidence = "always"        # render the page both ways and show whether anything changed
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/no-transfer-function-in-a-graphics-state".target."4e"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
 on-failure = "stop"
 
 [site."graphics/second-transfer-function-is-default"]
+remedy = "stop"
+
+[site."graphics/second-transfer-function-is-default".target."4f"]
+remedy = "preserve"
+keep = "attach"
+evidence = "always"
+on-failure = "stop"
+
+[site."graphics/second-transfer-function-is-default".target."4e"]
 remedy = "preserve"
 keep = "attach"
 evidence = "always"
 on-failure = "stop"
 
 [site."graphics/halftone-transfer-function-only-where-required"]
+remedy = "stop"
+
+[site."graphics/halftone-transfer-function-only-where-required".target."4f"]
+remedy = "preserve"
+keep = "attach"
+on-failure = "stop"
+
+[site."graphics/halftone-transfer-function-only-where-required".target."4e"]
 remedy = "preserve"
 keep = "attach"
 on-failure = "stop"
@@ -239,7 +286,8 @@ tool = "resolve-external"
 on-failure = "stop"
 
 [site."graphics/no-reference-xobjects"]
-remedy = "preserve"        # keep the proxy the containing form already draws (ISO 32000-2 8.10.4)
+remedy = "preserve"        # built: keep the proxy the containing form already draws (ISO 32000-2
+                           # 8.10.4.1); the Ref entry goes and the report names the file (ADR 1285)
 
 [site."graphics/jpeg2000-bit-depth"]
 remedy = "preserve"
@@ -259,20 +307,54 @@ codec = "flate"
 max-growth = "4x"
 on-failure = "stop"
 
+# Built (ADR 1245, ADR 1270): a fresh conforming packet replaces one this tree cannot read, and the
+# producer's own is kept — attached where the target holds a file of any type, PDF/A-4f and PDF/A-4e,
+# and on an appended page at every other target. That is the order this profile prefers, written as
+# target-qualified rows because the attachment is only admitted at those two.
 [site."metadata/xmp-packets-well-formed"]
 remedy = "preserve"
-prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
 fresh-packet = true
+original = "page"
+
+[site."metadata/xmp-packets-well-formed".target."4f"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-well-formed".target."4e"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
 
 [site."metadata/xmp-packets-state-one-rdf-element"]
 remedy = "preserve"
-prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
 fresh-packet = true
+original = "page"
+
+[site."metadata/xmp-packets-state-one-rdf-element".target."4f"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-state-one-rdf-element".target."4e"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
 
 [site."metadata/xmp-packets-meet-the-xmp-data-model"]
 remedy = "preserve"
-prefer = ["attach", "page"]                                         # NOT-YET-IN-FORMAT
 fresh-packet = true
+original = "page"
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model".target."4f"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
+
+[site."metadata/xmp-packets-meet-the-xmp-data-model".target."4e"]
+remedy = "preserve"
+fresh-packet = true
+original = "attach"
 
 [site."metadata/properties-use-known-schemas"]
 # **Built**, and it is the site this profile's rule was written for: ISO 19005-2 clause 6.6.2.3.1
@@ -318,18 +400,21 @@ winner = "first"           # or "most-used"; which of the file's OWN definitions
 # stands, and every byte written is theirs (ADR 1188).
 
 [site."fonts/embedded-cmap-states-its-own-write-mode"]
-remedy = "supply"          # NOT-YET-IN-FORMAT
+remedy = "supply"          # built (ADR 1286): the dictionary is made to state the program's mode
 write-mode = "program"     # or "stream"; the file's two statements disagree and a person decides
 
 [site."fonts/cmap-embedded-or-predefined"]
 remedy = "preserve"
-source = "shipped-cmaps"   # embed the published Adobe CMap the file names, from data/cmaps/
+source = "shipped-cmaps"   # built: embed the published Adobe CMap the file names, from data/cmaps/,
+                           # byte for byte; a name no published program has stays refused (ADR 1286)
 on-missing = "stop"
 
+# Not answerable the same way, and the reason is the clause's own second sentence: ISO 19005-2
+# section 6.2.11.3.3 lets a CMap reference only the base standard's predefined ones, and this site
+# is an embedded CMap that references another. Embedding that other one leaves the reference where
+# it was, so `source = "shipped-cmaps"` is an error here and this profile stops (ADR 1286).
 [site."fonts/cmap-uses-only-predefined-cmaps"]
-remedy = "preserve"
-source = "shipped-cmaps"
-on-missing = "stop"
+remedy = "stop"
 
 [site."metadata/extension-schema-container-fields"]
 remedy = "supply"          # NOT-YET-IN-FORMAT

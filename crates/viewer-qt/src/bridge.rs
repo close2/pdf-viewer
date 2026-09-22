@@ -413,6 +413,11 @@ pub mod ffi {
         /// which is the shape every other answer in this bridge has: what changed is cheap to say
         /// on every update and what it changed *to* is asked for only when it did (ADR 1264).
         documents: bool,
+        /// Ctrl + O: a `QFileDialog` should be put on the screen, whose answer is `open_chosen`.
+        ///
+        /// A flag for `notices`' reason: a dialogue is a Qt object and Rust never calls one
+        /// (ADR 1275).
+        choose_document: bool,
         /// The find bar should be shown and given the keyboard.
         ///
         /// `f` and `/` mean this in all three hosts since ADR 0526, and it is a flag for
@@ -771,6 +776,16 @@ pub mod ffi {
         fn choose_document(self: &mut Host, index: usize);
         /// Whether the window should close, because the last document in it was closed.
         fn closing_the_window(self: &Host) -> bool;
+        /// The path a person chose in the dialogue `choose_document` asked for, to open beside the
+        /// document in front. Empty for a dialogue dismissed, which asks for nothing.
+        fn open_chosen(self: &mut Host, path: &str);
+        /// Where that dialogue starts: the directory of the document in front.
+        fn chooser_directory(self: &Host) -> String;
+        /// Whether a document waits to be opened beside this one and may start now, taken so that
+        /// it is answered once; the answer is a zero-length `QTimer` and a call to `arrive`.
+        fn arrival_due(self: &mut Host) -> bool;
+        /// Opens the next document waiting beside this one (ADR 1275).
+        fn arrive(self: &mut Host);
         /// §12.9's traced path in device pixels of the viewport, as flat `x, y` pairs.
         ///
         /// The rubber band a person draws while measuring. §12.9 states no state for a viewer to

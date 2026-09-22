@@ -301,3 +301,11 @@ above one of the comments — a false failure whose only cure a later round woul
 the list, which is how a named population degrades into a bare count (ADR 1273). Key such a list by
 the thing the finding is about, the file and the name, and let the run print the position; the
 frontier map and the oracle's page lists are keyed by name for the same reason.
+
+## A host feature is driven under Xvfb with more than one document before it is called done
+
+Round 1213's tabs compiled and passed their tests in all three windows and were broken in all three:
+a tab behind the front never drew, Ctrl + Tab did nothing in GTK, one switch looped forever
+(ADR 1275). No gate drives a window's event handling; driving it is the instrument. And `rustfmt` on
+a binary root formats every `#[path]` child module, siblings' files included — format module files
+one by one.

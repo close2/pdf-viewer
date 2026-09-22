@@ -93,14 +93,6 @@ pub(crate) fn describe(item: &Unsupported) -> String {
                 "optional content was drawn because its visibility could not be decided: {detail}"
             )
         }
-        // Drawn too, and the sentence has to say what kind of wrong the picture is: every mark
-        // is where the producer put it and its colours carry no transfer function (ADR 1266);
-        // what the channel could not state is one mark's *shape* — a stencil under its own
-        // soft mask — so the function it should apply per region is applied per pixel of the
-        // pair instead (§10.5, §11.7.5.2).
-        Unsupported::TransferFunction { detail } => {
-            format!("a transfer function could not follow one mark's shape on this page: {detail}")
-        }
         // Drawn too, and every mark is the colour this processor's own conversion makes it: the
         // file states §10.4.2.4's black generation and this conversion is §10.3's, which has no
         // step it names (§11.7.5.3, ADR 1069).

@@ -543,7 +543,7 @@ impl App {
                 landed.cost.encode_source,
                 Some(raster_gpu::EncodeSource::Replayed)
             );
-            self.stale.settled(&landed.pages, landed.waited, built);
+            self.stale.settled(&landed.pages, landed.drew, built);
         }
     }
 
@@ -1526,6 +1526,12 @@ impl App {
         let outcome = self.present(&mut stages);
         stages.total = started.elapsed();
         if matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_))) {
+            // The command line's later documents, and not one frame sooner (`CLAUDE.md` section
+            // 2).
+            if !self.launched {
+                self.launched = true;
+                self.arrival_due = true;
+            }
             self.launch.arrived(self.trace, &stages);
             // **After the timeline is closed, never before it.** Everything the accessibility
             // bridge does is off the launch path by construction, and this line is where that is

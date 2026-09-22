@@ -213,7 +213,7 @@ pub enum Command {
     ///
     /// **§14.9's tree is deliberately not on this path.** Table 22's own row carves it out — "for
     /// the limited purpose of providing this content to assistive technology, a PDF reader should
-    /// behave as if this bit was set to 1" — and [`crate::Query::Accessibility`] is therefore a
+    /// behave as if this bit was set to 1" — and [`crate::Query::AccessibilityTree`] is therefore a
     /// query still, gated by nothing.
     Copy,
     /// A person asked to print: §7.6.4.2's bit 3, asked as an operation, and then the intent

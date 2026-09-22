@@ -382,3 +382,10 @@ sentence.** Both of round 1209's contract items described a state two earlier AD
 from, and the capability one refusal said did not exist was forty lines away in the backend it named
 (ADR 1256). For a refusal citing a backdrop, read the backend function that builds that backdrop and
 ask what it hands each element.
+
+**A brief's "what is left" is checked against the tree before it is built, and a report's last
+reach is read at every producer of the flag it tests.** Round 1221's brief named two paints the
+previous round had already built; `grep` of the refusal's call sites showed it in a minute. The one
+site left was labelled `Both` on a raster that never multiplied anything, and behind it a JPX
+opacity channel was dropped with nothing said (ADR 1279). A rename greps the old name in doc comments
+too — `cargo test -p conformance --test names` is now a zero gate and catches it.

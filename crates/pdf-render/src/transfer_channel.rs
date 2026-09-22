@@ -230,10 +230,11 @@ impl TransferBuilder {
 ///
 /// so an image whose samples carry *opacity* — §11.6.5.2's `/SMask` — has the whole image
 /// rectangle for a shape, which is the unit square under the image's transform; one whose samples
-/// carry shape is its own shape, which is §8.9.6.2's stencil. A raster that multiplied the two
-/// before either was a command answers with the shape alone where its producer kept them apart,
-/// and with the product where it could not (ADR 1218) — the one residue here, and it is the same
-/// pair `pdf_model`'s knockout shape leaves.
+/// carry shape is its own shape, which is §8.9.6.2's stencil. A stencil under a soft mask of its
+/// own ([`crate::SampleAlpha::Both`]) answers with the stencil alone, which its producer keeps
+/// apart from the opacity for exactly this question (ADR 1218); `pdf_model` hands no command a
+/// raster that multiplied the two (ADR 1279), so the product is used only for a list some other
+/// producer built that way, where it is the one alpha there is.
 #[must_use]
 pub fn shape_of(command: &Command) -> Option<Command> {
     match command {

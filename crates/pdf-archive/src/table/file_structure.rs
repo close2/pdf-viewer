@@ -520,9 +520,9 @@ fn no_encryption(exam: &Examination<'_>, findings: &mut Findings) {
 /// — and a comment of at least four bytes above 127 follows it, which is what marks the file as
 /// binary to the tools that copy it.
 ///
-/// **The version digit differs by part**, which is what `Check::PerTarget` exists for: a file
-/// whose header says `%PDF-1.7` fails a PDF/A-4 check and passes a PDF/A-2 one, and a predicate
-/// that accepted either would under-report both.
+/// **The version digit differs by part**, which is why this predicate reads `Examination::target`:
+/// a file whose header says `%PDF-1.7` fails a PDF/A-4 check and passes a PDF/A-2 one, and a
+/// predicate that accepted either would under-report both.
 fn file_header(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     let target = exam.target;

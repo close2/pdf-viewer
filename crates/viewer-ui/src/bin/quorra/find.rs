@@ -25,6 +25,10 @@ impl App {
     /// Across the whole window rather than only the page area, which is where both native hosts
     /// put theirs: a search is about the document and not about the page pane.
     pub(crate) fn find_list(&self, width: u32) -> Option<pdf_render::DisplayList> {
+        // The two bars share one band and are never up together, so the band is whichever is.
+        if self.opener.shown {
+            return self.opener_list(width);
+        }
         let chrome = self.chrome.as_ref()?;
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
         self.find.draw(chrome, width, scale)

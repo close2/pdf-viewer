@@ -691,6 +691,44 @@ fn cid_to_gid_map_present(exam: &Examination<'_>, findings: &mut Findings) {
     });
 }
 
+/// Whether a `CMap` name is one ISO 19005's section on `CMaps` lets a file use without embedding.
+///
+/// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3 name the base standard's
+/// list of predefined `CMaps`, which is the list [`cmap_embedded_or_predefined`] reads, and the
+/// same sentence limits what any `CMap` may build on to that list. A converter embedding one has
+/// to ask both questions of the same list, which is why it is exported rather than copied.
+#[must_use]
+pub fn cmap_is_predefined(name: &str) -> bool {
+    PREDEFINED_CMAPS.contains(&name)
+}
+
+/// Every composite font whose `/Encoding` names a `CMap` the file neither embeds nor may name.
+///
+/// [`cmap_embedded_or_predefined`]'s population read as a list, font object and `CMap` name, so a
+/// converter answering the requirement acts on exactly what it reported.
+#[must_use]
+pub fn fonts_naming_an_undefined_cmap(
+    document: &Document,
+    target: crate::Target,
+) -> Vec<(ObjectId, String)> {
+    let exam = Examination::new(document, target);
+    let mut out = Vec::new();
+    for_each_font(&exam, |id, font| {
+        if subtype(document, font).as_deref() != Some("Type0") {
+            return;
+        }
+        let Object::Name(name) = document.get_key(font, "Encoding") else {
+            return;
+        };
+        if let Some(name) = named(Some(&name))
+            && !PREDEFINED_CMAPS.contains(&name.as_str())
+        {
+            out.push((id, name));
+        }
+    });
+    out
+}
+
 /// ISO 19005-2 section 6.2.11.3.3, ISO 19005-4 section 6.2.10.3.3.
 fn cmap_embedded_or_predefined(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;

@@ -41,6 +41,7 @@ pub mod case;
 mod cloud;
 pub mod collection;
 pub use pdf_colour::colour;
+pub mod colourants;
 pub mod content;
 pub mod destination;
 pub mod document_part;

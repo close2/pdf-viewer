@@ -885,6 +885,44 @@ pub enum Rewrite {
     /// its catalog; nothing on any page changes, and the bytes attached are the producer's,
     /// carried across without being decoded, re-encoded or re-parsed.
     PreservedAsAttachment,
+    /// Every annotation whose stated `/F` ISO 19005 forbids is kept on its page and given the
+    /// flags the requirement asks for.
+    ///
+    /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require the `Print` bit set and
+    /// `Hidden`, `Invisible`, `NoView` and `ToggleNoView` clear. `doc/pdf-a-conversion-limits.md`
+    /// section 3.7 gives the document two futures and [`Self::HiddenAnnotationRemoved`] is the
+    /// default one; this is the other, reached only by a configuration answering the site with
+    /// `preserve`. The value written is `pdf_archive::flags_permitting`'s, so the five bits of
+    /// §12.5.3's Table 167 the requirement is not about stay as their producer wrote them.
+    /// **What it costs is on the page**: a mark its producer kept off the screen or off paper is
+    /// now on both, which is why the report names every annotation shown with the flags it had
+    /// (`doc/adr/1285`).
+    HiddenAnnotationShown,
+    /// Every reference `XObject` keeps its form and loses the `Ref` entry that made it one.
+    ///
+    /// ISO 19005-2 section 6.2.9.2 and ISO 19005-4 section 6.2.8.2 forbid reference `XObject`s,
+    /// and §8.10.4.1 makes the form carrying the entry a proxy that "should be processed by a PDF
+    /// processor when the referenced content is not available" — so without the entry every
+    /// reader draws what a reader of an archive, which holds no other file, would have drawn. What
+    /// goes is the pointer, and the report names the file and page it named (`doc/adr/1285`).
+    ReferenceXObjectProxied,
+    /// Every composite font naming a `CMap` the base standard does not predefine names a stream
+    /// holding Adobe's published program for it instead.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3 require such a `CMap` to
+    /// be embedded, and §9.7.5.3 is the stream: the program byte for byte, with Table 118's
+    /// entries stating what it states. The mapping is the one the name already meant, so no code
+    /// selects a different CID (`doc/adr/1286`).
+    ShippedCMapEmbedded,
+    /// Every embedded `CMap` whose dictionary and program disagreed about its writing mode states
+    /// one mode in both, the one the operator said its producer meant.
+    ///
+    /// ISO 19005-2 section 6.2.11.3.3 and ISO 19005-4 section 6.2.10.3.3; Table 118 makes the
+    /// dictionary's `/WMode` the program's own value. A `supply`: the
+    /// operator's `write-mode` says which statement stands, and the other is made to agree with it
+    /// — the dictionary's entry written, or the program's own entry's digit replaced
+    /// (`doc/adr/1286`).
+    WriteModeAgreed,
 }
 
 impl Rewrite {
@@ -1178,6 +1216,25 @@ impl Rewrite {
                 "the producer's own bytes stay in the archive as an embedded file, filed in the \
                  EmbeddedFiles name tree and associated with the document by the catalog's AF"
             }
+            Self::HiddenAnnotationShown => {
+                "an annotation whose F entry ISO 19005 forbids stays on its page with the Print \
+                 bit set and Hidden, Invisible, NoView and ToggleNoView clear, every other bit \
+                 as its producer wrote it, so a mark kept off the page or off paper is on both"
+            }
+            Self::WriteModeAgreed => {
+                "an embedded CMap whose dictionary and program disagreed about its writing mode \
+                 states in both the one the operator said its producer meant"
+            }
+            Self::ShippedCMapEmbedded => {
+                "a composite font naming a CMap the base standard does not predefine names a \
+                 stream holding Adobe's published program for it, byte for byte, so the same \
+                 codes select the same CIDs from a mapping the file now carries"
+            }
+            Self::ReferenceXObjectProxied => {
+                "a reference XObject loses its Ref entry and keeps its form, so every reader \
+                 draws the proxy ISO 32000-2 \u{a7}8.10.4.1 has a processor draw when the \
+                 imported page is not available"
+            }
         }
     }
 
@@ -1252,6 +1309,10 @@ impl Rewrite {
             Self::PageBoundaryRemoved => "page-boundary-removed",
             Self::InformationMovedIntoThePacket => "information-moved-into-the-packet",
             Self::PreservedAsAttachment => "preserved-as-attachment",
+            Self::HiddenAnnotationShown => "hidden-annotation-shown",
+            Self::ReferenceXObjectProxied => "reference-xobject-proxied",
+            Self::ShippedCMapEmbedded => "shipped-cmap-embedded",
+            Self::WriteModeAgreed => "write-mode-agreed",
         }
     }
 }
@@ -1302,6 +1363,8 @@ pub(super) fn convert(
         appearances: prepared.appearances.as_ref().ok(),
         forbidden_annotations: prepared.forbidden_annotations.as_ref().ok(),
         hidden_annotations: prepared.hidden_annotations.as_ref().ok(),
+        reference_xobjects: prepared.reference_xobjects.as_ref().ok(),
+        shipped_cmaps: prepared.shipped_cmaps.as_ref().ok(),
         extra_appearance_states: prepared.extra_appearance_states.as_ref().ok(),
         automatic_states: prepared.automatic_states.as_ref().ok(),
         form: prepared.form.as_ref().ok().copied(),
@@ -2128,6 +2191,10 @@ struct Rewriter<'a> {
     forbidden_annotations: Option<&'a ForbiddenAnnotations>,
     /// The annotations whose stated `/F` ISO 19005 forbids, where any are being removed.
     hidden_annotations: Option<&'a HiddenAnnotations>,
+    /// The reference `XObject`s whose `Ref` entry a `preserve` removes (`doc/adr/1285`).
+    reference_xobjects: Option<&'a super::in_place::ReferenceXObjects>,
+    /// The `CMap` streams a `preserve` embeds, keyed by the font naming each (`doc/adr/1286`).
+    shipped_cmaps: Option<&'a super::cmaps::ShippedCMaps>,
     /// The annotations whose `/AP` is reduced to `/N`, where any are.
     extra_appearance_states: Option<&'a ExtraAppearanceStates>,
     /// The optional content configurations losing their `/AS`, where any are.
@@ -2302,18 +2369,7 @@ impl Rewriter<'_> {
         }
         changed |= self.remove_the_annotations(id, &mut out, applied);
         changed |= self.relocate_onto_page(id, &mut out, applied);
-        if self.wants(Rewrite::AnnotationFlags)
-            && self.sites.annotations.contains(&id)
-            // §12.5.3 makes the entry "an integer interpreted as one-bit flags", so a value that
-            // is not one states no flags at all and is written over by the same rule as an absent
-            // entry. Where the annotation does state flags, they are its producer's and stay:
-            // the second sentence of section 6.3.2 is a row of its own and not this one.
-            && self.document.get_key(&out, "F").as_integer().is_none()
-        {
-            out.insert(Name::new(&b"F"[..]), Object::Integer(PRINT));
-            count(applied, Rewrite::AnnotationFlags);
-            changed = true;
-        }
+        changed |= self.write_entries_in_place(id, &mut out, applied);
         if self.wants(Rewrite::AppearanceDictionary)
             && let Some(stream) = self
                 .appearances
@@ -3377,6 +3433,82 @@ impl Rewriter<'_> {
         )
     }
 
+    /// The rewrites that write one entry of a dictionary and move nothing.
+    ///
+    /// The annotation `/F` an absent entry is given, and the `preserve` and `supply` answers
+    /// `doc/adr/1285` and `doc/adr/1286` carry out where the object already is — each over the
+    /// population its own preparation or remedy worked out, so no dictionary a requirement passed
+    /// is touched.
+    fn write_entries_in_place(
+        &self,
+        id: ObjectId,
+        out: &mut Dictionary,
+        applied: &mut BTreeMap<Rewrite, usize>,
+    ) -> bool {
+        let mut changed = false;
+        if self.wants(Rewrite::AnnotationFlags)
+            && self.sites.annotations.contains(&id)
+            // §12.5.3 makes the entry "an integer interpreted as one-bit flags", so a value that
+            // is not one states no flags at all and is written over by the same rule as an absent
+            // entry. Where the annotation does state flags, they are its producer's and stay:
+            // the second sentence of section 6.3.2 is a row of its own and not this one.
+            && self.document.get_key(out, "F").as_integer().is_none()
+        {
+            out.insert(Name::new(&b"F"[..]), Object::Integer(PRINT));
+            count(applied, Rewrite::AnnotationFlags);
+            changed = true;
+        }
+        // `doc/adr/1285`: the annotation the removal would have taken stays, with the flags ISO
+        // 19005-2 section 6.3.2 asks for and every other bit its producer's. The population is the
+        // removal's, so an annotation the requirement passed is never touched.
+        if self.wants(Rewrite::HiddenAnnotationShown)
+            && let Some(hidden) = self.hidden_annotations
+            && let Some(stated) = hidden
+                .removed
+                .iter()
+                .find(|row| row.at == id)
+                .and_then(|row| row.flags)
+        {
+            out.insert(
+                Name::new(&b"F"[..]),
+                Object::Integer(pdf_archive::flags_permitting(stated)),
+            );
+            count(applied, Rewrite::HiddenAnnotationShown);
+            changed = true;
+        }
+        // `doc/adr/1286`: the operator said the program's writing mode stands, so the dictionary
+        // states it.
+        if self.wants(Rewrite::WriteModeAgreed)
+            && let Some(mode) = self.remedies.stated_write_modes.get(&id)
+        {
+            out.insert(Name::new(&b"WMode"[..]), Object::Integer(*mode));
+            count(applied, Rewrite::WriteModeAgreed);
+            changed = true;
+        }
+        // `doc/adr/1286`: the font names the embedded program where it named the program by name.
+        if self.wants(Rewrite::ShippedCMapEmbedded)
+            && let Some(at) = self
+                .shipped_cmaps
+                .and_then(|shipped| shipped.encodings.get(&id))
+        {
+            out.insert(Name::new(&b"Encoding"[..]), Object::Reference(*at));
+            count(applied, Rewrite::ShippedCMapEmbedded);
+            changed = true;
+        }
+        // `doc/adr/1285`: §8.10.4.1 makes the form carrying `Ref` the proxy a processor draws when
+        // the imported page is not available, so the entry goes and the form stays.
+        if self.wants(Rewrite::ReferenceXObjectProxied)
+            && self
+                .reference_xobjects
+                .is_some_and(|references| references.at.contains(&id))
+            && out.remove("Ref").is_some()
+        {
+            count(applied, Rewrite::ReferenceXObjectProxied);
+            changed = true;
+        }
+        changed
+    }
+
     /// Takes every annotation whose stated `/F` ISO 19005 forbids out of one page's `/Annots`.
     ///
     /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2's second sentence, by the same act
@@ -3946,6 +4078,14 @@ impl Rewriter<'_> {
         {
             count(applied, Rewrite::DerivedEmbeddedFile);
             return Rewritten::Changed(derived.clone());
+        }
+        // The operator said the dictionary's writing mode stands, so the program's own entry is
+        // restated: new bytes and a new `/Filter` together, so a whole stream (`doc/adr/1286`).
+        if self.wants(Rewrite::WriteModeAgreed)
+            && let Some(restated) = self.remedies.restated_programs.get(&id)
+        {
+            count(applied, Rewrite::WriteModeAgreed);
+            return Rewritten::Changed(restated.clone());
         }
         // The stream whose data was outside the file: its bytes, its `/Filter`, its
         // `/DecodeParms` and its `/Length` all change together, so a whole stream crosses rather

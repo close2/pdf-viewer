@@ -165,13 +165,32 @@ fn pdf_with_image_entries(
     stated: (u32, u32),
     entries: &str,
 ) -> Vec<u8> {
-    let content = b"q 8 0 0 8 0 0 cm /Im0 Do Q";
+    pdf_drawing_image(
+        codestream,
+        colour_space,
+        stated,
+        entries,
+        b"q 8 0 0 8 0 0 cm /Im0 Do Q",
+    )
+}
+
+/// The same fixture with the page's content stream written by the caller.
+///
+/// The image is in the resources under two names, `/Im0` and `/Im1`, so that a content stream
+/// can place one object twice and tell the two placements' reports apart.
+fn pdf_drawing_image(
+    codestream: &[u8],
+    colour_space: &str,
+    stated: (u32, u32),
+    entries: &str,
+    content: &[u8],
+) -> Vec<u8> {
     let mut objects: Vec<Vec<u8>> = Vec::new();
     objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
     objects.push(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec());
     objects.push(
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8] \
-          /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"
+          /Resources << /XObject << /Im0 5 0 R /Im1 5 0 R >> >> /Contents 4 0 R >>"
             .to_vec(),
     );
     let mut stream = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
@@ -348,6 +367,43 @@ fn a_dictionary_that_contradicts_the_frames_dimensions_does_not_cost_the_image()
         "the page says what it drew instead of what the dictionary described, and it said \
          {reported}"
     );
+}
+
+/// The contradiction is said at every `Do`, including one whose raster is answered from the cache.
+///
+/// The sentence is read off the grid the decode built on and travels with the raster
+/// (`image::Parts::contradiction`), so a second `Do` of the same object — through a second name,
+/// because a report is kept once per sentence, and answered from the cache, which decodes
+/// nothing — has to say it as well: a report made only by the walk that decoded would describe the first
+/// placement and leave the second a flat picture nobody could question, which is trap 5's shape.
+#[test]
+fn a_contradicted_frame_drawn_twice_is_reported_twice() {
+    let bytes = pdf_drawing_image(
+        &three_component_jpeg(None),
+        "/DeviceRGB",
+        (8, 9),
+        "",
+        b"q 4 0 0 4 0 0 cm /Im0 Do Q q 4 0 0 4 4 4 cm /Im1 Do Q",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let drawn = interpretation
+        .display_list
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, pdf_render::Command::Image { .. }))
+        .count();
+    assert_eq!(drawn, 2, "both placements draw");
+    let reported = format!("{:?}", interpretation.unsupported);
+    for name in ["Im0", "Im1"] {
+        assert!(
+            reported.contains(&format!(
+                "{name}: the JPEG frame is 8x8 where the dictionary says 8x9"
+            )),
+            "each placement says it, the cached one included, and {name} did not: {reported}"
+        );
+    }
 }
 
 /// A frame this tree will not build a raster for, so that the case above is a *reading* rather

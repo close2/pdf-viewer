@@ -1539,7 +1539,7 @@ impl Document {
 
     /// The same, naming what refused.
     ///
-    /// The distinction a caller needs is [`StreamRefusal::TooLarge`]: a stream this reader
+    /// The distinction a caller needs is [`FilterRefusal::TooLarge`]: a stream this reader
     /// *could* have decoded and declined to, which is a statement about the file rather than
     /// about this program's filter table. Reporting it as an unsupported filter would be the
     /// silent-fallback failure one layer up from the one ADR 0306 removed.

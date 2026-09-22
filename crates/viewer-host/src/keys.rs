@@ -388,6 +388,15 @@ pub enum WindowAct {
     /// `gtk4::Window::close` against `QWidget::close` against an event loop that stops.
     /// [`crate::documents::Close::Last`] is where the two cases divide. ADR 1264.
     CloseDocument,
+    /// Ask the person for a document, and open the one they choose beside the one showing.
+    ///
+    /// **A window act rather than [`viewer_core::Command::Open`] although it ends in one**, for
+    /// [`Self::CloseDocument`]'s reason: what a chooser *is* differs in all three windows — a
+    /// `gtk4::FileDialog`, a `QFileDialog`, and a line `quorra` draws for a typed path — and the
+    /// name the document is opened under is the strip's to hand out ([`crate::Documents::reserve`]).
+    /// What every window shares is [`crate::policy::open_chosen`], which is where a path a person
+    /// named becomes bytes. ADR 1275.
+    OpenDocument,
     /// Turn §10.8.3's separation simulation on, or off again.
     ///
     /// **A window act rather than a [`Command`] although it ends in one**, for this half of the
@@ -556,21 +565,21 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
 
 /// What a press with Control held down means, which is a table of its own.
 ///
-/// # Why these four and no others
+/// # Why these rows and no others
 ///
 /// Every row here is an operation this program **already performs**, given the key a person
-/// pressing Control expects it on. Nothing was invented to fill the table: there is no Ctrl + O,
-/// because no window in this tree opens a second document — each is given a file on its command
-/// line — and a binding for a verb that does not exist would be a key that appears to do nothing.
+/// pressing Control expects it on. Nothing was invented to fill the table: a binding for a verb
+/// that does not exist would be a key that appears to do nothing, which is why Ctrl + O arrived
+/// with the chooser it opens rather than before it (ADR 1275).
 ///
-/// Two of the four already had an unmodified key and keep it. `s` is still §7.5.6's save and `c`
+/// Two of them already had an unmodified key and keep it. `s` is still §7.5.6's save and `c`
 /// is still §14.8.2.5's copy, because a table three windows agree about is not improved by taking
 /// a binding away from the people using it; what Control adds is the key everything else on the
 /// desktop uses for the same job.
 ///
 /// **Shift is not read here**, so Ctrl + Shift + P prints. A person holding a third key down has
-/// not asked for a fifth meaning, and the shifted rows of the unmodified table are about
-/// *direction* — §12.5.1's tab — which none of these four has.
+/// not asked for another meaning, and the shifted rows of the unmodified table are about
+/// *direction* — §12.5.1's tab — which none of these rows has.
 ///
 /// # And a key with no row means nothing
 ///
@@ -595,13 +604,18 @@ pub fn ctrl_meaning(key: Key, mode: Mode) -> Option<Meaning> {
         // find bar and the strip of open documents are both chrome the clause takes away — and a
         // key whose only effect is on something nobody can see is a key with no effect
         // (ADRs 1192, 1264).
-        Key::F | Key::Tab | Key::W if matches!(mode, Mode::Presenting) => return None,
+        Key::F | Key::Tab | Key::W | Key::O if matches!(mode, Mode::Presenting) => return None,
         Key::F => Meaning::Window(WindowAct::Find),
         // Two conventional bindings this program's tab strip earns, on ADR 1192's rule: a
         // modifier this program binds is one it has a row for, and these are the two rows a
         // window holding more than one document needs (ADR 1264).
         Key::Tab => Meaning::Window(WindowAct::NextDocument),
         Key::W => Meaning::Window(WindowAct::CloseDocument),
+        // The key every desktop opens a file on, now that a window has a place to put a second
+        // document: a new tab beside the one showing. A chooser is a window of its own, which is
+        // what Table 29's `FullScreen` shows none of — so this row goes with the three above while
+        // a presentation is running (ADR 1275).
+        Key::O => Meaning::Window(WindowAct::OpenDocument),
         _ => return None,
     })
 }
@@ -898,6 +912,27 @@ mod tests {
         }
     }
 
+    /// Ctrl + O asks for a document, and the unmodified `o` is still the panel.
+    ///
+    /// The pairing is the one the test above holds for Tab and `w`: a Control row is added for an
+    /// operation this program performs, and the key without Control keeps what it meant. And a
+    /// chooser is a window, which Table 29's `FullScreen` shows none of. ADR 1275.
+    #[test]
+    fn control_o_opens_a_document_and_o_is_still_the_panel() {
+        assert!(matches!(
+            meaning(Key::O, Modifiers::CTRL, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::OpenDocument))
+        ));
+        assert!(matches!(
+            meaning(Key::O, Modifiers::NONE, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Window(WindowAct::Panel))
+        ));
+        assert!(
+            meaning(Key::O, Modifiers::CTRL, Mode::Presenting, Waiting::Nothing).is_none(),
+            "a chooser is another window, and FullScreen shows none"
+        );
+    }
+
     /// A Control this program does not bind means **nothing**, and never the unmodified row.
     ///
     /// The defect this is written against: all three hosts discarded Control before asking, so
@@ -908,7 +943,10 @@ mod tests {
     #[test]
     fn a_control_this_table_does_not_bind_falls_through_to_nothing() {
         for key in Key::ALL {
-            if matches!(key, Key::C | Key::S | Key::P | Key::F | Key::Tab | Key::W) {
+            if matches!(
+                key,
+                Key::C | Key::S | Key::P | Key::F | Key::Tab | Key::W | Key::O
+            ) {
                 continue;
             }
             for mode in [Mode::Reading, Mode::Presenting] {

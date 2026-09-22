@@ -675,8 +675,8 @@ fn as_integer(value: u64) -> i64 {
 /// struck out, "section" replaces "stream" at the end, and the sentence gains "or the beginning
 /// of the previous cross-reference stream (see 7.5.8, "Cross-reference streams")". The last of
 /// those is the one with teeth — the offset may name a cross-reference *stream* rather than the
-/// `xref` keyword — and `xref::read_at` has read both since long before this was noticed, which
-/// is the argument for keeping the note rather than a reason not to write it down.
+/// `xref` keyword — and `xref::read_section` reads either at the offset, so the note states what
+/// the reader already honours rather than asking anything new of it.
 ///
 /// Searched from the end rather than parsed from a fixed position, because a file with trailing
 /// bytes after `%%EOF` is common and the clause's "last line" is then not the last line.

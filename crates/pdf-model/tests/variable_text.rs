@@ -3169,7 +3169,7 @@ fn a_da_whose_text_matrix_mirrors_puts_the_quadded_line_at_the_other_edge() {
 ///
 /// `1 0 0.5 1` leaves text space's x-axis alone, so the line still runs along the box's width and
 /// the advances are unchanged; what moves is where the line *lands*, by `0.5 ·` the baseline. The
-/// layout answers that by starting the line that much earlier — `Frame::drift` — so a
+/// layout answers that by starting the line that much earlier — `Room::at` — so a
 /// left-quadded line still begins at the box's left edge, and the lean is in the glyphs rather
 /// than in the position. A layout that ignored the shear would put the whole line to the right of
 /// where the box states, which is what the second assertion measures.

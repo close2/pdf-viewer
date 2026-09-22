@@ -96,6 +96,12 @@ impl App {
                 self.react(event, &mut queue);
             }
         }
+        // A tab given back its place in front inside this pump has had its `Command::Focus` taken
+        // by now, so the lists asked of the focused document are that document's.
+        if std::mem::take(&mut self.lists_due) {
+            self.take_the_lists();
+            self.retitle();
+        }
     }
 
     /// §12.7.6.2's composed request, said out loud under the host policy that decides it.
@@ -132,13 +138,15 @@ answers in two places"
                 // A document that arrived under the name this window held out for
                 // `/NewWindow true` is a *second* document rather than this one reopened, so it
                 // gets a tab of its own before anything else is said about it (ADR 1263).
-                self.opened_beside(document);
+                let behind = self.opened_beside(document);
                 println!("{}: {pages} page(s)", self.title);
                 if pages == 0 {
                     let said = viewer_host::no_pages(&self.title);
                     eprintln!("{said}");
                     self.refused.say(said);
                     self.redraw();
+                    // No first frame is coming to start the command line's later documents.
+                    self.arrival_due = true;
                     return;
                 }
                 self.asking.opened();
@@ -147,12 +155,27 @@ answers in two places"
                 self.restrictions.opened();
                 self.report_due.opened();
                 self.gather();
+                // A document named behind the first gives the front back once it has its tab, and
+                // the next one waiting starts. The first document's own start is its first frame.
+                if let Some(front) = behind {
+                    self.give_back_the_front(front, queue);
+                }
+                if document != crate::DOCUMENT {
+                    self.arrival_due = true;
+                }
             }
-            Event::OpenFailed { reason, .. } => {
-                let said = viewer_host::cannot_open(&self.title, &reason);
+            Event::OpenFailed { document, reason } => {
+                let said = match self.arrivals.settle(document) {
+                    Some(arriving) => viewer_host::cannot_open(
+                        &viewer_host::documents::label(&arriving.named.path),
+                        &reason,
+                    ),
+                    None => viewer_host::cannot_open(&self.title, &reason),
+                };
                 eprintln!("{said}");
                 self.refused.say(said);
                 self.redraw();
+                self.arrival_due = true;
             }
             Event::PasswordRequired { document } => self.ask_again(document, queue),
             Event::Closed(_) => {}
@@ -176,12 +199,24 @@ answers in two places"
                 // `viewer_core::layout` places them; a second request for a page already held is
                 // that page at a new placement and replaces it.
                 self.unacknowledged.push(request.token);
-                match self
-                    .requests
-                    .binary_search_by_key(&request.page, |held| held.page)
-                {
-                    Ok(at) => self.requests[at] = request.clone(),
-                    Err(at) => self.requests.insert(at, request.clone()),
+                // A page of a tab behind the front goes with that tab, which is where it is drawn
+                // from when the tab comes back (ADR 1275).
+                let front = request.document == self.documents.focused();
+                let held = if front {
+                    Some(&mut self.requests)
+                } else {
+                    self.documents
+                        .parked_mut(request.document)
+                        .map(|parked| &mut parked.requests)
+                };
+                if let Some(held) = held {
+                    match held.binary_search_by_key(&request.page, |held| held.page) {
+                        Ok(at) => held[at] = request.clone(),
+                        Err(at) => held.insert(at, request.clone()),
+                    }
+                }
+                if !front {
+                    return;
                 }
                 // §12.4.4: the page a transition moves *to* is the one whose list has just
                 // arrived, so this is where one that was armed can be drawn.
@@ -360,16 +395,26 @@ impl App {
     /// what to say when they are used up, and that an empty entry is a decline.
     fn ask_again(&mut self, document: viewer_core::DocumentId, _queue: &mut VecDeque<Command>) {
         self.locked = Some(document);
+        // A document on its way to a tab of its own counts its own prompts, because the count in
+        // this window's fields is the one in front's.
+        let (asked, about) = match self.arrivals.named_mut(document) {
+            Some(arriving) => (
+                arriving.asking.required(),
+                viewer_host::documents::label(&arriving.named.path),
+            ),
+            None => (self.asking.required(), self.title.clone()),
+        };
         // Exhaustive over `Ask` on purpose: a case added to `viewer-host` fails to compile in all
         // three hosts, which is what holds the level-hosts decision up (ADR 0526's shape).
-        match self.asking.required() {
+        match asked {
             viewer_host::Ask::Prompt { attempt, of } => {
                 self.password
-                    .ask(viewer_host::password::prompt(&self.title, attempt, of));
+                    .ask(viewer_host::password::prompt(&about, attempt, of));
                 self.redraw();
             }
             viewer_host::Ask::Exhausted => {
                 println!("note: {}", viewer_host::password::EXHAUSTED);
+                self.given_up(document);
                 self.redraw();
             }
         }
@@ -449,6 +494,11 @@ impl App {
                     println!("note: {}", viewer_host::declined(operation));
                 }
                 self.dispatch(Command::Answer { document, proceed });
+                // §12.11.6's `no` puts the document down unopened, so one on its way to a tab
+                // never arrives and the next may start.
+                if !proceed && operation == pdf_model::restriction::Operation::Process {
+                    self.given_up(document);
+                }
             }
             // §12.6.4.8: the act is this host's own rather than an edit the core is holding, so
             // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
@@ -603,9 +653,14 @@ impl App {
             viewer_host::Supplied::Open(secret) => secret,
             viewer_host::Supplied::Cancelled => {
                 println!("note: {}", viewer_host::password::CANCELLED);
+                self.given_up(document);
                 return;
             }
         };
+        if self.arrivals.is(document) {
+            self.open_arriving(Some(secret));
+            return;
+        }
         // The file again — off the disk, or out of the document it was embedded in, which is where
         // Annex O's `ef` left it: §7.11.4 puts an embedded file inside another document, so there
         // is no path to re-read for one (§O.2.1, ADR 0431).

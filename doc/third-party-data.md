@@ -537,8 +537,8 @@ is the section-by-section paraphrase.
 
 ## The two ICC profiles this tree ships
 
-Not texts but data, and the only vendored bytes here that a *converted document* carries away with
-it: a PDF/A output intent this converter adds embeds one of them.
+Not texts but data, and one of two sets of vendored bytes a *converted document* carries away with
+it: a PDF/A output intent this converter adds embeds one of them. The other set is below.
 
 | file | source | terms, from its own `cprt` tag |
 |---|---|---|
@@ -555,6 +555,16 @@ whichever profile the output intent names (`doc/pdf-a-conversion-limits.md` sect
 for the fonts: it reads Cargo metadata and these are vendored bytes. What watches them is
 `data/icc/PROVENANCE.md`'s hashes and the tests in `crates/pdf-colour/src/icc.rs` and
 `crates/pdf-archive/src/table/graphics.rs` that read each file's own tags.
+
+## The Adobe CMaps, when a conversion embeds one
+
+A PDF/A conversion answering `fonts/cmap-embedded-or-predefined` with `source = "shipped-cmaps"`
+writes one of `data/cmaps/`'s programs into the output as a CMap stream (ADR 1286). The terms are
+the BSD-3-Clause row above, and the obligation that matters for a redistributed copy — reproduce
+the notice and disclaimer — is met by the bytes themselves: every program carries Adobe's notice in
+its own `%%Copyright` header comments, and the stream holds the program unchanged, so the notice
+leaves with it. Nothing is re-wrapped, stripped or re-serialised, which is the condition this rests
+on; the conversion's report names every CMap embedded.
 
 ## The XMP Specification, read for a table of facts
 

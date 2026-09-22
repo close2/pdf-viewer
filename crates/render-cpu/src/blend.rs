@@ -248,7 +248,7 @@ impl NonSeparable {
     ///
     /// §11.4.7's four-component page is drawn as two three-channel rasters, the second of
     /// which holds the complement of the black component in every channel
-    /// (`pdf_render::blending`, `pdf_model::colour`'s `Half::Black`). §11.3.5.3 gives that
+    /// (`pdf_render::blending`, `pdf_model::colour`'s `Plane::Black`). §11.3.5.3 gives that
     /// component a rule that reads like a second blend function:
     ///
     /// > For the K component, the result shall be the K component of Cb for the Hue ,

@@ -73,7 +73,7 @@
 
 use pdf_render::{BlendMode, Command, Overprint};
 
-use crate::colour::{Compositing, Half};
+use crate::colour::{Compositing, Plane};
 
 use super::{GraphicsState, Interpreter, KnockoutKind};
 
@@ -218,10 +218,10 @@ impl Interpreter<'_> {
         }
         self.list.note_overprinting();
         // Which of the raster's three channels this half carries, and therefore which of the
-        // four tints decides each of them (`crate::colour::Half`).
+        // four tints decides each of them (`crate::colour::Plane`).
         BlendMode::Overprint(Overprint::new(match half {
-            Half::Chromatic => [tints[0] == 0.0, tints[1] == 0.0, tints[2] == 0.0],
-            Half::Black => [tints[3] == 0.0; 3],
+            Plane::Chromatic => [tints[0] == 0.0, tints[1] == 0.0, tints[2] == 0.0],
+            Plane::Black => [tints[3] == 0.0; 3],
         }))
     }
 

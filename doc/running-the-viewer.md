@@ -212,6 +212,17 @@ Under `Xvfb` with `lavapipe`, starting a transition costs **8.3 ms** (two 800×1
 drawn once) and a frame of one costs a median of **3.8 ms**; under `--cpu`, **11.1 ms** and
 **16.0 ms**. `--trace=frames` prints the first as a `TRANSITION` line.
 
+**More than one document is a strip of tabs, in all three windows** (ADRs 1264, 1275). Every path
+after the first opens as a tab behind it once page one is on the screen, and **Ctrl + O** opens
+another beside the one showing — a file dialogue in `quorra-gtk` and `quorra-qt`, and in `quorra` a
+line over the page where the path is typed, Enter to open and Escape to leave it. Ctrl + Tab moves
+between them and Ctrl + W closes one; a tab says the document's own §14.3.3 `/Title` where it
+states one, and otherwise the file's name.
+
+```sh
+target/quorra a.pdf b.pdf c.pdf    # a.pdf in front, the other two as tabs behind it
+```
+
 Arrows / Page Up / Down / Space turn pages, Home and End jump, `+`/`-`/`0` zoom, **Tab and shift-Tab walk the page's annotations in the order Table 31's `/Tabs` states** (§12.5.1, all five values), **with a ring drawn round whichever one holds the focus** — the clause says nothing about showing one, so the ring is this host's colour and a native host would use its platform's, the up and down
 arrows scroll a page larger than the window, the wheel scrolls whatever is under it and
 **Ctrl + the wheel magnifies the page about the pointer** (ADR 0166), **`o` shows

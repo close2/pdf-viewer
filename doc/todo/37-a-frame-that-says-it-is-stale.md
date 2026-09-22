@@ -88,7 +88,10 @@ reaches two rules here and the sections below were written before it.*
 - **Rule 5 gained a second instrument.** A miss is still a frame that does not land inside one
   refresh, and it is now *observed* as well as predicted: a render still being drawn when the next
   tick comes round has missed that refresh, whatever the last one cost. The prediction is what
-  answers the first tick of a view change, where there is nothing yet to observe.
+  answers the first tick of a view change, where there is nothing yet to observe, and it is what
+  the last render cost *on the render thread* — from taking the job up to finishing it — never
+  what it waited behind: a job asked for during the sharp pass or a retained page queued for it,
+  and charging that to the next render stood in for pages the device draws in 5 ms (ADR 1289).
 - **The base is a texture rather than a readback**, so `Base` is gone as a type and `Settled` is
   what it was — see the note below about `Base::of` being fed from `SoftwareSurface`, which a
   processor path would now write as a second producer of *rasters* rather than of bases.

@@ -18,9 +18,9 @@ use super::{GraphicsState, Interpreter};
 /// What Table 57's `/UseBlackPtComp` says, per ISO 32000-2 §8.6.5.9.
 ///
 /// This is the *entry's* value and nothing else. The rendering intent that can override it is
-/// [`Intent`], and the two are combined by `GraphicsState::black_point` at the moment an object
-/// is painted, because §8.6.5.9 states the override as a property of an object rather than as
-/// something one operator does to another:
+/// [`Intent`], and the two are combined by `GraphicsState::black_point_under` at the moment an
+/// object is painted, because §8.6.5.9 states the override as a property of an object rather than
+/// as something one operator does to another:
 ///
 /// > If the current render intent of an object is AbsColorimetric then the value of
 /// > UseBlackPtComp shall be treated as OFF .

@@ -11,11 +11,20 @@ design below is what the two aborted drafts established and the builds followed;
 segment (ADR 1236) — a stroke with a zero line width, one this walk has seen no stroking colour
 operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a codec image
 whose decode is not on the grid its dictionary states (a JPEG 2000 codestream over the decoder's
-budget comes back at a reduced resolution level, §7.4.9 NOTE 3), a `JPXDecode` image stating a
-non-zero Table 87 `/SMaskInData` or more than eight bits per component (ADR 1248), a codec image
-carrying transparency the opaque re-encode cannot preserve; an inline image behind a codec or whose
-colour space resolves to a resource object; a Type 3 font, a composite font not `Identity-H`, `sh`,
-and a soft-mask group.
+budget comes back at a reduced resolution level, §7.4.9 NOTE 3), a `JPXDecode` image stating more
+than eight bits per component (ADR 1248), a codec picture whose `/Mask` is a §8.9.6.4 colour key
+or whose soft mask states §11.6.5.2's `/Matte` (both are in the picture's own sample domain or
+colour space, which the re-encode leaves), a codec image whose decode has a shape no fresh raster
+holds; an inline image behind a filter §8.9.7 forbids there; a Type 3 font, a composite font not
+`Identity-H`, `sh`, and a soft-mask group.
+
+**Three came off that list in ADR 1277.** A mask is image data: a picture's §11.6.5.2 `/SMask` and
+§8.9.6.3 `/Mask` are cleared on their own grids under the picture's placement, copied wherever the
+picture is, and a codec picture is decoded with them set aside so its fresh dictionary names the
+cleared ones. A `JPXDecode` opacity channel (`/SMaskInData` 1 or 2) is cleared beside the samples
+and written as the soft-mask image Table 87 says the processor creates. An inline image behind
+`DCTDecode` or `CCITTFaxDecode` is decoded and re-expressed, and one naming a colour-space resource
+is written back under that name.
 
 **Two came off that list in ADR 1248.** §8.5.4's clipping boundary is not a mark and the clause
 separates painting from clipping in time, so the cut marks are written first and the boundary is

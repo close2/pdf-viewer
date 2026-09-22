@@ -1,7 +1,8 @@
 //! What a scene costs, and the walk that counts it.
 //!
-//! §11.5 of the brief asks what a scene costs to *hold*, against a target of a dozen
-//! resident pages out of a 1 023-page document, and §5 asks that a limit be
+//! Question 5 of `raster/doc/RENDER_LIBRARY.md` section 11 asks what a scene costs to
+//! *hold*, against a target of a dozen resident pages out of a 1 023-page document, and
+//! its section 5 asks that a limit be
 //! discoverable before a frame rather than after one. Both are answered by the same
 //! walk, run once at [`SceneBuilder::finish`](super::SceneBuilder::finish) — which is
 //! why it lives here rather than in the builder that calls it or the scene that
@@ -26,7 +27,7 @@ pub struct Cost {
     pub masks: usize,
     /// Deepest group nesting the scene reaches.
     pub group_depth: usize,
-    /// Heap bytes the scene retains while held — §11.5's question, measured per scene.
+    /// Heap bytes the scene retains while held — the brief's question 11.5, per scene.
     pub retained_bytes: usize,
     /// How many **distinct** [`FunctionId`]s the scene's
     /// [`Paint::Function`](crate::paint::Paint::Function)s reference.
@@ -46,7 +47,7 @@ pub struct Cost {
 }
 
 /// The cost walk: commands and depth through nesting (mask bodies included),
-/// plus a byte estimate of what the scene retains (§11.5).
+/// plus a byte estimate of what the scene retains (the brief's section 11, question 5).
 pub(super) fn measure(commands: &[Command], clips: &[ClipDef], masks: &[MaskDef]) -> Cost {
     let mut cost = Cost {
         clips: clips.len(),

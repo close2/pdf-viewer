@@ -41,7 +41,7 @@
 //! [`A2b`] is the choice and [`Rendering`] is what carries it beside §8.6.5.9's black point
 //! compensation, which is [`Profile::to_rgb_with`]'s and which [`Profile::to_device`] undoes.
 //! The `B2A` direction still takes `B2A1` over `B2A0` whatever the intent says — §11.7.5.3's
-//! ledger row is where that stands — except in one place, [`Profile::from_pcs_perceptual`],
+//! ledger row is where that stands — except in one place, `Profile::perceptual_from_pcs`,
 //! where a clause asks for `B2A0` by name.
 //!
 //! **And the compensation is ISO 18619's own, since ADR 1253.** §8.6.5.9 states the `ON` case

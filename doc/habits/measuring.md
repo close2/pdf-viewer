@@ -558,3 +558,17 @@ ADR 1254 measured its 4.66 levels correctly and named the fix as the cube's inpu
 with the unbounded slope was at the output end, and building only what the ADR named would have
 left the defect in the grid (ADR 1267). The brief says this of `doc/adr_revisit/` notes; the same is
 true of a named fix inside an accepted ADR.
+
+## 45. A callgrind total that moves while every function keeps its count is layout, not work
+
+Round 1222's plane generalisation moved a 3000-mark page by 0.41% with every Rust function at the
+same instruction count in both binaries; the whole delta was glibc's `memmove` at an unchanged call
+count and a different per-call cost, and an untouched page moved by the same mechanism (ADR 1281).
+Diff per function before quoting a total, and use a page that runs none of the change as the control.
+
+## 46. Idle work a render thread cannot interrupt is measured apart from the job that waits behind it
+
+The 2× sharp pass began the moment the thread was idle and could not be stopped, so a zoom step's
+render queued behind it and the queue time was charged to the next prediction as if it were drawing
+(ADR 1289). Stamp when a job is taken up, not when it was asked; and let uninterruptible idle work
+begin only after the view has been still for as long as that work is predicted to take.

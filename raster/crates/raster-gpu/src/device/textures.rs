@@ -1,6 +1,6 @@
 //! The textures a device makes that carry no encode of their own: a frame-internal
-//! attachment, the 1×1 white stand-in for an absent source, and the straight-alpha
-//! RGBA8 image a resident paint becomes.
+//! attachment, the 1×1 white stand-in for an absent source, and the RGBA8 texture a
+//! resident paint becomes — premultiplied for an image, straight for a ramp or a mesh.
 //!
 //! One module because all three are the same decision made three times — a
 //! `TextureDescriptor` carrying exactly the usages its consumer needs and no more, so
@@ -15,7 +15,38 @@
 //! descriptor from the upload it exists for would leave neither readable; they live in
 //! `super::staging` beside the counts that size them.
 
+use std::borrow::Cow;
+
 use super::Device;
+
+/// An image's straight-alpha samples, premultiplied for the texture the image lane filters.
+///
+/// **The hardware sampler interpolates whatever the texels hold**, and a linear filter over
+/// straight alpha weights a transparent texel's colour exactly as much as an opaque one's —
+/// so the colour an encoder left under an `/SMask`'s zeros, or the black a fully transparent
+/// area-averaged cell carries, reaches the page along every edge the mask draws. Filtering
+/// premultiplied samples gives a transparent texel no colour to lend. It is the caller's
+/// oracle's order as well: `render-cpu` premultiplies each sample into a `tiny-skia` pixmap
+/// before its bilinear filter reads it, with the same round-to-nearest, which is what makes
+/// the two backends' reduced images agree (this tree's ADR 1287).
+///
+/// Borrowed where every sample is opaque, which premultiplying leaves unchanged.
+pub(super) fn premultiplied(data: &[u8]) -> Cow<'_, [u8]> {
+    if data.chunks_exact(4).all(|sample| sample[3] == u8::MAX) {
+        return Cow::Borrowed(data);
+    }
+    let mut out = data.to_vec();
+    for sample in out.chunks_exact_mut(4) {
+        let alpha = u16::from(sample[3]);
+        for component in &mut sample[..3] {
+            let scaled = u16::from(*component)
+                .saturating_mul(alpha)
+                .saturating_add(127);
+            *component = u8::try_from(scaled / 255).unwrap_or(u8::MAX);
+        }
+    }
+    Cow::Owned(out)
+}
 
 impl Device {
     /// A frame-internal texture: layer, mask, or ping-pong scratch.
@@ -42,7 +73,7 @@ impl Device {
         })
     }
 
-    /// One straight-alpha RGBA8 texture, uploaded whole.
+    /// One RGBA8 texture, uploaded whole, holding whichever alpha form its caller made.
     pub(super) fn rgba_texture(
         &self,
         label: &str,

@@ -96,7 +96,7 @@ enum Content {
     /// same identity [`Self::Pixels`] keeps, for the same scroll-keeps-them reason — and `None`
     /// where they crossed as pixels.
     Wrapped {
-        /// One [`Mark::Image`] drawing the page's pixels 1:1 at the page's own size.
+        /// One [`pdf_render::Command::Image`] drawing the page's pixels 1:1 at the page's own size.
         list: Arc<DisplayList>,
         /// What the pixels were drawn from, `None` where they crossed as pixels.
         drawn: Option<(Arc<DisplayList>, TargetSpec)>,
@@ -109,8 +109,8 @@ enum Content {
     /// rather than a quiet gap. The pair is what makes "that drawing" checkable, and it is the
     /// same identity every other variant here keeps.
     ///
-    /// **A refusal is about a drawing, not about a page.** `render-cpu` refuses a target whose
-    /// pixels exceed `pdf_render::MAX_PIXELS`, so the commonest refusal this window can show is
+    /// **A refusal is about a drawing, not about a page.** A target whose pixels exceed
+    /// `viewer_core::MAX_PIXELS` is refused, so the commonest refusal this window can show is
     /// one a zoom *out* lifts and a re-interpretation replaces outright — and a refusal held
     /// against the page would have made the first magnification that overshot permanent for the
     /// rest of the document's life on the screen. It was, from ADR 0713 until this pair existed.
@@ -466,9 +466,10 @@ impl Screen {
 
 /// The page's pixels as the one-command list the device draws them by.
 ///
-/// The image occupies the unit square with its top row at y = 1 ([`Mark::Image`]'s convention),
-/// so the transform scales it to the page — one page unit per pixel — and [`image_target`]'s
-/// y flip puts the top row at the top, exactly as [`TargetSpec::for_page`] constructs a page's.
+/// The image occupies the unit square with its top row at y = 1 ([`pdf_render::Command::Image`]'s
+/// convention), so the transform scales it to the page — one page unit per pixel — and
+/// [`image_target`]'s y flip puts the top row at the top, exactly as [`TargetSpec::for_page`]
+/// constructs a page's.
 fn wrap(raster: Raster) -> Arc<DisplayList> {
     let Raster {
         width,
@@ -930,10 +931,10 @@ mod tests {
     /// A refusal is kept for the drawing that earned it and for nothing else: the same list at
     /// the same target keeps the sentence, and a new target asks again.
     ///
-    /// The zoom is the case that matters. `render-cpu` refuses a target whose pixels exceed
-    /// `pdf_render::MAX_PIXELS`, so a magnification that overshoots is refused and the next one
-    /// down is not — and until this identity existed the first refusal was the page's for good
-    /// (ADR 0713's `Content::Refused(String)`), whatever the reader zoomed to afterwards.
+    /// The zoom is the case that matters. A target whose pixels exceed `viewer_core::MAX_PIXELS`
+    /// is refused, so a magnification that overshoots is refused and the next one down is not —
+    /// and a refusal keyed on the page rather than the drawing would keep the first one for good,
+    /// whatever the reader zoomed to afterwards.
     #[test]
     fn a_refusal_is_kept_for_its_own_drawing_and_not_for_the_page() {
         let mut screen = Screen::new();

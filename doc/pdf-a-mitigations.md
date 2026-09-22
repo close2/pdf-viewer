@@ -863,7 +863,11 @@ ISO 19005-2 6.2.8.1, ISO 19005-4 6.2.7.1 · all six · today `the-fence`
   image is scaled. Not narrowable.
 
 #### `graphics/no-reference-xobjects`
-ISO 19005-2 6.2.9.2, ISO 19005-4 6.2.8.2 · all six · today `not-built-yet`
+ISO 19005-2 6.2.9.2, ISO 19005-4 6.2.8.2 · all six · **built** as `preserve` (ADR 1285)
+
+- **What was built.** `remedy = "preserve"` with no other key: the `Ref` entry goes and the form
+  stays with the producer's bytes, and the report names the file and page Table 95 named. A form
+  dictionary that is not a stream of its own refuses by name.
 
 - **Mitigation** — `preserve`, and the limits document's section 2.3 already found the good one:
   §8.10.4 makes a reference XObject's containing form a **proxy** — what a processor draws when the
@@ -968,7 +972,19 @@ it looks, and two of them have mitigations nobody had written down.
 
 #### `fonts/cmap-embedded-or-predefined`
 #### `fonts/cmap-uses-only-predefined-cmaps`
-ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · today `the-fence`
+ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · the first **built** as `preserve` (ADR
+1286); the second's `preserve` **cannot be built** and is not offered
+
+- **What was built.** `remedy = "preserve"` with `source = "shipped-cmaps"` at the first site:
+  `crates/pdf-transform/src/archive/cmaps.rs` writes §9.7.5.3's stream from the published program,
+  byte for byte, with Table 118's entries stating what the program states, and the report names
+  each CMap embedded. It refuses by name a program that builds on a CMap off the base standard's
+  list, one using an operator §9.7.5.4 forbids in an embedded CMap, one that is not `CMapType` 1,
+  and a descendant CIDFont whose collection ISO 19005-2 section 6.2.11.3.1 would then find in
+  disagreement. **The second site cannot take this answer**: the clause's second paragraph lets a
+  CMap reference only the predefined ones, the site reports an embedded CMap that references
+  another, and embedding that other one leaves the reference in place, still pointing off the list.
+  `source = "shipped-cmaps"` there is a named configuration error.
 
 - **Mitigation** — **`preserve`, and it is new.** The refusal's reasoning is that supplying a CMap
   the file neither embeds nor takes from the predefined set means writing the encoding its producer
@@ -977,9 +993,9 @@ ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · today `the-fence`
   of the limits document), so where the file names one of those and the base standard's own list
   does not include it, the CMap can be **embedded from the shipped set**. Nothing is invented — the
   mapping is Adobe's, the same bytes the producer's reader would have used — and the file becomes
-  self-contained, which is what the clause is for. The same answer serves a CMap that builds on
-  another through `usecmap`, with one check the rewrite owes: what it builds on must itself end at a
-  CMap the base standard predefines, or the chain has to be embedded too.
+  self-contained, which is what the clause is for. A CMap that builds on another through `usecmap`
+  is served only where what it builds on is itself on the base standard's list; embedding the chain
+  is not an answer, because the embedded CMap would then reference one off the list.
 - **By target** — none in kind; both parts state the same rule.
 - **From a configuration** — `remedy = "preserve"`, `source = "shipped-cmaps"`, `on-missing =
   "stop"`. The operator needs one fact: a name the shipped set does not hold still refuses, and no
@@ -1220,7 +1236,12 @@ ISO 19005-2 6.2.11.6, ISO 19005-4 6.2.10.6 · all six · today `the-fence`
   the reader. Departing from it is departing from the format.
 
 #### `fonts/embedded-cmap-states-its-own-write-mode`
-ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · today `not-built-yet`
+ISO 19005-2 6.2.11.3.3, ISO 19005-4 6.2.10.3.3 · all six · **built** as `supply` (ADR 1286)
+
+- **What was built.** `write-mode = "program"` writes the program's value into the stream
+  dictionary; `write-mode = "stream"` replaces the digit of the program's own `/WMode … def` with
+  the dictionary's, and refuses a program stating no entry, since giving it one would be CMap syntax
+  this converter composed. Each CMap is reported and recorded as the operator's statement.
 
 - **Mitigation** — `supply` (section 0.2). The stream's `/WMode` and the CMap program's own write
   mode disagree, and between them they decide whether the text runs down the page or across it. The
@@ -1341,8 +1362,13 @@ ISO 19005-4 Annex B.2.2 · PDF/A-4e · today `not-this-target`
   processor can render, which is the format's promise failing.
 
 #### `annotations/printable-and-visible`
-ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · **the `discard` built** (ADR 1234); `preserve`
-stays `not-built-yet`
+ISO 19005-2 6.3.2, ISO 19005-4 6.3.2 · all six · **the `discard` built** (ADR 1234) and **the
+`preserve` built** (ADR 1285)
+
+- **What `preserve` does.** The annotation stays on its page and its `/F` becomes
+  `pdf_archive::flags_permitting`'s value — Print set, the four forbidden bits clear, every other
+  bit of Table 167 the producer's. The word takes no other key, and the report names every
+  annotation shown with the flags it had and has.
 
 - **What was built.** `--authorise hidden-annotation`, `Loss::HiddenAnnotation` and
   `Rewrite::HiddenAnnotationRemoved`: the annotation goes out of its page's `/Annots` array, its
@@ -1355,9 +1381,8 @@ stays `not-built-yet`
   rather than one being a fallback: `preserve` the annotation by clearing the hidden flags so it
   becomes visible and printable, or `discard` it. Section 3.7 of the limits document makes removal
   the default of the two because a hidden annotation was hidden on purpose, and that is the half
-  built. `preserve` here is not a placement — nothing is kept anywhere else — so the configuration
-  vocabulary owes it a mechanism of its own before it can be carried out; `pdf_archive::
-  flags_permitting` is the value it would write. The other half already built is the smaller one —
+  built first. `preserve` here is not a placement — nothing is kept anywhere else — so the word
+  alone is the mechanism. The other half already built is the smaller one —
   an annotation stating no `/F` at all, where `--authorise annotation-printing` writes bit 3.
 - **By target** — none.
 - **From a configuration** — this is the profile question `doc/rfc/0007` section 5a.1 is built
@@ -2383,7 +2408,10 @@ as pages anywhere. Written in RFC 0007 section 3's format that is a target-quali
 target per site — hundreds of lines saying one thing. **A profile needs to be able to say `prefer =
 ["attach", "append"]` once** and let the converter pick the first the target admits. That is not a
 new mechanism in the sense RFC 0007 section 5a worried about; it is a defaulting rule, and without
-it the shipped profile is unreadable.
+it the shipped profile is unreadable. Until it exists, `keep-everything.toml` writes the few sites
+whose mechanism differs by target as target-qualified rows — the packet sites' `original`, and
+`stop` at the four targets that hold no file for the six rows whose only keeping is an attachment
+(ADR 1285).
 
 **7. A profile file has no header, and it needs one.** RFC 0007 section 3's format is a bare table
 of sites. A shipped profile has to carry its own name, a one-sentence description an operator reads

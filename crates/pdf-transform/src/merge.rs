@@ -217,7 +217,6 @@
 //! nothing here reads a clock. RFC 0002 section 9's first layer, with no flag.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
@@ -1271,28 +1270,11 @@ fn xmp_properties(entries: &[InfoEntry]) -> Vec<(&'static str, String)> {
 
 /// §7.9.4's date spelled the way ISO 16684-1 spells one, so that §14.3.4's two sources agree.
 ///
-/// "[F]ully equivalent" is about the instant, and the two texts spell an instant differently:
-/// §7.9.4's `D:YYYYMMDDHHmmSSOHH'mm` against ISO 8601's `YYYY-MM-DDThh:mm:ss` with an offset.
-/// Every field §7.9.4 leaves out has a default the clause itself states — the month and the day
-/// are 01 and the rest are zero — so the instant is complete either way; the one field with no
-/// default is the zone, where an absent `O HH'mm` is a producer saying nothing rather than saying
-/// UT, and nothing is what this writes.
+/// "[F]ully equivalent" is about the instant, and [`pdf_model::xmp::spelled_date`] is where the
+/// two texts' spellings of one are reconciled; the archive converter writes its dates through the
+/// same function, so a merged file and a converted one cannot spell an instant two ways.
 fn as_xmp_date(value: &str) -> Option<String> {
-    let date = pdf_syntax::date::Date::parse(value)?;
-    let mut out = format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-        date.year, date.month, date.day, date.hour, date.minute, date.second
-    );
-    if let Some(offset) = date.offset {
-        if offset == 0 {
-            out.push('Z');
-        } else {
-            let sign = if offset < 0 { '-' } else { '+' };
-            let minutes = offset.unsigned_abs();
-            let _ = write!(out, "{sign}{:02}:{:02}", minutes / 60, minutes % 60);
-        }
-    }
-    Some(out)
+    pdf_syntax::date::Date::parse(value).map(|date| pdf_model::xmp::spelled_date(&date))
 }
 
 /// The output's one page-tree node: §7.7.3.2's `/Kids` in output order, and its `/Count`.

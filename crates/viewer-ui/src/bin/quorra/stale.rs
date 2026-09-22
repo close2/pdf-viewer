@@ -1446,7 +1446,7 @@ pub(crate) struct Stale {
     showing: bool,
     /// What the last frame that had to *build* a picture cost, which is rule 5's prediction.
     ///
-    /// **Deliberately not [`Settled::cost`], and the difference is a frame the owner waited
+    /// **Deliberately not the last present's cost, and the difference is a frame the owner waited
     /// through.** A frame whose page, placement, size and chrome are the ones already on the
     /// screen costs a replay of an encode that exists (ADR 0351) — two milliseconds where the
     /// render was seven hundred — and a view change never replays, because its placement is part

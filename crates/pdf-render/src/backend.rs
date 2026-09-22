@@ -318,8 +318,8 @@ pub enum BackendError {
         /// Configured maximum.
         limit: usize,
     },
-    /// Compositing the list's transparency groups would blit more pixels than
-    /// [`crate::group_cost::MAX_GROUP_BLIT_PAGES`] repaints of the target.
+    /// Compositing the list's transparency groups would blit more than
+    /// [`crate::group_cost::MAX_GROUP_BLIT_PIXELS`] pixels.
     ///
     /// [`GroupsTooDeep`]'s sibling one axis over: that one bounds how deeply groups nest,
     /// this one how much they cost side by side. A page 73 047 groups *wide* reaches
@@ -337,8 +337,7 @@ pub enum BackendError {
     GroupsTooCostly {
         /// Pixels the list's groups would blit.
         demanded: u64,
-        /// Configured maximum, which is the target's area times
-        /// [`crate::group_cost::MAX_GROUP_BLIT_PAGES`].
+        /// Configured maximum, [`crate::group_cost::MAX_GROUP_BLIT_PIXELS`].
         limit: u64,
     },
 }

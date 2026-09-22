@@ -1321,7 +1321,7 @@ impl Interpreter<'_> {
     /// needs overprinting enabled for both operations and the two alpha constants equal, and
     /// [`Interpreter::combined_overprint`] has already built its group or found it to be the
     /// two commands as they stand. The construction is identical to the one the `B` operator
-    /// gets in [`Interpreter::paint_path`], and NOTE 2 says what it is for — "to avoid having
+    /// gets in [`Interpreter::end_path`], and NOTE 2 says what it is for — "to avoid having
     /// a non-opaque stroke composite with the result of the fill in the region of overlap,
     /// which would produce a double border effect".
     ///

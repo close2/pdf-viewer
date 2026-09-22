@@ -229,8 +229,6 @@ fn refused_knockout(report: &str) -> Option<&'static str> {
         "/AIS both ways (§11.6.4.3)"
     } else if report.contains("non-isolated, and an element blends") {
         "non-isolated with a blending element (§11.4.6 NOTE 6)"
-    } else if report.contains("image mask whose soft mask could not be kept apart") {
-        "a stencil whose /SMask was combined as it was read (SampleAlpha::Both)"
     } else {
         "a paint or element whose shape this renderer cannot describe"
     })

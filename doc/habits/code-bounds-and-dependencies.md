@@ -317,3 +317,25 @@ below its unqualified default never applied and `only-metadata-loss.toml` silent
 it asked for an attachment at PDF/A-4f (ADR 1245). Where a row can be qualified, winning is a
 property of the row and never of its position, and the test states the default before the
 exception — the order a person writes a profile in.
+
+## A destroy step that replaces an object checks every stream its dictionary points to
+
+Redaction carried an image's `/SMask` and `/Mask` by reference while clearing the image, which looks
+like leaving them unchanged and in fact kept the outline of the removed content in the mask
+(ADR 1277). Every stream the replaced dictionary reaches is its own possible trace; read each one
+against the region before calling the object destroyed.
+
+## A profile key no reader reads makes an answer that is built count as unbuilt
+
+`keep-everything.toml` asked for the packet rows under a `prefer` key nothing parsed, so three
+answers ADRs 1245 and 1270 had built were counted among the unbuilt (ADR 1285). Before building an
+"unbuilt" answer, grep the key the profile states against the reader; and a remedy that walks a
+bounded `places` list checks the outcome's `total` against `places.len()` before calling itself done.
+
+## A texture with alpha is premultiplied before a hardware filter reads it
+
+raster-gpu filtered straight-alpha image textures with the bilinear sampler and premultiplied
+afterwards, so the black stored under a soft mask's zeros leaked along its edges at every non-integer
+reduction — the icon fringe the owner saw on Windows, and the long-unexplained heaviness of one corpus
+page (ADR 1287). The test is a fixture whose colour under the transparent area is black, swept over
+non-integer reductions against the CPU oracle; an integer-only sweep hides the leak.

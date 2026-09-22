@@ -68,7 +68,7 @@ impl Launch {
     /// Records that the first frame's display lists have been translated into a GPU scene.
     ///
     /// The boundary is relayed rather than fabricated: scene building and device submission
-    /// happen inside one `QuorraWindowRenderer::present` call, so this host cannot take a clock
+    /// happen inside one `QuorraWindowRenderer::render` call, so this host cannot take a clock
     /// reading between them — but `FrameCost::scene` is raster's own measurement of the
     /// translation from the moment that call began, so the mark is `handed` (when this host
     /// handed the frame over) plus that duration. First frame only, as above.

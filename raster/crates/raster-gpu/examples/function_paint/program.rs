@@ -13,12 +13,12 @@
 //!   what makes the instruction count a bound on the execution: a `for` loop of
 //!   `op_count` iterations in WGSL cannot be exceeded by any program.
 //! - **The stack depth is known before the frame**, by the same symbolic walk that
-//!   the generated shader uses to name its slots (`walk::analyse`).
+//!   the generated shader uses to name its slots (`walk::walk`).
 //!
 //! Types: ISO 32000-2 §7.10.5.1 gives the calculator integers, reals and booleans,
 //! and Table 42's `and`, `or`, `xor` and `not` are *type-sensitive* — bitwise on
 //! integers, logical on booleans. A value therefore carries a [`Kind`], but only
-//! while it is being compiled: `walk::analyse` infers the kind of every stack slot
+//! while it is being compiled: `walk::walk` infers the kind of every stack slot
 //! statically and rewrites `not` to whichever of the two it meant, so neither shader
 //! carries a type tag at run time. `and`, `or` and `xor` need no rewrite — with
 //! `true` as 1 and `false` as 0, the bitwise reading and the logical one agree.
@@ -242,7 +242,7 @@ impl Op {
 /// A compiled §7.10.5 program: a flat list with forward-only jumps.
 ///
 /// What it costs to *run* — the stack depth, whether it underflows, which `not` is
-/// which — is `walk::analyse`'s answer, not this type's.
+/// which — is `walk::walk`'s answer, not this type's.
 #[derive(Debug, Clone)]
 pub(crate) struct Program {
     /// The instruction list, in execution order.

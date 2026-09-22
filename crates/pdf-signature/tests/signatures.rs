@@ -1144,7 +1144,7 @@ fn the_crawls_one_ecdsa_signature_verifies_under_its_own_p256_certificate() {
 /// file supplies and believing it is precisely what a trust store exists to prevent; what it
 /// exercises is the *algorithm*, on chains nobody here could have made, which is the half a
 /// fixture cannot reach. The verdicts are printed with the instant they were asked at, because
-/// `Trust::NotCurrent` on a certificate that expired is a fact about the calendar.
+/// `PathRefusal::NotCurrent` on a certificate that expired is a fact about the calendar.
 #[test]
 fn every_corpus_signature_is_asked_the_third_question_both_ways() {
     let Some(files) = corpus() else {

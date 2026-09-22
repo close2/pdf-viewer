@@ -30,9 +30,11 @@
 //! - **How often the file cites it.** One `§` is a cross-reference as often as not; a file citing
 //!   one clause several times is reading that clause.
 //!
-//! So [`Rung::Implementing`] is a row claiming work cited [`REPEATED`] times or more by a file it
-//! does not name, [`Rung::Mentioning`] the same row cited once or twice, and [`Rung::Unclaimed`]
-//! every citation under a row that claims no work. Read the first rung and stop when the hits stop
+//! So a finding is a row claiming work cited [`REPEATED`] times or more by a library source it
+//! does not name, and the rungs order the findings by what the row names of the file's crate:
+//! [`Rung::UnknownCrate`] where it names no file of that crate at all, [`Rung::UnknownFile`] where
+//! it names others. A citation cited fewer times, from a test or an example, or under a row that
+//! claims no work is counted and not listed. Read the first rung and stop when the hits stop
 //! being the rule.
 //!
 //! # What is counted rather than listed

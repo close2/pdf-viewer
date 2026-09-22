@@ -13,7 +13,7 @@ use std::sync::Arc;
 use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
-use crate::colour::{ColourSpace, Compositing, GreyRoute, Half, InkScale, Presses};
+use crate::colour::{ColourSpace, Compositing, GreyRoute, InkScale, Plane, Presses};
 use crate::function::Function;
 use crate::icc::Rendering;
 
@@ -58,7 +58,7 @@ pub(crate) struct SoftMaskRequest {
     /// colour space has four components; `None` for every other mask.
     ///
     /// Its presence is what asks `crate::content` to interpret the group a second time under
-    /// [`Half::Black`] — the commands themselves cannot be resolved here, because evaluating
+    /// [`Plane::Black`] — the commands themselves cannot be resolved here, because evaluating
     /// a transparency group means running the interpreter. `pdf_render::BlackHalf` is where
     /// the two meet.
     pub black_backdrop: Option<Color>,
@@ -182,7 +182,7 @@ fn read(
 /// state exists, and `/BC` is a mask dictionary's entry rather than an object painted under one
 /// (ADR 1207).
 fn backdrop_half(
-    half: Half,
+    half: Plane,
     press: &Arc<crate::colour::Press>,
     space: &ColourSpace,
     values: &[f32],
@@ -260,7 +260,7 @@ fn luminosity(
     // components and each raster composites onto the ones it carries.
     let black_backdrop = ink.as_ref().zip(space.as_ref()).map(|((press, _), space)| {
         backdrop_half(
-            Half::Black,
+            Plane::Black,
             press,
             space,
             &backdrop_values(document, mask, space),
@@ -290,7 +290,7 @@ fn luminosity(
         // And a four-component group's chromatic half: §11.3.4's additive complements
         // of cyan, magenta and yellow, which is what that raster carries.
         (None, None, None, Some((press, _)), Some(space)) => backdrop_half(
-            Half::Chromatic,
+            Plane::Chromatic,
             press,
             space,
             &backdrop_values(document, mask, space),
@@ -307,7 +307,7 @@ fn luminosity(
         (None, Some(route), _, _) => Compositing::Calibrated(Arc::clone(route)),
         (None, None, Some((route, _)), _) => Compositing::Additive(Arc::clone(route)),
         (None, None, None, Some((press, _))) => {
-            Compositing::Subtractive(Half::Chromatic, Arc::clone(press))
+            Compositing::Subtractive(Plane::Chromatic, Arc::clone(press))
         }
         (None, None, None, None) => Compositing::Device,
     };
@@ -681,7 +681,7 @@ mod tests {
     use pdf_syntax::{Document, Object, ObjectId};
 
     use super::{SoftMaskEntry, entry_with_output_intent};
-    use crate::colour::{ColourSpace, Compositing, Half, InkScale, Presses};
+    use crate::colour::{ColourSpace, Compositing, InkScale, Plane, Presses};
 
     /// A document whose object 5 is a `/Luminosity` mask group stating `/CS /DeviceCMYK`, and
     /// whose object 6 is the `gs` dictionary naming it.
@@ -879,7 +879,7 @@ mod tests {
             panic!("the mask is usable");
         };
         match &under_intent.compositing {
-            Compositing::Subtractive(Half::Chromatic, press) => assert!(
+            Compositing::Subtractive(Plane::Chromatic, press) => assert!(
                 press.is_of_profile(identity),
                 "the group composites in the intent's own press"
             ),

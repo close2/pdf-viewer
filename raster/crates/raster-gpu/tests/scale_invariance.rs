@@ -46,7 +46,7 @@
 //! Three marks, chosen so that the three paths a zoom stresses are each walked at each
 //! scale: a fill (the coverage lane, whose tile is computed in device space and whose
 //! flattening tolerance is stated in device pixels), a stroke (whose expansion is the
-//! arithmetic `raster::direction` does, and whose device delta grows with `s`), and a fill
+//! arithmetic `raster::stroke::direction` does, and whose device delta grows with `s`), and a fill
 //! under a non-rectangular clip (the residue path, which is what the corpus's two
 //! refusals at 2× are about — `raster/doc/notes-tiling-ceiling.md`).
 

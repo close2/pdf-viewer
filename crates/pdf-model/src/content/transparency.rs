@@ -1292,9 +1292,9 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
 ///   under the image's transform, filled — the same path and the same coverage every
 ///   backend draws the image itself through.
 ///
-/// `None` where this renderer cannot separate the two, which is where the report stands: a
-/// stencil under an `/SMask` of its own, whose alpha is the product, and a paint of a kind
-/// this crate does not know. **An image drawn outside this run used to be a third**, because
+/// `None` where this renderer cannot state the shape, which is where the report stands: a paint
+/// of a kind this crate does not know. A stencil under an `/SMask` of its own is not among them —
+/// its producer keeps the stencil apart from the opacity on every route (ADRs 1218, 1279). **An image drawn outside this run used to be a third**, because
 /// the kind was a record the interpreter wrote as it drew; a raster carries its own now,
 /// wherever it came from (ADR 1022).
 ///
@@ -1367,10 +1367,10 @@ fn shape_without_the_mask_and_the_constants(
             // A stencil under a soft mask of its own: §11.6.4.2's shape is the stencil's
             // painted areas and §11.6.4.3's opacity is the mask, and the raster a device draws
             // holds their product. The pair is kept apart on the way here for exactly this
-            // question, so the shape is the stencil's own samples (ADR 1218). `None` where they
-            // were multiplied before a command existed — a mask behind an image codec, which
-            // `pdf_model::image::eligible_for_the_device_scale` declines — and there the report
-            // below stands.
+            // question, so the shape is the stencil's own samples (ADR 1218) — on every route,
+            // an `/SMask` the device-scale route declines and an `/SMaskInData` opacity included
+            // (ADR 1279), so `image::decode_parts` hands no command a raster that multiplied the
+            // two.
             SampleAlpha::Both => image.shape().map(|shape| Command::Image {
                 image: shape,
                 transform: *transform,
@@ -1564,14 +1564,6 @@ fn unstatable_shape(
             return None;
         }
         Some(match (command, alpha) {
-            (Command::Image { .. }, _) => {
-                // The pair is kept apart wherever it can be (ADR 1218), so what reaches here
-                // is a mask this tree combined as it read: one behind an image codec, one
-                // carrying Table 144's `/Matte`, or an opacity that arrived inside a JPEG 2000
-                // codestream and was never two rasters.
-                "an image mask whose soft mask could not be kept apart from it, so its \
-                 samples multiply shape by opacity"
-            }
             (Command::Fill { .. } | Command::Stroke { .. }, _) => {
                 "a paint this renderer cannot describe the shape of"
             }
@@ -2561,7 +2553,7 @@ impl Interpreter<'_> {
                 return None;
             }
             return Some(Compositing::Subtractive(
-                crate::colour::Half::Chromatic,
+                crate::colour::Plane::Chromatic,
                 press,
             ));
         }
@@ -2605,7 +2597,7 @@ impl Interpreter<'_> {
         let rewind = self.readback_mark();
         let saved = std::mem::replace(
             &mut self.compositing,
-            Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(press)),
+            Compositing::Subtractive(crate::colour::Plane::Black, Arc::clone(press)),
         );
         self.run(content, resources, inner);
         self.compositing = saved;
@@ -2770,7 +2762,7 @@ impl Interpreter<'_> {
         let rewind = self.readback_mark();
         let saved = std::mem::replace(
             &mut self.compositing,
-            Compositing::Subtractive(crate::colour::Half::Black, press),
+            Compositing::Subtractive(crate::colour::Plane::Black, press),
         );
         self.run(content, resources, inner);
         self.compositing = saved;
@@ -3597,9 +3589,9 @@ impl Interpreter<'_> {
     /// four modes, which this reported as "a blend function neither raster has". It is drawn
     /// rather than reported since ADR 0277, and nothing was written for it — the clause splits
     /// a subtractive space's four components along the same line the two rasters already are,
-    /// its chromatic bullet is what [`crate::colour::Half::Chromatic`] holds, and the rule it
+    /// its chromatic bullet is what [`crate::colour::Plane::Chromatic`] holds, and the rule it
     /// gives the black component is what its own four functions return on the neutral colour
-    /// [`crate::colour::Half::Black`] holds. `render-cpu`'s `blend` module has the derivation.
+    /// [`crate::colour::Plane::Black`] holds. `render-cpu`'s `blend` module has the derivation.
     /// **The order among them is not a reading rule any more, and ADR 0417 is why.** ADR 0416
     /// had to put a file-stated reason in front of the one [`crate::colour::MAX_PRESSES`]
     /// supplied, because that one was a fact about the process and reporting it in place of

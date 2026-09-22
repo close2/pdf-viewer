@@ -48,11 +48,11 @@ use crate::open::Open;
 ///
 /// Empty for a page stating no `/PresSteps`, which is every page of every corpus document.
 ///
-/// **The page is fetched from the tree rather than read from [`Open::current`]**, for the reason
-/// the `/Trans` lookup beside it is: `current` is filled during interpretation, and a page turn
-/// asks this before the page it turned to has been interpreted. One page-tree walk per navigation
-/// request in presentation mode, which is a key press rather than the per-item loop ADR 0124 was
-/// about.
+/// **The page is fetched from the tree rather than read from [`Open::shown_page`]**, for the
+/// reason the `/Trans` lookup beside it is: `shown_page` reads the arrangement `Viewer::settle`
+/// builds, and a page turn asks this before settling has placed the page it turned to. One
+/// page-tree walk per navigation request in presentation mode, which is a key press rather than
+/// the per-item loop ADR 0124 was about.
 fn nodes(open: &Open) -> Vec<Node> {
     let pages = pdf_model::Pages::new(&open.document);
     pages

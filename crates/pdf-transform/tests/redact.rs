@@ -1240,16 +1240,117 @@ fn a_deep_jpx_image_in_the_region_refuses_the_page() {
     );
 }
 
-/// A `JPXDecode` image whose samples carry opacity refuses the page by name.
+/// An 8×8 JP2 file with one grey component of 200 and an opacity channel (a `cdef` box names it)
+/// whose sample at row `r`, column `c` is `40 + 25c + r` — every value distinct, so a cleared
+/// sample is unmistakable. Lossless 5/3, so the values come back exactly:
 ///
-/// Table 87's `/SMaskInData` with a non-zero value means the codestream carries an opacity
-/// channel, and §7.4.9 says "there shall be only one opacity channel in the JPEG 2000 data and it
-/// shall apply to all colour channels" — so the opaque `FlateDecode` re-encode has nowhere to put
-/// it. The control is the same image with the entry absent, which is the fixture above.
+/// ```sh
+/// python3 - <<'EOF'
+/// from PIL import Image
+/// im = Image.new('LA', (8, 8))
+/// for y in range(8):
+///     for x in range(8):
+///         im.putpixel((x, y), (200, 40 + x * 25 + y))
+/// im.save('ga.png')
+/// EOF
+/// opj_compress -i ga.png -o ga.jp2 -n 1
+/// ```
+const JPX_GREY_WITH_OPACITY: &[u8] = &[
+    0x00, 0x00, 0x00, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a, 0x00, 0x00, 0x00, 0x14,
+    0x66, 0x74, 0x79, 0x70, 0x6a, 0x70, 0x32, 0x20, 0x00, 0x00, 0x00, 0x00, 0x6a, 0x70, 0x32, 0x20,
+    0x00, 0x00, 0x00, 0x43, 0x6a, 0x70, 0x32, 0x68, 0x00, 0x00, 0x00, 0x16, 0x69, 0x68, 0x64, 0x72,
+    0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x02, 0x07, 0x07, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x0f, 0x63, 0x6f, 0x6c, 0x72, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00,
+    0x16, 0x63, 0x64, 0x65, 0x66, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0xcc, 0x6a, 0x70, 0x32, 0x63, 0xff, 0x4f, 0xff, 0x51, 0x00,
+    0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x07, 0x01, 0x01, 0x07, 0x01, 0x01, 0xff, 0x52, 0x00, 0x0c, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40, 0x40, 0xff,
+    0x64, 0x00, 0x25, 0x00, 0x01, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x20, 0x62, 0x79, 0x20,
+    0x4f, 0x70, 0x65, 0x6e, 0x4a, 0x50, 0x45, 0x47, 0x20, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e,
+    0x20, 0x32, 0x2e, 0x35, 0x2e, 0x34, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x57,
+    0x00, 0x01, 0xff, 0x93, 0xcf, 0xb4, 0x48, 0x14, 0x00, 0x5c, 0xa3, 0x65, 0x5d, 0xb0, 0x00, 0x03,
+    0x09, 0x08, 0xd5, 0x0a, 0x18, 0x48, 0x4b, 0xff, 0x7f, 0xcf, 0xb4, 0xc4, 0x11, 0x64, 0xe3, 0x72,
+    0x5c, 0x73, 0x0a, 0x36, 0x7d, 0xf5, 0x15, 0xaf, 0x90, 0x0f, 0x1e, 0x69, 0x46, 0x5a, 0x68, 0xf8,
+    0x25, 0x20, 0x3b, 0xec, 0x40, 0x15, 0x6f, 0x13, 0xbd, 0x37, 0xfd, 0x3c, 0x3d, 0xbc, 0x6e, 0x4e,
+    0xf3, 0xc1, 0x1c, 0x0e, 0xed, 0xb5, 0xda, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xa7, 0xff, 0xd9,
+];
+
+/// The opacity sample [`JPX_GREY_WITH_OPACITY`] carries at `row`, `col`.
+fn jpx_opacity(row: usize, col: usize) -> u8 {
+    u8::try_from(40 + col * 25 + row).expect("under 256")
+}
+
+/// A `JPXDecode` image whose codestream carries its opacity has both cleared, the opacity written
+/// as the soft-mask image Table 87 names.
+///
+/// Table 87's `/SMaskInData` 1: "[t]he image's data stream includes encoded soft -mask values. A
+/// PDF processor shall create a soft-mask image from the information to be used as a source of
+/// mask shape or mask opacity in the transparency imaging model." The opaque `FlateDecode`
+/// re-encode has no channel for it, so the removal writes that soft-mask image as an image
+/// dictionary's `/SMask` beside the re-encode — and because the opacity channel is image data,
+/// §12.5.6.23's "that portion of the image data shall be destroyed" reaches it as well: the left
+/// four columns are zero in both, the right four columns keep the grey and the opacity the
+/// codestream carried. ADR 1277.
 #[test]
-fn a_jpx_image_whose_samples_carry_opacity_refuses_the_page() {
+fn a_jpx_image_whose_samples_carry_opacity_is_cleared_with_its_opacity_channel() {
     pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
-    let bytes = jpx_page("/SMaskInData 1", JPX_ONE_COMPONENT);
+    let bytes = jpx_page("/SMaskInData 1", JPX_GREY_WITH_OPACITY);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the opacity channel travels as a soft mask, so nothing is refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, JPX_GREY_WITH_OPACITY),
+        "the original codestream is not left in the file"
+    );
+    let (width, height, rgba, flate_rgb) = read_back_codec_image(&out);
+    assert_eq!((width, height), (8, 8), "the grid survives the re-encode");
+    assert!(flate_rgb, "re-encoded as 8-bit DeviceRGB under FlateDecode");
+    let mask = read_back_mask(&out, "SMask").expect("the picture names a soft mask");
+    assert_eq!(
+        mask.len(),
+        64,
+        "one opacity sample a pixel, on the picture's grid"
+    );
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let at = (row * 8 + col) * 4;
+            if col < 4 {
+                assert_eq!(rgba[at], 0, "grey destroyed at row {row}, column {col}");
+                assert_eq!(mask[row * 8 + col], 0, "opacity destroyed at {row}, {col}");
+            } else {
+                assert_eq!(
+                    rgba[at], JPX_SAMPLE,
+                    "grey intact at row {row}, column {col}"
+                );
+                assert_eq!(
+                    mask[row * 8 + col],
+                    jpx_opacity(row, col),
+                    "opacity intact at row {row}, column {col}"
+                );
+                assert_eq!(
+                    rgba[at + 3],
+                    jpx_opacity(row, col),
+                    "a reader sees it as alpha"
+                );
+            }
+        }
+    }
+}
+
+/// A `/SMaskInData` code Table 87 does not define refuses the page by name.
+///
+/// The table defines 0, 1 and 2 and nothing else, so what a third code says the samples carry is
+/// not something this removal can read off the standard; it is refused rather than guessed.
+#[test]
+fn an_undefined_smaskindata_code_refuses_the_page() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("/SMaskInData 3", JPX_ONE_COMPONENT);
 
     let (report, _out) = redact(&bytes);
     let refused = report
@@ -1258,8 +1359,8 @@ fn a_jpx_image_whose_samples_carry_opacity_refuses_the_page() {
         .find(|declined| declined.page == Some(1))
         .expect("the page is refused");
     assert!(
-        refused.detail.contains("/SMaskInData"),
-        "the refusal names the entry: {}",
+        refused.detail.contains("/SMaskInData 3"),
+        "the refusal names the code: {}",
         refused.detail
     );
 }
@@ -2493,4 +2594,652 @@ fn an_encrypted_source_is_redacted_and_the_redaction_is_encrypted_in_turn() {
         !text.contains("SECRET"),
         "and the removed text is unrecoverable even with the password: {text:?}"
     );
+}
+
+// --- A mask is image data: §8.9.6.3's explicit mask and §11.6.5.2's soft mask ---
+
+/// The packed samples of the mask the output's `/Im1` names under `key` (`SMask` or `Mask`), read
+/// through every filter — or `None` where the picture names none.
+fn read_back_mask(bytes: &[u8], key: &str) -> Option<Vec<u8>> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    let mask = document.get_key(&stream.dict, key);
+    let mask = mask.as_stream()?;
+    let decoded = document.image_stream(mask).expect("the mask decodes");
+    assert!(
+        decoded.codec.is_none(),
+        "the cleared mask is behind no codec"
+    );
+    Some(decoded.data.to_vec())
+}
+
+/// A 4×4 `DeviceGray` soft-mask image, eight bits a sample, every sample distinct and non-zero:
+/// `101 + 4r + c` at row `r`, column `c`.
+fn soft_mask_samples() -> Vec<u8> {
+    (0..16u8).map(|index| 101 + index).collect()
+}
+
+/// A one-page fixture drawing `/Im1` (object 6) over [50,150]², its left half redacted, with
+/// object 7 the mask the picture names.
+fn masked_page(picture: Vec<u8>, mask: Vec<u8>) -> Vec<u8> {
+    assemble_bytes(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
+          0 R >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        b"<< /Length 33 >>\nstream\nq 100 0 0 100 50 50 cm /Im1 Do Q\nendstream".to_vec(),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        picture,
+        mask,
+    ])
+}
+
+/// A stream object from a dictionary body and data.
+fn stream_object(dictionary: &str, data: &[u8]) -> Vec<u8> {
+    let mut object = format!("<< {dictionary} /Length {} >>\nstream\n", data.len()).into_bytes();
+    object.extend_from_slice(data);
+    object.extend_from_slice(b"\nendstream");
+    object
+}
+
+/// The 4×4 soft mask's left two columns are zero and its right two what the file wrote.
+fn assert_soft_mask_cleared(mask: &[u8]) {
+    let original = soft_mask_samples();
+    assert_eq!(mask.len(), 16, "the mask keeps its own 4×4 grid");
+    for row in 0..4usize {
+        for col in 0..4usize {
+            let at = row * 4 + col;
+            if col < 2 {
+                assert_eq!(mask[at], 0, "mask row {row} column {col} is in the region");
+            } else {
+                assert_eq!(
+                    mask[at], original[at],
+                    "mask row {row} column {col} is intact"
+                );
+            }
+        }
+    }
+}
+
+/// A codec-free picture's soft mask is cleared on the mask's own grid, under the picture's region.
+///
+/// §12.5.6.23: "that portion of the image data shall be destroyed; clipping or image masks shall
+/// not be used to hide that data". A §11.6.5.2 soft-mask image is image data of its own — it holds
+/// the picture's shape sample by sample — and Table 143 puts it on the picture's unit square
+/// "regardless of whether the samples coincide individually", so the picture's placement is the
+/// mask's and the region's share of it is the columns whose centres fall in the region on the
+/// mask's *own* 4×4 grid, not the picture's 8×8. The picture is cleared exactly as before, the
+/// mask's original bytes are gone from the file, and the picture names the cleared mask.
+#[test]
+fn a_soft_mask_is_cleared_on_its_own_grid_with_its_picture() {
+    let picture = flate_encode(&distinct_samples(), 6).expect("the picture deflates");
+    let mask = flate_encode(&soft_mask_samples(), 6).expect("the mask deflates");
+    let bytes = masked_page(
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /SMask 7 0 R /Filter /FlateDecode",
+            &picture,
+        ),
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /Filter /FlateDecode",
+            &mask,
+        ),
+    );
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, &mask),
+        "the original mask bytes are not left in the file"
+    );
+    let samples = read_back_samples(&out);
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let want = if col < 4 {
+                0
+            } else {
+                u8::try_from(col * 8 + row + 1).expect("small")
+            };
+            assert_eq!(
+                samples[row * 8 + col],
+                want,
+                "picture row {row} column {col}"
+            );
+        }
+    }
+    assert_soft_mask_cleared(&read_back_mask(&out, "SMask").expect("the soft mask is named"));
+    let Some(Origin::Redacted { images, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("the report states a redacted origin");
+    };
+    assert_eq!(
+        images, 1,
+        "one picture is counted; its mask travels with it"
+    );
+}
+
+/// A `DCTDecode` picture carrying a soft mask is cleared, and so is its mask, each on its own grid.
+///
+/// The picture is decoded **without** its mask — the mask is cleared as an image of its own, so
+/// multiplying it into the picture's alpha would hide nothing and lose the mask's resolution — and
+/// re-encoded as the opaque 8-bit `DeviceRGB` raster ADR 1133 writes for a colour codec, now naming
+/// the cleared mask. The assertions are the picture's colour against its own decode, the mask's
+/// samples against the file's, and the alpha a reader derives from the two: zero in the region.
+#[test]
+fn a_dct_image_carrying_a_soft_mask_is_cleared_with_its_mask() {
+    let mask = flate_encode(&soft_mask_samples(), 6).expect("the mask deflates");
+    let bytes = masked_page(
+        codec_image_object(
+            16,
+            16,
+            "DeviceRGB",
+            8,
+            "DCTDecode",
+            " /SMask 7 0 R",
+            DCT_JPEG_16X16,
+        ),
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /Filter /FlateDecode",
+            &mask,
+        ),
+    );
+    let original = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, DCT_JPEG_16X16),
+        "the original DCT stream is gone"
+    );
+    assert!(!contains(&out, &mask), "the original mask bytes are gone");
+    let (width, height, rgba, flate_rgb) = read_back_codec_image(&out);
+    assert_eq!((width, height), (16, 16), "the grid survives the re-encode");
+    assert!(flate_rgb, "the picture is a FlateDecode DeviceRGB stream");
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let at = (row * 16 + col) * 4;
+            if col < 8 {
+                assert_eq!(
+                    &rgba[at..at + 4],
+                    &[0, 0, 0, 0],
+                    "row {row} column {col} is gone"
+                );
+            } else {
+                assert_eq!(
+                    &rgba[at..at + 4],
+                    &original[at..at + 4],
+                    "row {row} column {col}"
+                );
+            }
+        }
+    }
+    assert_soft_mask_cleared(&read_back_mask(&out, "SMask").expect("the soft mask is named"));
+}
+
+/// An 8×8 explicit mask, one bit a sample: row `r` is the byte `0x5A ^ r`, so every row differs
+/// and each has both painted and unpainted samples on both halves.
+fn explicit_mask_rows() -> Vec<u8> {
+    (0..8u8).map(|row| 0x5A ^ row).collect()
+}
+
+/// A `DCTDecode` picture carrying a §8.9.6.3 explicit mask is cleared, and so is the mask.
+///
+/// §8.9.6.3: "[t]he base image and the image mask need not have the same resolution ( Width and
+/// Height values), but since all images shall be defined on the unit square in user space, their
+/// boundaries on the page will coincide". The mask is a one-bit image of its own, so its region
+/// bits are cleared to the sample domain's zero on its own 8×8 grid, under the picture's 16×16.
+#[test]
+fn a_dct_image_carrying_an_explicit_mask_is_cleared_with_its_mask() {
+    let rows = explicit_mask_rows();
+    let bytes = masked_page(
+        codec_image_object(
+            16,
+            16,
+            "DeviceRGB",
+            8,
+            "DCTDecode",
+            " /Mask 7 0 R",
+            DCT_JPEG_16X16,
+        ),
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ImageMask true",
+            &rows,
+        ),
+    );
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    let (_width, _height, rgba, flate_rgb) = read_back_codec_image(&out);
+    assert!(flate_rgb, "the picture is a FlateDecode DeviceRGB stream");
+    assert_eq!(
+        &rgba[0..3],
+        &[0, 0, 0],
+        "the picture's region is the zero constant"
+    );
+    let mask = read_back_mask(&out, "Mask").expect("the explicit mask is named");
+    for (row, (got, source)) in mask.iter().zip(&rows).enumerate() {
+        assert_eq!(
+            got & 0xF0,
+            0,
+            "row {row}: the left four bits are in the region"
+        );
+        assert_eq!(
+            got & 0x0F,
+            source & 0x0F,
+            "row {row}: the right four bits are intact"
+        );
+    }
+}
+
+/// A codec picture whose `/Mask` is a colour key refuses the page by name.
+///
+/// §8.9.6.4 states each range as "colour values before decoding with the Decode array" in the
+/// picture's own sample domain, which the `DeviceRGB` re-encode leaves, so the ranges would no
+/// longer describe the samples they were written against. Refused rather than carried wrong.
+#[test]
+fn a_codec_image_with_a_colour_key_mask_refuses_the_page() {
+    let bytes = masked_page(
+        codec_image_object(
+            16,
+            16,
+            "DeviceRGB",
+            8,
+            "DCTDecode",
+            " /Mask [0 10 0 10 0 10]",
+            DCT_JPEG_16X16,
+        ),
+        b"null".to_vec(),
+    );
+
+    let (report, _out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused.detail.contains("§8.9.6.4") && refused.detail.contains("colour-key"),
+        "the refusal names the colour key: {}",
+        refused.detail
+    );
+}
+
+/// A §8.9.6.2 image mask behind `CCITTFaxDecode` is decoded, cleared and written as a one-bit
+/// stencil under `FlateDecode`.
+///
+/// §8.9.6.2: "a sample value of 0 shall mark the page with the current colour, and a 1 shall leave
+/// the previous contents unchanged". The decode gives the stencil as alpha — painted or not — and
+/// the re-expression writes it back as those bits under the default `/Decode`, so outside the
+/// region a reader paints exactly what it painted before, and inside it the bits are the sample
+/// domain's zero, as every other cleared image's are (ADR 1126).
+#[test]
+fn a_ccitt_image_mask_in_the_region_is_cleared_as_a_stencil() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = masked_page(
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 16 /Height 16 /ImageMask true \
+             /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 16 /Rows 16 >>",
+            CCITT_G4_16X16,
+        ),
+        b"null".to_vec(),
+    );
+    let original = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, CCITT_G4_16X16),
+        "the original CCITT stream is gone"
+    );
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let image = document.resolve(
+        document
+            .get_key(&page.resources, "XObject")
+            .as_dict()
+            .and_then(|dict| dict.get("Im1"))
+            .expect("/Im1"),
+    );
+    let stream = image.as_stream().expect("a stream");
+    assert!(
+        matches!(
+            document.get_key(&stream.dict, "ImageMask"),
+            Object::Boolean(true)
+        ),
+        "the output is still an image mask"
+    );
+    let rgba = decode_fixture_rgba(&out);
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let alpha = rgba[(row * 16 + col) * 4 + 3];
+            if col < 8 {
+                assert_eq!(
+                    alpha, 0xFF,
+                    "row {row} column {col}: the region's zero bit paints"
+                );
+            } else {
+                let before = original[(row * 16 + col) * 4 + 3];
+                assert_eq!(alpha, before, "row {row} column {col} paints as it did");
+            }
+        }
+    }
+    // The fixture's halves are one painted and one unpainted, so both assertions above could
+    // have failed: the region changed, and the intact half is not the region's constant.
+    let left = original[3];
+    let right = original[8 * 4 + 3];
+    assert_eq!(
+        (left, right),
+        (0, 0xFF),
+        "the source leaves its left half unpainted"
+    );
+}
+
+/// An inline image behind `DCTDecode` is decoded, cleared and spliced back as an 8-bit
+/// `DeviceRGB` inline image under `FlateDecode`.
+///
+/// §8.9.7 lets an inline image use `DCTDecode` — "JBIG2Decode , Crypt and JPXDecode are not listed
+/// … because those filters shall not be used with inline images" leaves it in — so the codec is
+/// decoded the interpreter's own way and re-expressed as ADR 1133 re-expresses an image `XObject`
+/// behind it. The spliced image's left half is the zero constant and its right half the decode's.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.9.7 verbatim, and a quotation is not marked up"
+)]
+fn an_inline_dct_image_is_decoded_cleared_and_spliced() {
+    let mut image = format!(
+        "BI /W 16 /H 16 /BPC 8 /CS /RGB /F /DCT /L {} ID\n",
+        DCT_JPEG_16X16.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(DCT_JPEG_16X16);
+    image.extend_from_slice(b"\nEI");
+    let bytes = inline_fixture(&image, "50 150 100 150 100 50 50 50");
+    let original = inline_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    let (content, samples, _before, _after) = read_back_inline(&out);
+    assert!(
+        find(&content, DCT_JPEG_16X16).is_none(),
+        "the DCT data is not left in the content"
+    );
+    assert!(
+        find(&content, b"/DeviceRGB").is_some(),
+        "re-expressed as DeviceRGB"
+    );
+    assert_eq!(
+        samples.len(),
+        16 * 16 * 3,
+        "an 8-bit RGB raster on the image's grid"
+    );
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let at = (row * 16 + col) * 3;
+            if col < 8 {
+                assert_eq!(
+                    &samples[at..at + 3],
+                    &[0, 0, 0],
+                    "row {row} column {col} is gone"
+                );
+            } else {
+                let from = (row * 16 + col) * 4;
+                assert_eq!(
+                    &samples[at..at + 3],
+                    &original[from..from + 3],
+                    "{row}, {col}"
+                );
+            }
+        }
+    }
+}
+
+/// The first page's inline image, decoded the interpreter's way to straight-alpha `RGBA8`.
+fn inline_rgba(bytes: &[u8]) -> Vec<u8> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let content = page.content(&document);
+    let bi = find(&content, b"BI").expect("a BI operator");
+    let scan = pdf_model::inline_image::scan(&document, &content, bi + 2, &page.resources, true);
+    let stream = scan.image.expect("the inline image reads");
+    pdf_model::image::decode(
+        &document,
+        &stream,
+        &page.resources,
+        Color::BLACK,
+        &Conversion::device(),
+    )
+    .expect("the inline image decodes")
+    .image
+    .data
+    .to_vec()
+}
+
+/// An inline image whose colour space is a resource name is spliced under that name.
+///
+/// §8.9.7: "the value of the ColorSpace entry may also be the name of a colour space in the
+/// ColorSpace subdictionary of the current resource dictionary". The name here resolves to a
+/// `/Separation` whose tint transform is a §7.3.8 reference no content stream can hold, so the
+/// splice writes the producer's *name* again — the resources in force are the same ones — and
+/// the samples are cleared as a codec-free image's.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.9.7 verbatim, and a quotation is not marked up"
+)]
+fn an_inline_image_naming_a_colour_space_resource_is_spliced_under_that_name() {
+    let samples = distinct_samples();
+    let mut image = b"BI /W 8 /H 8 /BPC 8 /CS /CS0 ID\n".to_vec();
+    image.extend_from_slice(&samples);
+    image.extend_from_slice(b"\nEI");
+    let mut content = b"q 100 0 0 100 50 50 cm\n".to_vec();
+    content.extend_from_slice(&image);
+    content.extend_from_slice(b"\nQ");
+    let bytes = assemble_bytes(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /ColorSpace << \
+          /CS0 [/Separation /Spot /DeviceGray 6 0 R] >> >> /Contents 4 0 R /Annots [5 0 R] >>"
+            .to_vec(),
+        stream_object("", &content),
+        b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
+          /QuadPoints [50 150 100 150 100 50 50 50] >>"
+            .to_vec(),
+        b"<< /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>".to_vec(),
+    ]);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    let (content, out_samples, _before, _after) = read_back_inline(&out);
+    assert!(
+        find(&content, b"/ColorSpace /CS0").is_some(),
+        "the resource is named again: {}",
+        String::from_utf8_lossy(&content)
+    );
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let want = if col < 4 {
+                0
+            } else {
+                u8::try_from(col * 8 + row + 1).expect("small")
+            };
+            assert_eq!(out_samples[row * 8 + col], want, "row {row} column {col}");
+        }
+    }
+}
+
+/// An inline image behind a filter §8.9.7 forbids inline refuses the page by name.
+///
+/// "JBIG2Decode , Crypt and JPXDecode are not listed … because those filters shall not be used with
+/// inline images": such a run is not an inline image the clause describes, so it is refused rather
+/// than decoded on the file's word.
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes §8.9.7 verbatim, and a quotation is not marked up"
+)]
+fn an_inline_image_behind_a_forbidden_filter_refuses_the_page() {
+    let image =
+        b"BI /W 8 /H 8 /BPC 1 /CS /G /F /JBIG2Decode /L 4 ID\n\x00\x00\x00\x00\nEI".to_vec();
+    let bytes = inline_fixture(&image, "50 150 100 150 100 50 50 50");
+
+    let (report, _out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused
+            .detail
+            .contains("shall not be used with inline images"),
+        "the refusal names the clause: {}",
+        refused.detail
+    );
+}
+
+/// §8.9.7's EXAMPLE: a 17×17 inline image, eight bits a component in `DeviceRGB`, behind
+/// `[/A85 /LZW]`, placed at (298, 388) and scaled to 17 units. The clause elides the example's
+/// data, so the samples are this fixture's own — [`example_samples`], every one distinct and
+/// non-zero — encoded the way the example states, under the example's dictionary and `cm`. The
+/// encoder was a few lines of Python: §7.4.4's LZW with nine-bit codes, a clear code emitted
+/// before the table reaches 512 entries so the width never changes, then §7.4.3's base-85 without
+/// the `<~` prefix. The test reads the input back through the tree's own `ASCII85Decode` and
+/// `LZWDecode` before it trusts anything, so the constant is checked against [`example_samples`]
+/// rather than believed.
+const EXAMPLE_INLINE_A85_LZW: &str = concat!(
+    r#"J,hjMY]*8i)\<<E!n!+ZF?^o\ab95YA@Q&()GS7.Z0_OD6mGS9<75nWVc>7uMfn%`Lrj9d>0X9:1aEeF"#,
+    r#"#K/rK@(^/5*Y:l\P&X0s>;-o=#1J.QoR0"Kd7Eo(>r\NU.TOY,ZL*%WA2;jJ<l9'u%giM.Je9]4>Vd</"#,
+    r#"a947a1n[i#(JI;>;7u+:4s3[XP]B2DRnkH_$FPK9E4o[7=\SOQ?+Ad43^V2E*%YM.*lLWI6G-RF)E>c5"#,
+    r#"dKEg70d]f@<`6p7]pUWl\"%>K>JN<^'i0SV&g\*a7k[c"FOS2p$WBVsPP(2PEH>Js=IOD7"-qC'Gs0*3"#,
+    r#"iJkd(F=#bd(S`SSja]SRd?"Kg=YcRGWKh6&Rc/S.@^;E(-G+!+jE%pS01X(p<\PGP#G`Om.%X<eQODqC"#,
+    r#"8[.2t4J.^KA6M8GQqjRoWhjIPDRs2[)!o8#;6o%t\XdX$S)=>P"cS2r_>+Y*9IQ0a-0#l1eo3X@&#]U\"#,
+    r#".2n@BVN^:63jE/$>d'MGAm79mfPS,<Y(pf7lM:R6!ML[XpkD6aPR:uRl%$ok2OofjU\YQ4N(BcfMASCc"#,
+    r#"'YB+*+q7YDMCe4TJ:QRnGYg.\OV;9%WBm+VFI++^.-[IDDQ'*XB<3Qb5).jf3b^6^?mH^*$O4NPHDsfH"#,
+    r#"@BH$"a1D[&aHa*1X\/J*o&.X#[B@e:bJO#V^OuZ^T]h75-RTVO"g\5octtc`:Ik$i*>ji0-<#d:18S6^"#,
+    r#">;"P:2FB?peSR6M:3TXMkk>)Y_*IL_>W<l>$:Vp3d<rlF2B0qsPMu`SM+8i>agD20:p!hO=%h*X*L+lb"#,
+    r#"2;=--,Gj2cHN6<]ODmT=)\34n!jR:*\7%039uf&pm/Vc,,>nhIdWIsU<@cXYFlNX]a_*G6c*m5'd-Gp>"#,
+    r#"?N;cF/0GZ9#=LmU:qU<t*Z3i`#\!EJMMWY=W^t"H2SP5-j=Q35Q;7"9!G.rRJ:;)](la:qiYeb@GFtQW"#,
+    r#"8K'()OK54\.EktR8uUXJ].6[GkVBpkZ&,R"0u3F373rpjkNe9`lBo45DeglorrUE]5T;<<)k#:HH+j8d"#,
+    r#"?s#Z@(_2?)U7l8ADE8l%#irj]"9~>"#,
+);
+
+/// The 17×17×3 samples [`EXAMPLE_INLINE_A85_LZW`] encodes: component `k` of row `r`, column `c` is
+/// `(13c + 7r + 5k) mod 250 + 1`.
+fn example_samples() -> Vec<u8> {
+    let mut samples = Vec::with_capacity(17 * 17 * 3);
+    for row in 0..17usize {
+        for col in 0..17usize {
+            for component in 0..3usize {
+                samples.push(
+                    u8::try_from((col * 13 + row * 7 + component * 5) % 250 + 1).expect("small"),
+                );
+            }
+        }
+    }
+    samples
+}
+
+/// §8.9.7's EXAMPLE redacted: its left eight columns are destroyed and the rest survive.
+///
+/// The example's image sits at (298, 388), scaled to 17 units, so a column's centre is at
+/// `298 + c + 0.5`; a region reaching x = 306 takes columns 0 to 7 and leaves column 8, whose
+/// centre is 306.5. The spliced image is codec-free, so it keeps the example's grid and colour
+/// space and only the encoding changes.
+#[test]
+fn the_inline_image_example_of_8_9_7_is_redacted() {
+    let content = format!(
+        concat!(
+            "q\n17 0 0 17 298 388 cm\n",
+            "BI /W 17 /H 17 /CS /RGB /BPC 8 /L {} /F [/A85 /LZW] ID\n{}\nEI\nQ"
+        ),
+        EXAMPLE_INLINE_A85_LZW.len(),
+        EXAMPLE_INLINE_A85_LZW
+    );
+    let bytes = assemble_bytes(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Contents 4 0 R \
+          /Annots [5 0 R] >>"
+            .to_vec(),
+        stream_object("", content.as_bytes()),
+        b"<< /Type /Annot /Subtype /Redact /Rect [298 388 306 405] \
+          /QuadPoints [298 405 306 405 306 388 298 388] >>"
+            .to_vec(),
+    ]);
+    let (_content, input, _before, _after) = read_back_inline(&bytes);
+    assert_eq!(
+        input,
+        example_samples(),
+        "the fixture decodes to the samples it states"
+    );
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "nothing is refused: {:?}",
+        report.refused
+    );
+    let (content, samples, _before, _after) = read_back_inline(&out);
+    assert!(
+        find(&content, EXAMPLE_INLINE_A85_LZW.as_bytes()).is_none(),
+        "the example's encoded data is not left in the content"
+    );
+    let original = example_samples();
+    for row in 0..17usize {
+        for col in 0..17usize {
+            let at = (row * 17 + col) * 3;
+            if col < 8 {
+                assert_eq!(
+                    &samples[at..at + 3],
+                    &[0, 0, 0],
+                    "row {row} column {col} is gone"
+                );
+            } else {
+                assert_eq!(
+                    &samples[at..at + 3],
+                    &original[at..at + 3],
+                    "row {row} column {col}"
+                );
+            }
+        }
+    }
 }

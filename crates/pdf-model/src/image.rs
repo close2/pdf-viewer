@@ -422,6 +422,11 @@ pub struct Parts {
     /// the file carries, and suppressing the report makes a page whose lower half this program
     /// left blank indistinguishable from one the producer left blank.
     pub shortfall: Option<String>,
+    /// The sentence for a `DCTDecode` frame whose dimensions the dictionary contradicts, or
+    /// `None` where they agree or the codec is another one; `image::contradicted_frame` has the
+    /// reading. Carried with the raster for [`Self::shortfall`]'s reason: the decode is the walk
+    /// that reads the frame header, and a `Do` answered from the cache says it too.
+    pub contradiction: Option<String>,
 }
 
 impl Picture {
@@ -497,20 +502,7 @@ pub fn decode(
     fill: pdf_render::Color,
     into: &Conversion,
 ) -> Result<Flattened, ImageError> {
-    let mut masks = MaskCache::default();
-    let Parts { picture, shortfall } =
-        decode_parts(document, stream, resources, fill, into, &mut masks)?;
-    let image = match picture {
-        Picture::Complete(image) => image,
-        Picture::Masked { base, opacity } => {
-            let grid = pdf_render::Grid {
-                width: base.width,
-                height: base.height,
-            };
-            opacity.over(base).samples(grid)
-        }
-    };
-    Ok(Flattened { image, shortfall })
+    decode_reporting_frame(document, stream, resources, fill, into).map(|(flattened, _)| flattened)
 }
 
 /// [`decode`]'s answer: one raster, and what the filter said beside it.
@@ -607,6 +599,7 @@ pub fn decode_parts(
         rgba,
         grid: (raster_width, raster_height),
         opacity_included: opacity_came_with_the_samples,
+        stencil_opacity,
         shortfall,
     } = samples_of(
         at,
@@ -620,6 +613,9 @@ pub fn decode_parts(
             matte: prematte.as_ref(),
         },
     )?;
+    // §7.4.8's disagreement is read off the grid the codec has just built on, rather than off a
+    // second walk of the frame header: the arm that decoded the frame is the one that knows it.
+    let contradiction = contradicted_frame(&source, (raster_width, raster_height), (width, height));
 
     let image = Image {
         // The grid the samples are actually on, which is the dictionary's unless a
@@ -646,40 +642,24 @@ pub fn decode_parts(
     };
     // A mask's own shortfall joins the base's, named for the entry it came through; the base's
     // takes precedence because a report names one thing and the picture is the thing.
-    let mut shortfall = shortfall;
-    let image = if opacity_came_with_the_samples {
-        // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
-        // the image samples, `/SMask` "shall not be present", and the embedded mask
-        // overrides any that is. Applying one on top would multiply two alphas together.
-        let mut image = image;
-        image.sample_alpha = sample_alpha(is_mask, true);
-        image
-    } else {
-        // A mask whose grid the finer of the two cannot hold leaves this function in two
-        // parts, for the device to put together. Everything below is about one raster.
-        // The routing is asked about the raster that exists — `(raster_width,
-        // raster_height)`, not the dictionary's statement — which is what sends a reduced
-        // JPEG 2000 base under a full-size mask here rather than into an eager combination
-        // on a grid neither raster is on.
-        if let Some(opacity) = masks.read(document, dict, resources, (raster_width, raster_height))
-        {
-            let mut base = image;
-            base.sample_alpha = sample_alpha(is_mask, true);
+    let (picture, mask_shortfall) = soft_masked(
+        at,
+        image,
+        is_mask,
+        (opacity_came_with_the_samples, stencil_opacity),
+        masks,
+    );
+    let mut shortfall =
+        shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /SMask: {detail}")));
+    let image = match picture {
+        Picture::Complete(image) => image,
+        Picture::Masked { .. } => {
             return Ok(Parts {
-                picture: Picture::Masked { base, opacity },
+                picture,
                 shortfall,
+                contradiction,
             });
         }
-        // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-        let Softened {
-            mut image,
-            shortfall: mask_shortfall,
-            applied,
-        } = apply_soft_mask(document, dict, resources, image);
-        shortfall =
-            shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /SMask: {detail}")));
-        image.sample_alpha = sample_alpha(is_mask, applied);
-        image
     };
 
     // §11.6.4.3 makes the two mutually exclusive — an `/SMask` "shall override any explicit
@@ -697,7 +677,80 @@ pub fn decode_parts(
         }
         _ => Picture::Complete(image),
     };
-    Ok(Parts { picture, shortfall })
+    Ok(Parts {
+        picture,
+        shortfall,
+        contradiction,
+    })
+}
+
+/// §11.6.5.2's soft mask on a decoded raster: multiplied in, or carried beside it for the device.
+///
+/// `in_data` is what [`samples_of`] said about `/SMaskInData` — whether the opacity came with the
+/// samples, and for a stencil the plane it was read into — and `stencil` whether the raster is
+/// §8.9.6.2's. The shortfall is the mask's own filter's, where the eager route decoded it.
+fn soft_masked(
+    at: Dictionaries,
+    image: Image,
+    stencil: bool,
+    in_data: (bool, Option<SoftMaskAtDeviceScale>),
+    masks: &mut MaskCache,
+) -> (Picture, Option<String>) {
+    let Dictionaries {
+        document,
+        dict,
+        resources,
+    } = at;
+    let mut image = image;
+    let (opacity_came_with_the_samples, stencil_opacity) = in_data;
+    if opacity_came_with_the_samples {
+        // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
+        // the image samples, `/SMask` "shall not be present", and the embedded mask
+        // overrides any that is. Applying one on top would multiply two alphas together.
+        image.sample_alpha = sample_alpha(stencil, true);
+        // A stencil's embedded opacity was read as a plane of its own (`jpx_stencil`), so the
+        // pair goes to the device as an `/SMask`'s does and the shape stays askable (ADR 1279).
+        let picture = match stencil_opacity {
+            Some(opacity) => Picture::Masked {
+                base: image,
+                opacity,
+            },
+            None => Picture::Complete(image),
+        };
+        return (picture, None);
+    }
+    // A mask whose grid the finer of the two cannot hold leaves this function in two
+    // parts, for the device to put together. Everything below is about one raster.
+    // The routing is asked about the raster that exists — the decoded grid, not the
+    // dictionary's statement — which is what sends a reduced JPEG 2000 base under a
+    // full-size mask here rather than into an eager combination on a grid neither raster is
+    // on.
+    if let Some(opacity) = masks.read(document, dict, resources, (image.width, image.height)) {
+        image.sample_alpha = sample_alpha(stencil, true);
+        return (
+            Picture::Masked {
+                base: image,
+                opacity,
+            },
+            None,
+        );
+    }
+    // Applied last so a soft mask cannot resurrect an inconsistent buffer.
+    let Softened {
+        mut image,
+        shortfall,
+        applied,
+        apart,
+    } = apply_soft_mask(document, dict, resources, image, stencil);
+    image.sample_alpha = sample_alpha(stencil, applied);
+    let picture = match apart {
+        Some(opacity) => Picture::Masked {
+            base: image,
+            opacity,
+        },
+        None => Picture::Complete(image),
+    };
+    (picture, shortfall)
 }
 
 /// One decode route's answer: samples, the grid they are on, and whether opacity came along.
@@ -707,9 +760,17 @@ struct SamplesOnGrid {
     /// The grid the samples are actually on, which is the dictionary's except where a
     /// self-describing codestream states another; see [`samples_of`].
     grid: (u32, u32),
-    /// §11.6.5.2's `/SMaskInData`: the opacity arrived inside the codestream and is already
-    /// in the alpha channel, so no `/SMask` may be applied on top of it.
+    /// §11.6.5.2's `/SMaskInData`: the opacity arrived inside the codestream, so no `/SMask`
+    /// may be applied on top of it. It is in the alpha channel, except for a stencil's, which
+    /// is [`Self::stencil_opacity`].
     opacity_included: bool,
+    /// A §8.9.6.2 stencil's `/SMaskInData` opacity, read as a plane of its own rather than
+    /// multiplied into [`Self::rgba`]'s alpha, which stays the stencil's shape.
+    ///
+    /// §11.6.4.2 makes a stencil's painted areas its shape and §11.6.4.3 makes an opacity that
+    /// arrived with the samples the other quantity, so the pair is carried to the device the
+    /// way an `/SMask`'s is (ADR 1218, ADR 1279). `None` on every route but [`jpx_stencil`]'s.
+    stencil_opacity: Option<SoftMaskAtDeviceScale>,
     /// The filter's sentence where it stopped short of the grid on damaged data; see
     /// [`Parts::shortfall`]. Only the `CCITTFaxDecode` arm produces one.
     shortfall: Option<String>,
@@ -756,6 +817,7 @@ fn samples_of(
                 rgba,
                 grid: (width, height),
                 opacity_included: false,
+                stencil_opacity: None,
                 shortfall,
             })
         }
@@ -766,6 +828,7 @@ fn samples_of(
                 rgba,
                 grid: (width, height),
                 opacity_included: false,
+                stencil_opacity: None,
                 shortfall,
             })
         }
@@ -820,6 +883,7 @@ fn samples_of(
                 rgba,
                 grid: (width, height),
                 opacity_included: false,
+                stencil_opacity: None,
                 shortfall: None,
             })
         }
@@ -940,6 +1004,7 @@ fn decode_dct(
         rgba,
         grid,
         opacity_included: false,
+        stencil_opacity: None,
         shortfall,
     })
 }
@@ -1909,11 +1974,11 @@ fn channel(value: f32) -> u8 {
 /// What comes back is packed one bit per pixel in `DeviceGray`'s sense, so it feeds
 /// [`unpack`] exactly as any other 1-bit image does.
 ///
-/// **A stream that ends inside a segment is drawn from the segments it does carry**, and the
-/// second half of the answer is the sentence the worker composed about it — see
-/// `pdf_sandbox::decode::shortfall_of`. Unlike §7.4.6's damaged fax (ADR 0794) there is
-/// nothing to leave unpainted: 14492's page information segment states a default pixel value
-/// for every pixel of the page before any region is drawn onto it, so the grid is whole and
+/// **A stream that ends inside a segment is drawn from the segments it does carry**, and the second
+/// half of the answer is the sentence the worker composed about it — see
+/// `pdf_sandbox::decode::shortfall_past_the_last_segment`. Unlike §7.4.6's damaged fax (ADR 0794)
+/// there is nothing to leave unpainted: 14492's page information segment states a default pixel
+/// value for every pixel of the page before any region is drawn onto it, so the grid is whole and
 /// what is short is the regions that reached it. ADR 0823.
 fn decode_jbig2(
     at: Dictionaries,
@@ -2332,9 +2397,13 @@ fn decode_jpx(
         .unwrap_or(0);
     let use_opacity = smask_in_data != 0 && raster.has_opacity;
     let premultiplied = smask_in_data == 2;
+    let opacity_channel = JpxOpacity {
+        use_opacity,
+        premultiplied,
+    };
 
     if painting.is_mask {
-        return jpx_stencil(document, dict, &raster, painting.fill, use_opacity);
+        return jpx_stencil(document, dict, &raster, painting.fill, opacity_channel);
     }
 
     let stated_by_the_dictionary = declared_space.is_some();
@@ -2371,16 +2440,14 @@ fn decode_jpx(
             &raster,
             &space,
             &decode,
-            JpxOpacity {
-                use_opacity,
-                premultiplied,
-            },
+            opacity_channel,
             colour_key,
             painting.into,
             paired,
         ),
         grid,
         opacity_included: use_opacity,
+        stencil_opacity: None,
         shortfall: shortfall.or_else(|| matte_at_the_stated_grid(reduced, grid, (width, height))),
     })
 }
@@ -2507,22 +2574,65 @@ struct KeyedSamples<'a> {
 ///
 /// This is the one place the filter's `/Decode` is read whatever `/ColorSpace` says, which is
 /// [`jpx_decode`]'s bullet read from its other end — its closing clause exempts a stencil.
+///
+/// # And an opacity channel beside it
+///
+/// A non-zero `/SMaskInData` puts §11.6.5.2's opacity in the codestream, and §7.4.9 says how
+/// many: "there shall be only one opacity channel in the JPEG 2000 data and it shall apply to all
+/// colour channels". It is read into [`SamplesOnGrid::stencil_opacity`], a plane of its own, and
+/// not into the alpha channel, because §11.6.4.2 has already given that channel the stencil's
+/// shape — "[f]or image masks (8.9.6.2, "Stencil masking"), the shape shall be 1.0 for painted
+/// areas and 0.0 for masked areas" — and the pair is carried apart for the reason an `/SMask`'s
+/// is (ADR 1218, ADR 1279).
+///
+/// Table 87's code 2 says the data stream's colour channels were premultiplied with the opacity
+/// channel, so a stencil sample is compared with the midpoint scaled by its own opacity: `c × a > m × a`
+/// is the undone comparison `c > m`, in integers. Where the opacity is zero the product is zero
+/// whatever the stencil said, the sample is unrecoverable, and it is read as masked — which marks
+/// nothing either way, since its opacity is zero too.
 fn jpx_stencil(
     document: &Document,
     dict: &Dictionary,
     raster: &pdf_sandbox::Raster,
     fill: pdf_render::Color,
-    use_opacity: bool,
+    opacity_channel: JpxOpacity,
 ) -> Result<SamplesOnGrid, ImageError> {
+    let JpxOpacity {
+        use_opacity,
+        premultiplied,
+    } = opacity_channel;
     let channels = raster.channels();
+    let components = usize::from(raster.components);
     let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
-    let midpoint = raster.max_sample() / 2;
+    let highest = raster.max_sample();
+    let midpoint = highest / 2;
+    let opacity_of = |pixel: usize| {
+        raster
+            .sample(pixel.saturating_mul(channels).saturating_add(components))
+            .unwrap_or(highest)
+    };
     let samples: Vec<u8> = (0..pixels)
         .map(|pixel| {
             let at = pixel.saturating_mul(channels);
-            u8::from(raster.sample(at).is_some_and(|value| value > midpoint))
+            u8::from(raster.sample(at).is_some_and(|value| {
+                if use_opacity && premultiplied {
+                    u64::from(value).saturating_mul(u64::from(highest))
+                        > u64::from(midpoint).saturating_mul(u64::from(opacity_of(pixel)))
+                } else {
+                    value > midpoint
+                }
+            }))
         })
         .collect();
+    let stencil_opacity = use_opacity.then(|| {
+        SoftMaskAtDeviceScale::grey_plane(
+            raster.width,
+            raster.height,
+            (0..pixels)
+                .map(|pixel| scaled_to_byte(opacity_of(pixel), highest))
+                .collect(),
+        )
+    });
     let packed = pack_bits(&samples, raster.width, raster.height);
     Ok(SamplesOnGrid {
         rgba: unpack(
@@ -2546,6 +2656,7 @@ fn jpx_stencil(
         )?,
         grid: (raster.width, raster.height),
         opacity_included: use_opacity,
+        stencil_opacity,
         shortfall: None,
     })
 }
@@ -4158,40 +4269,61 @@ pub fn unapplied_mask(
 /// half — the drawing or the report — loses information, which is the test `doc/HANDOVER.md`
 /// sets for reporting while drawing.
 ///
-/// Asked of the codestream rather than of the dictionary alone, for the same reason
-/// [`unapplied_mask`] is asked of the entry: a report that reads only what the file says can
-/// outlive the gap it describes. The cost is one marker scan per `DCTDecode` image — headers
-/// only, no entropy decoding — which is why it is not asked of any other codec: §7.4.9's
-/// mismatch is a refusal inside [`decode_jpx`] and the rest carry no dimensions of their own.
-#[must_use]
-pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String> {
-    let width = positive_integer(document, &stream.dict, "Width").ok()?;
-    let height = positive_integer(document, &stream.dict, "Height").ok()?;
-    // Table 5 rather than the decode: this report is about `DCTDecode` alone, and asking
-    // `image_stream` first would run every filter in front of the codec for the sole purpose of
-    // discovering that the codec is somebody else's. ADR 0585.
-    if !matches!(
-        document.image_codec(stream).as_deref(),
-        Some(b"DCTDecode" | b"DCT")
-    ) {
-        return None;
-    }
-    let source = document.image_stream(stream)?;
-    let data = frame_as_defined(&source.data);
-    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
-        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
-        jpeg_options(),
-    );
-    decoder.decode_headers().ok()?;
-    let info = decoder.info()?;
-    (u32::from(info.width) != width || u32::from(info.height) != height).then(|| {
+/// Asked of the grid the decode built on, `frame`, rather than of the dictionary alone, for the
+/// same reason [`unapplied_mask`] is asked of the entry: a report that reads only what the file
+/// says can outlive the gap it describes. It answers for the `DCTDecode` arm alone, and
+/// [`decode_parts`] carries the answer in [`Parts::contradiction`]: §7.4.9's mismatch is a refusal inside
+/// [`decode_jpx`], a reduced JPEG 2000 grid is §7.4.9 NOTE 3's rather than a contradiction, and
+/// the other codecs carry no dimensions of their own.
+fn contradicted_frame(
+    source: &ImageStream,
+    frame: (u32, u32),
+    (width, height): (u32, u32),
+) -> Option<String> {
+    let dct = matches!(source.codec.as_deref(), Some(b"DCTDecode" | b"DCT"));
+    (dct && frame != (width, height)).then(|| {
         format!(
             "the JPEG frame is {}x{} where the dictionary says {width}x{height} (§7.4.8 puts \
              the dimensions in the encoded data); its samples are drawn on their own grid, so \
              the image is the codestream's rather than the one the dictionary describes",
-            info.width, info.height
+            frame.0, frame.1
         )
     })
+}
+
+/// [`decode`], with the sentence [`Parts::contradiction`] carries beside the one raster.
+///
+/// For the interpreter's stencil painted through a pattern, which needs one raster and reports
+/// what the picture's decode reports; [`Flattened`]'s other callers write or thumbnail an image
+/// rather than report on a page, and are handed [`decode`]'s pair.
+///
+/// # Errors
+///
+/// See [`ImageError`].
+pub(crate) fn decode_reporting_frame(
+    document: &Document,
+    stream: &Stream,
+    resources: &Dictionary,
+    fill: pdf_render::Color,
+    into: &Conversion,
+) -> Result<(Flattened, Option<String>), ImageError> {
+    let mut masks = MaskCache::default();
+    let Parts {
+        picture,
+        shortfall,
+        contradiction,
+    } = decode_parts(document, stream, resources, fill, into, &mut masks)?;
+    let image = match picture {
+        Picture::Complete(image) => image,
+        Picture::Masked { base, opacity } => {
+            let grid = pdf_render::Grid {
+                width: base.width,
+                height: base.height,
+            };
+            opacity.over(base).samples(grid)
+        }
+    };
+    Ok((Flattened { image, shortfall }, contradiction))
 }
 
 /// Names an image whose decoded samples fall short of the grid its dictionary states, for the
@@ -4215,7 +4347,7 @@ pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String
 /// Asked only of the streams whose decoded bytes *are* samples. [`Document::image_stream`] names
 /// the codec it stopped in front of, and where there is one the length belongs to `DCTDecode`,
 /// `JPXDecode`, `JBIG2Decode` or `CCITTFaxDecode` rather than to this arithmetic: a codestream
-/// states its own extent, which is why §7.4.8's disagreement has [`contradicted_frame`] of its
+/// states its own extent, which is why §7.4.8's disagreement has `contradicted_frame` of its
 /// own.
 #[must_use]
 pub fn short_of_its_grid(
@@ -4305,8 +4437,9 @@ pub fn short_of_its_grid(
 #[must_use]
 pub fn ccitt_bound_below_its_height(document: &Document, stream: &Stream) -> Option<String> {
     let height = positive_integer(document, &stream.dict, "Height").ok()?;
-    // Table 5 rather than the decode, for [`contradicted_frame`]'s reason: this report is about
-    // `CCITTFaxDecode` and nothing else.
+    // Table 5 rather than the decode: this report is about `CCITTFaxDecode` alone, and asking
+    // `image_stream` first would run every filter in front of the codec for the sole purpose of
+    // discovering that the codec is somebody else's. ADR 0585.
     if !matches!(
         document.image_codec(stream).as_deref(),
         Some(b"CCITTFaxDecode" | b"CCF")
@@ -5030,6 +5163,38 @@ impl SoftMaskAtDeviceScale {
         pdf_render::DeferredImage::new(Arc::new(MaskedAtDeviceScale { base, mask: self }))
     }
 
+    /// A mask whose opacities are already decoded, one byte per sample on a `width` × `height`
+    /// grid, row by row.
+    ///
+    /// The map §8.9.5.2 puts between a sample and a value has been applied by whatever decoded
+    /// the plane, so what is stored beside it is Table 88's identity for eight-bit
+    /// `DeviceGray`.
+    fn grey_plane(width: u32, height: u32, plane: Vec<u8>) -> Self {
+        Self {
+            data: Arc::from(plane),
+            width,
+            height,
+            bits: 8,
+            decode: Arc::new(Decode::from_pairs(&[], &ColourSpace::Gray, 8)),
+        }
+    }
+
+    /// A decoded soft-mask raster as a plane, its first channel being the opacity.
+    ///
+    /// Table 143 requires the mask to be `DeviceGray` — and the eager route substitutes that
+    /// space for a file that states another one-component space — so the three colour channels
+    /// of a decoded sample hold one value and the first of them is it.
+    fn of_decoded(mask: &Image) -> Self {
+        Self::grey_plane(
+            mask.width,
+            mask.height,
+            mask.data
+                .chunks_exact(4)
+                .map(|sample| sample.first().copied().unwrap_or(0))
+                .collect(),
+        )
+    }
+
     /// The mask's samples as a grey raster, on a grid no finer than `grid`.
     ///
     /// ISO 32000-2 §10.7.4, of a sampled image drawn at a lower resolution than its own:
@@ -5142,8 +5307,10 @@ impl pdf_render::ImageAtDeviceScale for MaskedAtDeviceScale {
     /// the pair is on, which is the whole of what deferring bought.
     ///
     /// No `/Matte`: Table 143 makes the mask's `/Width` and `/Height` "the same as the ... value
-    /// of the parent image" wherever one is present, so a pair whose grids differ enough to
+    /// of the parent image" wherever one is present, so an image whose grids differ enough to
     /// reach this route cannot have one, and `soft_mask_entry` checks it rather than assuming.
+    /// A stencil reaches it with or without one, and has no colour components for one to have
+    /// been blended into (`decode_parts`, ADR 1279).
     fn samples(&self, grid: pdf_render::Grid) -> Image {
         let mask = self.mask.raster(grid);
         combine_on_the_finer_grid(&self.base, &mask, |colour, sample| {
@@ -5345,10 +5512,9 @@ impl ShapeMasks {
 /// 26.1 MB allocations into the list. ADR 0374 has the peak-resident measurement, and it moves in
 /// the direction that follows from that sentence rather than the one a cache usually moves in.
 ///
-/// The one raster that can outlive its command is §10.5's transferred one, which is a *copy* by
-/// construction (`content::image::transferred_image`) — 1 of the 974 corpus documents states a
-/// non-identity transfer, and this budget is what bounds that case rather than an argument that it
-/// cannot happen.
+/// §10.5's transfer does not break that sharing: it rides on the mark and a backend applies it
+/// over the finished raster (ADR 1125), so no transferred copy of the samples is made for this
+/// budget to bound.
 const RASTER_BUDGET: usize = 64 << 20;
 
 /// Base rasters already decoded, keyed by everything the decode depends on.
@@ -5809,20 +5975,7 @@ fn decoded_grey_plane(document: &Document, mask: &Stream) -> Option<SoftMaskAtDe
         &Conversion::device(),
     )
     .ok()?;
-    let plane: Vec<u8> = image
-        .data
-        .chunks_exact(4)
-        .map(|sample| sample.first().copied().unwrap_or(0))
-        .collect();
-    Some(SoftMaskAtDeviceScale {
-        data: Arc::from(plane),
-        width: image.width,
-        height: image.height,
-        bits: 8,
-        // The decode above applied §8.9.5.2's map already, so what is left is Table 88's
-        // default pair for `DeviceGray` — the identity from an eight-bit sample to a component.
-        decode: Arc::new(Decode::from_pairs(&[], &ColourSpace::Gray, 8)),
-    })
+    Some(SoftMaskAtDeviceScale::of_decoded(&image))
 }
 
 /// What [`apply_soft_mask`] delivers: the image, what the mask's filter said where it stopped
@@ -5832,6 +5985,8 @@ struct Softened {
     image: Image,
     shortfall: Option<String>,
     applied: bool,
+    /// A stencil's mask, kept apart from it rather than multiplied in; see [`apply_soft_mask`].
+    apart: Option<SoftMaskAtDeviceScale>,
 }
 
 /// Applies §11.6.5.2's soft mask: each of its samples is the image's opacity there.
@@ -5840,50 +5995,48 @@ struct Softened {
 /// opaque image is visibly present and slightly wrong, whereas dropping it loses content
 /// entirely. One whose filter stopped on damaged data is applied as far as it was delivered,
 /// and its [`Flattened::shortfall`] comes back beside the image for the caller to report.
+///
+/// # A stencil's mask is kept apart instead
+///
+/// A §8.9.6.2 stencil (`stencil`) under an `/SMask` the device-scale route declined — one behind a
+/// codec past the plane bound, one stating a one-component space other than Table 143's, one
+/// carrying a `/Matte` — is still a pair, and it is kept one: the mask is decoded here as the
+/// multiplication would have decoded it and handed back as [`Softened::apart`], a plane beside the
+/// stencil. §11.6.4.2 makes the stencil's painted areas its shape and §11.6.4.3 the mask its
+/// opacity, and a raster holding their product answers for neither (ADR 1218). Table 144's
+/// `/Matte` is no reason to combine, for the reason the stencil branch below gives. ADR 1279.
 fn apply_soft_mask(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
     image: Image,
+    stencil: bool,
 ) -> Softened {
-    // The dictionary's grid rather than the raster's, deliberately: this route and
-    // `unapplied_soft_mask` must answer the same question, or the interpreter's report and
-    // what actually happened drift apart. For the one image whose raster is coarser than its
-    // dictionary — a reduced JPEG 2000 decode whose deferred route declined the mask — the
-    // eager combination this admits is bounded by the same `MAX_SAMPLES` the dictionary's
-    // grid already passed, and the mask's own decode reduces the same way the base's did.
-    let SoftMaskEntry::Image {
-        stream: mask_stream,
-        ..
-    } = soft_mask_entry(document, dict, resources, stated_grid(document, dict))
-    else {
-        return Softened {
-            image,
-            shortfall: None,
-            applied: false,
-        };
-    };
-    let Ok(Flattened {
+    let Some(Flattened {
         image: mask,
         shortfall,
-    }) = decode(
-        document,
-        &mask_stream,
-        // No resource dictionary, which [`mask_colour_space`] is the argument for: the mask's
-        // samples are mask values and §8.6.5.6's defaults remap colours. The two readings have
-        // to agree, because `soft_mask_entry` decided this mask was usable from the first.
-        &Dictionary::new(),
-        pdf_render::Color::BLACK,
-        // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
-        &Conversion::device(),
-    )
+    }) = eager_soft_mask(document, dict, resources)
     else {
         return Softened {
             image,
             shortfall: None,
             applied: false,
+            apart: None,
         };
     };
+    if stencil {
+        // Table 144 counts a `/Matte`'s numbers in "the colour space specified by the ColorSpace
+        // entry (or the base entry of the colour space, if the colour space is Indexed ) in the
+        // parent image's image dictionary", which Table 87 does not permit a stencil to have: a
+        // stencil's samples carry no pre-blending to undo, and [`unpack`]'s stencil arm reads
+        // none. So nothing here needs the pair to be one raster.
+        return Softened {
+            image,
+            shortfall,
+            applied: true,
+            apart: Some(SoftMaskAtDeviceScale::of_decoded(&mask)),
+        };
+    }
     let masked = combine_on_the_finer_grid(&image, &mask, |colour, sample| {
         // The stream `soft_mask_entry` handed on states `DeviceGray` — Table 143's own
         // requirement, and the space it substitutes for a file that states another
@@ -5899,7 +6052,46 @@ fn apply_soft_mask(
         image: masked,
         shortfall,
         applied: true,
+        apart: None,
     }
+}
+
+/// The soft mask the eager route applies, decoded on its own grid, or `None` where there is none
+/// to apply or it will not decode.
+///
+/// [`apply_soft_mask`] multiplies it into an ordinary image and keeps it apart as a plane beside
+/// a §8.9.6.2 stencil (ADR 1279). A mask whose data will not decode leaves the image opaque
+/// on both, for [`apply_soft_mask`]'s reason.
+fn eager_soft_mask(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+) -> Option<Flattened> {
+    // The dictionary's grid rather than the raster's, deliberately: this route and
+    // `unapplied_soft_mask` must answer the same question, or the interpreter's report and
+    // what actually happened drift apart. For the one image whose raster is coarser than its
+    // dictionary — a reduced JPEG 2000 decode whose deferred route declined the mask — the
+    // eager combination this admits is bounded by the same `MAX_SAMPLES` the dictionary's
+    // grid already passed, and the mask's own decode reduces the same way the base's did.
+    let SoftMaskEntry::Image {
+        stream: mask_stream,
+        ..
+    } = soft_mask_entry(document, dict, resources, stated_grid(document, dict))
+    else {
+        return None;
+    };
+    decode(
+        document,
+        &mask_stream,
+        // No resource dictionary, which [`mask_colour_space`] is the argument for: the mask's
+        // samples are mask values and §8.6.5.6's defaults remap colours. The two readings have
+        // to agree, because `soft_mask_entry` decided this mask was usable from the first.
+        &Dictionary::new(),
+        pdf_render::Color::BLACK,
+        // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
+        &Conversion::device(),
+    )
+    .ok()
 }
 
 #[cfg(test)]

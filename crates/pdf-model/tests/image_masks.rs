@@ -1368,9 +1368,11 @@ fn commands_of(interpretation: &pdf_model::Interpretation) -> Vec<pdf_render::Co
 /// 1218): a `Decoded` source on the file's own grid, beside an object that is a producer
 /// because the pair is combined where the device scale is known.
 ///
-/// The negative control is the same fixture with Table 144's `/Matte` on the mask: that is
-/// §11.6.5.2's pre-blending, which has to be undone in one raster before anything else, so the
-/// pair is combined as it is read and the report is the honest answer there.
+/// The same fixture with Table 144's `/Matte` on the mask keeps the pair apart too. Table 144
+/// counts the matte's numbers in the components of the parent image's `/ColorSpace`, and Table 87
+/// does not permit a stencil one, so a stencil carries no pre-blending to undo and nothing makes
+/// the pair one raster (ADR 1279). The report prefix below is the one
+/// every knockout refusal prints, so the assertion excludes all of them rather than one sentence.
 #[test]
 fn a_stencil_under_its_own_soft_mask_states_its_shape_to_a_knockout() {
     // Four by two eight-bit grey samples, the opacity of each of the stencil's cells.
@@ -1389,7 +1391,7 @@ fn a_stencil_under_its_own_soft_mask_states_its_shape_to_a_knockout() {
     ));
     let reported = format!("{:?}", kept.unsupported);
     assert!(
-        !reported.contains("could not be kept apart"),
+        !reported.contains(REFUSED),
         "the pair is kept apart, so the shape is statable: {reported}"
     );
     let shaped: Vec<_> = commands_of(&kept)
@@ -1424,20 +1426,47 @@ fn a_stencil_under_its_own_soft_mask_states_its_shape_to_a_knockout() {
         );
     }
 
-    // The control: a `/Matte` has to be undone in one raster (§11.6.5.2), so the pair is
-    // combined as it is read and the shape cannot be asked for again.
+    // A `/Matte` on a stencil's mask has no colour component to have been blended into, so it
+    // is no reason to multiply the pair: the shape is still the stencil alone.
     let matted = stream_object(
         7,
         "/Type /XObject /Subtype /Image /Width 4 /Height 2 /BitsPerComponent 8 \
          /ColorSpace /DeviceGray /Matte [0]",
         b"\x00\x40\x80\xff\xff\x80\x40\x00",
     );
-    let combined = interpret(knockout_group_drawing(stencil, PATTERN, &[matted]));
+    let apart = interpret(knockout_group_drawing(stencil, PATTERN, &[matted]));
     assert!(
-        format!("{:?}", combined.unsupported).contains("could not be kept apart"),
-        "a matte leaves the product, and the report is what is owed then: {:?}",
-        combined.unsupported
+        !format!("{:?}", apart.unsupported).contains(REFUSED),
+        "a matte on a stencil's mask leaves the pair apart: {:?}",
+        apart.unsupported
     );
+    assert_eq!(
+        stated_shapes(&apart),
+        2,
+        "and each element states its shape"
+    );
+}
+
+/// What every knockout refusal the interpreter raises begins with.
+const REFUSED: &str = "knockout, and an element composites over another";
+
+/// How many elements of a knockout group arrive as a `Shaped` command whose shape is an image
+/// of `SampleAlpha::Shape` — the stencil alone.
+fn stated_shapes(interpretation: &pdf_model::Interpretation) -> usize {
+    commands_of(interpretation)
+        .into_iter()
+        .filter(|command| {
+            matches!(
+                command,
+                pdf_render::Command::Shaped { shape, .. }
+                    if matches!(
+                        &**shape,
+                        pdf_render::Command::Image { image, .. }
+                            if image.sample_alpha() == pdf_render::SampleAlpha::Shape
+                    )
+            )
+        })
+        .count()
 }
 
 /// A §11.6.5.2 soft mask behind an image codec is read at the device's grid like any other.
@@ -1452,8 +1481,7 @@ fn a_stencil_under_its_own_soft_mask_states_its_shape_to_a_knockout() {
 /// So the mask is decoded **once**, into an eight-bit grey plane `MaskCache` holds under the
 /// `/SMask`'s own `ObjectId`, under the same bound that sent the pair down this route (ADR 1232).
 /// The assertion is the stencil test's above: the shape arrives as a `Decoded` source of its own,
-/// which is only possible if the pair was never multiplied together. Before the bound existed the
-/// codec was refused outright here and the same fixture reported "could not be kept apart".
+/// which is only possible if the pair was never multiplied together.
 ///
 /// The control is the same page with the mask's filter taken off, so that a reader which had
 /// stopped keeping any pair apart would fail both halves rather than one.
@@ -1475,7 +1503,7 @@ fn a_stencil_under_a_codec_carrying_soft_mask_still_states_its_shape() {
     ));
     let reported = format!("{:?}", kept.unsupported);
     assert!(
-        !reported.contains("could not be kept apart"),
+        !reported.contains(REFUSED),
         "a codec-carrying mask is decoded once and read at the device's grid: {reported}"
     );
     let shapes: Vec<_> = commands_of(&kept)
@@ -1507,9 +1535,14 @@ fn a_stencil_under_a_codec_carrying_soft_mask_still_states_its_shape() {
     );
     let plain = interpret(knockout_group_drawing(stencil, PATTERN, &[unfiltered]));
     assert!(
-        !format!("{:?}", plain.unsupported).contains("could not be kept apart"),
+        !format!("{:?}", plain.unsupported).contains(REFUSED),
         "the control keeps its pair apart: {:?}",
         plain.unsupported
+    );
+    assert_eq!(
+        stated_shapes(&plain),
+        2,
+        "and each element states its shape"
     );
 }
 

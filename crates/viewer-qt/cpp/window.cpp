@@ -1762,6 +1762,46 @@ void MainWindow::applyUpdates()
         // exists to refuse. This lets the current handler unwind first.
         QTimer::singleShot(0, this, [this] { askForAPassword(); });
     }
+    if (update.choose_document) {
+        // Queued for `update.password`'s reason: the dialogue runs a nested event loop.
+        QTimer::singleShot(0, this, [this] { chooseADocument(); });
+    }
+    // Read last and apart from the update, because the first frame's `painted` above is what
+    // raises it and that happens after the update was taken (ADR 1275).
+    if (host_->arrival_due()) {
+        QTimer::singleShot(0, this, [this] { arrive(); });
+    }
+}
+
+void MainWindow::chooseADocument()
+{
+    if (busy_) {
+        return;
+    }
+    const QString chosen = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Open a document beside this one"), text(host_->chooser_directory()),
+        QStringLiteral("PDF documents (*.pdf *.PDF);;All files (*)"));
+    // A person who dismissed the chooser has asked for nothing.
+    if (chosen.isEmpty()) {
+        return;
+    }
+    Busy guard(busy_);
+    const QByteArray utf8 = chosen.toUtf8();
+    host_->open_chosen(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+    applyUpdates();
+}
+
+void MainWindow::arrive()
+{
+    if (busy_) {
+        // Something else is holding the host; it will read the flag again when it lets go, so
+        // the next document is put back in line rather than lost.
+        QTimer::singleShot(50, this, [this] { arrive(); });
+        return;
+    }
+    Busy guard(busy_);
+    host_->arrive();
+    applyUpdates();
 }
 
 // Table 29's `FullScreen` and ISO 32000-2 §12.2's three hide flags, in Qt widgets.

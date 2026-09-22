@@ -799,7 +799,7 @@ here rather than left to be re-surveyed, and none of it is architecture:
   which `viewer-ui` adopted, losing three private derivations and gaining the rotation correction its
   own arithmetic did not have.
 
-## A second document, and what is still owed on it
+## A second document
 
 **Built in the one-thousand-two-hundred-and-thirteenth** (ADRs 1263, 1264). `viewer_core` has held
 a map of open documents and `Command::Focus` since it existed and every window put one name in it;
@@ -811,21 +811,19 @@ open beside the one showing, which is a fact about the window and about no file.
 Ctrl + W closes, and the strip hides itself for one document so a window that opened one file is
 the window it was. `quorra-confined` offers no name and is unchanged (ADR 1190).
 
-What is left is a *gesture*, and it is the only route to a second document a person can start:
+**And a person can start one** (ADR 1275). Ctrl + O is `WindowAct::OpenDocument` in the one key
+table: a `gtk4::FileDialog`, a `QFileDialog`, and in `viewer-ui` a line over the page a path is
+typed into, which is ADR 1240 section 4's argument that a typed path is the control a chooser is a
+convenience over. Every path after the first on a command line is a tab behind the first, started
+at the first frame rather than before it (`CLAUDE.md` section 2). All of them end in
+`viewer_host::open_chosen` — the one place a path a person named becomes bytes, where the levels
+attach — and go through `viewer_host::Arrivals` one at a time, because a document may ask a
+§7.6.4.1 or §12.11.6 question on its way in; each is `Command::Open` under a reserved name, which
+is the route `Viewer::adopt` hands every reader's answer on. A tab says §14.3.3's `/Title` where the
+document states one it can show (`viewer_host::documents::titled`), taken from the Table 349 answer
+each window already asks for its document panel.
 
-- **No window opens a file a person chose.** A `GtkFileDialog` and a `QFileDialog` are one call
-  each; `viewer-ui` has no platform to ask and would have to take a path typed into its own chrome,
-  which is the shape §7.6.4.1's password card already has. Level across three is what makes it more
-  than two calls.
-- **No window takes more than one path on its command line.** The smaller of the two, and the one
-  with a rule attached: the first file opens on the launch path exactly as it does now and the rest
-  wait for the first frame, because `CLAUDE.md` section 2 says nothing page one does not need
-  happens before page one.
-- **A tab says the file's name and never the document's own title.** §14.3.3's `/Info /Title` is
-  what a window's title bar already prefers; `viewer_host::documents::Documents::relabel` is the
-  method for it and nothing calls it.
-
-A third thing is worth writing down because this round nearly rediscovered it: **the criterion in
+A further thing is worth writing down because this round nearly rediscovered it: **the criterion in
 ADR 0509 outlives its list.** What a reader can do and cannot do here, then what costs no new
 message, then what makes the level-hosts decision checkable — and a toolkit block is a claim to
 check rather than a rank. **The seven-hundred-and-twenty-first session declined to write a second

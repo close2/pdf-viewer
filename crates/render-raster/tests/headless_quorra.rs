@@ -200,13 +200,9 @@ fn cpu_and_quorra_agree_on_a_knockout_element_that_states_its_shape() {
 /// The two constraints raster states on §11.4.6's staged pair, held against the vocabulary
 /// itself.
 ///
-/// This test read `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` until
-/// the four-hundred-and-fifty-sixth session, where it did its job: it was written "so that it
-/// fails the day you lift the restriction", and `StagedComposeReason::InsideKnockoutGroup`
-/// is deleted at `2c9bdd0`. What replaces it is the same shape one step along — the
-/// constraints that *did* survive, asserted directly against the builder with no display list
-/// in the way, because they are the two things [`render_raster`]'s translation relies on
-/// being refused rather than approximated:
+/// Asserted directly against the builder with no display list in the way, because they are the
+/// two things [`render_raster`]'s translation relies on being refused rather than approximated,
+/// so that the test fails the day either restriction is lifted:
 ///
 /// - **a staged mark or group may not also carry a blend mode.** §11.3.5 composites such a
 ///   mark through an implicit one-element group, which is the step the pair replaces.

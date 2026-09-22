@@ -337,6 +337,14 @@ private:
     void rebuildPopups();
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
+    /// Ctrl + O's `QFileDialog`, whose answer opens beside the document in front (ADR 1275).
+    ///
+    /// The dialogue decides nothing: it spells a path, and what the path becomes is the Rust
+    /// side's `viewer_host::open_chosen`, which is ADR 1240's rule for the other chooser here.
+    void chooseADocument();
+    /// The next document waiting to open beside this one, started from Qt's loop rather than
+    /// from inside the update that found it due.
+    void arrive();
     /// CLAUDE.md's *ask* level: the question, and the two answers, in a window of the platform's
     /// own.
     ///

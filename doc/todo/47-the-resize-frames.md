@@ -106,9 +106,11 @@ table's 129. `ZOOM_FRAME_COVERAGE=compute` is the knob that measures the shipped
 
 ### 5. Two things this file did not predict
 
-- **ADR 0699's sharp pass runs once per drag step and costs the drag nothing here.** A size change
-  invalidates the sharp picture, so the render thread redraws the settled view at 2× after every
-  step — 39 passes in a 39-step drag, 3.9–4.1 ms each. A/B, alternating in one sitting on a quiet
+- **ADR 0699's sharp pass waits for the view to be still, and measured here it cost the drag
+  nothing.** A size change invalidates the sharp picture; the pass then begins only once the view
+  has been still for as long as the pass is predicted to take (ADR 1289), so a drag whose steps
+  come quicker than that runs none until it stops. The measurement below was taken when the pass
+  began the moment the thread was idle — 39 passes in a 39-step drag, 3.9–4.1 ms each. A/B, alternating in one sitting on a quiet
   machine, `--supersample 2` against `--supersample 1`: presented-frame totals 4.90 / 5.00 ms
   against 5.15 / 4.60, `present` 4.22 / 4.14 against 4.60 / 4.01. Indistinguishable. **And on the
   arm where it would hurt it never starts** — `Entwurf`'s drag ran zero passes, because

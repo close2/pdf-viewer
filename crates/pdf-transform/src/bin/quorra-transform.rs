@@ -1033,50 +1033,12 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
             || site.takes_a_tool
             || site.takes_a_supplied_fact
             || site.takes_a_fetched_file
+            || site.preserves_in_place.is_some()
             || site.conditional.is_some();
         if !built {
             not_built = not_built.saturating_add(1);
         }
-        let mut remedy = match site.built_discard {
-            Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
-            None if site.takes_a_tool => {
-                "derive, with `tool = \"<name>\"` and a [tool.<name>] block — never a default, and \
-                 refused unless the configuration names the site AND the tool (doc/questions/A55); \
-                 departable (doc/rfc/0007 section 4.7)"
-                    .to_owned()
-            }
-            // One word, two facts: what the operator supplies differs per site, so the line
-            // names the key that site actually reads rather than one key for both.
-            None if site.takes_a_supplied_fact => {
-                if site.requirement == "graphics/separations-of-one-name-agree" {
-                    "supply, with `winner = \"first\"` or `winner = \"most-used\"` — the operator \
-                     states which of the file's own definitions of an ink the archive means, \
-                     reported and recorded as theirs (doc/adr/1188)"
-                        .to_owned()
-                } else {
-                    "supply, with `media-types = { \".ext\" = \"type/subtype\" }` — the operator \
-                     states what their own attachments are, reported and recorded as theirs"
-                        .to_owned()
-                }
-            }
-            // **`doc/adr/1209`.** A stream whose data the file keeps outside itself is brought
-            // inside by bytes somebody fetched, and §7.11.5's URL is what the operator's own
-            // program reaches: `--resolve-external-data` is this program's own rule and reads
-            // only a plain file name beside the document (`doc/adr/1155`).
-            None if site.takes_a_fetched_file => {
-                "preserve, with `tool = \"<name>\"` and a [tool.<name>] block — the program is \
-                 handed the file specification the document wrote, on standard input, and what \
-                 it returns is written into the stream; every fetch is named in the report and \
-                 recorded in the file's own xmpMM:History. --resolve-external-data reads a plain \
-                 file name beside the document without any tool (doc/adr/1155)"
-                    .to_owned()
-            }
-            None if site.departable => {
-                "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
-                    .to_owned()
-            }
-            None => "stop; the catalogued remedy is not built yet".to_owned(),
-        };
+        let mut remedy = first_answer(site);
         // **`doc/adr/1209`, in the listing an operator reads.** A site whose built answer the
         // decision table does not settle by itself still refuses documents, so the line says what
         // that answer waits on rather than leaving the site looking finished.
@@ -1094,6 +1056,15 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
                  and doc/adr/1014 permits; every page is named in the report and recorded in the \
                  file's own xmpMM:History",
             );
+        }
+        // `doc/adr/1285`: at a site where `preserve` keeps the object where it is beside a built
+        // `discard`, the line names both, since the operator is choosing between them.
+        if let Some(kept) = site
+            .preserves_in_place
+            .filter(|_| site.built_discard.is_some())
+        {
+            remedy.push_str("\n      ");
+            remedy.push_str(kept);
         }
         println!("  {} ({})\n      {remedy}", site.requirement, site.citation);
         if site.takes_a_tool || site.takes_a_fetched_file {
@@ -1123,6 +1094,64 @@ fn print_remedy_sites(arguments: &Arguments) -> Result<(), Failure> {
         print_unbuilt_answers(Path::new(path), target, sites.len())?;
     }
     Ok(())
+}
+
+/// The first line `--remedy-sites` prints under a site: the answer built there, or that none is.
+///
+/// One site at a time so the listing's loop reads as the listing; the order of the arms is the
+/// order an operator weighs the answers in (`doc/todo/66`).
+fn first_answer(site: &pdf_transform::archive::Site) -> String {
+    match site.built_discard {
+        Some(loss) => format!("discard (authorises --authorise {})", loss.word()),
+        None if site.takes_a_tool => {
+            "derive, with `tool = \"<name>\"` and a [tool.<name>] block — never a default, and \
+             refused unless the configuration names the site AND the tool (doc/questions/A55); \
+             departable (doc/rfc/0007 section 4.7)"
+                .to_owned()
+        }
+        // One word, three facts: what the operator supplies differs per site, so the line
+        // names the key that site actually reads rather than one key for all.
+        None if site.takes_a_supplied_fact => {
+            if site.requirement == "fonts/embedded-cmap-states-its-own-write-mode" {
+                "supply, with `write-mode = \"program\"` or `write-mode = \"stream\"` — the \
+                 operator states which of an embedded CMap's two statements of its writing \
+                 mode its producer meant, and the other is made to agree; reported and \
+                 recorded as theirs (doc/adr/1286)"
+                    .to_owned()
+            } else if site.requirement == "graphics/separations-of-one-name-agree" {
+                "supply, with `winner = \"first\"` or `winner = \"most-used\"` — the operator \
+                 states which of the file's own definitions of an ink the archive means, \
+                 reported and recorded as theirs (doc/adr/1188)"
+                    .to_owned()
+            } else {
+                "supply, with `media-types = { \".ext\" = \"type/subtype\" }` — the operator \
+                 states what their own attachments are, reported and recorded as theirs"
+                    .to_owned()
+            }
+        }
+        // **`doc/adr/1209`.** A stream whose data the file keeps outside itself is brought
+        // inside by bytes somebody fetched, and §7.11.5's URL is what the operator's own
+        // program reaches: `--resolve-external-data` is this program's own rule and reads
+        // only a plain file name beside the document (`doc/adr/1155`).
+        None if site.takes_a_fetched_file => {
+            "preserve, with `tool = \"<name>\"` and a [tool.<name>] block — the program is \
+             handed the file specification the document wrote, on standard input, and what \
+             it returns is written into the stream; every fetch is named in the report and \
+             recorded in the file's own xmpMM:History. --resolve-external-data reads a plain \
+             file name beside the document without any tool (doc/adr/1155)"
+                .to_owned()
+        }
+        // `doc/adr/1285`: a site whose one built answer keeps the object where it is.
+        None if site.preserves_in_place.is_some() => site
+            .preserves_in_place
+            .map(str::to_owned)
+            .unwrap_or_default(),
+        None if site.departable => {
+            "stop; discard/preserve/derive not built yet; departable (doc/rfc/0007 section 4.7)"
+                .to_owned()
+        }
+        None => "stop; the catalogued remedy is not built yet".to_owned(),
+    }
 }
 
 /// The second half of `doc/todo/66`'s done condition: what a profile answers and this version does

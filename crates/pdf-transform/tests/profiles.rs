@@ -117,3 +117,46 @@ fn the_derive_profile_names_a_site_and_a_tool_together() {
     // And the `supply` it ships is built too, so the file promises nothing it cannot keep.
     assert_eq!(config.supplies(Target::Four(Flavour::F)).len(), 1);
 }
+
+#[test]
+fn keep_everything_offers_an_attachment_only_where_the_target_holds_one() {
+    // ISO 19005-2 section 6.8 and ISO 19005-4 section 6.9 admit an embedded file only where it is
+    // itself PDF/A, and Annexes A and B of ISO 19005-4 lift that for 4f and 4e. So at the four
+    // other targets this profile's order — keep it, else stop — has nothing to keep these in, and
+    // the rows say `stop` rather than naming an attachment nothing can carry out.
+    const ATTACH_ONLY: [&str; 6] = [
+        "annotations/appearance-dictionary-holds-only-normal",
+        "forms/no-action-on-widget-or-field",
+        "forms/no-xfa-key",
+        "graphics/no-transfer-function-in-a-graphics-state",
+        "graphics/second-transfer-function-is-default",
+        "graphics/halftone-transfer-function-only-where-required",
+    ];
+    let text = profile("keep-everything");
+    for target in [
+        Target::Two(Level::B),
+        Target::Two(Level::U),
+        Target::Two(Level::A),
+        Target::Four(Flavour::Plain),
+    ] {
+        let config = Configuration::read(&text, target).expect("it loads");
+        let unbuilt = config.unbuilt(target);
+        for site in ATTACH_ONLY {
+            assert!(
+                !unbuilt.iter().any(|row| row.site == site),
+                "{site} at {target} names an attachment the target cannot hold"
+            );
+        }
+    }
+    // At 4f the intent is still stated, whether or not its mechanism is built, so the row is
+    // not silently dropped where it can mean something.
+    let four_f = Target::Four(Flavour::F);
+    let config = Configuration::read(&text, four_f).expect("it loads");
+    let unbuilt = config.unbuilt(four_f);
+    assert!(
+        unbuilt
+            .iter()
+            .any(|row| row.site == "graphics/no-transfer-function-in-a-graphics-state"),
+        "the 4f row still asks for the attachment"
+    );
+}
