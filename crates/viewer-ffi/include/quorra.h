@@ -204,6 +204,8 @@ extern "C" {
 #define QUORRA_PURPOSE_IMPORT_DATA  0u
 #define QUORRA_PURPOSE_TARGET_ROOT  1u
 #define QUORRA_PURPOSE_REMOTE_DOCUMENT  2u
+#define QUORRA_PURPOSE_NAMED_PAGE  3u
+#define QUORRA_PURPOSE_THREAD_DOCUMENT  4u
 
 /*
  * Which platform control a §12.7 field is — `viewer_host::ControlKind`, which is one variant per

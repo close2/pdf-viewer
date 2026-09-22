@@ -338,6 +338,42 @@ pub fn read_import(directory: Option<&Path>, name: &str) -> Result<Vec<u8>, Stri
 /// with its size said out loud rather than read and then dropped (ADR 1216).
 pub const CHOSEN_FILE_LIMIT: u64 = 64 * 1024 * 1024;
 
+/// Whether this host may put a **file chooser** in front of a person for this control.
+///
+/// §12.7.5.3, Table 231 bit 21, states what such a field's text is:
+///
+/// > If the FileSelect flag ( PDF 1.4 ) is set, the field shall function as a file-select
+/// > control. In this case, the field's text represents the pathname of a file whose contents
+/// > shall be submitted as the field's value
+///
+/// So the chooser is offered for that flag and for nothing else: a pathname under a field that
+/// does not carry it would be the wrong value under the right name, which is the same sentence
+/// [`crate::form::edit_of`] already refuses on (trap 5). Every other text field takes text, and
+/// putting a chooser on one would be this program deciding what a document's field is for.
+///
+/// **The gate is a function rather than a condition at each call site**, for the reason
+/// [`read_chosen`] records and `doc/todo/38` needs: the policy is asked once, in a place a host
+/// can supply, so the *ask* and *warn* levels attach here and nowhere else. It is asked twice on
+/// one path and deliberately — once by a window deciding whether to offer the affordance at all,
+/// and once by [`crate::form::edit_of`] when a path comes back — because a window that offered a
+/// chooser it would then refuse has asked a person for something it will not use (ADR 1240).
+///
+/// # Errors
+///
+/// The sentence to say to the person: this field is not one whose value is a file.
+pub fn may_choose_file(control: Option<&crate::form::ControlKind>) -> Result<(), String> {
+    match control {
+        Some(crate::form::ControlKind::Entry {
+            file_select: true, ..
+        }) => Ok(()),
+        _ => Err(
+            "this field's value is its text rather than a file, so there is no file to choose \
+             for it (ISO 32000-2 §12.7.5.3, Table 231 bit 21)"
+                .to_owned(),
+        ),
+    }
+}
+
 /// The bytes of §12.7.5.3's file-select control, from a path a **person** named.
 ///
 /// Table 231 bit 21 makes the field's text "the pathname of a file whose contents shall be
@@ -390,12 +426,50 @@ pub fn read_chosen(pathname: &str) -> Result<Vec<u8>, String> {
 /// three windows each wrote `"import-data: …"` by hand, so the day a second purpose arrived every
 /// one of them would have told a person that a `/GoToE` was a form import. The word is the
 /// action's own name in Table 201, which is what a person can look up.
+///
+/// [`Purpose::NamedPage`] is the one that is not an action's name, because the act is not an
+/// action: it is Table 253's entry reached from inside §12.7.6.4's import, so the word is the
+/// entry's own subject and a person reading a status line sees it beside the `import-data`
+/// sentence that caused it (ADR 1239).
 #[must_use]
 pub const fn asked_for(purpose: Purpose) -> &'static str {
     match purpose {
         Purpose::ImportData => "import-data",
         Purpose::TargetRoot => "GoToE",
         Purpose::RemoteDocument => "GoToR",
+        Purpose::NamedPage => "named page",
+        Purpose::ThreadDocument => "Thread",
+    }
+}
+
+/// What this reader would do with the file, in the sentence a person is asked about.
+///
+/// Three of the five purposes reach [`asked_to_open_remote`], and they do different things with
+/// the bytes: two replace the document on the screen and one draws a page of the second file into
+/// the document being read. A person deciding whether to let a file be opened is deciding about
+/// *that*, so the sentence is per purpose rather than per act (trap 5, ADR 1239).
+const fn what_would_happen(purpose: Purpose) -> &'static str {
+    match purpose {
+        Purpose::NamedPage => {
+            "This reader would read that file and draw one of its pages into the document you are \
+             reading (ISO 32000-2 §12.7.8.3.2, §12.7.8.3.3)."
+        }
+        Purpose::ThreadDocument => {
+            "This reader would open that file in place of the one you are reading, at the article \
+             bead the link names (ISO 32000-2 §12.6.4.7)."
+        }
+        Purpose::ImportData => {
+            "This reader would put that file's form values into the document you are reading (ISO \
+             32000-2 §12.7.6.4)."
+        }
+        Purpose::TargetRoot => {
+            "This reader would open that file in place of the one you are reading (ISO 32000-2 \
+             §12.6.4.4)."
+        }
+        Purpose::RemoteDocument => {
+            "This reader would open that file in place of the one you are reading (ISO 32000-2 \
+             §12.6.4.3)."
+        }
     }
 }
 
@@ -924,11 +998,15 @@ pub struct Settings {
     pub separations: bool,
 }
 
-/// The word a person types to say what this reader does with §12.6.4.3's remote go-to.
+/// The word a person types to say which PDFs beside their own this reader will parse.
 ///
 /// `CLAUDE.md`'s four levels over one act: `refuse`, `ask`, `warn` and `open`, the same four
 /// words and the same direction as [`LINKS`], because the permissive end is again the one where
 /// something the *document* named is acted on.
+///
+/// **One act, reached through three tables** — §12.6.4.3's Table 203 `/F`, §12.6.4.7's Table 209
+/// `/F` and §12.7.8's Table 253 `/F` — which [`under_remote_documents`] is the list of and
+/// ADR 1239 the argument for.
 ///
 /// **A value of its own rather than [`Links`] reused, and the division is ADR 1155's own.** That
 /// ADR put `file` outside [`LINK_SCHEMES`] on the ground that opening a file a document named is
@@ -940,9 +1018,10 @@ pub struct Settings {
 /// those two sentences mean the other. ADR 1227.
 pub const REMOTE_DOCUMENTS: &str = "--remote-documents=";
 
-/// What this reader does when §12.6.4.3's action names another file.
+/// What this reader does when a document names another PDF file.
 ///
-/// `CLAUDE.md` principle 3's four levels over the one decision [`remote`] takes.
+/// `CLAUDE.md` principle 3's four levels over the one decision [`remote`] takes, whichever of
+/// [`under_remote_documents`]'s three purposes asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RemoteDocuments {
     /// Open nothing: the action is declined and the file the document named said out loud.
@@ -1000,6 +1079,27 @@ pub fn remote_documents(word: &str) -> Result<RemoteDocuments, String> {
     })
 }
 
+/// Whether [`REMOTE_DOCUMENTS`]'s level decides this purpose's file, or [`read_import`] does.
+///
+/// **One function rather than the same pattern in three windows**, which is [`asked_for`]'s reason
+/// applied to the other half of the same arm: every host matches `Event::NeedsFile` and has to
+/// route it, and three copies of a three-armed pattern is where a fourth purpose arrives in two
+/// windows and not the third.
+///
+/// The division is ADR 1227's and ADR 1239 applies it: §12.7.6.4's own file holds another
+/// document's *values* and is resolved by the path rule alone, while §12.6.4.3's, §12.6.4.7's and
+/// §12.7.8's each make this program parse a second PDF — which is what a reader answered for when
+/// they set the word. §12.6.4.4's root document is the one that looks like an exception and is
+/// not: its bytes are named by a document too, and it stays with the import until somebody argues
+/// otherwise rather than being moved in passing.
+#[must_use]
+pub const fn under_remote_documents(purpose: Purpose) -> bool {
+    match purpose {
+        Purpose::RemoteDocument | Purpose::NamedPage | Purpose::ThreadDocument => true,
+        Purpose::ImportData | Purpose::TargetRoot => false,
+    }
+}
+
 /// What a host does about one §12.6.4.3 file: a file to read, a question to put, or a refusal.
 ///
 /// [`Link`]'s shape and for [`Link`]'s reason — the act, the level and every sentence around them
@@ -1041,16 +1141,30 @@ pub enum Remote {
 /// documents may cross-reference each other did not say that any file on this disk may be opened
 /// on a document's say-so, and ADR 1155 fixed that nothing may be looser than the import policy.
 /// What *open* turns on is the one act that is left. ADR 1227.
+///
+/// **Three purposes rather than one, and the level is the same for all three** (ADR 1239).
+/// §12.7.8's Table 253 `/F` and §12.6.4.7's Table 209 `/F` name a second **PDF** the way Table
+/// 203's does, and ADR 1227 divided the levels by what the act is: [`Links`] decides whether
+/// another program on this machine is started, and this one decides which PDFs beside the
+/// reader's own document this program parses. All three are that, so a reader who set one word
+/// has answered for all three; what differs is the sentence, which [`what_would_happen`] supplies
+/// because only two of the three replace the document on the screen.
 #[must_use]
-pub fn remote(directory: Option<&Path>, name: &str, level: RemoteDocuments) -> Remote {
+pub fn remote(
+    directory: Option<&Path>,
+    name: &str,
+    level: RemoteDocuments,
+    purpose: Purpose,
+) -> Remote {
     let path = match resolve_import(directory, name) {
         Ok(path) => path,
         Err(refusal) => {
-            return Remote::Refuse(supply_note(Purpose::RemoteDocument, &refusal.to_string()));
+            return Remote::Refuse(supply_note(purpose, &refusal.to_string()));
         }
     };
     match level {
         RemoteDocuments::Refuse => Remote::Refuse(remote_note(
+            purpose,
             name,
             Some(&format!(
                 "this reader is set to open no file a document names ({REMOTE_DOCUMENTS}{}); \
@@ -1060,7 +1174,7 @@ pub fn remote(directory: Option<&Path>, name: &str, level: RemoteDocuments) -> R
             )),
         )),
         RemoteDocuments::Ask => Remote::Ask {
-            question: asked_to_open_remote(name, &path),
+            question: asked_to_open_remote(purpose, name, &path),
             path,
         },
         RemoteDocuments::Warn => Remote::Supply {
@@ -1082,13 +1196,16 @@ pub fn remote(directory: Option<&Path>, name: &str, level: RemoteDocuments) -> R
 /// is the subject — this one names the file the document asked for **and** the path it resolved
 /// to, because the second is the only thing that says which file on this disk would be read.
 #[must_use]
-pub fn asked_to_open_remote(name: &str, path: &Path) -> crate::restriction::Question {
+pub fn asked_to_open_remote(
+    purpose: Purpose,
+    name: &str,
+    path: &Path,
+) -> crate::restriction::Question {
     crate::restriction::Question {
         reasons: format!(
-            "A link in this document asks to open {name}, which is {} beside the document. This \
-             reader would open that file in place of the one you are reading (ISO 32000-2 \
-             §12.6.4.3).",
-            path.display()
+            "This document asks to open {name}, which is {} beside the document. {}",
+            path.display(),
+            what_would_happen(purpose)
         ),
         choice: format!(
             "You have set this reader to ask before opening a file a document names \
@@ -1109,10 +1226,11 @@ pub fn asked_to_open_remote(name: &str, path: &Path) -> crate::restriction::Ques
 /// [`uri_note`]'s shape, for [`uri_note`]'s reason: a person who clicked a link is owed *what it
 /// named* rather than the word "declined".
 #[must_use]
-pub fn remote_note(name: &str, refused: Option<&str>) -> String {
+pub fn remote_note(purpose: Purpose, name: &str, refused: Option<&str>) -> String {
+    let clause = asked_for(purpose);
     match refused {
-        Some(why) => format!("GoToR: declined — {why}. The document asked for {name}"),
-        None => format!("GoToR: {name}"),
+        Some(why) => format!("{clause}: declined — {why}. The document asked for {name}"),
+        None => format!("{clause}: {name}"),
     }
 }
 
@@ -1122,8 +1240,9 @@ pub fn remote_note(name: &str, refused: Option<&str>) -> String {
 /// one clause over. A `yes` is said by whatever the core reports about the document it opened, so
 /// this has nothing to add to one.
 #[must_use]
-pub fn remote_declined(name: &str) -> String {
+pub fn remote_declined(purpose: Purpose, name: &str) -> String {
     remote_note(
+        purpose,
         name,
         Some(&format!("you answered \"{}\"", crate::restriction::DO_NOT)),
     )

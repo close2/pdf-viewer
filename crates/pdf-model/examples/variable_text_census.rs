@@ -484,8 +484,9 @@ fn walk(
 /// remaining numbers stand over every mark the appearance makes. What decides whether a layout
 /// can be measured under them is where they send the two axes: the text runs along text space's
 /// x-axis and its lines stack along the y, and a box is a pair of lengths on the appearance's
-/// axes. These are the cases, and they are the population `Owed::TransformedTextMatrix`'s
-/// condition is drawn from.
+/// axes. These are the cases: every one of them but the last is laid out in the space the matrix
+/// maps from, and the last is the population `Owed::SingularTextMatrix`'s condition is drawn
+/// from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LinearPart {
     /// No `Tm` in the `/DA` at all, which leaves Table 105's initial text matrix.

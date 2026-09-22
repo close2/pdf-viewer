@@ -233,12 +233,11 @@ pub fn edit_of(
     field: &str,
     value: viewer_core::Entered,
 ) -> Result<viewer_core::Edit, String> {
-    if let (
-        Some(ControlKind::Entry {
-            file_select: true, ..
-        }),
-        viewer_core::Entered::Text(pathname),
-    ) = (control, &value)
+    // Table 231 bit 21 is asked through `may_choose_file` rather than matched here, so that the
+    // window offering the chooser and this, which reads what came back, cannot disagree about
+    // which fields take a file (ADR 1240).
+    if let viewer_core::Entered::Text(pathname) = &value
+        && crate::policy::may_choose_file(control).is_ok()
     {
         let bytes = crate::policy::read_chosen(pathname)?;
         return Ok(viewer_core::Edit::ChooseFile {

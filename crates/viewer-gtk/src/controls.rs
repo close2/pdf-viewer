@@ -96,8 +96,19 @@ pub(crate) fn build(
             // Table 231 bit 21 changes what the text *means* rather than what the control is: a
             // file-select control is an entry a person types a path into, and
             // `viewer_host::form::edit_of` is where the path becomes a file (ADR 1216).
-            file_select: _,
-        } => entry(field, *multiline, *password, *max_len, suppress, change),
+            file_select,
+        } => entry(
+            field,
+            (*multiline, *password, *max_len),
+            // Table 231 bit 21 changes what the text *means* rather than what the control is: a
+            // file-select control is an entry a person types a path into, and
+            // `viewer_host::form::edit_of` is where the path becomes a file (ADR 1216). What it
+            // adds to the control is a way to *choose* one, asked of the policy rather than of
+            // the flag, so that this window and `edit_of` cannot disagree (ADR 1240).
+            *file_select && viewer_host::may_choose_file(Some(&kind)).is_ok(),
+            suppress,
+            change,
+        ),
         ControlKind::Check { on } => toggle(field, widget, *on, false, suppress, change),
         ControlKind::Radio {
             on,
@@ -155,9 +166,8 @@ fn tooltip(field: &FormField) -> Option<String> {
 /// §12.7.5.3's text field.
 fn entry(
     field: &FormField,
-    multiline: bool,
-    password: bool,
-    max_len: Option<u32>,
+    (multiline, password, max_len): (bool, bool, Option<u32>),
+    choose_a_file: bool,
     suppress: &Rc<Cell<bool>>,
     change: &Rc<dyn Fn(FieldChange)>,
 ) -> gtk4::Widget {
@@ -237,7 +247,60 @@ fn entry(
             value: Entered::Text(entry.text().to_string()),
         });
     });
+    if choose_a_file {
+        offer_a_chooser(&entry);
+    }
     entry.upcast()
+}
+
+/// §12.7.5.3's file-select control, given a way to choose the file rather than spell it.
+///
+/// Table 231 bit 21 makes the field's text "the pathname of a file whose contents shall be
+/// submitted as the value of the field", so the control is still an entry holding a path and the
+/// chooser only fills it in: the text changes, the signal the entry already has fires, and
+/// `viewer_host::form::edit_of` turns it into `Edit::ChooseFile` by the route a typed path
+/// already took (ADR 1216). Nothing about the edit is this function's.
+///
+/// **An icon on the entry rather than a button beside it**, and the reason is trap 19: the
+/// widget's rectangle is the *document*'s — §12.5.2's `/Rect` — so a second control next to it
+/// would be this window resizing something the file sized. An icon sits inside the entry.
+///
+/// A window that has not been realised yet has no toplevel to be modal against, which GTK
+/// permits: the dialogue is then a window of its own rather than a refusal.
+fn offer_a_chooser(entry: &gtk4::Entry) {
+    entry.set_icon_from_icon_name(
+        gtk4::EntryIconPosition::Secondary,
+        Some("document-open-symbolic"),
+    );
+    entry.set_icon_activatable(gtk4::EntryIconPosition::Secondary, true);
+    entry.set_icon_tooltip_text(
+        gtk4::EntryIconPosition::Secondary,
+        Some("Choose the file this field submits"),
+    );
+    entry.connect_icon_release(move |entry, position| {
+        if position != gtk4::EntryIconPosition::Secondary {
+            return;
+        }
+        let dialog = gtk4::FileDialog::new();
+        dialog.set_title("Choose the file this field submits");
+        dialog.set_modal(true);
+        let parent = entry.root().and_downcast::<gtk4::Window>();
+        let filled = entry.clone();
+        dialog.open(
+            parent.as_ref(),
+            gtk4::gio::Cancellable::NONE,
+            move |chosen| {
+                // A person who dismissed the chooser has said nothing, so the field keeps whatever
+                // it held: `Err` here is that dismissal as much as it is a failure, and either way
+                // there is no path to put in.
+                if let Ok(file) = chosen
+                    && let Some(path) = file.path()
+                {
+                    filled.set_text(&path.to_string_lossy());
+                }
+            },
+        );
+    });
 }
 
 /// §12.7.5.2.3's check box and §12.7.5.2.4's radio button, which are one control with two rules.

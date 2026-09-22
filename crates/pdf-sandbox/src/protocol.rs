@@ -335,10 +335,21 @@ pub struct Raster {
     pub has_opacity: bool,
     /// What the codestream says the colour components mean.
     pub colour: Colour,
-    /// Interleaved samples, eight bits each, opacity last where present.
+    /// Bits per sample in [`Self::data`], from 1 to 16.
     ///
-    /// Always eight bits, whatever the codestream's precision was: §7.4.9 leaves the depth
-    /// to the decoder, and the image pipeline this feeds is eight-bit throughout.
+    /// Eight for every decoder here but one. ISO 32000-2 §7.4.9 leaves a JPEG 2000 image's
+    /// depth to the processor — Table 87 says `/BitsPerComponent` "shall be ignored if
+    /// present" and that "[t]he bit depth is determined by the PDF processor in the process of
+    /// decoding the JPEG 2000 image" — and what this processor determines is the codestream's
+    /// own, because §8.9.6.4's ranges are integers in *that* domain and a narrowing here
+    /// cannot be undone above. So a codestream of more than eight bits a component arrives at
+    /// its own depth, and the eight-bit raster the page is drawn on is reached afterwards, by
+    /// the `/Decode` map §8.9.5.2 puts between the two. ADR 1242.
+    pub precision: u8,
+    /// Interleaved samples at [`Self::precision`] bits each, opacity last where present.
+    ///
+    /// One byte per sample at eight bits or fewer, two big-endian bytes above that, which is
+    /// how a PDF image stream writes a sample of more than eight bits itself (§8.9.5.1).
     pub data: Vec<u8>,
 }
 
@@ -347,6 +358,31 @@ impl Raster {
     #[must_use]
     pub fn channels(&self) -> usize {
         usize::from(self.components).saturating_add(usize::from(self.has_opacity))
+    }
+
+    /// Bytes each sample of [`Self::data`] takes.
+    #[must_use]
+    pub fn bytes_per_sample(&self) -> usize {
+        if self.precision > 8 { 2 } else { 1 }
+    }
+
+    /// The largest value a sample can take at this precision.
+    #[must_use]
+    pub fn max_sample(&self) -> u32 {
+        1u32.checked_shl(u32::from(self.precision))
+            .unwrap_or(u32::MAX)
+            .saturating_sub(1)
+    }
+
+    /// Sample `index` of [`Self::data`], counting channels across the whole raster.
+    #[must_use]
+    pub fn sample(&self, index: usize) -> Option<u32> {
+        let at = index.checked_mul(self.bytes_per_sample())?;
+        if self.bytes_per_sample() == 1 {
+            return self.data.get(at).map(|byte| u32::from(*byte));
+        }
+        let pair: [u8; 2] = self.data.get(at..at.checked_add(2)?)?.try_into().ok()?;
+        Some(u32::from(u16::from_be_bytes(pair)))
     }
 }
 
@@ -575,7 +611,7 @@ pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
                     .data
                     .len()
                     .saturating_add(profile.len())
-                    .saturating_add(23),
+                    .saturating_add(24),
             );
             payload.extend_from_slice(&raster.width.to_be_bytes());
             payload.extend_from_slice(&raster.height.to_be_bytes());
@@ -583,6 +619,7 @@ pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
             payload.extend_from_slice(&raster.stated_height.to_be_bytes());
             payload.push(raster.components);
             payload.push(u8::from(raster.has_opacity));
+            payload.push(raster.precision);
             payload.push(tag);
             payload.extend_from_slice(&length(profile));
             payload.extend_from_slice(profile);
@@ -660,20 +697,28 @@ pub(crate) fn parse_response(
                 .first()
                 .ok_or_else(|| malformed("no component count".to_owned()))?;
             let has_opacity = rest.get(1).is_some_and(|flag| *flag != 0);
-            let tag = *rest
+            let precision = *rest
                 .get(2)
+                .ok_or_else(|| malformed("no precision".to_owned()))?;
+            if !(1..=16).contains(&precision) {
+                return Err(malformed(format!(
+                    "a raster of {precision} bits a sample, which no decoder here produces"
+                )));
+            }
+            let tag = *rest
+                .get(3)
                 .ok_or_else(|| malformed("no colour".to_owned()))?;
             let profile_len = rest
-                .get(3..7)
+                .get(4..8)
                 .and_then(|slice| <[u8; 4]>::try_from(slice).ok())
                 .map(u32::from_be_bytes)
                 .and_then(|len| usize::try_from(len).ok())
                 .ok_or_else(|| malformed("no profile length".to_owned()))?;
-            let after_profile = 7usize
+            let after_profile = 8usize
                 .checked_add(profile_len)
                 .ok_or_else(|| malformed("implausible profile".to_owned()))?;
             let profile = rest
-                .get(7..after_profile)
+                .get(8..after_profile)
                 .ok_or_else(|| malformed("truncated profile".to_owned()))?;
             let colour = match tag {
                 0 => Colour::Gray,
@@ -687,15 +732,18 @@ pub(crate) fn parse_response(
                 .ok_or_else(|| malformed("truncated samples".to_owned()))?;
 
             let channels = usize::from(components).saturating_add(usize::from(has_opacity));
+            let per_sample = if precision > 8 { 2usize } else { 1 };
             let expected = usize::try_from(width)
                 .ok()
                 .zip(usize::try_from(height).ok())
                 .and_then(|(width, height)| width.checked_mul(height))
                 .and_then(|pixels| pixels.checked_mul(channels))
+                .and_then(|samples| samples.checked_mul(per_sample))
                 .ok_or_else(|| malformed("implausible size".to_owned()))?;
             if samples.len() != expected {
                 return Err(malformed(format!(
-                    "{width}x{height} in {channels} channels needs {expected} samples, got {}",
+                    "{width}x{height} in {channels} channels at {precision} bits needs \
+                     {expected} bytes, got {}",
                     samples.len()
                 )));
             }
@@ -710,6 +758,7 @@ pub(crate) fn parse_response(
                 components,
                 has_opacity,
                 colour,
+                precision,
                 data: samples.to_vec(),
             }))
         }
@@ -959,6 +1008,7 @@ mod tests {
             components: 3,
             has_opacity: true,
             colour: Colour::Icc(vec![1, 2, 3]),
+            precision: 8,
             data: vec![10, 20, 30, 40, 50, 60, 70, 80],
         });
         let encoded = encode_response(&decoded);
@@ -976,7 +1026,7 @@ mod tests {
         payload.extend_from_slice(&4000u32.to_be_bytes());
         payload.extend_from_slice(&4000u32.to_be_bytes());
         payload.extend_from_slice(&4000u32.to_be_bytes());
-        payload.extend_from_slice(&[3, 0, 1]);
+        payload.extend_from_slice(&[3, 0, 8, 1]);
         payload.extend_from_slice(&0u32.to_be_bytes());
         payload.extend_from_slice(&[0; 8]);
         let shape = ResponseShape {
@@ -1000,6 +1050,7 @@ mod tests {
             components: 3,
             has_opacity: true,
             colour: Colour::Rgb,
+            precision: 8,
             data: vec![10, 20, 30, 40, 50, 60, 70, 80],
         });
         let encoded = encode_response(&decoded);
@@ -1007,6 +1058,78 @@ mod tests {
         let shape = parse_response_header(header.try_into().unwrap()).unwrap();
         assert!(matches!(
             parse_response(shape, payload),
+            Err(SandboxError::Malformed { .. })
+        ));
+    }
+
+    /// A raster of more than eight bits a sample carries two bytes each, and comes back whole.
+    ///
+    /// ISO 32000-2 Table 87 leaves a JPEG 2000 image's depth to the processor and this one
+    /// takes the codestream's, so the wire carries the precision beside the samples and the
+    /// parent sizes the payload from it. ADR 1242.
+    #[test]
+    fn a_raster_of_more_than_eight_bits_round_trips_at_its_own_precision() {
+        let decoded = Decoded::Raster(Raster {
+            width: 2,
+            height: 1,
+            stated_width: 2,
+            stated_height: 1,
+            components: 1,
+            has_opacity: false,
+            colour: Colour::Gray,
+            precision: 12,
+            data: vec![0x08, 0x00, 0x08, 0x01],
+        });
+        let encoded = encode_response(&decoded);
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        let Ok(Decoded::Raster(raster)) = parse_response(shape, payload) else {
+            panic!("a raster of twelve bits is still a raster");
+        };
+        assert_eq!(raster.precision, 12);
+        assert_eq!(raster.bytes_per_sample(), 2);
+        assert_eq!(raster.max_sample(), 4095);
+        assert_eq!(raster.sample(0), Some(2048));
+        assert_eq!(raster.sample(1), Some(2049));
+        assert_eq!(raster.sample(2), None);
+    }
+
+    /// The payload is sized from the precision, so an eight-byte one cannot be twelve bits.
+    #[test]
+    fn a_worker_cannot_send_eight_bit_samples_at_a_wider_precision() {
+        let mut payload = Vec::new();
+        for _ in 0..4 {
+            payload.extend_from_slice(&2u32.to_be_bytes());
+        }
+        payload.extend_from_slice(&[1, 0, 12, 0]);
+        payload.extend_from_slice(&0u32.to_be_bytes());
+        payload.extend_from_slice(&[0; 4]);
+        let shape = ResponseShape {
+            status: STATUS_RASTER,
+            payload_len: payload.len(),
+        };
+        assert!(matches!(
+            parse_response(shape, &payload),
+            Err(SandboxError::Malformed { .. })
+        ));
+    }
+
+    /// A precision no decoder here produces is refused rather than sized from.
+    #[test]
+    fn a_precision_outside_one_to_sixteen_is_refused() {
+        let mut payload = Vec::new();
+        for _ in 0..4 {
+            payload.extend_from_slice(&1u32.to_be_bytes());
+        }
+        payload.extend_from_slice(&[1, 0, 32, 0]);
+        payload.extend_from_slice(&0u32.to_be_bytes());
+        payload.extend_from_slice(&[0; 4]);
+        let shape = ResponseShape {
+            status: STATUS_RASTER,
+            payload_len: payload.len(),
+        };
+        assert!(matches!(
+            parse_response(shape, &payload),
             Err(SandboxError::Malformed { .. })
         ));
     }

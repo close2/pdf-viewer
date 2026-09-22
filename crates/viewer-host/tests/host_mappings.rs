@@ -1221,6 +1221,58 @@ fn table_231_bit_21_makes_a_persons_text_a_file_rather_than_a_value() {
     let _ = std::fs::remove_file(&written);
 }
 
+/// Which controls a window may put a **file chooser** on, asked in one place.
+///
+/// Table 231 bit 21 is the whole condition — a file-select control's text "represents the
+/// pathname of a file whose contents shall be submitted as the field's value" — and the gate is a
+/// function rather than a condition in each window so that the window offering the chooser and
+/// `edit_of`, which reads what comes back, cannot disagree. Every other control is refused with a
+/// sentence rather than silently given no affordance, because a person who expected a chooser is
+/// owed the reason there is none (trap 5, ADR 1240).
+///
+/// Driven here rather than through a window: a chooser is a toolkit's dialogue and this is the
+/// decision in front of it.
+#[test]
+fn only_a_file_select_control_offers_a_chooser() {
+    let entry = |file_select| ControlKind::Entry {
+        multiline: false,
+        password: false,
+        max_len: None,
+        file_select,
+    };
+    assert_eq!(viewer_host::may_choose_file(Some(&entry(true))), Ok(()));
+
+    for refused in [
+        entry(false),
+        ControlKind::Check { on: false },
+        ControlKind::Push,
+        ControlKind::Signature,
+        ControlKind::Unstated,
+    ] {
+        let said = viewer_host::may_choose_file(Some(&refused));
+        assert!(
+            said.as_ref()
+                .is_err_and(|why| why.contains("§12.7.5.3") && why.contains("bit 21")),
+            "{refused:?} may not offer a chooser, and the refusal names the clause: {said:?}"
+        );
+    }
+
+    // A widget no control was built for is not a file-select control either, and the answer has
+    // to be the same as `edit_of`'s for the same argument — which is what this gate exists for.
+    assert!(viewer_host::may_choose_file(None).is_err());
+    assert_eq!(
+        viewer_host::form::edit_of(
+            None,
+            "unbuilt",
+            viewer_core::Entered::Text("/etc".to_owned())
+        ),
+        Ok(viewer_core::Edit::SetField {
+            field: "unbuilt".to_owned(),
+            value: viewer_core::Entered::Text("/etc".to_owned()),
+        })
+    );
+}
+
 /// Table 153's two drawable views are two presentations of one collection, and they differ.
 ///
 /// The entry states each as its own `shall`, and the two sentences say what separates them:
@@ -1578,6 +1630,45 @@ fn a_collection_lists_its_files_in_the_order_table_153_states() {
     );
 }
 
+/// Which purposes `--remote-documents=` decides, and what each is asked about.
+///
+/// Three of the five make this program parse a **second PDF** — §12.6.4.3's destination file,
+/// §12.6.4.7's Table 209 `/F` and §12.7.8's Table 253 `/F` — and §12.7.6.4's own file does not:
+/// it holds another document's *values*. That division is what a reader answered for when they
+/// set the word, and `under_remote_documents` is the one place it is written down rather than
+/// three windows' worth of pattern (ADRs 1227, 1239).
+///
+/// The sentence a person is asked differs per purpose and has to: two of the three replace the
+/// document on the screen and one draws a page of the second file into the one being read. A
+/// person asked the wrong question has been asked about the wrong act (trap 5).
+#[test]
+fn the_level_decides_three_purposes_and_each_is_asked_about_in_its_own_clauses_words() {
+    use viewer_core::Purpose;
+    use viewer_host::{Remote, RemoteDocuments, remote, under_remote_documents};
+
+    assert!(!under_remote_documents(Purpose::ImportData));
+    assert!(!under_remote_documents(Purpose::TargetRoot));
+
+    let directory = Path::new("/documents");
+    for (purpose, clause) in [
+        (Purpose::RemoteDocument, "§12.6.4.3"),
+        (Purpose::NamedPage, "§12.7.8.3.2"),
+        (Purpose::ThreadDocument, "§12.6.4.7"),
+    ] {
+        assert!(under_remote_documents(purpose), "{purpose:?}");
+        let Remote::Ask { question, .. } =
+            remote(Some(directory), "next.pdf", RemoteDocuments::Ask, purpose)
+        else {
+            panic!("ask puts the question for every purpose");
+        };
+        assert!(
+            question.reasons.contains(clause),
+            "{purpose:?} is asked about in its own clause's words: {}",
+            question.reasons
+        );
+    }
+}
+
 /// ISO 32000-2 §12.6.4.3's file, at each of the four levels a reader may set.
 ///
 /// Table 203 makes `/F` "[t]he file in which the destination shall be located", and which files a
@@ -1589,34 +1680,56 @@ fn a_collection_lists_its_files_in_the_order_table_153_states() {
 /// document's say-so (ADR 1155's position, ADR 1227).
 #[test]
 fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
+    use viewer_core::Purpose;
     use viewer_host::{Remote, RemoteDocuments, remote, remote_documents};
 
     let directory = Path::new("/documents");
+    // The three purposes this level decides, because the *path* rule is the same for all three
+    // and a purpose that skipped it would be the loophole ADR 1155 fixed (ADR 1239).
+    let purposes = [
+        Purpose::RemoteDocument,
+        Purpose::NamedPage,
+        Purpose::ThreadDocument,
+    ];
     for level in RemoteDocuments::ALL {
-        for hostile in ["../secrets.pdf", "/etc/passwd", "sub/next.pdf", ""] {
+        for purpose in purposes {
+            for hostile in ["../secrets.pdf", "/etc/passwd", "sub/next.pdf", ""] {
+                assert!(
+                    matches!(
+                        remote(Some(directory), hostile, level, purpose),
+                        Remote::Refuse(_)
+                    ),
+                    "{hostile} is not a plain file name beside the document, {level:?} or not"
+                );
+            }
             assert!(
-                matches!(remote(Some(directory), hostile, level), Remote::Refuse(_)),
-                "{hostile} is not a plain file name beside the document, {level:?} or not"
+                matches!(remote(None, "next.pdf", level, purpose), Remote::Refuse(_)),
+                "a document with no directory has no neighbourhood to resolve against"
             );
         }
-        assert!(
-            matches!(remote(None, "next.pdf", level), Remote::Refuse(_)),
-            "a document with no directory has no neighbourhood to resolve against"
-        );
     }
 
     // And the neighbour is admitted at three of the four, in three different shapes: the level
     // decides the act that is left rather than the path.
     let beside = PathBuf::from("/documents/next.pdf");
     assert_eq!(
-        remote(Some(directory), "next.pdf", RemoteDocuments::Open),
+        remote(
+            Some(directory),
+            "next.pdf",
+            RemoteDocuments::Open,
+            Purpose::RemoteDocument
+        ),
         Remote::Supply {
             path: beside.clone(),
             note: None
         }
     );
-    let Remote::Supply { path, note } = remote(Some(directory), "next.pdf", RemoteDocuments::Warn)
-    else {
+    let Remote::Supply { path, note } = remote(
+        Some(directory),
+        "next.pdf",
+        RemoteDocuments::Warn,
+        Purpose::RemoteDocument,
+    ) else {
         panic!("warn opens the file and says so afterwards");
     };
     assert_eq!(path, beside);
@@ -1624,8 +1737,12 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
         note.is_some_and(|note| note.contains(RemoteDocuments::Warn.as_str())),
         "the sentence names the level that produced it"
     );
-    let Remote::Ask { path, question } = remote(Some(directory), "next.pdf", RemoteDocuments::Ask)
-    else {
+    let Remote::Ask { path, question } = remote(
+        Some(directory),
+        "next.pdf",
+        RemoteDocuments::Ask,
+        Purpose::RemoteDocument,
+    ) else {
         panic!("ask is the default and puts the question");
     };
     assert_eq!(path, beside);
@@ -1635,8 +1752,12 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
          to: {}",
         question.reasons
     );
-    let Remote::Refuse(refused) = remote(Some(directory), "next.pdf", RemoteDocuments::Refuse)
-    else {
+    let Remote::Refuse(refused) = remote(
+        Some(directory),
+        "next.pdf",
+        RemoteDocuments::Refuse,
+        Purpose::RemoteDocument,
+    ) else {
         panic!("refuse opens nothing");
     };
     assert!(

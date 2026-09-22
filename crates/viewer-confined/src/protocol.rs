@@ -1411,6 +1411,8 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 Purpose::ImportData => 0,
                 Purpose::TargetRoot => 1,
                 Purpose::RemoteDocument => 2,
+                Purpose::NamedPage => 3,
+                Purpose::ThreadDocument => 4,
             });
             match bytes {
                 Some(bytes) => {
@@ -1830,6 +1832,8 @@ pub(crate) fn decode_command_holding(
                 0 => Purpose::ImportData,
                 1 => Purpose::TargetRoot,
                 2 => Purpose::RemoteDocument,
+                3 => Purpose::NamedPage,
+                4 => Purpose::ThreadDocument,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -2304,6 +2308,8 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Purpose::ImportData => 0,
                     Purpose::TargetRoot => 1,
                     Purpose::RemoteDocument => 2,
+                    Purpose::NamedPage => 3,
+                    Purpose::ThreadDocument => 4,
                 })
                 .str(name);
         }
@@ -2539,6 +2545,8 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                 0 => Purpose::ImportData,
                 1 => Purpose::TargetRoot,
                 2 => Purpose::RemoteDocument,
+                3 => Purpose::NamedPage,
+                4 => Purpose::ThreadDocument,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -4340,6 +4348,24 @@ mod tests {
                 purpose: Purpose::RemoteDocument,
                 bytes: None,
             },
+            // §12.7.8's Table 253 `/F` and §12.6.4.7's Table 209 `/F`: the fourth and fifth, on
+            // the same argument (ADR 1239).
+            Command::Supply {
+                purpose: Purpose::NamedPage,
+                bytes: Some(b"%PDF-1.4".to_vec()),
+            },
+            Command::Supply {
+                purpose: Purpose::NamedPage,
+                bytes: None,
+            },
+            Command::Supply {
+                purpose: Purpose::ThreadDocument,
+                bytes: Some(b"%PDF-1.3".to_vec()),
+            },
+            Command::Supply {
+                purpose: Purpose::ThreadDocument,
+                bytes: None,
+            },
             // §10.8.3's simulation, in both of its answers: one bit, and a bit is where an
             // encoding that wrote the wrong byte would look like the other answer.
             Command::Separations(true),
@@ -4565,6 +4591,16 @@ mod tests {
                 document,
                 purpose: Purpose::RemoteDocument,
                 name: "chapter2.pdf".to_owned(),
+            },
+            Event::NeedsFile {
+                document,
+                purpose: Purpose::NamedPage,
+                name: "library.pdf".to_owned(),
+            },
+            Event::NeedsFile {
+                document,
+                purpose: Purpose::ThreadDocument,
+                name: "articles.pdf".to_owned(),
             },
             Event::Transition {
                 document,

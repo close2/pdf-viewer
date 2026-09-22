@@ -197,6 +197,99 @@ fn interpret(reference: &str, supply: &Supply) -> pdf_model::Interpretation {
     )
 }
 
+/// Interprets against a supply, under a view state a caller has set.
+///
+/// [`interpret`]'s one variant, and the only thing it varies is the state: §10.8.3's simulation
+/// is a request a *reader* made of this program, so it arrives here and nowhere in either file.
+fn interpret_under(
+    reference: &str,
+    supply: &Supply,
+    state: &pdf_model::view::ViewState,
+) -> pdf_model::Interpretation {
+    let bytes = containing(reference);
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture's page");
+    pdf_model::content::interpret_importing(
+        &document,
+        &page,
+        state,
+        &pdf_model::FontCache::new(),
+        supply,
+    )
+}
+
+/// A target document whose page is filled through one §8.6.6.5 `NChannel` space.
+///
+/// Its tint transform states red and its `/Colorants` state blue, so a reader that ignored
+/// §10.8.3 draws red and one that simulated the inks does not — which is the whole
+/// discrimination the test below rests on, and it is `colour_paths.rs`'s own fixture for the
+/// same clause. Its `/ID` is [`TARGET_ID`], because that is what the proxy's `/Ref` matches.
+fn target_with_a_spot() -> Vec<u8> {
+    let page = "/Sep cs 1 0 scn 0 0 100 100 re f";
+    let program = "{ pop pop 1 0 0 }";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /ColorSpace << /Sep 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n[/DeviceN [/Spot1 /Spot2] /DeviceRGB 6 0 R 7 0 R]\nendobj\n\
+         6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >>\n\
+         stream\n{program}\nendstream\nendobj\n\
+         7 0 obj\n<< /Subtype /NChannel /Colorants 8 0 R >>\nendobj\n\
+         8 0 obj\n<< /Spot1 [/Separation /Spot1 /DeviceRGB 9 0 R] \
+         /Spot2 [/Separation /Spot2 /DeviceRGB 10 0 R] >>\nendobj\n\
+         9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >>\nendobj\n\
+         10 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 1 0] /N 1 >>\nendobj\n",
+        page.len() + 1,
+        program.len() + 1
+    );
+    assemble(&body, Some(TARGET_ID))
+}
+
+/// §10.8.3's answer is the **reader's**, so it crosses into an imported page with the reader.
+///
+/// The clause conditions itself on what a reader asked this program for rather than on anything
+/// either file states, which is the same sentence §12.5.3's magnification and §8.11.4.4's event
+/// already have where they cross this boundary (ADR 1228). A page imported from another document
+/// is drawn inside the page importing it, so the two drawn under different answers would be one
+/// raster with two readings of one request.
+///
+/// The assertion is that the answer *reaches* the imported page, measured by removing it: with
+/// the request off the separation comes out of its alternate space and with it on it does not.
+/// A reader that dropped the answer at the boundary draws the same pixel both times.
+#[test]
+fn a_readers_separation_request_crosses_into_an_imported_page() {
+    let (supply, refused) = Supply::read([("target.pdf", target_with_a_spot())], "the test's own");
+    assert!(refused.is_empty(), "{refused:?}");
+
+    let document = Document::open(containing("")).expect("the fixture is a valid PDF");
+    let plain = pdf_model::view::ViewState::of(&document);
+    let mut simulating = pdf_model::view::ViewState::of(&document);
+    assert!(
+        simulating.set_separation_simulation(true),
+        "the default is off, so turning it on is a change"
+    );
+
+    let alternate = interpret_under(&reference(Some(TARGET_ID)), &supply, &plain);
+    let simulated = interpret_under(&reference(Some(TARGET_ID)), &supply, &simulating);
+    assert_eq!(said(&alternate), "", "{:?}", alternate.unsupported);
+    assert_eq!(said(&simulated), "", "{:?}", simulated.unsupported);
+
+    assert_eq!(
+        at(&alternate, 10, 10),
+        PROXY_RED,
+        "the alternate space states red, which is what §8.6.6.4 draws without the request"
+    );
+    assert_ne!(
+        at(&simulated, 10, 10),
+        at(&alternate, 10, 10),
+        "the reader asked for the ink to be simulated and the imported page did not hear it"
+    );
+}
+
 /// The target document, supplied as a host would.
 fn supplied() -> Supply {
     let (supply, refused) = Supply::read([("target.pdf", target())], "the test's own bytes");

@@ -14,7 +14,7 @@
 //! | `Hide` | §12.6.4.11 | yes — §12.5.3's Hidden flag, which decides what is drawn |
 //! | `Named` | §12.6.4.12 | yes — Table 215's four page commands |
 //! | `URI` | §12.6.4.8 | yes — the URI, resolved; opening it is the caller's |
-//! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread, in this file |
+//! | `Thread` | §12.6.4.7 | yes — a bead on §12.4.3's article thread; Table 209's `/F` names the file and a host supplies it |
 //! | `ResetForm` | §12.7.6.3 | yes — a field's value becomes its `/DV`, which changes what is drawn |
 //! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8, ISO 19444-1) |
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
@@ -28,8 +28,7 @@
 //! principle 3's sandbox
 //! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
-//! same list. A `Thread` action naming *another file* joins the first group, for the
-//! same reason `GoToR` is in it. Each keeps its own name in the refusal so that a caller can say which,
+//! same list. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
 //! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**,
@@ -1054,6 +1053,16 @@ impl DocumentPartJump {
 /// [`ThreadJump::bead_in`] takes them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadJump {
+    /// Table 209's `/F`, "[t]he file containing the thread", where the action names one.
+    ///
+    /// §12.6.4.7, Table 209:
+    ///
+    /// > If this entry is absent, the thread is in the current file.
+    ///
+    /// So the entry's presence is the whole test, and what its presence means is a second
+    /// document — §12.6.4.3's act reached through a different table, and a question for whoever
+    /// opened the document rather than for this crate (ADRs 1227, 1239).
+    pub file: Option<TargetRoot>,
     /// Table 209's `/D`, "[t]he destination thread", in whichever form the file states it.
     pub thread: ThreadTarget,
     /// Table 209's `/B`, "[t]he bead in the destination thread", where the file names one.
@@ -1502,17 +1511,20 @@ pub fn data_format(name: &str) -> DataFormat {
     }
 }
 
-/// Table 209's `/D` and `/B`, with `/F` deciding that this is another file's thread.
+/// Table 209's `/D` and `/B`, with `/F` naming the file the thread is in.
 ///
 /// `None` where `/D` is absent or is none of its three types: the entry is required, and an
-/// action naming no thread has stated nothing to jump to. A `/F` produces the refusal instead of
-/// a jump — §12.4.3's beads are read in the document this reader opened and nothing here asks a
-/// host for another one — and it is a *refusal* rather than a silence because the file said
-/// where it was.
+/// action naming no thread has stated nothing to jump to. A `/F` is carried rather than refused
+/// since ADR 1239 — the bytes are a host's to supply, exactly as Table 203's `/F` is — and the
+/// one combination that is refused is the one the *table* contradicts: "[a]n indirect reference
+/// to a thread dictionary … the thread shall be in the current file", and Table 209 says the
+/// same of `/B`, so a reference beside a `/F` is a file stating both that the thread is here and
+/// that it is elsewhere.
 fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
-    if dict.get("F").is_some() {
-        return Some(Action::Refused(refused(b"Thread")?));
-    }
+    let file = match dict.get("F") {
+        Some(_) => Some(target_root(document, dict)?),
+        None => None,
+    };
     let thread = match dict.get("D")? {
         // A reference is the thread itself; `document.get_key` would resolve it away, and the
         // clause names the *object*.
@@ -1531,7 +1543,16 @@ fn thread(document: &Document, dict: &Dictionary) -> Option<Action> {
         },
         None => None,
     };
-    Some(Action::Thread(ThreadJump { thread, bead }))
+    if file.is_some()
+        && (matches!(thread, ThreadTarget::Object(_))
+            || matches!(bead, Some(BeadTarget::Object(_))))
+    {
+        return Some(Action::Refused(
+            "Thread: the action names another file in /F and names its thread or bead by \
+             reference, which Table 209 says shall be in the current file",
+        ));
+    }
+    Some(Action::Thread(ThreadJump { file, thread, bead }))
 }
 
 /// Table 210's `/URI` and `/IsMap`, with Table 211's `/Base` applied.
@@ -1730,19 +1751,16 @@ fn launch(document: &Document, dict: &Dictionary) -> &'static str {
 /// The eight of Table 201's types this reader declines with one sentence each.
 ///
 /// ISO 32000-2's Table 201 lists twenty types, [`one`] performs twelve of them, and eight are
-/// left with no arm of their own. Nine are named here rather than eight because `Thread` appears
-/// on both sides — §12.6.4.7's action is performed for a thread in this file and refused for one
-/// in another — which is the clause's distinction rather than this function's. `Launch` is not
-/// here, because its sentence depends on what the dictionary says: [`launch`] is where it went.
+/// left with no arm of their own. Six are named here rather than eight, and the two that are not
+/// have sentences their own dictionaries decide: [`launch`] writes `Launch`'s, and [`thread`]
+/// writes the one refusal §12.6.4.7 has left — a `/F` beside a thread or bead named by reference,
+/// which Table 209 says shall be in the current file (ADR 1239).
 ///
 /// Returning `None` for a name outside the table matters: §12.6.2 says `/S` names a type "see
 /// Table 201 for specific values", so a name the table does not hold is not an action this
 /// standard defines, and reporting it as a refused action would claim knowledge of it.
 fn refused(kind: &[u8]) -> Option<&'static str> {
     Some(match kind {
-        b"Thread" => {
-            "Thread: a thread in another file, which this reader has no filesystem to open"
-        }
         b"Sound" => "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Movie" => "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         b"Rendition" => "Rendition: clause 13's multimedia, excluded by CLAUDE.md principle 5",
@@ -2232,22 +2250,49 @@ mod tests {
         );
     }
 
-    /// A thread action with an `/F` is another file's, and is refused by name.
+    /// A thread action with an `/F` names the file, which a host supplies.
     ///
     /// Table 209: "[t]he file containing the thread. If this entry is absent, the thread is in
-    /// the current file." So the entry's presence is the whole test, and the refusal is
-    /// `GoToR`'s — a filesystem this reader deliberately does not have.
+    /// the current file." So the entry's presence is the whole test, and what its presence means
+    /// is §12.6.4.3's act reached through a different table (ADR 1239).
     #[test]
-    fn a_thread_in_another_file_is_refused_by_name() {
+    fn a_thread_in_another_file_names_the_file() {
         let doc = document(&[
             "<< /Type /Catalog >>",
             "<< /S /Thread /F (other.pdf) /D 0 >>",
         ]);
         let actions = read(&doc, &Object::Reference(id(2)));
-        let [Action::Refused(why)] = actions.as_slice() else {
-            panic!("one refusal, got {actions:?}");
+        let [Action::Thread(jump)] = actions.as_slice() else {
+            panic!("one thread action, got {actions:?}");
         };
-        assert!(why.starts_with("Thread:"), "{why}");
+        assert_eq!(
+            jump.file.as_ref().map(super::TargetRoot::name),
+            Some("other.pdf")
+        );
+        assert_eq!(jump.thread, ThreadTarget::Index(0));
+    }
+
+    /// The one combination Table 209 contradicts: a second file, and a thread named by reference.
+    ///
+    /// The table says of `/D`'s first form "[a]n indirect reference to a thread dictionary … In
+    /// this case, the thread shall be in the current file", and of `/B`'s first form the same —
+    /// so an action stating both has said the thread is here and that it is elsewhere, and the
+    /// reference would name an object of the wrong document. Refused by name rather than
+    /// resolved against either (ADR 1239).
+    #[test]
+    fn a_thread_in_another_file_named_by_reference_is_refused_by_name() {
+        for body in [
+            "<< /S /Thread /F (other.pdf) /D 3 0 R >>",
+            "<< /S /Thread /F (other.pdf) /D 0 /B 3 0 R >>",
+        ] {
+            let doc = document(&["<< /Type /Catalog >>", body, "<< /I << /Title (x) >> >>"]);
+            let actions = read(&doc, &Object::Reference(id(2)));
+            let [Action::Refused(why)] = actions.as_slice() else {
+                panic!("one refusal, got {actions:?}");
+            };
+            assert!(why.starts_with("Thread:"), "{why}");
+            assert!(why.contains("Table 209"), "{why}");
+        }
     }
     /// §12.6.4.15: a transition action carries Table 164's dictionary and nothing else.
     ///

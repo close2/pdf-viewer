@@ -6,8 +6,9 @@ both closed in the four-hundred-and-third (ADR 0240), **the composite `/DA` font
 five-hundred-and-second** (ADR 0337), **the list box itself drew in the
 five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it, and
 **§7.3.5's font name closed in the six-hundred-and-seventeenth** (ADR 0453), and **the rich text
-`CLAUDE.md` was read as excluding turned out not to be excluded** (ADR 1197). What is left is one
-refusal that belongs to another item, and the reasoning behind six closed ones.
+`CLAUDE.md` was read as excluding turned out not to be excluded** (ADR 1197), and **the `/DA` text
+matrix is now laid out for every linear part that has an inverse** (ADR 1247). What is left is one
+refusal that belongs to another item, and the reasoning behind seven closed ones.
 Priority: 22
 Corpus: 1 document
 Clauses: §12.7.4.3, §12.7.5.3, §12.7.5.4, §9.6.5.2, §9.7.6.2
@@ -47,7 +48,11 @@ Still owed, and it is one file — **and it is the only thing this item still ow
   they depend in. `pdftoppm` draws this witness as its full stops scattered on an empty page,
   which is ADR 0112's rejected construction, looked at.
   `tests/variable_text.rs::the_arabic_free_text_declines_whole_and_names_both_halves` pins the
-  blank and the report. Until a round takes ADR 0348's list whole, this file is kept for the
+  blank and the report. **Which of the three declines it is settled** (ADR 1247): the **face** does,
+  and the other two are downstream of it — `encode` produces no codes at all for that value, so
+  UAX #9's run ordering would have nothing to order and shaping nothing to shape. The order of
+  dependence is face, then shaping, then ordering, and nothing above the first can be tested until
+  the first exists. Until a round takes ADR 0348's list whole, this file is kept for the
   closed arguments below, which are the reason a later round will not reopen any of them.
 - **And a *save* that meets this refusal now names the field.** A widget whose value this layout
   could not set in full is what Table 224's `/NeedAppearances` goes into the written file for, and

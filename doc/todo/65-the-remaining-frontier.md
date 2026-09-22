@@ -46,17 +46,16 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
   surfaces one panel does not offer as alternatives, each named by `unsupported_presentation` rather
   than dropped in silence. `/View` is obeyed for every one of its four values, tile mode included,
   and `/Sort` orders the panel (ADRs 1168, 1215).
-- §12.7.5.3 — a file-select control's dialogue. The control's *contents* already cross: a person's
-  chosen pathname is read by `viewer_host::policy` and submitted as the field's value (ADR 1216), so
-  what is left is a `FileChooserNative` or a `QFileDialog` over it, a convenience for a round that
-  can drive a dialogue. The row's second residue is bit 26's `RichText` *formatting*, which
-  §12.7.4.3 hands to XFA and which is therefore reported rather than drawn — the plain `/V` is laid
-  out (ADRs 1070, 1122).
-- §12.7.8.3.3 — an FDF template page whose Table 253 `/F` puts it in another file. A host question
-  since `viewer_host::read_import` answers a file a document named from a directory a person
-  supplied (ADRs 1155, 1186); what stops it inside `pdf-model` is deliberate — that crate has no
-  filesystem and must not acquire one, and a template page from another file is a second
-  `pdf_syntax::Document` reaching the interpreter.
+- **Beside this bucket and not in it** — §12.7.5.3 is `departed`: bit 26's `RichText` *formatting*,
+  which §12.7.4.3 hands to XFA and which is therefore reported rather than drawn — the plain `/V` is
+  laid out. The control's contents cross, a person's chosen pathname is read by `viewer_host::policy`
+  and submitted as the field's value (ADR 1216), and the dialogue over that typing is built:
+  `viewer-gtk` a `gtk4::FileDialog` and `viewer-qt` a `QFileDialog`, each inside the widget's own
+  §12.5.2 rectangle, behind `viewer_host::policy::may_choose_file` (ADRs 1070, 1122, 1240).
+- **Beside this bucket and not in it** — §12.7.8.3.3 is `departed`: Table 252's `/Rename` `true`,
+  which asks for fields under names this document has not got. Table 253's `/F` is no longer the
+  residue — a template page in another file is asked of a host under `--remote-documents=` and
+  copied whole, and no second `pdf_syntax::Document` reaches the interpreter (ADR 1239).
 - §10.8.3 (`partial`) — separation simulation. The control exists (ADR 1228) and the four steps are
   executed over the colourants one painting operation states (ADR 1229). What is left is the rest of
   step a): "Process the PDF as if separations were to be created" is a claim about the *page*, and it
@@ -106,6 +105,11 @@ permanent) or an owner decision to acquire a specification.
   obtainable free from the ICC, and ADR 1208 lists the eight things it adds — of which four move
   pixels, the LUT-destination estimation being the eleven levels ADR 0510 measured. A build across a
   round or two rather than a missing text (`doc/third-party-data.md`).
+- §12.7.6.2 — a submission's *client*. The request itself is composed — method, URL, media type,
+  body — and `viewer_host::policy::may_submit` is the one place the answer is decided; what is
+  absent is something to send it with, because `viewer-host` has no HTTP dependency and `xdg-open`
+  cannot carry an entity body. A dependency is not a thing a round adds by itself, so
+  `doc/questions/Q98` puts three options to the owner with a recommendation (ADR 1062).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
@@ -133,19 +137,22 @@ pixels.
   interpreted once and copied. `render-gpu` has no pass over a Vello scene's result and refuses such
   a list by name; a page carrying the channel crosses the confinement as pixels (`doc/todo/13`,
   ADR 1125).
-- §11.4.6 — a knockout element whose one alpha is the product of shape and opacity. A bare constant
-  is read as opacity at every shape, not only where the two readings agree; what is left is the
-  element whose two quantities reach the compositor as one number.
-- §11.3.7.2, §11.3.7.3, §11.6.4.3, §11.7.4.4 — one raster carrying the product where the clause wants
+- §11.4.4, §11.4.6 — a knockout element whose one alpha is the product of shape and opacity. A bare
+  constant is read as opacity at every shape, not only where the two readings agree; what is left is
+  the element whose two quantities reach the compositor as one number. §11.4.4's recurrence and
+  NOTE 3's backdrop removal are executed and measured; its residue is this same element, which is
+  why the two rows move together (ADR 1022 section 5).
+- §11.3.7.2, §11.3.7.3, §11.4.3, §11.6.4.3, §11.7.4.4 — one raster carrying the product where the clause wants
   the pair, and the two-object seam a rasteriser leaves nothing between. **The one image that had
   both is drawn** (ADR 1218): a stencil under its own `/SMask` is routed to the device-scale producer,
   so §11.6.4.2's shape and §11.6.4.3's opacity reach a command apart. Each row still names its own
   case — a shape channel every command carries and a non-isolated group used as a knockout element
   (§11.3.7.2); a soft mask behind an image codec and one carrying Table 144's `/Matte` (§11.3.7.3); a
   group whose content painted under both readings of `/AIS` (§11.6.4.3); a fill-and-stroke pair that
-  is a direct element of a non-isolated knockout group (§11.7.4.4).
-- §11.3.6 — the clause's formula is executed and `scan::intersect_group` makes §11.3.7.2's group
-  composition a change of weight rather than of colour; the row moves with the family above it.
+  is a direct element of a non-isolated knockout group (§11.7.4.4); and the same quantity in §11.4.3's
+  own sentence, which asks that a group's "colour, shape, and opacity" be treated as one object's —
+  `Command::Group`'s `alpha_is_shape` states the groups where the two coincide, and everywhere else
+  the single object carries the product.
 - §11.4.7, §11.5.3, §11.6.6, §11.7.2 — a page that has already spent `colour::MAX_PRESSES`: such a
   group has no press to composite in, so its elements are painted in the parent's space and
   `PagePress::Beyond` names why. A four-component `/CS` that is neither `DeviceCMYK` nor a
@@ -155,11 +162,6 @@ pixels.
   second requirement of its own — a reference XObject's imported page is composited under the
   containing page's group attributes instead of its own — which nothing on this disk can witness,
   because no document here states a reference XObject at all.
-- §11.7.5.3 — its first bullet is carried out and measured at the pixel against §10.4.2.4's own
-  EXAMPLE (ADR 1207); the second is not, because a group's result reaches its parent's space as a
-  cube resolved per pixel in a backend, where no colour space and no graphics state exist. The stated
-  black generation in force at the `Do` would have to reach that conversion, which is the same
-  per-pixel machinery the rows above want.
 - §11.3.4 — the choice of route into a one-component blending space (ADR 0790), which `doc/todo/23`
   prices. That is the whole of what keeps this row open; the three-component spaces left it when
   §10.4.2.1's ranking was read against §10.3's own subject.
@@ -172,7 +174,12 @@ pixels.
   it, averaging over the pixel area, and the clipping paragraph's own product — are documented
   choices §10.7.1's NOTE licenses, each measured against a closed form rather than argued; §10.7 is
   this row's aggregate.
-- §11.6.7 — a shading pattern's implicit *knockout* group, which follows §11.4.6. A **tiling**
+- §11.6.7 — a tiling pattern's cell painted inside a knockout group whose own initial backdrop is
+  not transparent, where §11.4.6's NOTE 6 gives the inner group the outer group's initial backdrop and
+  none of the three constructions can hand it over; the departure is named. Everywhere else the cell
+  gets the non-isolated group the clause names, under any blend mode at the mark (ADR 1243). A shading
+  pattern's implicit *knockout* group is unobservable rather than unbuilt: both of its elements are
+  opaque and painted Normal, so knockout and non-knockout coincide. A **tiling**
   pattern's cell is evaluated once and its commands replicated, so each site keeps its own
   compositing and NOTE 1 is satisfied in geometry at every blend mode rather than only at Normal.
 
@@ -190,34 +197,27 @@ a normal round extending the existing code.
   verb, `doc/questions/A64`): content within the region is removed and the bytes are gone, a painted
   path is cut to the region's complement, a §8.5.2.2 Bézier is split at the root where it crosses
   the region's edge, a §8.5.3.2 stroke is cut as the outline it marks, and a form is entered. The
-  cases still owed are a clipping path, a stroke whose outline holds an arc, a `JPXDecode` image, an
-  image stating `/Alternates`, a codec image carrying transparency, and an inline image whose codec
-  or resource colour space the splice cannot re-encode. The overlay is a decided departure inside
-  the row (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236).
-- §12.7.4.3 — variable text whose `/DA` matrix sends the line off *both* of the box's axes — a turn
-  by something that is not a multiple of 90°, for which no length the box states is the room that
-  line has — or whose linear part has no inverse and leaves no box at all. A scale, a mirror, a half
-  turn, a quarter turn and a shear are all laid out (`doc/todo/22`, ADRs 1114, 1130).
-- §8.9.6.4 — colour key masking on a `JPXDecode` image alone. Everywhere `unpack` sees the samples
-  the range test runs in the domain the file wrote its integers in, measured on a sixteen-bit ramp
-  whose two middle samples are one unit apart in sixteen bits and one byte in eight (ADRs 1121,
-  1193). **The scaling is not the decoder's**, read against the pinned crate rather than against the
-  sentence that said so: `hayro_jpeg2000::ComponentData` hands out `samples()` unscaled with
-  `bit_depth()` beside it, and `pdf-sandbox`'s own palette-indices arm already reads them that way.
-  The narrowing is `decode.rs`'s `jpx` calling `data_u8()` on the colour path and
-  `pdf_sandbox::protocol::Raster` carrying no depth beside its bytes. Three edits, all on this side,
-  and the twelve-bit fixture is in place to be inverted.
-- §12.7.8.3.2 — Table 249's `/APRef`, and it alone. `/AP`, `/A`, `/AA` and `/IF` are applied by one
+  clipping path keeps its boundary while its marks are cut, an image's `/Alternates` is dropped with
+  its variants, and a JPEG 2000 image on its own grid is cleared and re-encoded. The cases still
+  owed are a stroke whose outline holds an arc, a codec image whose decode is not on the grid its
+  dictionary states, a `JPXDecode` image stating a non-zero `/SMaskInData` or more than eight bits
+  per component, a codec image carrying transparency, and an inline image whose codec or resource
+  colour space the splice cannot re-encode. The overlay is a decided departure inside the row
+  (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236, 1248).
+- §12.7.4.3 — variable text whose `/DA` matrix states a linear part with **no inverse**: it sends
+  the whole plane onto one line, so the box has no preimage that is a region and the glyph outlines
+  enclose no area. Every invertible linear part is laid out, in the chord the box leaves the line
+  a given baseline carries (`doc/todo/22`, ADRs 1114, 1130, 1247).
+- **Beside this bucket and not in it** — §12.7.8.3.2 is `departed`: Table 249's `/APRef`, and it alone. `/AP`, `/A`, `/AA` and `/IF` are applied by one
   rule, a value that lives in the other file crossing as a *value* rather than as a reference
   (ADRs 1186, 1223); `/RV` is XFA rich text on `CLAUDE.md`'s closed exclusion list and is not a
-  requirement this project answers. `/APRef` has two branches and the second is built: **without**
-  Table 253's `/F` the named page is one this document holds under §12.7.7's tree, and
-  `named_page::page_as_form` makes it the widget's appearance (ADR 1235). **With** `/F` it names a
-  second PDF file, which is §12.7.6.4's hazard, and what is missing is the *hop* rather than the
-  copy or the conversion: a second host question raised while the first import is being applied,
-  which is §12.6.4.4's suspended-walk shape `viewer_core`'s `Purpose::TargetRoot` already has. That
-  is a `viewer-core` build, and §12.7.8.3.3's Table 253 `/F` is the same one. The unresolved
-  reference is named on `Imported::refused`.
+  requirement this project answers. `/APRef`'s two branches are both built: **without** Table 253's
+  `/F` the named page is one this document holds under §12.7.7's tree, and
+  `named_page::page_as_form` makes it the widget's appearance (ADR 1235); **with** `/F` it names a
+  second PDF, and the hop is `viewer-core`'s — a second host question raised while the first import
+  is being applied, §12.6.4.4's suspended-walk shape, under the reader's `--remote-documents=` level
+  (ADR 1239). §12.7.8.3.3's Table 253 `/F` is the same one and travels with it. A file nobody
+  supplies is still named on `Imported::refused`.
 
 ### 5. Answered, awaiting a real trigger — the public-key security handler
 
@@ -269,12 +269,10 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §8.9.6, §8.11, §8.11.1, §8.11.4, §8.11.4.1, §10.7, §11.3.7, §11.4, §11.4.3, §11.4.8, §11.6,
+§7.6, §8.9.6, §8.11, §8.11.1, §8.11.4, §8.11.4.1, §10.7, §11.3.7, §11.4, §11.6,
 §11.6.4, §11.7, §11.7.4, §11.7.5, §12.1, §12.3, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
 §12.7.5, §12.7.6, §12.8, §12.8.3, §12.8.3.4.
 
-Two of them carry no *child*: §11.4.3 and §11.4.8 defer to §11.4.4 and §11.4.6 in their own notes,
-which is the same shape one level sideways.
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
 

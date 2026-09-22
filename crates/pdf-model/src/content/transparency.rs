@@ -12,6 +12,7 @@ use pdf_render::{
 };
 use pdf_syntax::{Dictionary, Document, Name, Object};
 
+use crate::black_generation::BlackGeneration;
 use crate::colour::{ColourSpace, Compositing, InkScale, Press, Presses};
 use crate::icc::Rendering;
 use crate::image::ShapeMasks;
@@ -506,7 +507,12 @@ const COMPOSED_PRESS_SIDE: usize = 17;
 /// group colour space", which differs from the parent's or this would not be called — so it goes
 /// in from its XYZ ([`crate::colour::RgbRoute::components_of_srgb`]) as any other colour in a
 /// space of its own does (§10.3.1).
-fn parent_channels(parent: &Compositing, rendering: Rendering, rgb: [f32; 3]) -> Option<[f32; 3]> {
+fn parent_channels(
+    parent: &Compositing,
+    rendering: Rendering,
+    generation: Option<&BlackGeneration>,
+    rgb: [f32; 3],
+) -> Option<[f32; 3]> {
     match parent {
         Compositing::Device => None,
         Compositing::Additive(route) => {
@@ -516,13 +522,15 @@ fn parent_channels(parent: &Compositing, rendering: Rendering, rgb: [f32; 3]) ->
         | Compositing::Grey
         | Compositing::Calibrated(_)
         | Compositing::Subtractive(..) => {
-            // §11.7.5.3's *second* bullet — a group whose colour space is `DeviceRGB` painted
-            // into a `DeviceCMYK` parent — names the functions in effect at the `Do`, and this
-            // cube is built there. It is not carried out: the conversion happens per pixel in a
-            // backend over a composited result, where no colour space and no graphics state
-            // exist. `Interpreter::note_black_generation_departure` is what says so, and ADR
-            // 1207 records that the first bullet is performed and this one is not.
-            let painted = parent.paint(&ColourSpace::Rgb, &rgb, rendering, None);
+            // §11.7.5.3's *second* bullet: "[w]hen painting a transparency group whose colour
+            // space is DeviceRGB into a parent group whose colour space is DeviceCMYK , the
+            // functions used shall be the ones in effect at the time the Do operator is applied
+            // to the group". `generation` is that pair, read off the state at the `Do`, and it
+            // reaches §10.4.2.4's arithmetic through `Compositing::Subtractive`'s arm of
+            // `paint` — the only arm that takes it, which is the clause's own "shall be applied
+            // only during conversion from DeviceRGB to DeviceCMYK colour spaces". ADR 1242,
+            // amending ADR 1207.
+            let painted = parent.paint(&ColourSpace::Rgb, &rgb, rendering, generation);
             Some([painted.r, painted.g, painted.b])
         }
     }
@@ -530,7 +538,11 @@ fn parent_channels(parent: &Compositing, rendering: Rendering, rgb: [f32; 3]) ->
 
 /// [`parent_channels`] sampled over device RGB, as the cube a backend interpolates — or `None`
 /// where the parent composites on the device.
-fn into_parent_cube(parent: &Compositing, rendering: Rendering) -> Option<pdf_render::ColourCube> {
+fn into_parent_cube(
+    parent: &Compositing,
+    rendering: Rendering,
+    generation: Option<&BlackGeneration>,
+) -> Option<pdf_render::ColourCube> {
     let side = INTO_PARENT_SIDE;
     #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
     let at = |index: usize| index as f32 / (side - 1) as f32;
@@ -541,6 +553,7 @@ fn into_parent_cube(parent: &Compositing, rendering: Rendering) -> Option<pdf_re
                 grid.push(parent_channels(
                     parent,
                     rendering,
+                    generation,
                     [at(red), at(green), at(blue)],
                 )?);
             }
@@ -2460,7 +2473,10 @@ impl Interpreter<'_> {
         changed: bool,
     ) -> Option<Compositing> {
         let nested = self.compositing != Compositing::Device;
-        if nested && !(changed && parent_channels(&self.compositing, rendering, [0.0; 3]).is_some())
+        // `None` for the black generation: this asks only whether a route into the parent
+        // exists, and every arm answers `Some` or `None` on the parent's variant alone.
+        if nested
+            && !(changed && parent_channels(&self.compositing, rendering, None, [0.0; 3]).is_some())
         {
             return None;
         }
@@ -2538,21 +2554,34 @@ impl Interpreter<'_> {
     /// backdrop's own space read off `self.compositing`. Both samplings are memoised on this
     /// interpretation, because a page drawing one shape of group many times would otherwise
     /// sample the same conversion once per `Do`.
+    ///
+    /// `generation` is §11.7.5.3's second bullet, read off the state at the `Do` beside
+    /// `rendering` and carried into [`parent_channels`]. It is in the memoisation key by
+    /// *pointer* identity — `BlackGeneration::identity`, the same key `crate::colour::Conversion`
+    /// uses — so two `/ExtGState` dictionaries stating one pair of functions sample the cube
+    /// twice rather than once; that costs a sampling and cannot cost a colour. ADR 1242.
     fn conversion_into_parent(
         &mut self,
         own: &Compositing,
         out: Option<pdf_render::GroupBlending>,
         rendering: Rendering,
+        generation: Option<&Arc<BlackGeneration>>,
     ) -> OwnSpaceRun {
         if self.compositing == Compositing::Device {
             return OwnSpaceRun::Drawn(out);
         }
-        let key = (own.clone(), self.compositing.clone(), rendering);
+        let key = (
+            own.clone(),
+            self.compositing.clone(),
+            rendering,
+            generation.map(BlackGeneration::identity),
+        );
         let composed = if let Some(composed) = self.into_parent.get(&key) {
             composed.clone()
         } else {
-            let Some(composed) = into_parent_cube(&self.compositing, rendering)
-                .and_then(|into| composed_into_parent(own, out.as_ref(), &into))
+            let Some(composed) =
+                into_parent_cube(&self.compositing, rendering, generation.map(AsRef::as_ref))
+                    .and_then(|into| composed_into_parent(own, out.as_ref(), &into))
             else {
                 return OwnSpaceRun::GivenUp;
             };
@@ -3331,7 +3360,12 @@ impl Interpreter<'_> {
                 Compositing::Luminosity(_) => OwnSpaceRun::GivenUp,
             };
             let drawn = match drawn {
-                OwnSpaceRun::Drawn(out) => self.conversion_into_parent(own, out, outer.rendering()),
+                OwnSpaceRun::Drawn(out) => self.conversion_into_parent(
+                    own,
+                    out,
+                    outer.rendering(),
+                    outer.black_generation.as_ref(),
+                ),
                 OwnSpaceRun::GivenUp => OwnSpaceRun::GivenUp,
             };
             match drawn {
@@ -3514,25 +3548,19 @@ impl Interpreter<'_> {
     /// Says where a stated black generation reached a conversion that did not use it.
     ///
     /// ISO 32000-2 §11.7.5.3 states the pair's three moments and this tree carries out the
-    /// first: a `DeviceRGB` colour painted into a group whose colour space is `DeviceCMYK` is
-    /// separated by §10.4.2.4 with the file's own functions (`ColourSpace::to_cmyk_under`, ADR
-    /// 1207). What is left is what this reports, and the condition names each half rather than
-    /// the statement alone:
+    /// first two. The first: a `DeviceRGB` colour painted into a group whose colour space is
+    /// `DeviceCMYK` is separated by §10.4.2.4 with the file's own functions
+    /// (`ColourSpace::to_cmyk_under`, ADR 1207). The second: a group this tree composites on
+    /// the device's three components painted into a four-component parent converts through
+    /// [`parent_channels`], which takes the pair in effect at the `Do` (ADR 1242).
     ///
-    /// - **The second bullet**, a transparency group whose colour space is `DeviceRGB` painted
-    ///   into a parent whose colour space is `DeviceCMYK`. That conversion is a *cube* resolved
-    ///   per pixel in a backend over a composited raster, where no colour space and no graphics
-    ///   state exist, so the functions in effect at the `Do` reach nothing. `Self::into_parent`
-    ///   holds one key per such pair, and the test reads them; it over-approximates by exactly
-    ///   as much as `Compositing::Device` is wider than `DeviceRGB` — a group whose blending
-    ///   space this tree composites on the device's three components without its being that
-    ///   space.
-    /// - **A press whose own profile states the conversion in.** §8.6.5.5 requires a blending
-    ///   space's profile to carry "from CIE" information and this tree uses it (ADR 0796), so
-    ///   the black generation there is the document's own measured transform rather than the
-    ///   device default §10.4.2.4's last paragraph asks for — which is what a stated pair
-    ///   substitutes for. Replacing a `B2A` table with §10.4.2.4's arithmetic would convert into
-    ///   a profile's space by a formula that never reads the profile.
+    /// One departure is left, and the condition names it rather than the statement alone: **a
+    /// press whose own profile states the conversion in.** §8.6.5.5 requires a blending space's
+    /// profile to carry "from CIE" information and this tree uses it (ADR 0796), so the black
+    /// generation there is the document's own measured transform rather than the device default
+    /// §10.4.2.4's last paragraph asks for — which is what a stated pair substitutes for.
+    /// Replacing a `B2A` table with §10.4.2.4's arithmetic would convert into a profile's space
+    /// by a formula that never reads the profile.
     ///
     /// The third bullet is neither: it conditions on "the native colour space of the output
     /// device" being `DeviceCMYK`, and this device's is sRGB (ADR 0009).
@@ -3543,31 +3571,20 @@ impl Interpreter<'_> {
         if !self.black_generation_stated {
             return;
         }
-        let by_profile = matches!(
+        if !matches!(
             &self.compositing,
             Compositing::Subtractive(_, press) if press.converts_in_by_profile()
-        );
-        let into_parent = self.into_parent.keys().any(|(own, parent, _)| {
-            matches!(own, Compositing::Device) && matches!(parent, Compositing::Subtractive(..))
-        });
-        if !by_profile && !into_parent {
+        ) {
             return;
         }
-        let which = if by_profile {
-            "this page composites in a press sampled from the document's own profile, whose \
-             B2A table is the conversion in (§8.6.5.5)"
-        } else {
-            "a transparency group this tree composites on the device's three components is \
-             painted into a four-component parent, and that conversion is resolved per pixel in \
-             a backend where no colour space exists"
-        };
         self.note(Unsupported::BlackGeneration {
-            detail: format!(
-                "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
-                 function of its own, and {which}, so the stated pair reaches no step of it \
-                 (§11.7.5.3). A DeviceRGB colour painted into a DeviceCMYK group is \
-                 separated with the stated functions and is not affected"
-            ),
+            detail: "an /ExtGState or a pattern states Table 57's /BG, /BG2, /UCR or /UCR2 as a \
+                     function of its own, and this page composites in a press sampled from the \
+                     document's own profile, whose B2A table is the conversion in (§8.6.5.5), so \
+                     the stated pair reaches no step of it (§11.7.5.3). A DeviceRGB colour \
+                     painted into a DeviceCMYK group, and a group painted into a DeviceCMYK \
+                     parent, are separated with the stated functions and are not affected"
+                .to_owned(),
         });
     }
 

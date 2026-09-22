@@ -10,7 +10,9 @@
 //! two things this program cannot do itself — resolve a URI, read a file — leave as requests.
 
 use pdf_model::Pages;
-use pdf_model::action::{Action, EmbeddedGoTo, ImportData, RemoteGoTo, TargetRoot, Trigger};
+use pdf_model::action::{
+    Action, EmbeddedGoTo, ImportData, RemoteGoTo, TargetRoot, ThreadJump, Trigger,
+};
 use pdf_model::navigation::Transition;
 use pdf_model::submission::Click;
 use pdf_model::view::{Pointer, Request};
@@ -178,7 +180,10 @@ pub(crate) fn activate_object(open: &mut Open, id: ObjectId) -> Outcome {
     // `ThreadTarget::Object` reuses `Request::Thread` whole, down to Table 163's `/R` framing the
     // bead rather than the page it sits on, rather than adding a second route to one place.
     if actions.is_empty() && destination.is_none() && is_thread(&open.document, dict) {
-        let jump = pdf_model::action::ThreadJump {
+        let jump = ThreadJump {
+            // A thread a host activated is an object of the document on the screen, so Table
+            // 209's `/F` has nothing to name here.
+            file: None,
             thread: pdf_model::action::ThreadTarget::Object(id),
             // Table 209 makes `/B` optional and says what its absence means; a thread activated
             // from a list has named no bead either, so it means the same thing.
@@ -388,6 +393,7 @@ fn perform(
         jump.take(&open.document, &pages, destination);
     }
     let (mut import, mut embedded, mut remote) = (None, None, None);
+    let mut threaded: Option<ThreadJump> = None;
     for request in &requests {
         match request {
             Request::Display(destination) => jump.take(&open.document, &pages, destination),
@@ -438,6 +444,12 @@ fn perform(
             Request::Embedded(request) => embedded = Some(request.clone()),
             Request::Remote(request) => remote = Some(request.clone()),
             Request::Transition(transition) => outcome.transitions.push(transition.clone()),
+            Request::Thread(thread) if thread.file.is_some() => {
+                // Table 209's `/F` puts §12.4.3's beads in a second document, so the walk
+                // suspends here exactly as §12.6.4.3's does and the *name* goes to whoever
+                // opened the document (ADR 1239).
+                threaded = Some(thread.clone());
+            }
             Request::Thread(thread) => {
                 // §12.4.3's threads are read *here* rather than when the document opens: an
                 // article is a list nothing else consults, and principle 2's "nothing eager"
@@ -488,6 +500,11 @@ fn perform(
     // holding both has asked for two documents and the later one is what a reader ends on.
     if let Some(remote) = remote {
         open_remote(open, &remote, &mut outcome);
+    }
+    // §12.6.4.7 last of the three that name a file, on the same rule: a chain holding more than
+    // one has asked for more than one document and the later is what a reader ends on.
+    if let Some(threaded) = threaded {
+        open_threaded(open, &threaded, &mut outcome);
     }
     outcome
 }
@@ -607,6 +624,14 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
             .notes
             .push(format!("import-data: declined — {refusal}"));
     }
+    // Table 253's `/F`: a second host question, raised while the first is being applied. The
+    // sentences are said before it is asked, so a person sees what is being asked for and why
+    // even in a window that supplies nothing (ADR 1239).
+    for awaited in &applied.awaiting {
+        outcome
+            .notes
+            .push(format!("import-data: waiting — {awaited}"));
+    }
     if applied.pages > 0 {
         // §12.7.7's template pages become part of the document being shown, so the page count
         // moves — which is the one thing an action in this program has ever changed about how
@@ -620,6 +645,7 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
     // §12.7.8's values are what §12.7.4.3 lays out, so a successful import changes this page's
     // ink.
     outcome.redraw = true;
+    request_named_page(open, &mut outcome);
     outcome
 }
 
@@ -833,6 +859,209 @@ pub(crate) fn decline_remote(open: &mut Open) -> Outcome {
         "this link declines — GoToR:{named} was not supplied"
     ));
     outcome
+}
+
+/// §12.6.4.7's thread action whose Table 209 `/F` names a second document.
+///
+/// > A thread action jumps to a specified bead on an article thread (see 12.4.3, "Articles"), in
+/// > either the current document or a different one.
+///
+/// *A different one* is this branch, and it needs nothing §12.6.4.3 did not already need:
+/// [`open_remote`]'s three cases over the same [`TargetRoot`], because Table 209's `/F` is a file
+/// specification like Table 203's and §7.11.2.2's restriction on a relative URL is about the
+/// specification rather than about the action. [`resume_threaded`] is where the jump is made.
+/// ADR 1239.
+fn open_threaded(open: &mut Open, threaded: &ThreadJump, outcome: &mut Outcome) {
+    let Some(file) = &threaded.file else {
+        return;
+    };
+    match file {
+        TargetRoot::ForbiddenUrl(url) => outcome.notes.push(format!(
+            "this link declines — Thread: §7.11.2.2 limits a relative URL file specification to \
+             a path, and {url} is not one"
+        )),
+        TargetRoot::Url {
+            url,
+            relative: true,
+        } => outcome.notes.push(format!(
+            "this link declines — Thread: {url} is a partial URL and where this document itself \
+             is is not this reader's to know"
+        )),
+        TargetRoot::File(_) | TargetRoot::Url { .. } => {
+            open.threading = Some(threaded.clone());
+            outcome
+                .needs_file
+                .push((Purpose::ThreadDocument, file.name().to_owned()));
+        }
+    }
+}
+
+/// §12.6.4.7's jump made, against the document Table 209's `/F` named.
+///
+/// **Every one of Table 209's entries is read in the document that arrived**, because that is the
+/// only document any of them is about: `/D`'s index is "within the Threads array of its
+/// document's catalog dictionary" and its title is the one "specified in its thread information
+/// dictionary", and `/B`'s index is "within its thread". `pdf_model::action::thread` has already
+/// refused the two spellings that are references, which Table 209 says shall be in the current
+/// file — so nothing here resolves an object of the wrong document.
+///
+/// **The bounds are the source document's, unchanged across the pause**, which is
+/// [`resume_remote`]'s sentence for [`resume_remote`]'s reason.
+pub(crate) fn resume_threaded(open: &mut Open, bytes: &[u8]) -> Outcome {
+    let mut outcome = Outcome::default();
+    let Some(threaded) = open.threading.take() else {
+        return outcome;
+    };
+    let name = threaded
+        .file
+        .as_ref()
+        .map_or("", TargetRoot::name)
+        .to_owned();
+    let opened = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+        Ok(opened) => opened,
+        Err(error) => {
+            outcome.notes.push(format!(
+                "this link declines — Thread: cannot read {name}: {error}"
+            ));
+            return outcome;
+        }
+    };
+    let mut replacement = Open::around(opened);
+    if replacement.page_count == 0 {
+        outcome
+            .notes
+            .push(format!("this link declines — Thread: {name} has no pages"));
+        return outcome;
+    }
+    let articles = pdf_model::article::Articles::read(&replacement.document);
+    let pages = Pages::new(&replacement.document);
+    let bead = threaded.bead_in(&articles);
+    let page_index = bead
+        .and_then(|bead| bead.page_index(&pages))
+        .filter(|index| *index < replacement.page_count);
+    // Table 163's `/R` is where the window goes, for the reason the same composition in `perform`
+    // records: a thread followed to a bead shows the bead rather than the page it sits on.
+    let view = bead.and_then(|bead| bead.rect);
+    drop(pages);
+    let Some(page_index) = page_index else {
+        outcome.notes.push(format!(
+            "this link declines — Thread: {name} has no such thread or bead, or its bead names \
+             no page of that file"
+        ));
+        return outcome;
+    };
+    replacement.page_index = page_index;
+    // On the *replacement* rather than on the outcome, because a replacement is where the page
+    // the jump named now lives: `Viewer::apply` drops an outcome's own page and view when a
+    // document replaces the one every earlier request was about.
+    if let Some(rect) = view {
+        replacement.pending_views = vec![pdf_model::destination::View::FitR { rect }];
+    }
+    outcome.notes.push(format!(
+        "opened {name}, {} page(s), at page {}",
+        replacement.page_count,
+        page_index.saturating_add(1)
+    ));
+    outcome.replacement = Some(Box::new(replacement));
+    outcome
+}
+
+/// What is said when a host will not supply Table 209's `/F`.
+pub(crate) fn decline_threaded(open: &mut Open) -> Outcome {
+    let mut outcome = Outcome::default();
+    let named = open.threading.take().map_or_else(String::new, |threaded| {
+        threaded
+            .file
+            .as_ref()
+            .map_or_else(String::new, |file| format!(" {}", file.name()))
+    });
+    outcome.notes.push(format!(
+        "this link declines — Thread:{named} was not supplied"
+    ));
+    outcome
+}
+
+/// §12.7.8's named page in a second file, asked for one file at a time.
+///
+/// Table 253's `/F` is "[t]he file containing the named page", and an import that met one is
+/// holding it: `pdf_model::view::ViewState::file_awaited` names the next file and this is the
+/// only place that turns it into a question. One at a time because a person answering for two
+/// files at once is answering one question twice, and because each answer may raise the next —
+/// a template's own fields may state an `/APRef` in a third file. ADR 1239.
+fn request_named_page(open: &mut Open, outcome: &mut Outcome) {
+    if let Some(file) = open.view.file_awaited() {
+        outcome
+            .needs_file
+            .push((Purpose::NamedPage, file.to_owned()));
+    }
+}
+
+/// §12.7.8's named pages applied, against the second file a host supplied.
+///
+/// The bounds are the document being read, for [`resume_remote`]'s reason: a file reached through
+/// an action is held to the bounds of the one a person opened. What the pages become is
+/// `ViewState::supply_named_pages`'s, and nothing of the second document outlives this call — the
+/// copy it makes names nothing of it (ADR 1223).
+pub(crate) fn supply_named_page(open: &mut Open, bytes: &[u8]) -> Outcome {
+    let mut outcome = Outcome::default();
+    let Some(file) = open.view.file_awaited().map(ToOwned::to_owned) else {
+        return outcome;
+    };
+    let source = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+        Ok(source) => source,
+        Err(error) => {
+            outcome
+                .notes
+                .push(format!("named page: cannot read {file}: {error}"));
+            say_declined(open, &file, &mut outcome);
+            request_named_page(open, &mut outcome);
+            return outcome;
+        }
+    };
+    let applied = open.view.supply_named_pages(&open.document, &file, &source);
+    for refusal in &applied.refused {
+        outcome
+            .notes
+            .push(format!("named page: declined — {refusal}"));
+    }
+    for awaited in &applied.awaiting {
+        outcome
+            .notes
+            .push(format!("named page: waiting — {awaited}"));
+    }
+    outcome.notes.push(format!(
+        "named page: {file} gave {} appearance(s) and {} page(s)",
+        applied.widgets, applied.pages
+    ));
+    if applied.pages > 0 {
+        open.recount();
+        outcome.notes.push(format!(
+            "named page: the document now has {} page(s)",
+            open.page_count
+        ));
+    }
+    // §12.7.4.3 lays out what an import changed, and a page added changes what is on the screen.
+    outcome.redraw = true;
+    request_named_page(open, &mut outcome);
+    outcome
+}
+
+/// What is said when a host will not supply Table 253's `/F`.
+pub(crate) fn decline_named_page(open: &mut Open) -> Outcome {
+    let mut outcome = Outcome::default();
+    let Some(file) = open.view.file_awaited().map(ToOwned::to_owned) else {
+        return outcome;
+    };
+    say_declined(open, &file, &mut outcome);
+    request_named_page(open, &mut outcome);
+    outcome
+}
+
+/// Every reference into one declined file, said out loud (trap 5).
+fn say_declined(open: &mut Open, file: &str, outcome: &mut Outcome) {
+    for note in open.view.decline_named_pages(file) {
+        outcome.notes.push(format!("named page: declined — {note}"));
+    }
 }
 
 /// Shows the document a completed walk ended in, at the destination the action names inside it.

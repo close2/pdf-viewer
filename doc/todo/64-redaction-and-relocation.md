@@ -9,12 +9,19 @@ design below is what the two aborted drafts established and the builds followed;
 **What a redaction still refuses**, each an owed capability with its own sentence: a stroke whose
 *outline* an expansion can only approximate — a round cap or join, or the offset of a curved
 segment (ADR 1236) — a stroke with a zero line width, one this walk has seen no stroking colour
-operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a path that is
-also §8.5.4's clipping boundary; a `JPXDecode` image (an over-budget decode is a reduced-resolution
-level, §7.4.9 NOTE 3), an image stating §8.9.5.4 `/Alternates` (ADR 1174), a codec image carrying
-transparency the opaque re-encode cannot preserve; an inline image behind a codec or whose colour
-space resolves to a resource object; a Type 3 font, a composite font not `Identity-H`, `sh`, and a
-soft-mask group.
+operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a codec image
+whose decode is not on the grid its dictionary states (a JPEG 2000 codestream over the decoder's
+budget comes back at a reduced resolution level, §7.4.9 NOTE 3), a `JPXDecode` image stating a
+non-zero Table 87 `/SMaskInData` or more than eight bits per component (ADR 1248), a codec image
+carrying transparency the opaque re-encode cannot preserve; an inline image behind a codec or whose
+colour space resolves to a resource object; a Type 3 font, a composite font not `Identity-H`, `sh`,
+and a soft-mask group.
+
+**Two came off that list in ADR 1248.** §8.5.4's clipping boundary is not a mark and the clause
+separates painting from clipping in time, so the cut marks are written first and the boundary is
+re-stated after them from the producer's own bytes, closed with `n`. §8.9.5.4's `/Alternates` is
+**dropped** from the redacted page's copy of the image rather than destroyed: the entry is the only
+route to a variant, and the closure the writer copies reaches only what is referenced.
 
 ## Redaction application — §12.5.6.23, the owner's A64 ("Owed.")
 
@@ -40,7 +47,8 @@ where "within the region" is under-specified the choice is documented as a choic
   (§8.7.4.2 paints the whole clip — no byte-range edit removes only the region's share) and a
   soft-mask group over the region; a path carrying a `W`/`W*` clip, because §8.5.4 sets the clip
   from the same path after the painting operator, so cutting its geometry would move the boundary
-  every later mark is held to.
+  every later mark is held to. **The last of those five is lifted in ADR 1248**, on the clause's own
+  separation of the two acts in time.
 - **A painted path is cut, not refused** (ADR 1195): the region's four edge lines divide the plane
   into nine cells, the middle one the region and the other eight a disjoint tiling of its
   complement, so the difference is the union of eight Sutherland–Hodgman clips against convex

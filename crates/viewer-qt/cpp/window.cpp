@@ -18,6 +18,7 @@
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QFileDialog>
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -1701,6 +1702,30 @@ void MainWindow::rebuildControls()
                 host_->set_control(index, rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
                 applyUpdates();
             });
+            // ISO 32000-2 12.7.5.3, Table 231 bit 21: the text "represents the pathname of a
+            // file whose contents shall be submitted as the value of the field". So the control
+            // stays an entry holding a path, and this only fills it in — the edit is the one a
+            // typed path already makes, through viewer_host::form::edit_of. An action inside the
+            // line edit rather than a button beside it, because the widget's rectangle is the
+            // document's own (12.5.2) and a second control would be this window resizing what
+            // the file sized.
+            if (control.choose_file) {
+                QAction* choose = entry->addAction(
+                    QIcon::fromTheme(QStringLiteral("document-open")),
+                    QLineEdit::TrailingPosition);
+                choose->setToolTip(QStringLiteral("Choose the file this field submits"));
+                connect(choose, &QAction::triggered, this, [this, entry] {
+                    const QString chosen = QFileDialog::getOpenFileName(
+                        this, QStringLiteral("Choose the file this field submits"));
+                    // A person who dismissed the chooser has said nothing, so the field keeps
+                    // whatever it held.
+                    if (chosen.isEmpty()) {
+                        return;
+                    }
+                    entry->setText(chosen);
+                    Q_EMIT entry->textEdited(chosen);
+                });
+            }
             widget = entry;
             break;
         }

@@ -494,15 +494,12 @@ impl Interpreter<'_> {
     /// this clause's answer and so the interpreter's to compose, exactly as Table 77's
     /// `/BBox` is.
     ///
-    /// **`Background` is not implemented and is reported**, which is Table 77's own gap rather
-    /// than this function's: the ledger's §8.7.4.3 row carries it, and the entry applies only
-    /// where a shading is used as a *pattern*, which is where [`Interpreter::pattern`] raises
-    /// [`Unsupported::ShadingBackground`]. So this leaves the outside unpainted, which is the
-    /// clause's branch for a shading that states *no* background, and a shading that states one
-    /// is drawn the same way with the shortfall named. **Two earlier versions of this comment
-    /// were wrong about it**: one claimed such a shading was refused before reaching here, and
-    /// the sentence that corrected that one went on saying it "gets the same treatment silently"
-    /// for as long as it was true.
+    /// **This is the clause's branch for a shading that states no `/Background`**, and it is the
+    /// only branch that reaches here: a shading that states one is answered per device pixel by
+    /// [`pdf_render::ShadingRaster`] instead, so [`Interpreter::paint_clip`] returns before
+    /// calling this rather than clipping away the very wash Table 77 asks for (ADR 0529). A
+    /// *stroking* selection is where the wash is still owed, and that is named by
+    /// [`Unsupported::ShadingBackground`] at [`Interpreter::note_unpainted_background`].
     ///
     /// Nothing happens for any other shading type: an axial or radial shading says where it
     /// stops through `/Extend`, which its ramp already carries, and a mesh through its
@@ -1370,24 +1367,27 @@ impl Interpreter<'_> {
         if parts.is_empty() {
             return;
         }
-        // §11.6.7 makes the implicit group *non-isolated*, and this one is isolated. Its own
-        // NOTE 1 is what makes that exact wherever no element blends — "in the common case in
-        // which the pattern consists entirely of objects painted with the Normal blend mode …
-        // the results depend only on the colour, shape, and opacity of the pattern cell and
-        // not on those of the backdrop" — and a cell that sets a blend mode of its own is the
-        // case it is not, which is §11.4.4's report.
-        // — and since ADR 0237 the display list can say the cell's own backdrop instead of
-        // substituting §11.4.5's, on the three conditions `Command::Group`'s `isolated`
-        // states. What is left to report is a cell composited under a blend mode of its own,
-        // and a cell inside a knockout group, where the collapse those conditions rest on
-        // does not hold.
-        let isolated = self.inside_knockout
-            || state.blend != BlendMode::Normal
-            || !any_command(&parts, &command_blends);
+        // §11.6.7 makes the implicit group *non-isolated*, and the display list says so
+        // wherever the clause's own NOTE 1 does not make an isolated group exact: "in the common
+        // case in which the pattern consists entirely of objects painted with the Normal blend
+        // mode … the results depend only on the colour, shape, and opacity of the pattern cell
+        // and not on those of the backdrop". A cell no element of which blends is that case and
+        // is isolated; a cell where one does gets the backdrop the clause names, which
+        // `Command::Group`'s `isolated` states (ADR 0237) and `render-cpu` draws under any blend
+        // mode at the `Do` (ADR 1107, ADR 1243).
+        //
+        // A cell inside a knockout group is the one exception and it is a *backdrop* rather than
+        // a mode: §11.4.6's NOTE 6 gives a group nested in one the outer group's initial
+        // backdrop, which none of the three constructions can hand over, so the cell keeps the
+        // isolated construction and the departure is named below.
+        let isolated = self.inside_knockout || !any_command(&parts, &command_blends);
         // §11.4.6's NOTE 6 reaches the implicit group too, because §11.6.7 makes the cell an
         // *element* of whatever paints it: a pattern painted inside a knockout group whose
         // initial backdrop is transparent has that backdrop rather than its immediate one, so
         // the isolated construction is the clause and there is no backdrop being excluded.
+        // What is left to name is the other knockout case — an enclosing knockout group whose
+        // own initial backdrop is not transparent — and the conjunction says so by itself,
+        // since `isolated` above is true beside a blending element only there.
         if isolated && !self.transparent_initial_backdrop && any_command(&parts, &command_blends) {
             self.note(Unsupported::TransparencyGroup {
                 detail: "non-isolated, and an element blends with the backdrop it excludes"

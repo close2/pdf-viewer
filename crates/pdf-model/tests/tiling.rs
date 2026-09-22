@@ -1429,3 +1429,106 @@ fn a_constant_spacing_tiling_makes_the_page_depend_on_the_magnification() {
         "and neither is code 1's where no magnification was stated"
     );
 }
+
+/// A one-page fixture whose page paints a grey backdrop and then fills it with `/P0` under
+/// `mark`, the pattern's cell being `cell`.
+///
+/// `cell` names the pattern's own `/ExtGState` entry `/Mul`, a Multiply blend mode, so that a
+/// caller decides whether an element of the cell blends with the backdrop or not.
+fn blending_tiling_fixture(cell: &str, mark: &str) -> Vec<u8> {
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 \
+         /Resources << /ExtGState << /Mul << /BM /Multiply >> >> >> /Length {} >>\n\
+         stream\n{cell}\nendstream",
+        cell.len().saturating_add(1)
+    );
+    let content =
+        format!("0.5 0.5 0.5 rg 0 0 100 100 re f {mark} /Pattern cs /P0 scn 0 0 100 100 re f");
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /Pattern << /P0 5 0 R >> \
+         /ExtGState << /Screen << /BM /Screen >> >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n{pattern}\nendobj\n",
+        content.len().saturating_add(1)
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// ISO 32000-2 §11.6.7: the implicit group is the one the clause names, at any blend mode.
+///
+/// > In both cases, the pattern definition shall be treated as if it were implicitly enclosed
+/// > in a non-isolated transparency group: a non-knockout group for tiling patterns, a
+/// > knockout group for shading patterns.
+///
+/// The cell's own element blends, so the clause's *non-isolated* group is what decides the
+/// picture and its own NOTE 1 does not give the isolated one back. The arithmetic is the
+/// clause's, by hand, with the page's grey `0.5` reaching the raster as 128 of 255:
+///
+/// - the initial backdrop is the page, so the cell's Multiply element is `128 × 128 ÷ 255`,
+///   which is 64 (§11.3.5.2's `B(Cb, Cs) = Cb × Cs`);
+/// - every tile covers its own cell opaquely and the group's alpha is 1 everywhere, so
+///   §11.4.4's result step leaves that colour where it is — `α₀ ÷ αgn − α₀` is zero;
+/// - the group is then composited once under the mark's Screen, `128 + 64 − 128 × 64 ÷ 255`,
+///   which is 160.
+///
+/// Isolating the group instead gives the cell a transparent initial backdrop, where §11.3.6
+/// leaves a blend mode nothing to do — "[a]n alpha value of αs = 0.0 or αb = 0.0 results in no
+/// blend mode effect" — so the group would hold 128 and the page would come out at
+/// `128 + 128 − 128 × 128 ÷ 255`, 192. That is the second assertion's number and it is a
+/// different picture, which is what makes this fixture about the isolation rather than about
+/// the mode.
+///
+/// `render-cpu` draws the combination through §11.4.4's own result step (ADR 1107); the other
+/// two backends refuse a non-isolated group under a mode by name. ADR 1243.
+#[test]
+fn a_cell_that_blends_gets_the_non_isolated_group_the_clause_names() {
+    let blended = render(blending_tiling_fixture(
+        "/Mul gs 0.5 0.5 0.5 rg 0 0 10 10 re f",
+        "/Screen gs",
+    ));
+    for (across, down) in [(5u32, 5u32), (55, 55)] {
+        let (red, green, blue, alpha) = pixel(&blended, across, down);
+        assert_eq!(alpha, 255, "the tiles cover the page at ({across},{down})");
+        for (name, level) in [("red", red), ("green", green), ("blue", blue)] {
+            assert!(
+                level.abs_diff(160) <= 2,
+                "the cell's element blends with the page the group is painted over, so the \
+                 channel is 160 and not 192: {name} is {level} at ({across},{down})"
+            );
+        }
+    }
+
+    // NOTE 1's own case, and the control: a cell no element of which blends "depend[s] only on
+    // the colour, shape, and opacity of the pattern cell and not on those of the backdrop", so
+    // the isolated construction is exact and the page comes out at 192.
+    let plain = render(blending_tiling_fixture(
+        "0.5 0.5 0.5 rg 0 0 10 10 re f",
+        "/Screen gs",
+    ));
+    assert!(
+        pixel(&plain, 5, 5).0.abs_diff(192) <= 2,
+        "with nothing blending inside the cell the backdrop cannot reach it: {:?}",
+        pixel(&plain, 5, 5)
+    );
+}

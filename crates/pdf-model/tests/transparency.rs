@@ -253,3 +253,77 @@ fn an_object_drawn_without_a_constant_is_opaque() {
         "the first fill is still the masked one"
     );
 }
+
+/// §11.6.7's first bullet: a shading pattern's own `/ExtGState` may not put transparency back.
+///
+/// > As always for transparency groups, those parameters related to transparency (blend mode,
+/// > soft mask, and alpha constant) shall be initialised to their standard default values.
+///
+/// The third bullet lets Table 75's `/ExtGState` augment the parameters, but only "those
+/// parameters that affect the sh operator", and the first bullet has already fixed these
+/// three — so a pattern stating `/ca` and `/BM` states nothing this reader acts on, and what
+/// composites is the mark's own constant applied once to the whole pattern:
+///
+/// > When the pattern is later used to paint a graphics object, the colour, shape, and opacity
+/// > values resulting from the evaluation of the pattern definition shall be used as the
+/// > object's source colour
+///
+/// Table 77's `/Background` is the second half. It puts a second element in the implicit group
+/// — "the pattern's imp licit transparency group shall be filled with the specified background
+/// colour before the sh operator is invoked" — and the wash and the ramp reach the page as one
+/// paint, so the mark's constant weights the pair once rather than each of them. Reading the
+/// pattern's `/ca 0.5` as well would give 0.125 here, and dropping the constant from the wash
+/// would leave it at 1.0. ADR 1243.
+#[test]
+fn a_shading_patterns_wash_and_ramp_carry_the_marks_constant_once() {
+    let pattern = "/Pattern << /P0 << /PatternType 2 \
+                   /ExtGState << /ca 0.5 /CA 0.5 /BM /Multiply >> \
+                   /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
+                   /Extend [false false] /Background [0 1 0] \
+                   /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> \
+                   >> >> >>";
+    let document = Document::open(fixture_with(
+        "/ca 0.25",
+        pattern,
+        "/GS gs /Pattern cs /P0 scn 0 0 100 100 re f",
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    let mut found = 0_u32;
+    for command in interpretation.display_list.commands() {
+        let Command::Fill {
+            paint: Paint::Shading(shading),
+            blend,
+            ..
+        } = command
+        else {
+            continue;
+        };
+        found += 1;
+        assert_eq!(
+            *blend,
+            pdf_render::BlendMode::Normal,
+            "the pattern's own /BM is not the mark's, and the mark set none"
+        );
+        let background = shading.background.expect("Table 77's wash is carried");
+        assert!(
+            (background.a - 0.25).abs() < 1e-6,
+            "the wash is inside the group the mark composites once: {background:?}"
+        );
+        let stops: &[pdf_render::Stop] = match shading.kind.as_ref() {
+            pdf_render::ShadingKind::Axial { ramp, .. } => &ramp.stops,
+            _ => &[],
+        };
+        assert!(!stops.is_empty(), "the fixture states an axial shading");
+        for stop in stops {
+            assert!(
+                (stop.colour.a - 0.25).abs() < 1e-6,
+                "and the ramp carries the same constant as the wash: {:?}",
+                stop.colour
+            );
+        }
+    }
+    assert_eq!(found, 1, "the pattern paints the path once");
+}

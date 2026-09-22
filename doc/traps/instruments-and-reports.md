@@ -915,6 +915,17 @@ shows)" reads as a finding until the two populations are separated. Round 1160's
 digest-only rows as a population and show they are exactly the variant's users — interpret each and
 count its commands, do not infer — before reading any of them as a change (ADR 1217).
 
+### 42. A refusal's message is only as good as the branch that emits it
+
+`redact.rs`'s module doc and ADR 1133 both said a `JPXDecode` image was refused with §7.4.9 NOTE 3's
+reason — an over-budget decode is a reduced resolution level — and the match arm's `other =>` branch
+had always given the generic "codec this removal does not re-encode" sentence instead (ADR 1248).
+The same shape one level up: the ADR's sentence stated a genuine *condition* and the code refused the
+whole *codec*, including every file the condition does not hold for. Trap 27 says an assertion is
+only as good as what it excludes; when a doc comment or an ADR promises a specific reason, read the
+branch that prints it, and when a refusal's written reason carries a qualifier, check the code tests
+that qualifier.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

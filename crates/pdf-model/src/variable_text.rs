@@ -228,17 +228,21 @@ pub(crate) enum Owed {
     /// the walk §12.5.6.6's `/RC` already goes through (ADRs 1122, 1197). Saying the rest out
     /// loud is the shortfall trap 5 exists against.
     RichTextFormatting,
-    /// The `/DA`'s `Tm` has a linear part this module cannot lay text along: one that sends the
-    /// line's direction off both of the box's axes, or one with no inverse.
+    /// The `/DA`'s `Tm` states a linear part with no inverse, so there is no room to lay out in.
     ///
     /// The clause admits at most one `Tm` and has a processor "replace the horizontal and
     /// vertical translation components", so the four numbers before those two stand over every
-    /// mark the appearance makes. Where they send the line along one of the box's own axes the
-    /// box is carried back through them and the layout is measured there — a scale, a mirror, a
-    /// quarter turn and a shear all are (ADR 1114, ADR 1130). A turn by anything else leaves a
-    /// line whose room is not a length the box states, and a singular one leaves no box at all;
-    /// those are what is left, and saying so is trap 5's rule rather than caution.
-    TransformedTextMatrix,
+    /// mark the appearance makes. Where they have an inverse the box is carried back through
+    /// them and the value is measured in the space the matrix maps *from*, whatever the turn
+    /// ([`Frame`], ADRs 1114, 1130, 1247). Where they have none, every point of the plane lands
+    /// on one line: the box has no preimage that is a region, so no pair of translation
+    /// components is more appropriate than another, and the glyph outlines this matrix is
+    /// written in front of are flattened onto that line and enclose no area.
+    ///
+    /// **A report rather than a refusal.** The marks are still the producer's matrix applied to
+    /// the producer's value, which is what §12.7.4.3 leaves standing; what this says is that
+    /// there was nothing for the positioning half of the clause to work on.
+    SingularTextMatrix,
 }
 
 impl Owed {
@@ -284,10 +288,10 @@ impl Owed {
                                          its markup, Table 228's /RV and Table 228's /DS state \
                                          is XFA 3.3's and is not applied here"
                 .to_owned(),
-            Self::TransformedTextMatrix => "its /DA sets a text matrix whose linear part turns \
-                                            the line of text off both axes of the box it is laid \
-                                            out in, or has no inverse, and the text is \
-                                            positioned as if it were the identity"
+            Self::SingularTextMatrix => "its /DA sets a text matrix whose linear part has no \
+                                         inverse, so it flattens every glyph onto one line and \
+                                         the box it is laid out in has no room for the clause's \
+                                         positioning values to be measured against"
                 .to_owned(),
         }
     }
@@ -673,13 +677,6 @@ const AUTO_SIZE_STEPS: u32 = 20;
 /// a font name `/DR` does not define. A shortfall that still leaves something to draw is
 /// reported through [`LaidOut::owed`] instead, because drawing what is stated while naming what
 /// is not says two true things rather than one.
-#[expect(
-    clippy::too_many_lines,
-    reason = "§12.7.4.3's construction is one sequence — the /DA parsed, the font set, a scaling text \
-              matrix divided out, the text measured, wrapped and sized, the lines written, the scale \
-              multiplied back — and its order is the clause's; splitting it would put that order in \
-              two places"
-)]
 pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut, Owed> {
     let appearance = DefaultAppearance::parse(request.default_appearance);
     let Some(font_name) = appearance.font.clone() else {
@@ -734,22 +731,22 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     let frame = framed.unwrap_or_else(|| Frame::unmeasured(appearance.matrix));
     // Everything from here to the marks is measured in the space the matrix maps *from*; the box
     // the clip is written from stays the one the caller gave.
-    let laid_box = frame.shrink(box_);
-    let (width, height) = (
-        (laid_box[2] - laid_box[0]).max(0.0),
-        (laid_box[3] - laid_box[1]).max(0.0),
-    );
+    let stack = Stack {
+        room: frame.room(box_),
+        metrics: &metrics,
+        leading: appearance.leading,
+        shape: request.shape,
+    };
 
     let size = match appearance.size {
         Some(size) if size > 0.0 => size,
         // Table 228's `/DA` "shall include a Tf … along with its two operands", and
         // §12.7.4.3: "A zero value for size means that the font shall be auto-sized".
-        _ => auto_size(&measure, &runs.codes, request.shape, width, height),
+        _ => auto_size(&measure, &runs.codes, stack),
     };
 
-    let leading = appearance.leading.unwrap_or(size * LINE_HEIGHT);
     let lines = match request.shape {
-        Shape::Multiline => wrap(&measure, &runs.codes, size, width),
+        Shape::Multiline => wrap(&measure, &runs.codes, size, stack),
         Shape::ListBox => hard_lines(&runs.codes),
         Shape::SingleLine | Shape::Comb(_) => std::iter::once(0..runs.codes.len()).collect(),
     };
@@ -767,40 +764,16 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         offsets: &runs.offsets,
         frame,
     };
-    // What is left of the report: a linear part that sends the line's direction off both of the
-    // box's axes — a turn by something other than a multiple of 90° — or one with no inverse.
-    // Neither leaves a length the box states for a line to be measured against, so neither can
-    // produce "positioning values it determines to be appropriate" here (`Frame`).
+    // What is left of the report: a linear part with no inverse, which leaves the box no preimage
+    // a line can be measured in, so it cannot produce "positioning values it determines to be
+    // appropriate" here (`Frame`).
     if framed.is_none() && appearance.matrix.is_some() && owed.is_none() {
-        owed = Some(Owed::TransformedTextMatrix);
+        owed = Some(Owed::SingularTextMatrix);
     }
     let marks = if let Shape::Comb(count) = request.shape {
-        comb(
-            &mut stream,
-            &measure,
-            written,
-            Set {
-                size,
-                metrics: &metrics,
-            },
-            count,
-            request,
-            laid_box,
-        )
+        comb(&mut stream, &measure, written, size, count, request, stack)
     } else {
-        write_lines(
-            &mut stream,
-            &lines,
-            &measure,
-            Set {
-                size,
-                metrics: &metrics,
-            },
-            leading,
-            request,
-            laid_box,
-            written,
-        )
+        write_lines(&mut stream, &lines, &measure, size, request, stack, written)
     };
     let marks = frame.grow(marks);
 
@@ -812,18 +785,7 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
         offset: marks.offset,
         selection: marks.selection,
         advance: marks.advance,
-        overflows: overflows(
-            &measure,
-            &runs.codes,
-            &lines,
-            Set {
-                size,
-                metrics: &metrics,
-            },
-            leading,
-            request,
-            laid_box,
-        ),
+        overflows: overflows(&measure, &runs.codes, &lines, size, request, stack),
         // The invented dictionary has to reach the appearance's `/Resources` under the name
         // the `/DA` used, whichever of the two ways this crate arrived at it — the stream says
         // `/{name} {size} Tf` either way, and a resource the interpreter cannot find is a
@@ -862,11 +824,63 @@ fn open_marked_content(
     let _ = writeln!(stream, "/{} {size} Tf", name.escaped());
 }
 
-/// The size a run is set at and the font's vertical metrics at one em.
+/// Where the lines of one value sit inside the box, and how much room each of them has.
+///
+/// The three questions that used to be a rectangle and a slide: which baseline a line of a block
+/// is laid on, where that line may start, and how long it may be. They are one type because the
+/// last two are the first one's answers — [`Room`] is a function of the baseline under any linear
+/// part the `/DA` can state — and because a layout that measured a line against one baseline and
+/// drew it at another would quad text off its own box (ADR 1247).
 #[derive(Clone, Copy)]
-struct Set<'a> {
-    size: f32,
+struct Stack<'a> {
+    /// What the box leaves, in the space the `/DA`'s text matrix maps from.
+    room: Room,
+    /// The font's vertical metrics at one em.
     metrics: &'a Metrics,
+    /// The `/DA`'s `TL`, where the string states one; [`LINE_HEIGHT`] stands in otherwise.
+    leading: Option<f32>,
+    /// Which of §12.7.5's shapes the value fills the box in, which decides where a block starts.
+    shape: Shape,
+}
+
+impl Stack<'_> {
+    /// The distance between two baselines at this size.
+    fn leading(self, size: f32) -> f32 {
+        self.leading.unwrap_or(size * LINE_HEIGHT)
+    }
+
+    /// The baseline of the first line of a block of `lines`.
+    ///
+    /// Where the lines sit vertically is the choice [`DEFAULT_DESCENT`] records: a single line is
+    /// centred in its box, several start at the top and run down, and in both the first baseline
+    /// sits one ascent below the top of the space the text occupies. A list box runs from the top
+    /// for the reason a paragraph does and one more: Table 234's `/TI` names the option the list
+    /// *starts* at, so the first line drawn has to be the first line of the box or the entry
+    /// names nothing.
+    fn first(self, size: f32, lines: usize) -> f32 {
+        let ascent = self.metrics.ascent * size;
+        let descent = self.metrics.descent * size;
+        let text_height = self
+            .leading(size)
+            .mul_add(count(lines.saturating_sub(1)), ascent - descent);
+        let top = if matches!(self.shape, Shape::Multiline | Shape::ListBox) {
+            self.room.top()
+        } else {
+            self.room.bottom() + (self.room.height() + text_height) * 0.5
+        };
+        top - ascent
+    }
+
+    /// The baseline one line of a block of `lines` is laid on.
+    fn baseline(self, size: f32, lines: usize, index: usize) -> f32 {
+        self.leading(size)
+            .mul_add(-count(index), self.first(size, lines))
+    }
+
+    /// Where that line may start, and how long it may be.
+    fn at(self, size: f32, lines: usize, index: usize) -> (f32, f32) {
+        self.room.at(self.baseline(size, lines, index))
+    }
 }
 
 /// The frame a `/DA`'s `Tm` puts between the space this layout measures in and the space its
@@ -888,25 +902,22 @@ struct Set<'a> {
 ///
 /// # Which linear parts a box can be carried back through
 ///
-/// The layout runs text along text space's x-axis and stacks its lines along the y, and the box
-/// is a pair of lengths on the appearance's axes. So what decides the question is where the
-/// linear part sends the *line's* direction, and there are exactly two answers it can give:
+/// Every one that has an inverse, and the room it leaves is [`Room`]. The layout runs text along
+/// text space's x-axis and stacks its lines along the y, so what the box has to say is *how long
+/// a line laid on a given baseline may be* — and the preimage of a rectangle under an invertible
+/// linear part is a parallelogram, whose horizontal chord is that length, in closed form, at
+/// every baseline. A scale, a mirror, a quarter turn and a shear are the cases where that chord
+/// has the same length on every line (ADRs 1114, 1130); a turn by anything else is the case where
+/// it does not, and the difference is a number per line rather than a construction (ADR 1247).
 ///
-/// - **`b` is zero** and the line runs along the appearance's x-axis. The preimage of the box is
-///   a band of fixed height whose horizontal extent has a fixed *length* — `|x₁ − x₀| / |a|` —
-///   and an origin that slides with the baseline by `−c/a` per unit. That slide is [`Self::drift`]
-///   and it is the whole of what a shear does to a layout.
-/// - **`a` is zero** and the line runs along the appearance's y-axis: a quarter turn, with
-///   whatever scale, mirror and shear it carries. The same arithmetic with the two axes
-///   exchanged, which is what [`Self::turned`] records.
+/// A linear part with no inverse is the one thing left, and it is not a layout question: it sends
+/// the whole plane onto one line, so the box has no preimage that is a region and the glyph
+/// outlines written in front of it enclose no area. That case runs under [`Self::unmeasured`],
+/// which measures in the box's own space and still carries the producer's four numbers into every
+/// `Tm` written, and it is what [`Owed::SingularTextMatrix`] reports.
 ///
-/// Anything else sends the line off both of the box's axes — a turn by something that is not a
-/// multiple of 90° — and then there is no length the box states for a line to be measured
-/// against. That case, and a linear part with no inverse, keep [`Owed::TransformedTextMatrix`]
-/// and are laid out under [`Self::unmeasured`], which still carries the matrix into the stream.
-///
-/// A `/DA` stating no `Tm` runs under [`Self::UPRIGHT`], where the line is along x, the scales are
-/// one and the shear is zero, so every step below is the arithmetic that was there before.
+/// A `/DA` stating no `Tm` runs under [`Self::UPRIGHT`], where the map is the identity, so every
+/// step below is the arithmetic that was there before.
 #[derive(Clone, Copy)]
 struct Frame {
     /// The four numbers the `Tm` states before its translation, in the operator's own order.
@@ -914,67 +925,134 @@ struct Frame {
     /// Carried rather than rebuilt because they are written back out verbatim: the `Tm` this
     /// module writes replaces the translation and nothing else.
     linear: [f32; 4],
-    /// Whether the line runs along the appearance's y-axis rather than its x-axis.
-    turned: bool,
-    /// What the line direction measures on its own axis: `a` upright, `b` turned.
-    along: f32,
-    /// What one unit of line stacking measures on the other axis: `d` upright, `c` turned.
-    across: f32,
-    /// What one unit of line stacking measures along the *line's* axis — the shear, zero unless
-    /// the matrix has one: `c` upright, `d` turned.
-    shear: f32,
+    /// The map the layout is measured under: [`Self::linear`] where it has an inverse.
+    ///
+    /// The two are the same for every matrix this module can measure, and deliberately not the
+    /// same for one it cannot: a singular linear part is written into the stream, because the
+    /// clause replaces the translation and nothing else, and the *positions* it is given are
+    /// measured in the box's own space, because there is no other space to measure them in.
+    measured: [f32; 4],
+}
+
+/// The room the box gives a line of text, in the space the `/DA`'s text matrix maps from.
+///
+/// §12.7.4.3 sets the appearance's `BBox` from "the dimensions of the annotation rectangle" and
+/// the stream written here clips to it, so the box is what a line may occupy. Under a linear part
+/// that is not the identity, the box's own two coordinate ranges become two *strips* of the space
+/// the layout measures in — `x₀ ≤ a·x + c·y ≤ x₁` and `y₀ ≤ b·x + d·y ≤ y₁` — and their
+/// intersection is the parallelogram a line has to stay inside.
+///
+/// Each strip is one bound on where a line laid on baseline `y` may start and end, and both are
+/// affine in `y`, so the chord is a subtraction rather than a search. Where one of `a` and `b` is
+/// zero its strip constrains the baseline instead of the line, which is the case a scale, a
+/// mirror, a quarter turn or a shear is in: the chord is then the same length on every line and
+/// only its start moves. Both cannot be zero, because the determinant would be zero with them and
+/// [`Frame::of`] has already sent that matrix to [`Frame::unmeasured`].
+#[derive(Clone, Copy)]
+struct Room {
+    /// One row per coordinate of the box: the line's coefficient, the baseline's, and the pair
+    /// of values that coordinate is held between.
+    strips: [[f32; 4]; 2],
+    /// The lowest and highest baseline at which the box leaves any room at all.
+    ///
+    /// The parallelogram's extent along the stacking axis, taken from the four corners of the box
+    /// carried back through the linear part — which is where its extreme points are, a linear map
+    /// sending a rectangle's corners to a parallelogram's.
+    span: [f32; 2],
+}
+
+impl Room {
+    /// The room a box leaves under a linear part that has an inverse.
+    fn of(linear: [f32; 4], box_: [f32; 4]) -> Self {
+        let [a, b, c, d] = linear;
+        let ends = |low: f32, high: f32| [low.min(high), low.max(high)];
+        let [x0, x1] = ends(box_[0], box_[2]);
+        let [y0, y1] = ends(box_[1], box_[3]);
+        // `(d·X − c·Y)/det` and `(a·Y − b·X)/det` are the inverse map; only the second is wanted
+        // here, because the stacking axis is the one the baselines run along.
+        let det = a.mul_add(d, -(b * c));
+        let (mut low, mut high) = (f32::INFINITY, f32::NEG_INFINITY);
+        for x in [x0, x1] {
+            for y in [y0, y1] {
+                let at = a.mul_add(y, -(b * x)) / det;
+                low = low.min(at);
+                high = high.max(at);
+            }
+        }
+        Self {
+            strips: [[a, c, x0, x1], [b, d, y0, y1]],
+            span: [low, high],
+        }
+    }
+
+    /// The highest baseline the box leaves room on, which is where a block of lines starts.
+    fn top(self) -> f32 {
+        self.span[1]
+    }
+
+    /// The lowest baseline the box leaves room on.
+    fn bottom(self) -> f32 {
+        self.span[0]
+    }
+
+    /// How far the stacking axis runs inside the box.
+    fn height(self) -> f32 {
+        (self.span[1] - self.span[0]).max(0.0)
+    }
+
+    /// Where a line laid on this baseline may start, and how long it may be.
+    ///
+    /// Zero length where the baseline is outside the parallelogram altogether, which only a
+    /// linear part turning the line off both of the box's axes can produce: the quadded position
+    /// is then the point the box pinches to, and the clip written by [`open_marked_content`] is
+    /// what keeps the glyphs off the page rather than a decision made here.
+    fn at(self, baseline: f32) -> (f32, f32) {
+        let (mut low, mut high) = (f32::NEG_INFINITY, f32::INFINITY);
+        for [along, across, from, to] in self.strips {
+            if along == 0.0 {
+                continue;
+            }
+            let (one, two) = (
+                across.mul_add(-baseline, from) / along,
+                across.mul_add(-baseline, to) / along,
+            );
+            low = low.max(one.min(two));
+            high = high.min(one.max(two));
+        }
+        (low, (high - low).max(0.0))
+    }
 }
 
 impl Frame {
     /// The frame that changes nothing, which is what a `/DA` stating no `Tm` runs under.
     const UPRIGHT: Self = Self {
         linear: [1.0, 0.0, 0.0, 1.0],
-        turned: false,
-        along: 1.0,
-        across: 1.0,
-        shear: 0.0,
+        measured: [1.0, 0.0, 0.0, 1.0],
     };
 
     /// The frame a `/DA`'s text matrix states, where this layout can carry that matrix out.
     ///
-    /// `None` for the two the type's own documentation names: a line direction off both of the
-    /// box's axes, and a linear part with no inverse.
+    /// `None` for the one case left: a linear part with no inverse, which maps the box to a
+    /// segment or a point, so no preimage of it is a region a line can be measured in.
     fn of(matrix: Option<[f32; 6]>) -> Option<Self> {
         let [a, b, c, d, _, _] = matrix?;
         let linear = [a, b, c, d];
-        // A singular linear part maps the box to a segment or a point, so no division by it names
-        // a region — and each branch below divides by one of its elements.
         if a.mul_add(d, -(b * c)) == 0.0 {
             return None;
         }
-        if b == 0.0 {
-            return Some(Self {
-                linear,
-                turned: false,
-                along: a,
-                across: d,
-                shear: c,
-            });
-        }
-        if a == 0.0 {
-            return Some(Self {
-                linear,
-                turned: true,
-                along: b,
-                across: c,
-                shear: d,
-            });
-        }
-        None
+        Some(Self {
+            linear,
+            measured: linear,
+        })
     }
 
     /// The frame for a `/DA` whose linear part this layout cannot be measured under.
     ///
     /// **The matrix still reaches the stream**, because §12.7.4.3 replaces the translation and
     /// nothing else, and dropping the rest would depart from the clause further than the
-    /// mispositioning [`Owed::TransformedTextMatrix`] reports does. So the four numbers are carried
+    /// mispositioning [`Owed::SingularTextMatrix`] reports does. So the four numbers are carried
     /// through to every `Tm` written, and the measuring is done in the box's own space — which is
-    /// what "positioned as if it were the identity" means, said out loud rather than drawn quietly.
+    /// the only space left once the matrix has flattened every other one onto a line.
     fn unmeasured(matrix: Option<[f32; 6]>) -> Self {
         match matrix {
             Some([a, b, c, d, _, _]) => Self {
@@ -985,68 +1063,49 @@ impl Frame {
         }
     }
 
+    /// The room [`Self::measured`] leaves inside the box the caller gave.
+    fn room(self, box_: [f32; 4]) -> Room {
+        Room::of(self.measured, box_)
+    }
+
     /// One text-space point in the space the marks land in.
     ///
     /// What the `Tm`'s translation is: that operator puts the line's origin at `(tx, ty)` and a
     /// glyph at advance `g` lands at `(a·g + tx, b·g + ty)`, so the positioning values §12.7.4.3
     /// asks a processor to determine are this map of the position the layout chose.
     ///
-    /// Spelled from the three scalars rather than from [`Self::linear`] because they are what the
-    /// layout was measured under: for a frame this module could carry out the two are the same
-    /// arithmetic, and for one it could not — [`Self::unmeasured`] — they are deliberately not,
-    /// since a position measured in the box's own space is where the box says and the matrix the
-    /// stream still carries is the producer's.
+    /// [`Self::measured`] rather than [`Self::linear`], which is what makes the singular case
+    /// land where the box says while the producer's own matrix still reaches the stream.
     fn place(self, point: [f32; 2]) -> [f32; 2] {
-        let line = self.along.mul_add(point[0], self.shear * point[1]);
-        let across = self.across * point[1];
-        if self.turned {
-            [across, line]
-        } else {
-            [line, across]
-        }
-    }
-
-    /// How far the line's own origin slides along its axis for a baseline this far from zero.
-    ///
-    /// Zero unless the matrix shears. The box constrains where a line lands *after* the linear
-    /// part, and a shear moves that landing by `shear · baseline`, so the room a line has starts
-    /// that much earlier in the space the layout measures in.
-    fn drift(self, baseline: f32) -> f32 {
-        -self.shear / self.along * baseline
-    }
-
-    /// The box in the space this layout measures in, with the baseline taken as zero.
-    ///
-    /// [`Self::drift`] is the rest of it: a sheared frame's box slides along the line's axis as
-    /// the lines run down, and every length in it is the same.
-    fn shrink(self, box_: [f32; 4]) -> [f32; 4] {
-        let (line, across) = if self.turned {
-            ([box_[1], box_[3]], [box_[0], box_[2]])
-        } else {
-            ([box_[0], box_[2]], [box_[1], box_[3]])
-        };
-        let span = |pair: [f32; 2], by: f32| {
-            let (low, high) = (pair[0] / by, pair[1] / by);
-            (low.min(high), low.max(high))
-        };
-        let (x0, x1) = span(line, self.along);
-        let (y0, y1) = span(across, self.across);
-        [x0, y0, x1, y1]
+        let [a, b, c, d] = self.measured;
+        [
+            a.mul_add(point[0], c * point[1]),
+            b.mul_add(point[0], d * point[1]),
+        ]
     }
 
     /// A point in the space this layout measures in, from one a caller asked about.
     ///
-    /// [`Self::place`]'s inverse, spelled from the same three scalars rather than from a general
-    /// matrix inversion: the two families [`Self::of`] admits each have one in closed form, and a
-    /// zero determinant is what that constructor has already refused.
+    /// [`Self::place`]'s inverse, which is the 2×2 inverse itself: the determinant is what
+    /// [`Self::of`] has already refused to be zero, and [`Self::unmeasured`] carries the
+    /// identity, whose determinant is one.
     fn shrink_point(self, point: [f32; 2]) -> [f32; 2] {
-        let (line, across) = if self.turned {
-            (point[1], point[0])
-        } else {
-            (point[0], point[1])
-        };
-        let y = across / self.across;
-        [self.shear.mul_add(-y, line) / self.along, y]
+        let [a, b, c, d] = self.measured;
+        let det = a.mul_add(d, -(b * c));
+        [
+            d.mul_add(point[0], -(c * point[1])) / det,
+            a.mul_add(point[1], -(b * point[0])) / det,
+        ]
+    }
+
+    /// How much longer a length along the line measures once the marks are placed.
+    ///
+    /// The line runs along text space's x-axis, which the linear part sends to `(a, b)`, so the
+    /// factor is that vector's length. One under [`Self::UPRIGHT`], and `|a|` or `|b|` for the
+    /// scales, mirrors and quarter turns where the other of the pair is zero.
+    fn stretch(self) -> f32 {
+        let [a, b, _, _] = self.measured;
+        a.hypot(b)
     }
 
     /// The layout's answers, back in the space the marks land in.
@@ -1070,10 +1129,10 @@ impl Frame {
                     quad
                 })
                 .collect(),
-            // A length along the line, so it is the line's own axis that scales it. Which of the
-            // appearance's axes that is, a caller reading it as a width has to know, and the one
-            // caller that does — §12.5.6.7's caption — lays its text out under no `Tm` at all.
-            advance: marks.advance * self.along.abs(),
+            // A length along the line, so it is the line's own direction that scales it. Which
+            // way that direction points, a caller reading this as a width has to know, and the
+            // one caller that does — §12.5.6.7's caption — lays its text out under no `Tm` at all.
+            advance: marks.advance * self.stretch(),
         }
     }
 }
@@ -1406,23 +1465,26 @@ impl Measure<'_> {
 /// somewhere better — [`crate::appearance`] lays out the options **from `/TI` onward**, so the
 /// run measured here already *is* the window a producer scrolled to, and fitting it to the box
 /// is fitting the visible options. Trap 1's rule applied to a rule rather than to a defect.
-fn auto_size(measure: &Measure, codes: &[Placed], shape: Shape, width: f32, height: f32) -> f32 {
+fn auto_size(measure: &Measure, codes: &[Placed], stack: Stack) -> f32 {
     let fits = |size: f32| {
-        let lines = match shape {
-            Shape::Multiline => wrap(measure, codes, size, width),
+        let lines = match stack.shape {
+            Shape::Multiline => wrap(measure, codes, size, stack),
             Shape::ListBox => hard_lines(codes),
             Shape::SingleLine | Shape::Comb(_) => std::iter::once(0..codes.len()).collect(),
         };
-        let widest = lines
-            .iter()
-            .map(|line| measure.width(line_codes(codes, line), size))
-            .fold(0.0_f32, f32::max);
-        widest <= width && size * LINE_HEIGHT * count(lines.len()) <= height
+        // Each line against its own room rather than the widest against one width, because under
+        // a linear part that turns the line off both of the box's axes the room is a chord and
+        // the chord is a different length on every line (ADR 1247). The two readings are the same
+        // arithmetic wherever the chord does not vary, which is every matrix but that one.
+        let held = lines.iter().enumerate().all(|(index, line)| {
+            measure.width(line_codes(codes, line), size) <= stack.at(size, lines.len(), index).1
+        });
+        held && size * LINE_HEIGHT * count(lines.len()) <= stack.room.height()
     };
 
     // The box's height is an upper bound on any size that can fit in it, whatever the text.
     let mut low = MIN_AUTO_SIZE;
-    let mut high = height.max(MIN_AUTO_SIZE);
+    let mut high = stack.room.height().max(MIN_AUTO_SIZE);
     if fits(high) {
         return high;
     }
@@ -1439,50 +1501,33 @@ fn auto_size(measure: &Measure, codes: &[Placed], shape: Shape, width: f32, heig
 
 /// Positions each line by `/Q` and writes it.
 ///
-/// Where the lines sit vertically is the choice [`DEFAULT_DESCENT`] records: a single line is
-/// centred in its box, several start at the top and run down, and in both the first baseline
-/// sits one ascent below the top of the space the text occupies.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is one input a line's position depends on — the lines, their measure, \
-              the set font, the leading, the request's /Q, the box, and the matrix already written"
-)]
+/// Where a line sits is [`Stack`]'s answer and how much room it has is [`Room`]'s; what is here
+/// is the clause's own `/Q`, applied to the room that line actually got.
 fn write_lines(
     stream: &mut String,
     lines: &[std::ops::Range<usize>],
     measure: &Measure,
-    set: Set,
-    leading: f32,
+    size: f32,
     request: &Request,
-    box_: [f32; 4],
+    stack: Stack,
     written: Written,
 ) -> Marks {
     let frame = written.frame;
-    let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
-    let ascent = set.metrics.ascent * set.size;
-    let descent = set.metrics.descent * set.size;
-    let text_height = leading.mul_add(count(lines.len().saturating_sub(1)), ascent - descent);
-    // A list box runs from the top for the reason a paragraph does and one more: Table 234's
-    // `/TI` names the option the list *starts* at, so the first line drawn has to be the first
-    // line of the box or the entry names nothing.
-    let top = if matches!(request.shape, Shape::Multiline | Shape::ListBox) {
-        box_[3]
-    } else {
-        box_[1] + (height + text_height) * 0.5
-    };
-    let first = top - ascent;
+    let ascent = stack.metrics.ascent * size;
+    let descent = stack.metrics.descent * size;
     let mut marks = Marks::default();
     let mut nearest: Option<(f32, f32, usize)> = None;
 
     for (index, line) in lines.iter().enumerate() {
         let codes = line_codes(written.codes, line);
-        let advance = measure.width(codes, set.size);
+        let advance = measure.width(codes, size);
         marks.advance = marks.advance.max(advance);
-        let baseline = leading.mul_add(-count(index), first);
-        // A shear moves where a line *lands* by `shear · baseline`, so the room it has starts
-        // that much earlier in the space this is measured in. Zero for every frame that does not
-        // shear, which is every frame a `/DA` has ever been seen to state.
-        let start = box_[0] + frame.drift(baseline);
+        let baseline = stack.baseline(size, lines.len(), index);
+        // Where the box leaves this line room, and how much. A shear slides the start along the
+        // line's own axis as the baselines run down; a turn off both of the box's axes changes
+        // the length as well, because the room is then a chord of the box rather than a side of
+        // it (ADR 1247). Under every other matrix both are what they were.
+        let (start, width) = stack.room.at(baseline);
         let x = match request.quadding {
             Quadding::Left => start,
             Quadding::Centred => start + (width - advance) * 0.5,
@@ -1499,7 +1544,7 @@ fn write_lines(
             let before = codes
                 .get(..at.saturating_sub(line.start).min(codes.len()))
                 .unwrap_or(codes);
-            let x = x + measure.width(before, set.size);
+            let x = x + measure.width(before, size);
             marks.caret = Some(Caret {
                 from: [x, baseline + descent],
                 to: [x, baseline + ascent],
@@ -1511,9 +1556,8 @@ fn write_lines(
         if let Some((from, to)) = written.selection {
             let (start, end) = (from.max(line.start), to.min(line.end));
             if start < end {
-                let x0 =
-                    x + measure.width(line_codes(written.codes, &(line.start..start)), set.size);
-                let x1 = x + measure.width(line_codes(written.codes, &(line.start..end)), set.size);
+                let x0 = x + measure.width(line_codes(written.codes, &(line.start..start)), size);
+                let x1 = x + measure.width(line_codes(written.codes, &(line.start..end)), size);
                 // A range covering nothing but a line break has no shape, because a break draws
                 // no glyph — the same reason `show` skips it.
                 if x1 > x0 {
@@ -1536,7 +1580,7 @@ fn write_lines(
             } else {
                 0.0
             };
-            let (at, dx) = nearest_boundary(measure, codes, set.size, x, px);
+            let (at, dx) = nearest_boundary(measure, codes, size, x, px);
             if nearest
                 .is_none_or(|(best_y, best_x, _)| dy < best_y || (dy <= best_y && dx < best_x))
             {
@@ -1653,12 +1697,10 @@ fn overflows(
     measure: &Measure,
     codes: &[Placed],
     lines: &[std::ops::Range<usize>],
-    set: Set,
-    leading: f32,
+    size: f32,
     request: &Request,
-    box_: [f32; 4],
+    stack: Stack,
 ) -> bool {
-    let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     match request.shape {
         Shape::Comb(cells) => {
             lines
@@ -1669,9 +1711,12 @@ fn overflows(
                 .saturating_sub(usize::try_from(cells).unwrap_or(usize::MAX))
                 > 0
         }
-        Shape::SingleLine => lines
-            .iter()
-            .any(|line| measure.width(line_codes(codes, line), set.size) > width),
+        // The room the one line actually got, which is the box's own side under every matrix
+        // but a turn off both of its axes, and the chord through the centred baseline under that
+        // one.
+        Shape::SingleLine => lines.iter().enumerate().any(|(index, line)| {
+            measure.width(line_codes(codes, line), size) > stack.at(size, lines.len(), index).1
+        }),
         // Table 231 is §12.7.5.3's alone and reaches no choice field, so no flag asks this
         // question of a list box — and the answer it would want is *no* either way: §12.7.5.4
         // makes the control "a scrollable list box" and Table 234's `/TI` says which option its
@@ -1681,9 +1726,12 @@ fn overflows(
         // The same height [`write_lines`] lays out: one ascent above the first baseline, one
         // descent below the last, and a leading between each pair.
         Shape::Multiline => {
-            let ascent = set.metrics.ascent * set.size;
-            let descent = set.metrics.descent * set.size;
-            leading.mul_add(count(lines.len().saturating_sub(1)), ascent - descent) > height
+            let ascent = stack.metrics.ascent * size;
+            let descent = stack.metrics.descent * size;
+            stack
+                .leading(size)
+                .mul_add(count(lines.len().saturating_sub(1)), ascent - descent)
+                > stack.room.height()
         }
     }
 }
@@ -1701,15 +1749,26 @@ fn overflows(
 /// implementation that measured the whole line per character would turn a long field value
 /// into a quadratic cost twenty-one times over. Principle 3's rule about a document's own
 /// numbers driving a loop.
-fn wrap(measure: &Measure, codes: &[Placed], size: f32, width: f32) -> Vec<std::ops::Range<usize>> {
+fn wrap(
+    measure: &Measure,
+    codes: &[Placed],
+    size: f32,
+    stack: Stack,
+) -> Vec<std::ops::Range<usize>> {
     let mut lines = Vec::new();
     let mut start = 0_usize;
     let mut last_space: Option<usize> = None;
     let mut reached = 0.0_f32;
+    // The room the line being built will have. A block of wrapped lines starts at the top of the
+    // box whatever the count, so the baseline of line *n* is known before line *n* exists — which
+    // is what lets a chord that changes from line to line be a width here rather than a second
+    // pass (ADR 1247).
+    let mut width = stack.at(size, 0, 0).1;
 
     for (index, code) in codes.iter().enumerate() {
         if matches!(code, Placed::Break) {
             lines.push(start..index);
+            width = stack.at(size, 0, lines.len()).1;
             start = index.saturating_add(1);
             last_space = None;
             reached = 0.0;
@@ -1726,6 +1785,7 @@ fn wrap(measure: &Measure, codes: &[Placed], size: f32, width: f32) -> Vec<std::
         // last two codes.
         let at = last_space.unwrap_or(index);
         lines.push(start..at);
+        width = stack.at(size, 0, lines.len()).1;
         reached = measure.width(codes.get(at..=index).unwrap_or_default(), size);
         start = at;
         last_space = None;
@@ -1780,16 +1840,13 @@ fn comb(
     stream: &mut String,
     measure: &Measure,
     written: Written,
-    set: Set,
+    size: f32,
     cell_count: u32,
     request: &Request,
-    box_: [f32; 4],
+    stack: Stack,
 ) -> Marks {
-    let size = set.size;
     let frame = written.frame;
-    let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     let cells = count(usize::try_from(cell_count).unwrap_or(usize::MAX)).max(1.0);
-    let cell = width / cells;
     let codes = written.codes;
     let shown: Vec<Placed> = codes
         .iter()
@@ -1803,15 +1860,14 @@ fn comb(
         Quadding::Centred => ((cells - used) * 0.5).max(0.0).floor(),
         Quadding::Right => (cells - used).max(0.0),
     };
-    // A comb field is single-line by Table 231's own rule for bit 25, so the baseline is the
-    // centred one.
-    let baseline = size.mul_add(
-        -set.metrics.descent,
-        box_[1] + (height - size * (set.metrics.ascent - set.metrics.descent)) * 0.5,
-    );
-
-    // One baseline, so one slide: a comb is single-line by Table 231 bit 25's own rule.
-    let start = box_[0] + frame.drift(baseline);
+    // A comb field is single-line by Table 231's own rule for bit 25 — it "[m]ay be set only if
+    // … the Multiline, Password, and FileSelect flags are clear" — so there is one baseline, and
+    // it is the centred one [`Stack`] gives a single line. The cells are therefore divided out of
+    // the room *that* baseline has, which is the box's own side under every matrix but a turn off
+    // both of its axes, and the chord through the centre under that one (ADR 1247).
+    let baseline = stack.baseline(size, 1, 0);
+    let (start, width) = stack.room.at(baseline);
+    let cell = width / cells;
     let linear = frame.linear;
     for (index, code) in shown.iter().enumerate() {
         let slot = first + count(index);
@@ -1827,8 +1883,8 @@ fn comb(
     }
 
     let (bottom, top) = (
-        baseline + set.metrics.descent * size,
-        baseline + set.metrics.ascent * size,
+        baseline + stack.metrics.descent * size,
+        baseline + stack.metrics.ascent * size,
     );
     // Everything below is stated in *cells*, because Table 231 bit 25 divides the box into
     // positions and puts one character in each: the place a person is about to type into is a

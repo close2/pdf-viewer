@@ -357,3 +357,17 @@ likely to be stale, because every later round appends above it.** §11.7.2's had
 since ADR 0263 made it so, and `doc/todo/65` carried the same sentence verbatim; §10.8.3's new note
 named an overprint departure two batches after overprint was built. A round that moves any row of a
 clause family re-reads that family's final sentences against the code (ADRs 1230, 1229).
+
+**A doc comment that names a function as already existing is a claim, and it decays in the direction
+nobody sweeps for.** `Edit::ChooseFile` said a host asks `viewer_host::policy::may_choose_file`
+before opening the chooser, citing ADR 1216, and no such function had been written (ADR 1240). The
+six shapes above are refusals that outlived a reason; this is a sentence that outran its code. For
+every `crate::…::name` written inside a doc comment, `grep -rE "(fn|const|struct|enum) name"` finds
+it or the sentence is a promise.
+
+**A construction narrowed for what a backend could draw names the backend in its comment.** When
+the backend gains the capability the narrowing becomes a stale claim no gate can see, because the
+picture it produces is still plausible: `compose_tiling` made a cell isolated whenever the mark's
+mode was not Normal on ADR 0237's collapse, expired by ADR 1107 and found only by reading the
+condition against the backend (ADR 1243). Trap 40 is about a refusing function; this is about a
+conservative one, which reads as correct.

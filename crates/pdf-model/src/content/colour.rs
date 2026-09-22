@@ -413,20 +413,64 @@ pub(super) fn assign_colour(
 /// use the current colour in the graphics state when the current colour space is DeviceCMYK",
 /// and "shall not, however, apply to the painting of images or shadings".
 ///
-/// A `Separation` or `DeviceN` reverting to a `DeviceCMYK` alternate is deliberately not this
-/// case. §11.7.4.3 NOTE 2 makes the alternate the current colour space, but the four numbers
-/// the zero test is about are then the tint transform's output rather than anything "defined
-/// within the PDF file", and Table 146 puts such a space in its own rows. The components a
-/// producer meant to leave alone are the ones it wrote, which is what the special mode is for.
-/// ADR 1157.
+/// **A `Separation` or `DeviceN` that reverts to a `DeviceCMYK` alternate is this case**, and
+/// the alternate's four components are the tints. §11.7.4.3 NOTE 2 says which space the
+/// condition is asked of:
+///
+/// > In the previous descriptions, the term current colour space refers to the colour space
+/// > used for a painting operation. This can be specified by the current colour space
+/// > parameter in the graphics state (see 8.6.2, "Colour values"), implicitly by colour
+/// > operators such as rg (8.6.8, "Colour operators"), or by the ColorSpace entry of an image
+/// > XObject (8.9.5, "Image dictionaries"). In the case of an Indexed space, it refers to the
+/// > base colour space (see 8.6.6.3, "Indexed colour spaces"); likewise for Separation and
+/// > DeviceN spaces that revert to their alternate colour space, as described under 8.6.6.4,
+/// > "Separation colour spaces" and 8.6.6.5, "DeviceN colour spaces".
+///
+/// A [`ColourSpace::Separation`] here is precisely such a space — the variants that do not
+/// revert are `AllColourants`, `NoColourant` and `Simulated` — so its alternate is the current
+/// colour space the first bullet and §8.6.7 both name, and the zero test is asked of the four
+/// numbers that alternate receives. §8.6.7's EXAMPLE is what settles it rather than any
+/// inference: under `OP true` and `OPM 1` it makes `0.2 0.3 0.0 1.0 k` *equivalent* to
+/// `0.2 0.3 1.0 scn` in a `DeviceN` whose alternate is `DeviceCMYK`, and two operators the
+/// clause calls equivalent may not take different blend functions. §8.6.7's other sentence
+/// bounds the same reading from the other side: determination of whether a tint is zero
+/// "shall be made on the tint value defined within the PDF file, before quantisation into a
+/// device tint value for the output device" — a floating-point requirement about *precision*,
+/// which the tint transform's output satisfies. ADR 1241, amending ADR 1157.
+///
+/// NOTE 2's `Indexed` clause is not answered here, and the reason is not the clause: reading
+/// the base space's components for an index needs `ColourSpace::entry_of`, which is
+/// `pub(crate)` to `pdf-colour` so that §8.6.6.3's table is rounded in one place. ADR 1241
+/// section 5.
 #[expect(
     clippy::doc_markdown,
-    reason = "the table cell and the clause sentence above are quotations, and a quotation may               not gain backticks"
+    reason = "the table cell and the clause sentences above are quotations, and a quotation \
+              may not gain backticks"
 )]
 fn cmyk_tints(space: &ColourSpace, values: &[f32]) -> Option<[f32; 4]> {
-    matches!(space, ColourSpace::Cmyk)
-        .then(|| <[f32; 4]>::try_from(values).ok())
-        .flatten()
+    match space {
+        ColourSpace::Cmyk => <[f32; 4]>::try_from(values).ok(),
+        // [`reverts_to_cmyk`] is asked first so that the tint transform is evaluated only
+        // where its answer is the one the first bullet needs. This runs beside every `sc`,
+        // `scn` and `cs`, and the transform is a function the operator has already evaluated
+        // once for its colour; a page painting in a `Separation` over any other alternate
+        // pays a discriminant test rather than a second evaluation.
+        ColourSpace::Separation {
+            alternate, tints, ..
+        } if reverts_to_cmyk(alternate) => cmyk_tints(alternate, &tints.eval(values)),
+        _ => None,
+    }
+}
+
+/// Whether a space is `DeviceCMYK`, or reverts to it, without evaluating anything.
+///
+/// The condition [`cmyk_tints`] is about, asked on discriminants alone.
+fn reverts_to_cmyk(space: &ColourSpace) -> bool {
+    match space {
+        ColourSpace::Cmyk => true,
+        ColourSpace::Separation { alternate, .. } => reverts_to_cmyk(alternate),
+        _ => false,
+    }
 }
 
 /// Converts a colour, honouring the graphics state's black point setting.

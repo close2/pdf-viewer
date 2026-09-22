@@ -154,10 +154,10 @@ pub use policy::{
     Opening, READER_NAME, READER_ORGANISATION, READER_TITLE, REFERENCE_FILES, REMOTE_DOCUMENTS,
     RESTRICTIONS, ReferenceRefusal, Remote, RemoteDocuments, SEPARATIONS, Settings, TRUST_ANCHORS,
     URI_HANDLER, answered, asked_for, asked_to_open, asked_to_open_remote, audience, link, links,
-    may_open_extracted, may_open_uri, may_write_extracted, offers_machine_fonts, open_uri,
-    read_import, reference_files, refused, remote, remote_declined, remote_documents, remote_note,
-    resolve_import, resolve_uri, restrictions, separations, separations_note, supply_note,
-    trust_anchors, unanswerable, uri_note, warned,
+    may_choose_file, may_open_extracted, may_open_uri, may_write_extracted, offers_machine_fonts,
+    open_uri, read_import, reference_files, refused, remote, remote_declined, remote_documents,
+    remote_note, resolve_import, resolve_uri, restrictions, separations, separations_note,
+    supply_note, trust_anchors, unanswerable, under_remote_documents, uri_note, warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};

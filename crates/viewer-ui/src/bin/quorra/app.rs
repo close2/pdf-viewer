@@ -39,8 +39,10 @@ pub(crate) enum Pending {
         /// The URI as `viewer_host::resolve_uri` left it.
         uri: String,
     },
-    /// §12.6.4.3's named file, answered by reading it and supplying it (ADR 1227).
+    /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
+        /// Which of the three purposes asked, so that the answer goes back to the right one.
+        purpose: viewer_core::Purpose,
         /// The file as the *document* named it, for the sentence a decline prints.
         name: String,
         /// Where `viewer_host::resolve_import` put it, which is what would be read.

@@ -5387,12 +5387,12 @@ oracle's own compositing function.
 **And the cheap half of that ask is nearly all of it, measured.** A mark whose three bits are all
 set is destination-over whole, and one whose bits are all clear is source-over whole — both
 expressible with nothing but `Compose::DestOver` added to the four operators
-`raster_scene::Compose` has. Over the 65 944 crawled documents, of 27 435 261 marks under the
-mode **13 772 602 keep all three channels, 13 650 173 keep none, and 12 486 keep a proper subset**
-— 0.046%. Per page it is starker, because a page reaches the mode in both halves of §11.4.7's pair
-at once: **9734 of 9863 pages and 1711 of 1788 documents state no proper subset at all.** So
-**`Compose::DestOver` on its own is 95.7% of the documents this refusal costs**, and the
-per-channel choice is 77 documents and 129 pages. If only one of the two is affordable, that is
+`raster_scene::Compose` has. Over the 65 944 crawled documents, of 27 462 715 marks under the
+mode **13 786 113 keep all three channels, 13 663 468 keep none, and 13 134 keep a proper subset**
+— 0.048%. Per page it is starker, because a page reaches the mode in both halves of §11.4.7's pair
+at once: **9670 of 9890 pages and 1702 of 1799 documents state no proper subset at all.** So
+**`Compose::DestOver` on its own is 94.6% of the documents this refusal costs**, and the
+per-channel choice is 97 documents and 220 pages. If only one of the two is affordable, that is
 the one worth having.
 
 The `DestOut` + `Plus` pair cannot stand in for destination-over: that pair is
@@ -5404,9 +5404,9 @@ is the pair §17 answered.
 
 **What it costs, now that it is counted rather than guessed.** `render-raster` refuses a list that
 carries the mode by name, before the scene is built, and the frame falls back to the CPU backend.
-Over 65 944 crawled documents that is **1788 documents and 9863 pages — 2.7% of the documents
-that open** (ADRs 1178, 1181), which makes it the largest by-name coverage loss this side's use of
-your renderer carries. The witness to look at is one page of the pdf.js corpus,
+Over 65 944 crawled documents that is **1799 documents and 9890 pages — 2.7% of the documents
+that open** (ADRs 1178, 1181, 1241), which makes it the largest by-name coverage loss this side's
+use of your renderer carries. The witness to look at is one page of the pdf.js corpus,
 `issue12798_page1_reduced.pdf`, a Dutch public-health poster whose `DeviceCMYK` page group states
 `/OP true /op true /OPM 1` and paints black ink over a magenta band under `/BM /Multiply`. It is a
 page this side and yours agreed on to 0.076 of 255 as recently as the four-hundred-and-thirty-ninth

@@ -9,6 +9,12 @@
 //! four-component pair `pdf_render::blending` puts back together — so the whole of what is
 //! owed lives on such a page, and every fixture below states one.
 //!
+//! **Which spaces are in that row is §11.7.4.3's NOTE 2's answer, not the row's own wording.**
+//! A `Separation` or `DeviceN` that reverts has its alternate for a current colour space, so
+//! one over `DeviceCMYK` is in the first row on the four components the alternate receives;
+//! §8.6.7's EXAMPLE calls such an `scn` equivalent to the matching `k`, and the last two
+//! fixtures are that EXAMPLE and §10.8.2's (ADR 1241).
+//!
 //! The expected values are derived from the clause rather than measured from this tree. Under
 //! `OP true` and `OPM 1` the blend function is "the source component C s for any process
 //! ( DeviceCMYK ) colour component whose (subtractive) colour value is nonzero; otherwise it
@@ -39,13 +45,22 @@ use pdf_syntax::Document;
 /// `resources` carries the page's `/ExtGState` entries and `content` its stream. The page is
 /// 40 units square and rasterises one pixel per unit.
 fn cmyk_page(resources: &str, content: &str) -> Vec<u8> {
+    cmyk_page_with(resources, content, "")
+}
+
+/// [`cmyk_page`] with further objects appended, numbered from 5.
+///
+/// `extra` is the literal body of those objects, each ending in `endobj\n`, so that a fixture
+/// can name a colour space array and a tint transform by object number. A type 4 function is
+/// a stream and there is no other place to put one.
+fn cmyk_page_with(resources: &str, content: &str, extra: &str) -> Vec<u8> {
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
          /Group << /S /Transparency /CS /DeviceCMYK >> \
          /Resources << {resources} >> /Contents 4 0 R >>\nendobj\n\
-         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n{extra}",
         content.len() + 1
     );
 
@@ -476,4 +491,112 @@ fn a_pair_under_a_constant_alpha_gets_the_first_bullets_group() {
         "and the stroke's part is B over what the fill left, composited in the same one step"
     );
     assert_ne!(pixel(&stroked, 11, 20), pixel(&stroked, 20, 20));
+}
+
+/// §10.8.2's own example: cyan then yellow through two `Separation` spaces is green.
+///
+/// > For example, if two separate painting operations are performed on the same area of the
+/// > page with the overprinting controls turned on, one using a Cyan Separation colour space
+/// > and the second using a Yellow Separation colour space, then that area will appear green
+/// > when produced using separations, overprinting of the cyan and yellow inks, whereas
+/// > displaying it on the screen, ignoring the overprint controls, will generally produce
+/// > yellow, the last colour painted.
+///
+/// The clause's second half describes a processor that *ignores* the overprint controls; this
+/// one does not, because §11.7.4.3's special blend mode is built. So inside a page group
+/// compositing in `DeviceCMYK` the area is green — `1 0 1 0` in the group's four components,
+/// cyan kept because yellow's other three tints are zero — and that is a colour the same page
+/// can name with `k`. §11.7.4.3's NOTE 2 is what carries the two `Separation` spaces into the
+/// first bullet: each reverts to `DeviceCMYK`, so the current colour space *is* `DeviceCMYK`
+/// and the zero test is asked of the four components the alternate receives. ADR 1241.
+///
+/// The second assertion is what makes the first discriminate: with the overprint controls off
+/// the same two fills are the clause's other outcome, yellow.
+#[test]
+fn two_separation_spaces_overprinting_are_the_colour_the_alternate_names() {
+    let spaces = "/ColorSpace << \
+                  /Cy [/Separation /Cyan /DeviceCMYK \
+                  << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 0 0 0] /N 1 >>] \
+                  /Ye [/Separation /Yellow /DeviceCMYK \
+                  << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 1 0] /N 1 >>] >>";
+    let resources = format!("/ExtGState << /GS << /OP true /op true /OPM 1 >> >> {spaces}");
+    let fills = "/Cy cs 1 scn 0 0 40 40 re f /Ye cs 1 scn 0 0 40 40 re f";
+
+    let separations = interpret(cmyk_page(&resources, &format!("/GS gs {fills}")));
+    let green = interpret(cmyk_page("", "1 0 1 0 k 0 0 40 40 re f"));
+    assert!(
+        separations.display_list.overprints(),
+        "a Separation reverting to DeviceCMYK is the first bullet's current colour space"
+    );
+    assert_eq!(
+        centre(&separations),
+        centre(&green),
+        "cyan overprinted by yellow is 1 0 1 0 in the group's own components"
+    );
+
+    let ignored = interpret(cmyk_page(&resources, fills));
+    let yellow = interpret(cmyk_page("", "0 0 1 0 k 0 0 40 40 re f"));
+    assert_eq!(
+        centre(&ignored),
+        centre(&yellow),
+        "with the controls off the clause's other outcome is the last colour painted"
+    );
+    assert_ne!(centre(&separations), centre(&ignored));
+}
+
+/// §8.6.7's EXAMPLE, which is an equivalence between a `k` and a `DeviceN` `scn`.
+///
+/// > EXAMPLE If the overprint parameter is true and the overprint mode is 1, the operation 0.2
+/// > 0.3 0.0 1.0 k is equivalent to 0.2 0.3 1.0 scn in the colour space shown in this example.
+///
+/// The space the EXAMPLE shows is `[/DeviceN [/Cyan /Magenta /Black] /DeviceCMYK 6 0 R]` with
+/// the tint transform `{ 0 exch }`, which inserts the zero yellow the `k` operator wrote. Two
+/// operators a clause calls equivalent may not take different blend functions, so the `scn`
+/// takes the first bullet exactly as the `k` does — which is only true because §11.7.4.3's
+/// NOTE 2 makes the `DeviceN` space's alternate the current colour space (ADR 1241).
+///
+/// The backdrop states a yellow of `0.6` so that the component both operators leave alone is
+/// visible, and the expected colour is the clause's: `0.2 0.3 0.6 1.0`, yellow from the
+/// backdrop and the other three from the source.
+#[test]
+fn the_overprint_clauses_own_example_is_an_equivalence() {
+    let extra = "5 0 obj\n[/DeviceN [/Cyan /Magenta /Black] /DeviceCMYK 6 0 R]\nendobj\n\
+                 6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1 0 1] \
+                 /Range [0 1 0 1 0 1 0 1] /Length 10 >>\nstream\n{ 0 exch }\nendstream\nendobj\n";
+    let resources =
+        "/ExtGState << /GS << /OP true /op true /OPM 1 >> >> /ColorSpace << /DN 5 0 R >>";
+    let backdrop = "0 0 0.6 0 k 0 0 40 40 re f /GS gs";
+
+    let through_devicen = interpret(cmyk_page_with(
+        resources,
+        &format!("{backdrop} /DN cs 0.2 0.3 1.0 scn 0 0 40 40 re f"),
+        extra,
+    ));
+    let through_k = interpret(cmyk_page(
+        resources,
+        &format!("{backdrop} 0.2 0.3 0.0 1.0 k 0 0 40 40 re f"),
+    ));
+    let named = interpret(cmyk_page("", "0.2 0.3 0.6 1.0 k 0 0 40 40 re f"));
+
+    assert_eq!(
+        centre(&through_devicen),
+        centre(&named),
+        "the EXAMPLE's scn leaves yellow to the backdrop, as its k does"
+    );
+    assert_eq!(
+        centre(&through_devicen),
+        centre(&through_k),
+        "which is the equivalence §8.6.7's EXAMPLE states"
+    );
+
+    let erasing = interpret(cmyk_page_with(
+        resources,
+        "0 0 0.6 0 k 0 0 40 40 re f /DN cs 0.2 0.3 1.0 scn 0 0 40 40 re f",
+        extra,
+    ));
+    assert_ne!(
+        centre(&through_devicen),
+        centre(&erasing),
+        "and not the picture the same fill paints with the controls off"
+    );
 }

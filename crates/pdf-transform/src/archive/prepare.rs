@@ -635,11 +635,30 @@ pub(super) struct Prepared {
     pub(super) to_unicode: Result<DerivedMaps, Because>,
     /// The appearances to construct, or why they cannot be.
     pub(super) appearances: Result<Appearances, Because>,
+    /// The packets given a container describing the extension schemas they use, or why not.
+    ///
+    /// Prepared **last of the five writers over a packet**: ISO 19005-2 section 6.6.2.3.2's
+    /// container describes what the packet says once the four editors before it have said their
+    /// piece (`doc/adr/1245`).
+    pub(super) described: Result<SchemasDescribed, Because>,
+    /// The document's packet with a malformed amendment identifier cut out, or why not.
+    ///
+    /// Prepared **after** the three writers above and **before** the metadata, because it is the
+    /// last of the four that edit a packet by span and the identification schema is restated
+    /// into what it leaves. ISO 19005-2 section 6.6.4 (`doc/adr/1246`).
+    pub(super) amended: Result<Amended, Because>,
     /// The packets with their container fields respelled, or why they cannot be.
     ///
     /// Prepared **after** the property removal and **before** the metadata, because all three
     /// write the same packets and each has to start from what the one before it left.
     pub(super) respelled: Result<Respelled, Because>,
+    /// The packets replaced outright because this tree cannot read them, or why none are.
+    ///
+    /// Prepared **before every other writer over a packet**, and the streams it names are
+    /// excluded from all of them: ISO 19005-2 section 6.6.2.1's packet is composed afresh where
+    /// the producer's will not parse, states more than one `rdf:RDF` element or breaks the data
+    /// model, and an edit by span has nothing to write into there.
+    pub(super) fresh: Result<Fresh, Because>,
     /// The packets with their unusable properties taken out, or why they cannot be.
     ///
     /// Prepared **before** the metadata, because the catalog's own packet is one of these: the
@@ -809,14 +828,21 @@ impl Prepared {
         let hexadecimal = asked(odd_digits, || {
             super::hexadecimal::complete(document, survey.as_ref())
         });
+        // **The replacement comes before every editor**, because a stream it replaces has no
+        // producer bytes left for one to write into: ISO 19005-2 section 6.6.2.1's packet is
+        // composed afresh where this tree cannot read the one the file holds, and the three
+        // editors below skip those streams rather than editing bytes nothing will write.
+        let fresh = asked(wanted(Rewrite::FreshMetadataPacket), || {
+            prepare_fresh_packets(document, catalog.as_ref(), &failed)
+        });
         // ISO 19005-2 section 6.6.2.1's header attributes are cut before the two writers that
         // rewrite the RDF this header wraps, on the bytes the file holds rather than theirs.
         let headers = asked(wanted(Rewrite::PacketHeaderAttributes), || {
-            prepare_headers(document, input)
+            prepare_headers(document, input, fresh.as_ref().ok())
         });
         // Section 6.6.2.3.1's removals precede the restate — the catalog's packet is one they edit.
         let properties = asked(wanted(Rewrite::PropertyOutsideItsSchema), || {
-            prepare_properties(document, input, headers.as_ref().ok())
+            prepare_properties(document, input, headers.as_ref().ok(), fresh.as_ref().ok())
         });
         let removals = properties
             .as_ref()
@@ -831,6 +857,44 @@ impl Prepared {
                 input,
                 headers.as_ref().ok(),
                 properties.as_ref().ok(),
+                fresh.as_ref().ok(),
+            )
+        });
+        // Section 6.6.4's amendment identifier is cut last of the four editors, in what the
+        // three before it left: the schema is restated into this, so a cut taken from the
+        // producer's original would undo them.
+        let amended = asked(wanted(Rewrite::AmendmentIdentifierRemoved), || {
+            prepare_amendment(
+                document,
+                catalog.as_ref(),
+                Edited {
+                    fresh: fresh.as_ref().ok(),
+                    headers: headers.as_ref().ok(),
+                    cleaned: properties.as_ref().ok(),
+                    respelled: respelled.as_ref().ok(),
+                    amended: None,
+                    described: None,
+                },
+            )
+        });
+        // Section 6.6.2.3.2's container is written last of the five editors, into what the four
+        // before it left: a schema described from a packet the removal has already cut is
+        // described from what that packet now says.
+        let described = asked(wanted(Rewrite::ExtensionSchemaDescribed), || {
+            prepare_schema_descriptions(
+                document,
+                catalog.as_ref(),
+                plan.preservations.iter().any(|preservation| {
+                    preservation.site == SCHEMAS_REQUIREMENT && preservation.discard_undeterminable
+                }),
+                Edited {
+                    fresh: fresh.as_ref().ok(),
+                    headers: headers.as_ref().ok(),
+                    cleaned: properties.as_ref().ok(),
+                    respelled: respelled.as_ref().ok(),
+                    amended: amended.as_ref().ok(),
+                    described: None,
+                },
             )
         });
         // **The appended pages, composed before the packet** and for the packet's sake: the
@@ -860,6 +924,7 @@ impl Prepared {
             document,
             &failed,
             properties.as_ref(),
+            fresh.as_ref(),
             forbidden_annotations.as_ref(),
             intent.is_ok() || states_an_output_intent(document, catalog.as_ref()),
             &mut spare,
@@ -901,9 +966,12 @@ impl Prepared {
                 removals: &removals,
                 substituted: &font_history,
                 edited: Edited {
+                    fresh: fresh.as_ref().ok(),
                     headers: headers.as_ref().ok(),
                     cleaned: properties.as_ref().ok(),
                     respelled: respelled.as_ref().ok(),
+                    amended: amended.as_ref().ok(),
+                    described: described.as_ref().ok(),
                 },
             },
         );
@@ -995,6 +1063,9 @@ impl Prepared {
             metadata,
             to_unicode,
             appearances,
+            fresh,
+            amended,
+            described,
             properties,
             respelled,
             substitutes,
@@ -1028,6 +1099,9 @@ impl Prepared {
             Rewrite::MarkInfo => self.structure.as_ref().err().copied(),
             Rewrite::ToUnicode => self.to_unicode.as_ref().err().copied(),
             Rewrite::PropertyOutsideItsSchema => self.properties.as_ref().err().copied(),
+            Rewrite::FreshMetadataPacket => self.fresh.as_ref().err().copied(),
+            Rewrite::AmendmentIdentifierRemoved => self.amended.as_ref().err().copied(),
+            Rewrite::ExtensionSchemaDescribed => self.described.as_ref().err().copied(),
             Rewrite::ExtensionSchemaPrefixes => self.respelled.as_ref().err().copied(),
             Rewrite::AppearanceDictionary => self.appearances.as_ref().err().copied(),
             Rewrite::SubstituteFontProgram => self.substitutes.as_ref().err().copied(),
@@ -2018,10 +2092,16 @@ fn prepare_properties(
     document: &Document,
     input: &pdf_archive::Report,
     headers: Option<&Headers>,
+    fresh: Option<&Fresh>,
 ) -> Result<Cleaned, Because> {
     let mut packets = BTreeMap::new();
     let mut removed = Vec::new();
     for at in schema_packets(input, SCHEMA_REQUIREMENT) {
+        // The fresh packet states no property at all, so there is nothing here to cut out of it
+        // and the producer's own bytes are not what this stream will carry.
+        if fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
+            continue;
+        }
         let Object::Stream(stream) = document.get(at) else {
             return Err(Because::NotBuiltYet(NOT_A_PACKET));
         };
@@ -2054,6 +2134,521 @@ fn prepare_properties(
     Ok(Cleaned { packets, removed })
 }
 
+/// The requirement the container answers.
+const SCHEMAS_REQUIREMENT: &str = "metadata/extension-schemas-embedded";
+
+/// The packets that gain a container describing the extension schemas they use.
+#[derive(Debug, Default)]
+pub(super) struct SchemasDescribed {
+    /// The packet each metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+    /// Every schema described, for the report, in the order the packets state them.
+    pub(super) described: Vec<DescribedSchema>,
+}
+
+/// One extension schema this conversion described, as the report names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DescribedSchema {
+    /// The namespace URI, which is the packet's own.
+    pub namespace: String,
+    /// The prefix the packet spelled it with, which is the packet's own.
+    pub prefix: String,
+    /// Each property described: the local name and the value type its serialisation showed.
+    pub properties: Vec<(String, String)>,
+}
+
+impl DescribedSchema {
+    /// One described schema as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("namespace".to_owned(), Value::text(self.namespace.clone())),
+            ("prefix".to_owned(), Value::text(self.prefix.clone())),
+            (
+                "properties".to_owned(),
+                Value::Array(
+                    self.properties
+                        .iter()
+                        .map(|(name, kind)| {
+                            Value::Object(vec![
+                                ("name".to_owned(), Value::text(name.clone())),
+                                ("value_type".to_owned(), Value::text(kind.clone())),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+        ])
+    }
+}
+
+/// The `pdfaSchema:schema` field, which no file states.
+///
+/// ISO 19005-2 section 6.6.2.3.3's Table 3 makes the field required and calls it the schema's
+/// human-readable name. A producer who embedded no description of their own schema stated no
+/// name for it either, so what goes here is a sentence saying exactly that rather than a name
+/// this converter made up for somebody else's schema (`doc/adr/1245`).
+const SCHEMA_NAME: &str = "an extension schema this file uses, described by the converter that \
+     archived it because the producer described it nowhere";
+
+/// The `pdfaProperty:category` field, which no file states.
+///
+/// Table 4 admits two values, `internal` and `external`, and the difference is whether a
+/// property's value is derived from the document's content. Nothing derived this one: it is a
+/// value the producer put in the packet, and this converter computed none of it. So `external`
+/// is the one of the two that is true of what happened, and it is also the conservative one — a
+/// reader treating a property as external does not recompute it.
+const CATEGORY: &str = "external";
+
+/// The `pdfaProperty:description` field, which no file states.
+///
+/// Table 4 makes it required and asks what the property means. The file does not say, and
+/// `doc/pdf-a-mitigations.md`'s entry is plain that a container written from a packet describes
+/// *shape* rather than meaning — so this says so rather than claiming a meaning nobody recorded.
+const PROPERTY_DESCRIPTION: &str = "stated by this file's producer, who recorded no description \
+     of it; what this container states is the value type the packet's own serialisation shows, \
+     and nothing about what the property means";
+
+/// Why a schema holding a property of undeterminable type is not described.
+const TYPE_NOT_DETERMINABLE: &str = "this packet states a property in an extension schema it \
+     describes nowhere, and the property's value is a structure - so the value type a container \
+     would have to name is a custom one whose own fields' types are no more in the file than its \
+     name is. doc/pdf-a-mitigations.md's entry calls this the undeterminable case and gives the \
+     operator two answers: answer the site with `undeterminable = \"discard\"`, which takes the \
+     property out of the packet and describes the rest, or correct the source";
+
+/// Why a packet already carrying a container is not given a second one.
+const CONTAINER_ALREADY_THERE: &str = "this packet states an extension schema container that \
+     does not describe every schema it uses, and this conversion writes a container as a \
+     description of its own rather than merging into one a producer wrote. Two would make the \
+     packet state pdfaExtension:schemas twice, which the XMP data model forbids - a property \
+     name is unique within its packet — so the file is refused rather than made worse";
+
+/// Why a packet that cannot be written into gains no container.
+const CONTAINER_NOT_WRITTEN: &str = "this packet uses an extension schema it describes nowhere, \
+     and the packet cannot be written into: it is not one this tree can edit by span";
+
+/// Why a packet still missing a description after the container refuses the document.
+const SCHEMA_STILL_UNDESCRIBED: &str = "an extension schema this conversion described is still \
+     undescribed in the packet afterwards, so the packet is half-edited rather than corrected - \
+     and a half-edited packet is not written at all, which is the rule the property removal \
+     states";
+
+/// Writes a container for every extension schema a packet uses and describes nowhere.
+///
+/// **Nothing is judged here.** `pdf_archive::undescribed_schemas` is the same reading the
+/// requirement's own row is, asked of one packet's bytes, so a schema this describes is exactly
+/// one that row reported.
+///
+/// What this decides is the three fields ISO 19005-2 section 6.6.2.3.3 requires and no file
+/// states — [`SCHEMA_NAME`], [`CATEGORY`] and [`PROPERTY_DESCRIPTION`] — each a fixed sentence
+/// saying what it is, and each argued in `doc/adr/1245`. A property whose value type the
+/// serialisation does not show stops the conversion unless the operator answered the site with
+/// `undeterminable = "discard"`, in which case it is cut out of the packet and the rest
+/// described.
+fn prepare_schema_descriptions(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    discard_undeterminable: bool,
+    edited: Edited<'_>,
+) -> Result<SchemasDescribed, Because> {
+    let catalog_packet = catalog
+        .and_then(|catalog| catalog.get("Metadata"))
+        .and_then(Object::as_reference)
+        .and_then(|at| match document.get(at) {
+            Object::Stream(stream) => edited
+                .packet(at)
+                .or_else(|| document.decoded_stream_data(&stream).map(|it| it.to_vec())),
+            _ => None,
+        });
+    let mut out = SchemasDescribed::default();
+    for at in pdf_archive::metadata_streams(document) {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let Some(bytes) = edited.packet(at).or_else(|| {
+            document
+                .decoded_stream_data(&stream)
+                .map(|bytes| bytes.to_vec())
+        }) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        let undescribed = pdf_archive::undescribed_schemas(&bytes, catalog_packet.as_deref());
+        if undescribed.is_empty() {
+            continue;
+        }
+        if states_a_container(&bytes) {
+            return Err(Because::NotBuiltYet(CONTAINER_ALREADY_THERE));
+        }
+        let (bytes, undescribed) = if discard_undeterminable {
+            cut_the_undeterminable(&bytes, undescribed, catalog_packet.as_deref())?
+        } else {
+            for schema in &undescribed {
+                if schema
+                    .properties
+                    .iter()
+                    .any(|property| property.value_type.is_none())
+                {
+                    return Err(Because::NotBuiltYet(TYPE_NOT_DETERMINABLE));
+                }
+            }
+            (bytes, undescribed)
+        };
+        if undescribed.is_empty() {
+            out.packets.insert(at, bytes);
+            continue;
+        }
+        let rows: Vec<DescribedSchema> = undescribed
+            .iter()
+            .map(|schema| DescribedSchema {
+                namespace: schema.namespace.clone(),
+                prefix: schema.prefix.clone(),
+                properties: schema
+                    .properties
+                    .iter()
+                    .filter_map(|property| {
+                        property
+                            .value_type
+                            .map(|kind| (property.local.clone(), kind.to_owned()))
+                    })
+                    .collect(),
+            })
+            .collect();
+        let properties: Vec<Vec<xmp::PropertyDescription<'_>>> = rows
+            .iter()
+            .map(|schema| {
+                schema
+                    .properties
+                    .iter()
+                    .map(|(name, kind)| xmp::PropertyDescription {
+                        name,
+                        value_type: kind,
+                        category: CATEGORY,
+                        description: PROPERTY_DESCRIPTION,
+                    })
+                    .collect()
+            })
+            .collect();
+        let schemas: Vec<xmp::SchemaDescription<'_>> = rows
+            .iter()
+            .zip(properties.iter())
+            .map(|(schema, properties)| xmp::SchemaDescription {
+                name: SCHEMA_NAME,
+                namespace: &schema.namespace,
+                prefix: &schema.prefix,
+                properties,
+            })
+            .collect();
+        let written = xmp::describe(&bytes, &schemas)
+            .map_err(|_| Because::NotBuiltYet(CONTAINER_NOT_WRITTEN))?;
+        // Read back rather than trusted, which is `prepare_properties`'s rule: the writer says
+        // what it described and the packet says what it holds, and only the second is what a
+        // validator will see.
+        if !pdf_archive::undescribed_schemas(&written, catalog_packet.as_deref()).is_empty() {
+            return Err(Because::NotBuiltYet(SCHEMA_STILL_UNDESCRIBED));
+        }
+        out.packets.insert(at, written);
+        out.described.extend(rows);
+    }
+    if out.packets.is_empty() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    Ok(out)
+}
+
+/// Whether a packet already states an extension schema container.
+fn states_a_container(packet: &[u8]) -> bool {
+    xmp::Xmp::parse(packet).is_ok_and(|read| {
+        read.properties()
+            .iter()
+            .any(|(name, _)| name.namespace == xmp::EXTENSION && name.local == "schemas")
+    })
+}
+
+/// Takes out the properties whose value type the serialisation does not show, and re-reads.
+///
+/// `doc/pdf-a-mitigations.md`'s `undeterminable = "discard"`: the property goes and the schema is
+/// described without it. The packet is re-read afterwards rather than trusted, and a schema left
+/// with no property at all is one nothing in the packet uses any more — so it needs no container.
+fn cut_the_undeterminable(
+    bytes: &[u8],
+    undescribed: Vec<pdf_archive::UndescribedSchema>,
+    catalog_packet: Option<&[u8]>,
+) -> Result<(Vec<u8>, Vec<pdf_archive::UndescribedSchema>), Because> {
+    let mut names: Vec<XmpName> = Vec::new();
+    for schema in &undescribed {
+        for property in &schema.properties {
+            if property.value_type.is_none() {
+                names.push(XmpName {
+                    namespace: schema.namespace.clone(),
+                    local: property.local.clone(),
+                });
+            }
+        }
+    }
+    if names.is_empty() {
+        return Ok((bytes.to_vec(), undescribed));
+    }
+    let cut = xmp::remove(bytes, &names).map_err(|_| Because::NotBuiltYet(PACKET_NOT_CUTTABLE))?;
+    let left = pdf_archive::undescribed_schemas(&cut, catalog_packet);
+    if left
+        .iter()
+        .any(|schema| schema.properties.iter().any(|it| it.value_type.is_none()))
+    {
+        return Err(Because::NotBuiltYet(PROPERTY_NOT_CUT));
+    }
+    Ok((cut, left))
+}
+
+/// The three requirements a fresh packet answers.
+///
+/// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1. The data-model row is part 2's
+/// alone; a stream failing it under a part 4 target is never in [`PacketFault::requirement`]'s
+/// answer for that target because the requirement does not bind there, and
+/// [`prepare_fresh_packets`] asks only about the sites this document actually failed.
+const PACKET_REQUIREMENTS: [&str; 3] = [
+    "metadata/xmp-packets-well-formed",
+    "metadata/xmp-packets-state-one-rdf-element",
+    "metadata/xmp-packets-meet-the-xmp-data-model",
+];
+
+/// The packets this conversion replaces outright, because it cannot edit them.
+#[derive(Debug, Default)]
+pub(super) struct Fresh {
+    /// The packet each such metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+    /// What each stream's own packet broke, for the report, in object order.
+    pub(super) replaced: Vec<ReplacedPacket>,
+}
+
+impl Fresh {
+    /// The fresh packet one stream is to carry, where it is one of these.
+    pub(super) fn packet(&self, at: ObjectId) -> Option<&Vec<u8>> {
+        self.packets.get(&at)
+    }
+}
+
+/// One metadata stream whose packet this conversion replaced, as the report names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplacedPacket {
+    /// The metadata stream, in the source's numbering.
+    pub at: ObjectId,
+    /// Whether it is the one the catalog states, which is the document's own metadata.
+    pub catalogs: bool,
+    /// What the producer's packet broke, in the words the requirement's own row uses.
+    pub because: String,
+}
+
+impl ReplacedPacket {
+    /// One replaced packet as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            (
+                "object".to_owned(),
+                Value::count(self.at.number.try_into().unwrap_or(usize::MAX)),
+            ),
+            (
+                "generation".to_owned(),
+                Value::count(self.at.generation.into()),
+            ),
+            ("catalog".to_owned(), Value::Bool(self.catalogs)),
+            ("because".to_owned(), Value::text(self.because.clone())),
+        ])
+    }
+}
+
+/// What one fault costs a reader, in the words the report prints.
+fn why_a_packet_was_replaced(fault: pdf_archive::PacketFault) -> &'static str {
+    match fault {
+        pdf_archive::PacketFault::WillNotDecode => {
+            "the stream's data would not decode, so there was no packet to read"
+        }
+        pdf_archive::PacketFault::WillNotParse => "the packet is not well-formed XML",
+        pdf_archive::PacketFault::ManyRdfElements => {
+            "the packet serialises more than one rdf:RDF element, and the XMP standard \
+             serialises one packet as one"
+        }
+        pdf_archive::PacketFault::BreaksTheDataModel => {
+            "the packet breaks the XMP data model: a name repeated where it has to be unique, a \
+             name carrying no namespace or one of the two the model keeps for itself, or an \
+             array whose items are not all of one form"
+        }
+    }
+}
+
+/// Composes a fresh packet for every metadata stream whose own packet cannot be edited.
+///
+/// **A second reading of the three rows rather than their findings**, which is `doc/adr/1234`'s
+/// rule: a findings list is capped where a document's metadata streams are not, so a replacement
+/// driven off findings would leave a file carrying more bad packets than the cap half-edited.
+/// `pdf_archive::packet_faults` is the rows' own judgement asked of one packet's bytes, so a
+/// packet this replaces is exactly one those rows reported.
+///
+/// **Only the sites this document failed.** A stream breaking a rule the target does not state —
+/// the data model under a part 4 target — is left alone, because `doc/adr/0947`'s first rule is
+/// that nothing is changed that no failed requirement asked for.
+///
+/// Every packet written here states **no property**: the catalog's gains the identification
+/// schema from [`prepare_metadata`], which is the one place in this verb that writes it, and an
+/// object's own packet gains nothing because nothing in the file says what the unreadable one
+/// meant.
+fn prepare_fresh_packets(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    failed: &BTreeSet<&'static str>,
+) -> Result<Fresh, Because> {
+    let catalog_packet = catalog
+        .and_then(|catalog| catalog.get("Metadata"))
+        .and_then(Object::as_reference);
+    let mut fresh = Fresh::default();
+    for at in pdf_archive::metadata_streams(document) {
+        let Object::Stream(stream) = document.get(at) else {
+            return Err(Because::NotBuiltYet(NOT_A_PACKET));
+        };
+        // A stream whose data will not decode has no packet to judge, and that is itself the
+        // well-formedness row's finding — so it is replaced on the same terms as one whose XML
+        // is broken, rather than being passed over for want of bytes.
+        let faults = match document.decoded_stream_data(&stream) {
+            Some(bytes) => pdf_archive::packet_faults(&bytes),
+            None => vec![pdf_archive::PacketFault::WillNotDecode],
+        };
+        let mut because: Vec<&'static str> = Vec::new();
+        for fault in faults {
+            if failed.contains(fault.requirement()) {
+                because.push(why_a_packet_was_replaced(fault));
+            }
+        }
+        if because.is_empty() {
+            continue;
+        }
+        fresh.packets.insert(at, xmp::empty_packet());
+        fresh.replaced.push(ReplacedPacket {
+            at,
+            catalogs: catalog_packet == Some(at),
+            because: because.join("; "),
+        });
+    }
+    if fresh.packets.is_empty() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    Ok(fresh)
+}
+
+/// The packets whose identification schema loses a malformed amendment identifier.
+#[derive(Debug, Default)]
+pub(super) struct Amended {
+    /// The packet each metadata stream is to carry in place of the one it holds.
+    pub(super) packets: BTreeMap<ObjectId, Vec<u8>>,
+    /// Every identifier removed, spelled and with the value that was there, for the report.
+    pub(super) removed: Vec<RemovedIdentifier>,
+}
+
+/// One amendment or corrigendum identifier this conversion cut, as the report names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedIdentifier {
+    /// How the report spells it — the required prefix and the local name.
+    pub spelled: String,
+    /// What the packet stated for it, cut down to something a report can print.
+    pub stated: String,
+}
+
+impl RemovedIdentifier {
+    /// One removed identifier as JSON.
+    pub(super) fn to_json(&self) -> Value {
+        Value::Object(vec![
+            ("property".to_owned(), Value::text(self.spelled.clone())),
+            ("stated".to_owned(), Value::text(self.stated.clone())),
+        ])
+    }
+}
+
+/// Why a packet holding a malformed amendment identifier cannot lose it.
+const IDENTIFIER_NOT_CUT: &str = "this file states an amendment or corrigendum identifier that \
+     is not the number and the year separated by a colon, and the packet it is in cannot be \
+     edited in place: it is not one this tree can write into by span";
+
+/// Why a packet still holding the identifier after the cut refuses the document.
+const IDENTIFIER_STILL_THERE: &str = "an amendment identifier this conversion cut is still in \
+     the packet afterwards, so the packet is half-edited rather than corrected - and a \
+     half-edited packet is not written at all, which is the rule the property removal beside \
+     this one states";
+
+/// How long a stated value the report prints before cutting it.
+///
+/// A bound rather than a reading (`CLAUDE.md` principle 3): a packet is attacker-supplied and a
+/// report is prose for a person. The cut is on a character boundary, so what is printed stays
+/// text.
+const STATED_LIMIT: usize = 48;
+
+/// One stated value, cut down to something a report can print.
+fn short(text: &str) -> String {
+    match text.char_indices().nth(STATED_LIMIT) {
+        Some((at, _)) => format!("{}...", &text[..at]),
+        None => text.to_owned(),
+    }
+}
+
+/// Cuts every amendment identifier of the wrong form out of the packet that states it.
+///
+/// **Nothing is judged here.** `pdf_archive::malformed_amendment_identifiers` is the same reading
+/// the requirement's own row is, asked of one packet's bytes, so an entry this cuts is exactly an
+/// entry that row reported. What this decides is only whether the cut can be made — and a packet
+/// still holding one afterwards refuses the document rather than being left half-edited, which is
+/// [`prepare_properties`]'s rule at the site beside it.
+///
+/// The population is the **document's own packet**, because ISO 19005-2 section 6.6.4 is a rule
+/// about the identification schema and the row reads it out of the catalog's metadata stream.
+fn prepare_amendment(
+    document: &Document,
+    catalog: Option<&Dictionary>,
+    edited: Edited<'_>,
+) -> Result<Amended, Because> {
+    let at = catalog
+        .and_then(|catalog| catalog.get("Metadata"))
+        .and_then(Object::as_reference)
+        .ok_or(Because::NotBuiltYet(NOT_ASKED_FOR))?;
+    let Object::Stream(stream) = document.get(at) else {
+        return Err(Because::NotBuiltYet(NOT_A_PACKET));
+    };
+    let bytes = match edited.packet(at) {
+        Some(bytes) => bytes,
+        None => document
+            .decoded_stream_data(&stream)
+            .ok_or(Because::NotBuiltYet(NOT_A_PACKET))?
+            .to_vec(),
+    };
+    let malformed = pdf_archive::malformed_amendment_identifiers(&bytes);
+    if malformed.is_empty() {
+        return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
+    }
+    let stated: Vec<RemovedIdentifier> = xmp::Xmp::parse(&bytes)
+        .map(|packet| {
+            packet
+                .properties()
+                .iter()
+                .filter(|(name, _)| malformed.contains(name))
+                .map(|(name, value)| RemovedIdentifier {
+                    spelled: format!("{IDENTIFICATION_PREFIX}:{}", name.local),
+                    stated: match value {
+                        xmp::Value::Text(text) => short(text),
+                        _ => "a value that is not a simple one".to_owned(),
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let cut =
+        xmp::remove(&bytes, &malformed).map_err(|_| Because::NotBuiltYet(IDENTIFIER_NOT_CUT))?;
+    // Read back rather than trusted, which is `prepare_properties`'s rule: the writer says what
+    // it cut and the packet says what it holds, and only the second is what a validator sees.
+    if !pdf_archive::malformed_amendment_identifiers(&cut).is_empty() {
+        return Err(Because::NotBuiltYet(IDENTIFIER_STILL_THERE));
+    }
+    Ok(Amended {
+        packets: BTreeMap::from([(at, cut)]),
+        removed: stated,
+    })
+}
+
 /// The requirement the respelling answers.
 const CONTAINER_REQUIREMENT: &str = "metadata/extension-schema-container-fields";
 
@@ -2070,6 +2665,7 @@ fn prepare_respellings(
     input: &pdf_archive::Report,
     headers: Option<&Headers>,
     cleaned: Option<&Cleaned>,
+    fresh: Option<&Fresh>,
 ) -> Result<Respelled, Because> {
     let required: Vec<xmp::RequiredPrefix<'_>> = pdf_archive::REQUIRED_PREFIXES
         .iter()
@@ -2078,6 +2674,11 @@ fn prepare_respellings(
     let mut packets = BTreeMap::new();
     let mut fields = 0usize;
     for at in schema_packets(input, CONTAINER_REQUIREMENT) {
+        // Replaced rather than edited, for [`prepare_properties`]'s reason: a fresh packet
+        // describes no extension schema, so it states no container field to respell.
+        if fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
+            continue;
+        }
         let Object::Stream(stream) = document.get(at) else {
             return Err(Because::NotBuiltYet(NOT_A_PACKET));
         };
@@ -2125,11 +2726,19 @@ fn prepare_respellings(
 /// - either section 6.3.1 row's removal is about to take an annotation off a page, so its **normal
 ///   appearance** is appended: the form `XObject` the producer wrote, invoked where §12.5.5 puts
 ///   it. `doc/adr/1099` is the argument.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "each argument is one preparation this composition reads and none of them can be \
+              bundled without a struct built at exactly one call site; and the body is one \
+              sequence per kind of content a page carries, whose order the comments state"
+)]
 fn the_preserved_pages(
     plan: &ArchivePlan,
     document: &Document,
     failed: &BTreeSet<&'static str>,
     properties: Result<&Cleaned, &Because>,
+    fresh: Result<&Fresh, &Because>,
     forbidden: Result<&ForbiddenAnnotations, &Because>,
     has_output_intent: bool,
     spare: &mut Spare,
@@ -2137,8 +2746,42 @@ fn the_preserved_pages(
     let asked = |site: &'static str| {
         plan.preservations
             .iter()
-            .any(|preservation| preservation.site == site)
+            .any(|preservation| preservation.site == site && preservation.by_page)
             && failed.contains(site)
+    };
+    // ISO 19005-2 section 6.6.2.1's three rows, whose rewrite replaces a packet rather than
+    // editing it: the bytes the producer wrote stop being metadata, so `preserve` keeps them as
+    // content. One keep per replaced stream, under the first of the three sites the operator
+    // answered and this document failed, because one page of bytes cannot be split between rows
+    // that all named the same stream.
+    let replaced_sites: Vec<&'static str> = PACKET_REQUIREMENTS
+        .into_iter()
+        .filter(|site| asked(site))
+        .collect();
+    let replaced_site = replaced_sites.first().copied();
+    let replaced = match replaced_site {
+        // The replacement is what makes the file conform and the page is what keeps what it
+        // replaces, so a document whose packets cannot be replaced gets neither — the property
+        // site's own construction, for its reason.
+        Some(_) => {
+            let fresh = fresh.map_err(|because| *because)?;
+            let mut packets: Vec<(ObjectId, std::sync::Arc<[u8]>)> = Vec::new();
+            for at in fresh.packets.keys() {
+                let Object::Stream(stream) = document.get(*at) else {
+                    return Err(Because::NotBuiltYet(NOT_A_PACKET));
+                };
+                // The one place a preservation gives up rather than refusing the conversion:
+                // there are no bytes to lay out, so there is nothing this page could carry, and
+                // the stream is replaced with nothing preserved. Named in the report all the
+                // same, because the replacement itself is reported per stream.
+                let Some(bytes) = document.decoded_stream_data(&stream) else {
+                    continue;
+                };
+                packets.push((*at, bytes));
+            }
+            packets
+        }
+        None => Vec::new(),
     };
     let packets = if asked(SCHEMA_REQUIREMENT) {
         // The removal is what makes the file conform; the pages are what keep what it removes. A
@@ -2178,7 +2821,7 @@ fn the_preserved_pages(
             relocate_marks(document, site, removals, &marks, spare).map(|plan| (site, plan))
         })
         .transpose()?;
-    if packets.is_empty() && annotation_site.is_none() {
+    if packets.is_empty() && replaced.is_empty() && annotation_site.is_none() {
         return Err(Because::NotBuiltYet(NOT_ASKED_FOR));
     }
     let mut keeps: Vec<preserve::Keep<'_>> = packets
@@ -2193,6 +2836,17 @@ fn the_preserved_pages(
             declined: None,
         })
         .collect();
+    if let Some(site) = replaced_site {
+        keeps.extend(replaced.iter().map(|(at, bytes)| preserve::Keep {
+            site,
+            subject: format!(
+                "the XMP metadata packet object {} {} held, as the producer wrote it",
+                at.number, at.generation
+            ),
+            content: preserve::Kept::Text(bytes),
+            declined: None,
+        }));
+    }
     // **The relocations are decided before the appended pages are composed**, because a mark that
     // could not be relocated onto the producer's own page (`doc/adr/1123`'s two refusals) falls
     // back to the appended page, which is `doc/adr/1099`'s mechanism kept whole. So the fallback
@@ -2209,6 +2863,23 @@ fn the_preserved_pages(
         (plan.relocations, plan.written, plan.rows)
     });
     let mut composed = preserve::compose(document, &keeps, has_output_intent, spare)?;
+    // **One act answers all three rows, and each of them gets a row saying so.** A stream's
+    // packet is laid out once however many of ISO 19005-2 section 6.6.2.1's rules it broke, so
+    // the pages are the same pages — and `super::configured` asks, per requirement, whether the
+    // preservation carried anything for it. A row left out would refuse a requirement this
+    // conversion did answer.
+    let also: Vec<Preserved> = composed
+        .carried
+        .iter()
+        .filter(|row| Some(row.site) == replaced_site)
+        .flat_map(|row| {
+            replaced_sites.iter().skip(1).map(|site| Preserved {
+                site,
+                ..row.clone()
+            })
+        })
+        .collect();
+    composed.carried.extend(also);
     if let Some((relocations, written, rows)) = relocation {
         composed.written.extend(written);
         composed.carried.extend(rows);
@@ -2735,31 +3406,53 @@ struct Recording<'a> {
 
 /// The edits a metadata packet has already taken, newest first.
 ///
-/// **Four writers over one packet**, and the order is the whole of what this type carries: ISO
+/// **Five writers over one packet, of which the first excludes the rest**: a packet this tree
+/// cannot read is replaced outright ([`Fresh`]) and the other writers skip that stream, because
+/// an edit by span needs spans the producer's bytes no longer supply. For every other packet the
+/// order is the whole of what this type carries: ISO
 /// 19005-2 section 6.6.2.1's header attributes come off first, section 6.6.2.3.1's misused
 /// properties come out of what that left, section 6.6.2.3.3's container prefixes move in what
 /// *that* left, and section 6.6.4's identification schema is restated into the last of them. A
 /// writer reading the producer's original instead would silently undo the writer before it.
 #[derive(Debug, Clone, Copy, Default)]
 struct Edited<'a> {
+    /// The packets this conversion replaced outright, because it could not edit them.
+    ///
+    /// **Before all three of the others, and disjoint from them**: a replaced stream is skipped
+    /// by the header cut, the property removal and the container respelling, so at most one of
+    /// the four has anything to say about any one stream.
+    fresh: Option<&'a Fresh>,
     /// The packets whose header attributes have been cut.
     headers: Option<&'a Headers>,
     /// The packets a property removal has already edited.
     cleaned: Option<&'a Cleaned>,
     /// The packets a container respelling has already edited.
     respelled: Option<&'a Respelled>,
+    /// The packet a malformed amendment identifier has already been cut out of.
+    amended: Option<&'a Amended>,
+    /// The packets an extension schema container has already been written into.
+    described: Option<&'a SchemasDescribed>,
 }
 
 impl Edited<'_> {
     /// What one stream's packet holds after every edit made before the caller's.
     fn packet(self, at: ObjectId) -> Option<Vec<u8>> {
-        self.respelled
-            .and_then(|respelled| respelled.packets.get(&at).cloned())
+        self.described
+            .and_then(|described| described.packets.get(&at).cloned())
+            .or_else(|| {
+                self.amended
+                    .and_then(|amended| amended.packets.get(&at).cloned())
+            })
+            .or_else(|| {
+                self.respelled
+                    .and_then(|respelled| respelled.packets.get(&at).cloned())
+            })
             .or_else(|| {
                 self.cleaned
                     .and_then(|cleaned| cleaned.packets.get(&at).cloned())
             })
             .or_else(|| self.headers.and_then(|headers| headers.packet(at).cloned()))
+            .or_else(|| self.fresh.and_then(|fresh| fresh.packet(at).cloned()))
     }
 }
 
@@ -2910,14 +3603,18 @@ fn prepare_metadata(
     };
     if let Some(at) = catalog.get("Metadata").and_then(Object::as_reference)
         && let Object::Stream(stream) = document.get(at)
-        && let Some(bytes) = document.decoded_stream_data(&stream)
+        // The schema is restated into what the writers before it left rather than into the
+        // producer's original — `Edited` is that order — and the producer's own bytes are what
+        // it starts from only where none of them wrote. **The replacement is asked first and
+        // without decoding**: a stream whose data will not decode is one whose packet is being
+        // composed afresh, so asking the document for bytes there would refuse a document this
+        // conversion can in fact write.
+        && let Some(held) = edited.packet(at).or_else(|| {
+            document
+                .decoded_stream_data(&stream)
+                .map(|bytes| bytes.to_vec())
+        })
     {
-        // The removal edited this packet already where it edited any, so the schema is restated
-        // into what that left rather than into the producer's original — two writers over one
-        // packet, in the order the second can see the first's work.
-        // The schema is restated into what the two writers before it left rather than into the
-        // producer's original — `Edited` is that order.
-        let held = edited.packet(at).unwrap_or_else(|| bytes.to_vec());
         let restated = if schema_wanted {
             xmp::restate(&held, &IDENTIFICATION_URIS, &schema)
                 .map_err(|_| Because::NotBuiltYet(PACKET_NOT_EDITABLE))?
@@ -3025,10 +3722,20 @@ impl Headers {
 /// **Nothing is judged here.** Which streams state one is `pdf_archive`'s finding; what this
 /// decides is only whether the cut can be made, and a header still holding an attribute
 /// afterwards refuses the document rather than leaving it half-edited.
-fn prepare_headers(document: &Document, input: &pdf_archive::Report) -> Result<Headers, Because> {
+fn prepare_headers(
+    document: &Document,
+    input: &pdf_archive::Report,
+    fresh: Option<&Fresh>,
+) -> Result<Headers, Because> {
     let sites = sites::packet_headers(input)?;
     let mut packets = BTreeMap::new();
     for at in sites.at {
+        // A stream whose packet is being replaced outright has no header of the producer's left
+        // to cut: the fresh packet states none of the deprecated attributes by construction, so
+        // editing this one would be editing bytes nothing will write.
+        if fresh.is_some_and(|fresh| fresh.packet(at).is_some()) {
+            continue;
+        }
         let Object::Stream(stream) = document.get(at) else {
             return Err(Because::NotBuiltYet(HEADER_NOT_EDITABLE));
         };

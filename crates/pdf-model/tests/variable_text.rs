@@ -3243,42 +3243,133 @@ fn a_comb_fields_cells_carry_the_das_own_matrix() {
     );
 }
 
-/// A `Tm` whose line runs off both of the box's axes keeps the report, and so does a singular one.
+/// A `Tm` that turns the line off both of the box's axes ends it where its room ends.
 ///
-/// The asymmetry is the point, and it is geometric rather than cautious: where the linear part
-/// sends the line along one of the box's own axes, the box states a length the line can be
-/// measured against and the layout runs in the space the matrix maps from. A turn by anything
-/// other than a multiple of 90° sends it off both, so no length the box states is the room that
-/// line has; a singular matrix leaves no box at all. Both are said out loud rather than drawn as
-/// if the matrix were the identity (trap 5), which is what `Owed::TransformedTextMatrix` is for.
+/// ISO 32000-2 §12.7.4.3:
+///
+/// > If this operator is present, the interactive PDF processor shall replace the horizontal and
+/// > vertical translation components with positioning values it determines to be appropriate,
+/// > based on the field value, the quadding ( Q ) attribute, and any layout rules it employs.
+///
+/// The translation is replaced and the rest of the matrix stands, so the line runs along
+/// wherever the linear part sends text space's x-axis — and the room it has is what the box
+/// leaves on *that* line, which is the box's own side only when the two agree. Carry the box
+/// back through the linear part and it becomes a parallelogram whose horizontal chord at a given
+/// baseline is that room, in closed form at every baseline (ADR 1247).
+///
+/// Half a right angle is the case where the chord is not a side of the box, and `/Q 2` is what
+/// makes the difference visible: the line ends where its room ends, and a line at 45° leaves this
+/// box through the **top** rather than through the right-hand side. So the upright twin's ink
+/// stops at the right edge and the turned one's stops well short of it, at the top edge instead.
+/// §12.5.4's default border is one point wide and drawn inside `/Rect [20 40 180 70]`, so the box
+/// runs 21..179 by 41..69.
 #[test]
-fn a_da_whose_text_matrix_leaves_both_axes_is_still_reported() {
-    for tm in [
-        "0.7071 0.7071 -0.7071 0.7071 0 0",
-        "1 2 2 4 0 0",
-        "1 0 2 0 0 0",
-    ] {
+fn a_da_whose_text_matrix_turns_off_both_axes_ends_the_line_where_its_room_ends() {
+    let (upright_owed, upright) = draw(matrix_field("1 0 0 1 0 0"));
+    let (turned_owed, turned) = draw(matrix_field("0.7071 0.7071 -0.7071 0.7071 0 0"));
+
+    let (_, upright_end) = ink_span(&upright);
+    assert!(
+        (175..=179).contains(&upright_end),
+        "the upright line ends at the right edge of the box, not {upright_end}"
+    );
+
+    let (_, turned_end) = ink_span(&turned);
+    assert!(
+        turned_end < 130,
+        "the turned line does not end at the right edge, because its room does not reach it: \
+         {turned_end}"
+    );
+    let top =
+        |raster: &pdf_render::Raster| inked_rows(raster).iter().max().copied().unwrap_or_default();
+    assert!(
+        (64..=69).contains(&top(&turned)),
+        "it ends at the top edge, which is where a line at 45° leaves this box: {}",
+        top(&turned)
+    );
+    assert!(
+        top(&upright) < 64,
+        "and the upright twin, laid out along the box's own width, does not reach it: {}",
+        top(&upright)
+    );
+    assert!(
+        upright_owed.is_empty() && turned_owed.is_empty(),
+        "neither is owed anything now: {upright_owed:?} {turned_owed:?}"
+    );
+}
+
+/// Each wrapped line of a turned field gets the room the box leaves *that* line.
+///
+/// The chord is the same length on every line under a scale, a mirror, a quarter turn or a shear,
+/// and a different length on every line under any other turn — so a block of wrapped lines is
+/// where the two readings part. Measuring every line against the box's own width would hand each
+/// of them far more room than the box leaves at its baseline, and the clip §12.7.4.3's `BBox`
+/// puts round the stream would then cut off most of what was drawn.
+///
+/// What that comes to is counted rather than argued: the same value, the same size and the same
+/// box, upright and turned. A layout that gives each line its own room draws the whole value both
+/// times, so the two ink counts differ only by what a rasteriser makes of diagonal stems; one
+/// that does not loses most of the glyphs to the clip.
+#[test]
+fn a_turned_matrixs_wrapped_lines_each_get_the_room_the_box_leaves_them() {
+    let field = |tm: &str| {
+        pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 15 180 90] /F 4 /FT /Tx /Ff 4096 \
+                 /T (field) /V (one two three four five six seven eight nine ten) \
+                 /DA (/Helv 8 Tf 0 g {tm} Tm) /Q 0 >>"
+            ),
+        )
+    };
+    let ink = |raster: &pdf_render::Raster| {
+        let mut count = 0_u32;
+        for y in 0..raster.height {
+            for x in 0..raster.width {
+                if opacity(raster, x, y) > 0 {
+                    count = count.saturating_add(1);
+                }
+            }
+        }
+        count
+    };
+    let (upright_owed, upright) = draw(field("1 0 0 1 0 0"));
+    let (turned_owed, turned) = draw(field("0.7071 0.7071 -0.7071 0.7071 0 0"));
+    let (plain, diagonal) = (ink(&upright), ink(&turned));
+    assert!(
+        diagonal >= plain.saturating_mul(3) / 4,
+        "the turned block draws the whole value, not the fraction of it a line measured against \
+         the box's width would leave inside the clip: {plain} upright, {diagonal} turned"
+    );
+    assert!(
+        upright_owed.is_empty() && turned_owed.is_empty(),
+        "neither is owed anything now: {upright_owed:?} {turned_owed:?}"
+    );
+}
+
+/// A `Tm` whose linear part has no inverse is reported, because there is nothing to lay out.
+///
+/// It is the one case left, and it is not a layout question. A singular linear part sends the
+/// whole plane onto one line, so the box has no preimage that is a region: no pair of translation
+/// components is more appropriate than another, and the glyph outlines the matrix is written in
+/// front of are flattened onto that line and enclose no area. Saying so is trap 5's rule — and it
+/// is a report rather than a refusal, because the marks are still the producer's matrix applied to
+/// the producer's value, which is what §12.7.4.3 leaves standing.
+#[test]
+fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
+    for tm in ["1 2 2 4 0 0", "1 0 2 0 0 0", "0 0 0 0 0 0"] {
         let (reported, _) = draw(matrix_field(tm));
         assert!(
-            reported
-                .iter()
-                .any(|note| note.contains("off both axes of the box")),
-            "{tm} leaves no length for a line to be measured against and says so, got {reported:?}"
+            reported.iter().any(|note| note.contains("has no inverse")),
+            "{tm} leaves no room for a line to be measured in and says so, got {reported:?}"
         );
     }
 
-    // **And the matrix still reaches the stream.** The clause replaces the translation and
-    // nothing else, so dropping the rest would depart from it further than the mispositioning the
-    // report names: a turn of half a right angle draws the value on the diagonal, which is taller
-    // than the same value upright and is only taller if the producer's `Tm` was written.
-    let (_, upright) = draw(matrix_field("1 0 0 1 0 0"));
-    let (_, turned) = draw(matrix_field("0.7071 0.7071 -0.7071 0.7071 0 0"));
-    assert!(
-        ink_height(&turned) > ink_height(&upright),
-        "the refused matrix is still what the glyphs are drawn under: {} then {}",
-        ink_height(&upright),
-        ink_height(&turned)
-    );
+    // **And the matrix still reaches the stream**, which is the half a refusal would have cost:
+    // the clause replaces the translation and nothing else, so a singular `Tm` is written as the
+    // producer stated it and the positions inside it are measured in the box's own space.
+    let (upright, _) = draw(matrix_field("1 0 0 1 0 0"));
+    assert!(upright.is_empty(), "the control owes nothing: {upright:?}");
 }
 
 /// §12.7.5.3's Table 231 bit 26 makes the value rich text, and this tree draws its characters.

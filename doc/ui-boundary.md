@@ -327,6 +327,23 @@ trace line; the C ABI gained `quorra_separations` and `QUORRA_PURPOSE_REMOTE_DOC
 key**: `--separations=on|off`, `--remote-documents=refuse|ask|warn|open`, and shifted `S`.
 ADRs 1227, 1228.
 
+**And the one-thousand-two-hundred-and-first added two more `Purpose` values and no message at
+all.** `Purpose::NamedPage` carries §12.7.8's Table 253 `/F` — a named page in a second PDF, which
+Table 249's `/APRef` and Table 252's `/TRef` both reach — and `Purpose::ThreadDocument` carries
+§12.6.4.7's Table 209 `/F`. Both go out on the `Event::NeedsFile` that already existed, so again
+only the enumeration grew: the confined wire's purpose byte took 3 and 4, and the C ABI gained
+`QUORRA_PURPOSE_NAMED_PAGE` and `QUORRA_PURPOSE_THREAD_DOCUMENT` without `QUORRA_ABI_VERSION`
+moving. The new thing is *when* one is raised: `NamedPage` is a second question asked while the
+answer to the first is being applied, which no purpose had done before. All three are decided by
+the `--remote-documents=` a reader already set, and `viewer_host::remote` took a `Purpose` so that
+the question a person is asked names what *this* one would do with the file. ADR 1239.
+
+**And the same round gave `viewer-gtk` and `viewer-qt` a file chooser**, which is not a vocabulary
+change either: the chooser fills the control's entry in and the edit is `Edit::ChooseFile` by the
+route a typed path already took. What is new on the boundary is one policy function,
+`viewer_host::policy::may_choose_file`, asked by the window offering the affordance and by
+`form::edit_of` when the path comes back. ADR 1240.
+
 **And the same round gave the key table a Control**, which is not a vocabulary change at all and is
 here because it changes what every window does on a keypress: `viewer_host::keys::meaning` took a
 `shift` and nothing else, so all three hosts discarded Control before asking and Ctrl + P entered

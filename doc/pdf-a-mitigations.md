@@ -1571,7 +1571,7 @@ ISO 19005-4 6.6.3 · PDF/A-4, 4f, 4e · **built** (`discard`, ADR 1175)
 #### `metadata/xmp-packets-well-formed`
 #### `metadata/xmp-packets-state-one-rdf-element`
 #### `metadata/xmp-packets-meet-the-xmp-data-model`
-ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · `not-built-yet`
+ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · today **`discard` built, `preserve` by page built**; `original = "attach"` not built
 
 - **Mitigation** — **`preserve`, and it is the owner's own example arriving exactly where it is most
   needed.** The converter writes into the producer's packet by span, so a packet it cannot parse has
@@ -1584,6 +1584,17 @@ ISO 19005-2 6.6.2.1, ISO 19005-4 6.7.2.1 · all six / part 2 for the third · `n
   malformed packet offered a validator.
 - **By target** — the attach answer is 4f and 4e; the page answer is all six; the fresh packet is
   needed everywhere.
+- **Built** (ADR 1245), as the loss and the page the catalogue argued for. `pdf_archive::packet_faults`
+  and `metadata_streams` are the three rows' own judgements read as a population, so a packet this
+  replaces is exactly one they reported; `Rewrite::FreshMetadataPacket` puts a conforming packet in
+  its place, stating no property of its own — the catalog's gaining the identification schema and
+  this conversion's recorded actions beside it — and it is the *first* of five writers over a packet, with the
+  other four skipping a stream it replaced because an edit by span has nothing left to write into.
+  `--authorise metadata-packet` keeps nothing; `remedy = "preserve"` with `original = "page"` and
+  `fresh-packet = true` lays the producer's own bytes out on an appended page, and the report names
+  every stream replaced with what its packet broke. **`original = "attach"` is not built**: keeping the
+  original as an embedded file is 4f's and 4e's mechanism and needs the attachment machinery, so a row
+  asking for it is named by `--remedy-sites` rather than silently taking the page.
 - **From a configuration** — `remedy = "preserve"`, `original = "attach" | "page" | "both"`,
   `fresh-packet = true`. Two facts for the operator: *the archive's metadata is what this converter
   could read, not what the producer wrote*, and *the producer's packet is kept as text rather than
@@ -1643,13 +1654,24 @@ they differ in what the archive keeps rather than in what it conforms to:
   of metadata that a page now keeps anyway.
 
 #### `metadata/extension-schemas-embedded`
-ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today `not-built-yet`
+ISO 19005-2 6.6.2.3.2 · PDF/A-2b, 2u, 2a · today **built**
 
 - **Mitigation** — emit an extension schema container describing the schema the packet uses, which
   section 4.2 of the limits document permits and calls authoring in a small way, with an Ask where a
   value's type cannot be determined from what is there. The alternative is `discard` — drop the
   property, which is the limits document's section 3.9 machinery and already built for its own
   requirement.
+- **Built** (ADR 1245), and as a `Stated` decision rather than a `Mechanical` one. What the container
+  says about the schema comes out of the packet — the namespace URI, the prefix, each property's local
+  name, and the value type its own serialisation shows (`pdf_archive::undescribed_schemas`) — and the
+  three fields 6.6.2.3.3 requires that no file states are one fixed sentence each, so the archive
+  carries a description of the *shape* of the producer's metadata and no claim about its meaning. The
+  category is `external`, which is true of what happened: this converter derived none of the value.
+  A property whose value type the serialisation does not show is a structure, whose own custom value
+  type would need fields nobody wrote — that stops the run unless the row says
+  `undeterminable = "discard"`, which cuts the property and describes the rest. A packet already
+  stating a container is refused by name rather than given a second one, because a packet may state
+  `pdfaExtension:schemas` once.
 - **By target** — part 4 states no extension schema requirement (confirmed **A**), which makes *use
   PDF/A-4* the cheapest answer for a document whose only fault is an undescribed schema.
 - **From a configuration** — `remedy = "preserve"` (emit the container) with `undeterminable =
@@ -1692,12 +1714,17 @@ for an absent one
   line and a much smaller hole than dropping the rule.
 
 #### `metadata/identification-amendment-form`
-ISO 19005-2 6.6.4 · PDF/A-2b, 2u, 2a · today `not-built-yet`
+ISO 19005-2 6.6.4 · PDF/A-2b, 2u, 2a · today **built**
 
 - **Mitigation** — `discard`: remove the malformed amendment identifier. Neither the number nor the
   year can be recovered from a malformed one, the entry is optional, and what is lost is the
   producer's claim about which amendment the file was made to — which was wrong anyway, since it did
   not have the form the part requires.
+- **Built** (ADR 1246) as `Loss::AmendmentIdentifier`, the fourth of the five writers over a packet:
+  `pdf_archive::malformed_amendment_identifiers` is the row's own judgement read as a population and
+  `pdf_model::xmp::remove` cuts the entry by span, so every other byte of the producer's packet
+  crosses unchanged. The report names the value that was there, because the output says nothing about
+  a claim the file has stopped making.
 - **By target** — part 4's identification schema does not state this (confirmed **A**).
 - **From a configuration** — `remedy = "discard"`. The cost sentence is almost nothing, and saying
   so is useful: *the file stops claiming an amendment it identified incorrectly*.

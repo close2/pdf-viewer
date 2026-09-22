@@ -425,6 +425,11 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
             "QUORRA_PURPOSE_REMOTE_DOCUMENT",
             PurposeKind::RemoteDocument,
         ),
+        ("QUORRA_PURPOSE_NAMED_PAGE", PurposeKind::NamedPage),
+        (
+            "QUORRA_PURPOSE_THREAD_DOCUMENT",
+            PurposeKind::ThreadDocument,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

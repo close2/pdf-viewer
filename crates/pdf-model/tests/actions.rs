@@ -650,7 +650,17 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
         ("GoToDp", "/S /GoToDp /Dp 4 0 R", Performed("GoToDp")),
         ("Launch", "/S /Launch /F (other.pdf)", Refused),
         ("Thread", "/S /Thread /D 0", Performed("Thread")),
-        ("Thread", "/S /Thread /F (other.pdf) /D 0", Refused),
+        // Table 209's `/F` is performed too since ADR 1239: the file crosses to a host and the
+        // jump is made in the document that comes back.
+        (
+            "Thread",
+            "/S /Thread /F (other.pdf) /D 0",
+            Performed("Thread"),
+        ),
+        // The one refusal §12.6.4.7 has left, and it is the table's: `/D`'s reference form says
+        // "the thread shall be in the current file", so a reference beside a `/F` is a file
+        // saying the thread is both here and elsewhere.
+        ("Thread", "/S /Thread /F (other.pdf) /D 8 0 R", Refused),
         ("URI", "/S /URI /URI (https://example.invalid)", Read),
         ("Sound", "/S /Sound /Sound 5 0 R", Refused),
         ("Movie", "/S /Movie", Refused),

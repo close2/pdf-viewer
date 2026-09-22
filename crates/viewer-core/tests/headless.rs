@@ -1593,14 +1593,16 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
             "<< /S /Movie /Operation /Play >>",
             "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
         ),
-        // Table 209's `/D` beside its `/F`, so that the refusal is the clause's rather than a
-        // malformed dictionary's: a `Thread` naming no bead would be refused by a different arm
-        // and would prove nothing about a well-formed one. §12.6.4.3's `GoToR` used to stand
-        // here and has left the table because it is performed: the file it names is asked of the
-        // host and the jump made against what comes back (ADR 1227).
+        // §12.6.4.7's one refusal, and it is the *table*'s rather than this program's: Table 209
+        // says of `/D`'s reference form that "the thread shall be in the current file", so an
+        // action stating both that and a `/F` has said the thread is here and elsewhere at once.
+        // A `/F` beside an index is performed — the file is asked of the host and the jump made
+        // against what comes back — which is where §12.6.4.3's `GoToR` also went (ADRs 1227,
+        // 1239).
         (
-            "<< /S /Thread /F (other.pdf) /D 0 >>",
-            "Thread: a thread in another file, which this reader has no filesystem to open",
+            "<< /S /Thread /F (other.pdf) /D 3 0 R >>",
+            "Thread: the action names another file in /F and names its thread or bead by \
+             reference, which Table 209 says shall be in the current file",
         ),
     ] {
         let notes = said(action);

@@ -103,8 +103,11 @@ and the imported appearance goes back into §7.5.6's update as the FDF producer'
 appearance, because Table 253 makes its `/F` optional and its absence puts the page in the file
 being read — §12.7.7's own second purpose for naming a page, "either as a page or as a button
 appearance" — so the page's content stream, its inherited resources, its crop box as the `/BBox` and
-its `/Rotate` as the `/Matrix` are the Table 93 form §12.5.5 places, and a reference that *does*
-name a second file is said out loud as the host question it is (ADR 1235) —
+its `/Rotate` as the `/Matrix` are the Table 93 form §12.5.5 places; and a reference that *does*
+name a second file is **asked of a host and applied when the file arrives**, which is a second
+question raised while the import is being applied and which Table 252's `/TRef` travels on too — the
+page becomes the button's appearance or a page of the document, copied so that it names nothing of
+the file it came from, under the reader's `--remote-documents=` level (ADRs 1235, 1239) —
 XFDF against ISO 19444-1, which ISO 32000-2 names and defines nowhere, with an `<annots>` element
 **counted and said out loud rather than read**, because the grammar that would let it create an
 annotation is in sections of that standard this tree does not hold (ADR 1108); a person can **fill
@@ -118,7 +121,9 @@ only the *formatting* is reported (ADR 1197); **a file-select control takes a
 file rather than a value**, because Table 231 bit 21 makes the field's text "the pathname of a file
 whose contents shall be submitted as the field's value" and only a host has a filesystem to read
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
-is not the path a *document* wrote (ADR 1216); a person can **choose an option
+is not the path a *document* wrote (ADR 1216), and which GTK and Qt now offer a **native chooser**
+for, inside the widget's own §12.5.2 rectangle and behind the same policy function
+`viewer_host::form::edit_of` asks (ADR 1240); a person can **choose an option
 in §12.7.5.4's two controls in all three windows**, which is Table 233 bit 19 obeyed in both of the
 directions it states rather than in the one that reads as a permission: the flag set is an editable
 text box beside a drop-down list — composed in GTK4, which has no widget that is both — and the flag
@@ -258,15 +263,20 @@ re-exported by `pdf-model` under the paths its callers knew (ADR 1131).
 `/OP`, `/op` and `/OPM` are read, §8.6.7's zero test is made before quantisation, and §11.7.4.3's
 special mode is two Porter-Duff operators chosen per channel — so `render-cpu` computes it and
 `DisplayList::overprints` carries it, with §11.7.4.3's and §11.7.4.4's implicit groups established
-where those clauses say (ADRs 1157, 1158, 1169, 1170, 1182). The other two backends refuse a display
+where those clauses say (ADRs 1157, 1158, 1169, 1170, 1182). A `Separation` or `DeviceN` that
+reverts to a `DeviceCMYK` alternate is in the first bullet on the components its alternate
+receives, which is §11.7.4.3's NOTE 2 and the equivalence §8.6.7's own EXAMPLE states (ADR 1241).
+The other two backends refuse a display
 list carrying the mode by name and the frame falls back, which is the largest by-name coverage loss
 either carries: 2.7% of the crawled documents that open paint under it, counted rather than guessed
-(ADRs 1178, 1181; `doc/questions/Q76` asks who builds it in quorra). **And where the file states a
+(ADRs 1178, 1181, 1241; `doc/questions/Q76` asks who builds it in quorra). **And where the file states a
 black generation, it replaces the device's default**: Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`
 reach both routes into a subtractive space — the graphics state's and §11.6.7's pattern dictionary's
 — so §10.4.2.4's conversion runs the producer's functions instead of this device's, `/BG2 /Default`
 puts the default back on Table 57's own precedence, and a function this tree cannot evaluate is
-`Unsupported::BlackGeneration` rather than a silent substitution (ADR 1207).
+`Unsupported::BlackGeneration` rather than a silent substitution (ADR 1207). The pair in force at a
+`Do` reaches the conversion of a group's result into a four-component parent as well, which is
+§11.7.5.3's second bullet and is sampled into the cube the backends already take (ADR 1242).
 
 **A mesh patch travels to the backend rather than being tessellated in the model**, because the
 fineness a patch needs is a number of device pixels and `pdf-model` has no device: `pdf_render::
@@ -330,7 +340,9 @@ miniature fitted above §12.4.2's label and **fetched only for the rows about to
 `CLAUDE.md` section 2 reaching a panel rather than a preference — Table 29's `/PageMode /UseThumbs`
 opens that tab as a document opens, so the whole list was on the launch path until ADR 0564; and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
 than to the page the first bead sits on, because activating one composes §12.6.4.7's own thread
-action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread**, while four
+action rather than adding a second route (ADR 0200) — **including a thread Table 209's `/F` puts in
+another file**, whose bytes a host supplies under the reader's `--remote-documents=` level and whose
+`/Threads` array, title and bead index are read in the document that arrived (ADR 1239). **Not one *pdf.js* document states a thread**, while four
 documents under `doc/corpora/` state one with 115 beads between them, two of them named for the
 fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier, **and it does so in all three windows** — the two native hosts ship the same compiled-in standard 14
 font programs and had no surface for their licences at all (ADR 0526). **What a key means is one
@@ -597,6 +609,23 @@ document in the state the configuration's own entries set — a PDF/A-4 target c
 because its own clause keeps the key and has a processor ignore it (ADR 1234). **A configuration's
 answer that needs nothing authorised is counted as carried out**, so `--remedy-sites` no longer
 reports a site as refused that the conversion answers by a rewrite losing nothing (ADR 1233).
+**And a metadata packet this tree cannot read is replaced rather than repaired.** ISO 19005-2
+section 6.6.2.1 wants a packet that parses, states one `rdf:RDF` element and keeps ISO 16684-1's
+data model; this converter edits a producer's packet by span, and one breaking any of the three
+has no span to write into. So `--authorise metadata-packet` puts a conforming packet in its place
+— one stating no property of its own, the catalog's gaining the identification schema and this
+conversion's recorded actions beside it, because nothing in the file says what the unreadable one
+meant —
+and `remedy = "preserve"` with `original = "page"` lays the producer's own bytes out on an
+appended page, so what stops being metadata is still in the archive (ADR 1245). **An extension
+schema the file describes nowhere is described from what the packet itself states**: the namespace,
+the prefix, each property's name and the value type its own serialisation shows, with one fixed
+sentence in each of the three fields section 6.6.2.3.3 requires and no file holds — so the archive
+carries the *shape* of the producer's metadata and no claim about its meaning, and the report names
+every schema described (ADR 1245). **And an amendment identifier that is not the number and the
+year separated by a colon is cut out by span**, which is the one remedy section 6.6.4 leaves:
+neither half is recoverable, the entry is optional, and what goes is a claim the file was already
+making incorrectly (ADR 1246).
 A refusal is a question answered in advance: a configuration names each refusal site and its
 remedy, `--remedy-sites` prints every site a target binds with what this version carries out and its
 own total of what is not built yet — and, given a profile, the answers that profile gives which this
@@ -622,13 +651,19 @@ graphics state's line parameters and §8.4.3.6's dash applied first, then painte
 operand bytes inside a §8.4.2-balanced `q`/`Q`; and a **form entered**, its
 own content stream edited under §8.10.1's `/Matrix`. An object another page also draws is **copied**
 for the redacted page rather than replaced, because the other placement's marks are content the
-annotation did not identify. It refuses rather than cuts wrong — a Type 3 font, a composite font not
-`Identity-H`, `sh`, a soft mask over the region, a clipping path, a stroke whose outline came back
+annotation did not identify. A path that is also §8.5.4's **clipping boundary** keeps the
+boundary and loses its marks — the cut marks first, then the producer's own bytes for the path
+closed with `n` — and an image's §8.9.5.4 **`/Alternates`** is dropped from the redacted page's
+copy, so the variants are reached from nothing and never written. A **JPEG 2000** image is cleared
+and re-encoded like the other three codecs where its decode is on the grid its dictionary states,
+its Table 87 `/SMaskInData` is absent or zero, and no component is deeper than eight bits.
+It refuses rather than cuts wrong — a Type 3 font, a composite font not
+`Identity-H`, `sh`, a soft mask over the region, a stroke whose outline came back
 with an arc in it (a round cap or join, or a curved offset, which an expansion can only
-approximate), a zero line width, a JPX image, an
-image stating `/Alternates` — each with its sentence, and the overlay text and fill it does not
-compose (A65's fence), said as a departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195,
-1196, 1236).
+approximate), a zero line width, a codec image whose decode is not on its stated grid, a JPX image
+carrying opacity or stating more than eight bits — each with its sentence, and the overlay text and
+fill it does not compose (A65's fence), said as a departure in the report (ADRs 1124, 1126, 1132,
+1133, 1143, 1195, 1196, 1236, 1248).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

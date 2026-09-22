@@ -274,6 +274,24 @@ fn mark_extents(commands: &[pdf_render::Command]) -> Vec<pdf_render::geom::Rect>
 /// The region is mapped through `base_transform` into the display list's own space, which is the
 /// space the marks are in — `doc/traps` 12a: the display list's space is not the page's, and the
 /// flip lives in that one function.
+/// The colour at one page point of a rasterised page, as three eight-bit components.
+///
+/// The fixtures' page is `PAGE_POINTS` square and the reference rasterises it at its own
+/// resolution, so the point is scaled by the raster's width rather than assumed to be a pixel.
+/// Integer arithmetic throughout, because every point asked about here is a whole number.
+fn page_pixel(raster: &pdf_render::Raster, x: u32, y: u32) -> [u8; 3] {
+    let column = x.saturating_mul(raster.width) / PAGE_POINTS;
+    let row = y.saturating_mul(raster.height) / PAGE_POINTS;
+    let scan = raster.height.saturating_sub(1).saturating_sub(row);
+    let at = usize::try_from(scan.saturating_mul(raster.width).saturating_add(column))
+        .expect("a raster index fits a usize")
+        .saturating_mul(4);
+    [raster.data[at], raster.data[at + 1], raster.data[at + 2]]
+}
+
+/// The side of the square page every fixture in this file draws on, in points.
+const PAGE_POINTS: u32 = 200;
+
 fn no_mark_meets(bytes: &[u8], region: [f32; 4]) {
     let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
@@ -738,19 +756,96 @@ fn no_mark_moves_outside_the_region_when_a_curve_is_cut() {
 /// A path that is also §8.5.4's clipping boundary is refused: cutting its geometry would move
 /// the boundary every mark after the painting operator is held to, which is content the
 /// annotation did not identify.
+/// A path that is also §8.5.4's clipping boundary keeps the boundary and loses the marks.
+///
+/// The clause separates the two acts in time, which is what lets a cut take one without the
+/// other:
+///
+/// > Although the clipping path operator appears before the painting operator, it shall not
+/// > alter the clipping path at the point where it appears. Rather, it shall modify the effect
+/// > of the succeeding painting operator. After the path has been painted, the clipping path in
+/// > the graphics state shall be set to the intersection of the current clipping path and the
+/// > newly constructed path.
+///
+/// So the marks are painted under the clip already in force, and the boundary is set afterwards
+/// from the path the producer constructed. The removal writes exactly that back — the cut marks,
+/// then the producer's own bytes through the clipping operator, then `n`, which "shall cause no
+/// marks to be placed on the page, but can be used with a clipping path operator to establish a
+/// new clipping path". The fixture proves both halves at once: a black bar is clipped to itself
+/// and then a blue fill covers the whole page, so the blue can only stay inside `20 40 100 20`
+/// if the boundary survived, and the black can only leave the region if its marks were cut.
 #[test]
-fn a_clipping_path_in_the_region_refuses_the_page() {
+fn a_clipping_path_keeps_its_boundary_while_its_marks_are_cut() {
     let content = "0 0 0 rg 20 40 100 20 re W f\n0 0 1 rg 0 0 200 200 re f";
     let bytes = build(
         content,
         &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
     );
-    let (report, _out) = redact(&bytes);
-    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
-    assert!(
-        report.refused[0].detail.contains("§8.5.4"),
-        "the refusal names the clause: {}",
-        report.refused[0].detail
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    // In pixels, because the clip is not a mark and a bounding box cannot see it. The blue fill
+    // covers the whole page and may only show through the boundary the black bar established, so
+    // a point well outside that boundary is the page's own white either way; a point inside it
+    // and outside the region is blue; and a point inside both is nothing at all, which is the
+    // marks having been cut.
+    let raster = pixels(&out);
+    let at = |x: u32, y: u32| page_pixel(&raster, x, y);
+    assert_eq!(
+        at(160, 150),
+        [255, 255, 255],
+        "the clip still keeps the blue fill off the rest of the page"
+    );
+    assert_eq!(
+        at(30, 50),
+        [0, 0, 255],
+        "and still lets it through where the producer's path put it"
+    );
+    assert_eq!(
+        at(80, 50),
+        [255, 255, 255],
+        "inside the region both paths lost their marks"
+    );
+}
+
+/// A clipping operator before the last construction still bounds the whole path.
+///
+/// §8.5.4 only *permits* the tidy order — the operator "may appear after the last path
+/// construction operator and before the path-painting operator that terminates a path object" —
+/// and what it bounds is "the newly constructed path", which is whole at the painting operator
+/// and not before it. So the boundary's bytes are taken there, and a second rectangle built
+/// after the `W` is part of the boundary exactly as the clause says. Without that, the second
+/// rectangle would be missing from the re-stated boundary and the blue fill would not reach it.
+#[test]
+fn a_clipping_operator_before_the_last_construction_still_bounds_the_whole_path() {
+    let content = "0 0 0 rg 20 40 100 20 re W 140 40 20 20 re f\n0 0 1 rg 0 0 200 200 re f";
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+    let raster = pixels(&out);
+    let at = |x: u32, y: u32| page_pixel(&raster, x, y);
+    assert_eq!(
+        at(30, 50),
+        [0, 0, 255],
+        "the part of the boundary built before the clipping operator is in it"
+    );
+    assert_eq!(
+        at(150, 50),
+        [0, 0, 255],
+        "and so is the part built after it"
+    );
+    assert_eq!(
+        at(180, 150),
+        [255, 255, 255],
+        "the boundary is still a boundary"
+    );
+    assert_eq!(
+        at(80, 50),
+        [255, 255, 255],
+        "and the marks inside the region are gone"
     );
 }
 
@@ -1024,15 +1119,42 @@ fn image_samples_inside_a_quadpoints_region_are_destroyed_and_outside_intact() {
     assert_eq!(glyphs, 0, "no text was in this fixture");
 }
 
-/// An image behind `JPXDecode` meeting the region is refused by name, never cleared — a
-/// codestream over the decoder's budget comes back at a reduced resolution level (§7.4.9 NOTE 3),
-/// so its raster is not the image's grid and the redaction cannot be proven to replace the
-/// full-resolution content (trap 5, principle 1). `JBIG2Decode` is now cleared, not refused
-/// (`a_jbig2_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate`).
-#[test]
-fn an_image_behind_jpx_is_refused_by_name() {
-    // The bytes are never decoded: the codec is refused from `/Filter` before any decode.
-    let objects = vec![
+/// An 8×8 one-component JPEG 2000 codestream, every sample [`JPX_SAMPLE`].
+///
+/// A bare codestream — SOC, SIZ, COD, QCD, SOT, SOD, EOC — with no JP2 boxes. Its `SIZ` states
+/// one component of eight unsigned bits and its `COD` the reversible 5/3 wavelet, so it is
+/// lossless and the value comes back exactly. The same bytes `pdf-model`'s image-mask tests
+/// carry, generated rather than written because a JPEG 2000 codestream cannot be written by hand
+/// legibly:
+///
+/// ```sh
+/// python3 -c "import numpy as np; np.full(64, 200, np.uint8).tofile('gray.raw')"
+/// opj_compress -i gray.raw -o gray.j2k -F 8,8,1,8,u -n 1 -r 1
+/// ```
+const JPX_ONE_COMPONENT: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x01, 0xff, 0x52, 0x00,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
+    0x40, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x23, 0x00, 0x01, 0xff, 0x93, 0xcf,
+    0xb4, 0x48, 0x14, 0x00, 0x5c, 0xa3, 0x65, 0x5d, 0xb0, 0x00, 0x03, 0x09, 0x08, 0xd5, 0x0a, 0x18,
+    0x48, 0x4b, 0xff, 0x7f, 0xff, 0xd9,
+];
+
+/// The one sample value [`JPX_ONE_COMPONENT`] carries, in every pixel.
+const JPX_SAMPLE: u8 = 200;
+
+/// The page, the region and the image object the three `JPXDecode` fixtures share.
+fn jpx_page(dictionary_extra: &str, data: &[u8]) -> Vec<u8> {
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+         /Filter /JPXDecode {dictionary_extra} /Length {} >>\nstream\n",
+        data.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(data);
+    image.extend_from_slice(b"\nendstream");
+    assemble_bytes(&[
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im1 6 \
@@ -1042,9 +1164,68 @@ fn an_image_behind_jpx_is_refused_by_name() {
         b"<< /Type /Annot /Subtype /Redact /Rect [50 50 100 150] \
           /QuadPoints [50 150 100 150 100 50 50 50] >>"
             .to_vec(),
-        image_object("JPXDecode", b"\x00\x00\x00\x0cjP  "),
-    ];
-    let bytes = assemble_bytes(&objects);
+        image,
+    ])
+}
+
+/// A `JPXDecode` image on its own grid is decoded, cleared and re-encoded as `FlateDecode`.
+///
+/// §12.5.6.23 asks one thing of an image — "[i]f a portion of an image is contained in a
+/// redaction region, that portion of the image data shall be destroyed; clipping or image masks
+/// shall not be used to hide that data" — and states nothing about the encoding the rest of it
+/// survives in. Decoding the codestream, zeroing the region's samples and writing the whole grid
+/// back under `FlateDecode` is therefore the destruction the clause asks for: the removed samples
+/// are in the output in no form at all, and the ones outside the region are the values a reader
+/// decoded before, carried losslessly. The assertions are both halves of that — the left four
+/// columns zero, the right four still [`JPX_SAMPLE`], and the original codestream gone from the
+/// file so there is no orphan to recover it from.
+#[test]
+fn a_jpx_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate() {
+    // In-process decode: the same routine the confined worker runs, with no worker binary needed.
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("", JPX_ONE_COMPONENT);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "an eight-bit codestream on its own grid is cleared, not refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, JPX_ONE_COMPONENT),
+        "the original codestream is not left in the file"
+    );
+
+    let (width, height, rgba, flate_rgb) = read_back_codec_image(&out);
+    assert_eq!((width, height), (8, 8), "the grid survives the re-encode");
+    assert!(flate_rgb, "re-encoded as 8-bit DeviceRGB under FlateDecode");
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let red = rgba[(row * 8 + col) * 4];
+            if col < 4 {
+                assert_eq!(red, 0, "destroyed at row {row}, column {col}");
+            } else {
+                assert_eq!(red, JPX_SAMPLE, "intact at row {row}, column {col}");
+            }
+        }
+    }
+}
+
+/// A `JPXDecode` image whose codestream states more than eight bits refuses the page by name.
+///
+/// The re-encode writes 8-bit `DeviceRGB`, so a deeper codestream would come back coarser
+/// **outside** the region as well — content the annotation did not identify, changed. §7.4.9
+/// makes the codestream the statement of its own precision, so the refusal is decided from the
+/// data rather than from the dictionary, whose `/BitsPerComponent` Table 87 withdraws for this
+/// filter. A twelve-bit `SIZ` is the fixture, differing from the eight-bit twin above in the one
+/// byte that states the depth.
+#[test]
+fn a_deep_jpx_image_in_the_region_refuses_the_page() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let mut deep = JPX_ONE_COMPONENT.to_vec();
+    // `Ssiz`₀ in the `SIZ` marker segment: the low seven bits are the depth minus one.
+    deep[42] = 0x0b;
+    let bytes = jpx_page("", &deep);
 
     let (report, _out) = redact(&bytes);
     let refused = report
@@ -1053,26 +1234,74 @@ fn an_image_behind_jpx_is_refused_by_name() {
         .find(|declined| declined.page == Some(1))
         .expect("the page is refused");
     assert!(
-        refused.detail.contains("JPXDecode") && refused.detail.contains("codec"),
-        "the refusal names the codec: {}",
+        refused.detail.contains("12 bits per component"),
+        "the refusal names the precision it cannot keep: {}",
         refused.detail
     );
 }
 
-/// An image carrying §8.9.5.4 `/Alternates` is refused by name, never cleared.
+/// A `JPXDecode` image whose samples carry opacity refuses the page by name.
 ///
-/// §12.5.6.23 requires the data to be destroyed — "[i]f a portion of an image is contained in a
-/// redaction region, that portion of the image data shall be destroyed; clipping or image masks
-/// shall not be used to hide that data" — and §8.9.5.4 calls an alternate a variant
-/// representation of the *same* image. So clearing the base alone would leave the region
-/// readable in the variant, and §8.9.5.4 step c) draws one of those variants whenever the output
-/// is a printing. Destroying an alternate's samples too is a capability this writer does not
-/// have: each is its own grid and its own filter, and each may be shared with another page.
-/// Trap 5 and principle 1 — refused by name rather than cut wrong.
+/// Table 87's `/SMaskInData` with a non-zero value means the codestream carries an opacity
+/// channel, and §7.4.9 says "there shall be only one opacity channel in the JPEG 2000 data and it
+/// shall apply to all colour channels" — so the opaque `FlateDecode` re-encode has nowhere to put
+/// it. The control is the same image with the entry absent, which is the fixture above.
 #[test]
-fn an_image_carrying_alternates_is_refused_by_name() {
+fn a_jpx_image_whose_samples_carry_opacity_refuses_the_page() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("/SMaskInData 1", JPX_ONE_COMPONENT);
+
+    let (report, _out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused.detail.contains("/SMaskInData"),
+        "the refusal names the entry: {}",
+        refused.detail
+    );
+}
+
+/// Data that is not JPEG 2000 at all refuses the page rather than being re-encoded blind.
+///
+/// The precision gate reads the codestream's own statement, so data that states nothing is data
+/// this removal cannot show its re-encode preserves. Trap 5: refused by name rather than cleared
+/// on a guess.
+#[test]
+fn a_jpx_image_that_states_no_precision_refuses_the_page() {
+    let bytes = jpx_page("", b"\x00\x00\x00\x0cjP  ");
+
+    let (report, _out) = redact(&bytes);
+    let refused = report
+        .refused
+        .iter()
+        .find(|declined| declined.page == Some(1))
+        .expect("the page is refused");
+    assert!(
+        refused.detail.contains("§7.4.9"),
+        "the refusal names the clause the precision comes from: {}",
+        refused.detail
+    );
+}
+
+/// An image carrying §8.9.5.4 `/Alternates` loses the entry, and the variants with it.
+///
+/// §12.5.6.23 asks for every trace to go — "remove all traces of the specified content" — and
+/// §8.9.5.4 makes an alternate "an array of alternate image dictionaries specifying variant
+/// representations of the base image", reached from that entry and from nowhere else. So the
+/// redacted page's copy of the image states no `/Alternates`, the variant is reached from
+/// nothing, and the closure the writer copies never sees it: its bytes are not in the output at
+/// all. The fixture gives the alternate samples of its own, so the assertion is about that
+/// object rather than about the base's.
+#[test]
+fn an_image_carrying_alternates_loses_the_entry_and_its_variants() {
     let samples = distinct_samples();
     let encoded = flate_encode(&samples, 6).expect("the fixture image deflates");
+    // A variant of the same picture, distinguishable byte for byte from the base.
+    let variant: Vec<u8> = samples.iter().map(|sample| 255 - sample).collect();
+    let variant = flate_encode(&variant, 6).expect("the fixture variant deflates");
     let mut base = image_object("FlateDecode", &encoded);
     // The `/Alternates` entry, spliced into the image dictionary before its `>>`.
     let at = base
@@ -1094,25 +1323,31 @@ fn an_image_carrying_alternates_is_refused_by_name() {
           /QuadPoints [50 150 100 150 100 50 50 50] >>"
             .to_vec(),
         base,
-        image_object("FlateDecode", &encoded),
+        image_object("FlateDecode", &variant),
     ];
     let bytes = assemble_bytes(&objects);
 
     let (report, out) = redact(&bytes);
-    let refused = report
-        .refused
-        .iter()
-        .find(|declined| declined.page == Some(1))
-        .expect("the page is refused");
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
     assert!(
-        refused.detail.contains("/Alternates"),
-        "the refusal names the entry: {}",
-        refused.detail
+        !contains(&out, &variant),
+        "the variant's samples are not in the output"
     );
     assert!(
-        contains(&out, &encoded),
-        "a refused page keeps its content, so nothing was cut wrong"
+        !contains(&out, b"/Alternates"),
+        "and neither is the entry that reached them"
     );
+    // The base is still the base, destroyed in the region: the left four columns are zero.
+    let cleared = read_back_samples(&out);
+    for row in 0..8usize {
+        for col in 0..4usize {
+            assert_eq!(
+                cleared[row * 8 + col],
+                0,
+                "the region's samples are destroyed at row {row}, column {col}"
+            );
+        }
+    }
 }
 
 /// The one image `XObject` as a byte object with a stated grid, colour space, bit depth, filter

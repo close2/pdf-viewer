@@ -35,6 +35,14 @@
 //!   a target that holds the original and derived into a conforming one where the target will not
 //!   — the same [`Derivation`] a `derive` row builds, wired to this word rather than written
 //!   twice. Neither is a fallback for the other, so a `preserve` stating no mechanism is an error.
+//! - **`preserve` at ISO 19005-2 section 6.6.2's two metadata sites**, which state their
+//!   mechanism in keys of their own rather than in `placement` because what they keep is not
+//!   what a removal took out. [`PRESERVABLE_PACKETS`] takes `fresh-packet` and `original`: a
+//!   conforming packet is composed in place of one this tree cannot read, and the producer's own
+//!   goes onto an appended page. [`DESCRIBABLE`]'s one takes `undeterminable`: the extension
+//!   schema is described from what the packet states, which keeps every property where it is,
+//!   and the key says what happens to a property whose value type the packet does not show
+//!   (`doc/adr/1245`).
 //! - **A departure** (section 4.7), the first of which accepts XML and only XML attachments when
 //!   the target is `PDF/A-2` — `A60`'s case, `ZUGFeRD` and `Factur-X`'s, and the only route an operator
 //!   has now that part 3 is not a target.
@@ -571,6 +579,55 @@ impl Placement {
     }
 }
 
+/// Where a `preserve` at one of ISO 19005-2 section 6.6.2.1's packet sites keeps the original.
+///
+/// A different key from [`Placement`] because it answers a different question: `placement` says
+/// where the *content a remedy moves* goes, and this says what becomes of the packet the fresh
+/// one replaces. `doc/pdf-a-mitigations.md` section 9 states the three, and the reason there are
+/// three rather than two is `doc/rfc/0007` section 4.6.1's: a page is available at all six
+/// targets and an attachment only at the two that hold a file unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Original {
+    /// Laid out on pages appended to the document, which every target admits.
+    Page,
+    /// Kept as an attached file, which PDF/A-4f and PDF/A-4e admit.
+    Attach,
+    /// Both.
+    Both,
+}
+
+impl Original {
+    /// The word a configuration names it by.
+    #[must_use]
+    pub const fn word(self) -> &'static str {
+        match self {
+            Self::Page => "page",
+            Self::Attach => "attach",
+            Self::Both => "both",
+        }
+    }
+
+    /// The disposition a configuration's word names.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        [Self::Page, Self::Attach, Self::Both]
+            .into_iter()
+            .find(|original| original.word() == word)
+    }
+
+    /// Whether this disposition puts the original on a page.
+    #[must_use]
+    pub const fn pages_it(self) -> bool {
+        matches!(self, Self::Page | Self::Both)
+    }
+
+    /// Whether this disposition attaches the original as a file.
+    #[must_use]
+    pub const fn attaches_it(self) -> bool {
+        matches!(self, Self::Attach | Self::Both)
+    }
+}
+
 /// One `preserve` remedy this conversion carries out by appending pages.
 ///
 /// `doc/adr/1014`: a page composed solely of content the document already holds is on the near
@@ -581,6 +638,19 @@ impl Placement {
 pub struct Preservation {
     /// The requirement identifier it answers.
     pub site: String,
+    /// Whether the content is kept on a page appended to the document.
+    ///
+    /// `false` for the one `preserve` whose mechanism is neither a page nor an attachment: ISO
+    /// 19005-2 section 6.6.2.3.2's container keeps the properties *where they are*, by describing
+    /// the schema they use. [`super::preserve`] never hears about such a row.
+    pub by_page: bool,
+    /// `undeterminable = "discard"` at the extension schema site.
+    ///
+    /// `doc/pdf-a-mitigations.md`'s entry: a container describes a property's value type, and a
+    /// property whose type the packet's own serialisation does not show has none to name. The
+    /// operator chooses between dropping the property so that the rest can be described and
+    /// stopping the run, and `stop` is what a row states by saying nothing.
+    pub discard_undeterminable: bool,
 }
 
 /// The requirements a built `preserve` may answer by appending pages.
@@ -602,6 +672,45 @@ const PRESERVABLE_BY_PAGE: [&str; 3] = [
     "annotations/subtype-defined-in-iso-32000-1",
     "annotations/subtype-defined-in-iso-32000-2",
 ];
+
+/// The requirements a built `preserve` answers by replacing the packet and keeping the original.
+///
+/// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1, the three rows whose packet this
+/// tree cannot edit. They are separate from [`PRESERVABLE_BY_PAGE`] because the keys are
+/// different — `original` and `fresh-packet` rather than `placement`, which is
+/// `doc/pdf-a-mitigations.md` section 9's own vocabulary — and because the page keeps what the
+/// *replacement* displaced rather than what a removal took out. `doc/adr/1245`.
+const PRESERVABLE_PACKETS: [&str; 3] = [
+    "metadata/xmp-packets-well-formed",
+    "metadata/xmp-packets-state-one-rdf-element",
+    "metadata/xmp-packets-meet-the-xmp-data-model",
+];
+
+/// The one requirement a built `preserve` answers by describing what the packet already holds.
+///
+/// ISO 19005-2 section 6.6.2.3.2: a property in an undescribed extension schema is kept by
+/// describing its schema, which is the `preserve` the catalogue names — and the conversion does
+/// it whether or not a configuration answers the site, because `doc/pdf-a-conversion-limits.md`
+/// section 4.2 makes describing them the default. What a row adds is `undeterminable`.
+const DESCRIBABLE: [&str; 1] = ["metadata/extension-schemas-embedded"];
+
+/// Whether one row is a `preserve` at a packet site this version carries out.
+///
+/// Two keys have to agree before it is: `fresh-packet` must be true, because a site left with no
+/// conforming packet is a site still refused, and `original` must put the packet on a page,
+/// because that is the mechanism this version has. `original = "attach"` alone is recognised and
+/// not carried out — [`Configuration::unbuilt`] names it — since attaching the original as a file
+/// is PDF/A-4f's and PDF/A-4e's mechanism and is not built.
+fn preserves_a_packet(row: &Row) -> bool {
+    row.remedy == Kind::Preserve
+        && PRESERVABLE_PACKETS.contains(&row.site.as_str())
+        && row.fresh_packet
+        // A page and nothing else. `both` asks for the attachment as well, and half of an
+        // operator's instruction carried out is what `doc/rfc/0007` section 4.6 exists to stop.
+        && row
+            .original
+            .is_some_and(|original| original.pages_it() && !original.attaches_it())
+}
 
 /// Why a `preserve` row states no mechanism.
 const PRESERVE_WITHOUT_PLACEMENT: &str = "preserve has two mechanisms and neither is a fallback \
@@ -700,7 +809,10 @@ const SUPPLIABLE: [&str; 2] = [
 pub struct Configuration {
     /// The profile's own name, where the file is a shipped profile (`[profile] name`).
     pub name: Option<String>,
-    /// Every site the file named, in file order, with the remedy it chose and its keys.
+    /// Every site the file named that answers this target, with the remedy it chose and its keys.
+    ///
+    /// One row per site: a qualified row wins its site over the unqualified default, whichever
+    /// order the file wrote the two in, and the rest of the order is the file's.
     sites: Vec<Row>,
     /// Every external program the file declares, by the name a site references it under.
     tools: BTreeMap<String, Tool>,
@@ -725,6 +837,12 @@ struct Row {
     on_failure: Kind,
     /// `placement` — which of `preserve`'s two mechanisms, where the row is a `preserve`.
     placement: Option<Placement>,
+    /// `original` — what becomes of the packet a fresh one replaces, at the three packet sites.
+    original: Option<Original>,
+    /// `fresh-packet` — whether a conforming packet is composed in place of the unreadable one.
+    fresh_packet: bool,
+    /// `undeterminable` — what happens to a property whose value type the packet does not show.
+    undeterminable: Kind,
     /// `media-types`, the `supply` table this version reads.
     media_types: Vec<(String, String)>,
     /// `unlisted` — what happens to a subject the supplied table does not name.
@@ -751,6 +869,7 @@ impl Configuration {
             .collect();
         let mut name = None;
         let mut sites: Vec<Row> = Vec::new();
+        let mut applicable: Vec<(bool, Row)> = Vec::new();
         let mut seen_sites: BTreeSet<String> = BTreeSet::new();
         let mut departures = Vec::new();
         let mut tools: BTreeMap<String, Tool> = BTreeMap::new();
@@ -784,8 +903,17 @@ impl Configuration {
                     // The target qualifier decides *whether this row applies* to the conversion:
                     // an unqualified row is the default, a qualified one wins for its target. A
                     // row for another target is read (and validated) but does not answer here.
-                    if applies_to(tbl, target) && seen_sites.insert(row.site.clone()) {
-                        sites.push(row);
+                    //
+                    // **Collected rather than pushed**, because *wins* is a property of the row
+                    // and not of where in the file it was written: a profile stating the
+                    // unqualified row first and the qualified one under it means the same thing
+                    // as one written the other way round, and a first-past-the-post reader made
+                    // the second row dead text.
+                    if applies_to(tbl, target) {
+                        applicable.push((
+                            !matches!(qualifier(tbl, &row.site), Ok(Qualifier::None)),
+                            row,
+                        ));
                     }
                 }
                 Some("depart") => {
@@ -798,6 +926,15 @@ impl Configuration {
                     tools.insert(declared.name.clone(), declared);
                 }
                 _ => {}
+            }
+        }
+        // Qualified rows first, so that one wins its site whatever order the file wrote them in;
+        // then the defaults, for every site no qualified row answered.
+        for wanted in [true, false] {
+            for (qualified, row) in &applicable {
+                if *qualified == wanted && seen_sites.insert(row.site.clone()) {
+                    sites.push(row.clone());
+                }
             }
         }
         check_rows(&sites, &tools, target)?;
@@ -857,6 +994,18 @@ impl Configuration {
                 Kind::Preserve if FETCHABLE.contains(&row.site.as_str()) => {
                     self.resolution(row).is_some()
                 }
+                // The packet sites state their mechanism in `original` rather than in
+                // `placement`, so they are asked first and by their own keys.
+                Kind::Preserve if PRESERVABLE_PACKETS.contains(&row.site.as_str()) => {
+                    preserves_a_packet(row)
+                }
+                // **`doc/adr/1233`'s argument, at the one site where `preserve` is what the
+                // rewrite already does.** Describing an extension schema keeps every property
+                // the packet states, which is what the word asks for, and the conversion writes
+                // the container whether or not a configuration names the site — so the note
+                // saying the site stays refused would be false. What the row adds is
+                // `undeterminable`, which [`Configuration::preservations`] carries.
+                Kind::Preserve if DESCRIBABLE.contains(&row.site.as_str()) => true,
                 Kind::Preserve => match row.placement {
                     Some(Placement::Append) => PRESERVABLE_BY_PAGE.contains(&row.site.as_str()),
                     Some(Placement::Attach) => self.derivation(row).is_some(),
@@ -961,12 +1110,16 @@ impl Configuration {
             .iter()
             .filter(|row| requirement_binds(&row.site, target))
             .filter(|row| {
-                row.remedy == Kind::Preserve
+                (row.remedy == Kind::Preserve
                     && row.placement == Some(Placement::Append)
-                    && PRESERVABLE_BY_PAGE.contains(&row.site.as_str())
+                    && PRESERVABLE_BY_PAGE.contains(&row.site.as_str()))
+                    || preserves_a_packet(row)
+                    || (row.remedy == Kind::Preserve && DESCRIBABLE.contains(&row.site.as_str()))
             })
             .map(|row| Preservation {
                 site: row.site.clone(),
+                by_page: !DESCRIBABLE.contains(&row.site.as_str()),
+                discard_undeterminable: row.undeterminable == Kind::Discard,
             })
             .collect()
     }
@@ -1201,6 +1354,27 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         ),
         None => None,
     };
+    let original = match tbl.get("original").and_then(Value::as_text) {
+        Some(word) => Some(
+            Original::parse(word).ok_or_else(|| ConfigError::WrongValue {
+                line: tbl.line,
+                site: site.clone(),
+                key: "original".to_owned(),
+                wanted: "one of \"page\", \"attach\" or \"both\"",
+                found: "another word",
+            })?,
+        ),
+        None => None,
+    };
+    let fresh_packet = tbl
+        .get("fresh-packet")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let undeterminable = tbl
+        .get("undeterminable")
+        .and_then(Value::as_text)
+        .and_then(Kind::parse)
+        .unwrap_or(Kind::Stop);
     let unlisted = tbl
         .get("unlisted")
         .and_then(Value::as_text)
@@ -1227,6 +1401,9 @@ fn row(tbl: &toml::Table, site: String, remedy: Kind) -> Result<Row, ConfigError
         tool,
         on_failure,
         placement,
+        original,
+        fresh_packet,
+        undeterminable,
         media_types,
         unlisted,
         winner,
@@ -1924,6 +2101,45 @@ remedy = \"preserve\"
         // At PDF/A-4 the unqualified `discard` row applies; the 4f row is read but does not.
         let four = Configuration::read(text, Target::Four(Flavour::Plain)).expect("reads");
         assert_eq!(four.unbuilt(Target::Four(Flavour::Plain)).len(), 1);
+    }
+
+    /// A target-qualified row wins its site however far down the file it was written.
+    ///
+    /// `doc/rfc/0007` section 3 makes the qualifier a statement about *which target a row
+    /// answers*, and a profile stating the default first and the exception under it means the
+    /// same thing as one written the other way round. A reader taking the first applicable row
+    /// made the second dead text, which is how `doc/profiles/only-metadata-loss.toml` came to
+    /// ask for an attachment at PDF/A-4f and quietly get a page.
+    #[test]
+    fn a_target_qualified_row_wins_however_late_the_file_states_it() {
+        let text = "\
+[site.\"metadata/xmp-packets-well-formed\"]
+remedy = \"preserve\"
+original = \"page\"
+fresh-packet = true
+
+[site.\"metadata/xmp-packets-well-formed\".target.\"4f\"]
+remedy = \"preserve\"
+original = \"attach\"
+fresh-packet = true
+";
+        let two = Configuration::read(text, TWO_B).expect("reads");
+        assert!(
+            two.unbuilt(TWO_B).is_empty(),
+            "at PDF/A-2b the unqualified row answers, and the page is built"
+        );
+
+        let target = Target::Four(Flavour::F);
+        let four = Configuration::read(text, target).expect("reads");
+        assert_eq!(
+            four.unbuilt(target)
+                .iter()
+                .map(|row| row.site.as_str())
+                .collect::<Vec<_>>(),
+            vec!["metadata/xmp-packets-well-formed"],
+            "at PDF/A-4f the qualified row answers, and keeping the original as an attachment is \
+             not built — so the operator is told rather than given the page they did not ask for"
+        );
     }
 
     /// A shape qualifier selects the half of a split requirement the converter answers.

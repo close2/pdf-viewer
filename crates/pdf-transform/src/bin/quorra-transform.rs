@@ -2006,7 +2006,19 @@ archive:
                            signature covers the bytes of one file and a conversion moves every
                            one of them, so each signature field loses its value and keeps its
                            widget and appearance, and the report names each signature, its
-                           signer, its time and what verifying it over the source found.
+                           signer, its time and what verifying it over the source found;
+                           metadata-packet replaces a metadata stream's packet where this
+                           program cannot read the one the file holds — it does not parse, it
+                           states more than one rdf:RDF element, or it breaks the XMP data
+                           model — so everything the producer recorded in it stops being
+                           metadata, the report naming each stream and what its packet broke;
+                           answer the site with a preserve remedy in a --config file and the
+                           producer's own packet is laid out on a page appended to the document
+                           instead; amendment-identifier removes an amendment or corrigendum
+                           identifier that is not the number and the year separated by a colon,
+                           so the file stops claiming an amendment it identified incorrectly.
+                           Giving a word this program does not know prints every loss it can be
+                           authorised, which is more than this paragraph names.
                            Anything not authorised stops the conversion instead of happening
                            quietly
   --output-intent-profile <file>

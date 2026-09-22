@@ -89,6 +89,18 @@ pub const XMP_MM: &str = "http://ns.adobe.com/xap/1.0/mm/";
 /// one schema's, which is why they are in a namespace of their own.
 pub const RESOURCE_EVENT: &str = "http://ns.adobe.com/xap/1.0/sType/ResourceEvent#";
 
+/// The extension schema container schema's namespace, ISO 19005-2 section 6.6.2.3.3.
+///
+/// Its own `pdfaExtension:schemas` property is the bag of descriptions a file carries, and the
+/// four namespaces below are the field namespaces its tables give the value types it nests.
+pub const EXTENSION: &str = "http://www.aiim.org/pdfa/ns/extension/";
+
+/// The Schema value type's field namespace, whose required prefix is `pdfaSchema`.
+pub const EXTENSION_SCHEMA: &str = "http://www.aiim.org/pdfa/ns/schema#";
+
+/// The Property value type's field namespace, whose required prefix is `pdfaProperty`.
+pub const EXTENSION_PROPERTY: &str = "http://www.aiim.org/pdfa/ns/property#";
+
 /// The largest metadata stream this module will look at, decoded.
 ///
 /// The clause states no limit and a stream is arbitrary compressed data, so this is a
@@ -642,6 +654,26 @@ pub fn packet(schema: &Schema<'_>) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// A fresh packet stating no property at all.
+///
+/// The wrapper [`packet`] writes, with one `rdf:Description` whose subject is the empty string
+/// and which declares nothing but RDF itself. What it is for is the metadata stream whose packet
+/// a reader cannot use and whose properties therefore cannot be carried across: an object's own
+/// packet rather than the document's, where composing properties for it would mean stating
+/// metadata nobody wrote. The stream stays in the file, so every reference to it still resolves,
+/// and what it says is nothing rather than something invented.
+#[must_use]
+pub fn empty_packet() -> Vec<u8> {
+    let mut out = String::new();
+    out.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    out.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    out.push_str("<rdf:RDF xmlns:rdf=\"");
+    escaped(RDF, &mut out);
+    out.push_str("\">\n<rdf:Description rdf:about=\"\"></rdf:Description>\n");
+    out.push_str("</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    out.into_bytes()
+}
+
 /// `bytes` with every property in `namespaces` removed and `schema`'s stated in their place.
 ///
 /// **Every other byte of the packet crosses unchanged**, which is the whole point of doing this
@@ -1087,6 +1119,120 @@ pub fn record(bytes: &[u8], event: &Event<'_>) -> Result<Vec<u8>, WriteError> {
     }
     out.push_str(text.get(at..).unwrap_or_default());
     Ok(out.into_bytes())
+}
+
+/// One extension schema, as ISO 19005-2 section 6.6.2.3.3's Schema value type states one.
+///
+/// The strings are the caller's throughout: this module writes what it is given, escaped, and
+/// decides nothing about what a schema is called or what a property means. Which of these fields
+/// a document states and which a converter chose is the caller's to know and to report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaDescription<'a> {
+    /// `pdfaSchema:schema` — the schema's human-readable name.
+    pub name: &'a str,
+    /// `pdfaSchema:namespaceURI`.
+    pub namespace: &'a str,
+    /// `pdfaSchema:prefix`.
+    pub prefix: &'a str,
+    /// `pdfaSchema:property` — the properties it defines, in the order they are to be written.
+    pub properties: &'a [PropertyDescription<'a>],
+}
+
+/// One property of an extension schema, as Table 4's Property value type states one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyDescription<'a> {
+    /// `pdfaProperty:name` — the property's local name.
+    pub name: &'a str,
+    /// `pdfaProperty:valueType` — the XMP value type it carries.
+    pub value_type: &'a str,
+    /// `pdfaProperty:category` — `internal` or `external`.
+    pub category: &'a str,
+    /// `pdfaProperty:description` — what it means, in one sentence for a person.
+    pub description: &'a str,
+}
+
+/// `bytes` with one `pdfaExtension:schemas` property describing `schemas`.
+///
+/// **Written as a description of its own, never merged into one the producer wrote.** A packet
+/// already stating `pdfaExtension:schemas` would then state it twice, which ISO 16684-1 clause 6
+/// forbids — a property name is unique within its packet — so a caller holding such a packet is
+/// expected to ask before calling and this writer does not check for it. Every other byte of the
+/// packet crosses unchanged, for [`restate`]'s reason and by the same means.
+///
+/// # Errors
+///
+/// [`WriteError`], every variant of which leaves the packet untouched.
+pub fn describe(bytes: &[u8], schemas: &[SchemaDescription<'_>]) -> Result<Vec<u8>, WriteError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(WriteError::TooLarge { bytes: bytes.len() });
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| WriteError::NotUtf8)?;
+    let edit = Editor::run(text, Cut::Namespaces(&[]))?;
+    let at = edit.inside_rdf.ok_or(WriteError::NoPlaceForADescription {
+        found: edit.rdf_elements,
+    })?;
+    let mut out = String::with_capacity(text.len().saturating_add(1024));
+    out.push_str(text.get(..at).unwrap_or_default());
+    container(schemas, &mut out);
+    out.push_str(text.get(at..).unwrap_or_default());
+    Ok(out.into_bytes())
+}
+
+/// The whole container, in its own description, with the three prefixes it uses declared on it.
+///
+/// Declared rather than inherited, for [`description`]'s reason — and the three are the ones
+/// ISO 19005-2 section 6.6.2.3.3's tables *require*, since section 6.6.2.2 makes a prefix
+/// binding wherever one is identified as required.
+fn container(schemas: &[SchemaDescription<'_>], out: &mut String) {
+    out.push_str("<rdf:Description rdf:about=\"\" xmlns:rdf=\"");
+    escaped(RDF, out);
+    out.push_str("\" xmlns:pdfaExtension=\"");
+    escaped(EXTENSION, out);
+    out.push_str("\" xmlns:pdfaSchema=\"");
+    escaped(EXTENSION_SCHEMA, out);
+    out.push_str("\" xmlns:pdfaProperty=\"");
+    escaped(EXTENSION_PROPERTY, out);
+    out.push_str("\">\n<pdfaExtension:schemas><rdf:Bag>\n");
+    for schema in schemas {
+        out.push_str("<rdf:li rdf:parseType=\"Resource\">\n");
+        for (local, value) in [
+            ("schema", schema.name),
+            ("namespaceURI", schema.namespace),
+            ("prefix", schema.prefix),
+        ] {
+            field("pdfaSchema", local, value, out);
+        }
+        out.push_str("<pdfaSchema:property><rdf:Seq>\n");
+        for property in schema.properties {
+            out.push_str("<rdf:li rdf:parseType=\"Resource\">\n");
+            for (local, value) in [
+                ("name", property.name),
+                ("valueType", property.value_type),
+                ("category", property.category),
+                ("description", property.description),
+            ] {
+                field("pdfaProperty", local, value, out);
+            }
+            out.push_str("</rdf:li>\n");
+        }
+        out.push_str("</rdf:Seq></pdfaSchema:property>\n</rdf:li>\n");
+    }
+    out.push_str("</rdf:Bag></pdfaExtension:schemas>\n</rdf:Description>\n");
+}
+
+/// One simple field of a structured value, spelled with the prefix its table requires.
+fn field(prefix: &str, local: &str, value: &str, out: &mut String) {
+    out.push('<');
+    out.push_str(prefix);
+    out.push(':');
+    out.push_str(local);
+    out.push('>');
+    escaped(value, out);
+    out.push_str("</");
+    out.push_str(prefix);
+    out.push(':');
+    out.push_str(local);
+    out.push_str(">\n");
 }
 
 /// One whole `xmpMM:History`, in its own description, for a packet that states none.
@@ -2283,9 +2429,64 @@ fn numeric(reference: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DC, Event, Name, PDF, RDF, RESOURCE_EVENT, RequiredPrefix, Schema, Value, WriteError, XMP,
-        XMP_MM, Xmp, XmpError, instant, packet, record, remove, respell, restate,
+        DC, EXTENSION, Event, Name, PDF, PropertyDescription, RDF, RESOURCE_EVENT, RequiredPrefix,
+        Schema, SchemaDescription, Value, WriteError, XMP, XMP_MM, Xmp, XmpError, describe,
+        empty_packet, instant, packet, record, remove, respell, restate,
     };
+
+    /// A packet stating no property parses, states one `rdf:RDF`, and takes a description.
+    ///
+    /// What it is for is the metadata stream this tree cannot read, whose properties therefore
+    /// cannot be carried across (`doc/adr/1245`): the stream stays in the file so that every
+    /// reference to it resolves, and what it says is nothing rather than something invented.
+    #[test]
+    fn an_empty_packet_is_readable_and_still_takes_a_schema() {
+        let bytes = empty_packet();
+        assert_eq!(Xmp::parse(&bytes).expect("it parses").properties(), &[]);
+        assert_eq!(Xmp::rdf_elements(&bytes).expect("it parses"), 1);
+
+        let schema = Schema {
+            namespace: "http://www.aiim.org/pdfa/ns/id/",
+            prefix: "pdfaid",
+            properties: &[("part", "2".to_owned())],
+        };
+        let restated = restate(&bytes, &["http://www.aiim.org/pdfa/ns/id/"], &schema)
+            .expect("the identification schema goes into it");
+        let read = Xmp::parse(&restated).expect("and the result parses");
+        assert_eq!(read.properties().len(), 1, "{:?}", read.properties());
+    }
+
+    /// A container describes what its caller gave it, and the packet reads back as XMP.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.3's Schema and Property value types, with the three prefixes
+    /// its tables require declared on the description this writes.
+    #[test]
+    fn a_container_states_the_schema_and_its_properties_and_reads_back() {
+        let properties = [PropertyDescription {
+            name: "BatchNumber",
+            value_type: "Text",
+            category: "external",
+            description: "described by the converter",
+        }];
+        let schemas = [SchemaDescription {
+            name: "an extension schema",
+            namespace: "http://acme.example/ns/1.0/",
+            prefix: "acme",
+            properties: &properties,
+        }];
+        let written = describe(&empty_packet(), &schemas).expect("it is written");
+        let read = Xmp::parse_detail(&written).expect("and the result parses");
+        let container = read
+            .iter()
+            .find(|property| property.name.namespace == EXTENSION)
+            .expect("the container property");
+        assert_eq!(container.name.local, "schemas");
+        assert_eq!(
+            Xmp::rdf_elements(&written).expect("it parses"),
+            1,
+            "written into the packet's own rdf:RDF rather than beside it"
+        );
+    }
 
     /// ISO 19005-2 section 6.6.2.3.3's Table 3 namespace, and the prefix it requires.
     ///

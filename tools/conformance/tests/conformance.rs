@@ -826,3 +826,33 @@ fn every_annex_is_classified_as_the_standard_classifies_it() {
     assert!(wrong.is_empty(), "\n{wrong}");
     println!("{read} annexes, each on the side its own title line states");
 }
+
+/// `doc/todo/65`'s population is the ledger's open rows, and both sides are lists.
+///
+/// The map groups what is left by *why* it is not done, and states in its own opening lines that
+/// its population is the ledger's `partial` and `reported` rows and only those. That is a claim
+/// about two lists, so it is a gate rather than a reading: a row that closes leaves the map, a
+/// row that opens joins it, and neither happens by itself. ADR 1237 found the drift — four
+/// `implemented` rows in the aggregate list and six `departed` rows in buckets — and
+/// [`conformance::frontier`] says which two places in the document place a row and why the prose
+/// around them does not.
+#[test]
+fn the_frontier_map_places_every_open_row_once_and_nothing_else() {
+    let root = conformance::workspace_root();
+    let ledger = Ledger::read(&root.join(conformance::LEDGER)).expect("the ledger");
+    let map = std::fs::read_to_string(root.join(conformance::frontier::MAP)).expect("the map");
+
+    let disagreements = conformance::frontier::compare(&ledger, &map);
+    let mut wrong = String::new();
+    for disagreement in &disagreements {
+        let _ = writeln!(wrong, "{disagreement}");
+    }
+    assert!(wrong.is_empty(), "\n{wrong}");
+
+    let placed = conformance::frontier::placements(&map);
+    println!(
+        "{} open row(s), each placed once by {}",
+        placed.len(),
+        conformance::frontier::MAP
+    );
+}

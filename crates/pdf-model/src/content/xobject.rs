@@ -526,14 +526,17 @@ impl<'a> Interpreter<'a> {
         page: &crate::page::Page,
         clip: Option<pdf_render::ClipId>,
     ) -> ImportedFrame<'a> {
-        // §12.5.3's placement is the *reader's* magnification rather than either file's, and
+        // §12.5.3's placement is the *reader's* magnification rather than either file's,
         // §8.11.4.4's event and §8.9.5.4's step c) are the *operation's* rather than either
-        // file's — so those two are what is carried across; everything else this state holds,
-        // §12.6.4.11's overrides and the annotations a person added, is filed under an
-        // `ObjectId` of the containing document and means nothing here.
+        // file's, and §10.8.3's simulation is a request the reader made of this program rather
+        // than anything either file states (ADR 1228) — so those three are what is carried
+        // across; everything else this state holds, §12.6.4.11's overrides and the annotations a
+        // person added, is filed under an `ObjectId` of the containing document and means
+        // nothing here.
         let mut view = crate::view::ViewState::of(document);
         view.set_magnification(self.view.magnification());
         view.set_purpose(self.view.purpose());
+        view.set_separation_simulation(self.view.separation_simulation());
         ImportedFrame {
             document: std::mem::replace(&mut self.document, document),
             across: self.across.take(),

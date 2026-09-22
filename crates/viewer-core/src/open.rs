@@ -223,6 +223,12 @@ pub(crate) struct Open {
     /// entries that name a page — `/D` and `/SD` — are read in the document that has not arrived
     /// yet, and neither means anything in this one. ADR 1227.
     pub(crate) opening: Option<pdf_model::action::RemoteGoTo>,
+    /// §12.6.4.7's thread action, suspended at Table 209's `/F` until the document arrives.
+    ///
+    /// The whole action rather than what is left of it, for `opening`'s reason: Table 209's `/D`
+    /// and `/B` are read in the document that has not arrived yet — its `/Threads` array, its
+    /// thread titles, its bead indices — and none of them means anything in this one. ADR 1239.
+    pub(crate) threading: Option<pdf_model::action::ThreadJump>,
     /// An edit the document restricts, held until the person answers `Event::Asking`.
     ///
     /// The *ask* level's whole state: resolved already, for [`Done`]'s reason — what goes ahead
@@ -860,6 +866,7 @@ impl Open {
             importing: None,
             resuming: None,
             opening: None,
+            threading: None,
             asking: None,
             printing: None,
             restrictions: crate::RestrictionOverride::NONE,
@@ -1090,10 +1097,18 @@ impl Open {
             page
         } else {
             let appended = index.checked_sub(pages.len())?;
-            let object = self
-                .document
-                .get(*self.view.appended_pages().get(appended)?);
-            pages.detached(object.as_dict()?)
+            // Table 253's `/F` divides the two: a template page of this document is an object of
+            // it, and one of a second file crossed as a copy that names nothing of that file, so
+            // both are read as §12.7.7's detached page and neither needs a `/Parent` (ADR 1239).
+            let held;
+            let dict = match self.view.appended_pages().get(appended)? {
+                pdf_model::view::AppendedPage::Named(id) => {
+                    held = self.document.get(*id);
+                    held.as_dict()?
+                }
+                pdf_model::view::AppendedPage::Carried(page) => page,
+            };
+            pages.detached(dict)
         };
         if self.view.purpose() == pdf_model::optional_content::Purpose::Print {
             page.render_for_printing();

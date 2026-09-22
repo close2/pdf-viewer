@@ -20,11 +20,15 @@
 //!
 //! # What is composed, and what is refused
 //!
-//! One remedy reaches a page today: the XMP packet of a document whose properties ISO 19005-2
-//! section 6.6.2.3.1 rejects. `doc/pdf-a-conversion-limits.md` section 3.9 removes those
-//! properties, which is a loss the caller has to authorise; with `remedy = "preserve"` the packet
-//! **as the producer wrote it** is laid out on pages appended to the document, so what the removal
-//! takes out of the metadata is still in the archive for a person to read.
+//! Three kinds of remedy reach a page, and all three keep a producer's own bytes that the file
+//! is about to stop carrying. The XMP packet of a document whose properties ISO 19005-2 section
+//! 6.6.2.3.1 rejects: section 3.9 of `doc/pdf-a-conversion-limits.md` removes those properties,
+//! which is a loss the caller has to authorise, and `remedy = "preserve"` lays the packet **as
+//! the producer wrote it** on pages appended to the document. The XMP packet of a document
+//! whose packet this tree cannot read at all, which section 6.6.2.1's three rows fail and
+//! `doc/adr/1245` replaces rather than edits — `original = "page"` keeps the original here. And
+//! the normal appearance of an annotation section 6.3.1 forbids, which `doc/adr/1099` keeps and
+//! `doc/adr/1123` puts back onto the producer's own page where it can.
 //!
 //! Everything this cannot do losslessly refuses by name rather than half-doing it — the round's
 //! rule, and `CLAUDE.md` principle 1's: *a promise nothing will keep is worse than a refusal with

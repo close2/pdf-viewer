@@ -42,8 +42,19 @@
 //! colourant is maintained beside them; the `Separation` and `DeviceN` rows are unreachable
 //! because §11.7.3 requires such a space to revert inside a group that states its own space —
 //! "[i]f any other colour space has been specified for the group, the Separation or DeviceN
-//! colour space shall be converted to its alternate colour space". ADR 1157 has the reading
-//! and ADR 1158 what it costs; ADR 0028 is what it supersedes.
+//! colour space shall be converted to its alternate colour space".
+//!
+//! **Reverting is what puts such a space in the first row rather than outside the table.**
+//! §11.7.4.3's NOTE 2 makes the current colour space of a space "that revert[s] to [its]
+//! alternate colour space" *be* that alternate, so a `Separation` or `DeviceN` over a
+//! `DeviceCMYK` alternate meets the first bullet on the four components the alternate
+//! receives. §8.6.7's own EXAMPLE requires it: under `OP true` and `OPM 1` that clause calls
+//! `0.2 0.3 0.0 1.0 k` equivalent to `0.2 0.3 1.0 scn` in a `DeviceN` whose alternate is
+//! `DeviceCMYK`, and two operators a clause calls equivalent may not take different blend
+//! functions. `content::colour::cmyk_tints` is where that is answered (ADR 1241, amending
+//! ADR 1157).
+//!
+//! ADR 1157 has the reading and ADR 1158 what it costs; ADR 0028 is what it supersedes.
 //!
 //! # `may`, and what still follows from it
 //!
@@ -132,11 +143,13 @@ impl Interpreter<'_> {
     /// - The overprint parameter for this kind of painting operation is true (§11.7.4.3: the
     ///   mode "may be implicitly invoked whenever an elementary graphics object is painted
     ///   while overprinting is enabled").
-    /// - The current colour is a `DeviceCMYK` one the content stream stated directly, which is
-    ///   Table 146's first row and §8.6.7's "painting operations that use the current colour
-    ///   in the graphics state when the current colour space is DeviceCMYK". A pattern is not
-    ///   such a colour: §8.6.7 excludes shadings outright, and a tiling pattern's cell paints
-    ///   its own.
+    /// - The current colour space is `DeviceCMYK` — stated as such, or a `Separation` or
+    ///   `DeviceN` reverting to a `DeviceCMYK` alternate, which §11.7.4.3's NOTE 2 makes the
+    ///   same thing. That is Table 146's first row and §8.6.7's "painting operations that use
+    ///   the current colour in the graphics state when the current colour space is
+    ///   DeviceCMYK"; `content::colour::cmyk_tints` is where the two routes meet. A pattern is
+    ///   not such a colour: §8.6.7 excludes shadings outright, and a tiling pattern's cell
+    ///   paints its own.
     /// - At least one of the four tints is zero, which is the only way the bullet's value
     ///   differs from `C_s`.
     ///

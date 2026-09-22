@@ -1925,6 +1925,196 @@ pub struct MisusedProperty {
     pub because: String,
 }
 
+/// One extension schema a packet uses and describes nowhere, with what the packet itself states
+/// about it.
+///
+/// **The population [`extension_schemas_embedded`] reports over, as the material a container
+/// would be written from.** Everything here comes out of the packet: the namespace URI the
+/// property named, the prefix the packet spelled it with, and each property's local name and the
+/// XMP value type its own serialisation shows. What a container also needs and this does not
+/// carry — the schema's human-readable name, each property's description and its category — is
+/// nowhere in the file, which is why those are the converter's documented choice rather than a
+/// field of this struct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndescribedSchema {
+    /// The namespace URI, which is `pdfaSchema:namespaceURI`.
+    pub namespace: String,
+    /// The prefix the packet spelled its properties with, which is `pdfaSchema:prefix`.
+    pub prefix: String,
+    /// Each property of it the packet states, in the order stated.
+    pub properties: Vec<UndescribedProperty>,
+}
+
+/// One property of an undescribed schema.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndescribedProperty {
+    /// The local name, which is `pdfaProperty:name`.
+    pub local: String,
+    /// The XMP value type the packet's own serialisation shows, where it shows one.
+    ///
+    /// `None` for a structured value, whose fields would need a custom value type described in
+    /// its own right — and the names of *those* fields' types are no more in the file than this
+    /// one's would be. `doc/pdf-a-mitigations.md`'s entry calls that the undeterminable case.
+    pub value_type: Option<&'static str>,
+}
+
+/// The XMP value type one serialised value shows, where the serialisation decides it.
+///
+/// A *form* rather than a type, which is the same coarseness
+/// [`xmp_packets_meet_the_xmp_data_model`] holds an array's items to: a serialisation shows that
+/// a value is text or an ordered array of text, and nothing in it says whether that text is a
+/// date, a URI or a proper name. So what is read off is the form, and a form is what a container
+/// written from it may claim.
+fn serialised_value_type(value: &Detail) -> Option<&'static str> {
+    let all_text = |items: &[&Detail]| items.iter().all(|item| item.text().is_some());
+    match value {
+        Detail::Text(_) => Some("Text"),
+        Detail::Alt(items) => {
+            all_text(&items.iter().map(|(_, item)| item).collect::<Vec<_>>()).then_some("Lang Alt")
+        }
+        Detail::Seq(items) => all_text(&items.iter().collect::<Vec<_>>()).then_some("Seq Text"),
+        Detail::Bag(items) => all_text(&items.iter().collect::<Vec<_>>()).then_some("Bag Text"),
+        Detail::Structure(_) => None,
+    }
+}
+
+/// Every extension schema one packet uses that nothing describes, grouped by namespace.
+///
+/// `described` is the catalog's own packet where the caller holds one, because ISO 19005-2
+/// section 6.6.2.3.2 admits a description in the stream the property is in *or* in the catalog's,
+/// which is the same two places [`extension_schemas_embedded`] looks. A packet that does not parse
+/// yields nothing, as [`properties_outside_their_schema`] does.
+#[must_use]
+pub fn undescribed_schemas(packet: &[u8], described: Option<&[u8]>) -> Vec<UndescribedSchema> {
+    let Ok(properties) = Xmp::parse_detail(packet) else {
+        return Vec::new();
+    };
+    let mut known = described
+        .and_then(|bytes| Xmp::parse_detail(bytes).ok())
+        .map(|inherited| described_schemas(&inherited))
+        .unwrap_or_default();
+    known.extend(described_schemas(&properties));
+    let mut out: Vec<UndescribedSchema> = Vec::new();
+    for property in &properties {
+        let namespace = &property.name.namespace;
+        if namespace.is_empty()
+            || predefined(namespace).is_some()
+            || defined_by_iso_19005(namespace)
+            || known.iter().any(|uri| uri == namespace)
+        {
+            continue;
+        }
+        let described = UndescribedProperty {
+            local: property.name.local.clone(),
+            value_type: serialised_value_type(&property.value),
+        };
+        match out.iter_mut().find(|schema| &schema.namespace == namespace) {
+            Some(schema) => {
+                if !schema
+                    .properties
+                    .iter()
+                    .any(|stated| stated.local == described.local)
+                {
+                    schema.properties.push(described);
+                }
+            }
+            None => out.push(UndescribedSchema {
+                namespace: namespace.clone(),
+                prefix: property.prefix.clone(),
+                properties: vec![described],
+            }),
+        }
+    }
+    out
+}
+
+/// Which of ISO 19005-2 section 6.6.2.1's packet rules one metadata stream breaks.
+///
+/// **A second reading of three rows' predicates, as a population rather than as a verdict**, and
+/// it is here for `doc/adr/1234`'s reason: a findings list is capped where a document's metadata
+/// streams are not, so a rewrite driven off findings half-edits a file carrying more bad packets
+/// than the bound keeps. The judgements themselves are the rows' own functions, called from here,
+/// so a converter cannot act on a packet this crate would have passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PacketFault {
+    /// The stream's data would not decode, so there are no packet bytes to read.
+    WillNotDecode,
+    /// The packet is not well-formed: `metadata/xmp-packets-well-formed`.
+    WillNotParse,
+    /// The packet serialises more than one `rdf:RDF` element:
+    /// `metadata/xmp-packets-state-one-rdf-element`.
+    ManyRdfElements,
+    /// The packet breaks ISO 16684-1 clause 6's data model:
+    /// `metadata/xmp-packets-meet-the-xmp-data-model`.
+    BreaksTheDataModel,
+}
+
+impl PacketFault {
+    /// The requirement identifier whose row reports this fault.
+    #[must_use]
+    pub const fn requirement(self) -> &'static str {
+        match self {
+            Self::WillNotDecode | Self::WillNotParse => "metadata/xmp-packets-well-formed",
+            Self::ManyRdfElements => "metadata/xmp-packets-state-one-rdf-element",
+            Self::BreaksTheDataModel => "metadata/xmp-packets-meet-the-xmp-data-model",
+        }
+    }
+}
+
+/// Every metadata stream a document's cross-reference sections name, in object-number order.
+///
+/// The population every row of this module walks ([`for_each_metadata_stream`]), answered for a
+/// document alone so that a converter reaching for it does not need an [`Examination`]. Both
+/// parts exempt an indirect object no cross-reference section names (ISO 19005-2 section 6.1.4,
+/// ISO 19005-4 section 6.1.4), which is why the walk is the table's rather than a traversal's.
+#[must_use]
+pub fn metadata_streams(document: &Document) -> Vec<ObjectId> {
+    let mut out = Vec::new();
+    for number in document.xref().object_numbers() {
+        let id = ObjectId::new(number, 0);
+        if let Object::Stream(stream) = document.get(id)
+            && document
+                .get_key(&stream.dict, "Type")
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Metadata")
+        {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// Which of the three packet rules one packet's bytes break, in [`PacketFault`] order.
+///
+/// A packet that will not parse is reported as that and nothing else: the two rows after it read
+/// a parsed packet, so reporting them over one that did not parse would say a file broke rules
+/// nothing established it had reached.
+#[must_use]
+pub fn packet_faults(packet: &[u8]) -> Vec<PacketFault> {
+    if Xmp::parse(packet).is_err() {
+        return vec![PacketFault::WillNotParse];
+    }
+    let mut out = Vec::new();
+    if Xmp::rdf_elements(packet).is_ok_and(|roots| roots > 1) {
+        out.push(PacketFault::ManyRdfElements);
+    }
+    if let Ok(properties) = Xmp::parse_detail(packet) {
+        // The rows' own judgements, run into a findings list nobody reads, because what is wanted
+        // here is the predicate rather than its sentences — and writing the predicate a second
+        // time is how the two come to disagree.
+        let mut findings = Findings::default();
+        let anywhere = ObjectId::new(0, 0);
+        report_repeated_names(anywhere, &properties, "the packet", &mut findings);
+        for property in &properties {
+            judge_against_the_data_model(anywhere, property, &mut findings);
+        }
+        if findings.seen() > 0 {
+            out.push(PacketFault::BreaksTheDataModel);
+        }
+    }
+    out
+}
+
 /// Every property one XMP packet states that its own predefined schema does not define.
 ///
 /// The population [`properties_use_known_schemas`] reports over, answered for one packet's bytes
@@ -2757,6 +2947,38 @@ fn identification_amendment_form(exam: &Examination<'_>, findings: &mut Findings
     }
 }
 
+/// The identification properties one packet states in a form ISO 19005-2 section 6.6.4 rejects.
+///
+/// The names of the amendment and corrigendum identifiers where the packet states them and their
+/// value is not the number and the year separated by a colon, each under the namespace spelling
+/// the packet actually used — which is what a writer cutting them by span needs, since a packet
+/// may spell the identification namespace either of the two ways [`IDENTIFICATION_URIS`] admits.
+///
+/// [`identification_amendment_form`] is the requirement's own row and [`numbered_and_dated`] is
+/// the judgement both use, so a converter cannot cut an identifier this crate would have passed.
+/// A packet that does not parse yields nothing, as [`properties_outside_their_schema`] does.
+#[must_use]
+pub fn malformed_amendment_identifiers(packet: &[u8]) -> Vec<Name> {
+    let Ok(properties) = Xmp::parse(packet) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, value) in properties.properties() {
+        if !IDENTIFICATION_URIS.contains(&name.namespace.as_str())
+            || !["amd", "corr"].contains(&name.local.as_str())
+        {
+            continue;
+        }
+        // A value that is not a simple one is a different fault and a different row's: this one
+        // is about the *form* of a text the schema types as text.
+        if as_text(value).is_some_and(numbered_and_dated) {
+            continue;
+        }
+        out.push(name.clone());
+    }
+    out
+}
+
 /// Whether a value is a number and a year separated by a colon, ISO 19005-2 section 6.6.4's form.
 fn numbered_and_dated(text: &str) -> bool {
     let trimmed = text.trim();
@@ -2783,7 +3005,10 @@ mod tests {
         xmp_packet_header_attributes, xmp_packets_meet_the_xmp_data_model,
         xmp_packets_state_one_rdf_element, xmp_packets_well_formed,
     };
-    use super::{declared_target, identification_schema_prefix};
+    use super::{
+        PacketFault, declared_target, identification_schema_prefix,
+        malformed_amendment_identifiers, packet_faults, undescribed_schemas,
+    };
     use crate::target::{Flavour, Level, Target};
 
     /// A one-page document whose catalog names object 4 as its metadata stream, carrying `packet`.
@@ -2847,6 +3072,84 @@ mod tests {
         let exam = Examination::new(document, Target::Four(Flavour::Plain));
         predicate(&exam, &mut findings);
         findings.seen()
+    }
+
+    /// The population readers say what the rows say, over the bytes a converter holds.
+    ///
+    /// `doc/adr/1245`: a rewrite driven off a capped findings list half-edits a document with
+    /// more bad packets than the cap keeps, so the judgement is read a second time as a
+    /// population — and the judgement has to be the rows' own, or a converter could act on a
+    /// packet this crate would have passed.
+    #[test]
+    fn a_packets_faults_are_the_rows_own_findings_read_as_a_population() {
+        let conforming = b"<?xpacket begin=\"\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             <rdf:Description rdf:about=\"\"></rdf:Description>\n\
+             </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        assert!(packet_faults(conforming).is_empty());
+
+        // An element closed by another element's tag: not well-formed XML, which ISO 16684-1
+        // section 7.1 makes not well-formed XMP. Nothing else is reported over it, because the
+        // two rows after that one read a packet that parsed.
+        let broken = b"<?xpacket begin=\"\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             </rdf:RDFF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        assert_eq!(packet_faults(broken), vec![PacketFault::WillNotParse]);
+        assert_eq!(
+            PacketFault::WillNotParse.requirement(),
+            "metadata/xmp-packets-well-formed"
+        );
+
+        // Two `rdf:RDF` elements parse, so the fault is the other row's.
+        let two = b"<?xpacket begin=\"\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF>\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF>\n\
+             </x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        assert_eq!(packet_faults(two), vec![PacketFault::ManyRdfElements]);
+    }
+
+    /// An undescribed schema is read with what the packet states and nothing more.
+    #[test]
+    fn an_undescribed_schema_carries_the_packets_own_prefix_names_and_forms() {
+        let packet = b"<?xpacket begin=\"\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n\
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n\
+             <rdf:Description rdf:about=\"\" xmlns:acme=\"http://acme.example/ns/1.0/\">\n\
+             <acme:BatchNumber>4417</acme:BatchNumber>\n\
+             <acme:Line rdf:parseType=\"Resource\"><acme:when>x</acme:when></acme:Line>\n\
+             </rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        let schemas = undescribed_schemas(packet, None);
+        assert_eq!(schemas.len(), 1, "one namespace: {schemas:?}");
+        let schema = schemas.first().expect("the schema");
+        assert_eq!(schema.namespace, "http://acme.example/ns/1.0/");
+        assert_eq!(schema.prefix, "acme");
+        assert_eq!(
+            schema
+                .properties
+                .iter()
+                .map(|property| (property.local.as_str(), property.value_type))
+                .collect::<Vec<_>>(),
+            vec![("BatchNumber", Some("Text")), ("Line", None)],
+            "the form a serialisation shows, and nothing for a structure — whose own custom value \
+             type's field names are no more in the file than the schema's name is"
+        );
+    }
+
+    /// ISO 19005-2 section 6.6.4's form, read as the names a writer has to cut.
+    #[test]
+    fn a_malformed_amendment_identifier_comes_back_under_the_spelling_the_packet_used() {
+        let stated = packet(
+            "https://www.aiim.org/pdfa/ns/id/",
+            "<pdfaid:amd>amendment one</pdfaid:amd>\n\
+             <pdfaid:corr>1:2020</pdfaid:corr>",
+        );
+        let names = malformed_amendment_identifiers(stated.as_bytes());
+        assert_eq!(names.len(), 1, "only the malformed one: {names:?}");
+        let name = names.first().expect("the identifier");
+        assert_eq!(name.local, "amd");
+        assert_eq!(
+            name.namespace, "https://www.aiim.org/pdfa/ns/id/",
+            "under the spelling the packet used, because a writer cuts by span"
+        );
     }
 
     /// The three rows that bind exactly one target, which is how a predicate with no view of the

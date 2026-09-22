@@ -26,7 +26,10 @@ The second prints, for each answer the profile gives at a site without code behi
 > note: the configuration answers "<site>" with `discard`, which this version does not carry out
 > yet; that site stays refused with the sentence it names
 
-**The item is done when a shipped profile produces no such note at any target.** Both halves of
+**The item is done when a shipped profile produces no such note at any target**, and **the first
+milestone is reached**: `only-metadata-loss` answers every site it names at PDF/A-2b, 2u and 2a
+with a remedy this version carries out. `tools/state.sh remedies` is what says so, and what says
+which targets each of the other profiles still owes. Both halves of
 that condition are now instruments rather than numbers in this file. `--remedy-sites` prints its own
 two totals — `N of M sites not built yet`, and, given `--config <file>`, every answer that profile
 gives which this version does not carry out and `N of M sites answered with a remedy not carried out
@@ -51,12 +54,17 @@ Grouped by the code one build unlocks, not by clause; every site's own entry in
   its place, so the permitted actions behind a forbidden one still run (ADR 1175).
 - **Forms** (`forms/*`, four): widget actions **built** with the Actions routine above;
   `/NeedAppearances` cleared and the XFA packet removed or, at 4f, attached (catalogue section 7's
-  `preserve`) are what is left.
-- **Metadata** (`metadata/*`, eight): a fresh packet written by the existing XMP writer with the
-  old one attached at 4f/4e or appended as a page (catalogue section 9; the owner's *append or
-  prefix the packet as a page*). The appended page is built, including the structure entries it
-  owes a tagged document (ADRs 1025, 1163). The extension-schema container site is the top refusal
-  at 2b.
+  `preserve`) are what is left, and they are the two sites `as-if-printed` still names at PDF/A-2b.
+- **Metadata** (`metadata/*`, eight): **built but for one mechanism.** The fresh packet is written
+  where this tree cannot read the producer's, with the original laid out on an appended page
+  (ADR 1245, catalogue section 9; the owner's *append or prefix the packet as a page*); the
+  extension schema container is written from what the packet itself states, with one fixed sentence
+  in each of the three fields no file holds (ADR 1245); the malformed amendment identifier is cut
+  by span (ADR 1246). The appended page carries the structure entries it owes a tagged document
+  (ADRs 1025, 1163). What is left in this family is `original = "attach"` — the producer's packet
+  kept as an embedded file at 4f and 4e rather than as a page — and
+  `metadata/provenance-recorded-action-fields-four`, whose catalogue entry recommends a departure
+  over every remedy.
 - **File structure and encryption** (`file-structure/no-encryption`, `crypt-filter-is-identity`,
   `permissions-dictionary-keys`): **built** — `Loss::Encryption`, the word `encryption`, with
   `crates/pdf-transform/src/archive/protection.rs` carrying the producer's Table 22 flags into the

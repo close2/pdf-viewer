@@ -1242,6 +1242,11 @@ impl Viewer {
             }
             (Purpose::TargetRoot, None) => interact::decline_root(open),
             (Purpose::RemoteDocument, None) => interact::decline_remote(open),
+            // §12.7.8's named page in a second file, and §12.6.4.7's thread in one (ADR 1239).
+            (Purpose::NamedPage, Some(bytes)) => interact::supply_named_page(open, bytes),
+            (Purpose::NamedPage, None) => interact::decline_named_page(open),
+            (Purpose::ThreadDocument, Some(bytes)) => interact::resume_threaded(open, bytes),
+            (Purpose::ThreadDocument, None) => interact::decline_threaded(open),
         };
         self.apply(id, outcome, events);
     }

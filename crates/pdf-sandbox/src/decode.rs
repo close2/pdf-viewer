@@ -677,10 +677,11 @@ fn jpx_within_budget(
 /// Decodes a JPEG 2000 image, stepping down resolution levels until it fits the budget.
 ///
 /// ISO 32000-2 §7.4.9: the filter reads a whole JP2 file structure, or — as the corpus
-/// shows real producers writing — a bare codestream. Samples come back at eight bits
-/// whatever the codestream's precision, because the depth is the decoder's to determine
-/// (§7.4.9 and Table 87's note on `BitsPerComponent`) and everything above this is
-/// eight-bit.
+/// shows real producers writing — a bare codestream. Samples come back at the codestream's
+/// own precision wherever its components agree on one that fits sixteen bits, and at eight
+/// otherwise: §7.4.9 and Table 87's note on `BitsPerComponent` make the depth this processor's
+/// to determine, and what it determines is the file's, so that §8.9.6.4's ranges are compared
+/// in the domain their integers were written in ([`jpx_samples`], ADR 1242).
 ///
 /// # A codestream over the budget is decoded at a reduced resolution level
 ///
@@ -777,6 +778,10 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
             components: 1,
             has_opacity: false,
             colour: Colour::Unknown,
+            // An index is a position in a table rather than a quantity, so it is neither
+            // stretched nor widened: §8.6.6.3 caps `hival` at 255 and the clamp above holds
+            // every value to a byte.
+            precision: 8,
             data,
         });
     }
@@ -812,6 +817,7 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         return Err("JPX: the codestream has no colour components".to_owned());
     }
 
+    let (precision, data) = jpx_samples(&decoded);
     Ok(Raster {
         width,
         height,
@@ -820,8 +826,59 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         components,
         has_opacity,
         colour,
-        data: decoded.data_u8(),
+        precision,
+        data,
     })
+}
+
+/// The decoded components interleaved, at the precision the codestream states.
+///
+/// ISO 32000-2 Table 87 leaves a JPEG 2000 image's bit depth to the processor — "[t]he bit
+/// depth is determined by the PDF processor in the process of decoding the JPEG 2000 image" —
+/// and this one determines the codestream's own wherever the components agree on it and it
+/// fits sixteen bits. §8.9.6.4's colour-key ranges are integers in that domain and §8.9.5.2's
+/// `/Decode` map is what reaches the page's eight bits afterwards, so narrowing here would
+/// throw away a comparison the clause requires (ADR 1242).
+///
+/// Where the components disagree on a depth, or state more than sixteen bits, the decoder's
+/// own eight-bit stretch is taken and the raster says eight: a single domain does not exist
+/// for the first and no PDF sample does for the second, and both are then refused above by
+/// `pdf_model`'s reading of the same headers rather than being masked in a domain they are
+/// not in.
+fn jpx_samples(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> (u8, Vec<u8>) {
+    let components = decoded.components();
+    let uniform = components
+        .first()
+        .map(hayro_jpeg2000::ComponentData::bit_depth)
+        .filter(|depth| {
+            (1..=16).contains(depth)
+                && components
+                    .iter()
+                    .all(|component| component.bit_depth() == *depth)
+        });
+    let Some(depth) = uniform.filter(|depth| *depth > 8) else {
+        return (8, decoded.data_u8());
+    };
+    // `2^depth − 1` computed in `u32`, because `1u16 << 16` is not a `u16` and the sixteen-bit
+    // case is exactly the one a narrower shift would answer one short of.
+    let highest =
+        f32::from(u16::try_from((1u32 << u32::from(depth)).saturating_sub(1)).unwrap_or(u16::MAX));
+    let samples = components.first().map_or(0, |first| first.samples().len());
+    let mut data = Vec::with_capacity(samples.saturating_mul(components.len()).saturating_mul(2));
+    for sample in 0..samples {
+        for component in components {
+            let raw = component.samples().get(sample).copied().unwrap_or(0.0);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "clamped finite into 0..=highest, which is at most 65535, before the \
+                          cast; a float-to-integer cast saturates rather than wrapping"
+            )]
+            let value = raw.round().clamp(0.0, highest) as u16;
+            data.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    (depth, data)
 }
 
 #[cfg(test)]

@@ -271,11 +271,13 @@ told by name (ADR 1227). What arrives with each future feature, in the feature's
   pins;
 - **anything that writes a file** → the save question. The confinement is no excuse here: the
   *worker* has no filesystem, but the host holds one by design and opens the document itself;
-- **§12.7.5.3's file-select control** → a file *chooser*. The contents cross since ADR 1216 —
-  `viewer_host::policy::read_chosen` reads the pathname the clause already makes the field's text,
-  under one policy function so the four levels attach there — and what no window offers is a
-  `FileChooserNative` or a `QFileDialog` over that typing, which needs a round that can drive a
-  dialogue.
+- **§12.7.5.3's file-select control** → a file *chooser*, built in two of the three windows.
+  `viewer-gtk` puts a `gtk4::FileDialog` behind an icon on the entry and `viewer-qt` a
+  `QFileDialog` behind a trailing `QAction`, both inside the widget's own §12.5.2 rectangle;
+  `quorra` has no dialogue toolkit and takes the pathname the clause already makes the field's
+  text, typed. Which controls may have one is `viewer_host::policy::may_choose_file`, asked by the
+  window offering the affordance and by `form::edit_of` when a path comes back, so the four levels
+  attach in one place (ADRs 1216, 1240).
 
 ~~**`/PageLayout` is the first item**~~ **Taken in the six-hundred-and-sixth, and it did demand new
 vocabulary — one `Command` and one `Answer`'s shape** (ADR 0441). All six of Table 29's values are

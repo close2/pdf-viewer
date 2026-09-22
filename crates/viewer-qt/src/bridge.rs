@@ -197,6 +197,13 @@ pub mod ffi {
         top: u32,
         /// What a person is shown on hovering, from Table 226's `/TU`.
         tooltip: String,
+        /// Whether this control offers a **file chooser**: Table 231 bit 21.
+        ///
+        /// `viewer_host::may_choose_file`'s answer rather than the flag itself, so that the
+        /// window offering the chooser and `viewer_host::form::edit_of`, which reads what comes
+        /// back, cannot disagree about which fields take a file. What the chooser does is fill
+        /// the entry in; the edit is the one a typed path already made (ADR 1240).
+        choose_file: bool,
     }
 
     /// What one control's rectangle asked for and what the style says it cannot go below.

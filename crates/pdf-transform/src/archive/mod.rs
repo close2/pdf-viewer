@@ -169,9 +169,9 @@ pub use actions::RemovedAction;
 pub use boundaries::RemovedBoundary;
 pub use census::{Kind, Standing, census, standing, unconsidered};
 pub use config::{
-    ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Placement,
-    Preservation, Resolution, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt, Winner,
-    sites,
+    ConfigError, Configuration, Coverage, Departure, Derivation, Kind as RemedyKind, Original,
+    Placement, Preservation, Resolution, Site, Supplied, Supply, UNTRUSTED_INPUT_WARNING, Unbuilt,
+    Winner, sites,
 };
 pub use decision::{
     Authorisations, Because, Conditional, Decision, Loss, answered, conditional, refused_by_name,
@@ -529,6 +529,9 @@ fn decide_every_failure(
         profile: None,
         recorded: None,
         removed: Vec::new(),
+        replaced_packets: Vec::new(),
+        removed_identifiers: Vec::new(),
+        described_schemas: Vec::new(),
         appearances: Vec::new(),
         removed_annotations: Vec::new(),
         removed_actions: Vec::new(),
@@ -630,7 +633,7 @@ fn configured(
     if plan
         .preservations
         .iter()
-        .any(|preservation| preservation.site == id)
+        .any(|preservation| preservation.site == id && preservation.by_page)
     {
         return Some(match &prepared.preserved {
             // The rewrite named is the *table's* for this site — the property removal, the
@@ -903,6 +906,30 @@ fn apply_the_decisions(
         && let Ok(cleaned) = &prepared.properties
     {
         conversion.removed.clone_from(&cleaned.removed);
+    }
+    // The same condition on the same kind of loss: a replaced packet leaves nothing in the
+    // output to notice, so the report is the only place the stream and its fault are named
+    // (`doc/adr/1245`).
+    if wanted.contains(&Rewrite::FreshMetadataPacket)
+        && let Ok(fresh) = &prepared.fresh
+    {
+        conversion.replaced_packets.clone_from(&fresh.replaced);
+    }
+    // The same again for section 6.6.4's identifier: a cut property leaves nothing in the output
+    // to notice, so the report names what the file used to claim (`doc/adr/1246`).
+    if wanted.contains(&Rewrite::AmendmentIdentifierRemoved)
+        && let Ok(amended) = &prepared.amended
+    {
+        conversion.removed_identifiers.clone_from(&amended.removed);
+    }
+    // `doc/adr/1245`: a container this conversion wrote is partly its own statement, so which
+    // schemas it described is named rather than counted.
+    if wanted.contains(&Rewrite::ExtensionSchemaDescribed)
+        && let Ok(described) = &prepared.described
+    {
+        conversion
+            .described_schemas
+            .clone_from(&described.described);
     }
     let converted = convert(document, plan.target, &wanted, version, prepared, remedies)?;
     for decided in &mut conversion.decided {

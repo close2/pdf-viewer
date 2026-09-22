@@ -501,6 +501,10 @@ fn preserve_sweep(root: &Path, part: &str, target: Target) -> Preserved {
                     .iter()
                     .map(|site| Preservation {
                         site: (*site).to_owned(),
+                        // The two sites this sweep names are both answered by an appended
+                        // page, which is the mechanism it counts.
+                        by_page: true,
+                        discard_undeterminable: false,
                     })
                     .collect(),
                 resolutions: Vec::new(),

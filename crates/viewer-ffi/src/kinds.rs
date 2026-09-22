@@ -888,6 +888,11 @@ pub enum PurposeKind {
     TargetRoot = 1,
     /// §12.6.4.3's remote go-to: Table 203's `/F`, the file the destination is in, also a PDF.
     RemoteDocument = 2,
+    /// §12.7.8's named page: Table 253's `/F`, the file one page of which becomes an appearance
+    /// or a template page, also a PDF.
+    NamedPage = 3,
+    /// §12.6.4.7's thread action: Table 209's `/F`, the file the thread is in, also a PDF.
+    ThreadDocument = 4,
 }
 
 impl PurposeKind {
@@ -898,6 +903,8 @@ impl PurposeKind {
             0 => Self::ImportData,
             1 => Self::TargetRoot,
             2 => Self::RemoteDocument,
+            3 => Self::NamedPage,
+            4 => Self::ThreadDocument,
             _ => return None,
         })
     }
@@ -909,6 +916,8 @@ impl PurposeKind {
             Purpose::ImportData => Self::ImportData,
             Purpose::TargetRoot => Self::TargetRoot,
             Purpose::RemoteDocument => Self::RemoteDocument,
+            Purpose::NamedPage => Self::NamedPage,
+            Purpose::ThreadDocument => Self::ThreadDocument,
         }
     }
 
@@ -919,6 +928,8 @@ impl PurposeKind {
             Self::ImportData => Purpose::ImportData,
             Self::TargetRoot => Purpose::TargetRoot,
             Self::RemoteDocument => Purpose::RemoteDocument,
+            Self::NamedPage => Purpose::NamedPage,
+            Self::ThreadDocument => Purpose::ThreadDocument,
         }
     }
 

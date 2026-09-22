@@ -72,8 +72,9 @@ pub use crate::table::interaction::{
     flags_permitting,
 };
 pub use crate::table::metadata::{
-    ContainerField, MisusedProperty, REQUIRED_PREFIXES, dates_stated, extension_container_fields,
-    properties_outside_their_schema,
+    ContainerField, MisusedProperty, PacketFault, REQUIRED_PREFIXES, UndescribedProperty,
+    UndescribedSchema, dates_stated, extension_container_fields, malformed_amendment_identifiers,
+    metadata_streams, packet_faults, properties_outside_their_schema, undescribed_schemas,
 };
 pub use crate::target::{Flavour, Level, Part, Target};
 pub use crate::withdrawal::{Reaches, Subject, subjects};

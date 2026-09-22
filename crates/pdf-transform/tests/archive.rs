@@ -696,6 +696,8 @@ fn image_interpolation_is_a_loss_and_needs_authorising() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -839,6 +841,8 @@ fn an_annotation_stating_no_flags_is_made_printable_only_with_authorisation() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -909,6 +913,8 @@ fn a_property_its_own_schema_does_not_define_is_removed_only_with_authorisation(
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3346,6 +3352,8 @@ fn a_signature_widgets_missing_flags_are_answered_by_the_annotation_rule_that_st
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert_eq!(
@@ -3929,6 +3937,8 @@ fn a_colour_specification_the_part_ignores_is_removed_only_with_authorisation() 
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -3972,6 +3982,8 @@ fn a_file_marking_no_specification_best_keeps_the_one_a_jp2_reader_uses() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -4013,6 +4025,8 @@ fn two_specifications_marked_best_stay_refused() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -4047,6 +4061,8 @@ fn one_specification_with_a_method_the_part_forbids_stays_refused() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, Target::Four(Flavour::Plain), authorised);
     assert!(
@@ -5469,7 +5485,16 @@ fn a_packet_a_predefined_schema_rejects_packet() -> String {
 
 /// The same, with entries of the test's own added to the catalog.
 fn a_packet_a_predefined_schema_rejects_with(catalog: String) -> Vec<u8> {
-    let packet = a_packet_a_predefined_schema_rejects_packet();
+    a_document_carrying(a_packet_a_predefined_schema_rejects_packet(), catalog)
+}
+
+/// A one-page document carrying `packet` as its metadata and `catalog`'s entries in its catalog.
+///
+/// The page is the size people print and the document embeds a face that can be addressed by
+/// character, because a `preserve` by appended page needs both: the page takes the size of the
+/// document's first, and `doc/adr/1014` has the text set in a typeface the document itself
+/// carries.
+fn a_document_carrying(packet: String, catalog: String) -> Vec<u8> {
     let cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
          /CMapName /Test def\n/CMapType 2 def\n\
          1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\
@@ -5571,6 +5596,8 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (lost, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -5652,6 +5679,369 @@ fn a_metadata_property_this_target_rejects_is_kept_on_a_page_appended_to_the_doc
     assert!(
         written.contains("kept on a page this conversion composed"),
         "the file's own xmpMM:History carries the fact, not only the report"
+    );
+}
+
+/// A packet whose XML does not parse: an element closed by another element's tag.
+///
+/// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1 require a metadata stream's packet
+/// to be well-formed, and ISO 16684-1 section 7.1 defines that as well-formed XML. This one is
+/// not, so no span in it can be trusted and nothing can be written into it by span.
+fn a_packet_that_will_not_parse() -> String {
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
+    packet.push_str("<pdf:Producer>Somebody's exporter</pdf:Producer>\n");
+    packet.push_str("</rdf:Descriptionn>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    packet
+}
+
+/// A configuration answering the well-formedness site the way the shipped profiles do.
+fn a_fresh_packet_configuration() -> String {
+    "[site.\"metadata/xmp-packets-well-formed\"]\nremedy = \"preserve\"\n\
+     original = \"page\"\nfresh-packet = true\n"
+        .to_owned()
+}
+
+#[test]
+fn a_packet_this_tree_cannot_read_is_replaced_only_with_authorisation() {
+    // ISO 19005-2 section 6.6.2.1 requires every metadata stream's packet to be well-formed.
+    // This converter writes into a producer's packet by span, so one it cannot parse has no span
+    // to write into: the two routes out are repairing it, which `doc/questions/A48` closes
+    // because it is deciding what a malformed packet meant, and replacing it, which throws away
+    // everything the producer recorded. The second is a loss and therefore an Ask
+    // (`doc/adr/1245`).
+    let source = a_document_carrying(a_packet_that_will_not_parse(), String::new());
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(report.exit(false, false), Exit::Refused);
+    assert_eq!(
+        decision(&report, "metadata/xmp-packets-well-formed"),
+        Decision::Unauthorised {
+            loss: Loss::MetadataPacket,
+            rewrite: Rewrite::FreshMetadataPacket,
+        }
+    );
+
+    let authorised = Authorisations {
+        metadata_packet: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, "metadata/xmp-packets-well-formed"),
+        Decision::Authorised {
+            loss: Loss::MetadataPacket,
+            rewrite: Rewrite::FreshMetadataPacket,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    // The condition on the loss: a replaced packet leaves nothing in the output to notice, so
+    // the report names the stream and what its packet broke.
+    let replaced = &conversion(&report).replaced_packets;
+    assert_eq!(replaced.len(), 1, "one packet went: {replaced:?}");
+    let gone = replaced.first().expect("the packet that went");
+    assert!(gone.catalogs, "it is the one the catalog states");
+    assert!(
+        gone.because.contains("well-formed"),
+        "and the report says what it broke: {}",
+        gone.because
+    );
+
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("Somebody's exporter"),
+        "the producer's packet is not in the output: it stopped being metadata"
+    );
+    assert!(
+        written.contains("<pdfaid:part>2</pdfaid:part>"),
+        "and the fresh packet carries the identification schema this target asks for"
+    );
+}
+
+#[test]
+fn a_packet_this_tree_cannot_read_is_kept_on_a_page_when_the_configuration_asks() {
+    // `doc/pdf-a-mitigations.md` section 9's third route, which nobody had written down: write a
+    // fresh conforming packet and keep the original. `doc/adr/1014`'s appended page is where the
+    // original goes, so what stops being metadata is still in the archive for a person to read.
+    let source = a_document_carrying(a_packet_that_will_not_parse(), String::new());
+    let target = Target::Two(Level::B);
+    let plan = plan_from(&a_fresh_packet_configuration(), target);
+    assert_eq!(
+        plan.preservations.len(),
+        1,
+        "the configuration names one preservation"
+    );
+    let (report, output) = convert_with_plan(&source, &plan);
+    assert_eq!(
+        decision(&report, "metadata/xmp-packets-well-formed"),
+        Decision::Configured {
+            kind: pdf_transform::archive::RemedyKind::Preserve,
+            rewrite: Rewrite::FreshMetadataPacket,
+            warns: pdf_transform::archive::PRESERVED_AS_A_PAGE,
+        },
+        "the operator's answer is what the conversion does about the requirement"
+    );
+    let output = output.expect("the preservation converts");
+
+    // Proved on the copy rather than promised: the output is re-opened and the page this
+    // conversion said it appended is read back off it.
+    let pages = page_contents(&output);
+    assert_eq!(
+        pages.len(),
+        2,
+        "one page was appended: {} pages",
+        pages.len()
+    );
+    let appended = String::from_utf8_lossy(pages.last().expect("the appended page"));
+    let mut hex = String::new();
+    for byte in "Somebody's exporter".bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{byte:02X}");
+    }
+    assert!(
+        appended.contains(&hex),
+        "the page carries the producer's own packet, code for code: {appended}"
+    );
+    assert_eq!(
+        holds(&output, target).verdict(),
+        Verdict::Conforms,
+        "and the document that leaves the verb still conforms to the target"
+    );
+
+    let preserved = &conversion(&report).preserved;
+    assert_eq!(preserved.len(), 1, "one thing preserved: {preserved:?}");
+    let row = preserved.first().expect("the preserved packet");
+    assert_eq!(row.site, "metadata/xmp-packets-well-formed");
+    assert_eq!(row.pages, vec![1], "the appended page, zero-based");
+}
+
+#[test]
+fn a_packet_that_is_two_rdf_elements_is_replaced_and_the_other_streams_are_not() {
+    // ISO 16684-1 section 7.1 serialises one packet as one `rdf:RDF` element, and ISO 19005-2
+    // section 6.6.2.1 is what makes that binding here. A packet stating two parses, so the
+    // failure is this row's rather than the well-formedness row's - and the replacement is the
+    // same act, because a writer that inserted into one of two `rdf:RDF` elements would be
+    // choosing which of them the producer meant.
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    for value in ["the first one", "the second one"] {
+        packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+        packet.push_str("<rdf:Description rdf:about=\"\" ");
+        packet.push_str("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
+        packet.push_str("<pdf:Producer>");
+        packet.push_str(value);
+        packet.push_str("</pdf:Producer>\n");
+        packet.push_str("</rdf:Description>\n</rdf:RDF>\n");
+    }
+    packet.push_str("</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    let source = a_document_carrying(packet, String::new());
+    let target = Target::Two(Level::B);
+
+    let authorised = Authorisations {
+        metadata_packet: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, "metadata/xmp-packets-state-one-rdf-element"),
+        Decision::Authorised {
+            loss: Loss::MetadataPacket,
+            rewrite: Rewrite::FreshMetadataPacket,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("the second one"),
+        "neither description crosses: the packet was replaced rather than chosen between"
+    );
+}
+
+/// A packet stating one property in a schema nothing in the file describes.
+fn a_packet_using_an_undescribed_schema(extra: &str) -> String {
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" ");
+    packet.push_str("xmlns:acme=\"http://acme.example/ns/1.0/\">\n");
+    packet.push_str("<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n");
+    packet.push_str("<acme:BatchNumber>4417</acme:BatchNumber>\n");
+    packet.push_str(extra);
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    packet
+}
+
+#[test]
+fn a_schema_the_file_describes_nowhere_gains_a_container_this_conversion_wrote() {
+    // ISO 19005-2 section 6.6.2.3.2 requires every extension schema a metadata stream uses to be
+    // described in that stream or in the catalog's, with section 6.6.2.3.3's container schema.
+    // `doc/pdf-a-conversion-limits.md` section 4.2 makes describing them the default: the
+    // alternative is deleting the producer's properties, which is worse. Three of the
+    // container's required fields are nowhere in any file, so the decision is `Stated` rather
+    // than `Mechanical` and the operator is told what went into them (`doc/adr/1245`).
+    let source = a_document_carrying(a_packet_using_an_undescribed_schema(""), String::new());
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    let decided = decision(&report, "metadata/extension-schemas-embedded");
+    let Decision::Stated {
+        rewrite,
+        reinterprets,
+    } = decided
+    else {
+        panic!("described without anything to authorise: {decided:?}");
+    };
+    assert_eq!(rewrite, Rewrite::ExtensionSchemaDescribed);
+    assert!(
+        reinterprets.contains("no file states"),
+        "and the operator is told which fields are the converter's: {reinterprets}"
+    );
+    let output = output.expect("nothing is lost, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let described = &conversion(&report).described_schemas;
+    assert_eq!(described.len(), 1, "one schema described: {described:?}");
+    let schema = described.first().expect("the schema described");
+    assert_eq!(schema.namespace, "http://acme.example/ns/1.0/");
+    assert_eq!(schema.prefix, "acme");
+    assert_eq!(
+        schema.properties,
+        vec![("BatchNumber".to_owned(), "Text".to_owned())],
+        "the value type is the form the packet's own serialisation shows, and nothing finer"
+    );
+
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        written.contains("<pdfaSchema:namespaceURI>http://acme.example/ns/1.0/"),
+        "the namespace the container states is the packet's own"
+    );
+    assert!(
+        written.contains("<pdfaProperty:category>external</pdfaProperty:category>"),
+        "the category the file does not state is the one that is true of what happened"
+    );
+    assert!(
+        written.contains("4417"),
+        "and the producer's property is still in the packet: describing it is what keeps it"
+    );
+}
+
+#[test]
+fn a_property_whose_value_type_the_packet_does_not_show_stops_the_run_unless_the_operator_said() {
+    // `doc/pdf-a-mitigations.md`'s undeterminable case: a structured value needs a custom value
+    // type described in its own right, and the names of *that* type's fields are no more in the
+    // file than its own name is. So the default is to stop, and the operator's `undeterminable =
+    // "discard"` is what drops the property and describes the rest.
+    let structured = "<acme:Batch rdf:parseType=\"Resource\">\n\
+         <acme:when>yesterday</acme:when>\n</acme:Batch>\n";
+    let source = a_document_carrying(
+        a_packet_using_an_undescribed_schema(structured),
+        String::new(),
+    );
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "nothing is written");
+    let decided = decision(&report, "metadata/extension-schemas-embedded");
+    let Decision::Refused(because) = decided else {
+        panic!("refused by name rather than half-described: {decided:?}");
+    };
+    assert!(
+        because.sentence().contains("undeterminable"),
+        "and the sentence names the operator's answer: {}",
+        because.sentence()
+    );
+
+    let config = "[site.\"metadata/extension-schemas-embedded\"]\nremedy = \"preserve\"\n\
+         undeterminable = \"discard\"\n";
+    let plan = plan_from(config, target);
+    let (report, output) = convert_with_plan(&source, &plan);
+    let output = output.expect("the operator's answer converts it");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("yesterday"),
+        "the structured property went, which is what `discard` says it does"
+    );
+    assert!(
+        written.contains("4417"),
+        "and the rest of the schema is described rather than dropped with it"
+    );
+    let described = &conversion(&report).described_schemas;
+    assert_eq!(described.len(), 1, "one schema described: {described:?}");
+}
+
+#[test]
+fn a_malformed_amendment_identifier_is_cut_out_of_the_identification_schema() {
+    // ISO 19005-2 section 6.6.4 makes `pdfaid:amd` optional and fixes its value as the amendment
+    // number and the year separated by a colon. Neither half is recoverable from a value that is
+    // not of that form, so correcting it is `doc/questions/A48`'s forbidden half and removal is
+    // the remedy the subclause leaves - a loss, because the producer's claim goes with it
+    // (`doc/adr/1246`).
+    let mut packet = String::new();
+    packet.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    packet.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    packet.push_str("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    packet.push_str("<rdf:Description rdf:about=\"\" ");
+    packet.push_str("xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\" ");
+    packet.push_str("xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n");
+    packet.push_str("<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n");
+    packet.push_str("<pdfaid:amd>amendment one</pdfaid:amd>\n");
+    packet.push_str("<pdf:Producer>Somebody's exporter</pdf:Producer>\n");
+    packet.push_str("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>");
+    let source = a_document_carrying(packet, String::new());
+    let target = Target::Two(Level::B);
+
+    let (report, output) = convert(&source, target, Authorisations::default());
+    assert!(output.is_none(), "unauthorised, so nothing is written");
+    assert_eq!(
+        decision(&report, "metadata/identification-amendment-form"),
+        Decision::Unauthorised {
+            loss: Loss::AmendmentIdentifier,
+            rewrite: Rewrite::AmendmentIdentifierRemoved,
+        }
+    );
+
+    let authorised = Authorisations {
+        amendment_identifier: true,
+        ..Authorisations::default()
+    };
+    let (report, output) = convert(&source, target, authorised);
+    assert_eq!(
+        decision(&report, "metadata/identification-amendment-form"),
+        Decision::Authorised {
+            loss: Loss::AmendmentIdentifier,
+            rewrite: Rewrite::AmendmentIdentifierRemoved,
+        }
+    );
+    let output = output.expect("authorised, so it converts");
+    assert_eq!(holds(&output, target).verdict(), Verdict::Conforms);
+
+    let removed = &conversion(&report).removed_identifiers;
+    assert_eq!(removed.len(), 1, "one identifier went: {removed:?}");
+    let gone = removed.first().expect("the identifier that went");
+    assert_eq!(gone.spelled, "pdfaid:amd");
+    assert_eq!(gone.stated, "amendment one");
+
+    let written = String::from_utf8_lossy(&output);
+    assert!(
+        !written.contains("amendment one"),
+        "the entry is out of the packet, value and all"
+    );
+    assert!(
+        written.contains("Somebody's exporter"),
+        "and every other byte of the producer's packet crosses unchanged"
     );
 }
 
@@ -6060,6 +6450,8 @@ fn an_annotation_of_a_forbidden_subtype_goes_only_with_authorisation() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     assert_eq!(
@@ -6371,6 +6763,8 @@ fn an_annotation_that_drew_nothing_refuses_a_preserve_by_name() {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     };
     let (report, output) = convert(&source, target, authorised);
     let output = output.expect("the authorised loss converts");
@@ -6398,6 +6792,8 @@ fn every_loss() -> Authorisations {
         hidden_annotation: false,
         appearance_states: false,
         automatic_states: false,
+        metadata_packet: false,
+        amendment_identifier: false,
     }
 }
 

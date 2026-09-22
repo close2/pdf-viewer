@@ -23,9 +23,9 @@ use super::COMPRESSION_LEVEL;
 use super::fonts::{Metrics, Substitutes};
 use super::jpeg2000::Specifications;
 use super::prepare::{
-    Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, ForbiddenAnnotations, Headers,
-    HiddenAnnotations, Intent, Metadata, Prepared, Respelled, intent_dictionary, metadata_stream,
-    output_intent_entries,
+    Amended, Appearances, Cleaned, DefaultCmyk, ExtraAppearanceStates, ForbiddenAnnotations, Fresh,
+    Headers, HiddenAnnotations, Intent, Metadata, Prepared, Respelled, SchemasDescribed,
+    intent_dictionary, metadata_stream, output_intent_entries,
 };
 use super::preserve::Composed;
 use super::signatures::{ForeignHandlers, Signatures, Site};
@@ -167,6 +167,24 @@ pub enum Rewrite {
     /// reasons it declines; **a code whose meaning is not derivable refuses the document** rather
     /// than being invented, which is `doc/pdf-a-conversion-limits.md` section 4.3's line.
     ToUnicode,
+    /// Every metadata stream whose packet breaks ISO 16684-1's grammar or data model carries a
+    /// fresh one this conversion composes instead.
+    ///
+    /// ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1. The three writers beside this
+    /// one edit a producer's packet *by span* — a property cut out, a prefix moved, the
+    /// identification schema restated — and a packet that will not parse has no spans to write
+    /// into, which is why this is a replacement rather than an edit and why it is a loss rather
+    /// than a mechanical rewrite.
+    ///
+    /// What goes in its place is [`pdf_model::xmp::empty_packet`], which states no property at
+    /// all. The catalog's stream then gains the identification schema and this conversion's
+    /// recorded events from [`Self::IdentificationSchema`]'s own writer, so the one place in this
+    /// verb that states a conformance claim stays one place; every other metadata stream keeps
+    /// the empty packet, because nothing in the file says what the unreadable one meant and
+    /// composing properties for an object's own packet would be this converter writing the
+    /// producer's metadata. What the producer wrote is kept where the configuration asked for it
+    /// — [`super::preserve`]'s appended page — and lost where it did not.
+    FreshMetadataPacket,
     /// Every XMP packet loses the properties whose own predefined schema does not define them.
     ///
     /// ISO 19005-2 section 6.6.2.3.1, and the one route of the three
@@ -189,6 +207,36 @@ pub enum Rewrite {
     /// packet does not state at all is not this rewrite's**: nothing in the file says what its
     /// value would be, and `super::prepare` refuses the document rather than half-correcting it.
     ExtensionSchemaPrefixes,
+    /// The identification schema loses an amendment or corrigendum identifier of the wrong form.
+    ///
+    /// ISO 19005-2 section 6.6.4 makes `pdfaid:amd` and `pdfaid:corr` optional and fixes their
+    /// value as the number and the year separated by a colon. Neither half can be recovered from
+    /// a value that is not of that form — correcting it would be deciding what the producer
+    /// meant, which is `doc/questions/A48`'s forbidden half — and the entry being optional is
+    /// what leaves removal available at all.
+    ///
+    /// `pdf_model::xmp::remove` cuts the property out of the producer's own bytes by span, so
+    /// every other byte of the packet crosses unchanged. **A separate rewrite from the
+    /// identification schema beside it** although both write the same packet: a document whose
+    /// only fault is the form of this one entry asks for no restatement of part, conformance or
+    /// revision, and `doc/adr/0947`'s rule is that nothing is changed that no failed requirement
+    /// asked for.
+    AmendmentIdentifierRemoved,
+    /// Every extension schema a packet uses and describes nowhere gains a container describing it.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.2 requires every extension schema a metadata stream uses to be
+    /// described in that stream or in the catalog's, with section 6.6.2.3.3's container schema.
+    /// `doc/pdf-a-conversion-limits.md` section 4.2 makes describing them the default and calls
+    /// it authoring in a small way; the alternative is deleting the producer's properties, which
+    /// is worse.
+    ///
+    /// **What comes out of the file and what does not is the whole of the decision here**
+    /// (`doc/adr/1245`). The namespace URI, the prefix and each property's local name are the
+    /// packet's own, and the value type is the form its own serialisation shows. The schema's
+    /// human-readable name, each property's category and its description are nowhere in any
+    /// file, so each is one fixed sentence saying so — and the report names every schema
+    /// described, because a container written by the converter is not a producer's statement.
+    ExtensionSchemaDescribed,
     /// Every annotation but a `Popup` that states no `/F` is given one whose only set bit is
     /// `Print`.
     ///
@@ -792,10 +840,27 @@ impl Rewrite {
                 "a metadata property whose predefined schema does not define the value it holds \
                  is cut out of the packet, leaving every other byte of it as its producer wrote it"
             }
+            Self::FreshMetadataPacket => {
+                "a metadata stream whose packet breaks the XMP grammar or data model carries a \
+                 packet this conversion composed instead, stating no property of its own — the \
+                 catalog's gaining the identification schema and what was recorded beside it, \
+                 because nothing in the file says what the unreadable packet meant"
+            }
             Self::ExtensionSchemaPrefixes => {
                 "an extension schema container field stated with another prefix is respelled \
                  with the one its table requires, the declaration that bound the old prefix \
                  along with it, leaving every other byte of the packet as its producer wrote it"
+            }
+            Self::AmendmentIdentifierRemoved => {
+                "an amendment or corrigendum identifier whose value is not the number and the \
+                 year separated by a colon is cut out of the identification schema, leaving \
+                 every other byte of the packet as its producer wrote it"
+            }
+            Self::ExtensionSchemaDescribed => {
+                "an extension schema the packet uses and describes nowhere gains a container \
+                 describing it: the namespace, the prefix, each property's name and the value \
+                 type its own serialisation shows, with one fixed sentence in each field the \
+                 file does not state"
             }
             Self::AnnotationFlags => {
                 "an annotation stating no /F is given one whose only set bit is Print, which is \
@@ -999,7 +1064,10 @@ impl Rewrite {
             Self::AssociatedFileRelationship => "associated-file-relationship",
             Self::ToUnicode => "to-unicode",
             Self::PropertyOutsideItsSchema => "property-outside-its-schema",
+            Self::FreshMetadataPacket => "fresh-metadata-packet",
             Self::ExtensionSchemaPrefixes => "extension-schema-prefixes",
+            Self::AmendmentIdentifierRemoved => "amendment-identifier-removed",
+            Self::ExtensionSchemaDescribed => "extension-schema-described",
             Self::AnnotationFlags => "annotation-flags",
             Self::ForbiddenAnnotationRemoved => "forbidden-annotation-removed",
             Self::HiddenAnnotationRemoved => "hidden-annotation-removed",
@@ -1079,6 +1147,9 @@ pub(super) fn convert(
         metadata: prepared.metadata.as_ref().ok(),
         default_cmyk: prepared.default_cmyk.as_ref().ok(),
         to_unicode: prepared.to_unicode.as_ref().ok(),
+        fresh: prepared.fresh.as_ref().ok(),
+        amended: prepared.amended.as_ref().ok(),
+        described: prepared.described.as_ref().ok(),
         cleaned: prepared.properties.as_ref().ok(),
         respelled: prepared.respelled.as_ref().ok(),
         appearances: prepared.appearances.as_ref().ok(),
@@ -1188,6 +1259,25 @@ fn count_what_has_no_place(
         && let Ok(respelled) = &prepared.respelled
     {
         applied.insert(Rewrite::ExtensionSchemaPrefixes, respelled.fields);
+    }
+    // The three writers `doc/adr/1245` and `doc/adr/1246` added, counted from the preparation
+    // rather than from the walk. **A packet the identification schema is also restated into is
+    // written by the branch above their own**, which returns before they are reached, so a walk
+    // counting them would report nothing done for the one stream that matters most.
+    if wanted.contains(&Rewrite::FreshMetadataPacket)
+        && let Ok(fresh) = &prepared.fresh
+    {
+        applied.insert(Rewrite::FreshMetadataPacket, fresh.replaced.len());
+    }
+    if wanted.contains(&Rewrite::AmendmentIdentifierRemoved)
+        && let Ok(amended) = &prepared.amended
+    {
+        applied.insert(Rewrite::AmendmentIdentifierRemoved, amended.removed.len());
+    }
+    if wanted.contains(&Rewrite::ExtensionSchemaDescribed)
+        && let Ok(described) = &prepared.described
+    {
+        applied.insert(Rewrite::ExtensionSchemaDescribed, described.described.len());
     }
     // The three action rewrites, for the same reason once more: one edited object may be one
     // action removed or six, and a count of objects would tell an operator who authorised
@@ -1819,6 +1909,12 @@ struct Rewriter<'a> {
     default_cmyk: Option<&'a DefaultCmyk>,
     /// The `/ToUnicode` `CMap` each font is to name, where any are being written.
     to_unicode: Option<&'a DerivedMaps>,
+    /// The packet each metadata stream is to carry in place of one this tree cannot read.
+    fresh: Option<&'a Fresh>,
+    /// The packet each metadata stream is to carry, where a malformed amendment identifier goes.
+    amended: Option<&'a Amended>,
+    /// The packet each metadata stream is to carry, where an extension schema gains a container.
+    described: Option<&'a SchemasDescribed>,
     /// The packet each metadata stream is to carry, where properties are being removed.
     cleaned: Option<&'a Cleaned>,
     /// The packet each metadata stream is to carry, where container prefixes are being respelled.
@@ -3364,13 +3460,16 @@ impl Rewriter<'_> {
             count(applied, Rewrite::HexadecimalDigitCompleted);
             return Rewritten::Changed(repaired);
         }
-        // **Four writers over one packet, and the last of them is what counts the others'
-        // work.** `super::prepare` folds the header cut into the bytes the property removal
-        // starts from, those into the bytes the container respelling starts from, and those into
-        // the bytes the identification schema is restated into — so whichever of the branches
-        // below writes this stream is writing every edit, and a rewrite that happened has to be
-        // counted wherever it is carried, not only where it is the sole reason the stream
-        // changed.
+        // **Five writers over one packet, and the last of them is what carries the others'
+        // work.** `super::prepare` folds the replacement into the bytes the header cut starts
+        // from, those into the property removal's, those into the container respelling's, those
+        // into the amendment cut's and the container's, and those into the bytes the
+        // identification schema is restated into — so whichever of the branches below writes
+        // this stream is writing every edit, and a rewrite that happened has to be counted
+        // wherever it is carried, not only where it is the sole reason the stream changed. The
+        // three `doc/adr/1245` and `doc/adr/1246` added are counted in
+        // [`count_what_has_no_place`] instead, from their own preparations, because the branch
+        // that writes the catalog's stream returns before any of them is reached.
         let header_cut = self.wants(Rewrite::PacketHeaderAttributes)
             && self
                 .packet_headers
@@ -3389,10 +3488,30 @@ impl Rewriter<'_> {
             }
             return Rewritten::Changed(metadata_stream(&stream.dict, &metadata.packet));
         }
-        // Every *other* metadata stream one of the two RDF writers edited: an object's own packet
-        // is not the document's, and neither part restricts either requirement to the catalog's.
-        // The respelling is asked first because it is the last of the two to run, so its bytes
-        // carry the removal's as well.
+        // Every *other* metadata stream one of the packet writers edited: an object's own packet
+        // is not the document's, and no part restricts any of these requirements to the catalog's.
+        // **Asked in reverse writing order**, because each writer's bytes carry every edit before
+        // it — so the last of them is the one branch that writes the whole of what was done.
+        // The container is the last, and therefore the first asked.
+        if self.wants(Rewrite::ExtensionSchemaDescribed)
+            && let Some(packet) = self
+                .described
+                .and_then(|described| described.packets.get(&id))
+        {
+            if header_cut {
+                count(applied, Rewrite::PacketHeaderAttributes);
+            }
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
+        // The amendment cut, which ran before the container and after the respelling.
+        if self.wants(Rewrite::AmendmentIdentifierRemoved)
+            && let Some(packet) = self.amended.and_then(|amended| amended.packets.get(&id))
+        {
+            if header_cut {
+                count(applied, Rewrite::PacketHeaderAttributes);
+            }
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
         if self.wants(Rewrite::ExtensionSchemaPrefixes)
             && let Some(packet) = self
                 .respelled
@@ -3409,6 +3528,15 @@ impl Rewriter<'_> {
             if header_cut {
                 count(applied, Rewrite::PacketHeaderAttributes);
             }
+            return Rewritten::Changed(metadata_stream(&stream.dict, packet));
+        }
+        // A stream whose packet this tree cannot read carries the one this conversion composed.
+        // **No header cut is counted here**, unlike the branches above: the replacement skips
+        // such a stream in every one of the other writers, so nothing of the producer's header
+        // survived to be cut.
+        if self.wants(Rewrite::FreshMetadataPacket)
+            && let Some(packet) = self.fresh.and_then(|fresh| fresh.packet(id))
+        {
             return Rewritten::Changed(metadata_stream(&stream.dict, packet));
         }
         // And a packet whose *only* edit is the header's, which is the common case: neither
@@ -3625,15 +3753,20 @@ impl Rewriter<'_> {
 
     /// Whether the document's XMP packet is being written.
     ///
-    /// Three rewrites reach it and they reach it for different reasons: the identification schema
-    /// is the file's claim about itself, the `/DefaultCMYK` is an action `doc/questions/A48`
-    /// requires recorded in `xmpMM:History`, and a removed property is both an edit to the packet
-    /// and `doc/pdf-a-conversion-limits.md` section 4.2's entry beside it. Any one alone is enough
-    /// to make the packet the prepared one.
+    /// Six rewrites reach it and each for its own reason: the identification schema is the file's
+    /// claim about itself, the `/DefaultCMYK` is an action `doc/questions/A48` requires recorded
+    /// in `xmpMM:History`, a removed property is both an edit to the packet and
+    /// `doc/pdf-a-conversion-limits.md` section 4.2's entry beside it, and the replacement, the
+    /// amendment cut and the container are the three `doc/adr/1245` and `doc/adr/1246` added. Any
+    /// one alone is enough to make the packet the prepared one — which is what carries every edit
+    /// the others made, since [`super::prepare::Edited`] folds them in that order.
     fn wants_metadata(&self) -> bool {
         self.wants(Rewrite::IdentificationSchema)
             || self.wants(Rewrite::DefaultCmyk)
             || self.wants(Rewrite::PropertyOutsideItsSchema)
+            || self.wants(Rewrite::FreshMetadataPacket)
+            || self.wants(Rewrite::AmendmentIdentifierRemoved)
+            || self.wants(Rewrite::ExtensionSchemaDescribed)
     }
 }
 

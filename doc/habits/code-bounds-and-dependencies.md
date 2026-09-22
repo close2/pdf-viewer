@@ -309,3 +309,11 @@ is the same failure pointed at a dependency, and the convenience path is not the
 nothing — the loud sentence was on the wrong side of the wire (ADR 1227). When a host declines an
 event the protocol gives a reply message, it declines by sending the reply; the greppable shape is a
 match arm that mentions an `Event` and pushes no `Command`.
+
+## A configuration reader that picks the first matching row makes every later override dead text
+
+`Configuration::read` kept the first applicable row per site, so a target-qualified row written
+below its unqualified default never applied and `only-metadata-loss.toml` silently got a page where
+it asked for an attachment at PDF/A-4f (ADR 1245). Where a row can be qualified, winning is a
+property of the row and never of its position, and the test states the default before the
+exception — the order a person writes a profile in.

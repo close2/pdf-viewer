@@ -263,3 +263,17 @@ that draw to 0.61 s, and the test failed alone and passed only under a neighbour
 batches. A wait that establishes "there was something to interrupt" is a ratchet in disguise: its
 constant states the measured figure it is a fraction of, and a round that speeds the path it waits
 on re-measures it.
+
+## A generated binary fixture's stated provenance is a claim to check, not a recipe to trust
+
+`JPX_TWELVE_BIT`'s doc comment gave the command that made it and said no test read its value; the
+command's endianness was wrong, so the fixture carried saturated white rather than the 3000 it
+claimed, unnoticed because nothing read it (ADR 1242). A fixture whose content no assertion names
+either gains one or says in its comment what it decodes to, measured.
+
+## A gate whose right-hand side is a shared navigational document goes red on a neighbour's work
+
+The frontier-map gate (ADR 1250) was built in a six-round batch and had to be reconciled four times
+against rows other rounds were still moving; the last reconciliation is only as good as the moment it
+ran. Land such a gate on a boundary round, or hand the merge the one command that re-derives it —
+here `cargo test -p conformance --test conformance the_frontier_map`, run first at the merge.

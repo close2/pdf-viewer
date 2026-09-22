@@ -141,13 +141,14 @@ impl App {
     /// reads in one step under the import policy, and this one is the read that follows a policy
     /// with four levels, which may have put a question in between. Every failure is printed,
     /// which is trap 5 on a path a person clicked (ADR 1227).
-    pub(crate) fn read_remote(name: &str, path: &Path) -> Option<Vec<u8>> {
+    pub(crate) fn read_remote(purpose: Purpose, name: &str, path: &Path) -> Option<Vec<u8>> {
         match std::fs::read(path) {
             Ok(bytes) => Some(bytes),
             Err(error) => {
                 println!(
                     "note: {}",
                     viewer_host::remote_note(
+                        purpose,
                         name,
                         Some(&format!("cannot read {}: {error}", path.display()))
                     )

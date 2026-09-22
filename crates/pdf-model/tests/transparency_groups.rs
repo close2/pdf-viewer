@@ -5475,3 +5475,71 @@ fn the_intent_at_the_do_selects_the_conversion_out_of_a_groups_press() {
         "the fixture's two transforms are two pictures: {colorimetric:?} against {perceptual:?}"
     );
 }
+
+/// ISO 32000-2 §11.7.5.3's second bullet, at the pixel.
+///
+/// > When painting a transparency group whose colour space is DeviceRGB into a parent group
+/// > whose colour space is DeviceCMYK , the functions used shall be the ones in effect at the
+/// > time the Do operator is applied to the group.
+///
+/// The group below composites on the device's three components and is painted into a page
+/// group of `/DeviceCMYK`, so its result is converted at the `Do` by `parent_channels` — the
+/// same §10.4.2.4 arithmetic the first bullet's fill takes, and with the same pair, because
+/// `/GB gs` is in force on the page when the `Do` runs. The fixture's `/GB` states
+/// `BG(x) = 1 − x` and `UCR(x) = x ÷ 2`.
+///
+/// The colour is `0.25 0.75 0.5 rg`, whose intermediates are `c = 0.75`, `m = 0.25`,
+/// `y = 0.5` and `k = min = 0.25`; `BG(0.25) = 0.75` and `UCR(0.25) = 0.125`, so the clause's
+/// formula gives cyan `0.625`, magenta `0.125`, yellow `0.375` and black `0.75`. Every number
+/// is the clause worked by hand. The tolerance is three levels of 255 rather than none because
+/// the conversion reaches the backend as a sampled cube over the group's own raster, which is
+/// one interpolation on top of one quantisation (§11.7.2 NOTE 5).
+///
+/// The right half of the group composites at half alpha so that the group takes a raster of
+/// its own rather than being re-run in the parent's space, which is the position this bullet
+/// is about; the control is the same page with no `gs`, which separates through the press's
+/// own search and must differ. ADR 1242.
+#[test]
+fn a_group_painted_into_a_cmyk_parent_is_converted_by_the_functions_at_the_do() {
+    let drawn = |state: &str| {
+        interpret(page_group_fixture(
+            "/Group << /S /Transparency /CS /DeviceCMYK >>",
+            "/Group << /S /Transparency /CS /DeviceRGB /I true >>",
+            "",
+            "0.25 0.75 0.5 rg 0 0 50 100 re f /GS gs 0 0 1 rg 60 0 40 100 re f",
+            &format!("{state} /Fm Do"),
+        ))
+    };
+    let space = pdf_model::colour::device_cmyk_blending_space();
+    let out = space.convert(0.625, 0.125, 0.375, 0.75);
+    let want = [
+        (out[0] * 255.0 + 0.5) as i32,
+        (out[1] * 255.0 + 0.5) as i32,
+        (out[2] * 255.0 + 0.5) as i32,
+    ];
+
+    let stated = drawn("/GB gs");
+    assert!(
+        stated.display_list.blending().is_some(),
+        "the page composites in its four components: {:?}",
+        stated.unsupported
+    );
+    let painted = pixel(&stated, 25, 50);
+    for (axis, want) in want.into_iter().enumerate() {
+        assert!(
+            (i32::from(painted[axis]) - want).abs() <= 3,
+            "§10.4.2.4 with the pair at the Do: channel {axis} of {painted:?} against {want}"
+        );
+    }
+
+    let control = pixel(&drawn(""), 25, 50);
+    assert!(
+        control != painted,
+        "a pair that changed nothing at the Do would not witness the bullet: {painted:?}"
+    );
+    assert!(
+        !format!("{:?}", stated.unsupported).contains("BlackGeneration"),
+        "the bullet is carried out, so nothing departs: {:?}",
+        stated.unsupported
+    );
+}

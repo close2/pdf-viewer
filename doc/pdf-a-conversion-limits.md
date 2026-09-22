@@ -675,6 +675,12 @@ must add an output intent, and that means shipping a profile.
     its value type and a description. This is the one place the converter writes metadata *about*
     metadata, and it is authoring in a small way; the alternative is deleting the producer's
     properties, which is worse. **Ask** where a property's value type cannot be determined.
+    **Built** (ADR 1245): what the container says about the schema comes out of the packet — the
+    namespace, the prefix, each property's name and the value type its own serialisation shows —
+    and the three fields §6.6.2.3.3 requires that no file states are one fixed sentence each, so
+    the archive carries the *shape* of the producer's metadata and no claim about its meaning.
+    The Ask is `undeterminable = "discard"`, which drops a structured property and describes the
+    rest; without it that document stops.
   - **A container that is *there* and spells a field with the wrong prefix is **Mechanical**.**
     §6.6.2.3.3's four tables each name the prefix their fields are to be spelled with, and §6.6.2.2
     is what makes that binding: a prefix means nothing except where one is identified as required.

@@ -43,6 +43,43 @@ pub enum Loss {
     /// and the value that was there, and a user can restore it by hand or supply a corrected
     /// source.
     MetadataProperty,
+    /// ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1: a metadata packet this tree
+    /// cannot read, replaced by one this conversion composes.
+    ///
+    /// The three editors beside this one write into a producer's packet *by span* — a property
+    /// cut, a prefix moved, the identification schema restated — and a packet that will not
+    /// parse, states more than one `rdf:RDF` element or breaks the data model has no spans to
+    /// write into. Two answers exist and `doc/questions/A48` closes one of them: repairing the
+    /// packet is this converter deciding what a malformed one meant. What is left is replacing
+    /// it, and everything the producer recorded in it stops being metadata.
+    ///
+    /// **What the replacement states is decided by where the stream is.** The catalog's carries
+    /// the identification schema and the events this conversion recorded, which is the packet
+    /// `pdf_model::xmp::packet` already writes for a document that had none; every other
+    /// metadata stream carries a packet stating no property, because nothing in the file says
+    /// what the unreadable one meant.
+    ///
+    /// **The producer's own packet is kept where the configuration asks for it.** `remedy =
+    /// "preserve"` with `original = "page"` lays its bytes out on a page appended to the
+    /// document (`doc/adr/1014`), so what stops being metadata is still in the archive for a
+    /// person to read and a machine to re-parse. Authorising the loss without that keeps
+    /// nothing, and the report names every stream whose packet went either way.
+    MetadataPacket,
+    /// ISO 19005-2 section 6.6.4: an amendment or corrigendum identifier of the wrong form,
+    /// removed.
+    ///
+    /// The subclause makes `pdfaid:amd` and `pdfaid:corr` optional and fixes the value as the
+    /// number and the year separated by a colon. A value that is not of that form identifies no
+    /// amendment the subclause recognises, and neither half of one can be recovered from it -
+    /// correcting it would be this converter deciding what the producer meant, which is
+    /// `doc/questions/A48`'s forbidden half. So the entry is removed, and what goes is the
+    /// producer's claim about which amendment of the part their file was made to.
+    ///
+    /// **Small, and a loss all the same.** The claim was already wrong in the standard's terms,
+    /// which is why the catalogue calls a departure here hard to want; but a reader of the
+    /// output cannot see that the file ever made it, so the report names the value that was
+    /// there.
+    AmendmentIdentifier,
     /// section 3.7: an annotation that stated no flags is made printable.
     ///
     /// ISO 19005-2 section 6.3.2 and ISO 19005-4 section 6.3.2 require every annotation but a
@@ -236,9 +273,11 @@ pub enum Loss {
 
 impl Loss {
     /// Every loss this converter knows how to ask about.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::ImageSmoothing,
         Self::MetadataProperty,
+        Self::MetadataPacket,
+        Self::AmendmentIdentifier,
         Self::AnnotationPrinting,
         Self::Jpeg2000ColourFallback,
         Self::SignatureAssertion,
@@ -257,6 +296,8 @@ impl Loss {
         match self {
             Self::ImageSmoothing => "image-smoothing",
             Self::MetadataProperty => "metadata-property",
+            Self::MetadataPacket => "metadata-packet",
+            Self::AmendmentIdentifier => "amendment-identifier",
             Self::AnnotationPrinting => "annotation-printing",
             Self::Jpeg2000ColourFallback => "jpeg2000-colour-fallback",
             Self::SignatureAssertion => "signature-assertion",
@@ -280,6 +321,21 @@ impl Loss {
             Self::MetadataProperty => {
                 "a metadata property whose predefined schema does not define the value it holds \
                  is removed from the packet, and what its producer wrote there is gone"
+            }
+            Self::MetadataPacket => {
+                "a metadata stream whose packet this tree cannot read — it does not parse, it \
+                 states more than one rdf:RDF element, or it breaks the XMP data model - carries \
+                 a packet this conversion composed instead, and everything the producer recorded \
+                 in it stops being metadata. The catalog's states the identification schema and \
+                 what this conversion recorded; every other one states no property. Answer the \
+                 site with remedy = \"preserve\" and original = \"page\" and the producer's own \
+                 packet is laid out on a page appended to the document instead of being lost"
+            }
+            Self::AmendmentIdentifier => {
+                "an amendment or corrigendum identifier that is not the number and the year \
+                 separated by a colon is removed from the identification schema, so the file \
+                 stops claiming an amendment it identified incorrectly. Nothing else in the \
+                 packet changes, and the report names the value that was there"
             }
             Self::AnnotationPrinting => {
                 "an annotation that stated no flags is given the Print flag ISO 19005 requires, \
@@ -379,6 +435,10 @@ pub struct Authorisations {
     pub image_smoothing: bool,
     /// Whether [`Loss::MetadataProperty`] was authorised.
     pub metadata_property: bool,
+    /// Whether [`Loss::MetadataPacket`] was authorised.
+    pub metadata_packet: bool,
+    /// Whether [`Loss::AmendmentIdentifier`] was authorised.
+    pub amendment_identifier: bool,
     /// Whether [`Loss::AnnotationPrinting`] was authorised.
     pub annotation_printing: bool,
     /// Whether [`Loss::Jpeg2000ColourFallback`] was authorised.
@@ -408,6 +468,8 @@ impl Authorisations {
         match loss {
             Loss::ImageSmoothing => self.image_smoothing,
             Loss::MetadataProperty => self.metadata_property,
+            Loss::MetadataPacket => self.metadata_packet,
+            Loss::AmendmentIdentifier => self.amendment_identifier,
             Loss::AnnotationPrinting => self.annotation_printing,
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback,
             Loss::SignatureAssertion => self.signature_assertion,
@@ -426,6 +488,8 @@ impl Authorisations {
         match loss {
             Loss::ImageSmoothing => self.image_smoothing = true,
             Loss::MetadataProperty => self.metadata_property = true,
+            Loss::MetadataPacket => self.metadata_packet = true,
+            Loss::AmendmentIdentifier => self.amendment_identifier = true,
             Loss::AnnotationPrinting => self.annotation_printing = true,
             Loss::Jpeg2000ColourFallback => self.jpeg2000_colour_fallback = true,
             Loss::SignatureAssertion => self.signature_assertion = true,
@@ -1318,6 +1382,54 @@ pub(super) const REMEDIES: &[Remedy] = &[
         requirement: "metadata/properties-use-known-schemas",
         answer: Answer::Loses(Loss::MetadataProperty, Rewrite::PropertyOutsideItsSchema),
     },
+    // ISO 19005-2 section 6.6.2.1 and ISO 19005-4 section 6.7.2.1, and the third route
+    // `doc/pdf-a-mitigations.md` section 9 found: write a fresh conforming packet. It is a loss
+    // rather than a mechanical rewrite because a packet this tree cannot read is a packet whose
+    // spans cannot be edited, so what the producer recorded in it does not cross — and
+    // `doc/questions/A48` closes the other route, which would be deciding what a malformed
+    // packet meant. `remedy = "preserve"` with `original = "page"` keeps the producer's own
+    // bytes on an appended page (`doc/adr/1245`); authorising the loss alone does not.
+    //
+    // The data-model row is part 2's alone, which is the requirement's own `Applies` rather than
+    // anything here: part 4 asks a packet to be well-formed and part 2 asks it to conform.
+    Remedy {
+        requirement: "metadata/xmp-packets-well-formed",
+        answer: Answer::Loses(Loss::MetadataPacket, Rewrite::FreshMetadataPacket),
+    },
+    Remedy {
+        requirement: "metadata/xmp-packets-state-one-rdf-element",
+        answer: Answer::Loses(Loss::MetadataPacket, Rewrite::FreshMetadataPacket),
+    },
+    Remedy {
+        requirement: "metadata/xmp-packets-meet-the-xmp-data-model",
+        answer: Answer::Loses(Loss::MetadataPacket, Rewrite::FreshMetadataPacket),
+    },
+    // ISO 19005-2 section 6.6.4, whose amendment and corrigendum identifiers are optional and
+    // whose form is the number and the year separated by a colon. Removal is the one remedy the
+    // subclause leaves — neither half of a malformed value is recoverable — and it is a loss
+    // rather than a mechanical rewrite because the producer's claim goes with it (`doc/adr/1246`).
+    // ISO 19005-2 section 6.6.2.3.2, which requires every extension schema a stream uses to be
+    // described in that stream or in the catalog's, with section 6.6.2.3.3's container schema.
+    // `doc/pdf-a-conversion-limits.md` section 4.2 makes describing them the default and calls it
+    // authoring in a small way; the alternative is deleting the producer's properties, which is
+    // worse. **`Stated` rather than `Mechanical`** because three of the container's required
+    // fields are nowhere in any file, so what goes in them is this converter's sentence rather
+    // than the producer's — and an operator has to be told that (`doc/adr/1245`).
+    Remedy {
+        requirement: "metadata/extension-schemas-embedded",
+        answer: Answer::Stated(
+            None,
+            Rewrite::ExtensionSchemaDescribed,
+            CONTAINER_DESCRIBES_SHAPE,
+        ),
+    },
+    Remedy {
+        requirement: "metadata/identification-amendment-form",
+        answer: Answer::Loses(
+            Loss::AmendmentIdentifier,
+            Rewrite::AmendmentIdentifierRemoved,
+        ),
+    },
     // ISO 19005-2 section 6.6.2.3.3's four tables, each naming the prefix its fields are to be
     // spelled with — and section 6.6.2.2 is why that is a requirement rather than a convention: a
     // prefix means nothing *except* where one is identified as required, and these four identify
@@ -2194,36 +2306,14 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         "logical-structure/element-and-property-list-language-identifiers",
         Because::NotBuiltYet(LANGUAGE_IDENTIFIER_NOT_REMOVED),
     ),
-    // ISO 19005-2 section 6.6.2.1, ISO 19005-4 section 6.7.2.1.
-    (
-        "metadata/xmp-packets-well-formed",
-        Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
-    ),
-    (
-        "metadata/xmp-packets-state-one-rdf-element",
-        Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
-    ),
-    (
-        "metadata/xmp-packets-meet-the-xmp-data-model",
-        Because::NotBuiltYet(XMP_PACKET_NOT_REBUILT),
-    ),
     (
         "metadata/xmp-character-data-only-in-simple-values",
         Because::NotBuiltYet(XMP_STRAY_CHARACTER_DATA_NOT_REMOVED),
-    ),
-    // ISO 19005-2 section 6.6.2.3.2 and section 6.6.4.
-    (
-        "metadata/extension-schemas-embedded",
-        Because::NotBuiltYet(EXTENSION_CONTAINER_NOT_EMITTED),
     ),
     // ISO 19005-2 section 6.6.2.3.1, the half of it that reaches inside a structure.
     (
         "metadata/extension-schema-structure-fields-are-described",
         Because::NotBuiltYet(UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED),
-    ),
-    (
-        "metadata/identification-amendment-form",
-        Because::NotBuiltYet(AMENDMENT_IDENTIFIER_NOT_REMOVED),
     ),
     // ISO 19005-2 section 6.9, ISO 19005-4 section 6.10: the one of section 3.8's three rules
     // still refused. The `/Order` rule and the `/AS` rule are both rows of `REMEDIES`.
@@ -2232,6 +2322,16 @@ pub(super) const REFUSED_BY_NAME: &[(&str, Because)] = &[
         Because::NotBuiltYet(CONFIGURATION_NAME_NOT_WRITTEN),
     ),
 ];
+
+/// What an operator is told when this conversion describes a schema its producer did not.
+pub(super) const CONTAINER_DESCRIBES_SHAPE: &str = "an extension schema this file uses and \
+     describes nowhere is described by a container this conversion wrote. The namespace, the \
+     prefix and each property's name are the packet's own, and each value type is the form the \
+     packet's own serialisation shows - but ISO 19005-2 section 6.6.2.3.3 requires three fields \
+     no file states, the schema's name and every property's category and description, and what \
+     this conversion put in them is one fixed sentence saying so. The archive therefore carries \
+     a description of the shape of the producer's metadata and no statement of what it means; \
+     the report names every schema described";
 
 /// Why a page that draws a glyph its own embedded program has not got is refused.
 ///
@@ -2619,16 +2719,6 @@ const LANGUAGE_IDENTIFIER_NOT_REMOVED: &str = "a Lang entry here is not a langua
      require. Removal is doc/pdf-a-conversion-limits.md section 3's kind of answer and is not \
      offered";
 
-/// Why a packet this converter cannot parse is not rebuilt.
-const XMP_PACKET_NOT_REBUILT: &str = "this file's metadata packet does not parse, states more \
-     than one rdf:RDF element, or breaks the XMP data model. This converter writes into the \
-     producer's own packet by span — doc/pdf-a-conversion-limits.md section 4.2's identification \
-     schema, and section 3.9's property removals — and a packet it cannot parse has no spans to \
-     write into. Replacing it with one this program composes would throw away everything the \
-     producer recorded, which is section 3's kind of loss; repairing it would be this converter \
-     deciding what a malformed packet meant, which is doc/questions/A48's forbidden half. \
-     Neither is built, and the first is the one a later slice can offer";
-
 /// Why character data outside a simple value is left where it is.
 ///
 /// The requirement arrived in session 958 and the census ratchet caught this the same day — a
@@ -2657,24 +2747,6 @@ const UNDESCRIBED_STRUCTURE_FIELD_NOT_REMOVED: &str = "this packet states a stru
      holds, which is doc/pdf-a-conversion-limits.md section 4.2's Ask; removing the field means \
      cutting a value somebody wrote, which is section 3.9's authorised loss and needs the span \
      remover in pdf_model::xmp to take a field of a structure rather than a property";
-
-/// Why an extension schema container is not emitted for an undescribed schema.
-const EXTENSION_CONTAINER_NOT_EMITTED: &str = "this packet uses a schema outside the predefined \
-     ones and describes it nowhere. doc/pdf-a-conversion-limits.md section 4.2 permits emitting \
-     an extension schema container for such a property and calls it authoring in a small way, \
-     with an Ask where a value's type cannot be determined from what is there — that is the \
-     rewrite this needs. Its sibling, a container the producer wrote and left a required field \
-     out of, is refused separately and for a different reason: there the missing field is a \
-     sentence only its producer holds";
-
-/// Why a malformed amendment identifier is not removed.
-const AMENDMENT_IDENTIFIER_NOT_REMOVED: &str = "the identification schema here states an \
-     amendment or corrigendum identifier that is not the number and the year separated by a \
-     colon. Neither half can be recovered from a malformed one, so correcting it is \
-     doc/questions/A48's forbidden half; the entry is optional, so removing it is the available \
-     remedy and it drops the producer's claim about which amendment the file was made to. This \
-     converter writes the identification schema (doc/pdf-a-conversion-limits.md section 4.2) and \
-     does not touch the amendment entry";
 
 /// Why a configuration's `/Name` is not written.
 ///

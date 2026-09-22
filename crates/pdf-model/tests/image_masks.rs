@@ -417,13 +417,16 @@ const JPX_ONE_COMPONENT: &[u8] = &[
 
 /// An 8×8 one-component JPEG 2000 codestream whose `SIZ` states **twelve** unsigned bits.
 ///
-/// The depth is the whole point of it and its samples are not read by any test here, so no value
-/// is documented: what this fixture is for is a codestream whose declared precision is not the
-/// eight bits `pdf_sandbox` delivers. Generated the same way as [`JPX_ONE_COMPONENT`], with its
-/// `COM` comment marker removed so that no encoder version is baked in:
+/// Every sample is [`JPX_TWELVE_BIT_SAMPLE`], which is what makes the depth measurable rather
+/// than merely declared: the value sits in the middle of a twelve-bit domain and nowhere near
+/// the ends, so a range stated in twelve bits and the same range stated in eight pick it out
+/// differently. Generated the same way as [`JPX_ONE_COMPONENT`] — lossless, reversible 5/3, so
+/// the value comes back exactly — with the `COM` comment marker removed so that no encoder
+/// version is baked in, and the samples written **big-endian**, which is the order
+/// `opj_compress` reads a raw file in:
 ///
 /// ```sh
-/// python3 -c "import struct; open('g.raw','wb').write(struct.pack('<64H', *([3000]*64)))"
+/// python3 -c "import struct; open('g.raw','wb').write(struct.pack('>64H', *([3000]*64)))"
 /// opj_compress -i g.raw -o g.j2k -F 8,8,1,12,u -n 1 -r 1
 /// ```
 const JPX_TWELVE_BIT: &[u8] = &[
@@ -431,10 +434,9 @@ const JPX_TWELVE_BIT: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0b, 0x01, 0x01, 0xff, 0x52, 0x00,
     0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
-    0x60, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x01, 0xff, 0x93, 0xff,
-    0x78, 0x91, 0x08, 0x14, 0x00, 0x5c, 0xa2, 0x83, 0x56, 0x28, 0x00, 0x00, 0x00, 0x30, 0x90, 0x97,
-    0xfc, 0x34, 0xec, 0x00, 0x00, 0x00, 0x01, 0x84, 0x84, 0x59, 0x84, 0x0c, 0x24, 0x24, 0x20, 0x34,
-    0x03, 0x09, 0x09, 0x7f, 0xff, 0xd9,
+    0x60, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x29, 0x00, 0x01, 0xff, 0x93, 0xc7,
+    0xec, 0x30, 0x14, 0x00, 0x5c, 0xaf, 0x82, 0x3d, 0x48, 0x00, 0x01, 0x84, 0x84, 0x6a, 0x85, 0x0c,
+    0x24, 0x25, 0xf6, 0x71, 0x60, 0x00, 0x03, 0x09, 0x09, 0x7f, 0xff, 0xd9,
 ];
 
 const RED: [u8; 3] = [255, 0, 0];
@@ -644,35 +646,121 @@ fn a_colour_key_over_an_indexed_jpeg_2000_image_names_table_entries() {
     );
 }
 
-/// A depth the samples do not arrive in is refused, and the refusal says which depth it found.
+/// The one sample value [`JPX_TWELVE_BIT`] carries, in every pixel, in its own twelve bits.
+const JPX_TWELVE_BIT_SAMPLE: u32 = 3000;
+
+/// The same sample stretched to eight bits, which is what this tree delivered before ADR 1242.
 ///
-/// §8.9.6.4 bounds each integer by "0 to 2 `BitsPerComponent` - 1", and for this filter that
-/// number is the codestream's. [`JPX_TWELVE_BIT`]'s `SIZ` states twelve unsigned bits, and
-/// `pdf_sandbox::Raster::data` is eight bits whatever the codestream's precision was — so the
-/// integers this file wrote are in a domain its samples have left, and §8.9.5.2 adds that the
-/// depth "can have different values per colour component", which is to say there may be no one
-/// domain to map them from. Reported rather than approximated, and the image is painted whole.
+/// `round(3000 ÷ 4095 × 255)`, and a colour key naming it must now leave the image painted.
+const JPX_TWELVE_BIT_STRETCHED: u32 = 187;
+
+/// An 8x8 one-component JPEG 2000 codestream whose `SIZ` states **sixteen** unsigned bits.
 ///
-/// **The control is the same range over the eight-bit codestream**, which is what makes the
-/// first half a statement about the depth rather than about a range this reader ignores anyway:
-/// `[0 255]` covers every eight-bit sample, so an applied range leaves nothing at all.
+/// Every sample is 65535, the top of that domain and the widest sample this tree carries, which
+/// is the one value a `2^n - 1` computed one bit too narrow would answer short of. Generated
+/// as [`JPX_TWELVE_BIT`] was:
+///
+/// ```sh
+/// python3 -c "import struct; open('g.raw','wb').write(struct.pack('>64H', *([65535]*64)))"
+/// opj_compress -i g.raw -o g.j2k -F 8,8,1,16,u -n 1 -r 1
+/// ```
+const JPX_SIXTEEN_BIT: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0f, 0x01, 0x01, 0xff, 0x52, 0x00,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
+    0x80, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x00, 0x01, 0xff, 0x93, 0xcf,
+    0xfc, 0x30, 0x14, 0x14, 0x00, 0x5c, 0xaf, 0x87, 0xff, 0xd9,
+];
+
+/// The widest domain this tree carries, at its own top sample.
+///
+/// §8.9.6.4 bounds its integers by "0 to 2 `BitsPerComponent` - 1", and at sixteen bits that is
+/// 65535 - a number a shift one bit too narrow answers 65534 for, which no other fixture here
+/// would catch. The first range is that sample exactly and masks; the second stops one below it
+/// and does not. ADR 1242.
 #[test]
-fn a_colour_key_over_a_jpeg_2000_image_of_another_depth_is_refused_and_named() {
+fn a_sixteen_bit_jpeg_2000_colour_key_reaches_the_top_of_its_domain() {
     sandbox_or_panic();
 
-    let refused = interpret(page_with_image(
-        "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /Mask [0 255]",
-        JPX_TWELVE_BIT,
-        &[],
-    ));
-    let reported = format!("{:?}", refused.unsupported);
+    let keyed = |range: &str| {
+        interpret(page_with_image(
+            &format!(
+                "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /Mask [{range}]"
+            ),
+            JPX_SIXTEEN_BIT,
+            &[],
+        ))
+    };
+
+    let top = keyed("65535 65535");
+    assert!(top.is_complete(), "{:?}", top.unsupported);
     assert!(
-        reported.contains("whose components are 12 unsigned bits"),
-        "the refusal names the depth it read out of the codestream: {reported}"
+        cut_out(&rasterise(top), 20, 20),
+        "the sample is the largest sixteen bits can carry and a range of exactly that holds it"
     );
+
+    let below = keyed("0 65534");
+    assert!(below.is_complete(), "{:?}", below.unsupported);
     assert!(
-        !cut_out(&rasterise(refused), 20, 20),
-        "a refused colour key leaves the image painted, not removed"
+        !cut_out(&rasterise(below), 20, 20),
+        "and a range stopping one short of it does not"
+    );
+}
+
+/// A twelve-bit codestream's colour key is compared in twelve bits, not in eight.
+///
+/// §8.9.6.4 bounds each integer by "0 to 2 `BitsPerComponent` - 1", and for this filter that
+/// number is the codestream's: Table 87 makes the depth "determined by the PDF processor in
+/// the process of decoding the JPEG 2000 image", and what this processor determines is what
+/// the codestream states, so that the integers a file wrote are compared in the domain it
+/// wrote them in. [`JPX_TWELVE_BIT`]'s `SIZ` states twelve unsigned bits and every sample is
+/// [`JPX_TWELVE_BIT_SAMPLE`] (ADR 1242).
+///
+/// Three ranges, each the clause applied to that one number, and each discriminating against
+/// the eight-bit narrowing this replaced in a direction of its own:
+///
+/// - **The sample's own value**, a range of one. It masks, and its integers are above 255, so
+///   they were refused outright as outside the domain.
+/// - **[`JPX_TWELVE_BIT_STRETCHED`]**, the value the eight-bit hand-off used to deliver. It
+///   masked the whole image then and it masks nothing now, which is the narrowing measured at
+///   the pixel rather than argued about.
+/// - **`[0 255]`**, the bottom sixteenth of a twelve-bit domain, which the sample is outside.
+#[test]
+fn a_colour_key_over_a_twelve_bit_jpeg_2000_image_is_compared_in_twelve_bits() {
+    sandbox_or_panic();
+
+    let keyed = |range: String| {
+        interpret(page_with_image(
+            &format!(
+                "/Width 8 /Height 8 /Filter /JPXDecode /ColorSpace /DeviceGray /Mask [{range}]"
+            ),
+            JPX_TWELVE_BIT,
+            &[],
+        ))
+    };
+
+    let inside = keyed(format!("{JPX_TWELVE_BIT_SAMPLE} {JPX_TWELVE_BIT_SAMPLE}"));
+    assert!(inside.is_complete(), "{:?}", inside.unsupported);
+    assert!(
+        cut_out(&rasterise(inside), 20, 20),
+        "the sample is inside a range of itself, and that range is one this domain has"
+    );
+
+    let stretched = keyed(format!(
+        "{JPX_TWELVE_BIT_STRETCHED} {JPX_TWELVE_BIT_STRETCHED}"
+    ));
+    assert!(stretched.is_complete(), "{:?}", stretched.unsupported);
+    assert!(
+        !cut_out(&rasterise(stretched), 20, 20),
+        "the eight-bit stretch of the sample is not the sample, so nothing is masked"
+    );
+
+    let below = keyed("0 255".to_owned());
+    assert!(below.is_complete(), "{:?}", below.unsupported);
+    assert!(
+        !cut_out(&rasterise(below), 20, 20),
+        "0 to 255 is the bottom sixteenth of twelve bits and the sample is above it"
     );
 
     let applied = interpret(page_with_image(

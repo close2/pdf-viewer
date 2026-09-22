@@ -1332,6 +1332,21 @@ pub enum Purpose {
     /// document instead of a page object in the current document". What comes back replaces the
     /// document on the screen, at the page the action names inside it. ADR 1227.
     RemoteDocument,
+    /// §12.7.8's named page in a second file: Table 253's `/F`, "[t]he file containing the named
+    /// page".
+    ///
+    /// The bytes are a **PDF**, and one page of it becomes part of the document being read rather
+    /// than replacing it: Table 249's `/APRef` makes that page a push-button's appearance and
+    /// Table 252's `/TRef` adds it to the document. Both are raised *while* §12.7.6.4's import is
+    /// being applied, which is the second question §12.6.4.4's suspended walk already has a shape
+    /// for. ADR 1239.
+    NamedPage,
+    /// §12.6.4.7's thread in a second file: Table 209's `/F`, "[t]he file containing the thread".
+    ///
+    /// The bytes are a **PDF**, and what comes back replaces the document on the screen at the
+    /// page §12.4.3's bead is on — [`Self::RemoteDocument`]'s act reached through a different
+    /// table. ADR 1239.
+    ThreadDocument,
 }
 
 /// What a worker did with a [`crate::RenderRequest`].

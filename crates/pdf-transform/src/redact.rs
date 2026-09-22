@@ -656,6 +656,12 @@ struct PathObject {
     bbox: Option<[f32; 4]>,
     /// Whether §8.5.4's `W` or `W*` made this path the clipping boundary as well as a mark.
     clips: bool,
+    /// The producer's own bytes for the whole path object, up to its painting operator.
+    ///
+    /// What the boundary is re-stated from when the marks are cut away from under it, so that not
+    /// one coordinate of it is re-derived (§8.5.4, ADR 1248). Taken at the painting operator
+    /// because that is where the path is whole, and only for a path [`Self::clips`] is set on.
+    clip_bytes: Option<Vec<u8>>,
     /// Whether an operator that is not path construction ran while the path was open, so the
     /// byte range between the first operand and the painting operator is not the path's alone.
     interrupted: bool,
@@ -675,6 +681,7 @@ impl PathObject {
             current_point: kurbo::Point::ZERO,
             bbox: None,
             clips: false,
+            clip_bytes: None,
             interrupted: false,
             start,
             ctm,
@@ -973,6 +980,17 @@ fn is_stroking_colour_operator(keyword: &[u8]) -> bool {
     matches!(keyword, b"CS" | b"SC" | b"SCN" | b"G" | b"RG" | b"K")
 }
 
+/// Whether this keyword is one of §8.5.3's path-painting operators (Table 59, Table 60's `n`).
+///
+/// What terminates a path object, which is where the path is whole: §8.5.4 lets the clipping
+/// operator appear anywhere before it, so this is the position the boundary's bytes are taken at.
+fn is_painting_operator(keyword: &[u8]) -> bool {
+    matches!(
+        keyword,
+        b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"B*" | b"b" | b"b*" | b"n"
+    )
+}
+
 /// Whether an operator belongs inside a path object (§8.2): §8.5.2's construction operators,
 /// §8.5.4's clip operators, and the painting operators that end one.
 fn is_path_operator(keyword: &[u8]) -> bool {
@@ -1050,19 +1068,22 @@ fn split_subpaths(outline: &kurbo::BezPath) -> Vec<paths::SubPath> {
 
 /// Whether this path object's own bytes are a cut's to replace, or the refusal by name.
 ///
-/// Three questions, none of them about the geometry: whether cutting would move something other
-/// than the marks (§8.5.4's clipping boundary), whether the byte range the replacement occupies
-/// is the path's alone (§8.2's path object), and whether the path has any area in device space
-/// at all (§8.3.4).
+/// Two questions, neither about the geometry: whether the byte range the replacement occupies is
+/// the path's alone (§8.2's path object), and whether the path has any area in device space at
+/// all (§8.3.4).
+///
+/// **A path that is also §8.5.4's clipping boundary is not one of them, since ADR 1248.** The
+/// boundary is not a mark and a cut does not have to move it: the clause separates the two acts
+/// in time — "[a]lthough the clipping path operator appears before the painting operator, it
+/// shall not alter the clipping path at the point where it appears … After the path has been
+/// painted, the clipping path in the graphics state shall be set to the intersection of the
+/// current clipping path and the newly constructed path" — so the marks are painted under the
+/// clip that was already in force, and the boundary is set afterwards. [`Walk::paint_path`]
+/// writes exactly that order back: the cut marks first, then the producer's own bytes for the
+/// construction and the clipping operator followed by `n`, which §8.5.4 says "shall cause no
+/// marks to be placed on the page, but can be used with a clipping path operator to establish a
+/// new clipping path".
 fn admits_a_cut(path: &PathObject) -> Result<(), String> {
-    if path.clips {
-        return Err(
-            "§8.5.4: the path meeting the region is also the clipping path (W or W*), which \
-             bounds every mark after the painting operator; cutting its geometry would move that \
-             boundary and change content the annotation did not identify; the page is refused"
-                .to_owned(),
-        );
-    }
     if path.interrupted {
         return Err(
             "§8.2: an operator that is not path construction ran inside the path object meeting \
@@ -1265,6 +1286,21 @@ impl<'a> Walk<'a> {
                         // wrote, because a cut stroke is painted as a fill and the fill has to
                         // be given that colour without any number being re-formatted. The
                         // operands run from the first of them to this keyword.
+                        // §8.5.4's clipping operator makes the path a boundary as well as a
+                        // mark, and the boundary has to survive the mark being cut out from
+                        // under it. The producer's own bytes are what it is re-stated from, so
+                        // that no coordinate of it is re-derived (ADR 1248). Taken at the
+                        // painting operator rather than at the clipping one, because the clause
+                        // only *permits* the order — "may appear after the last path
+                        // construction operator" — and the boundary is "the newly constructed
+                        // path", which is whole only here.
+                        if is_painting_operator(keyword)
+                            && let Some(path) = self.path.as_mut()
+                            && path.clips
+                            && let Some(bytes) = content.get(path.start..start)
+                        {
+                            path.clip_bytes = Some(bytes.to_vec());
+                        }
                         if is_stroking_colour_operator(keyword)
                             && let Some((_, from)) = operands.first()
                         {
@@ -1916,6 +1952,15 @@ impl<'a> Walk<'a> {
                 replacement.extend_from_slice(b"f\nQ\n");
             }
         }
+        // §8.5.4's boundary, re-stated after the marks it used to accompany. The producer's own
+        // bytes for the whole path object, then `n`: the marks above were painted under the clip
+        // already in force, and this sets the clip to its intersection with the path the producer
+        // constructed — which is the order the clause states and the same clip every later mark
+        // on the page is held to (ADR 1248).
+        if let Some(bytes) = path.clip_bytes.as_ref() {
+            replacement.extend_from_slice(bytes);
+            replacement.extend_from_slice(b"\nn\n");
+        }
         self.paths_cut = self.paths_cut.saturating_add(1);
         self.edits.push((
             path.start,
@@ -2198,25 +2243,11 @@ impl<'a> Walk<'a> {
                 "the image /{shown} is not a stream; the page is refused"
             ));
         };
-        // §8.9.5.4's `/Alternates` are "variant representations of the base image", and
-        // §12.5.6.23 requires the data in the region to be destroyed rather than hidden: an
-        // alternate holds the same picture at another resolution or in another colour space, so
-        // clearing the base alone would leave the redacted content in the file and — since step
-        // c) draws the `/DefaultForPrinting` alternate when the output is a printing — on paper.
-        // Destroying an alternate's samples too is a capability this writer does not have (each
-        // is its own grid, its own filter, and may be shared), so the page is refused by name.
-        if self.document.get_key(&stream.dict, "Alternates") != Object::Null {
-            return Err(format!(
-                "§12.5.6.23: the image /{shown} states §8.9.5.4 /Alternates, whose variant \
-                 representations of the same picture this removal does not destroy; the page is \
-                 refused rather than leave the region readable in an alternate"
-            ));
-        }
         let image = self.document.image_stream(stream).ok_or_else(|| {
             format!("the image /{shown} did not decode to samples; the page is refused")
         })?;
         if let Some(codec) = &image.codec {
-            return self.plan_codec_clear(&shown, image_id, stream, codec);
+            return self.plan_codec_clear(&shown, image_id, stream, codec, &image.data);
         }
         let layout = self.image_layout(&stream.dict, &shown)?;
         let stride = row_stride(layout)
@@ -2255,22 +2286,27 @@ impl<'a> Walk<'a> {
     /// re-expressed at its own depth, a 1-bit `DeviceGray` raster whose zero sample is one bit
     /// (ADR 1143), rather than inflated to eight.
     ///
-    /// Refused, each an owed capability rather than a silence (trap 5, principle 1): `JPXDecode`,
-    /// whose over-budget decode is a reduced resolution level (§7.4.9 NOTE 3), so the raster is not
-    /// the image's grid; any other codec; an image that does not decode; one that decodes short of
-    /// its grid, so the re-encode would drop rows; or one that decodes with transparency (a soft
-    /// mask, a colour key, or an image mask), which the opaque re-encode cannot preserve.
+    /// Refused, each an owed capability rather than a silence (trap 5, principle 1): any codec
+    /// other than the four; an image that does not decode; one that decodes short of its grid, so
+    /// the re-encode would drop rows; one that decodes with transparency (a soft mask, a colour
+    /// key, or an image mask), which the opaque re-encode cannot preserve; and the three
+    /// `JPXDecode` conditions [`Walk::jpx_admits_a_clear`] names.
     fn plan_codec_clear(
         &self,
         shown: &str,
         image_id: ObjectId,
         stream: &Stream,
         codec: &[u8],
+        codestream: &[u8],
     ) -> Result<ImageClear, String> {
         // A bilevel codec re-expresses at 1 bit; a colour codec at 8-bit RGB. Every other codec is
-        // refused by name — `JPXDecode` with its own reason (§7.4.9 NOTE 3), the rest generically.
+        // refused by name.
         let bilevel = match codec {
             b"DCTDecode" | b"DCT" | b"CCITTFaxDecode" | b"CCF" => false,
+            b"JPXDecode" => {
+                self.jpx_admits_a_clear(shown, stream, codestream)?;
+                false
+            }
             b"JBIG2Decode" => true,
             other => {
                 return Err(format!(
@@ -2305,6 +2341,24 @@ impl<'a> Walk<'a> {
         let height = usize::try_from(image.height).map_err(|_| {
             format!("the codec image /{shown}'s grid overflows; the page is refused")
         })?;
+        // The raster has to be the image's own grid, which is what the dictionary states
+        // (§8.9.5.1 Table 87) and, for a JPEG 2000 codestream over the decoder's sample budget,
+        // is not what came back: §7.4.9 NOTE 3 lets a decoder "select and decode only the data
+        // making up a lower-resolution version", and re-encoding that would resample the whole
+        // image rather than clear a region of it. Asked of every codec, because the question is
+        // about the grid rather than about which decoder produced it (ADR 1248).
+        let stated = (
+            positive_dim(self.document, &stream.dict, "Width", shown)?,
+            positive_dim(self.document, &stream.dict, "Height", shown)?,
+        );
+        if stated != (width, height) {
+            return Err(format!(
+                "§8.9.5: the codec image /{shown} states a {}×{} grid and decoded to {width}×\
+                 {height}, so the samples this removal would write back are not the image's own; \
+                 the page is refused",
+                stated.0, stated.1
+            ));
+        }
         // §11.6.4.2 gives the alpha channel [`pdf_model::image::decode`] leaves; only a fully
         // opaque decode is representable as an opaque raster. A soft mask, a colour key or an
         // image mask leaves some sample non-opaque, and dropping it would change the picture —
@@ -2330,6 +2384,78 @@ impl<'a> Walk<'a> {
             private: !self.owns(image_id),
             decoded: Some(Arc::from(samples.as_slice())),
         })
+    }
+
+    /// The three conditions a `JPXDecode` image's samples have to meet to be destroyed here.
+    ///
+    /// §12.5.6.23 asks for one thing of an image — "that portion of the image data shall be
+    /// destroyed; clipping or image masks shall not be used to hide that data" — and says nothing
+    /// about the encoding the rest of it survives in. So decoding the codestream, zeroing the
+    /// region's samples and writing the whole grid back under `FlateDecode` *is* the destruction
+    /// the clause asks for: the removed samples are in the output in no form at all, and the ones
+    /// outside the region are the values a reader decoded before, carried losslessly. That the
+    /// codestream was lossy does not weaken it — the samples a reader sees are the decoder's
+    /// output, and those are exactly what is re-encoded.
+    ///
+    /// What has to hold is that the grid written back is the image's own and carries everything
+    /// the original did (ADR 1248):
+    ///
+    /// - **The decode is not a reduced resolution level.** §7.4.9 NOTE 3 is the permission a
+    ///   decoder takes to "select and decode only the data making up a lower-resolution version",
+    ///   and this tree's decoder takes it for a codestream over its sample budget. A raster on
+    ///   that grid is not the image, so writing it back would resample everything outside the
+    ///   region as well. The dictionary's `/Width` and `/Height` are what the grid is held to,
+    ///   and they are the codestream's own: §7.4.9 requires them to "match the corresponding
+    ///   width and height values in the JPEG 2000 data", and `pdf_model::image::decode` has
+    ///   already refused the image where they do not.
+    /// - **Table 87's `/SMaskInData` is absent or zero.** A non-zero value means the codestream
+    ///   carries an opacity channel that "shall apply to all colour channels" (§7.4.9), and the
+    ///   opaque `FlateDecode` re-encode has nowhere to put it.
+    /// - **No component is deeper than eight bits.** The re-encode writes 8-bit `DeviceRGB`,
+    ///   so a codestream stating more precision than that would come back coarser outside the
+    ///   region — content the annotation did not identify, changed.
+    fn jpx_admits_a_clear(
+        &self,
+        shown: &str,
+        stream: &Stream,
+        codestream: &[u8],
+    ) -> Result<(), String> {
+        if self
+            .document
+            .get_key(&stream.dict, "SMaskInData")
+            .as_integer()
+            .is_some_and(|code| code != 0)
+        {
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} states a non-zero /SMaskInData, so its \
+                 samples carry an opacity channel this removal's opaque re-encode cannot keep; \
+                 the page is refused rather than flatten it"
+            ));
+        }
+        let headers = pdf_model::jpeg2000::Headers::parse(codestream).map_err(|error| {
+            format!(
+                "§7.4.9: the JPEG 2000 image /{shown} does not state its own precision \
+                 ({error}); the page is refused rather than re-encode a grid this removal \
+                 cannot show it preserves"
+            )
+        })?;
+        let depths = headers.component_depths();
+        if depths.is_empty() {
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} states no component precision at all, so \
+                 this removal cannot show its re-encode preserves the samples outside the \
+                 region; the page is refused"
+            ));
+        }
+        if let Some(deep) = depths.iter().find(|depth| depth.bits > 8) {
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} states {} bits per component, and this \
+                 removal re-encodes at eight, which would coarsen the samples outside the \
+                 region as well; the page is refused",
+                deep.bits
+            ));
+        }
+        Ok(())
     }
 
     /// The image's sample layout (§8.9.5): its grid, colour components and bit depth.
@@ -3625,7 +3751,20 @@ fn build_cleared_image(
                 // The old encoding is dropped and §7.3.8.2's /Length re-stated for the new bytes;
                 // /Filter becomes the one filter this writer emits. Every other entry is carried
                 // unchanged, because the samples are still on the grid it describes.
-                b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
+                //
+                // **§8.9.5.4's /Alternates goes with them** (ADR 1248). The entry is the only
+                // route to a variant — "an array of alternate image dictionaries specifying
+                // variant representations of the base image" — and §8.9.5.4's own selection runs
+                // from the base image's array, so a base that states none is the image every
+                // reader draws, printing included. Dropping the key leaves the alternates
+                // reached from nowhere on this page, and the closure walk below copies only what
+                // is reached, so a variant of the destroyed portion is not in the output at all:
+                // §12.5.6.23's "remove all traces of the specified content", by removal rather
+                // than by the re-encoding of somebody else's grid this writer cannot do. Where
+                // the image is another page's too it is copied rather than replaced (ADR 1196),
+                // and that page keeps its own base and its own variants — the same position that
+                // page's un-destroyed samples are already in.
+                b"Filter" | b"DecodeParms" | b"DP" | b"Length" | b"Alternates" => {}
                 _ => {
                     dict.insert(
                         key.clone(),

@@ -2055,47 +2055,23 @@ fn decode_jpx(
         None => codestream_colour_space(&raster)?,
     };
 
-    // §7.4.9, of a dictionary that states its own `/ColorSpace`:
-    //
-    // > If present, it shall determine how the image samples are interpreted, and the colour
-    // > space specifications in the JPEG 2000 data shall be ignored. The number of ordinary
-    // > colour channels in the JPEG 2000 data shall match the number of components in the
-    // > colour space
-    //
-    // *Which* of a codestream's channels is an opacity channel is read off those same colour
-    // space specifications — the JP2 channel-definition box sits beside them — so a bare
-    // codestream, which carries no boxes at all, has both synthesised for it by the codec. A
-    // fourth channel beside a synthesised three-component space is then taken for opacity, and
-    // the count the sentence above binds is one short. The clause sets that reading aside, and
-    // Table 87 makes it moot from the other side: with `/SMaskInData` 0 or absent, encoded
-    // soft-mask information is ignored, so nothing is lost by reading the channel as colour.
-    //
-    // Narrow on purpose, which is trap 11's rule about a condition rather than a count: a file
-    // that *states* an opacity channel by writing a non-zero `/SMaskInData` is believed, and so
-    // is one whose ordinary channels already match the declared space. Only where taking the
-    // supposed opacity channel for an ordinary one makes the clause's sentence true is the
-    // codec's guess set aside.
-    if stated_by_the_dictionary
-        && smask_in_data == 0
-        && raster.has_opacity
-        && space.components() != usize::from(raster.components)
-        && space.components() == raster.channels()
-    {
-        raster.components = raster.components.saturating_add(1);
-        raster.has_opacity = false;
-    }
+    read_the_supposed_opacity_channel(
+        &mut raster,
+        &space,
+        stated_by_the_dictionary && smask_in_data == 0,
+    )?;
 
-    if space.components() != usize::from(raster.components) {
-        return Err(ImageError::Malformed {
-            detail: format!(
-                "the colour space takes {} components but the codestream has {}",
-                space.components(),
-                raster.components
-            ),
-        });
-    }
-
-    let decode = jpx_decode(document, dict, &space, stated_by_the_dictionary);
+    let decode = jpx_decode(
+        document,
+        dict,
+        &space,
+        stated_by_the_dictionary,
+        u32::from(raster.precision),
+    );
+    let KeyedSamples {
+        ranges: colour_key,
+        shortfall,
+    } = colour_key_in_the_rasters_domain(colour_key, &raster);
     Ok(SamplesOnGrid {
         rgba: jpx_samples_to_rgba(
             &raster,
@@ -2110,8 +2086,101 @@ fn decode_jpx(
         ),
         grid: (raster.width, raster.height),
         opacity_included: use_opacity,
-        shortfall: None,
+        shortfall,
     })
+}
+
+/// Reads a codestream's supposed opacity channel as colour where ISO 32000-2 §7.4.9 says to.
+///
+/// §7.4.9, of a dictionary that states its own `/ColorSpace`:
+///
+/// > If present, it shall determine how the image samples are interpreted, and the colour
+/// > space specifications in the JPEG 2000 data shall be ignored. The number of ordinary
+/// > colour channels in the JPEG 2000 data shall match the number of components in the
+/// > colour space
+///
+/// *Which* of a codestream's channels is an opacity channel is read off those same colour
+/// space specifications — the JP2 channel-definition box sits beside them — so a bare
+/// codestream, which carries no boxes at all, has both synthesised for it by the codec. A
+/// fourth channel beside a synthesised three-component space is then taken for opacity, and
+/// the count the sentence above binds is one short. The clause sets that reading aside, and
+/// Table 87 makes it moot from the other side: with `/SMaskInData` 0 or absent, encoded
+/// soft-mask information is ignored, so nothing is lost by reading the channel as colour.
+///
+/// Narrow on purpose, which is trap 11's rule about a condition rather than a count: a file
+/// that *states* an opacity channel by writing a non-zero `/SMaskInData` is believed, and so
+/// is one whose ordinary channels already match the declared space. Only where taking the
+/// supposed opacity channel for an ordinary one makes the clause's sentence true is the
+/// codec's guess set aside — which is what `stated_without_opacity` is.
+///
+/// # Errors
+///
+/// Where the channel count still disagrees with the colour space's, which is the sentence
+/// above unsatisfiable either way round.
+fn read_the_supposed_opacity_channel(
+    raster: &mut pdf_sandbox::Raster,
+    space: &crate::colour::ColourSpace,
+    stated_without_opacity: bool,
+) -> Result<(), ImageError> {
+    if stated_without_opacity
+        && raster.has_opacity
+        && space.components() != usize::from(raster.components)
+        && space.components() == raster.channels()
+    {
+        raster.components = raster.components.saturating_add(1);
+        raster.has_opacity = false;
+    }
+    if space.components() != usize::from(raster.components) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "the colour space takes {} components but the codestream has {}",
+                space.components(),
+                raster.components
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// §8.9.6.4's ranges where the raster can hold them, and a sentence where it cannot.
+///
+/// The ranges were bounded at parse time by the depth [`jpx_sample_domain`] read out of this
+/// codestream's headers, and the samples arrive at the depth the confined decoder read out of
+/// the same field. The two are one number in every codestream either can read, so a range above
+/// what the raster can hold says the two readings parted — and a comparison in a domain the
+/// samples are not in is what §8.9.6.4 is least served by. The image is still painted, because
+/// the mask is the only part that cannot be answered, and the sentence travels beside it rather
+/// than instead of it (ADR 1242).
+fn colour_key_in_the_rasters_domain<'a>(
+    colour_key: Option<&'a [(u32, u32)]>,
+    raster: &pdf_sandbox::Raster,
+) -> KeyedSamples<'a> {
+    match colour_key {
+        Some(ranges) if ranges.iter().any(|(_, high)| *high > raster.max_sample()) => {
+            KeyedSamples {
+                ranges: None,
+                shortfall: Some(format!(
+                    "colour-key /Mask ranges bounded by the depth this codestream's headers \
+                     state, against samples the decoder delivered at {} bits; the ranges are \
+                     not compared and the image is painted whole (§8.9.6.4)",
+                    raster.precision
+                )),
+            }
+        }
+        other => KeyedSamples {
+            ranges: other,
+            shortfall: None,
+        },
+    }
+}
+
+/// What [`colour_key_in_the_rasters_domain`] answers: the ranges to apply, and the sentence
+/// where they were dropped.
+struct KeyedSamples<'a> {
+    /// §8.9.6.4's ranges, where the raster's samples are in the domain they are bounded by.
+    ranges: Option<&'a [(u32, u32)]>,
+    /// See [`Parts::shortfall`].
+    shortfall: Option<String>,
 }
 
 /// A JPEG 2000 image whose dictionary makes it a stencil mask.
@@ -2133,10 +2202,14 @@ fn jpx_stencil(
     fill: pdf_render::Color,
     use_opacity: bool,
 ) -> Result<SamplesOnGrid, ImageError> {
-    let samples: Vec<u8> = raster
-        .data
-        .chunks(raster.channels())
-        .map(|pixel| u8::from(pixel.first().is_some_and(|value| *value >= 128)))
+    let channels = raster.channels();
+    let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
+    let midpoint = raster.max_sample() / 2;
+    let samples: Vec<u8> = (0..pixels)
+        .map(|pixel| {
+            let at = pixel.saturating_mul(channels);
+            u8::from(raster.sample(at).is_some_and(|value| value > midpoint))
+        })
         .collect();
     let packed = pack_bits(&samples, raster.width, raster.height);
     Ok(SamplesOnGrid {
@@ -2182,22 +2255,23 @@ fn jpx_stencil(
 /// 255 this replaced could not: an `Indexed` space's default is `[0 2^n − 1]`, so an index is
 /// passed through rather than turned into a fraction.
 ///
-/// The depth is eight bits whatever the codestream's precision was, because `pdf_sandbox`
-/// normalises every raster to that and Table 87 makes `/BitsPerComponent` "optional and …
-/// ignored if present" here. §8.9.5.2's map is linear in the sample, so composing it with that
-/// normalisation is the same linear map: a pair still lands D min at sample 0 and D max at the
-/// largest sample, which is what the pair means.
+/// The depth is the raster's own, which Table 87 makes this processor's to determine — "[t]he
+/// bit depth is determined by the PDF processor in the process of decoding the JPEG 2000
+/// image" — and which `pdf_sandbox` answers with the codestream's wherever its components
+/// agree on one (ADR 1242). §8.9.5.2's map is linear in the sample, so the pair still lands
+/// D min at sample 0 and D max at the largest sample, which is what the pair means.
 fn jpx_decode(
     document: &Document,
     dict: &Dictionary,
     space: &crate::colour::ColourSpace,
     stated: bool,
+    bits: u32,
 ) -> Decode {
     let mapped = ColourSpace::Resolved(space.clone());
     if stated {
-        Decode::read(document, dict, &mapped, JPX_SAMPLE_BITS)
+        Decode::read(document, dict, &mapped, bits)
     } else {
-        Decode::from_pairs(&[], &mapped, JPX_SAMPLE_BITS)
+        Decode::from_pairs(&[], &mapped, bits)
     }
 }
 
@@ -2218,6 +2292,13 @@ struct JpxOpacity {
 /// `colour_key` is §8.9.6.4's ranges, one per colour component, applied here for the reason
 /// [`jpeg_colour_key`] gives on the other lossy filter: the test is on the components "before
 /// decoding", which are the samples this loop reads, and the conversion below replaces them.
+///
+/// **The samples are read at the raster's own precision**, which for a codestream of more than
+/// eight bits a component is the codestream's (`pdf_sandbox::Raster::precision`, ADR 1242). So
+/// the range test is the comparison §8.9.6.4 states — its integers are in the domain the file
+/// wrote them in — and the eight-bit raster this returns is reached afterwards, through
+/// §8.9.5.2's map. The opacity channel is scaled here instead, because RGBA8 is what an
+/// `Image` carries and an alpha has no `/Decode` entry to carry it.
 fn jpx_samples_to_rgba(
     raster: &pdf_sandbox::Raster,
     space: &crate::colour::ColourSpace,
@@ -2233,25 +2314,25 @@ fn jpx_samples_to_rgba(
     let channels = raster.channels();
     let components = usize::from(raster.components);
     let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
+    let highest = raster.max_sample();
     let mut out = Vec::with_capacity(pixels.saturating_mul(4));
     let mut values = vec![0f32; components];
-    for pixel in raster.data.chunks(channels) {
+    for pixel in 0..pixels {
+        let base = pixel.saturating_mul(channels);
+        let sample = |channel: usize| raster.sample(base.saturating_add(channel));
         // §8.9.6.4: "[s]amples in the image that fall within this range shall not be painted".
         // The same answer `unpack` gives a masked sample — its position, and no opacity at all —
         // taken before the map below, because that is what turns a sample into a colour.
         if colour_key.is_some_and(|ranges| {
             ranges.iter().enumerate().all(|(component, (low, high))| {
-                pixel.get(component).is_some_and(|sample| {
-                    let raw = u32::from(*sample);
-                    raw >= *low && raw <= *high
-                })
+                sample(component).is_some_and(|raw| raw >= *low && raw <= *high)
             })
         }) {
             out.extend_from_slice(&[0, 0, 0, 0]);
             continue;
         }
         let alpha = if use_opacity {
-            pixel.get(components).copied().unwrap_or(255)
+            sample(components).map_or(255, |raw| scaled_to_byte(raw, highest))
         } else {
             255
         };
@@ -2259,8 +2340,8 @@ fn jpx_samples_to_rgba(
         // 255 this replaced could not: Table 88 gives an `Indexed` space `[0 2^n − 1]`, so an
         // index is passed through rather than turned into a fraction, and a `Lab` space's
         // lightness runs to 100.
-        for (component, (slot, sample)) in values.iter_mut().zip(pixel.iter()).enumerate() {
-            *slot = decode.value(component, usize::from(*sample));
+        for (component, slot) in values.iter_mut().enumerate() {
+            *slot = decode.value(component, sample(component).unwrap_or(0) as usize);
         }
         if premultiplied && alpha != 0 {
             // Straight alpha is what `Image` documents and what both backends expect, so the
@@ -2281,6 +2362,23 @@ fn jpx_samples_to_rgba(
         ]);
     }
     out
+}
+
+/// A sample of `highest`-bounded domain as the byte an RGBA8 alpha channel takes.
+///
+/// An opacity has no `/Decode` entry to carry it into the raster's eight bits the way
+/// §8.9.5.2's map carries a colour component, so the one linear map the domain admits is
+/// applied here: 0 stays 0 and `highest` becomes 255.
+fn scaled_to_byte(raw: u32, highest: u32) -> u8 {
+    if highest == 0 {
+        return 255;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "both are at most 65535, which every f32 represents exactly"
+    )]
+    let fraction = raw as f32 / highest as f32;
+    channel(fraction)
 }
 
 /// Chooses the colour space a JPEG 2000 codestream says its samples are in.
@@ -3373,12 +3471,14 @@ fn colour_key_entry(
         );
     };
     let jpeg_2000 = image_codec(document, dict).as_deref() == Some("JPXDecode");
-    if let Some(refusal) = jpeg_2000
-        .then(|| jpx_sample_domain(document, stream, &space))
-        .flatten()
-    {
-        return MaskEntry::Unusable(refusal);
-    }
+    let jpx_bits = if jpeg_2000 {
+        match jpx_sample_domain(document, stream, &space) {
+            Ok(bits) => Some(bits),
+            Err(refusal) => return MaskEntry::Unusable(refusal),
+        }
+    } else {
+        None
+    };
 
     let values: Vec<i64> = items
         .iter()
@@ -3394,11 +3494,9 @@ fn colour_key_entry(
     }
 
     // Table 87: for a JPEG 2000 image this entry "shall be ignored if present", so the domain
-    // the ranges are bounded by is the one the samples arrive in — eight bits, which is what
-    // [`jpx_sample_domain`] has just established for every arm it admits.
-    let bits = if jpeg_2000 {
-        JPX_SAMPLE_BITS
-    } else {
+    // the ranges are bounded by is the one the codestream states and the decoder delivers,
+    // which [`jpx_sample_domain`] has just read out of its headers (ADR 1242).
+    let bits = jpx_bits.unwrap_or_else(|| {
         u32::try_from(
             document
                 .get_key(dict, "BitsPerComponent")
@@ -3406,7 +3504,7 @@ fn colour_key_entry(
                 .unwrap_or(8),
         )
         .unwrap_or(8)
-    };
+    });
     let highest = i64::from(1u32.checked_shl(bits).unwrap_or(u32::MAX).saturating_sub(1));
     let mut ranges = Vec::with_capacity(components);
     for pair in values.chunks_exact(2) {
@@ -3429,20 +3527,30 @@ fn colour_key_entry(
     MaskEntry::ColourKey(ranges)
 }
 
-/// The bits a JPEG 2000 sample reaches this crate as, whatever the codestream declared.
+/// The bits a JPEG 2000 image's samples reach this crate at, or a sentence saying why no
+/// single domain exists.
 ///
-/// `pdf_sandbox::Raster::data` is always eight bits whatever the codestream's precision was, and
-/// Table 87 leaves that choice to the processor: "The bit depth is determined by the PDF
-/// processor in the process of decoding the JPEG 2000 image."
-const JPX_SAMPLE_BITS: u32 = 8;
-
-/// Whether a JPEG 2000 image's samples still carry the domain §8.9.6.4's integers were written
-/// in, or a sentence saying why they do not.
+/// ISO 32000-2 Table 87 makes the depth this processor's to determine — "[t]he bit depth is
+/// determined by the PDF processor in the process of decoding the JPEG 2000 image" — and what
+/// it determines is the codestream's own, so that §8.9.6.4's ranges are compared in the domain
+/// their integers were written in (ADR 1242). `pdf_sandbox::decode` reads the same `Ssiz`
+/// precision off the same codestream and hands its samples back at it, which is what makes this
+/// answer the raster's as well as the file's.
 ///
-/// The reading is in [`colour_key_entry`]'s comment; this is the two cases it names. Reads the
-/// codestream's headers and no samples at all, which is what [`crate::jpeg2000`] exists for —
-/// the confined decoder is not started to answer a question about the mask.
-fn jpx_sample_domain(document: &Document, stream: &Stream, space: &ColourSpace) -> Option<String> {
+/// Reads the codestream's headers and no samples at all, which is what [`crate::jpeg2000`]
+/// exists for — the confined decoder is not started to answer a question about the mask.
+///
+/// Two cases have no single domain and each is refused by name rather than approximated: a
+/// component whose samples are signed, which §8.9.6.4's non-negative integers cannot range
+/// over, and components that disagree on a depth, which §8.9.5.2's "can have different values
+/// per colour component" allows and which leaves no one number for the ranges to be bounded by.
+/// More than sixteen bits is neither this crate's nor the clause's limit but
+/// `pdf_sandbox::Raster`'s, and it is named as that.
+fn jpx_sample_domain(
+    document: &Document,
+    stream: &Stream,
+    space: &ColourSpace,
+) -> Result<u32, String> {
     // §7.4.9 gives the dictionary's space precedence over the codestream's own, which is why
     // `decode_jpx` asks the worker for unscaled indices here; the domain is then the table's,
     // which §8.6.6.3 caps at 255 whatever precision the codestream declares.
@@ -3450,28 +3558,30 @@ fn jpx_sample_domain(document: &Document, stream: &Stream, space: &ColourSpace) 
         space,
         ColourSpace::Resolved(crate::colour::ColourSpace::Indexed { .. })
     ) {
-        return None;
+        return Ok(JPX_INDEX_BITS);
     }
     let Some(source) = document.image_stream(stream) else {
-        return Some(
+        return Err(
             "colour-key /Mask on a JPXDecode image whose data this could not read".to_owned(),
         );
     };
     let depths = crate::jpeg2000::Headers::parse(&source.data)
         .map(|headers| headers.component_depths())
         .unwrap_or_default();
-    if depths.is_empty() {
-        return Some(
-            "colour-key /Mask on a JPXDecode image whose data states no bit depth, which \
-             §8.9.6.4's ranges are bounded by"
+    let Some(first) = depths.first() else {
+        return Err(
+            "colour-key /Mask on a JPXDecode image whose data states no bit depth, \
+                    which §8.9.6.4's ranges are bounded by"
                 .to_owned(),
         );
-    }
-    if depths
-        .iter()
-        .all(|depth| u32::from(depth.bits) == JPX_SAMPLE_BITS && !depth.signed)
+    };
+    if !first.signed
+        && (1..=JPX_MAX_SAMPLE_BITS).contains(&u32::from(first.bits))
+        && depths
+            .iter()
+            .all(|depth| depth.bits == first.bits && !depth.signed)
     {
-        return None;
+        return Ok(u32::from(first.bits));
     }
     let found = depths
         .iter()
@@ -3481,11 +3591,22 @@ fn jpx_sample_domain(document: &Document, stream: &Stream, space: &ColourSpace) 
         })
         .collect::<Vec<_>>()
         .join(", ");
-    Some(format!(
-        "colour-key /Mask on a JPXDecode image whose components are {found} bits, so the \
-         ranges are not in the domain of the eight-bit samples this decodes to"
+    Err(format!(
+        "colour-key /Mask on a JPXDecode image whose components are {found} bits, which is \
+         either signed, wider than the {JPX_MAX_SAMPLE_BITS} bits a sample this decodes to, or \
+         more than one domain for §8.9.6.4's ranges to be bounded by"
     ))
 }
+
+/// The domain a JPEG 2000 image whose dictionary states an `Indexed` space ranges over.
+///
+/// §7.4.9 gives that dictionary precedence over the codestream's own space, so the decoder
+/// hands the indices back unscaled and §8.6.6.3 caps `hival` at 255 whatever precision the
+/// codestream declares.
+const JPX_INDEX_BITS: u32 = 8;
+
+/// The widest sample `pdf_sandbox::Raster` carries, which is this tree's limit and not a clause's.
+const JPX_MAX_SAMPLE_BITS: u32 = 16;
 
 /// Reads §8.9.6.3's explicit mask against the image it masks.
 ///

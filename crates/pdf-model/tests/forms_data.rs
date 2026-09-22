@@ -419,7 +419,12 @@ fn an_imported_template_adds_a_page_the_document_already_held() {
     let outcome = view.import(&document, &data);
     assert_eq!(outcome.pages, 1);
     assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
-    assert_eq!(view.appended_pages(), [pdf_syntax::ObjectId::new(8, 0)]);
+    assert_eq!(
+        view.appended_pages(),
+        [pdf_model::view::AppendedPage::Named(
+            pdf_syntax::ObjectId::new(8, 0)
+        )]
+    );
 
     // §7.7.3.4's inheritance runs up `/Parent` and a template has none, so the page states its
     // own geometry and `Pages::detached` reads it from the dictionary alone.
@@ -429,7 +434,12 @@ fn an_imported_template_adds_a_page_the_document_already_held() {
     assert_eq!((template.width(), template.height()), (300.0, 150.0));
 }
 
-/// Two refusals, both named: a template in another file, and a name this document does not have.
+/// Two answers and they are not the same answer: a template in another file is a **question**,
+/// and a name this document does not have is a refusal.
+///
+/// Table 253 divides them itself — `/F` is "[t]he file containing the named page", and a `/TRef`
+/// with no `/F` names a page of the document being read. So the first waits for a host and the
+/// second cannot be answered by anybody. ADR 1239.
 #[test]
 fn a_template_this_document_cannot_reach_is_named() {
     let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
@@ -440,10 +450,115 @@ fn a_template_this_document_cannot_reach_is_named() {
     .expect("an FDF catalog");
     let outcome = view.import(&document, &data);
     assert_eq!(outcome.pages, 0);
-    assert_eq!(outcome.refused.len(), 2, "{:?}", outcome.refused);
-    assert!(outcome.refused[0].contains("library.pdf"));
-    assert!(outcome.refused[1].contains("names no page absent"));
+    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(outcome.refused[0].contains("names no page absent"));
+    assert_eq!(outcome.awaiting.len(), 1, "{:?}", outcome.awaiting);
+    assert!(outcome.awaiting[0].contains("library.pdf"));
+    assert_eq!(view.file_awaited(), Some("library.pdf"));
     assert!(view.appended_pages().is_empty());
+}
+
+/// Table 253's `/F` end to end: the import asks for the file, a caller supplies it, and the page
+/// is added to the document — copied, so that it names nothing of the file it came from.
+///
+/// §12.7.8.3.3, Table 253:
+///
+/// > The file containing the named page. If this entry is absent, it shall be assumed that the
+/// > page resides in the associated PDF file.
+///
+/// ADR 1239.
+#[test]
+fn a_template_in_another_file_is_supplied_and_added() {
+    let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
+    let library = Document::open(library("elsewhere")).expect("the second file is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Pages [ << /Templates [ << /TRef << /Name (stamp) /F (library.pdf) >> >> ] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.pages, 0, "nothing is added before the file arrives");
+    assert_eq!(view.file_awaited(), Some("library.pdf"));
+
+    let supplied = view.supply_named_pages(&document, "library.pdf", &library);
+    assert_eq!(supplied.pages, 1, "{:?}", supplied.refused);
+    assert!(supplied.refused.is_empty(), "{:?}", supplied.refused);
+    assert_eq!(view.file_awaited(), None, "nothing is left outstanding");
+
+    let [pdf_model::view::AppendedPage::Carried(page)] = view.appended_pages() else {
+        panic!("one carried page, got {:?}", view.appended_pages());
+    };
+    // ADR 1223's rule is what makes a second document safe to drop here: every reference is
+    // resolved and its value copied in its place, so the page names nothing of `library`.
+    assert!(
+        !names_anything(&pdf_syntax::Object::Dictionary(page.clone())),
+        "a carried page holds no reference: {page:?}"
+    );
+
+    // The marks are the other producer's, drawn through the page this import added.
+    let pages = pdf_model::Pages::new(&document);
+    let built = pages.detached(page);
+    let interpretation = pdf_model::content::interpret_with(&document, &built, &view);
+    assert!(
+        interpretation.text.contains("elsewhere"),
+        "{:?}",
+        interpretation.text
+    );
+}
+
+/// A file nobody supplies is named rather than forgotten (trap 5).
+#[test]
+fn a_template_in_another_file_that_is_not_supplied_is_named() {
+    let document = Document::open(form_with_a_template()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf(
+        "<< /Pages [ << /Templates [ << /TRef << /Name (stamp) /F (library.pdf) >> >> ] >> ] >>",
+    ))
+    .expect("an FDF catalog");
+    view.import(&document, &data);
+    let said = view.decline_named_pages("library.pdf");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("library.pdf"), "{said:?}");
+    assert!(said[0].contains("stamp"), "{said:?}");
+    assert_eq!(view.file_awaited(), None);
+    assert!(view.appended_pages().is_empty());
+}
+
+/// Whether any part of a copied value still names an object of the file it came from.
+fn names_anything(value: &pdf_syntax::Object) -> bool {
+    match value {
+        pdf_syntax::Object::Reference(_) => true,
+        pdf_syntax::Object::Array(items) => items.iter().any(names_anything),
+        pdf_syntax::Object::Dictionary(dict) => dict.iter().any(|(_, held)| names_anything(held)),
+        pdf_syntax::Object::Stream(stream) => {
+            stream.dict.iter().any(|(_, held)| names_anything(held))
+        }
+        _ => false,
+    }
+}
+
+/// A second PDF whose §12.7.7 `/Templates` tree names one page, for Table 253's `/F` to point at.
+///
+/// Its template's `/Resources` name the font by **reference**, which is the entry that makes the
+/// copy do something: a carried page whose `/Font` still named object 6 of this file would draw
+/// nothing in the document it crossed into.
+fn library(text: &str) -> Vec<u8> {
+    let marks = format!("BT /Helv 12 Tf 0 g 2 8 Td ({text}) Tj ET\n");
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R \
+         /Names << /Templates << /Names [(stamp) 5 0 R] >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Template /MediaBox [0 0 160 30] \
+         /Resources << /Font << /Helv 6 0 R >> >> /Contents 7 0 R >>\nendobj\n\
+         6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica \
+         /Encoding /WinAnsiEncoding >>\nendobj\n\
+         7 0 obj\n<< /Length {} >>\nstream\n{marks}endstream\nendobj\n",
+        marks.len()
+    );
+    rebuilt(&format!("%PDF-1.7\n{body}"))
 }
 
 /// A value this program replaced makes a *stored* appearance stale, whatever Table 224 says.
@@ -1432,10 +1547,12 @@ fn an_apref_is_ignored_where_the_field_also_states_an_ap() {
     assert!(!after.contains("stamped"), "{after:?}");
 }
 
-/// The `/F` branch is a **host question** and is named rather than silently dropped: Table 253's
-/// entry puts the page in a second PDF file, which §12.7.6.4 makes a file a *document* named.
+/// The `/F` branch is a **host question**, and it is asked rather than refused: Table 253's entry
+/// puts the page in a second PDF file, which §12.7.6.4 makes a file a *document* named — and a
+/// file a document named is a question about this machine rather than an impossibility (ADR
+/// 1239). Until it is answered, the widget keeps its own artwork.
 #[test]
-fn an_apref_naming_another_file_is_named_as_the_host_question_it_is() {
+fn an_apref_naming_another_file_is_asked_for() {
     let document =
         Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
     let mut view = ViewState::of(&document);
@@ -1443,23 +1560,72 @@ fn an_apref_naming_another_file_is_named_as_the_host_question_it_is() {
          << /N << /Name (stamp) /F (library.pdf) >> >> >> ] >>"))
     .expect("an FDF catalog");
     let outcome = view.import(&document, &data);
-    assert_eq!(outcome.refused.len(), 1, "{:?}", outcome.refused);
+    assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+    assert_eq!(outcome.awaiting.len(), 1, "{:?}", outcome.awaiting);
     assert!(
-        outcome.refused[0].contains("library.pdf"),
+        outcome.awaiting[0].contains("library.pdf"),
         "{:?}",
-        outcome.refused
+        outcome.awaiting
     );
-    assert!(
-        outcome.refused[0].contains("§12.7.6.4"),
-        "{:?}",
-        outcome.refused
-    );
+    assert_eq!(view.file_awaited(), Some("library.pdf"));
 
     let (after, _) = drawn(&document, &view);
     assert!(
         after.contains("original"),
-        "the widget keeps its own artwork: {after:?}"
+        "the widget keeps its own artwork until the file arrives: {after:?}"
     );
+}
+
+/// The same reference, answered: the page of the second file becomes the widget's appearance.
+///
+/// Table 249's `/APRef` is "[a] dictionary holding references to external PDF files containing
+/// the pages to use for the appearances of a push-button field", and this is the *external* half
+/// of it. What crosses is a copy, so the appearance names nothing of the file it came from and
+/// `pdf_syntax::Document` stays immutable and singular (ADRs 1223, 1239).
+#[test]
+fn an_apref_naming_another_file_is_drawn_once_the_file_arrives() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let library = Document::open(library("elsewhere")).expect("the second file is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf("<< /Fields [ << /T (press) /APRef \
+         << /N << /Name (stamp) /F (library.pdf) >> >> >> ] >>"))
+    .expect("an FDF catalog");
+    view.import(&document, &data);
+
+    let supplied = view.supply_named_pages(&document, "library.pdf", &library);
+    assert_eq!(supplied.widgets, 1, "{:?}", supplied.refused);
+    assert!(supplied.refused.is_empty(), "{:?}", supplied.refused);
+    assert_eq!(view.file_awaited(), None);
+
+    let (after, _) = drawn(&document, &view);
+    assert!(
+        after.contains("elsewhere"),
+        "the other file's page is what draws: {after:?}"
+    );
+    assert!(
+        !after.contains("original"),
+        "and it replaces the widget's own artwork: {after:?}"
+    );
+}
+
+/// A file nobody supplies leaves the button its own artwork, and says which button (trap 5).
+#[test]
+fn an_apref_naming_another_file_that_is_not_supplied_is_named() {
+    let document =
+        Document::open(form_with_a_button_and_a_named_page()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf("<< /Fields [ << /T (press) /APRef \
+         << /N << /Name (stamp) /F (library.pdf) >> >> >> ] >>"))
+    .expect("an FDF catalog");
+    view.import(&document, &data);
+    let said = view.decline_named_pages("library.pdf");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("/APRef /N"), "{said:?}");
+    assert!(said[0].contains("library.pdf"), "{said:?}");
+
+    let (after, _) = drawn(&document, &view);
+    assert!(after.contains("original"), "{after:?}");
 }
 
 /// A name neither §12.7.7 tree holds is a file asking for something the document does not

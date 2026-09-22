@@ -94,6 +94,27 @@ section_flags() {
         cargo run -q -p conformance --bin flags
 }
 
+# Every ledger note's opening and closing sentence, against the row's own `status` field. A note's
+# last sentence is the "what keeps this row `partial`" clause and every later round appends above
+# it; its first sentence is what a round that moves a status rewrites around. Both are inside the
+# row, so no other sweep compares them with the field beside them (ADR 1249). It prints a reading
+# list rather than failing: whether a sentence is about this row is a question about English.
+section_last_sentences() {
+    run "a note's opening and closing sentence against its own status" \
+        'row\(s\) carry a note|^doc/conformance/ledger.toml' \
+        cargo run -q -p conformance --bin last_sentences
+}
+
+# The frontier map's membership against the ledger's own open rows. `doc/todo/65` states its
+# population in its opening lines — the `partial` and `reported` rows and only those — and both
+# sides are lists, so this is the one comparison in this family that fails rather than prints
+# (ADR 1250). `conformance` runs the same test; this is the line that shows its summary alone.
+section_frontier() {
+    run "the frontier map against the ledger's open rows" \
+        'open row\(s\), each placed once|places §|is §' \
+        cargo test -q -p conformance --test conformance -- --nocapture the_frontier_map
+}
+
 section_conformance() {
     run "conformance (citations, quotations, tables, ledger rows)" \
         '^[0-9]+ (citations|quotations)|naming a section of one of this|instruction documents, every one|owe a review|^conformance ledger|^  (implemented|partial|departed|reported|silent|inapplicable|writer-side|out-of-scope) |unsettled rows owe a debt|name .* distinct tables|name a test file' \
@@ -787,14 +808,14 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
-quick="ledger departures flags conformance annex-o governing questions records counts hosts windows binaries disk remedies"
+all="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch dates xmp save actions on-disk jpeg2000"
+quick="ledger departures flags last-sentences conformance annex-o governing questions records counts hosts windows binaries disk remedies"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
 # `--list`, because a section a reader cannot discover is a section nobody runs. `remedies` is in
 # `quick` as well, since it is the one line of `archive` that needs no corpus.
-composed="ratchets remedies"
+composed="ratchets remedies frontier"
 
 case ${1-} in
 --list) printf '%s\n' $all $composed; exit 0 ;;
@@ -811,6 +832,8 @@ for section in $sections; do
     ledger) section_ledger ;;
     departures) section_departures ;;
     flags) section_flags ;;
+    last-sentences) section_last_sentences ;;
+    frontier) section_frontier ;;
     conformance) section_conformance ;;
     tests) section_tests ;;
     corpus) section_corpus ;;

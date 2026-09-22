@@ -2428,7 +2428,8 @@ struct Interpreter<'a> {
     /// A memo of a pure function of its key, kept because a page draws one shape of group many
     /// times and the sampling is thousands of conversions. See
     /// `Interpreter::conversion_into_parent`.
-    into_parent: BTreeMap<(Compositing, Compositing, Rendering), transparency::ComposedOut>,
+    into_parent:
+        BTreeMap<(Compositing, Compositing, Rendering, Option<usize>), transparency::ComposedOut>,
     /// The named-resource lookups this interpretation makes, where a caller asked to be told.
     ///
     /// `None` for every caller but [`interpret_ledgered`], and then the cost is one test per

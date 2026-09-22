@@ -641,24 +641,49 @@ impl Host {
         );
     }
 
+    /// A file a *document* named, routed by which policy decides it.
+    ///
+    /// Three of the five purposes are asked at one of four levels and §12.7.6.4's own file is
+    /// not, and the difference is what each does: an import puts another file's *values* into
+    /// the document being read, while a remote go-to, a thread in another file and a named page
+    /// each make this program parse a second PDF — which is the act a person may want to be
+    /// asked about. `viewer_host::under_remote_documents` is the division, written once rather
+    /// than in each of three windows (ADRs 1227, 1239).
+    fn needs_file(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
+        if viewer_host::under_remote_documents(purpose) {
+            self.remote(purpose, name, queue);
+            return;
+        }
+        let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), name) {
+            Ok(bytes) => Some(bytes),
+            Err(refusal) => {
+                self.say(&viewer_host::policy::supply_note(purpose, &refusal));
+                None
+            }
+        };
+        queue.push_back(Command::Supply { purpose, bytes });
+    }
+
     /// §12.6.4.3's file, under the level this window was started at.
     ///
     /// The policy is `viewer_host::remote`'s and not this window's, so a level a reader sets is a
     /// value there rather than three windows' worth of editing — ADR 1079's shape and ADR 1155's,
     /// one clause along. What is this window's is the dialogue and the status line (ADR 1227).
-    fn remote(&mut self, name: &str, queue: &mut VecDeque<Command>) {
-        match viewer_host::remote(self.directory.as_deref(), name, self.remote_documents) {
+    fn remote(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
+        match viewer_host::remote(
+            self.directory.as_deref(),
+            name,
+            self.remote_documents,
+            purpose,
+        ) {
             viewer_host::Remote::Supply { path, note } => {
-                let bytes = self.read_remote(name, &path);
+                let bytes = self.read_remote(purpose, name, &path);
                 if bytes.is_some()
                     && let Some(note) = note
                 {
                     self.say(&note);
                 }
-                queue.push_back(Command::Supply {
-                    purpose: Purpose::RemoteDocument,
-                    bytes,
-                });
+                queue.push_back(Command::Supply { purpose, bytes });
             }
             viewer_host::Remote::Ask { path, question } => {
                 let named = name.to_owned();
@@ -667,22 +692,19 @@ impl Host {
                     &question,
                     Rc::new(move |host: &mut Self, proceed| {
                         let bytes = if proceed {
-                            host.read_remote(&named, &path)
+                            host.read_remote(purpose, &named, &path)
                         } else {
-                            host.say(&viewer_host::remote_declined(&named));
+                            host.say(&viewer_host::remote_declined(purpose, &named));
                             None
                         };
-                        host.dispatch(Command::Supply {
-                            purpose: Purpose::RemoteDocument,
-                            bytes,
-                        });
+                        host.dispatch(Command::Supply { purpose, bytes });
                     }),
                 );
             }
             viewer_host::Remote::Refuse(why) => {
                 self.say(&why);
                 queue.push_back(Command::Supply {
-                    purpose: Purpose::RemoteDocument,
+                    purpose,
                     bytes: None,
                 });
             }
@@ -691,11 +713,12 @@ impl Host {
 
     /// The bytes of a file `viewer_host::remote` has already decided on, or the sentence saying
     /// why there are none.
-    fn read_remote(&self, name: &str, path: &Path) -> Option<Vec<u8>> {
+    fn read_remote(&self, purpose: Purpose, name: &str, path: &Path) -> Option<Vec<u8>> {
         match std::fs::read(path) {
             Ok(bytes) => Some(bytes),
             Err(error) => {
                 self.say(&viewer_host::remote_note(
+                    purpose,
                     name,
                     Some(&format!("cannot read {}: {error}", path.display())),
                 ));
@@ -1141,28 +1164,7 @@ impl Host {
                 &submission,
                 viewer_host::policy::may_submit().err().as_deref(),
             )),
-            // §12.6.4.3's file is asked at one of four levels and §12.7.6.4's is not, and the
-            // difference is what each does: an import puts another file's *values* into the
-            // document being read, and a remote go-to opens another document in place of it —
-            // which is the act a person may want to be asked about (ADR 1227).
-            Event::NeedsFile {
-                purpose: Purpose::RemoteDocument,
-                name,
-                ..
-            } => {
-                self.remote(&name, queue);
-            }
-            Event::NeedsFile { purpose, name, .. } => {
-                let bytes = match viewer_host::policy::read_import(self.directory.as_deref(), &name)
-                {
-                    Ok(bytes) => Some(bytes),
-                    Err(refusal) => {
-                        self.say(&viewer_host::policy::supply_note(purpose, &refusal));
-                        None
-                    }
-                };
-                queue.push_back(Command::Supply { purpose, bytes });
-            }
+            Event::NeedsFile { purpose, name, .. } => self.needs_file(purpose, &name, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
             // A transition outside a presentation is not drawn at all — there is no clock to draw

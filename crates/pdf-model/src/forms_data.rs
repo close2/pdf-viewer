@@ -991,6 +991,17 @@ fn carry(
     }
 }
 
+/// One value of a **second file**, copied into a value this document can hold.
+///
+/// The seam [`crate::view::ViewState::supply_named_pages`] crosses at: §12.7.8's Table 253 `/F`
+/// puts a named page in another PDF, a host supplies that file's bytes, and what comes back over
+/// this function names nothing of it. The allowance is [`Carried::new`]'s whole one, because the
+/// unit that doc comment names is *one entry that crosses* — one push-button's artwork, or one
+/// template page — and refusing one while carrying the next is the honest answer. ADR 1239.
+pub(crate) fn carried(document: &Document, value: &Object) -> Option<Object> {
+    carry(document, value, &mut Carried::new(), 0)
+}
+
 /// [`carry`] over a dictionary's values, keys unchanged.
 ///
 /// A stream's `/Length` is the entry this matters most for: §7.3.8.2 lets a writer state it as an

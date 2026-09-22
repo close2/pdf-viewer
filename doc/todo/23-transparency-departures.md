@@ -71,7 +71,7 @@ Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/colo
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
 | ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed in the 441st, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — the collapse went further than the round set out to take it, and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
-| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses), four components no profile backs, §11.7.5.3's black generation — each still reported by name where it composites. **Narrowed by §11.7.2 in the eight-hundred-and-seventy-ninth** (ADR 0797): a device-space group of the same count inside a CIE-based one *is* that space and changes nothing, so a `/DeviceCMYK` group inside a profile's press and a `/DeviceRGB` one inside an sRGB page left this condition |
+| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses) and four components no profile backs — each still reported by name where it composites. §11.7.5.3's black generation left this list in session 1055 (ADR 1069) and its second bullet is carried out (ADR 1242). **Narrowed by §11.7.2 in the eight-hundred-and-seventy-ninth** (ADR 0797): a device-space group of the same count inside a CIE-based one *is* that space and changes nothing, so a `/DeviceCMYK` group inside a profile's press and a `/DeviceRGB` one inside an sRGB page left this condition |
 | an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
 | a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` left this row in the eight-hundred-and-sixty-fifth** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile left it in the eight-hundred-and-seventy-first** (ADR 0792): the component is composited and a sampled curve out rides on the display list. **`CalRGB` and a bi-directional three-component profile never sat on this row and are drawn since the eight-hundred-and-seventy-ninth** (ADR 0797). What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`), a profile whose curve has no inverse and a three-component table profile with no `B2A` — reported on every mark or where something composites, and the population of that is a number the corpus gate prints. **The nine-hundred-and-fourth drew the table profile where it has a `B2A`, took §11.5.3's mask branch with it, and turned three silences into reports** (ADR 0851); **the nine-hundred-and-seventh took the last shape §11.5.3 had left — a four-component profile as a *mask* group's `/CS`, which is §11.4.7's pair of rasters inside the mask** (ADRs 0856, 0857), so what is reported of a four-component space is now a profile §11.3.4 rules out or a budget rather than a construction nobody had built. *What the two condition rows still fire on* below says, clause by clause, which of what is left is a debt and which is this reader telling the truth about a file |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
@@ -109,11 +109,11 @@ told them apart:
 | a one-component space §11.3.4 does not list — `Separation`, `Indexed` | §11.6.6's restrictions "exclude `Lab` and lightness-chromaticity `ICCBased` colour spaces, as well as the special colour spaces `Pattern`, `Separation`, and `DeviceN`" | **stays reported, for good.** Same shape: the file is what departs |
 | a profile with no way in — no `B2A` this crate reads, or a curve with no inverse | §11.3.4: "the ICC profile shall be capable of both device to PCS and PCS to device transformations" | **stays reported, for good.** §11.6.5.1 makes the `/CS` "the colour space in which the compositing computation is to be performed" and there is nothing to convert the group's marks into |
 | ~~a four-component profile as a *mask* group's `/CS`~~ | §11.5.3's colorimetric branch, §11.4.7's per-component compositing | **paid in the nine-hundred-and-seventh** (ADRs 0856, 0857). It was the one row of the six that named a construction rather than a condition the file fails, and the construction was buildable: the mask group is the pair of rasters and the `Y` is the press's own over four axes. What is left on the row is the *budget* — a page that has already named `colour::MAX_PRESSES` distinct presses — which is a bound rather than a debt |
-| ~~a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent, or two different spaces nested~~ | §11.6.6 puts a conversion at the `Do` | **paid in session 1039** (ADR 1056): the group's conversion out is composed with the parent's conversion in (`transparency::composed_into_parent`) and the backend resolves the composition as it resolved the group's own; every pairing of the spaces this tree draws is built, a press inside a press and a group inside a mask's group included. What is left is an isolated knockout group naming four components, whose §11.4.6 rewrite would have to reach both halves of its pair |
-| four components no profile backs | — | **a debt**; unchanged |
+| ~~a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent, or two different spaces nested~~ | §11.6.6 puts a conversion at the `Do` | **paid in session 1039** (ADR 1056): the group's conversion out is composed with the parent's conversion in (`transparency::composed_into_parent`) and the backend resolves the composition as it resolved the group's own; every pairing of the spaces this tree draws is built, a press inside a press and a group inside a mask's group included. **And the last of it was paid in session 1089** (ADR 1103): `knockout_construction` applies its chosen rewrite to the black half beside the chromatic one and commits neither unless the results still pair, so the isolated knockout group naming four components is drawn too and nothing of this row is left |
+| ~~four components no profile backs~~ | §11.6.6's own restrictions | **not a debt, read in session 1196** (ADR 1230): a `/DeviceCMYK` group with no profile behind it composites in ADR 0263's assumed inks, and a four-component `/CS` that is neither `DeviceCMYK` nor a four-channel `ICCBased` space is one §11.6.6 excludes from being a group colour space at all, so the report is the clause carried out. What is left on these rows is `colour::MAX_PRESSES`, a resource bound rather than a reading |
 | ~~§11.7.5.3's black generation~~ | §10.4.2.1's fork | **paid in session 1055** (ADR 1069), and by reading rather than building: the functions parameterise §10.4.2.4, which §10.4.2.1 ranks below the branch this tree converts on, so the refusal bought nothing the fallback did not also fail to buy. The page keeps §11.4.7's space and the departure is named (`Unsupported::BlackGeneration`). The reading was already in this file — see "§11.7.5.3 does not name §10.4.2.4" below, written in the four-hundred-and-twenty-seventh — and the refusal outlived it by six hundred sessions |
 
-**Three of the six are not owed work at all**, a fourth is paid,, and that is worth saying plainly because a
+**Four of the seven are not owed work at all** and the other three are paid, and that is worth saying plainly because a
 `reported` row reads like a debt whether or not it is one: each of the first three names a
 condition the *document* fails, and the report is this reader telling the truth about a file
 rather than an admission about itself. The rows above keep them because a report with no
@@ -178,7 +178,9 @@ the other two backends refuse it by name. What the row keeps is the *other* dire
 or one-component group inside a four-component parent, whose conversion out lands in the parent's
 ink per pixel, which is a conversion between two presses no sampled grid here expresses — plus
 four components no profile backs. §11.7.5.3's stated black generation was a third until session
-1055 (ADR 1069). **The one-component
+1055 (ADR 1069), **and the conversion a three-component group takes into a `DeviceCMYK` parent now
+carries the pair in force at the `Do`** (ADR 1242): that cube is sampled in the interpreter, beside
+the graphics state, and what reaches a backend is the sampled cube either way. **The one-component
 group on a page compositing on the device is drawn since the eight-hundred-and-sixty-fifth** (ADR
 0790, `Interpreter::group_grey`): its result is grey in every channel and §10.4.2.2's conversion
 out is the identity on that, so it composites onto its parent as any group does. The one-component
@@ -630,12 +632,13 @@ the non-isolated group the clause's last paragraph builds around one, and
 document no object of which carries Table 58's `/OP` or `/op` is not interpreted at all, which is
 what makes it affordable over 65 944 documents.
 
-**1788 documents and 9863 pages paint under the mode**, 27 435 261 marks; that is 2.7% of the
-documents that open, against the single corpus witness the feature was built against. **145
-documents and 493 pages do it under a non-Normal blend mode** — §11.7.4.3's implicit group — with
-42 075 of the 43 199 marks under `Multiply`. And **not one crawled page carries an
+**1799 documents and 9890 pages paint under the mode**, 27 462 715 marks; that is 2.7% of the
+documents that open, against the single corpus witness the feature was built against. **146
+documents and 494 pages do it under a non-Normal blend mode** — §11.7.4.3's implicit group — with
+42 107 of the 43 231 marks under `Multiply`. And **not one crawled page carries an
 `Unsupported::Overprint`**: both remaining reports are §11.4.6 NOTE 6's knockout case, and the web
-reaches neither.
+reaches neither. ADR 1241 moved the population by 11 documents and 27 pages, which is what a
+`Separation` reverting to `DeviceCMYK` entering the first bullet is worth on the web.
 
 So the row this file gains is a backend one rather than a reading one, and it is `render-raster`'s
 alone. That backend refuses a page by name whenever the flag is set and `render-cpu` draws them;
@@ -647,9 +650,9 @@ section 2).
 **What it would take, and it is one Porter-Duff operator.** Substituting §11.7.4.3's two values of
 `B` into §11.3.6's formula collapses it: a kept component composites destination-over, every other
 source-over, one union alpha (ADR 1182, held against `render-cpu`'s own compositing function). Of
-the 27 435 261 marks, 13 772 602 keep all three channels, 13 650 173 keep none, and **12 486 keep a
-proper subset** — so **9734 of 9863 pages and 1711 of 1788 documents need nothing but
-`Compose::DestOver`**, and the per-channel choice is 77 documents. `raster_scene::Compose` has
+the 27 462 715 marks, 13 786 113 keep all three channels, 13 663 468 keep none, and **13 134 keep a
+proper subset** — so **9670 of 9890 pages and 1702 of 1799 documents need nothing but
+`Compose::DestOver`**, and the per-channel choice is 97 documents. `raster_scene::Compose` has
 `SrcOver`, `Src`, `DestOut` and `Plus`, and the staged pair cannot stand in for destination-over
 (the missing factor is the destination's own alpha per pixel). `doc/QUORRA_FEEDBACK.md` section 49
 is the ask in those terms; `doc/questions/Q76` asks the owner who builds it.

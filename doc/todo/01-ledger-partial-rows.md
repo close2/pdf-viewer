@@ -22,7 +22,7 @@ rather than about the standard (ADR 0455).
 vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
 an account of the requirement that is not the clause's — which is the half no sweep reads, because
 a claim that nothing is owed has no missing thing to grep for (ADR 0465).
-**Twenty-five sweeps** — twenty-one of them here, one over the corpus (ADR 0405), one
+**Twenty-five sweeps when this sentence was written, and the bullet list below is the population** — twenty-one of them here, one over the corpus (ADR 0405), one
 in `tools/spec-errata`, where the errata are (ADR 0426), **the twenty-second built in the
 seven-hundred-and-sixty-ninth, the only one whose right-hand side is the workspace's own
 membership** (ADR 0709), **the twenty-third in the eight-hundred-and-thirtieth, whose
@@ -537,6 +537,35 @@ depends on nothing but `thiserror`.
   first and gave a `quorra-transform` message to the `counts` binary, on the word *counts*. Its
   second test is the calibration and is not optional (trap 13): it plants a flag no program
   accepts into both paths and fails unless the sweep names both. ADR 1213.
+
+- **One asks whether a note's own sentence about the row agrees with the row's `status` field**, and
+  it is the only sweep here whose two sides are both inside one row: `cargo run --release -p
+  conformance --bin last_sentences`, a fraction of a second, over `ledger.toml` and nothing else —
+  `tools/state.sh last-sentences` is the same run. Its subject is
+  `doc/habits/the-ledger-and-claims-about-this-tree.md`'s last decay shape: a note's **closing**
+  sentence is the *what keeps this row `partial`* clause and every later round appends above it,
+  and its **opening** sentence is what a round that moves a status rewrites around. Both sites
+  carry one mechanical tell — a status word in backticks that is not the word in the field beside
+  it. Three rungs, closest first: the sentence says *this row* and is in the present tense; the
+  same self-reference in the past tense, which is the ledger's own shape for a correction and is
+  marked rather than dropped; and no self-reference at all, which is a parent naming a child and is
+  correct prose. **The noise the top rung keeps is a sentence naming the status a pending question
+  would move the row to** — §8.6.6.5's note ends on `doc/questions/Q100` recommending `implemented`
+  while the row is `departed`. Calibrated per trap 13 against a plant rather than a live defect,
+  because session 1200's three were fixed before it was built: the plant is §12.11.6's own opening
+  sentence restored, named on the top rung, and gone when the correction is put back. ADR 1249.
+- **One is not a sweep at all but a gate, because both its sides are lists**: `doc/todo/65`'s
+  membership against the ledger's own open rows, `cargo test -p conformance
+  the_frontier_map_places_every_open_row_once_and_nothing_else`, with `tools/state.sh frontier` the
+  line that prints it alone. The map states its population in its own opening lines — the `partial`
+  and `reported` rows and only those — so a row that closes owes the map a deletion and a row that
+  opens owes it a bucket, and neither happens by itself (ADR 1237's finding, ADR 1250's gate). Two
+  places count as a placement and the prose around them does not: the run of clause numbers before
+  a bullet's first EM DASH, and the lines under the *Aggregate rows* heading that open with a
+  SECTION SIGN. Reading a bullet's prose instead would have every bullet claim the neighbours it
+  merely mentions. **Its first run found four**, which is why it is a gate: §11.3.6 and §11.4.8
+  bucketed after going `implemented`, and §11.4.4 and §12.7.6.2 open and placed nowhere — the last
+  of them described in a paragraph of prose that no parser reading bullets can see.
 
 ## A twenty-third that is not built, and the reason is that its two sides agree
 

@@ -54,6 +54,10 @@ wrong-but-plausible page, worse than the refusal it would replace. What that doc
 glyph source (no compiled-in face has one Arabic glyph — measured; Liberation Sans's `cmap` maps
 the whole Arabic range to glyph 0 and its `GSUB` has no `arab` script), Unicode's joining-form
 selection and right-to-left ordering, **together or not at all**; the cost of each is ADR 0348's.
+**They also depend in that order, which ADR 1247 wrote down when it asked which of the three
+actually refuses**: with no glyph source the value produces no codes at all, so ordering would have
+nothing to order and shaping nothing to shape — the face is the blocker, and a bidi implementation
+built ahead of it is a mechanism with no input and no fixture that can see it.
 So this section's mechanism stays owed with no witness at all, exactly as its own heading says.
 
 ### The per-code fallback the clause itself states was owed too, and it is taken (ADR 1002)

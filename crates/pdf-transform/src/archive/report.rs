@@ -489,6 +489,28 @@ pub struct Conversion {
     /// way. With those three a user can put the property back by hand, or go back to the source
     /// and correct it there.
     pub removed: Vec<MisusedProperty>,
+    /// Every metadata stream whose packet this conversion replaced with one of its own.
+    ///
+    /// The same obligation the list above carries, for the same reason: a packet this tree
+    /// cannot read is replaced rather than edited (`doc/adr/1245`), so everything the producer
+    /// recorded in it stops being metadata and nothing in the output says it was ever there.
+    /// The report names the stream, whether it was the one the catalog states, and what the
+    /// producer's packet broke — and where the configuration answered the site with `preserve`,
+    /// `preserved` beside this says which appended pages the original bytes went onto.
+    pub replaced_packets: Vec<super::prepare::ReplacedPacket>,
+    /// Every amendment or corrigendum identifier this conversion cut out of the packet.
+    ///
+    /// ISO 19005-2 section 6.6.4, and the same obligation the two lists above carry: what the
+    /// file claimed is gone from the output, so the report is the only place it is still
+    /// readable (`doc/adr/1246`).
+    pub removed_identifiers: Vec<super::prepare::RemovedIdentifier>,
+    /// Every extension schema this conversion described in a container of its own writing.
+    ///
+    /// ISO 19005-2 section 6.6.2.3.2's container states three fields no file holds, so a
+    /// container written here is partly this converter's statement rather than the producer's -
+    /// and an archive's owner is entitled to see which schemas that happened to
+    /// (`doc/adr/1245`).
+    pub described_schemas: Vec<super::prepare::DescribedSchema>,
     /// Every annotation appearance this conversion constructed.
     ///
     /// `doc/questions/A21`'s condition on the permission, in the answer's own words: report every
@@ -679,6 +701,33 @@ impl Conversion {
                     self.removed_boundaries
                         .iter()
                         .map(boundary_to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "described_extension_schemas".to_owned(),
+                Value::Array(
+                    self.described_schemas
+                        .iter()
+                        .map(super::prepare::DescribedSchema::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "removed_amendment_identifiers".to_owned(),
+                Value::Array(
+                    self.removed_identifiers
+                        .iter()
+                        .map(super::prepare::RemovedIdentifier::to_json)
+                        .collect(),
+                ),
+            ),
+            (
+                "replaced_metadata_packets".to_owned(),
+                Value::Array(
+                    self.replaced_packets
+                        .iter()
+                        .map(super::prepare::ReplacedPacket::to_json)
                         .collect(),
                 ),
             ),

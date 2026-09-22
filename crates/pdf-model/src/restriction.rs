@@ -681,8 +681,8 @@ pub fn withheld(permissions: Permissions, operation: Operation) -> Option<Restri
 }
 
 /// How much of what a document asserts over its reader this program obeys — `CLAUDE.md`
-/// principle 3's four levels, in the project owner's words: "off, on, ask before operations,
-/// warn before operation".
+/// principle 3's four levels, in the project owner's words: `off`, `on`, *ask before the
+/// operation*, and *warn before the operation*.
 ///
 /// A value a host supplies, never a default this crate chooses for it: `viewer_core` has one
 /// per viewer and `pdf_transform` one per run. **Two of the four need somebody to tell**, and a
