@@ -378,7 +378,28 @@ impl Rasterizer for QuorraRasterizer {
                 self.last.add(ink_cost);
                 let mut ink = drawn?;
                 premultiply(&mut ink);
-                pdf_render::resolve_blending(&mut data, &ink, space);
+                match list.separation() {
+                    // ISO 32000-2 §10.8.3's simulated press, on a page naming a spot colourant
+                    // under a reader's request: every spot plane is one more whole render against
+                    // the same device, exactly as the black one above is, and steps b) to d)
+                    // multiply them in over the readback (`pdf_render::separation`, ADR 1317).
+                    // The same pass the CPU backend runs over its own rasters, so the two cannot
+                    // answer the clause apart (trap 2).
+                    Some(separation) => {
+                        let mut spots = Vec::with_capacity(separation.planes().len());
+                        for plane in separation.planes() {
+                            let mut plane_cost = FrameCost::default();
+                            let drawn = self.render(plane, target, &mut plane_cost);
+                            self.last.add(plane_cost);
+                            let mut raster = drawn?;
+                            premultiply(&mut raster);
+                            spots.push(raster);
+                        }
+                        let spots: Vec<&[u8]> = spots.iter().map(Vec::as_slice).collect();
+                        pdf_render::resolve_separation(&mut data, &ink, &spots, space, separation);
+                    }
+                    None => pdf_render::resolve_blending(&mut data, &ink, space),
+                }
             }
             if let Some(curve) = one_component {
                 pdf_render::resolve_grey(&mut data, curve);

@@ -8,12 +8,13 @@
 use std::sync::Arc;
 
 use pdf_render::{BlendMode, Command, FillRule, Path, PathCommand, Point, SoftMaskId, Transform};
-use pdf_syntax::{Dictionary, Object};
+use pdf_syntax::{Dictionary, Document, Object, Token};
 
 use crate::colour::Conversion;
 
-use super::colour::Intent;
+use super::colour::{BlackPoint, Intent};
 use super::pattern::{PatternPaint, Tiled};
+use super::reader::{ContentReader, NestedContent};
 use super::report::Unsupported;
 use super::transparency::Painted;
 use super::{GraphicsState, Interpreter};
@@ -39,14 +40,78 @@ impl Interpreter<'_> {
     /// stencil "does not specify colours", so its samples carry the fill colour, which was
     /// converted under the graphics state's own intent before it ever reached this function.
     fn image_conversion(&mut self, dict: &Dictionary, state: &GraphicsState) -> Conversion {
-        let intent = match self.document.get_key(dict, "Intent") {
-            Object::Name(name) => Intent::read(name.as_bytes()),
-            _ => state.intent,
-        };
+        let intent = image_intent(self.document, dict, state.intent);
+        self.conversion_under_intent(intent, state)
+    }
+
+    /// [`Self::image_conversion`] once the intent is chosen: the one construction, so that a
+    /// decode started ahead of its `Do` names the conversion the `Do` will name (ADR 1321).
+    fn conversion_under_intent(&self, intent: Intent, state: &GraphicsState) -> Conversion {
         // And the page's §14.11.5 intent, for the same reason `Interpreter::conversion_under`
         // gives: Table 87's `/ColorSpace` is parsed in `crate::image`, after this point.
         Conversion::new(self.compositing.clone(), state.rendering_under(intent))
             .under_output_intent(self.output_intent.as_ref())
+    }
+
+    /// Starts decoding the page's images ahead of the `Do`s that draw them, where there is a
+    /// pool to decode them on and a resource dictionary that could name one (ADR 1321).
+    ///
+    /// The answer is the plan [`walk_ahead`] reads; the table it fills is installed in the
+    /// interpreter's [`crate::image::RasterCache`] here, so the `Do`s find it.
+    pub(super) fn plan_decodes_ahead(
+        &mut self,
+        resources: &Dictionary,
+        initial: &GraphicsState,
+    ) -> Option<AheadPlan> {
+        // A page that names no `XObject` and no pattern draws no image that could be decoded
+        // ahead: an inline image is built at its `BI`. Asked of the dictionary rather than of
+        // the content, so that such a page pays one lookup and starts nothing — and asked
+        // *first*, because the pool's own size is not a free question: the first asking starts
+        // rayon's threads, which a page of text must not pay for.
+        if resources.get("XObject").is_none() && resources.get("Pattern").is_none() {
+            return None;
+        }
+        // And a page whose dictionaries reach fewer than two images a decode ahead could take has
+        // nothing to decode ahead, the first being the interpreter's (`WalkAhead::offer`). Asked
+        // here, on the interpreter's thread and before the pool, for the pool's reason above.
+        let mut asked = Vec::new();
+        if reachable(self.document, resources, 0, &mut asked) < 2
+            || rayon::current_num_threads() < 2
+        {
+            return None;
+        }
+        let ahead = Arc::new(crate::image::DecodesAhead::default());
+        self.image_rasters.decode_ahead(Arc::clone(&ahead));
+        // Every pair of §8.6.5.8's intent and §8.6.5.9's `/UseBlackPtComp` the walk can meet,
+        // each converted through the one construction the `Do` uses, under a copy of the state
+        // the page begins in with only that pair changed.
+        let mut conversions = Vec::with_capacity(12);
+        for intent in [
+            Intent::Absolute,
+            Intent::Relative,
+            Intent::Saturation,
+            Intent::Perceptual,
+        ] {
+            for black in [BlackPoint::On, BlackPoint::Off, BlackPoint::Default] {
+                let mut state = initial.clone();
+                state.use_black_pt_comp = black;
+                let tone = Tone { intent, black };
+                conversions.push((tone, self.conversion_under_intent(intent, &state)));
+            }
+        }
+        Some(AheadPlan {
+            ahead,
+            conversions,
+            initial: Tone {
+                intent: initial.intent,
+                black: initial.use_black_pt_comp,
+            },
+        })
+    }
+
+    /// Ends what [`Self::plan_decodes_ahead`] started: the `Do`s stop asking the table.
+    pub(super) fn end_decodes_ahead(&mut self) {
+        self.image_rasters.stop_ahead();
     }
 
     /// §8.9.5.4 steps c) and d): which of a base image's `/Alternates` is drawn in its place.
@@ -534,4 +599,468 @@ impl Interpreter<'_> {
         };
         Some(mask)
     }
+}
+
+/// The intent an image is converted under: Table 87's `/Intent` where the dictionary states one,
+/// and the graphics state's otherwise.
+fn image_intent(document: &Document, dict: &Dictionary, current: Intent) -> Intent {
+    match document.get_key(dict, "Intent") {
+        Object::Name(name) => Intent::read(name.as_bytes()),
+        _ => current,
+    }
+}
+
+/// What [`walk_ahead`] needs to offer a decode under the conversion its `Do` will name.
+///
+/// The conversion is the one input of [`crate::image::RasterCache`]'s key a walk cannot read off
+/// the file, because it is the graphics state's: §8.6.5.8's intent, §8.6.5.9's black point
+/// compensation and §11.4's target. The walk follows the first two as the interpreter does — `ri`,
+/// an `/ExtGState`'s `/RI` and `/UseBlackPtComp`, saved and restored by `q` and `Q` — and reads
+/// Table 87's `/Intent` from the image as the `Do` will. The third it takes as the page begins,
+/// so a transparency group with a blending space of its own changes the conversion by the time
+/// the `Do` arrives; the slot's inputs then disagree with the `Do`'s and the interpreter decodes
+/// for itself — wasted work, never a different picture.
+#[derive(Debug)]
+pub(super) struct AheadPlan {
+    /// The table the decodes report into.
+    ahead: Arc<crate::image::DecodesAhead>,
+    /// The conversion under each pair of intent and black point, in the page's initial state.
+    conversions: Vec<(Tone, Conversion)>,
+    /// The pair the page's content stream begins with.
+    initial: Tone,
+}
+
+/// The two parameters of the graphics state a walk ahead follows, because they choose the
+/// conversion: §8.6.5.8's rendering intent and §8.6.5.9's `/UseBlackPtComp`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Tone {
+    /// The rendering intent in force.
+    intent: Intent,
+    /// `/UseBlackPtComp` in force.
+    black: BlackPoint,
+}
+
+impl AheadPlan {
+    /// The table, for the interpreter to close once the content stream has been read.
+    pub(super) fn ahead(&self) -> &crate::image::DecodesAhead {
+        &self.ahead
+    }
+
+    /// The conversion an image with this dictionary is offered under, where `tone` is in force.
+    fn conversion(
+        &self,
+        document: &Document,
+        dict: &Dictionary,
+        tone: Tone,
+    ) -> Option<&Conversion> {
+        let tone = Tone {
+            intent: image_intent(document, dict, tone.intent),
+            ..tone
+        };
+        self.conversions
+            .iter()
+            .find_map(|(each, conversion)| (*each == tone).then_some(conversion))
+    }
+}
+
+/// How deep a walk ahead follows forms and pattern cells, which is the interpreter's own bound.
+const AHEAD_DEPTH: usize = super::MAX_FORM_DEPTH;
+
+/// How many resource entries [`reachable`] asks before it answers with what it has found.
+///
+/// The question costs a lookup and an object load per entry and is asked on the interpreter's
+/// thread, so a dictionary shared by every page of a long document — one names 159 images — is
+/// not read whole to answer it. A bound rather than a measurement, and wrong only in the direction
+/// that costs nothing: a page whose first sixty-four entries hold fewer than two such images is
+/// interpreted as it was before ADR 1321.
+const REACHABLE_ENTRIES: usize = 64;
+
+/// How many images a decode ahead could take the resource dictionaries reach, counted to two.
+///
+/// Dictionaries only — an `/XObject` or `/Pattern` entry, and a form's or a cell's own
+/// `/Resources` — so it costs lookups rather than a read of any content. `asked` holds the
+/// streams already asked, so a dictionary shared by a thousand forms is asked once, and bounds
+/// the question at [`REACHABLE_ENTRIES`].
+fn reachable(
+    document: &Document,
+    resources: &Dictionary,
+    depth: usize,
+    asked: &mut Vec<Arc<pdf_syntax::Stream>>,
+) -> usize {
+    let mut found = 0usize;
+    for category in ["XObject", "Pattern"] {
+        let table = document.get_key(resources, category);
+        let Some(table) = table.as_dict() else {
+            continue;
+        };
+        for (_, entry) in table.iter() {
+            if found >= 2 || depth >= AHEAD_DEPTH || asked.len() >= REACHABLE_ENTRIES {
+                return found;
+            }
+            let object = document.resolve(entry);
+            let Some(stream) = object.as_stream() else {
+                continue;
+            };
+            if asked.iter().any(|seen| Arc::ptr_eq(seen, stream)) {
+                continue;
+            }
+            asked.push(Arc::clone(stream));
+            let dict = &stream.dict;
+            let subtype = document.get_key(dict, "Subtype");
+            if subtype
+                .as_name()
+                .is_some_and(|name| name.as_bytes() == b"Image")
+            {
+                if offerable(document, stream).is_some() {
+                    found = found.saturating_add(1);
+                }
+            } else if dict.get("OC").is_none()
+                && let Some(inner) = document.get_key(dict, "Resources").as_dict()
+            {
+                found = found.saturating_add(reachable(
+                    document,
+                    inner,
+                    depth.saturating_add(1),
+                    asked,
+                ));
+            }
+        }
+    }
+    found
+}
+
+/// Reads a page's content stream ahead of the interpreter, on a pool thread, and offers a decode
+/// of each image it finds a `Do` for (ADR 1321).
+///
+/// **The walk reads; it never interprets.** It follows the two operators that name an image —
+/// `Do`, and `scn`/`SCN` through §8.7.3's tiling pattern, whose cell may draw one — into forms
+/// and cells, and nothing it finds reaches the display list. What it may get wrong is only
+/// *which* decodes are worth starting, and a decode started for an image the page does not draw
+/// is paid for twice: on another core, and at the end of the run, which waits for every decode
+/// it started. So the walk declines what §8.11 may hide — an image or a form stating `/OC`, and
+/// anything inside a `BDC` tagged `/OC` — and it is started only where the resource dictionaries
+/// reach two images it could offer ([`reachable`]), since the first is the interpreter's (see
+/// [`WalkAhead::offer`]).
+pub(super) fn walk_ahead<'s>(
+    scope: &rayon::Scope<'s>,
+    document: &'s Document,
+    page: &'s crate::page::Page,
+    plan: &'s AheadPlan,
+) {
+    let mut walk = WalkAhead {
+        scope,
+        document,
+        page_resources: &page.resources,
+        plan,
+        walked: Vec::new(),
+        first: true,
+    };
+    let mut reader = ContentReader::for_page(document, page);
+    walk.stream(&mut reader, &page.resources, 0, plan.initial);
+}
+
+/// One walk ahead: what it offers into, and which nested streams it has already read.
+struct WalkAhead<'s, 'w> {
+    /// The scope the decodes are started in, which the interpretation waits on.
+    scope: &'w rayon::Scope<'s>,
+    /// The document.
+    document: &'s Document,
+    /// The page's resources, which a form stating none inherits (`Interpreter::draw_xobject`).
+    page_resources: &'s Dictionary,
+    /// The plan.
+    plan: &'s AheadPlan,
+    /// Forms and pattern cells already read, by address: a pattern painted a thousand times is
+    /// walked once.
+    walked: Vec<Arc<pdf_syntax::Stream>>,
+    /// Whether the next image this walk could offer is the first, which it leaves to the
+    /// interpreter — see [`WalkAhead::offer`].
+    first: bool,
+}
+
+impl WalkAhead<'_, '_> {
+    /// Reads one content stream, following what it names.
+    ///
+    /// An operator's operands are the objects immediately before it (§7.8.2), and the two this
+    /// reads are names: the last one for `Do` and `scn`, the first one — `BDC`'s tag — for
+    /// §14.6's marked content. `hidden` counts the open sections tagged `/OC`, inside which
+    /// nothing is offered; `sections` says which of the open ones those are, so an `EMC` closes
+    /// the section it belongs to. `tone` is the [`AheadPlan`]'s pair of state parameters, with
+    /// §8.4.2's stack of its own.
+    fn stream(
+        &mut self,
+        reader: &mut ContentReader<'_>,
+        resources: &Dictionary,
+        depth: usize,
+        initial: Tone,
+    ) {
+        let xobjects = self.document.get_key(resources, "XObject");
+        let patterns = self.document.get_key(resources, "Pattern");
+        let states = self.document.get_key(resources, "ExtGState");
+        let mut tone = initial;
+        let mut saved: Vec<Tone> = Vec::new();
+        let mut first: Option<Vec<u8>> = None;
+        let mut last: Option<Vec<u8>> = None;
+        let mut sections: Vec<bool> = Vec::new();
+        let mut hidden = 0usize;
+        loop {
+            if self.plan.ahead.closed() {
+                return;
+            }
+            let step = reader.with_token(|token| match token {
+                None => Step::End,
+                Some(Token::Name(name)) => Step::Name(name),
+                Some(Token::Keyword(b"Do")) => Step::Do,
+                Some(Token::Keyword(b"scn" | b"SCN")) => Step::Colour,
+                Some(Token::Keyword(b"BDC" | b"BMC")) => Step::Open,
+                Some(Token::Keyword(b"EMC")) => Step::Close,
+                Some(Token::Keyword(b"q")) => Step::Save,
+                Some(Token::Keyword(b"Q")) => Step::Restore,
+                Some(Token::Keyword(b"ri")) => Step::Intent,
+                Some(Token::Keyword(b"gs")) => Step::State,
+                Some(_) => Step::Other,
+            });
+            match step {
+                Step::End => return,
+                Step::Name(name) => {
+                    if first.is_none() {
+                        first = Some(name.clone());
+                    }
+                    last = Some(name);
+                    continue;
+                }
+                Step::Do if hidden == 0 => {
+                    if let (Some(name), Some(table)) = (last.take(), xobjects.as_dict()) {
+                        self.xobject(table, &name, resources, depth, tone);
+                    }
+                }
+                Step::Colour if hidden == 0 => {
+                    if let (Some(name), Some(table)) = (last.take(), patterns.as_dict()) {
+                        self.pattern(table, &name, depth, tone);
+                    }
+                }
+                Step::Open => {
+                    let optional = first.as_deref() == Some(b"OC".as_slice());
+                    hidden = hidden.saturating_add(usize::from(optional));
+                    sections.push(optional);
+                }
+                Step::Close => {
+                    if sections.pop() == Some(true) {
+                        hidden = hidden.saturating_sub(1);
+                    }
+                }
+                Step::Save => saved.push(tone),
+                Step::Restore => tone = saved.pop().unwrap_or(tone),
+                Step::Intent => {
+                    if let Some(name) = &last {
+                        tone.intent = Intent::read(name);
+                    }
+                }
+                // Read as `Interpreter::apply_ext_gstate` reads the same two entries.
+                Step::State => {
+                    let entry = last
+                        .as_ref()
+                        .zip(states.as_dict())
+                        .and_then(|(name, table)| {
+                            table.get_by_name(&pdf_syntax::Name::new(name.as_slice()))
+                        })
+                        .map(|entry| self.document.resolve(entry));
+                    if let Some(dict) = entry.as_ref().and_then(Object::as_dict) {
+                        if let Object::Name(value) = self.document.get_key(dict, "UseBlackPtComp") {
+                            tone.black = match value.as_bytes() {
+                                b"ON" => BlackPoint::On,
+                                b"OFF" => BlackPoint::Off,
+                                _ => BlackPoint::Default,
+                            };
+                        }
+                        if let Object::Name(intent) = self.document.get_key(dict, "RI") {
+                            tone.intent = Intent::read(intent.as_bytes());
+                        }
+                    }
+                }
+                Step::Do | Step::Colour | Step::Other => {}
+            }
+            first = None;
+            last = None;
+        }
+    }
+
+    /// What `/name Do` finds: an image to offer, or a form to read.
+    fn xobject(
+        &mut self,
+        table: &Dictionary,
+        name: &[u8],
+        resources: &Dictionary,
+        depth: usize,
+        tone: Tone,
+    ) {
+        let Some(entry) = table.get_by_name(&pdf_syntax::Name::new(name)) else {
+            return;
+        };
+        let object = self.document.resolve(entry);
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        match self.document.get_key(&stream.dict, "Subtype") {
+            Object::Name(subtype) if subtype.as_bytes() == b"Image" => {
+                self.offer(stream, resources, tone);
+            }
+            // §8.11.3.3's `/OC` on a form is the interpreter's to decide at the `Do`.
+            Object::Name(subtype)
+                if subtype.as_bytes() == b"Form" && stream.dict.get("OC").is_none() =>
+            {
+                let inner = self
+                    .document
+                    .get_key(&stream.dict, "Resources")
+                    .as_dict()
+                    .cloned()
+                    .unwrap_or_else(|| self.page_resources.clone());
+                self.nested(stream, &inner, depth, tone);
+            }
+            _ => {}
+        }
+    }
+
+    /// What `/name scn` finds: a coloured tiling pattern's cell to read. A shading pattern draws
+    /// no image, and §8.6.8 has an uncoloured cell ignore every image that is not a stencil.
+    fn pattern(&mut self, table: &Dictionary, name: &[u8], depth: usize, tone: Tone) {
+        let Some(entry) = table.get_by_name(&pdf_syntax::Name::new(name)) else {
+            return;
+        };
+        let object = self.document.resolve(entry);
+        let Some(stream) = object.as_stream() else {
+            return;
+        };
+        if self
+            .document
+            .get_key(&stream.dict, "PaintType")
+            .as_integer()
+            == Some(2)
+        {
+            return;
+        }
+        // §8.7.3.3 gives a tiling pattern no fallback resource dictionary, and
+        // `Interpreter::tile` reads it the same way.
+        let inner = self
+            .document
+            .get_key(&stream.dict, "Resources")
+            .as_dict()
+            .cloned()
+            .unwrap_or_default();
+        self.nested(stream, &inner, depth, tone);
+    }
+
+    /// Reads a form's or a cell's content stream, once per walk.
+    fn nested(
+        &mut self,
+        stream: &Arc<pdf_syntax::Stream>,
+        resources: &Dictionary,
+        depth: usize,
+        tone: Tone,
+    ) {
+        if depth >= AHEAD_DEPTH || self.walked.iter().any(|seen| Arc::ptr_eq(seen, stream)) {
+            return;
+        }
+        self.walked.push(Arc::clone(stream));
+        let Ok(content) = NestedContent::of(self.document, stream, String::new()) else {
+            return;
+        };
+        let mut reader = content.reader();
+        self.stream(&mut reader, resources, depth.saturating_add(1), tone);
+    }
+
+    /// Offers a decode of one image, where it is one a decode ahead can answer ([`offerable`]).
+    ///
+    /// **The first such image the walk finds is the interpreter's**, which is a measurement of
+    /// this machine rather than a rule about images (ADR 1321). Its cores are of two classes, and
+    /// a pool thread on the slower one decodes a photograph in about half again the time the
+    /// interpreter's own thread takes on the faster; the first image is the one the interpreter
+    /// reaches soonest, so a decode ahead of it can at best be a little early and at worst run
+    /// on the slower core while the interpreter waits. A page of one photograph is then exactly
+    /// the page it was, and on a page of several the others are decoded beside the first.
+    fn offer(&mut self, stream: &Arc<pdf_syntax::Stream>, resources: &Dictionary, tone: Tone) {
+        let document = self.document;
+        let Some(bytes) = offerable(document, stream) else {
+            return;
+        };
+        if std::mem::replace(&mut self.first, false) {
+            return;
+        }
+        let Some(into) = self.plan.conversion(document, &stream.dict, tone) else {
+            return;
+        };
+        let colour_spaces = resources.get("ColorSpace").cloned().unwrap_or(Object::Null);
+        if !self
+            .plan
+            .ahead
+            .offer(stream, colour_spaces, into.clone(), bytes)
+        {
+            return;
+        }
+        let ahead = Arc::clone(&self.plan.ahead);
+        let stream = Arc::clone(stream);
+        self.scope.spawn(move |_| ahead.decode(document, &stream));
+    }
+}
+
+/// What decoding this image ahead would hold until its `Do`, or `None` where it is left to the
+/// `Do`.
+///
+/// Four kinds are left to the `Do`, each for a reason of its own. §8.9.6.2's stencil, whose raster
+/// is the fill colour's and the fill colour is the state's. An image stating `/OC` or
+/// `/Alternates`, because §8.9.5.4 decides at the `Do` whether it or another stream is drawn. One
+/// whose codec is §7.4.6's, §7.4.7's or §7.4.9's, which `pdf_sandbox`'s worker decodes one request
+/// at a time behind one connection, so a decode started here would queue in front of the
+/// interpreter's own rather than beside it. And one below [`crate::image::AHEAD_FLOOR`] samples,
+/// which is cheaper to decode than to hand over.
+fn offerable(document: &Document, stream: &pdf_syntax::Stream) -> Option<usize> {
+    let dict = &stream.dict;
+    if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true))
+        || dict.get("OC").is_some()
+        || dict.get("Alternates").is_some()
+    {
+        return None;
+    }
+    if let Some(codec) = document.image_codec(stream)
+        && !matches!(codec.as_slice(), b"DCTDecode" | b"DCT")
+    {
+        return None;
+    }
+    let dimension = |key| {
+        document
+            .get_key(dict, key)
+            .as_integer()
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    let samples = dimension("Width").saturating_mul(dimension("Height"));
+    if samples < crate::image::AHEAD_FLOOR {
+        return None;
+    }
+    Some(usize::try_from(samples.saturating_mul(4)).unwrap_or(usize::MAX))
+}
+
+/// What one token of a walk ahead is to it.
+enum Step {
+    /// The end of the stream.
+    End,
+    /// A name, which the next operator may take as its operand.
+    Name(Vec<u8>),
+    /// `Do`.
+    Do,
+    /// `scn` or `SCN`, whose last operand may name a pattern.
+    Colour,
+    /// `BDC` or `BMC`, opening §14.6's marked content.
+    Open,
+    /// `EMC`, closing it.
+    Close,
+    /// `q`.
+    Save,
+    /// `Q`.
+    Restore,
+    /// `ri`, whose operand is a rendering intent.
+    Intent,
+    /// `gs`, whose operand names a graphics state parameter dictionary.
+    State,
+    /// Anything else.
+    Other,
 }

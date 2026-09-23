@@ -172,6 +172,109 @@ fn a_masked_images_hidden_colour_does_not_reach_its_edge_at_any_reduction() {
     }
 }
 
+/// A one-page 60 × 60 point file painting an 8 × 8 checkerboard **stencil** in red, with
+/// `/Interpolate true`, at 40 × 40 points from (10, 10) — each sample magnified onto five
+/// points, so every scale below puts a non-integer number of device pixels on a sample.
+fn stencil_file() -> Vec<u8> {
+    // One bit per sample, eight to a row; a zero marks the page under Table 87's default
+    // `/Decode [0 1]` (§8.9.6.2), so alternate rows start painted and clear.
+    let rows: Vec<u8> = (0..8)
+        .map(|row| if row % 2 == 0 { 0x55 } else { 0xAA })
+        .collect();
+    let content = b"1 0 0 rg q 40 0 0 40 10 10 cm /S Do Q".to_vec();
+    let stream = |dict: &str, data: &[u8]| {
+        let mut out = format!("{dict} /Length {} >>\nstream\n", data.len()).into_bytes();
+        out.extend_from_slice(data);
+        out.extend_from_slice(b"\nendstream");
+        out
+    };
+    let objects: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 60 60] \
+           /Resources << /XObject << /S 4 0 R >> >> /Contents 5 0 R >>"
+            .to_vec(),
+        stream(
+            "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ImageMask true \
+             /BitsPerComponent 1 /Interpolate true",
+            &rows,
+        ),
+        stream("<<", &content),
+    ];
+    let mut file = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (number, body) in (1_usize..).zip(&objects) {
+        offsets.push(file.len());
+        file.extend_from_slice(format!("{number} 0 obj\n").as_bytes());
+        file.extend_from_slice(body);
+        file.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = file.len();
+    let entries = objects.len().saturating_add(1);
+    file.extend_from_slice(format!("xref\n0 {entries}\n0000000000 65535 f \n").as_bytes());
+    for offset in offsets {
+        file.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    file.extend_from_slice(
+        format!("trailer\n<< /Size {entries} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n")
+            .as_bytes(),
+    );
+    file
+}
+
+/// A magnified stencil's smoothed edge carries the painted colour and nothing else.
+///
+/// ISO 32000-2 §8.9.6.2:
+///
+/// > If image interpolation (see 8.9.5.3, "Image interpolation") is requested during stencil
+/// > masking, the effect shall be to smooth the edges of the mask, not to interpolate the
+/// > painted colour values.
+///
+/// Smoothing the mask and not the colour has a closed form over white paper: a partly covered
+/// pixel is red at partial coverage over white, `(255, 255 − 255a, 255 − 255a)`, so its red
+/// channel is 255 whatever the coverage. A filter that interpolated the stored colour — red
+/// beside the cleared samples' `[0, 0, 0, 0]` — pulls that channel towards black at every edge,
+/// which is the 131 levels this lane departed by while it filtered straight alpha (ADR 0697).
+/// The partly covered pixels are counted as the control: a scale at which nothing was smoothed
+/// would pass the colour assertion without asking it anything.
+#[test]
+fn a_magnified_stencils_smoothed_edge_is_the_painted_colour_at_partial_coverage() {
+    for scale in [1.3_f32, 2.7, 3.35, 5.15] {
+        let (oracle, ours) = both(stencil_file(), scale);
+        for (name, raster) in [("the oracle", &oracle), ("the device", &ours)] {
+            let mut partial = 0_usize;
+            for pixel in raster.data.chunks_exact(4) {
+                assert!(
+                    pixel[0] >= 254 && pixel[1].abs_diff(pixel[2]) <= 1,
+                    "at scale {scale} {name} drew {pixel:?}: a smoothed stencil edge over \
+                     white keeps its red channel at 255, so the painted colour was \
+                     interpolated towards the cleared samples' black"
+                );
+                if (8..=247).contains(&pixel[1]) {
+                    partial += 1;
+                }
+            }
+            assert!(
+                partial >= 100,
+                "at scale {scale} {name} drew only {partial} partly covered pixels: the \
+                 stencil was not smoothed, so the colour assertion asked nothing"
+            );
+        }
+        let worst = oracle
+            .data
+            .iter()
+            .zip(ours.data.iter())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            worst <= 8,
+            "at scale {scale} the device differs from the oracle by {worst} levels on a \
+             magnified stencil"
+        );
+    }
+}
+
 /// Draws `file`'s page at `scale` on both backends.
 fn both(file: Vec<u8>, scale: f32) -> (pdf_render::Raster, pdf_render::Raster) {
     let document = pdf_syntax::Document::open(file).expect("the fixture is a PDF");

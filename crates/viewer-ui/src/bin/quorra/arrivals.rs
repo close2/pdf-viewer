@@ -92,7 +92,7 @@ impl App {
             };
             let id = arriving.id;
             let fragment = arriving.named.fragment.clone();
-            match viewer_host::open_chosen(&arriving.named.path) {
+            match arriving.bytes() {
                 Ok(bytes) => {
                     self.dispatch(Command::Open {
                         id,
@@ -113,16 +113,16 @@ impl App {
     /// §7.6.4.1's second attempt, for the document on its way to a tab rather than the one in
     /// front.
     pub(crate) fn open_arriving(&mut self, password: Option<viewer_core::Secret>) {
-        let Some((id, path, fragment)) = self.arrivals.current().map(|arriving| {
+        let Some((id, bytes, fragment)) = self.arrivals.current().map(|arriving| {
             (
                 arriving.id,
-                arriving.named.path.clone(),
+                arriving.bytes(),
                 arriving.named.fragment.clone(),
             )
         }) else {
             return;
         };
-        match viewer_host::open_chosen(&path) {
+        match bytes {
             Ok(bytes) => self.dispatch(Command::Open {
                 id,
                 bytes,

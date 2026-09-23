@@ -69,9 +69,11 @@
 
 use std::collections::BTreeSet;
 
+use std::sync::Arc;
+
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-use crate::colour::{DeviceSpots, PROCESS_COLOURANTS, Plane, Press};
+use crate::colour::{ColourSpace, DeviceSpots, PROCESS_COLOURANTS, Plane, Press, Reading};
 
 /// How many spot planes one page is given: sixteen, forty-eight colourants.
 ///
@@ -95,14 +97,54 @@ pub const MAX_SPOT_PLANES: usize = 16;
 /// How many spot colourants [`MAX_SPOT_PLANES`] carry, [`Plane::COLOURANTS`] to a plane.
 pub const MAX_SPOT_COLOURANTS: usize = MAX_SPOT_PLANES * Plane::COLOURANTS;
 
+/// How many samples of step b)'s flat XYZ one spot colourant's curve holds: one per level of the
+/// eight-bit tint a spot plane stores, so the curve is read at its own samples.
+pub const FLAT_SAMPLES: usize = 256;
+
 /// The spot colourants a page names, in the order its resources name them first.
 ///
 /// What [`spot_colourants`] returns. Each name is held as the bytes the file wrote, because
 /// §7.3.5 makes two names one name only on an exact binary match.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SpotColourants {
     /// Every spot colourant, once, first-named first.
     names: Vec<Name>,
+    /// Where each colourant's appearance is stated, index for index with `names`.
+    sources: Vec<Source>,
+}
+
+/// The colour space a spot colourant's appearance is read from: ISO 32000-2 §10.8.3 step b)'s
+/// separation of that colourant, converted to flat XYZ.
+///
+/// **The standard states a colourant's appearance only through the alternate of a space that
+/// names it**, and a page can name one colourant in several spaces whose alternates disagree. So
+/// which one speaks for it is this tree's choice, and it is made in the order the standard gives
+/// the colourant most directly: a `Separation` space names the colourant alone (§8.6.6.4), as does
+/// the `Separation` space an `NChannel` space's `/Colorants` entry states for it — Table 70:
+/// "Each entry in this dictionary shall be an array defining a Separation colour space for that
+/// colourant" — and between two of those the first the walk meets decides; failing either, a
+/// `DeviceN` space's tint transform evaluated with that component alone, which is the colour the
+/// space says the colourant paints on its own. ADR 1317.
+#[derive(Debug, Clone, PartialEq)]
+enum Source {
+    /// A `Separation` space naming the colourant, resolved.
+    Separation(Object),
+    /// A `DeviceN` space naming the colourant as its component `index` of `count`.
+    DeviceN {
+        /// The space, resolved.
+        space: Object,
+        /// Which component is the colourant.
+        index: usize,
+        /// How many components the space has.
+        count: usize,
+    },
+}
+
+impl Source {
+    /// Whether this source states the colourant alone, which ranks it above a `DeviceN`'s.
+    fn is_separation(&self) -> bool {
+        matches!(self, Self::Separation(_))
+    }
 }
 
 impl SpotColourants {
@@ -153,18 +195,74 @@ impl SpotColourants {
         Plane::PROCESS.len().saturating_add(self.spot_planes())
     }
 
-    /// Adds one colourant name unless it is not a spot colourant of its own, or is already here.
-    fn admit(&mut self, name: &Name, process: &[Name]) {
+    /// Adds one colourant name unless it is not a spot colourant of its own, and takes `source`
+    /// as where its appearance is read unless a source [`Source`] ranks higher is already held.
+    fn admit(&mut self, name: &Name, process: &[Name], source: Source) {
         let bytes = name.as_bytes();
         let special = bytes == b"None" || bytes == b"All";
-        if special
-            || PROCESS_COLOURANTS.contains(&bytes)
-            || process.contains(name)
-            || self.names.contains(name)
-        {
+        if special || PROCESS_COLOURANTS.contains(&bytes) || process.contains(name) {
             return;
         }
-        self.names.push(name.clone());
+        if let Some(at) = self.names.iter().position(|held| held == name) {
+            if let Some(held) = self.sources.get_mut(at)
+                && !held.is_separation()
+                && source.is_separation()
+            {
+                *held = source;
+            }
+        } else {
+            self.names.push(name.clone());
+            self.sources.push(source);
+        }
+    }
+
+    /// ISO 32000-2 §10.8.3 step b) for each of the first `count` colourants: its separation's flat
+    /// XYZ relative to the matte's white, sampled at [`FLAT_SAMPLES`] tints — or `None` where a
+    /// colourant's space does not parse, whose separation this tree cannot state.
+    ///
+    /// Read from [`Source`]'s space under `reading` with its tint transform — the colourant's
+    /// separation is what the producer says the colourant alone looks like, which is the question
+    /// §8.6.6.4's alternate answers, and never the simulation's own answer to it — at the initial
+    /// rendering intent (Table 51), because a plane is one raster whatever intents its marks
+    /// stated. A device alternate reaches XYZ through this processor's CIE definition of it, which
+    /// for `DeviceCMYK` is the page's output intent where it states one (§14.11.5) and the assumed
+    /// inks where it does not: the press the process planes are drawn on.
+    pub(crate) fn flat_curves(
+        &self,
+        document: &Document,
+        resources: &Dictionary,
+        reading: Reading<'_>,
+        count: usize,
+    ) -> Option<Vec<pdf_render::SpotColourant>> {
+        let rendering = crate::icc::Rendering::compensating();
+        self.names
+            .iter()
+            .zip(&self.sources)
+            .take(count)
+            .map(|(name, source)| {
+                let (space, index, arity) = match source {
+                    Source::Separation(space) => (space, 0, 1),
+                    Source::DeviceN {
+                        space,
+                        index,
+                        count,
+                    } => (space, *index, *count),
+                };
+                let space = ColourSpace::parse_under(document, space, resources, reading)?;
+                let mut values = vec![0.0_f32; arity];
+                let flat: Vec<[f32; 3]> = (0..FLAT_SAMPLES)
+                    .map(|sample| {
+                        #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+                        let tint = sample as f32 / (FLAT_SAMPLES - 1) as f32;
+                        if let Some(value) = values.get_mut(index) {
+                            *value = tint;
+                        }
+                        space.flat_ratio(&values, rendering)
+                    })
+                    .collect();
+                pdf_render::SpotColourant::new(Arc::from(name.as_bytes()), Arc::from(flat))
+            })
+            .collect()
     }
 }
 
@@ -177,31 +275,33 @@ impl SpotColourants {
 /// process planes, in which a spot colourant with a plane paints §11.7.3's "additive value of
 /// 1.0", and [`SpotColourants::spot_planes`] spot planes, three colourants to a plane.
 ///
-/// **Made by the model and drawn by no backend yet.** The page a backend draws is the one it drew
-/// before, every spot colourant reverting to its alternate as it is painted; steps b) to d) — each
-/// separation to flat XYZ, multiplied, converted to the device — are the render side's and ADR
-/// 1311 says what they owe. It is here only where a reader asked for the simulation and the page
-/// names a spot colourant, so no other page carries or pays for it.
+/// **The planes are the page's display list**: the interpretation's list is the chromatic process
+/// plane, carrying the black one and the spot planes (`pdf_render::DisplayList::set_separated`),
+/// and a backend draws all of them and puts them together by steps b) to d)
+/// (`pdf_render::separation`). This is what the model says *about* them — which colourants have a
+/// plane and which a mark painted without one — and [`plane`] reads a plane off the list. It is
+/// here only where a reader asked for the simulation and the page names a spot colourant, so no
+/// other page carries or pays for it. ADRs 1311, 1317.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Separation {
     /// The colourants with a spot plane, in plane order.
     colourants: Vec<Name>,
-    /// The planes, [`Plane::PROCESS`] first and then the spot planes in order.
-    planes: Vec<pdf_render::DisplayList>,
+    /// How many planes the page was separated into, the process pair included.
+    plane_count: usize,
     /// The colourants a mark painted past [`MAX_SPOT_COLOURANTS`], each once, by name.
     without_a_plane: Vec<Name>,
 }
 
 impl Separation {
-    /// A page's separation, from its planes in order.
+    /// A page's separation: its colourants, how many planes it was made in, and what had none.
     pub(crate) fn new(
         colourants: Vec<Name>,
-        planes: Vec<pdf_render::DisplayList>,
+        plane_count: usize,
         without_a_plane: Vec<Name>,
     ) -> Self {
         Self {
             colourants,
-            planes,
+            plane_count,
             without_a_plane,
         }
     }
@@ -213,21 +313,10 @@ impl Separation {
         &self.colourants
     }
 
-    /// The display list of one plane, or `None` for a plane the simulated device does not have.
-    #[must_use]
-    pub fn plane(&self, plane: Plane) -> Option<&pdf_render::DisplayList> {
-        let index = match plane {
-            Plane::Chromatic => 0,
-            Plane::Black => 1,
-            Plane::Spot(index) => Plane::PROCESS.len().checked_add(index)?,
-        };
-        self.planes.get(index)
-    }
-
     /// How many planes the page was separated into: the process pair and the spot planes.
     #[must_use]
     pub fn plane_count(&self) -> usize {
-        self.planes.len()
+        self.plane_count
     }
 
     /// The spot colourants a mark on this page painted that have no plane — the page named more
@@ -235,6 +324,21 @@ impl Separation {
     #[must_use]
     pub fn without_a_plane(&self) -> &[Name] {
         &self.without_a_plane
+    }
+}
+
+/// One plane of a separated page's display list, or `None` where `list` is not separated or the
+/// simulated device has no such plane.
+///
+/// The chromatic plane is `list` itself — its own commands are that plane's — the black plane is
+/// its companion, and spot plane `n` is the `n`th of its [`pdf_render::SpotSeparation::planes`].
+#[must_use]
+pub fn plane(list: &pdf_render::DisplayList, plane: Plane) -> Option<&pdf_render::DisplayList> {
+    let separation = list.separation()?;
+    match plane {
+        Plane::Chromatic => Some(list),
+        Plane::Black => list.black(),
+        Plane::Spot(index) => separation.planes().get(index),
     }
 }
 
@@ -418,24 +522,55 @@ fn colour_space(
             if let Some(name) = items.get(1).map(|name| document.resolve(name))
                 && let Some(name) = name.as_name()
             {
-                found.admit(name, &[]);
+                found.admit(name, &[], Source::Separation(object.clone()));
             }
         }
         b"DeviceN" => {
-            let process = items
-                .get(4)
-                .map(|attributes| document.resolve(attributes))
-                .map(|attributes| nchannel_process(document, &attributes))
+            let attributes = items.get(4).map(|attributes| document.resolve(attributes));
+            let process = attributes
+                .as_ref()
+                .map(|attributes| nchannel_process(document, attributes))
                 .unwrap_or_default();
+            let colorants = attributes
+                .as_ref()
+                .and_then(Object::as_dict)
+                .map(|attributes| document.get_key(attributes, "Colorants"));
             let names = items.get(1).map(|names| document.resolve(names));
-            for name in names
+            let names = names
                 .as_ref()
                 .and_then(Object::as_array)
-                .unwrap_or_default()
-            {
-                if let Some(name) = document.resolve(name).as_name() {
-                    found.admit(name, &process);
-                }
+                .unwrap_or_default();
+            for (index, name) in names.iter().enumerate() {
+                let Some(name) = document.resolve(name).as_name().cloned() else {
+                    continue;
+                };
+                // Table 70's `/Colorants` entry is the colourant's own `Separation` space, which
+                // [`Source`] ranks first.
+                let own = colorants
+                    .as_ref()
+                    .and_then(Object::as_dict)
+                    .and_then(|colorants| colorants.get_by_name(&name))
+                    .map(|entry| document.resolve(entry))
+                    .filter(|entry| {
+                        entry
+                            .as_array()
+                            .and_then(|entry| entry.first())
+                            .map(|family| document.resolve(family))
+                            .is_some_and(|family| {
+                                family
+                                    .as_name()
+                                    .is_some_and(|family| family.as_bytes() == b"Separation")
+                            })
+                    });
+                let source = own.map_or_else(
+                    || Source::DeviceN {
+                        space: object.clone(),
+                        index,
+                        count: names.len(),
+                    },
+                    Source::Separation,
+                );
+                found.admit(&name, &process, source);
             }
         }
         // §8.6.6.3's base space and §8.6.6.2's underlying space are each a colour space in

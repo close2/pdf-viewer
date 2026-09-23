@@ -91,7 +91,7 @@ fn a_readback_frame_allocates_one_target_and_no_second_copy() {
     assert_eq!(
         raster.pixels().len(),
         1191 * 1684 * 4,
-        "the raster is the target's pixels in straight alpha (§3)"
+        "the raster is the target's pixels in straight alpha (brief section 3)"
     );
     assert_eq!(
         allocations, 1,

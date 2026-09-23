@@ -108,6 +108,13 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::Overprint { detail } => {
             format!("this page overprints in a way that was painted without its group: {detail}")
         }
+        // Drawn, and on the page a person asked for — the simulated press — except that these
+        // inks had no plane on it and were printed in their alternate colours (§10.8.3, §11.7.3;
+        // ADR 1317).
+        Unsupported::SpotColourantsWithoutAPlane { colourants } => format!(
+            "the press simulation had no plane for these spot inks, so they were drawn in their \
+             alternate colours: {colourants}"
+        ),
         // The second report whose subject is the file, and the first about the page as a whole:
         // everything above says a mark is missing or wrong, and this says the *sheet* the marks
         // were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389). The

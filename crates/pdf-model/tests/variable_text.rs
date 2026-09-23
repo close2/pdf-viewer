@@ -1151,12 +1151,10 @@ fn choice_field_sized(default_appearance: &str, entries: &str) -> Vec<u8> {
 /// shows the *options*, and Table 233 bit 20 fixes their order — "PDF readers shall display the
 /// options in the order in which they occur in the Opt array".
 ///
-/// **This test used to assert that a list box draws nothing**, on the reasoning that §12.7.5.4
-/// states no appearance for the selection. It states none for the *highlight*; it states the
-/// options outright, and a mark added over an item that is drawn either way may not take the
-/// item down with it (ADR 0106's test). So the options are drawn and the missing mark is
-/// reported — checked by name, because a report that fired for some other reason would satisfy
-/// "something was reported".
+/// The clause states the options outright and names the selection without stating its
+/// appearance, so the options are drawn, the selected one is highlighted in a colour this program
+/// chose, and the report says the colour is ours (ADR 1323) — checked by name, because a report
+/// that fired for some other reason would satisfy "something was reported".
 #[test]
 fn a_combo_box_draws_its_value_and_a_list_box_draws_its_options() {
     let options = "/V (Beta) /Opt [(Alpha) (Beta) (Gamma)]";
@@ -1181,7 +1179,97 @@ fn a_combo_box_draws_its_value_and_a_list_box_draws_its_options() {
     let named = reports.iter().any(|report| report.contains("selects"));
     assert!(
         named,
-        "and says that which of them the value selects is not marked: {reports:?}"
+        "and says that the mark over the one the value selects is this program's: {reports:?}"
+    );
+}
+
+/// The raster rows, top down, in which some pixel is exactly the list box's selection highlight.
+fn highlighted_rows(raster: &pdf_render::Raster) -> Vec<u32> {
+    let [r, g, b] = pdf_model_highlight();
+    (0..raster.height)
+        .filter(|row| (0..raster.width).any(|x| rgba_at(raster, x, *row) == [r, g, b, 255]))
+        .collect()
+}
+
+/// The RGBA at raster pixel `(x, row)`, rows counted down from the top.
+fn rgba_at(raster: &pdf_render::Raster, x: u32, row: u32) -> [u8; 4] {
+    let at = (row.saturating_mul(raster.width).saturating_add(x) as usize).saturating_mul(4);
+    raster
+        .data
+        .get(at..at.saturating_add(4))
+        .and_then(|pixel| pixel.try_into().ok())
+        .unwrap_or_default()
+}
+
+/// `variable_text::SELECTION_HIGHLIGHT` in eight bits: `0.6 0.75 0.9 rg`, each component times
+/// 255 and rounded, which is the colour a `DeviceRGB` fill of those numbers is drawn in.
+fn pdf_model_highlight() -> [u8; 3] {
+    [153, 191, 230]
+}
+
+/// §12.7.5.4's selection is marked, in a colour this program chose.
+///
+/// > A choice field shall have a field type of Ch that contains several text items, one or more
+/// > of which shall be selected as the field value.
+///
+/// The clause names the selection and states no appearance for it, which `doc/questions/A72`
+/// puts on the near side of its bound: the quantity is chosen, written down and reported (ADR
+/// 1323). What is held here is what the clause does state — *which* items are selected, the
+/// value's — rather than the colour, which is ours: the band moves down when the value names a
+/// later option, two bands appear for §12.7.5.4's array of values under Table 233 bit 22, no band
+/// appears for the null that "indicat[es] that no item is currently selected", and an option
+/// Table 234's `/TI` has scrolled out of the window marks nothing.
+#[test]
+fn a_list_boxs_selected_options_are_highlighted_behind_their_text() {
+    let options = "/Opt [(Alpha) (Beta) (Gamma)]";
+    let rows = |entries: &str| {
+        let (reports, raster) = draw(choice_field(&format!("{options} {entries}")));
+        (reports, highlighted_rows(&raster), raster)
+    };
+
+    let (reports, none, _) = rows("");
+    assert!(
+        none.is_empty(),
+        "nothing selected, nothing marked: {reports:?}"
+    );
+    assert!(reports.is_empty(), "and nothing reported: {reports:?}");
+
+    let (reports, alpha, raster) = rows("/V (Alpha)");
+    let (_, beta, _) = rows("/V (Beta)");
+    assert!(
+        !alpha.is_empty() && !beta.is_empty(),
+        "a selection is marked: {reports:?}"
+    );
+    assert!(
+        alpha.iter().max() < beta.iter().min(),
+        "the second option's band lies below the first's: {alpha:?} then {beta:?}"
+    );
+    assert!(
+        reports
+            .iter()
+            .any(|report| report.contains("this program chose")),
+        "and the report says the mark is this program's: {reports:?}"
+    );
+    // The text is drawn over the band, not under it: some pixel of the band's rows is ink.
+    assert!(
+        alpha
+            .iter()
+            .any(|row| (0..raster.width).any(|x| rgba_at(&raster, x, *row)[..3] == [0, 0, 0])),
+        "the selected option's glyphs are drawn over its highlight"
+    );
+
+    // Table 233 bit 22, MultiSelect, is 1 << 21: two values, two separate bands.
+    let (_, both, _) = rows("/Ff 2097152 /V [(Alpha) (Gamma)]");
+    let gaps = both.windows(2).filter(|pair| pair[1] > pair[0] + 1).count();
+    assert_eq!(
+        gaps, 1,
+        "Alpha and Gamma are marked and Beta between them is not: {both:?}"
+    );
+
+    let (_, scrolled, _) = rows("/V (Alpha) /TI 1");
+    assert!(
+        scrolled.is_empty(),
+        "an option above the top index is not on the page and marks nothing: {scrolled:?}"
     );
 }
 
@@ -1293,7 +1381,7 @@ fn choosing_an_item_replaces_the_stored_list_with_the_clauses_own_options() {
         .collect();
     assert!(
         reports.iter().any(|report| report.contains("selects")),
-        "with the mark that would say which is chosen named as owed: {reports:?}"
+        "with the mark over the chosen one named as this program's: {reports:?}"
     );
 }
 
@@ -1317,7 +1405,7 @@ fn auto_sizing_a_list_box_fits_the_options_the_top_index_shows() {
     let at = |top: &str| {
         let (reports, raster) = draw(choice_field_sized(
             "/Helv 0 Tf 0 g",
-            &format!("/V (Item19) /Opt [{options}] {top}"),
+            &format!("/Opt [{options}] {top}"),
         ));
         (reports, span(&inked_columns(&raster)))
     };
@@ -3372,21 +3460,30 @@ fn a_turned_matrixs_wrapped_lines_each_get_the_room_the_box_leaves_them() {
     );
 }
 
-/// A `Tm` whose linear part has no inverse is reported, because there is nothing to lay out.
+/// A `Tm` whose linear part has no inverse draws what its producer stated, which is nothing, and
+/// says why. ISO 32000-2 §12.7.4.3:
 ///
-/// It is the one case left, and it is not a layout question. A singular linear part sends the
-/// whole plane onto one line, so the box has no preimage that is a region: no pair of translation
-/// components is more appropriate than another, and the glyph outlines the matrix is written in
-/// front of are flattened onto that line and enclose no area. Saying so is trap 5's rule — and it
-/// is a report rather than a refusal, because the marks are still the producer's matrix applied to
-/// the producer's value, which is what §12.7.4.3 leaves standing.
+/// > If this operator is present, the interactive PDF processor shall replace the horizontal and
+/// > vertical translation components with positioning values it determines to be appropriate,
+/// > based on the field value, the quadding ( Q ) attribute, and any layout rules it employs.
+///
+/// The translation is the processor's and the rest of the matrix is the producer's. A singular
+/// linear part sends the whole plane onto a line — `1 2 2 4` onto one through the origin, `1 0 2 0`
+/// onto the x-axis, and all zeros onto the origin itself — so every translation is as appropriate
+/// as another, and the value is positioned where it would be in the box's own space. The glyphs
+/// written under the producer's four numbers enclose no area, so a fill marks no pixel at all:
+/// the page is blank where the value is, and the report says why (`Owed::SingularTextMatrix`).
 #[test]
 fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
     for tm in ["1 2 2 4 0 0", "1 0 2 0 0 0", "0 0 0 0 0 0"] {
-        let (reported, _) = draw(matrix_field(tm));
+        let (reported, raster) = draw(matrix_field(tm));
         assert!(
             reported.iter().any(|note| note.contains("has no inverse")),
-            "{tm} leaves no room for a line to be measured in and says so, got {reported:?}"
+            "{tm} flattens every glyph and says so, got {reported:?}"
+        );
+        assert!(
+            inked_columns(&raster).is_empty(),
+            "{tm} maps every glyph onto a line or a point, so its fill marks nothing"
         );
     }
 

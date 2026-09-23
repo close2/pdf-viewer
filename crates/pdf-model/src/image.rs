@@ -45,6 +45,9 @@ use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{Compositing, Conversion};
 
+mod ahead;
+pub(crate) use ahead::{AHEAD_FLOOR, DecodesAhead};
+
 /// Largest image this will decode, in samples.
 ///
 /// 2^28 samples is a gigabyte of RGBA. Image dimensions come from the document, so an
@@ -588,7 +591,7 @@ pub fn decode_parts(
             stream,
             matte: Some(matte),
             ..
-        } => prematte_alpha(document, &stream).map(|alpha| (matte, alpha)),
+        } => prematte_alpha(document, &stream, (width, height)).map(|alpha| (matte, alpha)),
         _ => None,
     };
     let prematte = premultiplied
@@ -2430,11 +2433,13 @@ fn decode_jpx(
         shortfall,
     } = colour_key_in_the_rasters_domain(painting.colour_key, &raster);
     // §11.6.5.2's inversion pairs the mask's samples with the parent's by position, and
-    // Table 143 makes the two grids the dictionary's; [`matte_at_the_stated_grid`] says what a
-    // codestream decoded at a reduced level gets instead.
+    // Table 143 makes the two grids the dictionary's. A codestream decoded at one of its reduced
+    // levels is on another, and the mask is carried onto it over the same footprints
+    // ([`alpha_on_grid`], ADR 1324), so the pre-blending is undone there too.
     let grid = (raster.width, raster.height);
-    let paired = painting.matte.filter(|_| grid == (width, height));
-    let reduced = painting.matte.is_some() && paired.is_none();
+    let carried = matte_alpha_on(painting.matte, (width, height), grid);
+    let on_grid =
+        (painting.matte.zip(carried.as_deref())).map(|(m, alpha)| Prematte { alpha, ..*m });
     Ok(SamplesOnGrid {
         rgba: jpx_samples_to_rgba(
             &raster,
@@ -2443,30 +2448,25 @@ fn decode_jpx(
             opacity_channel,
             colour_key,
             painting.into,
-            paired,
+            on_grid.as_ref().or(painting.matte),
         ),
         grid,
         opacity_included: use_opacity,
         stencil_opacity: None,
-        shortfall: shortfall.or_else(|| matte_at_the_stated_grid(reduced, grid, (width, height))),
+        shortfall,
     })
 }
 
-/// What a `/Matte` gets where the codestream did not decode at the grid the dictionary states.
-///
-/// §7.4.9 NOTE 3 lets a `JPXDecode` codestream over the confined worker's budget come back at one
-/// of its own reduced resolution levels (ADR 0321), and Table 143 pairs a `/Matte`'d mask with the
-/// parent's *stated* grid — so on such a raster there is no pairing to invert by, and the
-/// pre-blending is named through [`SamplesOnGrid::shortfall`] rather than applied to samples it
-/// was not blended into. ADR 1268.
-fn matte_at_the_stated_grid(reduced: bool, grid: (u32, u32), stated: (u32, u32)) -> Option<String> {
-    reduced.then(|| {
-        format!(
-            "the /Matte could not be undone: the codestream decoded at {}x{} where the \
-             dictionary says {}x{}",
-            grid.0, grid.1, stated.0, stated.1
-        )
-    })
+/// A `/Matte`'d mask's samples on the grid a `JPXDecode` parent decoded to, where that is not the
+/// stated one — §7.4.9 NOTE 3's reduced level — or `None` where no carrying is needed.
+fn matte_alpha_on(
+    matte: Option<&Prematte>,
+    stated: (u32, u32),
+    grid: (u32, u32),
+) -> Option<Vec<u8>> {
+    matte
+        .filter(|_| grid != stated)
+        .map(|matte| alpha_on_grid(matte.alpha, stated, grid))
 }
 
 /// Reads a codestream's supposed opacity channel as colour where ISO 32000-2 §7.4.9 says to.
@@ -5001,14 +5001,17 @@ fn matte_colour(
     Matte::Colour(components)
 }
 
-/// The soft mask's samples as one byte apiece, for undoing §11.6.5.2's pre-blending.
+/// The soft mask's samples as one byte apiece on the parent's stated grid, for undoing
+/// §11.6.5.2's pre-blending.
 ///
 /// The mask is `DeviceGray` by Table 143 — and by substitution where the file states another
 /// one-component space — so its decoded raster holds one value in each of its three colour
-/// channels and the first of them is it. `None` where the mask does not decode, which is the
-/// same answer [`apply_soft_mask`] gives such a mask: the image is drawn, with its samples
-/// left as the file wrote them.
-fn prematte_alpha(document: &Document, mask: &Stream) -> Option<Vec<u8>> {
+/// channels and the first of them is it. Table 143 states the mask on the parent's grid wherever
+/// a `/Matte` is present, and a mask whose own decode came back on another — a `JPXDecode` mask
+/// over the worker's budget, at a reduced level — is carried onto it by [`alpha_on_grid`].
+/// `None` where the mask does not decode, which is the same answer [`apply_soft_mask`] gives
+/// such a mask: the image is drawn, with its samples left as the file wrote them.
+fn prematte_alpha(document: &Document, mask: &Stream, parent: (u32, u32)) -> Option<Vec<u8>> {
     let Flattened { image, .. } = decode(
         document,
         mask,
@@ -5019,13 +5022,79 @@ fn prematte_alpha(document: &Document, mask: &Stream) -> Option<Vec<u8>> {
         &Conversion::device(),
     )
     .ok()?;
-    Some(
-        image
-            .data
-            .chunks_exact(4)
-            .map(|sample| sample.first().copied().unwrap_or(0))
-            .collect(),
-    )
+    let alpha: Vec<u8> = image
+        .data
+        .chunks_exact(4)
+        .map(|sample| sample.first().copied().unwrap_or(0))
+        .collect();
+    Some(alpha_on_grid(&alpha, (image.width, image.height), parent))
+}
+
+/// A mask's samples carried from the grid they are on to another one, each target cell the mean
+/// of the samples its footprint covers.
+///
+/// What it is for is §11.6.5.2's inversion on a parent that did not decode on the grid the
+/// dictionary states: §7.4.9 NOTE 3 lets a `JPXDecode` codestream over the worker's budget come
+/// back as "a lower-resolution version" (ADR 0321), and Table 143's pairing of the two grids is
+/// then carried onto that one — the mask's own samples, the file's, reduced over the footprint
+/// each reduced parent sample covers. Pre-blending is linear in the colour, so the parent's
+/// reduced sample is `m + mean(α·(c − m))` and dividing its departure from the matte by
+/// `mean(α)` gives the opacity-weighted mean colour of the footprint: what the full grid,
+/// undone and then reduced as premultiplied samples are, would have drawn there. It is exact
+/// where the codestream's reduction is the footprint's mean and within its own filter's
+/// departure from one elsewhere, which is the approximation the reduced level already is
+/// (ADR 1324). Borrowing is not offered: the grids are equal on every other route, and there
+/// this returns the samples unchanged.
+fn alpha_on_grid(alpha: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
+    if from == to || from.0 == 0 || from.1 == 0 || to.0 == 0 || to.1 == 0 {
+        return alpha.to_vec();
+    }
+    let (from_w, from_h) = (u64::from(from.0), u64::from(from.1));
+    let (to_w, to_h) = (u64::from(to.0), u64::from(to.1));
+    // The source samples a target cell's footprint covers along one axis: `[t·F/T, (t+1)·F/T)`,
+    // rounded outward so that every cell reads at least one sample on a magnification too. Every
+    // product is of two grid sides, each a `u32`, so none reaches a `u64`'s range.
+    let span = |cell: u64, source: u64, target: u64| {
+        let start = cell
+            .saturating_mul(source)
+            .checked_div(target)
+            .unwrap_or(0)
+            .min(source.saturating_sub(1));
+        let end = cell
+            .saturating_add(1)
+            .saturating_mul(source)
+            .div_ceil(target)
+            .clamp(start.saturating_add(1), source);
+        (start, end)
+    };
+    let mut out = Vec::with_capacity(usize::try_from(to_w.saturating_mul(to_h)).unwrap_or(0));
+    for row in 0..to_h {
+        let (y0, y1) = span(row, from_h, to_h);
+        for column in 0..to_w {
+            let (x0, x1) = span(column, from_w, to_w);
+            let sum: u64 = (y0..y1)
+                .flat_map(|y| (x0..x1).map(move |x| y.saturating_mul(from_w).saturating_add(x)))
+                .map(|at| {
+                    usize::try_from(at)
+                        .ok()
+                        .and_then(|at| alpha.get(at))
+                        .copied()
+                        .map_or(0, u64::from)
+                })
+                .sum();
+            let count = y1
+                .saturating_sub(y0)
+                .saturating_mul(x1.saturating_sub(x0))
+                .max(1);
+            // The mean of bytes is a byte; rounded to nearest, as §10.7.4's area averaging is.
+            let mean = sum
+                .saturating_add(count / 2)
+                .checked_div(count)
+                .unwrap_or(0);
+            out.push(u8::try_from(mean).unwrap_or(u8::MAX));
+        }
+    }
+    out
 }
 
 /// Undoes §11.6.5.2's pre-blending for one component: `c = m + (c′ - m) / α`.
@@ -5675,6 +5744,11 @@ pub struct RasterCache {
     entries: Vec<Cached>,
     /// The sum of the entries' [`Cached::bytes`], so that eviction is arithmetic.
     held: usize,
+    /// Decodes started before their `Do`, where the interpretation started any (ADR 1321).
+    ///
+    /// Asked on a miss and never on a hit, so an entry here is exactly what the decode below
+    /// would have produced, arriving earlier: [`DecodesAhead`] says why the two are one answer.
+    ahead: Option<Arc<DecodesAhead>>,
 }
 
 /// How a cached raster names the stream it was decoded from.
@@ -5795,6 +5869,17 @@ impl RasterCache {
         self.held
     }
 
+    /// Answers misses from `ahead` as well, for as long as the interpretation that started it
+    /// runs (ADR 1321).
+    pub(crate) fn decode_ahead(&mut self, ahead: Arc<DecodesAhead>) {
+        self.ahead = Some(ahead);
+    }
+
+    /// Stops asking the table [`Self::decode_ahead`] installed, once its decodes are over.
+    pub(crate) fn stop_ahead(&mut self) {
+        self.ahead = None;
+    }
+
     /// Decodes an image `XObject`, reusing an earlier decode of the same one under the same
     /// state.
     ///
@@ -5847,7 +5932,16 @@ impl RasterCache {
                 entry.clone(),
             );
         }
-        let parts = decode_parts(document, stream, &read, fill_of(fill), into, masks)?;
+        // Only a stream named through a resource dictionary is ever decoded ahead: §8.9.7's
+        // inline image is built at its `BI` and has no earlier moment to be decoded at.
+        let ahead = match (identity, self.ahead.as_ref()) {
+            (StreamIdentity::Allocation, Some(ahead)) => ahead.take(stream, colour_spaces, into),
+            _ => None,
+        };
+        let parts = match ahead {
+            Some(answer) => answer?,
+            None => decode_parts(document, stream, &read, fill_of(fill), into, masks)?,
+        };
         let colour_spaces = read.remove(COLOUR_SPACES).unwrap_or(Object::Null);
         let bytes = parts.bytes().saturating_add(footprint(&colour_spaces));
         self.entries.push(Cached {

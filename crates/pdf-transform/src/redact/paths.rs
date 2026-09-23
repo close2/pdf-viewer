@@ -38,11 +38,13 @@
 //! line's *outline*: a stroke is the region swept by a pen of the current line width, with the
 //! caps and joins the graphics state names. So the removal is the same geometric cut applied to
 //! the outline — [`crate::redact`] expands the stroke with `kurbo::stroke` and hands the result
-//! here as a fill. What keeps that honest is [`is_polygonal`]: the expansion of a round cap, a
-//! round join or a curved segment is an *approximation* of arcs, and replacing the producer's
-//! marks outside the region with an approximation would be this program inventing a mark. The
-//! outline is admitted only where it came back made of straight lines, which is the case the
-//! expansion computes exactly, and every other stroke is refused by name (trap 5).
+//! here as a fill. A straight segment's offsets, butt and projecting-square caps and miter and
+//! bevel joins come back in closed form; a round cap, a round join and the offset of a curved
+//! segment come back as cubics fitted to the arc within the tolerance
+//! [`crate::redact`]'s `ARC_TOLERANCE` states, because "[c]urved path segments shall be
+//! specified as cubic Bézier curves" (§8.5.2.2) and a circle is not one. Those cubics are then
+//! cut at their roots like any other curve, so the arc is split where it crosses the region's
+//! edge. ADRs 1236, 1324.
 //!
 //! # What keeps the survivors byte-exact
 //!
@@ -184,23 +186,6 @@ impl Cut {
         let single = self.largest * f64::from(f32::EPSILON) / 2.0;
         (single + DECIMAL_HALF_ULP) * self.norm < REGION_PAD
     }
-}
-
-/// Whether a path is made of straight lines alone, which is when an expansion of it is exact.
-///
-/// The one question [`crate::redact`] asks of `kurbo::stroke`'s output: an outline that came back
-/// with a curve in it is an approximation of an arc — a round cap, a round join, or the offset of
-/// a curved segment — and cutting an approximation would replace the producer's marks outside the
-/// region with marks this program computed. Asked of the **output** rather than of the graphics
-/// state, so the guard is what the expansion actually produced rather than this tree's model of
-/// when it produces it.
-pub(super) fn is_polygonal(path: &BezPath) -> bool {
-    path.elements().iter().all(|element| {
-        matches!(
-            element,
-            PathEl::MoveTo(_) | PathEl::LineTo(_) | PathEl::ClosePath
-        )
-    })
 }
 
 /// Subtracts every region from the path's subpaths, in the path's own user space.
@@ -771,21 +756,5 @@ mod tests {
                 "{on_piece:?} against {on_source:?}"
             );
         }
-    }
-
-    /// [`is_polygonal`] is asked of an expansion's output, and it answers about the output.
-    #[test]
-    fn a_polygonal_outline_is_told_from_a_curved_one() {
-        let square = ring(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]);
-        assert!(is_polygonal(&square));
-        let mut curved = BezPath::new();
-        curved.move_to(Point::new(0.0, 0.0));
-        curved.curve_to(
-            Point::new(1.0, 0.0),
-            Point::new(1.0, 1.0),
-            Point::new(0.0, 1.0),
-        );
-        curved.close_path();
-        assert!(!is_polygonal(&curved));
     }
 }

@@ -446,6 +446,35 @@ impl BlendMode {
             Self::Hue | Self::Saturation | Self::Color | Self::Luminosity
         )
     }
+
+    /// Whether the mode's blend function leaves white alone: ISO 32000-2 §11.7.4.2's "A blend
+    /// mode is white-preserving if its blend function B has the property that 𝐵(1.0,1.0) = 1.0".
+    ///
+    /// Table 134's `Difference` gives `|1 − 1|` and `Exclusion` gives `1 + 1 − 2 × 1 × 1`, both
+    /// zero, and the clause's NOTE 2 names the same two: "all except Difference and Exclusion are
+    /// white-preserving". Table 135's four are answered by their own `SetLum` of an unchanged
+    /// white, and [`BlendMode::Overprint`] chooses the source or the backdrop, either of them 1.0.
+    #[must_use]
+    pub fn is_white_preserving(self) -> bool {
+        !matches!(self, Self::Difference | Self::Exclusion)
+    }
+
+    /// The mode a spot colourant composites under where this is the current blend mode.
+    ///
+    /// ISO 32000-2 §11.7.4.2:
+    ///
+    /// > Specifically, only separable, whitepreserving blend modes shall be used for spot colours.
+    /// > If the specified blend mode is not separable or not white-preserving, it shall apply only
+    /// > to process colour components, and the Normal blend mode shall be substituted for spot
+    /// > colours.
+    #[must_use]
+    pub fn on_spot_colourants(self) -> Self {
+        if self.is_separable() && self.is_white_preserving() {
+            self
+        } else {
+            Self::Normal
+        }
+    }
 }
 
 /// Which channels §11.7.4.3's special overprinting blend mode leaves to the backdrop.

@@ -94,9 +94,8 @@
 //!   colour space the re-encode leaves), and a decode whose shape its [`RasterKind`] cannot hold;
 //! - an **inline image** behind a filter §8.9.7 forbids inline, or whose colour space holds a
 //!   reference no resource name in force reaches;
-//! - a **painted path** whose marks the cut cannot take exactly: a stroke whose *outline* an
-//!   expansion can only approximate — a round cap or join, or the offset of a curved segment
-//!   (ADR 1236) — a zero-width stroke, one whose stroking colour or alpha this walk cannot
+//! - a **painted path** whose marks the cut cannot take exactly: a zero-width stroke, one whose
+//!   stroking colour or alpha this walk cannot
 //!   restate, one whose path object another operator interrupted, and one whose surviving
 //!   coordinates are too large for [`paths::Cut::margin_holds`] to prove the cut edge cannot
 //!   round into the region;
@@ -1091,17 +1090,20 @@ fn is_path_operator(keyword: &[u8]) -> bool {
     )
 }
 
-/// How closely `kurbo::stroke` is asked to follow the true outline of a stroke.
+/// How far, in the display list's units, the outline a stroke is cut as may depart from the arc
+/// §8.4.3.3's round cap, §8.4.3.4's round join or the offset of a §8.5.2.2 curve describes.
 ///
-/// A tenth of [`paths::REGION_PAD`], the widening the cut is proven against — and the honest
-/// statement of the number is that it decides nothing this build admits. The tolerance governs
-/// the approximation of arcs, and [`paths::is_polygonal`] refuses every expansion that produced
-/// one; what is left is the straight-segment case, whose offsets, butt and projecting-square caps
-/// and miter and bevel joins the expansion computes in closed form. A later round that admits an
-/// arc owes the margin arithmetic for this value too, carried into the display list's space by
-/// the mapping's norm the way [`paths::Cut::margin_holds`] carries the other two roundings.
-/// ADR 1236.
-const STROKE_TOLERANCE: f64 = paths::REGION_PAD / 10.0;
+/// A path can state no circle — "[c]urved path segments shall be specified as cubic Bézier
+/// curves" — so the outline written back for a round cap is cubics fitted to it, and this is the
+/// fitting's bound. A hundredth of [`paths::REGION_PAD`]: at a magnification where the widening
+/// the cut already takes past the quad covers one device pixel, the approximation covers a
+/// hundredth of one, below the eight-bit step any backend resolves, and it is the same order as
+/// the §7.3.3 single-precision reading [`paths::Cut::margin_holds`] already allows a processor
+/// to hold the producer's own coordinates at. It decides fidelity only: the cut is exact on the
+/// fitted outline, so nothing it writes can lie inside the region whatever this is. Carried into
+/// the path's own user space by the mapping's norm, since `kurbo::stroke` works there. A straight
+/// segment's outline is closed form and this bounds nothing on it. ADRs 1236, 1324.
+const ARC_TOLERANCE: f64 = paths::REGION_PAD / 100.0;
 
 /// Tables 52 and 53 each state three integer codes for a line style.
 ///
@@ -2053,13 +2055,12 @@ impl<'a> Walk<'a> {
     /// which stretches are marked at all. `kurbo::stroke` computes it, dashes included, and what
     /// comes back is geometry the cut takes exactly as it takes a fill's.
     ///
-    /// **Admitted only where the expansion is exact**, which [`paths::is_polygonal`] decides from
-    /// the output rather than from this tree's model of the input: offsetting a straight segment
-    /// and closing it with a butt or projecting-square cap and a miter or bevel join is computed
-    /// in closed form, while a round cap, a round join and the offset of a curved segment are
-    /// *approximations* of arcs. Cutting an approximation would replace the producer's marks
-    /// outside the region with marks this program computed, which is the far side of
-    /// `CLAUDE.md`'s provenance line, so those are refused by name.
+    /// Offsetting a straight segment and closing it with a butt or projecting-square cap and a
+    /// miter or bevel join is computed in closed form. A round cap, a round join and the offset of
+    /// a curved segment are arcs no path can state, so they come back as cubics within
+    /// [`ARC_TOLERANCE`] of the arc and are cut at their roots like any §8.5.2.2 curve: the
+    /// outline outside the region is the producer's mark re-expressed to that bound, and the
+    /// one inside it is gone. ADR 1324.
     fn stroke_outline(
         &self,
         path: &PathObject,
@@ -2075,22 +2076,14 @@ impl<'a> Walk<'a> {
             );
         }
         let source = path.stroked_path(closes);
+        // `admits_a_cut` has refused a singular transform, so the norm is positive.
+        let tolerance = ARC_TOLERANCE / mapping(path.ctm).norm();
         let outline = kurbo::stroke(
             source.elements().iter().copied(),
             &self.graphics.stroke_style(),
             &kurbo::StrokeOpts::default(),
-            STROKE_TOLERANCE,
+            tolerance,
         );
-        if !paths::is_polygonal(&outline) {
-            return Err(
-                "§8.5.3.2: the outline of a stroked path meeting the region came back with an \
-                 arc in it — a round cap or join (§8.4.3.3, §8.4.3.4), or the offset of a \
-                 §8.5.2.2 curve — which an expansion can only approximate; the page is refused \
-                 rather than have the producer's marks outside the region replaced by an \
-                 approximation of them"
-                    .to_owned(),
-            );
-        }
         Ok(split_subpaths(&outline))
     }
 

@@ -20,9 +20,12 @@ cargo run --release -p viewer-ui --bin quorra -- doc/PDF20_AN001-BPC.pdf
 asks for an 893×1263 raster, which is 150% of a 595×842 page; `#nameddest=`, `#view=`, `#viewrect=`,
 `#comment=`, `#structelem=`, `#search=` and `#ef=` are the others carried out, and the ones that are
 not are printed by name — `tools/state.sh annex-o` says which, and it reads the program rather than
-this sentence (ADRs 0209, 0250, 0310). **`#ef=` hands the embedded file it names to the host and the
-host declines to write it**, because a URI is not a person asking: the note says so and names §O.2.1,
-which is the annex's own "may choose to prompt the user or even prevent opening of the file". The argument is split at its first `#` only when the whole of it does not name
+this sentence (ADRs 0209, 0250, 0310). **`#ef=` opens the embedded file it names in a tab of its own**,
+with the rest of the fragment applied to it, in all three windows — `quorra-gtk
+'issue17056.pdf#ef=destination-doc.pdf&page=3'` shows *destination-doc.pdf — 3 — page 3 of 30*
+beside the document that holds it (ADR 1316). An embedded file that is not a PDF is not written,
+because a URI is not a person asking: the note says so and names §O.2.1, which is the annex's own
+"may choose to prompt the user or even prevent opening of the file". The argument is split at its first `#` only when the whole of it does not name
 an existing file, so a document called `a#b.pdf` still opens.
 
 **`--cpu` means *no graphics device*, since the three-hundred-and-eighty-fourth session** (ADR

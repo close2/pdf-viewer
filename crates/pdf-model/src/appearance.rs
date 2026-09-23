@@ -2021,6 +2021,7 @@ fn caption(
                 // single midpoint.
                 shape: Shape::SingleLine,
                 asked: Asked::default(),
+                selected: &[],
             },
         )
     };
@@ -3174,14 +3175,13 @@ impl Rotation {
 /// array". §12.7.4.3's own NOTE names a scrollable list box as its example of what a processor
 /// "shall construct … dynamically at rendering time".
 ///
-/// What no clause states is the *selection's* appearance. `/V` "identifies the item or items
-/// currently selected" and nothing anywhere says what a selected item looks like — no highlight
-/// colour, no rule, nothing. That is a mark **added over** an item that is drawn either way,
-/// which is ADR 0106's test for whether a refusal may take the rest of an annotation down with
-/// it; the answer is no, so the options are drawn and the mark is reported (ADR 0030's shape).
-/// A host that builds a real list draws the selection in its own colours from
-/// [`crate::form::ChoiceControl::selected`] — the same division this tree makes for a text
-/// selection, whose colour is likewise nobody's here to invent.
+/// The clause names the selection and withholds its appearance: `/V` "identifies the item or
+/// items currently selected", "one or more of which shall be selected as the field value", and
+/// nothing says what a selected item looks like. On `doc/questions/A72`'s bound that is a mark
+/// whose quantity is withheld, so the selected options are returned beside the text — as lines
+/// counted from the first one drawn — and highlighted in
+/// [`variable_text::SELECTION_HIGHLIGHT`], a colour this program chose and reports (ADR 1323).
+/// An option above Table 234's `/TI` is not on the page and marks nothing.
 ///
 /// `None` for a field stating no `/Opt`, which is Table 234's own answer rather than a gap: "If
 /// this entry is not present, no choices should be presented to the user."
@@ -3189,7 +3189,7 @@ fn list_box_options(
     document: &Document,
     field: &Field,
     annotation: &Dictionary,
-) -> Option<(String, bool)> {
+) -> Option<(String, Vec<usize>)> {
     let options = crate::form::options(document, field);
     let last = options.len().checked_sub(1)?;
     // Table 234's `/TI`, "the index in the Opt array of the first option visible in the list",
@@ -3200,11 +3200,13 @@ fn list_box_options(
         .and_then(|top| usize::try_from(top).ok())
         .unwrap_or_default()
         .min(last);
-    // Reported only where there is something to mark. §12.7.5.4 gives `/V` the default null,
-    // "indicating that no item is currently selected", and a list with nothing selected is drawn
-    // completely — trap 11's rule that a report fires on the clause's own condition rather than
-    // wherever the unimplemented thing could be involved.
-    let unmarked = !crate::form::selected(document, field, &options).is_empty();
+    // §12.7.5.4 gives `/V` the default null, "indicating that no item is currently selected", so
+    // a list with nothing selected marks nothing and reports nothing — trap 11's rule that a
+    // report fires on the clause's own condition.
+    let selected: Vec<usize> = crate::form::selected(document, field, &options)
+        .into_iter()
+        .filter_map(|option| option.checked_sub(top))
+        .collect();
     let shown = options
         .get(top..)
         .unwrap_or_default()
@@ -3212,7 +3214,7 @@ fn list_box_options(
         .map(|option| option.label.as_str())
         .collect::<Vec<&str>>()
         .join("\n");
-    Some((shown, unmarked))
+    Some((shown, selected))
 }
 
 /// Lays out whatever text the field behind a widget states, if any.
@@ -3248,9 +3250,9 @@ fn field_text(
         return Ok(None);
     };
 
-    // Set by the one field type whose drawing is complete and whose *marking* is not; see the
-    // list box's arm for why that is a report beside the options rather than a refusal of them.
-    let mut selection_unmarked = false;
+    // The list box's selected lines, which it highlights in a colour this program chose and
+    // reports as its own (ADR 1323); empty for every other field type.
+    let mut selected: Vec<usize> = Vec::new();
     let (text, shape) = match kind {
         // Table 192's `/CA`, "the widget annotation's normal caption, which shall be displayed
         // when it is not interacting with the user" — the entry that "may be used with any
@@ -3307,8 +3309,8 @@ fn field_text(
         }
         FieldKind::Choice { combo: false } => {
             match list_box_options(document, &field, annotation) {
-                Some((shown, unmarked)) => {
-                    selection_unmarked = unmarked;
+                Some((shown, lines)) => {
+                    selected = lines;
                     (shown, Shape::ListBox)
                 }
                 None => return Ok(None),
@@ -3352,6 +3354,7 @@ fn field_text(
         quadding: Quadding::read(document, &sources),
         shape,
         asked,
+        selected: &selected,
     };
     variable_text::lay_out(document, &request)
         .map(|mut laid_out| {
@@ -3359,7 +3362,7 @@ fn field_text(
             // habit: `Owed` carries one statement, and a shortfall in the glyphs that *were*
             // drawn — a font `/DR` does not define, a character it states no code for — explains
             // the picture, where an unmarked selection or missing formatting only adds to it.
-            if selection_unmarked {
+            if !selected.is_empty() {
                 laid_out.owed = laid_out.owed.or(Some(Owed::ListBoxSelection));
             }
             if rich_text_unformatted(document, &field) {
@@ -3837,6 +3840,7 @@ pub(crate) fn accepted_prefix(
             quadding,
             shape,
             asked: Asked::default(),
+            selected: &[],
         };
         // A layout this crate cannot build says nothing about how much text the box holds, so
         // it constrains nothing — the report `field_text` raises is the honest answer there.
@@ -4237,6 +4241,7 @@ fn free_text_layout(
         // Table 177 states no single-line free text: the annotation is a box of prose.
         shape: Shape::Multiline,
         asked,
+        selected: &[],
     };
     variable_text::lay_out(document, &request)
         .map(Some)

@@ -541,6 +541,44 @@ fn request_file(open: &mut Open, import: &ImportData, outcome: &mut Outcome) {
         .push((Purpose::ImportData, import.file.clone()));
 }
 
+/// Where the form data [`import`] applies came from, which is the word its sentences begin with.
+///
+/// Both routes end in the same import — §12.7.6.2 says a submission's answer is incorporated "into
+/// the interactive form", which is what §12.7.6.4's action does with a file — but a person reading
+/// the status line is told what happened, and a server's answer to a form they sent is not an
+/// import-data action they clicked. Table 246's `/Status` is displayed "indicating the result of an
+/// action, typically a submit-form action", so the word says which action it is the result of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Arrival {
+    /// §12.7.6.4's import-data action named a file and the host supplied it.
+    Action,
+    /// §12.7.6.2's submit-form action was answered with FDF or XFDF (`Command::Respond`).
+    Answer,
+}
+
+impl Arrival {
+    /// The word in front of every sentence: Table 201's action name, or the submission's answer.
+    const fn word(self) -> &'static str {
+        match self {
+            Self::Action => "import-data",
+            Self::Answer => "submit-form answer",
+        }
+    }
+
+    /// The sentence saying how much was applied, from where and into how many widgets.
+    fn applied(self, fields: usize, source: &str, widgets: usize) -> String {
+        match self {
+            Self::Action => {
+                format!("import-data: {fields} field(s) from {source}, into {widgets} widget(s)")
+            }
+            Self::Answer => format!(
+                "submit-form answer: {fields} field(s) imported from {source}, into {widgets} \
+                 widget(s)"
+            ),
+        }
+    }
+}
+
 /// Applies §12.7.6.4's form data from bytes the host supplied, in either format the clause names.
 ///
 /// Which reader is chosen is the file *name*'s answer and not the bytes', because that is the only
@@ -548,10 +586,11 @@ fn request_file(open: &mut Open, import: &ImportData, outcome: &mut Outcome) {
 /// both §12.7.6.4's action and Annex O's `fdf` parameter, and whichever reader it picks then says
 /// for itself whether the bytes were that format. The two meet at `FormsData`, so everything below
 /// this — the `/ID` comparison, the `owed` sentences, `ViewState::import` — is written once.
-pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
+pub(crate) fn import(open: &mut Open, bytes: &[u8], arrival: Arrival) -> Outcome {
     use pdf_model::action::DataFormat;
     use pdf_model::forms_data::FormsData;
 
+    let word = arrival.word();
     let mut outcome = Outcome::default();
     let Some(import) = open.importing.take() else {
         return outcome;
@@ -562,7 +601,7 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
             Err(error) => {
                 outcome
                     .notes
-                    .push(format!("import-data: {}: {error}", import.file));
+                    .push(format!("{word}: {}: {error}", import.file));
                 return outcome;
             }
         }
@@ -572,7 +611,7 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
             Err(error) => {
                 outcome
                     .notes
-                    .push(format!("import-data: cannot read {}: {error}", import.file));
+                    .push(format!("{word}: cannot read {}: {error}", import.file));
                 return outcome;
             }
         };
@@ -581,7 +620,7 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
             Err(error) => {
                 outcome
                     .notes
-                    .push(format!("import-data: {}: {error}", import.file));
+                    .push(format!("{word}: {}: {error}", import.file));
                 return outcome;
             }
         }
@@ -591,53 +630,46 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
     // document is imported anyway — the clause states no rule against it and a form's fields may
     // legitimately be shared — but a person deserves to be told.
     if data.belongs_to(&open.document) == Some(false) {
-        outcome
-            .notes
-            .push("import-data: this file's identifier names a different document".to_owned());
+        outcome.notes.push(format!(
+            "{word}: this file's identifier names a different document"
+        ));
     }
     // Table 246's `/Status` is "a status string that shall be displayed", and an embedded FDF is
     // an FDF — so `FormsData::statuses` gives this file's and every embedded file's, in the order
     // an import applies them (ADR 1185).
     for status in data.statuses() {
-        outcome
-            .notes
-            .push(format!("import-data: status — {status}"));
+        outcome.notes.push(format!("{word}: status — {status}"));
     }
     for owed in &data.owed {
-        outcome
-            .notes
-            .push(format!("import-data: not applied — {owed}"));
+        outcome.notes.push(format!("{word}: not applied — {owed}"));
     }
 
     let applied = open.view.import(&open.document, &data);
-    outcome.notes.push(format!(
-        "import-data: {} field(s) from {}, into {} widget(s)",
-        // Every file the import applied, which Table 246's `/EmbeddedFDFs` can make more than
-        // one (ADR 1185).
-        data.files()
-            .iter()
-            .map(|file| file.fields.len())
-            .sum::<usize>(),
-        import.file,
-        applied.widgets
-    ));
+    outcome.notes.push(
+        arrival.applied(
+            // Every file the import applied, which Table 246's `/EmbeddedFDFs` can make more than
+            // one (ADR 1185).
+            data.files()
+                .iter()
+                .map(|file| file.fields.len())
+                .sum::<usize>(),
+            &import.file,
+            applied.widgets,
+        ),
+    );
     for name in &applied.unmatched {
-        outcome.notes.push(format!(
-            "import-data: this document has no field named {name}"
-        ));
-    }
-    for refusal in &applied.refused {
         outcome
             .notes
-            .push(format!("import-data: declined — {refusal}"));
+            .push(format!("{word}: this document has no field named {name}"));
+    }
+    for refusal in &applied.refused {
+        outcome.notes.push(format!("{word}: declined — {refusal}"));
     }
     // Table 253's `/F`: a second host question, raised while the first is being applied. The
     // sentences are said before it is asked, so a person sees what is being asked for and why
     // even in a window that supplies nothing (ADR 1239).
     for awaited in &applied.awaiting {
-        outcome
-            .notes
-            .push(format!("import-data: waiting — {awaited}"));
+        outcome.notes.push(format!("{word}: waiting — {awaited}"));
     }
     if applied.pages > 0 {
         // §12.7.7's template pages become part of the document being shown, so the page count
@@ -645,7 +677,7 @@ pub(crate) fn import(open: &mut Open, bytes: &[u8]) -> Outcome {
         // many pages there are.
         open.recount();
         outcome.notes.push(format!(
-            "import-data: {} template page(s) added; the document now has {}",
+            "{word}: {} template page(s) added; the document now has {}",
             applied.pages, open.page_count
         ));
     }

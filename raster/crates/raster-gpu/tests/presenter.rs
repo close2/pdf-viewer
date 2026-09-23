@@ -101,6 +101,6 @@ fn the_targets_a_golden_uses_are_untouched_by_the_split() {
     assert_eq!(raster.height(), 8);
     assert!(
         raster.pixels().iter().all(|byte| *byte == 0),
-        "a page that marks nothing is transparent (§3)"
+        "a page that marks nothing is transparent (brief section 3)"
     );
 }

@@ -308,6 +308,16 @@ impl Kind {
             // twelve styles is drawn by `viewer_core::transition` — four of them at a quantity
             // this program chose and says so, which is the owner's ruling in `doc/questions/A72`
             // (ADR 1299) — and §12.6.4.15's `Trans` action is read and performed.
+            //
+            // **`SeparationSimulation` is met**, on Table 275's own words, "support for simulation
+            // separations as described in 10.8": §10.8.3 is performed when a reader asks for it —
+            // `ViewState`'s separation simulation (ADR 1228), and a requirement executed under a
+            // control a host supplies is executed (`doc/questions/A100`) — and what the request
+            // reaches is all four steps: a page naming a spot colourant is separated into a plane
+            // per ink (ADR 1311) and drawn by multiplying the planes' flat XYZ (ADR 1317), and one
+            // painting operation's colourants take the same steps where a page is not separated
+            // (ADR 1229). The GPU backend refuses a separated page by name and the CPU backend
+            // draws it, which is the job `CLAUDE.md` keeps that backend for.
             Self::OcAutoStates
             | Self::Navigation
             | Self::Encryption
@@ -315,7 +325,8 @@ impl Kind {
             | Self::AcroFormInteract
             | Self::Attachment
             | Self::Collection
-            | Self::Transitions => return None,
+            | Self::Transitions
+            | Self::SeparationSimulation => return None,
             // **Eight reasons below were false or expired when the three-hundred-and-seventy-fifth
             // session read them against the code, between six and about a hundred and eighty
             // sessions after each stopped being true.** Every one named a clause as *unread* that
@@ -401,17 +412,6 @@ impl Kind {
                 // the EPSG registry and ISO 19162's WKT, both outside this standard.
                 "no geospatial projection: §12.10's dictionaries are read, and turning a page \
                  point into a coordinate needs the EPSG registry"
-            }
-            Self::SeparationSimulation => {
-                // §10.8.3 is performed when a reader asks for it — `ViewState`'s separation
-                // simulation (ADR 1228) — and what the request reaches is steps b) to d) over one
-                // painting operation's colourants (ADR 1229) and step a)'s separations of the
-                // page, a display list per plane of the simulated device, spot colourants
-                // included (`colourants::Separation`, ADR 1311). What is missing is the render
-                // side: those planes are made and no backend draws them, so a page's spot inks
-                // still revert to their alternate colour space as they are painted.
-                "separations are not yet drawn: §10.8.3's planes are made per spot colourant, \
-                 and no backend converts them to flat XYZ and multiplies them (steps b) to d))"
             }
             // Excluded by CLAUDE.md principle 5's closed list.
             Self::EnableJavaScripts => "ECMAScript is excluded by this project's principle 5",
@@ -748,7 +748,7 @@ mod tests {
         let doc = document(
             "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
              << /S /Navigation >> << /S /EnableJavaScripts >> << /S /AcroFormInteract >> \
-             << /S /Markup >> ] >>",
+             << /S /Markup >> << /S /SeparationSimulation >> ] >>",
         );
         let unmet = unmet(&doc);
         let kinds: Vec<&str> = unmet.iter().map(|(r, _)| r.kind.as_str()).collect();

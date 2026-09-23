@@ -225,13 +225,15 @@ fn refused_knockout(report: &str) -> Option<&'static str> {
     if !report.contains("knockout, and an element composites over another") {
         return None;
     }
-    Some(if report.contains("/AIS was stated both ways") {
-        "/AIS both ways (§11.6.4.3)"
-    } else if report.contains("non-isolated, and an element blends") {
-        "non-isolated with a blending element (§11.4.6 NOTE 6)"
-    } else {
-        "a paint or element whose shape this renderer cannot describe"
-    })
+    Some(
+        if report.contains("painted under the other reading of /AIS") {
+            "/AIS both ways, an element unsealable (§11.6.4.3)"
+        } else if report.contains("non-isolated, and an element blends") {
+            "non-isolated with a blending element (§11.4.6 NOTE 6)"
+        } else {
+            "a paint or element whose shape this renderer cannot describe"
+        },
+    )
 }
 
 /// Whether a knockout element goes to the backend **bare** and carries a drawn alpha below

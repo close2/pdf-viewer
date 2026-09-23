@@ -832,10 +832,11 @@ pub(super) enum AlphaSource {
 /// Which readings of §11.6.4.3's alpha source parameter the content being run painted under.
 ///
 /// `/AIS` is a graphics state parameter, so one content stream may paint some of its marks
-/// under each reading, which is what [`Mixed`] says. What follows from that about a *group*
-/// is [`Self::settled_over`]'s rather than this type's: the flag reinterprets two inputs and
-/// nothing else, so a group stating neither is described by both readings and a group stating
-/// either is described by neither.
+/// under each reading. [`Readings`] keeps a scope's record to one of them by sealing what was
+/// painted under the other, so [`Mixed`] is left for the element whose shape cannot be stated
+/// at all. What follows about a *group* is [`Self::settled_over`]'s rather than this type's:
+/// the flag reinterprets two inputs and nothing else, so a group stating neither is described
+/// by both readings.
 ///
 /// [`Mixed`]: Self::Mixed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -844,7 +845,8 @@ pub(super) enum AlphaSourcesSeen {
     Opacity,
     /// Only its `true`.
     Shape,
-    /// Both, so no single reading describes what the content painted.
+    /// Both, with an element under the other reading whose shape could not be stated beside
+    /// it (`seal`), so no single reading describes what the content painted.
     Mixed,
 }
 
@@ -856,11 +858,6 @@ impl AlphaSourcesSeen {
         } else {
             Self::Opacity
         }
-    }
-
-    /// What content that painted under both `self` and `other` painted under.
-    pub(super) fn with(self, other: Self) -> Self {
-        if self == other { self } else { Self::Mixed }
     }
 
     /// The one reading that describes all of it, or `None` where there is no such reading.
@@ -900,6 +897,168 @@ impl AlphaSourcesSeen {
                 .all(flag_reinterprets_nothing)
                 .then_some(AlphaSource::Opacity)
         })
+    }
+}
+
+/// The record of §11.6.4.3's readings for the scope being run — which reading its elements
+/// were painted under, kept to one by sealing (ISO 32000-2 §11.6.4.3, §11.6.4.4, §11.4.6).
+///
+/// `/AIS` is a graphics state parameter, so one scope may paint some elements under each
+/// reading, and §11.4.6 then needs each element's shape built from the quantity *its* reading
+/// makes shape. The record carries that without a field on every command: where a scope turns
+/// from one reading to the other, every element painted so far states its shape beside itself
+/// ([`seal`]) and is described by both readings from then on, so the record names one reading
+/// for everything still unsealed. The statement itself decides nothing — only an element the
+/// flag reinterprets, painted under the reading in force, reaches the record — which is what
+/// keeps a `q`…`Q` that states the entry and paints nothing from costing a seal (ADR 1319).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Readings {
+    /// Where the scope's unsealed commands begin in the display list: the scope's first command,
+    /// until a seal moves it to the boundary it sealed up to.
+    start: usize,
+    /// The reading every unsealed element before [`Self::since`] that the flag reinterprets
+    /// was painted under: `None` while there is none, [`AlphaSourcesSeen::Mixed`] only where
+    /// an element could not be sealed.
+    painted: Option<AlphaSourcesSeen>,
+    /// The reading in force, which the elements painted since [`Self::since`] are under.
+    in_force: bool,
+    /// The list's length when the reading in force took force, or when the record was last
+    /// brought up to date.
+    since: usize,
+    /// Whether this scope, or one closed inside it, sealed an element — which the finished
+    /// list's walk ([`unseal_list`]) is asked for on no other page.
+    sealed: bool,
+    /// Whether the scope's elements may become a knockout group's: a text object under §9.3.8's
+    /// `Tk`, or a fill and stroke §11.7.4.4 may make one object. A tiling painted as one of them
+    /// has to arrive as *one* element (`Interpreter::wrap_tiling`).
+    knockout_elements: bool,
+}
+
+impl Readings {
+    /// A scope beginning at command `at` under the reading `alpha_is_shape`.
+    pub(super) fn open(alpha_is_shape: bool, at: usize) -> Self {
+        Self {
+            start: at,
+            painted: None,
+            in_force: alpha_is_shape,
+            since: at,
+            sealed: false,
+            knockout_elements: false,
+        }
+    }
+
+    /// Whether the scope's elements may become a knockout group's.
+    pub(super) fn knockout_elements(self) -> bool {
+        self.knockout_elements
+    }
+
+    /// What the scope's elements were painted under, once [`Interpreter::settle_readings_until`]
+    /// has brought the record to its end: the reading in force where nothing the flag
+    /// reinterprets was painted, since then any reading describes the scope.
+    pub(super) fn seen(self) -> AlphaSourcesSeen {
+        self.painted.unwrap_or(AlphaSourcesSeen::of(self.in_force))
+    }
+
+    /// Whether a seal was made in this scope or one closed inside it.
+    pub(super) fn sealed(self) -> bool {
+        self.sealed
+    }
+}
+
+/// Makes every element of `commands` that §11.6.4.3's flag reinterprets state its shape under
+/// `alpha` beside itself, and answers what it did (ISO 32000-2 §11.6.4.2).
+///
+/// A sealed element is a [`Command::Shaped`] whose object is the element unchanged, so a
+/// knockout group built from it reads the stated shape rather than re-deriving one under
+/// whatever reading the group asks with — the one question the record could not otherwise
+/// answer for an element painted under the other reading. Outside a knockout group the shape is
+/// unused, and [`unseal_list`] takes it off before any backend sees the list, which is what
+/// keeps `Command::Shaped`'s guarantee.
+///
+/// A non-isolated group is sealed like any other element: §11.4.6's NOTE 6 decides what such an
+/// element composites with, and the constructions that ask look through a stated pair to its
+/// object (`is_a_non_isolated_group`), the way the own-backdrop construction already states
+/// one (ADR 1256).
+pub(super) fn seal(
+    commands: &mut [Command],
+    alpha: AlphaSource,
+    shape_masks: &ShapeMasks,
+) -> Sealed {
+    let mut sealed = Sealed {
+        every: true,
+        any: false,
+    };
+    for command in commands {
+        if flag_reinterprets_nothing(command) {
+            continue;
+        }
+        match stated_shape(command, alpha, shape_masks) {
+            Some(shape) => {
+                *command = Command::Shaped {
+                    object: Box::new(command.clone()),
+                    shape: Box::new(shape),
+                };
+                sealed.any = true;
+            }
+            None => sealed.every = false,
+        }
+    }
+    sealed
+}
+
+/// What [`seal`] did to a list of elements.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Sealed {
+    /// Whether every element that needed a seal got one.
+    pub(super) every: bool,
+    /// Whether any element was sealed, which is what the finished list's walk is owed for.
+    pub(super) any: bool,
+}
+
+/// Takes the seals off a finished list: every [`Command::Shaped`] that is not a direct element
+/// of a knockout group becomes its object again (ADR 1319).
+///
+/// `Command::Shaped` is guaranteed to appear only as a direct element of a knockout group,
+/// because a backend draws its two stages there and nowhere else. A seal is made before anybody
+/// knows whether the element will be one — a group refused for another reason, or content no
+/// knockout group encloses, carries it out — so the guarantee is met here, once, on the list a
+/// backend receives. A stated pair a knockout construction made is already where the guarantee
+/// puts it and is kept.
+pub(super) fn unseal_list(list: &mut pdf_render::DisplayList) {
+    let mut commands = list.split_off_commands(0);
+    unseal(&mut commands, false);
+    for command in commands {
+        list.push(command);
+    }
+}
+
+/// [`unseal_list`]'s walk over one list of elements, `in_knockout` saying whether they are the
+/// direct elements of a knockout group.
+pub(super) fn unseal(commands: &mut [Command], in_knockout: bool) {
+    for command in commands {
+        match command {
+            Command::Shaped { object, shape } => {
+                unseal(std::slice::from_mut(&mut **object), false);
+                unseal(std::slice::from_mut(&mut **shape), false);
+                if !in_knockout {
+                    *command = (**object).clone();
+                }
+            }
+            Command::Group {
+                commands,
+                knockout,
+                blending,
+                ..
+            } => {
+                unseal(commands, *knockout);
+                if let Some(pdf_render::GroupBlending::FourComponents { black, .. }) =
+                    blending.as_deref_mut()
+                {
+                    unseal(black, *knockout);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -1233,6 +1392,10 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
         // (ADR 0237), so what it accumulates carries the backdrop's alpha beside its own — but
         // the sentence above makes the group's shape the union of its elements' either way, and
         // accumulating that union on transparency is the one way to hold it alone. ADR 1205.
+        //
+        // An element that states its shape is drawn *as* that shape, and the group then unions
+        // its elements by Over rather than by §11.4.6's stages, because the two are one union
+        // and only Over reads a fractional shape as the weight (`shapes_where_stated`).
         Command::Group {
             commands,
             alpha,
@@ -1242,24 +1405,64 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
             blending,
             ..
         } => Some(Command::Group {
-            commands: commands.clone(),
+            commands: shapes_where_stated(commands),
             alpha: *alpha,
             clip: *clip,
             mask: *mask,
             blend: BlendMode::Normal,
             isolated: true,
-            knockout: *knockout,
+            knockout: *knockout && !states_a_shape(commands),
             // What this function returns *is* the shape, by its own contract, so the alpha
             // drawing it leaves is that shape whatever the original group's flag said.
             alpha_is_shape: true,
             blending: blending.clone(),
         }),
-        // An inner knockout group's elements arrive with their shape already stated, under
-        // whichever reading that group's own content ran — which is this one, because the
-        // reading propagates outward (see `Interpreter::alpha_sources`).
+        // An element that arrives with its shape already stated — an inner knockout group's,
+        // or one sealed under the reading it was painted under (`seal`) — is that shape.
         Command::Shaped { shape, .. } => Some((**shape).clone()),
         _ => None,
     }
+}
+
+/// A group's elements as [`shape_the_alpha_already_is`] draws them for the group's shape: each
+/// as it is, except that an element stating its shape is that shape, at any depth.
+///
+/// The drawn alpha of every other element is its shape under the reading this function is
+/// asked under; a [`Command::Shaped`] element's object may have been painted under the other
+/// one (`seal`), and its drawn alpha is then shape times opacity — so its stated shape stands in
+/// for it, which is also what the object's alpha is wherever the two readings agree. A group
+/// among them whose elements were so replaced unions them by Over: a knockout group's bare
+/// element weights what is under it by its *coverage*, so a fractional shape drawn bare would
+/// replace the union rather than join it, and §11.4.6's `(1 − f) × F + f` is Over's union
+/// term for term.
+fn shapes_where_stated(commands: &[Command]) -> Vec<Command> {
+    commands
+        .iter()
+        .map(|command| match command {
+            Command::Shaped { shape, .. } => (**shape).clone(),
+            Command::Group {
+                commands: inner, ..
+            } if states_a_shape(inner) => {
+                let mut group = command.clone();
+                if let Command::Group {
+                    commands, knockout, ..
+                } = &mut group
+                {
+                    *commands = shapes_where_stated(inner);
+                    *knockout = false;
+                }
+                group
+            }
+            _ => command.clone(),
+        })
+        .collect()
+}
+
+/// Whether any element of `commands`, at any depth, states its own shape.
+fn states_a_shape(commands: &[Command]) -> bool {
+    any_command(commands, &|element| {
+        matches!(element, Command::Shaped { .. })
+    })
 }
 
 /// §11.6.4.2's shape under `/AIS false`, which is the element with the mask and the
@@ -1736,15 +1939,7 @@ pub(super) fn implicit_knockout_group(
     // — there an element's backdrop is the accumulation, and §11.4.4's NOTE 3 cancellation
     // that makes them exact is a statement about the group's own result rather than about
     // what a nested group is given. ADR 1256.
-    let nested_non_isolated = commands.iter().any(|command| {
-        matches!(
-            command,
-            Command::Group {
-                isolated: false,
-                ..
-            }
-        )
-    });
+    let nested_non_isolated = commands.iter().any(is_a_non_isolated_group);
     if !nested_non_isolated {
         if !any_command(commands, &command_blends) {
             return Some(ImplicitKnockout {
@@ -1959,6 +2154,16 @@ fn without_blend(command: &Command) -> Option<Command> {
     Some(stripped)
 }
 
+/// Whether an element is a non-isolated group — itself, or as the object of a stated pair
+/// (`seal`) — which is §11.4.6's NOTE 6's question about what the element composites with.
+fn is_a_non_isolated_group(command: &Command) -> bool {
+    match command {
+        Command::Group { isolated, .. } => !*isolated,
+        Command::Shaped { object, .. } => is_a_non_isolated_group(object),
+        _ => false,
+    }
+}
+
 /// A part of a knockout group whose initial backdrop is transparent, as §11.3.6 makes it there:
 /// its blend mode has no effect, so it is Normal, and a group among the parts is isolated,
 /// because §11.4.6's NOTE 6 hands a non-isolated one the same transparent backdrop. `None` for a
@@ -2107,15 +2312,7 @@ fn knockout_construction(
     // can hand over. The two routes below that draw the elements on transparency cannot — there
     // an element's backdrop is the accumulation — so a group holding such an element goes
     // straight to the own-backdrop construction. ADR 1256, ADR 1265.
-    let nested_non_isolated = construction.commands.iter().any(|command| {
-        matches!(
-            command,
-            Command::Group {
-                isolated: false,
-                ..
-            }
-        )
-    });
+    let nested_non_isolated = construction.commands.iter().any(is_a_non_isolated_group);
     let backdrop_transparent = enclosing == Some(KnockoutKind::Isolated);
     if !nested_non_isolated
         && (group.isolated
@@ -2693,6 +2890,7 @@ impl Interpreter<'_> {
             &mut self.compositing,
             Compositing::Subtractive(crate::colour::Plane::Black, Arc::clone(press), spots),
         );
+        self.restart_reading_scope(inner.alpha_is_shape, mark);
         self.run(content, resources, inner);
         self.compositing = saved;
         self.rewind_readback(rewind);
@@ -2864,6 +3062,7 @@ impl Interpreter<'_> {
                 crate::colour::DeviceSpots::default(),
             ),
         );
+        self.restart_reading_scope(inner.alpha_is_shape, mark);
         self.run(content, resources, inner);
         self.compositing = saved;
         self.rewind_readback(rewind);
@@ -3039,11 +3238,7 @@ impl Interpreter<'_> {
         // And §11.6.4.3's `/AIS`, restored exactly rather than folded back: the record answers
         // "which readings did the elements of the group being built paint under", and a
         // mask's content is not an element of anything — its marks become one alpha per pixel.
-        let saved_ais = std::mem::replace(
-            &mut self.alpha_sources,
-            AlphaSourcesSeen::of(state.alpha_is_shape),
-        );
-        let saved_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
+        let saved_ais = self.open_reading_scope(inner.alpha_is_shape);
         // And the record of a space departure met on a subtractive run, for ADR 0276's
         // reason one construction over: a space declared inside a mask is answered by
         // §11.5.3's own derivation and says nothing about the group the `gs` sits in.
@@ -3090,12 +3285,21 @@ impl Interpreter<'_> {
         // the end and an opaque Normal mark carries its colour through whatever space it was
         // carried in. A mask's four components are converted to *one number* by §11.5.3's
         // `Y`, which is a function of all four however opaque the marks are.
-        let (commands, black) = self.mask_halves(request, &content, &group_resources, &inner, mark);
+        let (mut commands, mut black) =
+            self.mask_halves(request, &content, &group_resources, &inner, mark);
         self.leave_ledger_frame();
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
-        let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
-        self.alpha_sources_mark = saved_ais_mark;
+        let mask_readings = std::mem::replace(&mut self.readings, saved_ais);
+        let mask_alpha_sources = mask_readings.seen();
+        // A mask's list goes to a backend as it stands, so its seals come off here rather than
+        // with the page's (`unseal_list`).
+        if mask_readings.sealed() {
+            unseal(&mut commands, false);
+            if let Some(black) = black.as_mut() {
+                unseal(&mut black.commands, false);
+            }
+        }
         self.enclosing_knockout = saved_backdrop;
         self.blending_changed = saved_change;
         self.blending = saved_blending;
@@ -3288,10 +3492,10 @@ impl Interpreter<'_> {
             //
             // Drawn inline, the group's elements are the enclosing content's own, so the
             // readings they were painted under join its record.
-            self.fold_reading(alpha_sources, group_mark);
             for command in commands {
                 self.draw(command);
             }
+            self.absorb_reading(alpha_sources, group_mark);
             return;
         }
 
@@ -3322,8 +3526,8 @@ impl Interpreter<'_> {
         // the flag can reinterpret, so asking afterwards would answer a different question.
         let settled = alpha_sources.settled_over(&commands);
         let KnockoutConstruction {
-            commands,
-            pair,
+            mut commands,
+            mut pair,
             knockout,
             backdrop_composited,
             blend,
@@ -3410,10 +3614,10 @@ impl Interpreter<'_> {
         // which asks §11.4.6's knockout groups the same question as §11.4.4's since ADR 0554.
         let alpha_is_shape = group_alpha_is_shape(&commands, settled);
         // A group whose raster is its own shape is one element to the enclosing content
-        // whatever reading its content ran under, so only a group that is not joins the
-        // enclosing record with its readings (ADR 1306).
+        // whatever reading its content ran under (ADR 1306); one that is not is read under the
+        // reading at its `Do`, so content that ran under the other states its shapes first.
         if !alpha_is_shape {
-            self.fold_reading(alpha_sources, group_mark);
+            self.describe_group_by_its_do(alpha_sources, outer, &mut commands, &mut pair);
         }
         // §11.6.6's final compositing: the group's shape "shall then be painted into the
         // parent group or page, using the group's accumulated colour and opacity at each
@@ -3481,11 +3685,7 @@ impl Interpreter<'_> {
             && outer.blend == BlendMode::Normal
             && outer.soft_mask.is_none();
         let outer_ancestry = std::mem::replace(&mut self.opaque_ancestry, opaque_at_do);
-        let outer_ais = std::mem::replace(
-            &mut self.alpha_sources,
-            AlphaSourcesSeen::of(inner.alpha_is_shape),
-        );
-        let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
+        let outer_readings = self.open_reading_scope(inner.alpha_is_shape);
         // §11.7.5.3's second bullet, read off `outer` because that is the state at the `Do`:
         // "the rendering intent used shall be the current rendering intent in effect at the
         // time the `Do` operator is applied to the group". §11.6.6 has already reset the
@@ -3571,10 +3771,8 @@ impl Interpreter<'_> {
         self.opaque_ancestry = outer_ancestry;
         // The enclosing record comes back as it was: whether this group's readings join it is
         // a question about what the group *became*, which `run_transparency_group` answers
-        // once the command is built (`Interpreter::fold_reading`).
-        let ais_inside = self.alpha_sources;
-        self.alpha_sources = outer_ais;
-        self.alpha_sources_mark = outer_ais_mark;
+        // once the command is built.
+        let (ais_inside, _) = self.close_reading_scope(outer_readings);
         GroupRun {
             commands,
             pair,
@@ -3594,6 +3792,7 @@ impl Interpreter<'_> {
         mark: usize,
     ) -> Vec<Command> {
         let rewind = self.readback_mark();
+        self.restart_reading_scope(inner.alpha_is_shape, mark);
         self.run(content, resources, inner);
         self.rewind_readback(rewind);
         self.list.split_off_commands(mark)
@@ -3955,103 +4154,230 @@ impl Interpreter<'_> {
     }
 
     /// Records that the content being run now paints under §11.6.4.3's reading
-    /// `alpha_is_shape`, which a `gs` stating `/AIS` and a `Q` restoring a different one both
-    /// change: the entry is a graphics state parameter, so `Q` puts the reading back as it puts
-    /// back every other one.
+    /// `alpha_is_shape`, which a `gs` stating `/AIS`, a `Q` restoring a different one and the
+    /// end of a nested content stream all change: the entry is a graphics state parameter, so
+    /// `Q` puts the reading back as it puts back every other one, and §8.10.1's form ends with
+    /// the `Q` its `Do` began with the `q` of.
     ///
-    /// A reading nothing was painted under is replaced rather than mixed in — see
-    /// `Interpreter::alpha_sources_mark` — which is what lets a form that opens with the `gs`
-    /// stating `/AIS` be drawn instead of reported, and a `q`…`Q` that states it and paints
-    /// nothing leave the record as it found it. **Only a record of one reading is replaced**: a
-    /// record of both may hold a reading something *was* painted under before the mark, and
-    /// replacing it would forget that — the one direction a record may not err in, because a
-    /// reading forgotten is a knockout element's shape built from the wrong quantity, where a
-    /// reading kept too long is a report (ADR 1301).
+    /// Nothing is decided at the statement. What was painted under the reading being left is
+    /// joined to the record first ([`Self::settle_readings_until`]), and the new one is only
+    /// *in force*: a reading nothing is painted under never reaches the record, so a `q`…`Q`
+    /// that states it and paints nothing leaves the record as it found it (ADR 1319).
     pub(super) fn note_alpha_source(&mut self, alpha_is_shape: bool) {
-        let stated = AlphaSourcesSeen::of(alpha_is_shape);
-        let painted = self.list.command_count();
-        self.alpha_sources = if painted == self.alpha_sources_mark
-            && self.alpha_sources != AlphaSourcesSeen::Mixed
-        {
-            stated
-        } else {
-            self.alpha_sources.with(stated)
-        };
-        self.alpha_sources_mark = painted;
+        let now = self.list.command_count();
+        self.settle_readings_until(now);
+        self.readings.in_force = alpha_is_shape;
+        self.readings.since = now;
     }
 
-    /// Opens the record of §11.6.4.3's readings a combined fill and stroke's portions are
-    /// painted under, and answers the enclosing content's record for [`Self::close_parts_reading`].
+    /// Joins what was painted since the reading in force took force, up to `end`, to the
+    /// record under that reading.
     ///
-    /// §11.7.4.4's implicit group asks which reading its portions painted under, and the
-    /// enclosing content's history is the wrong question: both portions are painted under the
-    /// one graphics state in force at the operator, and what else can enter is a tiling
-    /// pattern's cell, whose own run folds its readings in here as it closes.
-    pub(super) fn open_parts_reading(&mut self, alpha_is_shape: bool) -> (AlphaSourcesSeen, usize) {
-        let outer = (self.alpha_sources, self.alpha_sources_mark);
-        self.alpha_sources = AlphaSourcesSeen::of(alpha_is_shape);
-        // No command count is this one, so a cell's run folds its reading in rather than
-        // replacing the operator's own.
-        self.alpha_sources_mark = usize::MAX;
-        outer
+    /// Only an element §11.6.4.3's flag reinterprets is a reading's to answer for
+    /// ([`flag_reinterprets_nothing`]): an opaque mark, or one that states its own shape, is
+    /// described by both, and a scope of such marks stated under both readings has painted
+    /// under neither.
+    ///
+    /// A record that already names the reading in force has nothing to learn from the range,
+    /// so it is not walked — which is every page that never states `/AIS`, once its first
+    /// translucent mark is joined.
+    pub(super) fn settle_readings_until(&mut self, end: usize) {
+        let since = self.readings.since;
+        let reading = AlphaSourcesSeen::of(self.readings.in_force);
+        let reinterpreted = self.readings.painted != Some(reading)
+            && end > since
+            && self.list.commands().get(since..end).is_some_and(|painted| {
+                painted
+                    .iter()
+                    .any(|command| !flag_reinterprets_nothing(command))
+            });
+        if reinterpreted {
+            self.join_reading(reading, since);
+        }
+        self.readings.since = end;
     }
 
-    /// Folds the portions' readings back into the enclosing content's record opened by
-    /// [`Self::open_parts_reading`] at the command count `mark`, the way a group's run does.
-    pub(super) fn close_parts_reading(&mut self, outer: (AlphaSourcesSeen, usize), mark: usize) {
-        let (outer_sources, outer_mark) = outer;
-        let parts = self.alpha_sources;
-        self.alpha_sources = if self.list.command_count() == mark {
-            outer_sources
-        } else if mark == outer_mark && outer_sources != AlphaSourcesSeen::Mixed {
-            parts
-        } else {
-            outer_sources.with(parts)
+    /// Joins elements painted under `reading`, the first of them at `boundary`, to the record
+    /// of the scope being run — sealing the elements before them where they were painted
+    /// under the other reading (ISO 32000-2 §11.6.4.3, §11.6.4.4, §11.4.6).
+    ///
+    /// This is where a scope that paints under both readings stays describable. Everything
+    /// the record holds before `boundary` was painted under the one reading it names, so each
+    /// such element can state its shape under that reading beside itself —
+    /// [`Command::Shaped`], §11.6.4.2's shape built from the quantity the element's own
+    /// reading makes shape — and is then described by both readings, since no flag can
+    /// reinterpret a shape that is no longer an input. The record then names the new reading
+    /// alone, and a knockout group built from the scope reads every element's shape under the
+    /// reading it was painted under. An element whose shape cannot be stated leaves the record
+    /// [`AlphaSourcesSeen::Mixed`], which is refused by that name where it is read.
+    fn join_reading(&mut self, reading: AlphaSourcesSeen, boundary: usize) {
+        let joined = match self.readings.painted {
+            None => reading,
+            Some(painted) if painted == reading => reading,
+            Some(AlphaSourcesSeen::Mixed) => AlphaSourcesSeen::Mixed,
+            Some(_) if reading == AlphaSourcesSeen::Mixed => AlphaSourcesSeen::Mixed,
+            Some(painted) => {
+                if self.seal_elements(self.readings.start, boundary, painted) {
+                    // Everything before the boundary is sealed or needs no seal, so the next
+                    // turn seals from here: each element is sealed once and moved once.
+                    self.readings.start = boundary;
+                    reading
+                } else {
+                    AlphaSourcesSeen::Mixed
+                }
+            }
         };
-        self.alpha_sources_mark = outer_mark;
+        self.readings.painted = Some(joined);
+    }
+
+    /// Seals the list's commands from `from` to `until` under `reading` ([`seal`]), and answers
+    /// whether every one that needed it could be.
+    pub(super) fn seal_elements(
+        &mut self,
+        from: usize,
+        until: usize,
+        reading: AlphaSourcesSeen,
+    ) -> bool {
+        let Some(alpha) = reading.settled() else {
+            return false;
+        };
+        let mut tail = self.list.split_off_commands(from);
+        let count = until.saturating_sub(from).min(tail.len());
+        let sealed = tail
+            .get_mut(..count)
+            .map(|elements| seal(elements, alpha, self.image_masks.shape_masks()));
+        // Put back one for one, so that every mark a caller holds into the list still names
+        // the command it named.
+        for command in tail {
+            self.list.push(command);
+        }
+        self.readings.sealed |= sealed.is_some_and(|sealed| sealed.any);
+        sealed.is_none_or(|sealed| sealed.every)
+    }
+
+    /// Joins a nested scope's elements, which begin at `from` and were painted under `inside`,
+    /// to the enclosing record — for a scope whose commands are the enclosing content's own
+    /// elements rather than one group that encloses them: a flattened group, a text object's
+    /// glyphs, a combined fill and stroke (ADR 1319).
+    pub(super) fn absorb_reading(&mut self, inside: AlphaSourcesSeen, from: usize) {
+        self.settle_readings_until(from);
+        let now = self.list.command_count();
+        let reinterpreted = self.list.commands().get(from..now).is_some_and(|painted| {
+            painted
+                .iter()
+                .any(|command| !flag_reinterprets_nothing(command))
+        });
+        if reinterpreted {
+            self.join_reading(inside, from);
+        }
+        self.readings.since = now;
+    }
+
+    /// The record's answer for the scope being run, with everything painted so far joined.
+    pub(super) fn settled_readings(&mut self) -> AlphaSourcesSeen {
+        let now = self.list.command_count();
+        self.settle_readings_until(now);
+        self.readings.seen()
+    }
+
+    /// Records that what the scope being run painted cannot be described by one reading.
+    pub(super) fn poison_readings(&mut self) {
+        self.readings.painted = Some(AlphaSourcesSeen::Mixed);
     }
 
     /// Opens a record of §11.6.4.3's readings for a scope whose content starts under
     /// `alpha_is_shape` at the current command count, and answers the enclosing record for
     /// [`Self::close_reading_scope`].
     ///
-    /// A tiling cell and a text object are such scopes: each paints under readings of its own —
-    /// a cell's is the one §8.7.3.1 installs rather than the painting mark's, and a text
-    /// object's are those in force at each of its glyphs — and which of them reach the
-    /// enclosing record is decided when the scope's commands are placed (ADR 1306).
-    pub(super) fn open_reading_scope(&mut self, alpha_is_shape: bool) -> (AlphaSourcesSeen, usize) {
-        let outer = (self.alpha_sources, self.alpha_sources_mark);
-        self.alpha_sources = AlphaSourcesSeen::of(alpha_is_shape);
-        self.alpha_sources_mark = self.list.command_count();
+    /// A tiling cell, a text object, a group's content and a combined fill and stroke are such
+    /// scopes: each paints under readings of its own — a cell's is the one §8.7.3.1 installs
+    /// rather than the painting mark's, a text object's are those in force at each of its
+    /// glyphs — and which of them reach the enclosing record is decided when the scope's
+    /// commands are placed (ADR 1306, ADR 1319).
+    pub(super) fn open_reading_scope(&mut self, alpha_is_shape: bool) -> Readings {
+        let at = self.list.command_count();
+        std::mem::replace(&mut self.readings, Readings::open(alpha_is_shape, at))
+    }
+
+    /// [`Self::open_reading_scope`], for a scope whose elements may become a knockout group's
+    /// — a text object under §9.3.8's `Tk`, or a fill and stroke under §11.7.4.4.
+    pub(super) fn open_knockout_reading_scope(&mut self, alpha_is_shape: bool) -> Readings {
+        let outer = self.open_reading_scope(alpha_is_shape);
+        self.readings.knockout_elements = true;
         outer
     }
 
     /// Closes a scope opened by [`Self::open_reading_scope`]: the enclosing record comes back
-    /// untouched, and the scope's own is the answer, for [`Self::fold_reading`] to join or not.
-    pub(super) fn close_reading_scope(
-        &mut self,
-        outer: (AlphaSourcesSeen, usize),
-    ) -> AlphaSourcesSeen {
-        let inside = self.alpha_sources;
-        (self.alpha_sources, self.alpha_sources_mark) = outer;
-        inside
+    /// untouched but for whether a seal was made, and the scope's own is the answer, with the
+    /// reading in force at its end — which a text object hands on, since §9.3.8 makes
+    /// "[c]hanges made to graphics state parameters within the text object ... persist beyond
+    /// the end of the text object".
+    pub(super) fn close_reading_scope(&mut self, outer: Readings) -> (AlphaSourcesSeen, bool) {
+        let inside = self.settled_readings();
+        let in_force = self.readings.in_force;
+        let sealed = self.readings.sealed;
+        self.readings = outer;
+        self.readings.sealed |= sealed;
+        (inside, in_force)
     }
 
-    /// Joins a nested scope's readings to the enclosing record, for a scope whose commands,
-    /// begun at `mark`, are the enclosing content's own elements rather than one element that
-    /// states its own shape.
+    /// Seals a finished group's elements under the reading `inside` their content ran under,
+    /// the black half of a pair beside them, and answers whether every one could be ([`seal`]).
     ///
-    /// Replaced rather than joined where the enclosing content had painted nothing since its
-    /// reading was last stated — the nested scope's readings are then the whole of what it has
-    /// painted under — except that a record of both readings is never replaced, for the reason
-    /// [`Self::note_alpha_source`] gives.
-    pub(super) fn fold_reading(&mut self, inside: AlphaSourcesSeen, mark: usize) {
-        self.alpha_sources =
-            if mark == self.alpha_sources_mark && self.alpha_sources != AlphaSourcesSeen::Mixed {
-                inside
-            } else {
-                self.alpha_sources.with(inside)
-            };
+    /// The two halves are two runs of one content stream and `paired` has already held them to
+    /// one structure, so both are sealed or neither is described.
+    pub(super) fn seal_group_content(
+        &mut self,
+        inside: AlphaSourcesSeen,
+        commands: &mut [Command],
+        pair: &mut Option<pdf_render::GroupBlending>,
+    ) -> bool {
+        let Some(alpha) = inside.settled() else {
+            return false;
+        };
+        let shape_masks = self.image_masks.shape_masks();
+        let chromatic = seal(commands, alpha, shape_masks);
+        let black = match pair.as_mut() {
+            Some(pdf_render::GroupBlending::FourComponents { black, .. }) => {
+                seal(black, alpha, shape_masks)
+            }
+            _ => Sealed {
+                every: true,
+                any: false,
+            },
+        };
+        self.readings.sealed |= chromatic.any || black.any;
+        chromatic.every && black.every
+    }
+
+    /// Makes a group whose raster is not its own shape an element the reading at its `Do`
+    /// describes (ISO 32000-2 §11.6.4.3, §11.6.4.4).
+    ///
+    /// Its own constant and mask are §11.6.4.4's and §11.6.4.3's inputs at the `Do`, read under
+    /// the reading in force there; its content is reached by whatever the enclosing content
+    /// asks of it, element by element, so content that ran under the other reading states its
+    /// shapes beside itself first. Where one cannot, the enclosing record says so (ADR 1319).
+    fn describe_group_by_its_do(
+        &mut self,
+        inside: AlphaSourcesSeen,
+        outer: &GraphicsState,
+        commands: &mut [Command],
+        pair: &mut Option<pdf_render::GroupBlending>,
+    ) {
+        if inside != AlphaSourcesSeen::of(outer.alpha_is_shape)
+            && !self.seal_group_content(inside, commands, pair)
+        {
+            self.poison_readings();
+        }
+    }
+
+    /// Starts the scope being run again from `at`, for a second run of the same content whose
+    /// first run's commands were taken off the list: the second has to make the same seals the
+    /// first did, which it can only do from the same start.
+    pub(super) fn restart_reading_scope(&mut self, alpha_is_shape: bool, at: usize) {
+        let sealed = self.readings.sealed;
+        self.readings = Readings::open(alpha_is_shape, at);
+        self.readings.sealed = sealed;
     }
 
     /// Reports the parts of §11.4 this group asks for and does not get.
@@ -4182,8 +4508,9 @@ impl Interpreter<'_> {
             } else if !isolated_by_clause && any_command(commands, &command_blends) {
                 "non-isolated, and an element blends with the backdrop it excludes"
             } else {
-                "/AIS was stated both ways while the content ran, and §11.6.4.3 gives the \
-                 mask and the alpha constants a different meaning under each"
+                "an element painted under the other reading of /AIS, whose shape could not be \
+                 stated beside it, and §11.6.4.3 gives the mask and the alpha constants a \
+                 different meaning under each"
             };
             self.note(Unsupported::TransparencyGroup {
                 detail: format!("knockout, and an element composites over another ({refusal})"),
@@ -5427,15 +5754,25 @@ mod tests {
         assert_close("the blue alone", page_pixel(&drawn, 15, 50), [0, 0, 255], 1);
     }
 
-    /// A record of both readings is kept, never replaced, because what it forgets is a reading
-    /// something was painted under. The blue shading at `ca ½` is painted under `/AIS false`,
-    /// the first red one under `true`; then `false` and `true` are stated with nothing painted
-    /// between them, and the second red one is painted under `true`. Replacing the record at
-    /// that last statement — its rule for a reading nothing was painted under — would forget the
-    /// blue's `false` and read its constant as shape; the group painted under both, with a
-    /// constant under each, and is reported by that name (ADR 1301).
+    /// A knockout group whose elements were painted under both readings of §11.6.4.3's `/AIS`
+    /// reads each element's constant under the reading it was painted under. §11.6.4.4: "the
+    /// AIS ('alpha is shape') entry in a graphics state parameter dictionary shall determine
+    /// whether the alpha constants are interpreted as shape values ( true ) or opacity values (
+    /// false )", and the entry is a graphics state parameter, so it is a fact of each element.
+    ///
+    /// The form's group is isolated and knockout, over a yellow page. The blue shading at
+    /// `ca ½` is painted under `/AIS false` — shape 1.0 in its clip, opacity ½ — and the two red
+    /// ones under `true`, the second after `false` and `true` were stated with nothing painted
+    /// between — each shape ½, opacity 1.0. On the transparent initial backdrop §11.4.6's two
+    /// stages come to `P' = (1 − f) × P + f × q × C` premultiplied. Where all three paint, the
+    /// blue leaves `(0, 0, ½)` at ½, the first red `(½, 0, ¼)` at ¾, the second `(¾, 0, ⅛)` at ⅞,
+    /// and §11.4.7 composites that over yellow: `(⅞, ⅛, ⅛)`, `(223, 32, 32)`. Where only the
+    /// blue and the first red paint it is `(¾, ¼, ¼)`, `(191, 64, 64)`. Read under one reading
+    /// for the whole group — opacity, the entry's default — the reds would be shape 1.0 at
+    /// opacity ½ and draw `(255, 128, 0)` at both; the record of both readings refused the
+    /// group by name and drew it flat (ADR 1301, ADR 1319).
     #[test]
-    fn a_record_of_both_readings_is_not_forgotten() {
+    fn a_knockout_group_reads_each_element_under_the_alpha_source_it_was_painted_under() {
         let axial = |colour: &str| {
             format!(
                 "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
@@ -5454,14 +5791,24 @@ mod tests {
              /GO gs /GA gs q 30 30 40 40 re W n /Sr sh Q",
             &[],
         ));
-        assert!(
-            drawn.unsupported.iter().any(|report| matches!(
-                report,
-                crate::content::report::Unsupported::TransparencyGroup { detail }
-                    if detail.contains("/AIS was stated both ways")
-            )),
-            "content painted under both readings is reported by that name: {:?}",
-            drawn.unsupported
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "all three elements, each read under its own reading",
+            page_pixel(&drawn, 50, 50),
+            [223, 32, 32],
+            2,
+        );
+        assert_close(
+            "the blue and the first red",
+            page_pixel(&drawn, 25, 50),
+            [191, 64, 64],
+            2,
+        );
+        assert_close(
+            "the blue alone, half over yellow",
+            page_pixel(&drawn, 15, 50),
+            [128, 128, 128],
+            2,
         );
     }
 
@@ -5523,26 +5870,117 @@ mod tests {
         assert_close("the fill alone", page_pixel(&drawn, 50, 50), [0, 255, 0], 1);
     }
 
-    /// A cell painted under the other reading than the mark, whose raster is not its own shape,
-    /// is refused by name rather than read under the mark's reading. The page states `/AIS true`
-    /// and the cell, starting from §8.7.3.1's state, does not, so its red at `ca ½` is opacity;
-    /// the stroke's shape is then 1.0 where it covers the fill, which a pair read under the
-    /// mark's `true` would have drawn at ½ — `(128, 128, 0)` where the clause gives
-    /// `(255, 128, 128)`, without a word (ADR 1306).
+    /// A white page invoking a form `XObject`, with no group, under `/GA`'s `/AIS true` and
+    /// `ca ½`; the form fills and strokes one path with `B`, the stroke through `/P`, a tiling
+    /// pattern named in the *form's* resources whose one cell the size of the page is `cell`
+    /// under a `/Gc` stating `ca ½`.
+    fn form_tiling_fixture(cell: &str) -> Vec<u8> {
+        objects_fixture(&[
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+              /Resources << /ExtGState << /GA << /AIS true /ca 0.5 >> >> \
+              /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>"
+                .to_vec(),
+            stream("", b"/GA gs /Fm Do"),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+                 /Resources << /Pattern << /P 6 0 R >> >>",
+                b"0 1 0 rg /Pattern CS /P SCN 20 w 20 20 60 60 re B",
+            ),
+            stream(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 \
+                 /BBox [0 0 100 100] /XStep 100 /YStep 100 \
+                 /Resources << /ExtGState << /Gc << /ca 0.5 >> >> >>",
+                cell.as_bytes(),
+            ),
+        ])
+    }
+
+    /// A pattern named inside a form starts from the form's graphics state at its `Do`, with
+    /// §11.6.7's transparency parameters reset and nothing else. §8.7.3.1's second step:
+    ///
+    /// > Installs the graphics state that was in effect at the beginning of the pattern's
+    /// > parent content stream, with the current transformation matrix altered by the pattern
+    /// > matrix as described in 8.7.2, "General properties of patterns"
+    ///
+    /// and §8.7.2 names the form's space "at the time the form is painted with the Do
+    /// operator" as that stream's. §11.6.7 resets "blend mode, soft mask, and alpha constant",
+    /// which leaves `/AIS true` in force in the cell, so the cell's own `ca ½` is shape
+    /// (§11.6.4.4). The form paints under the page's `/GA`: its green fill at `ca ½` is shape
+    /// ½ at opacity 1, and its stroke is the cell's red at shape ½, opacity 1.
+    ///
+    /// §11.7.4.4's knockout pair over the white page, by §11.4.6's two stages: the fill alone
+    /// is `½ × green + ½ × white = (128, 255, 128)`; the stroke over it composites with the
+    /// initial backdrop (red, since its opacity is 1) and takes half of that against the
+    /// fill's result, `½ × (½, 1, ½) + ½ × red = (191, 128, 64)`; outside the fill it takes half
+    /// against white, `(255, 128, 128)`. The cell started from §8.4's initial state read its
+    /// constant as opacity, and the pair's record of both readings refused it by name.
+    ///
+    /// The second cell states no constant, which is where §11.6.7's reset shows: the form's
+    /// `ca ½` does not reach it, so the stroke is opaque red of shape 1 and knocks the fill out
+    /// whole, `(255, 0, 0)` — a cell that inherited the constant would draw `(191, 128, 64)`.
     #[test]
-    fn a_cell_under_the_other_reading_that_is_not_its_own_shape_is_refused() {
+    fn a_pattern_in_a_form_starts_from_the_forms_state_at_its_do() {
+        let drawn = interpret_fixture(form_tiling_fixture("/Gc gs 1 0 0 rg 0 0 100 100 re f"));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "the stroke over the fill it half knocks out",
+            page_pixel(&drawn, 25, 50),
+            [191, 128, 64],
+            1,
+        );
+        assert_close(
+            "the stroke outside the fill, over the white page",
+            page_pixel(&drawn, 15, 50),
+            [255, 128, 128],
+            1,
+        );
+        assert_close(
+            "the fill alone, at shape ½",
+            page_pixel(&drawn, 50, 50),
+            [128, 255, 128],
+            1,
+        );
+
+        let reset = interpret_fixture(form_tiling_fixture("1 0 0 rg 0 0 100 100 re f"));
+        assert!(reset.is_complete(), "{:?}", reset.unsupported);
+        assert_close(
+            "the form's constant does not reach the cell",
+            page_pixel(&reset, 25, 50),
+            [255, 0, 0],
+            1,
+        );
+    }
+
+    /// A cell painted under the other reading than the mark, whose raster is not its own shape,
+    /// is read under its own. The page states `/AIS true` and the cell, starting from §8.7.3.1's
+    /// state — the page's initial one, since the pattern is the page's — does not, so its red
+    /// at `ca ½` is opacity; the stroke's shape is then 1.0 where it covers the green fill, which
+    /// it knocks out whole and composites with the white page alone: `½ × red + ½ × white =
+    /// (255, 128, 128)`, inside the fill and out. A pair read under the mark's `true` would have
+    /// drawn `(128, 128, 0)` at the first; the record of both readings refused it by name
+    /// (ADR 1306, ADR 1319).
+    #[test]
+    fn a_cell_under_the_other_reading_that_is_not_its_own_shape_is_read_under_its_own() {
         let drawn = interpret_fixture(tiling_pair_fixture(
             "/GT gs 0 1 0 rg /Pattern CS /P SCN 20 w 20 20 60 60 re B",
             "/Gc gs 1 0 0 rg 0 0 100 100 re f",
         ));
-        assert!(
-            drawn.unsupported.iter().any(|report| matches!(
-                report,
-                crate::content::report::Unsupported::CompositedInParts { .. }
-            )),
-            "the pair is refused by name: {:?}",
-            drawn.unsupported
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "the stroke over the fill it knocks out",
+            page_pixel(&drawn, 25, 50),
+            [255, 128, 128],
+            1,
         );
+        assert_close(
+            "the stroke outside the fill",
+            page_pixel(&drawn, 15, 50),
+            [255, 128, 128],
+            1,
+        );
+        assert_close("the fill alone", page_pixel(&drawn, 50, 50), [0, 255, 0], 1);
     }
 
     /// A part painted through a tiling pattern composites by its cell's own marks, which the
@@ -5604,6 +6042,224 @@ mod tests {
             )),
             "the glyph's fill and stroke are one knockout group: {:?}",
             drawn.display_list.commands()
+        );
+    }
+
+    /// A white page showing two `I`s of Helvetica at 60 points, the second 3 units right of the
+    /// first, filled through `/P`, a tiling pattern whose one cell the size of the page paints
+    /// `cell` under a `/Gc` stating `ca ½`.
+    fn tiled_text_fixture(cell: &str) -> Vec<u8> {
+        objects_fixture(&[
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+              /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> \
+              >> /Pattern << /P 5 0 R >> >> /Contents 4 0 R >>"
+                .to_vec(),
+            stream(
+                "",
+                b"/Pattern cs /P scn BT /F1 60 Tf 10 30 Td (I) Tj 3 0 Td (I) Tj ET",
+            ),
+            stream(
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 \
+                 /BBox [0 0 100 100] /XStep 100 /YStep 100 \
+                 /Resources << /ExtGState << /Gc << /ca 0.5 >> >> >>",
+                cell.as_bytes(),
+            ),
+        ])
+    }
+
+    /// A text object whose glyphs composite only through their tiling cell is §9.3.8's knockout
+    /// group all the same. The clause:
+    ///
+    /// > If the parameter is true , the behaviour shall be equivalent to treating the entire
+    /// > text object as if it were a non-isolated knockout transparency group; see 11.4.6,
+    /// > "Knockout groups" where each glyph is an individual element in that group's
+    /// > transparency stack. When glyphs overlap, later glyphs shall overwrite ("knock out")
+    /// > earlier ones in the area of overlap.
+    ///
+    /// and §11.6.7 makes what the cell evaluates to the glyph's own "object opacity ( qi )", so
+    /// each `I` below is red at opacity ½ although the state at the `Tj` is opaque. Where the
+    /// two overlap the second knocks the first out and composites with the white page alone,
+    /// `½ × red + ½ × white = (255, 128, 128)` — the value where one glyph paints — and the two
+    /// composited one over the other, as a state of opacity 1.0 left them, give `(255, 64, 64)`
+    /// without a word.
+    #[test]
+    fn glyphs_translucent_through_their_cell_knock_one_another_out() {
+        let drawn = interpret_fixture(tiled_text_fixture("/Gc gs 1 0 0 rg 0 0 100 100 re f"));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert!(
+            drawn
+                .display_list
+                .commands()
+                .iter()
+                .any(|command| matches!(command, Command::Group { knockout: true, .. })),
+            "the text object is one knockout group: {:?}",
+            drawn.display_list.commands()
+        );
+        assert_close(
+            "the second glyph over the first, which it knocks out",
+            page_pixel(&drawn, 20, 50),
+            [255, 128, 128],
+            1,
+        );
+        assert_close(
+            "the first glyph alone",
+            page_pixel(&drawn, 16, 50),
+            [255, 128, 128],
+            1,
+        );
+        assert_close(
+            "between the glyphs' stems",
+            page_pixel(&drawn, 30, 50),
+            [255, 255, 255],
+            1,
+        );
+    }
+
+    /// §9.3.8's group reads each glyph under the `/AIS` it was shown under. Two `I`s of red at
+    /// `ca ½` on white, the second 3 units right of the first: one shown under `false` — shape
+    /// 1.0, opacity ½ — and one under `true` — shape ½, opacity 1.0 — in both orders.
+    ///
+    /// The text object is "a non-isolated knockout transparency group", so each glyph composites
+    /// with the white page and then takes its shape's share against what is under it (§11.4.6).
+    /// Opacity then shape: the first leaves `(1, ½, ½)`, and the second, red over white at
+    /// opacity 1, takes half against it — `(1, ¼, ¼)`, `(255, 64, 64)` — where reading both as
+    /// opacity knocks the first out and draws `(255, 128, 128)`. Shape then opacity: the first
+    /// leaves the same `(1, ½, ½)`, and the second's shape of 1.0 replaces it with red at ½
+    /// over white, `(255, 128, 128)`, where reading both as shape draws `(255, 64, 64)`. Where
+    /// one glyph paints alone it is `(255, 128, 128)` under either. The record of both
+    /// readings refused the object by name and drew the glyphs flat (ADR 1319).
+    #[test]
+    fn a_text_objects_glyphs_are_each_read_under_the_alpha_source_they_were_shown_under() {
+        let resources = "/ExtGState << /GH << /ca 0.5 >> /GT << /AIS true >> \
+                         /GF << /AIS false >> >> \
+                         /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >>";
+        for (content, overlap) in [
+            (
+                "/GH gs 1 0 0 rg BT /F1 60 Tf 10 30 Td (I) Tj /GT gs 3 0 Td (I) Tj ET",
+                [255, 64, 64],
+            ),
+            (
+                "/GH gs /GT gs 1 0 0 rg BT /F1 60 Tf 10 30 Td (I) Tj /GF gs 3 0 Td (I) Tj ET",
+                [255, 128, 128],
+            ),
+        ] {
+            let drawn = interpret_fixture(page_fixture(resources, content));
+            assert!(drawn.is_complete(), "{content}: {:?}", drawn.unsupported);
+            assert_close(content, page_pixel(&drawn, 20, 50), overlap, 1);
+            assert_close(content, page_pixel(&drawn, 16, 50), [255, 128, 128], 1);
+            assert_close(content, page_pixel(&drawn, 23, 50), [255, 128, 128], 1);
+        }
+    }
+
+    /// A group nested in a knockout group, whose content ran under the other reading and whose
+    /// raster is not its shape, is read under the reading its content ran under.
+    ///
+    /// The outer form is an isolated knockout group over white: a blue fill at `ca ½` under
+    /// `/AIS false` — shape 1.0, opacity ½ — and then an isolated group whose content states
+    /// `/AIS true` and `ca`/`CA ½` and fills red and strokes blue with one `B`. Inside it the
+    /// fill is shape ½ at opacity 1 and so is the stroke, and §11.7.4.4's knockout pair makes the
+    /// group's raster *not* its shape — the group's shape is their union, its alpha the pair's
+    /// accumulation.
+    ///
+    /// On the outer group's transparent backdrop §11.4.6 is `P' = (1 − f) × P + S`. The blue
+    /// leaves `(0, 0, ½)` at ½. Where the red fills alone the inner group is red at alpha ½ over
+    /// a shape of ½, so `P' = ½ × (0, 0, ½) + (½, 0, 0)`, `(½, 0, ¼)` at ¾, and over white
+    /// `(¾, ¼, ½)` — `(191, 64, 128)`. Where the stroke covers the fill the inner group is
+    /// `(¼, 0, ½)` at ¾ over a shape of ¾, so `(¼, 0, ⅝)` at ⅞ and over white `(96, 32, 191)`;
+    /// that pixel drew `(64, 0, 191)` while the group's shape was its elements' stated shapes
+    /// knocked out bare, which weights by coverage and replaced the union.
+    /// The inner content's constants read as opacity would make the group's shape 1.0 and knock
+    /// the blue out, `(255, 128, 128)` where the red fills alone; the record of both readings
+    /// refused the outer group by name (ADR 1319).
+    #[test]
+    fn a_group_under_the_other_reading_whose_raster_is_not_its_shape_is_read_under_its_own() {
+        let drawn = interpret_fixture(objects_fixture(&[
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+              /Resources << /XObject << /K 5 0 R >> >> /Contents 4 0 R >>"
+                .to_vec(),
+            stream("", b"/K Do"),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+                 /Group << /S /Transparency /I true /K true >> \
+                 /Resources << /ExtGState << /GH << /ca 0.5 /CA 0.5 >> >> \
+                 /XObject << /G 6 0 R >> >>",
+                b"q /GH gs 0 0 1 rg 10 10 80 80 re f Q /G Do",
+            ),
+            stream(
+                "/Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+                 /Group << /S /Transparency /I true >> \
+                 /Resources << /ExtGState << /GH << /ca 0.5 /CA 0.5 >> \
+                 /GT << /AIS true >> >> >>",
+                b"/GT gs /GH gs 1 0 0 rg 0 0 1 RG 20 w 30 30 40 40 re B",
+            ),
+        ]));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "the red fill alone over the blue",
+            page_pixel(&drawn, 50, 50),
+            [191, 64, 128],
+            2,
+        );
+        assert_close(
+            "the stroke over the fill, over the blue",
+            page_pixel(&drawn, 35, 50),
+            [96, 32, 191],
+            2,
+        );
+        // The stroke outside the fill: `½ × (0, 0, ½) + (0, 0, ½)` at ¾ over white.
+        assert_close(
+            "the stroke alone, over the blue",
+            page_pixel(&drawn, 25, 50),
+            [64, 64, 255],
+            2,
+        );
+    }
+
+    /// A glyph painted through a cell of two marks is *one* element of §9.3.8's knockout group,
+    /// so the cell's marks composite with one another and the glyphs knock one another out.
+    ///
+    /// §11.6.7 makes the pattern "implicitly enclosed in a non-isolated transparency group: a
+    /// non-knockout group for tiling patterns", and §9.3.8 makes "each glyph ... an individual
+    /// element in that group's transparency stack". The cell paints red at `ca ½` over its
+    /// lower half and blue at `ca ½` over its upper, overlapping on `y ∈ [40, 50]`. Inside the
+    /// first glyph there the cell composites blue over red over white, `(½, ¼, ¾)` —
+    /// `(128, 64, 191)` — and where the second glyph covers the first it knocks it out and shows
+    /// the same. Tiles standing inline as elements of their own had the blue knock the red out
+    /// inside one glyph, `(128, 128, 255)`; the glyphs composited over one another instead of
+    /// knocking out give `(96, 16, 175)` at the overlap.
+    #[test]
+    fn a_glyphs_tiles_are_one_element_of_the_text_objects_knockout_group() {
+        let drawn = interpret_fixture(tiled_text_fixture(
+            "/Gc gs 1 0 0 rg 0 0 100 50 re f 0 0 1 rg 0 40 100 60 re f",
+        ));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "the cell's two marks, composited inside one glyph",
+            page_pixel(&drawn, 16, 55),
+            [128, 64, 191],
+            1,
+        );
+        assert_close(
+            "the second glyph over the first, which it knocks out",
+            page_pixel(&drawn, 20, 55),
+            [128, 64, 191],
+            1,
+        );
+        assert_close(
+            "the red alone",
+            page_pixel(&drawn, 16, 65),
+            [255, 128, 128],
+            1,
+        );
+        assert_close(
+            "the blue alone",
+            page_pixel(&drawn, 16, 45),
+            [128, 128, 255],
+            1,
         );
     }
 

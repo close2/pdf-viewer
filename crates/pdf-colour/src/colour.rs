@@ -2717,6 +2717,19 @@ impl ColourSpace {
             .unwrap_or_else(|| srgb_to_xyz_d50(space.to_rgb_at(values, depth, rendering)))
     }
 
+    /// ISO 32000-2 §10.8.3 step b) for one separation painted in this space at `values`: its flat
+    /// XYZ divided by the matte's white, the factor it enters step c)'s multiply as.
+    ///
+    /// The separation's XYZ is [`Self::flat_xyz`]'s — the space's own where it states one and
+    /// this processor's CIE definition of a device space where it does not (§10.3.2, ADR 0009) —
+    /// taken under `rendering`, and the white is D50's, the one every XYZ in this crate is
+    /// relative to. `simulated_xyz` states why the product is taken in that unit.
+    #[must_use]
+    pub fn flat_ratio(&self, values: &[f32], rendering: Rendering) -> [f32; 3] {
+        let xyz = Self::flat_xyz(self, values, 0, rendering);
+        std::array::from_fn(|axis| xyz[axis] / D50[axis])
+    }
+
     /// Reads an `ICCBased` space: ISO 32000-2 §8.6.5.5, Table 65.
     ///
     /// Three answers in the order the clause ranks them — the profile, the `/Alternate`, and the
@@ -5361,6 +5374,60 @@ fn adapt(xyz: [f32; 3], from: [f32; 3], to: [f32; 3]) -> [f32; 3] {
         }
     }
     transform(&BRADFORD_INVERSE, cone)
+}
+
+/// ISO 32000-2 §10.8.3's two conversions around step c)'s multiply, sampled for a backend:
+/// step b) of the process separation, from the device colour its pair resolves to, and step d),
+/// from the multiplied result to the device.
+///
+/// Both are relative to the matte's white — step b)'s "background matte of all white", which is
+/// the 1.0 of Table 136's multiply — so the first ends in `XYZ ÷ D50` and the second begins
+/// there. Each is this crate's one conversion between the device and XYZ — [`srgb_to_xyz_d50`]
+/// and [`xyz_d50_to_srgb`] — split where [`pdf_render::ColourCube`] carries a conversion: the
+/// device's decoding on the input curves, the linear map in a grid of side two, which
+/// interpolates a linear map exactly, and the encoding on the output curve. The process
+/// separation goes through the device colour rather than straight from its four components
+/// because that is the route [`ColourSpace::flat_ratio`] gives a `DeviceCMYK` separation, so a
+/// page separated into planes and one painting operation simulated alone take one conversion
+/// between them (trap 6). Built once, on first use.
+#[must_use]
+pub fn separation_conversions() -> &'static (pdf_render::ColourCube, pdf_render::ColourCube) {
+    static CONVERSIONS: OnceLock<(pdf_render::ColourCube, pdf_render::ColourCube)> =
+        OnceLock::new();
+    CONVERSIONS.get_or_init(|| {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "an index below the sample count"
+        )]
+        let at = |index: usize, count: usize| index as f32 / count.saturating_sub(1) as f32;
+        let identity_in: Arc<[[f32; 3]]> = Arc::from(vec![[0.0; 3], [1.0; 3]]);
+        let identity_out: Arc<[f32]> = Arc::from(vec![0.0, 1.0]);
+        let decode: Vec<[f32; 3]> = (0..INWARD_INPUT_SAMPLES)
+            .map(|index| [degamma(at(index, INWARD_INPUT_SAMPLES)); 3])
+            .collect();
+        let to_flat = corners(|linear| {
+            let xyz = linear_srgb_to_xyz_d50(linear);
+            std::array::from_fn(|axis| xyz[axis] / D50[axis])
+        });
+        let to_device = corners(|ratio| {
+            xyz_d50_to_linear_srgb(std::array::from_fn(|axis| ratio[axis] * D50[axis]))
+        });
+        let encode: Vec<f32> = (0..RGB_OUTPUT_SAMPLES)
+            .map(|index| gamma(at(index, RGB_OUTPUT_SAMPLES)))
+            .collect();
+        let process_to_flat = pdf_render::ColourCube::new(
+            Arc::from(decode),
+            2,
+            Arc::from(to_flat),
+            Arc::clone(&identity_out),
+        );
+        let flat_to_device =
+            pdf_render::ColourCube::new(identity_in, 2, Arc::from(to_device), Arc::from(encode));
+        match (process_to_flat, flat_to_device) {
+            (Some(process_to_flat), Some(flat_to_device)) => (process_to_flat, flat_to_device),
+            _ => unreachable!("two curves of at least two samples and a grid of eight corners"),
+        }
+    })
 }
 
 /// Converts a D50 XYZ to sRGB.

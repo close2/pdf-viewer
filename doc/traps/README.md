@@ -94,6 +94,8 @@ machinery, and those are not indexed here.
 | 48 | you delete a by-name refusal and promise the page it named will now compare | run the witness page first: the refusal that stood behind it takes over (an implicit Multiply group did, ADR 1295) | pixels |
 | 49 | you sweep how a citation is spelled (`§N` → "section N", a document's name moved) | run `cargo test -p conformance --test conformance every_quotation` after every chunk: a respelling silently un-attributes the blockquotes that cited through it, and two fell through to an unrelated ISO clause (ADR 1314) | instruments |
 | 50 | you A/B two exported trees that share a `CARGO_TARGET_DIR` | cargo hashes path dependencies relative to the workspace root, so the trees reuse each other's artifacts by mtime and the "after" binary can be the "before" one; separate target directories, and `md5sum` the two binaries before measuring | instruments |
+| 51 | you add a second caller to a helper that runs per pixel | the compiler can stop inlining it and nothing in the source looks hot (+4.9% on a CMYK page, ADR 1317); diff callgrind per function after adding the caller, and put the number beside any `#[inline(always)]` | pixels |
+| 52 | you draw a bare knockout element with a Porter-Duff mode through a clip mask | `tiny-skia` scales the source by the mask instead of interpolating, so the accumulation near the clip's edge is cleared (ADR 1319); test every bare-draw-with-a-mode route with a clip that cuts the mark | pixels |
 
 **Two are not optional for the round they are about.** If this round can change a pixel, **trap 1**
 is the one that has paid every session since the tenth. If this round adds a report, **trap 11** is

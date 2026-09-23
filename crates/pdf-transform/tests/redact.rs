@@ -488,11 +488,10 @@ fn a_painted_path_clear_of_the_region_is_byte_identical() {
 /// A stroked path meeting the region is cut as the **outline** it marks (§8.5.3.2), and the
 /// proof is in pixels: outside the region the page is identical, inside it nothing is drawn.
 ///
-/// The one fixture property that carries the argument is that the outline here is *exact*. A
+/// The fixture's outline is *exact*, which is what lets the assertion be byte equality: a
 /// straight segment offset by half the line width, closed by butt caps and turned by miter
-/// joins, is computed in closed form — so the marks outside the region are the producer's own
-/// and not an approximation of them, which is what `redact::stroke_outline` admits and what
-/// `paths::is_polygonal` checks of the expansion's output.
+/// joins, is computed in closed form. An outline holding an arc is fitted within a bound instead,
+/// and `a_stroke_whose_outline_holds_an_arc_is_cut_at_the_region_edge` holds it to that.
 #[test]
 fn a_stroked_path_is_cut_as_the_outline_it_marks() {
     let content = "0 0 0 RG 2 w 0 J 0 j 20 50 m 120 50 l S";
@@ -547,27 +546,170 @@ fn a_stroked_path_is_cut_as_the_outline_it_marks() {
     );
 }
 
-/// A stroke whose outline holds an arc is refused by name: §8.4.3.3's round cap and §8.4.3.4's
-/// round join are circular, an expansion can only approximate them, and replacing the producer's
-/// marks *outside* the region with an approximation is what the refusal exists to prevent.
+/// The distance from `point` to the segment `from`–`to`, all in default user space.
+fn distance_to_segment(point: (f64, f64), from: (f64, f64), to: (f64, f64)) -> f64 {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let along = ((point.0 - from.0) * dx + (point.1 - from.1) * dy) / (dx * dx + dy * dy);
+    let t = along.clamp(0.0, 1.0);
+    (point.0 - (from.0 + t * dx)).hypot(point.1 - (from.1 + t * dy))
+}
+
+/// The eight-bit grey a pixel of [`pixels`]' raster owes, from the fraction of it `inside`
+/// covers — black ink on white paper, sampled on a 32 × 32 grid, which is a quarter of an
+/// eight-bit step at worst. `inside` is asked in default user space (trap 12a's flip).
+fn exact_grey(x: u32, y: u32, inside: &dyn Fn(f64, f64) -> bool) -> f64 {
+    let to_user = 72.0 / 150.0;
+    let mut covered = 0_u32;
+    for row in 0..32 {
+        for column in 0..32 {
+            let px = f64::from(x) + (f64::from(column) + 0.5) / 32.0;
+            let py = f64::from(y) + (f64::from(row) + 0.5) / 32.0;
+            if inside(px * to_user, 200.0 - py * to_user) {
+                covered += 1;
+            }
+        }
+    }
+    255.0 - 255.0 * f64::from(covered) / 1024.0
+}
+
+/// Holds the redacted page to the clause's own geometry outside the region, and asserts that
+/// every pixel inside it is unmarked and that the original did mark it.
+///
+/// `inside` is the stroke §8.5.3.2 describes, stated from §8.4.3's parameters directly — the
+/// set of points within half the line width of the path, closed off as the cap style says — so
+/// the reference is the clause and neither backend. Every pixel outside the region that the
+/// redaction changed has to be within two steps of that reference, and no further from it than
+/// the original page was: the redacted page may re-resolve an edge pixel towards the geometry,
+/// and a mark that moved fails both.
+fn held_to_the_geometry_outside(before: &[u8], after: &[u8], inside: &dyn Fn(f64, f64) -> bool) {
+    let before = pixels(before);
+    let after = pixels(after);
+    let scale = 150.0_f32 / 72.0;
+    let (left, right) = (60.0 * scale, 140.0 * scale);
+    let (top, bottom) = ((200.0 - 80.0) * scale, (200.0 - 30.0) * scale);
+    let stride = before.width as usize * 4;
+    let mut marked = false;
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let at = y as usize * stride + x as usize * 4;
+            let (fx, fy) = (x as f32, y as f32);
+            if fx > left + 1.0 && fx < right - 1.0 && fy > top + 1.0 && fy < bottom - 1.0 {
+                marked |= before.data[at] != 0xFF;
+                assert_eq!(
+                    &after.data[at..at + 3],
+                    &[0xFF, 0xFF, 0xFF],
+                    "a pixel at ({x}, {y}) inside the region is still marked"
+                );
+            } else if (fx < left - 1.0 || fx > right + 1.0 || fy < top - 1.0 || fy > bottom + 1.0)
+                && after.data[at..at + 4] != before.data[at..at + 4]
+            {
+                let exact = exact_grey(x, y, inside);
+                let drawn = f64::from(after.data[at]);
+                let original = f64::from(before.data[at]);
+                assert!(
+                    (drawn - exact).abs() <= 2.0
+                        && (drawn - exact).abs() <= (original - exact).abs() + 1.0,
+                    "a pixel at ({x}, {y}) outside the region moved from {original} to {drawn}, \
+                     where the stroke's own geometry covers it to {exact:.1}"
+                );
+            }
+        }
+    }
+    assert!(
+        marked,
+        "the original marks the region, so the test can fail"
+    );
+}
+
+/// What a stroke marks, as a predicate on a point of default user space.
+type Marks<'a> = &'a dyn Fn(f64, f64) -> bool;
+
+/// A stroke whose outline holds an arc is cut as that outline (§8.4.3.3, §8.4.3.4, §8.5.2.2):
+/// a round cap, a round join and a stroked curve each lose their marks inside the region, and
+/// the centre line that described the removed marks is gone from the file.
+///
+/// Outside the region the arc is written back as cubics within `redact::ARC_TOLERANCE` of it,
+/// and the test holds those pixels to the stroke the clauses describe rather than to the
+/// oracle's own expansion of it: §8.4.3.3's "semicircular arc with a diameter equal to the line
+/// width" around the endpoint, and for the curve every point within half the width of §8.5.2.2's
+/// polynomial, sampled finely enough that the chord departs from it by a thousandth of a pixel.
+/// Where the two pages differ, it is the redacted one that is the nearer to that geometry.
 #[test]
-fn a_stroke_with_a_round_cap_in_the_region_refuses_the_page() {
-    let content = "0 0 0 RG 2 w 1 J 20 50 m 120 50 l S";
-    let bytes = build(
-        content,
-        &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
-    );
-    let (report, out) = redact(&bytes);
-    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
-    assert!(
-        report.refused[0].detail.contains("§8.5.3.2"),
-        "the refusal names the clause: {}",
-        report.refused[0].detail
-    );
-    assert!(
-        contains(&out, b"20 50 m 120 50 l S"),
-        "a refused page keeps its content"
-    );
+fn a_stroke_whose_outline_holds_an_arc_is_cut_at_the_region_edge() {
+    // The curve's centre line, 400 chords of §8.5.2.2's cubic.
+    let bezier = |t: f64| {
+        let points = [(20.0, 40.0), (30.0, 75.0), (50.0, 75.0), (100.0, 45.0)];
+        let u = 1.0 - t;
+        let weights = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+        points
+            .iter()
+            .zip(weights)
+            .fold((0.0, 0.0), |sum, (point, weight)| {
+                (sum.0 + weight * point.0, sum.1 + weight * point.1)
+            })
+    };
+    let chords: Vec<(f64, f64)> = (0..=400)
+        .map(|step| bezier(f64::from(step) / 400.0))
+        .collect();
+    let round_cap =
+        |x: f64, y: f64| distance_to_segment((x, y), (20.0, 50.0), (120.0, 50.0)) <= 3.0;
+    let round_join = |x: f64, y: f64| {
+        let first = ((20.0, 20.0), (60.0, 55.0));
+        let second = ((60.0, 55.0), (20.0, 90.0));
+        // Butt caps: a point is marked where it lies within half the width of a segment and
+        // between the two perpendiculars through its ends, or within the join's disc.
+        let beside = |(from, to): ((f64, f64), (f64, f64))| {
+            let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+            let along = ((x - from.0) * dx + (y - from.1) * dy) / (dx * dx + dy * dy);
+            (0.0..=1.0).contains(&along) && distance_to_segment((x, y), from, to) <= 3.0
+        };
+        beside(first) || beside(second) || (x - 60.0).hypot(y - 55.0) <= 3.0
+    };
+    let curve = |x: f64, y: f64| {
+        chords
+            .windows(2)
+            .any(|chord| distance_to_segment((x, y), chord[0], chord[1]) <= 3.0)
+    };
+    let cases: [(&str, &str, &str, Marks); 3] = [
+        (
+            "a round cap",
+            "0 0 0 RG 6 w 1 J 0 j 20 50 m 120 50 l S",
+            "20 50 m 120 50 l S",
+            &round_cap,
+        ),
+        (
+            "a round join",
+            "0 0 0 RG 6 w 0 J 1 j 20 20 m 60 55 l 20 90 l S",
+            "20 20 m 60 55 l 20 90 l S",
+            &round_join,
+        ),
+        (
+            "a stroked curve",
+            "0 0 0 RG 6 w 0 J 0 j 20 40 m 30 75 50 75 100 45 c S",
+            "20 40 m 30 75 50 75 100 45 c S",
+            &curve,
+        ),
+    ];
+    for (what, content, centre_line, inside) in cases {
+        let bytes = build(
+            content,
+            &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
+        );
+        let (report, out) = redact(&bytes);
+        assert!(report.refused.is_empty(), "{what}: {:?}", report.refused);
+        let Some(Origin::Redacted { paths, .. }) =
+            report.outputs.first().map(|output| output.origin.clone())
+        else {
+            panic!("{what}: a redacted origin");
+        };
+        assert_eq!(paths, 1, "{what}: one stroked path was cut");
+        assert!(
+            !contains(&out, centre_line.as_bytes()),
+            "{what}: the centre line that described the removed marks is gone from the file"
+        );
+        no_mark_meets(&out, [60.0, 30.0, 140.0, 80.0]);
+        held_to_the_geometry_outside(&bytes, &out, inside);
+    }
 }
 
 /// §8.4.3.2's zero line width is refused: it "shall denote the thinnest line that can be

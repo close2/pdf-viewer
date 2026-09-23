@@ -119,7 +119,7 @@ fn an_order_comparison_on_booleans_is_answered_numerically_today() {
             answer(&compute, &tail),
             today,
             "{adapter}: PLRM3 makes this a `typecheck` and we answer it as {reading}; that \
-             is ADR 0053 §3.2's open question and this test is its pin, not its defence"
+             is ADR 0053 section 3.2's open question and this test is its pin, not its defence"
         );
     }
 }

@@ -1269,7 +1269,9 @@ impl Viewer {
             return;
         };
         let outcome = match (purpose, bytes) {
-            (Purpose::ImportData, Some(bytes)) => interact::import(open, bytes),
+            (Purpose::ImportData, Some(bytes)) => {
+                interact::import(open, bytes, interact::Arrival::Action)
+            }
             // §12.6.4.4's suspended walk, resumed against the root that arrived.
             (Purpose::TargetRoot, Some(bytes)) => interact::resume_root(open, bytes),
             // §12.6.4.3's jump, made against the file Table 203's `/F` named.
@@ -1321,7 +1323,7 @@ impl Viewer {
             file: source,
             format,
         });
-        let mut outcome = interact::import(open, bytes);
+        let mut outcome = interact::import(open, bytes, interact::Arrival::Answer);
         if in_front {
             self.apply(document, outcome, events);
             return;
@@ -4623,6 +4625,91 @@ mod tests {
             viewer.focused,
             Some(DocumentId(2)),
             "the document named last is the one in front, which a host's tab strip follows"
+        );
+    }
+
+    /// A server's answer to a submission says it is one, and §12.7.6.4's import keeps its word.
+    ///
+    /// Table 246's `/Status` is "[a] status string that shall be displayed indicating the result
+    /// of an action, typically a submit-form action", so the sentence in front of it names the
+    /// action whose result it is. The two routes share one import (§12.7.6.2's "incorporating it
+    /// into the interactive form"), and what differs is only the word a person reads.
+    #[test]
+    fn an_answer_to_a_submission_is_worded_as_one_and_an_import_as_an_import() {
+        let fdf: &[u8] = b"%FDF-1.2\n1 0 obj\n<< /FDF << /Status (Thank you) /Fields \
+            [ << /T (Text1) /V (Ada) >> ] >> >>\nendobj\n\
+            trailer\n<< /Root 1 0 R >>\n%%EOF\n";
+        let notes = |events: Vec<crate::Event>| -> Vec<String> {
+            events
+                .into_iter()
+                .filter_map(|event| match event {
+                    crate::Event::Reported { notes, .. } => Some(notes),
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        };
+        let mut viewer = Viewer::new(100, 100, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes: one_page().into(),
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+
+        let answered = notes(
+            viewer
+                .handle(Command::Respond {
+                    document: DocumentId(1),
+                    source: "http://127.0.0.1/submit".to_owned(),
+                    format: pdf_model::action::DataFormat::Fdf,
+                    bytes: fdf.to_vec(),
+                })
+                .collect(),
+        );
+        assert!(
+            answered.contains(&"submit-form answer: status — Thank you".to_owned()),
+            "{answered:?}"
+        );
+        assert!(
+            answered.contains(
+                &"submit-form answer: 1 field(s) imported from http://127.0.0.1/submit, into 0 \
+                  widget(s)"
+                    .to_owned()
+            ),
+            "{answered:?}"
+        );
+        assert!(
+            answered.iter().all(|note| !note.starts_with("import-data")),
+            "no sentence about a submission's answer calls it an import-data action: {answered:?}"
+        );
+
+        // The same bytes by §12.7.6.4's route: the action named the file and the host supplied it.
+        let Some(open) = viewer.documents.get_mut(&DocumentId(1)) else {
+            panic!("the document opened");
+        };
+        open.importing = Some(pdf_model::action::ImportData {
+            file: "answers.fdf".to_owned(),
+            format: pdf_model::action::DataFormat::Fdf,
+        });
+        let imported = notes(
+            viewer
+                .handle(Command::Supply {
+                    purpose: crate::Purpose::ImportData,
+                    bytes: Some(fdf.to_vec()),
+                })
+                .collect(),
+        );
+        assert!(
+            imported.contains(&"import-data: status — Thank you".to_owned()),
+            "{imported:?}"
+        );
+        assert!(
+            imported
+                .contains(&"import-data: 1 field(s) from answers.fdf, into 0 widget(s)".to_owned()),
+            "{imported:?}"
         );
     }
 

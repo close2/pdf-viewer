@@ -487,13 +487,12 @@ impl Interpreter<'_> {
         //
         // So the flag is read, and both records of it are kept, with two scopes.
         // `state.alpha_is_shape` is the parameter itself — set either way here, bounded by
-        // `q`/`Q` like everything else in the struct — and `self.alpha_sources` is the
-        // question a *group* asks when it closes, "which readings did my content paint
-        // under", which is a history rather than a value and is therefore accumulated within
-        // one group's run. It used to be a single monotone flag across the whole page, and
-        // nine corpus documents state the entry: `issue18032.pdf` states it inside a form
-        // whose group draws nothing, and the page-wide flag refused a knockout group two
-        // forms later for it (ADR 0327).
+        // `q`/`Q` like everything else in the struct — and `self.readings` is the question a
+        // *group* asks when it closes, "which reading did my elements paint under", which is a
+        // history rather than a value and is therefore accumulated within one scope's run and
+        // kept to one reading by sealing what was painted under the other (ADR 0327, ADR 1319).
+        // `issue18032.pdf` states the entry inside a form whose group draws nothing, which is
+        // why the record is a scope's and not the page's.
         if let Object::Boolean(flag) = self.document.get_key(dict, "AIS") {
             state.alpha_is_shape = flag;
             self.note_alpha_source(flag);

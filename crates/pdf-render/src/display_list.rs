@@ -495,6 +495,12 @@ pub enum Command {
     /// This command appears only as a direct element of a [`Self::Group`] whose `knockout`
     /// is set. Outside one the shape is unused — §11.4.4's non-knockout formulas reach it
     /// only through `shape × opacity` — so a backend may draw `object` alone there.
+    ///
+    /// `pdf-model` also states the pair for an element painted under the other reading of
+    /// §11.6.4.3's `/AIS` than the rest of its scope, before anything knows whether the element
+    /// will be a knockout group's, and takes it off again wherever it was not — so the
+    /// guarantee holds of every list a backend is handed, and a backend relies on it as before
+    /// (ADR 1319).
     Shaped {
         /// The object, drawn exactly as it would be anywhere else.
         object: Box<Command>,
@@ -704,7 +710,9 @@ impl Command {
 /// Deliberately not `Default`: a display list without a page size is not a
 /// meaningful value, and a zero-sized default would silently produce empty renders
 /// rather than a compile error at the call site that forgot to supply the size.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Debug` is written out rather than derived for one field's sake: see the `impl`.
+#[derive(Clone, PartialEq)]
 pub struct DisplayList {
     /// Page dimensions in PDF user-space units (1/72 inch).
     pub page_size: Size,
@@ -738,6 +746,40 @@ pub struct DisplayList {
     /// Whether any command in this list composites under §11.7.4.3's special overprinting
     /// blend mode. See [`DisplayList::note_overprinting`].
     overprinting: bool,
+    /// §10.8.3's spot planes, where a reader asked for the simulation and the page names a spot
+    /// colourant. See [`DisplayList::set_separated`].
+    separation: Option<Box<crate::separation::SpotSeparation>>,
+}
+
+/// The derived rendering field for field, with [`DisplayList::separation`] written only where
+/// there is one.
+///
+/// `pdf-model`'s `raster_golden` digests this rendering of every page it holds (trap 41), so a
+/// field printed as `None` on every page would move every row of it without a pixel moving. The
+/// separation exists only under a reader's request for §10.8.3's simulation on a page naming a
+/// spot colourant, and a page without one renders exactly as the derived `Debug` rendered it
+/// (ADR 1317). A field added to the struct is added here too, or it is missing from the digest.
+impl std::fmt::Debug for DisplayList {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut fields = formatter.debug_struct("DisplayList");
+        fields
+            .field("page_size", &self.page_size)
+            .field("commands", &self.commands)
+            .field("clips", &self.clips)
+            .field("soft_masks", &self.soft_masks)
+            .field("clip_index", &self.clip_index)
+            .field("blending", &self.blending)
+            .field("black", &self.black)
+            .field("grey_curve", &self.grey_curve)
+            .field("colour_cube", &self.colour_cube)
+            .field("content_clip", &self.content_clip)
+            .field("transfers", &self.transfers)
+            .field("overprinting", &self.overprinting);
+        if let Some(separation) = &self.separation {
+            fields.field("separation", separation);
+        }
+        fields.finish()
+    }
 }
 
 impl DisplayList {
@@ -757,6 +799,7 @@ impl DisplayList {
             content_clip: None,
             transfers: None,
             overprinting: false,
+            separation: None,
         }
     }
 
@@ -868,8 +911,8 @@ impl DisplayList {
     /// begin outside it", which is why one table serves every nesting level — so a list of marks
     /// taken out of this one is only rasterisable beside the table they name.
     ///
-    /// The blending colour spaces are deliberately not carried: those decide what a composited
-    /// *colour* means, and a shape list is read for its alpha alone.
+    /// The blending colour spaces and §10.8.3's spot planes are deliberately not carried: those
+    /// decide what a composited *colour* means, and a shape list is read for its alpha alone.
     #[must_use]
     pub fn shape_list(&self, commands: Vec<Command>) -> Self {
         Self {
@@ -885,6 +928,7 @@ impl DisplayList {
             content_clip: self.content_clip,
             transfers: None,
             overprinting: self.overprinting,
+            separation: None,
         }
     }
 
@@ -942,6 +986,79 @@ impl DisplayList {
         self.overprinting |= black.overprinting;
         self.blending = Some(space);
         self.black = Some(Box::new(black));
+    }
+
+    /// States that this page is ISO 32000-2 §10.8.3's simulation of a press with spot inks:
+    /// this list and `black` the process planes, composited in `space` as
+    /// [`DisplayList::set_blending`] composites any four-component page, and `separation` the
+    /// spot planes beside them.
+    ///
+    /// A backend draws every plane, puts the process pair through `space` and then multiplies each
+    /// spot colourant in with [`crate::separation::resolve`] — steps b) to d) — before the medium.
+    /// One that cannot must refuse the list by [`DisplayList::separation`], ahead of its answer to
+    /// [`DisplayList::blending`]: a page resolved through the pair alone is the press with its
+    /// spot inks left off, which is a picture of a different page.
+    pub fn set_separated(
+        &mut self,
+        space: crate::blending::BlendingSpace,
+        black: DisplayList,
+        separation: crate::separation::SpotSeparation,
+    ) {
+        for plane in separation.planes() {
+            self.overprinting |= plane.overprinting;
+        }
+        self.set_blending(space, black);
+        self.separation = Some(Box::new(separation));
+    }
+
+    /// §10.8.3's spot planes, where this page is a simulated press's.
+    #[must_use]
+    pub fn separation(&self) -> Option<&crate::separation::SpotSeparation> {
+        self.separation.as_deref()
+    }
+
+    /// Substitutes `substitute(mode)` for every command's blend mode, groups and knockout shapes
+    /// entered, soft masks not.
+    ///
+    /// For a list that is one spot plane of §10.8.3's separations, whose compositor ISO 32000-2
+    /// §11.7.4.2 restricts: "only separable, whitepreserving blend modes shall be used for spot
+    /// colours" — [`crate::BlendMode::on_spot_colourants`]. A soft mask is not entered because
+    /// §11.7.3 keeps spot colours out of one ("spot colours shall not be available in a
+    /// transparency group XObject that is used to define a soft mask"), so its elements composite
+    /// no spot component for the rule to govern.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the comment quotes §11.7.3 verbatim, and a quotation may not gain backticks"
+    )]
+    pub fn substitute_blend_modes(&mut self, substitute: impl Fn(BlendMode) -> BlendMode + Copy) {
+        fn walk(commands: &mut [Command], substitute: impl Fn(BlendMode) -> BlendMode + Copy) {
+            for command in commands {
+                match command {
+                    Command::Fill { blend, .. }
+                    | Command::Image { blend, .. }
+                    | Command::Stroke { blend, .. } => *blend = substitute(*blend),
+                    Command::Group {
+                        blend,
+                        commands,
+                        blending,
+                        ..
+                    } => {
+                        *blend = substitute(*blend);
+                        walk(commands, substitute);
+                        if let Some(GroupBlending::FourComponents { black, .. }) =
+                            blending.as_deref_mut()
+                        {
+                            walk(black, substitute);
+                        }
+                    }
+                    Command::Shaped { object, shape } => {
+                        walk(std::slice::from_mut(object.as_mut()), substitute);
+                        walk(std::slice::from_mut(shape.as_mut()), substitute);
+                    }
+                }
+            }
+        }
+        walk(&mut self.commands, substitute);
     }
 
     /// The blending colour space this page composites in, where it is not the device's.

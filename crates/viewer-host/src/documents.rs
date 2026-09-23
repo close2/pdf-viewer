@@ -407,6 +407,31 @@ impl Named {
             _ => Self::file(whole),
         }
     }
+
+    /// A document that came out of another one, named where its tab and its sentences can say so.
+    ///
+    /// ISO 32000-2 §O.2.1's `ef` opens an embedded file out of the document's `/EmbeddedFiles` name
+    /// tree, and that file has no path on this machine: its bytes are the holding document's. What it is given is a name beside the holding document — the directory
+    /// §12.7.6.4's import and a save resolve against — made of the last component of the name the
+    /// document filed it under, because that name is a string the *document* wrote (§7.11.4's
+    /// `/F` is "a platform-dependent encoding") and a name that is a path is not followed. A name
+    /// with no last component — empty, or `..` — is given the key's own words, which is a choice:
+    /// no clause says what an embedded file with no usable name is called.
+    #[must_use]
+    pub fn embedded(
+        directory: Option<&std::path::Path>,
+        name: &str,
+        fragment: Option<String>,
+    ) -> Self {
+        let single = std::path::Path::new(name).file_name().map_or_else(
+            || std::path::PathBuf::from("embedded file"),
+            std::path::PathBuf::from,
+        );
+        Self {
+            path: directory.map_or_else(|| single.clone(), |directory| directory.join(&single)),
+            fragment,
+        }
+    }
 }
 
 /// A document a reader named, on its way to a tab of its own.
@@ -427,6 +452,26 @@ pub struct Arriving {
     pub behind: Option<DocumentId>,
     /// §7.6.4.1's prompts, counted for this document.
     pub asking: crate::Asking,
+    /// The bytes, where the document is held in memory rather than named on disk — an embedded
+    /// file §O.2.1's `ef` opened, whose [`Named::path`] is a name and not a file.
+    held: Option<pdf_syntax::FileBytes>,
+}
+
+impl Arriving {
+    /// The bytes to open it from: the ones held, or the file its path names.
+    ///
+    /// One function for the first open and §7.6.4.1's second attempt, so that a document held in
+    /// memory is never looked for on disk under the name it was given.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::open_chosen`]'s sentence, where the path names nothing that can be opened.
+    pub fn bytes(&self) -> Result<pdf_syntax::FileBytes, String> {
+        match &self.held {
+            Some(bytes) => Ok(bytes.clone()),
+            None => crate::open_chosen(&self.named.path),
+        }
+    }
 }
 
 /// The documents a window has been asked to open beside the one showing, one at a time.
@@ -438,8 +483,9 @@ pub struct Arriving {
 /// three moments and once after its first frame.
 #[derive(Debug, Default)]
 pub struct Arrivals {
-    /// What is still to be opened, in the order it was named, and whether each goes behind.
-    waiting: std::collections::VecDeque<(Named, bool)>,
+    /// What is still to be opened, in the order it was named, whether each goes behind, and the
+    /// bytes of one held in memory.
+    waiting: std::collections::VecDeque<(Named, bool, Option<pdf_syntax::FileBytes>)>,
     /// The one being opened.
     now: Option<Arriving>,
 }
@@ -456,7 +502,19 @@ impl Arrivals {
     /// `behind` is whether the tab in front stays in front once it has opened: `true` for the
     /// command line's later paths, `false` for a file a person has just chosen, who asked to read it.
     pub fn wait(&mut self, named: Named, behind: bool) {
-        self.waiting.push_back((named, behind));
+        self.waiting.push_back((named, behind, None));
+    }
+
+    /// Adds a document held in memory to the end of the queue.
+    ///
+    /// §O.2.1's `ef`: the fragment asked for the embedded file to be opened, and the document
+    /// holding it keeps its own tab rather than being replaced — ISO 32000-2 states no window rule,
+    /// and replacing the document a person had open is the one choice that loses something.
+    /// `behind` is the holding document's own: an embedded file named by the fragment of a document
+    /// in front comes to the front, because a reader following that URI asked to read it, and one
+    /// named by a document opened behind stays behind with it.
+    pub fn wait_held(&mut self, named: Named, bytes: pdf_syntax::FileBytes, behind: bool) {
+        self.waiting.push_back((named, behind, Some(bytes)));
     }
 
     /// The next document to open, where nothing is being opened and something is waiting.
@@ -467,12 +525,13 @@ impl Arrivals {
         if self.now.is_some() {
             return None;
         }
-        let (named, behind) = self.waiting.pop_front()?;
+        let (named, behind, held) = self.waiting.pop_front()?;
         let arriving = Arriving {
             id: documents.reserve(),
             named,
             behind: behind.then(|| documents.focused()),
             asking: crate::Asking::new(),
+            held,
         };
         Some(self.now.insert(arriving))
     }
@@ -755,5 +814,51 @@ mod tests {
         assert!(opened_beside("b.pdf", 2).contains("b.pdf"));
         assert!(opened_beside("b.pdf", 2).contains('2'));
         assert!(closed("b.pdf", 1).contains("closed b.pdf"));
+    }
+
+    /// §O.2.1's `ef` opens an embedded file out of the `/EmbeddedFiles` name tree, and that file
+    /// has no path: it is opened from the bytes it came out
+    /// in, the first time and on §7.6.4.1's second attempt, and never looked for on disk under the
+    /// name it is given.
+    #[test]
+    fn an_embedded_document_opens_from_its_bytes_under_a_name_beside_its_holder() {
+        let mut documents: Documents<()> = Documents::new(DocumentId(1), "holder.pdf".to_owned());
+        let mut arrivals = super::Arrivals::new();
+        let named = super::Named::embedded(
+            Some(std::path::Path::new("/nowhere")),
+            "../../etc/destination-doc.pdf",
+            Some("page=3".to_owned()),
+        );
+        assert_eq!(
+            named.path,
+            std::path::Path::new("/nowhere/destination-doc.pdf"),
+            "the document's own name, its last component only, beside the holder"
+        );
+        assert_eq!(label(&named.path), "destination-doc.pdf");
+        arrivals.wait_held(
+            named,
+            pdf_syntax::FileBytes::from(b"%PDF-2.0\n".to_vec()),
+            false,
+        );
+
+        let Some(arriving) = arrivals.start(&mut documents) else {
+            panic!("the held document starts");
+        };
+        assert_eq!(arriving.id, DocumentId(2));
+        assert_eq!(arriving.behind, None, "it comes to the front");
+        assert_eq!(arriving.named.fragment.as_deref(), Some("page=3"));
+        for attempt in ["first", "second"] {
+            let Ok(bytes) = arriving.bytes() else {
+                panic!("{attempt}: the held bytes, and no file under /nowhere is asked for");
+            };
+            assert_eq!(bytes.read(0..5).as_ref(), b"%PDF-", "{attempt}");
+        }
+
+        let unnamed = super::Named::embedded(None, "..", None);
+        assert_eq!(
+            unnamed.path,
+            std::path::Path::new("embedded file"),
+            "a name with no last component is given one"
+        );
     }
 }

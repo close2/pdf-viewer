@@ -334,3 +334,21 @@ while it was behind, taking a running presentation's full screen (ADR 1303). Ope
 `support::linearized::startxref` read the file's tail as UTF-8 and a cross-reference stream's binary
 rows can end within a few bytes of `startxref`; the fixtures hid it and the corpus found it
 (ADR 1309).
+
+## A per-pair sweep listing does not clear the file
+
+`--bin cited` prints one line per (clause, file) pair, so fixing the listed line left four more `§`
+literals in the same files (round 1244). Grep the whole file for the same shape before counting it
+done.
+
+## A host that reacts inside the toolkit's resize callback asks for a new layout from the idle queue
+
+GTK laid the window out once at launch and not again until the first key, so page one's first
+transition was rasterised at the pre-full-screen size (ADR 1316). And the first drive is one document
+alone: a second document's arrival forces the layout that hides the defect, which is why ADR 1303
+saw the jump and could not trace it.
+
+## Never plant-and-restore with `cp` on a file a sibling is editing
+
+A whole-file copy back over a shared file carries the sibling's hunks only by luck (round 1243 got
+lucky once). The safe form is the reverse `sed` of the one line planted.

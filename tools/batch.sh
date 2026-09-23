@@ -131,7 +131,7 @@ check_batch() {
     # refuses it), so it is not a finding here either.
     found=$(git status --porcelain --untracked-files=all |
         awk '$1 == "??" { print $2 }' | grep -v '^scratchpad/' |
-        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf)$' |
+        grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf|j2k|jp2)$' |
         grep -vE '^data/icc/[^/]+\.icc$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
     [ -z "$found" ] || { printf '%s\n' "$found" | sed 's/^/    /'; bad=1; }

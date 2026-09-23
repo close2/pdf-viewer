@@ -39,7 +39,7 @@ use font::{Font, FontKey};
 use pattern::{PatternInitial, PatternPaint};
 use run::narrow;
 use text::Coverage;
-use transparency::{AlphaSourcesSeen, PagePress, page_blending_space, page_press};
+use transparency::{PagePress, Readings, page_blending_space, page_press};
 
 mod annotations;
 mod colour;
@@ -304,7 +304,7 @@ struct GraphicsState {
     /// alpha constants state *shape* rather than opacity.
     ///
     /// A graphics state parameter like any other in this struct — set by `gs`, saved and
-    /// restored by `q`/`Q` — and carried here so that [`Interpreter::alpha_sources`] can be
+    /// restored by `q`/`Q` — and carried here so that [`Interpreter::readings`] can be
     /// seeded with the value actually in force when a group's content starts, rather than
     /// with the whole page's history. Initially `false` (§8.4.1 Table 51 — the alpha source is a
     /// *device-independent* parameter, ADR 0849).
@@ -711,7 +711,7 @@ pub fn replace(
         && replacement.checkpoint.compositing == Compositing::Device
         && let Some(press) = simulated_press(document, page, &replacement.presses)
     {
-        interpretation.separation = separate(
+        let separated = separate(
             document,
             page,
             state,
@@ -721,6 +721,7 @@ pub fn replace(
             references,
             None,
         );
+        draw_separated(&mut interpretation, separated);
     }
     interpretation
 }
@@ -831,9 +832,10 @@ fn interpreted(
     if state.separation_simulation()
         && let Some(press) = simulated_press(document, page, &presses)
     {
-        interpretation.separation = separate(
+        let separated = separate(
             document, page, state, &press, &presses, fonts, references, ledger,
         );
+        draw_separated(&mut interpretation, separated);
     }
     // A checkpoint the pass then found nothing to use is dropped rather than kept: the seam's
     // condition is Table 167's bit read off the file, and `draw_annotations` may decline to draw
@@ -922,10 +924,43 @@ fn in_planes(
     separated
         .display_list
         .set_blending(press.blending_space(), black);
-    separated.separation = separate(
+    let planes = separate(
         document, page, state, press, presses, fonts, references, ledger,
     );
+    draw_separated(&mut separated, planes);
     Some(separated)
+}
+
+/// Makes a page's §10.8.3 separation the page that is drawn, where one was made.
+///
+/// The separated list replaces the one the interpretation drew, because under the reader's
+/// simulation the separation *is* the page: step d) of the clause's steps is "Convert the result
+/// to the actual device colour space and output it". Everything else the interpretation holds —
+/// its text, its links, its reports — is the drawn run's and stays, because every plane is one
+/// interpretation of the same content stream and they differ in what a colour resolved to alone.
+/// A mark in a colourant past the simulated device's planes is reported here, where the page it
+/// reverted on is the page a person sees (ADR 1317).
+fn draw_separated(
+    interpretation: &mut Interpretation,
+    separated: Option<(crate::colourants::Separation, DisplayList)>,
+) {
+    let Some((record, list)) = separated else {
+        return;
+    };
+    if !record.without_a_plane().is_empty() {
+        let colourants: Vec<String> = record
+            .without_a_plane()
+            .iter()
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+            .collect();
+        interpretation
+            .unsupported
+            .push(Unsupported::SpotColourantsWithoutAPlane {
+                colourants: colourants.join(", "),
+            });
+    }
+    interpretation.display_list = list;
+    interpretation.separation = Some(record);
 }
 
 /// ISO 32000-2 §10.8.3 step a)'s separations of `page`, where the reader asked for the simulation
@@ -949,8 +984,17 @@ fn in_planes(
 ///
 /// Given up too where a run cannot be drawn in its space, which includes a group inside that
 /// composites in a space no spot colourant can be carried through
-/// (`Interpreter::spot_group_compositing`). The page a backend draws is the caller's and is not
-/// touched. ADR 1311.
+/// (`Interpreter::spot_group_compositing`), and where a spot colourant's own space does not parse,
+/// so that step b) has no separation to convert. ADR 1311.
+///
+/// What is returned is the model's record of the separation and the page's display list drawn in
+/// it: the chromatic plane carrying the black plane and the spot planes
+/// (`pdf_render::DisplayList::set_separated`), with each colourant's step b) sampled
+/// ([`crate::colourants::SpotColourants::flat_curves`]) and §11.7.4.2's rule applied to every spot
+/// plane — "If the specified blend mode is not separable or not white-preserving, it shall apply
+/// only to process colour components, and the Normal blend mode shall be substituted for spot
+/// colours" — after the planes were checked against one another, because the rule changes a spot
+/// plane's modes and not its structure. ADR 1317.
 #[expect(
     clippy::too_many_arguments,
     reason = "the inputs `interpret_into` threads, one parameter each, as `in_planes` takes them"
@@ -964,7 +1008,7 @@ fn separate(
     fonts: &FontCache,
     references: &Supply,
     ledger: Option<&std::cell::RefCell<Ledger>>,
-) -> Option<crate::colourants::Separation> {
+) -> Option<(crate::colourants::Separation, DisplayList)> {
     if !state.separation_simulation() {
         return None;
     }
@@ -1000,11 +1044,36 @@ fn separate(
         }
         lists.push(run.display_list);
     }
-    Some(crate::colourants::Separation::new(
+    let plane_count = lists.len();
+    let mut lists = lists.into_iter();
+    let (Some(mut chromatic), Some(black)) = (lists.next(), lists.next()) else {
+        return None;
+    };
+    let mut spot_planes: Vec<DisplayList> = lists.collect();
+    for plane in &mut spot_planes {
+        plane.substitute_blend_modes(BlendMode::on_spot_colourants);
+    }
+    let intent = output_intent_space(document, Some(&page.dict));
+    let curves = named.flat_curves(
+        document,
+        &page.resources,
+        crate::colour::Reading::new(intent.as_ref()),
+        spots.names().len(),
+    )?;
+    let (process_to_flat, flat_to_device) = crate::colour::separation_conversions();
+    let spot = pdf_render::SpotSeparation::new(
+        curves,
+        spot_planes,
+        process_to_flat.clone(),
+        flat_to_device.clone(),
+    )?;
+    chromatic.set_separated(press.blending_space(), black, spot);
+    let record = crate::colourants::Separation::new(
         spots.names().to_vec(),
-        lists,
+        plane_count,
         without_a_plane.into_iter().collect(),
-    ))
+    );
+    Some((record, chromatic))
 }
 
 /// The process colourants of §10.8.3's simulated device, for a page whose group names no
@@ -1147,8 +1216,7 @@ impl<'a> Interpreter<'a> {
             // §8.4.1 Table 51 gives the alpha source parameter an initial value of `false`,
             // so a page that never states `gs` paints entirely under §11.6.4.3's opacity
             // reading.
-            alpha_sources: AlphaSourcesSeen::Opacity,
-            alpha_sources_mark: 0,
+            readings: Readings::open(false, 0),
             compositing,
             blending: page_blending_space(document, page),
             blending_changed: false,
@@ -1255,8 +1323,7 @@ impl<'a> Interpreter<'a> {
             nesting,
             uncoloured,
             enclosing_knockout,
-            alpha_sources,
-            alpha_sources_mark,
+            readings,
             compositing,
             blending_changed,
             black_generation_stated,
@@ -1305,8 +1372,7 @@ impl<'a> Interpreter<'a> {
             nesting: *nesting,
             uncoloured: *uncoloured,
             enclosing_knockout: *enclosing_knockout,
-            alpha_sources: *alpha_sources,
-            alpha_sources_mark: *alpha_sources_mark,
+            readings: *readings,
             compositing: compositing.clone(),
             blending_changed: *blending_changed,
             black_generation_stated: *black_generation_stated,
@@ -1355,8 +1421,7 @@ impl<'a> Interpreter<'a> {
             nesting,
             uncoloured,
             enclosing_knockout,
-            alpha_sources,
-            alpha_sources_mark,
+            readings,
             compositing,
             blending_changed,
             black_generation_stated,
@@ -1397,8 +1462,7 @@ impl<'a> Interpreter<'a> {
         self.nesting = nesting;
         self.uncoloured = uncoloured;
         self.enclosing_knockout = enclosing_knockout;
-        self.alpha_sources = alpha_sources;
-        self.alpha_sources_mark = alpha_sources_mark;
+        self.readings = readings;
         self.compositing = compositing;
         self.blending_changed = blending_changed;
         self.black_generation_stated = black_generation_stated;
@@ -1504,10 +1568,9 @@ struct Checkpoint {
     uncoloured: bool,
     /// See [`Interpreter::enclosing_knockout`].
     enclosing_knockout: Option<KnockoutKind>,
-    /// See [`Interpreter::alpha_sources`].
-    alpha_sources: AlphaSourcesSeen,
-    /// An index into [`Self::list`], which is why the two are carried together.
-    alpha_sources_mark: usize,
+    /// See [`Interpreter::readings`]; its marks index [`Self::list`], which is why the two are
+    /// carried together.
+    readings: Readings,
     /// What the page is painting into, which decides what a colour becomes.
     compositing: Compositing,
     /// See [`Interpreter::blending_changed`].
@@ -1672,7 +1735,22 @@ fn interpret_into(
     interpreter.list.set_content_clip(content_clip(page, base));
     let initial = GraphicsState::initial(base);
     interpreter.enter_ledger_frame(ledger::Route::Page, page.id);
-    interpreter.run_reader(&mut reader, &page.resources, &initial);
+    // The page's images are decoded on the pool beside the run, and each `Do` takes its raster
+    // when it gets there — waiting for it where the decode is still running, so the list is the
+    // one the run alone would have built (ADR 1321). The scope ends only once every decode it
+    // started has, which is why the table is closed first: nothing queued is started after the
+    // content stream has been read.
+    match interpreter.plan_decodes_ahead(&page.resources, &initial) {
+        Some(plan) => {
+            rayon::in_place_scope(|scope| {
+                scope.spawn(|scope| image::walk_ahead(scope, document, page, &plan));
+                interpreter.run_reader(&mut reader, &page.resources, &initial);
+                plan.ahead().close();
+            });
+            interpreter.end_decodes_ahead();
+        }
+        None => interpreter.run_reader(&mut reader, &page.resources, &initial),
+    }
     interpreter.leave_ledger_frame();
     // §7.4.1's second half, for a part whose damage the pump met while the page was being
     // drawn: the bytes are on the page and the shortfall is in the report (ADR 0343). The
@@ -1829,6 +1907,12 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
     // than in `interpreted` so that `replace` — which rebuilds the list from a checkpoint
     // under the same compositing — states it again.
     let mut list = interpreter.list;
+    // §11.4.6's seals, made where a scope painted under both readings of §11.6.4.3's `/AIS`,
+    // come off every command that did not become a direct element of a knockout group — the
+    // only place `Command::Shaped` may stand (`transparency::unseal_list`, ADR 1319).
+    if interpreter.readings.sealed() {
+        transparency::unseal_list(&mut list);
+    }
     // §11.7.4.3's special overprinting blend mode, asked of the finished list for the reason
     // `noninvertible_marks` is asked of it above: `Interpreter::overprint_blend` answers once
     // per painting operator and per part, before the operator knows whether that part marks
@@ -1869,7 +1953,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
     let separation = (!interpreter.compositing.spots().is_empty()).then(|| {
         crate::colourants::Separation::new(
             interpreter.compositing.spots().names().to_vec(),
-            Vec::new(),
+            0,
             interpreter.without_a_plane.into_iter().collect(),
         )
     });
@@ -2474,50 +2558,16 @@ struct Interpreter<'a> {
     /// child flattened into a knockout parent would stop being *one* element of that parent
     /// and become several, which is precisely what §11.4.6 makes different.
     enclosing_knockout: Option<KnockoutKind>,
-    /// Which readings of §11.6.4.3's `/AIS` the content being run painted under.
+    /// Which reading of §11.6.4.3's `/AIS` the content being run painted its elements under.
     ///
     /// The entry decides whether a soft mask and the alpha constants are *shape* or
     /// *opacity*, and §11.4.6's weighted average is taken with the shape — so a knockout
-    /// group's elements are built one way under each reading (`stated_shape`), and a group
-    /// whose content stated both is refused by name because no single reading describes it.
-    ///
-    /// Scoped **to one group's content** rather than to the page, which is the
-    /// four-hundred-and-ninety-second session's narrowing: the entry is a graphics state
-    /// parameter, so `q`/`Q` bound it, and a `gs` inside one form said nothing about a
-    /// sibling form's group — yet the page-wide flag refused every knockout group after it
-    /// (`issue18032.pdf` states it inside a form whose group draws nothing at all, two
-    /// forms before the knockout group it cost). [`Interpreter::run_transparency_group`]
-    /// seeds this from [`GraphicsState::alpha_is_shape`] — the value actually in force at
-    /// the `Do` — runs the content, reads what the run left, and folds it into the enclosing
-    /// value, so an enclosing group still sees a nested `gs`.
-    ///
-    /// **It propagates outward on purpose**, and that is what makes the `Shape` reading safe
-    /// for a group that contains other groups: a nested group's own marks are the enclosing
-    /// group's marks too, so a `Shape` answer here means every mark inside, at every depth,
-    /// was painted under `/AIS true`. A soft mask's group is the one exception and is
-    /// restored exactly, because its marks become one alpha per pixel rather than elements.
-    ///
-    /// Within one scope it is an over-approximation in one direction only, and
-    /// [`Interpreter::alpha_sources_mark`] is what keeps it from being one in the other: a
-    /// reading that was in force while *nothing was painted* is replaced rather than mixed in.
-    /// The remaining over-approximation is answered where it is read rather than here: a
-    /// record of `Mixed` says the flag was stated both ways, not that it decided anything, and
-    /// `transparency::AlphaSourcesSeen::settled_over` asks the elements which.
-    alpha_sources: AlphaSourcesSeen,
-    /// The display list's length when [`Interpreter::alpha_sources`] last changed.
-    ///
-    /// A reading nothing was painted under says nothing about the group being built, and the
-    /// commonest shape in a real file is a form whose content opens with the `gs` that states
-    /// `/AIS` — where the value inherited from the `Do` reached no mark at all. So a statement
-    /// arriving while the list is still this long **replaces** the record instead of mixing
-    /// into it.
-    ///
-    /// The invariant it rests on is that a command is only ever taken off the list to be
-    /// folded into a replacement, or by a group that painted nothing — so the list being this
-    /// long again means nothing has been painted since. Where that ever stopped holding the
-    /// comparison would simply fail and the record would say `Mixed`, which is the direction
-    /// that costs a report rather than a wrong pixel.
-    alpha_sources_mark: usize,
+    /// group's elements are built one way under each reading (`stated_shape`). Scoped to one
+    /// scope's content — a group's, a cell's, a text object's, a combined fill and stroke's —
+    /// because the entry is a graphics state parameter and `q`/`Q` bound it; and kept to one
+    /// reading within a scope by sealing what was painted under the other
+    /// (`transparency::Readings`, ADR 1319).
+    readings: Readings,
     /// What the content being run is painting into, which decides what a colour becomes.
     compositing: Compositing,
     /// The blending colour space in force here, named where this tree does not composite in it.
@@ -2569,10 +2619,10 @@ struct Interpreter<'a> {
     ///
     /// A mark inside a transparency group cannot see either from its own graphics state, because
     /// §11.6.6 resets the blend mode, both alpha constants and the soft mask before the group's
-    /// content runs — and a tiling pattern's cell starts from [`GraphicsState::initial`] for
-    /// §11.6.7's reason. So the answer is carried down instead: one flag rather than a stack, for
-    /// [`Self::enclosing_knockout`]'s reason, since what it guards is a property every enclosing
-    /// scope shares. Saved and restored by whoever narrows it.
+    /// content runs — and a tiling pattern's cell starts with them reset for §11.6.7's reason
+    /// (`Interpreter::cell_state`). So the answer is carried down instead: one flag rather than a
+    /// stack, for [`Self::enclosing_knockout`]'s reason, since what it guards is a property every
+    /// enclosing scope shares. Saved and restored by whoever narrows it.
     opaque_ancestry: bool,
     /// §11.7.5.2's channel: every elementary mark the page paints, with the function in force
     /// when it was painted, so that a backend can apply the clause's choice per pixel after all

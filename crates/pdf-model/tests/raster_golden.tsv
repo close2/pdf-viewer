@@ -13,12 +13,12 @@
 # where the page produced none. ADR 1016 has the argument.
 
 160F-2019.pdf p1	drawn	596x842	a02701983d56bdda	315308200beba3bd	4f53cda18c2baa0c
-22060_A1_01_Plans.pdf p1	drawn	842x1191	82d39bf51d58e8ae	9c6294addf095373	4f53cda18c2baa0c
+22060_A1_01_Plans.pdf p1	drawn	842x1191	cdea29dca9015284	9c6294addf095373	4f53cda18c2baa0c
 90ms_rksj_h_sample.pdf p1	drawn	612x792	db5c15d404b31a45	8b01e1e381443856	4f53cda18c2baa0c
 ArabicCIDTrueType.pdf p1	drawn	595x842	c6b9100c05b5fc61	8b92f276eb198bdf	4f53cda18c2baa0c
 Brotli-Prototype-FileA.pdf p1	no-page	-	-	-	-
 ContentStreamCycleType3insideType3.pdf p1	drawn	600x840	d907b09312d7849b	f88f3a2cbe4fe12a	96144a35db70d960
-ContentStreamNoCycleType3insideType3.pdf p1	drawn	600x840	c7be956bab4c9fd9	52c41a65ee00d017	4f53cda18c2baa0c
+ContentStreamNoCycleType3insideType3.pdf p1	drawn	600x840	23dcb7db5bf16e7d	0b8faf6a20dfa31b	4f53cda18c2baa0c
 Embedded_font.pdf p1	drawn	792x612	d0cabc8b271d239e	d5e990028d117858	4f53cda18c2baa0c
 GHOSTSCRIPT-698804-1-fuzzed.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c
 IdentityToUnicodeMap_charCodeOf.pdf p1	drawn	200x50	95ce43e3cdecd9a9	96b2fc5cf72e70ef	4f53cda18c2baa0c
@@ -440,8 +440,8 @@ issue12504.pdf p1	drawn	612x792	b7d1092148f948dd	955f9546e259a422	4f53cda18c2baa
 issue12705.pdf p1	drawn	250x50	9c516ff191ed8294	d56fa997377abe47	4f53cda18c2baa0c
 issue12706.pdf p1	drawn	612x792	8f3b5a9c2dc44e37	4f9c16682830575c	4f53cda18c2baa0c
 issue12750.pdf p1	drawn	612x792	f8963e622ea76ab3	6f1b1210f34730f2	4f53cda18c2baa0c
-issue12798_page1_reduced.pdf p1	drawn	840x596	2655458ed1bf5a5f	96a864eee71eb702	4f53cda18c2baa0c
-issue12810.pdf p1	drawn	1728x2592	b040cdee862e9ec6	27e72f29d27e126f	4f53cda18c2baa0c
+issue12798_page1_reduced.pdf p1	drawn	840x596	2655458ed1bf5a5f	58a53ed832f999f7	4f53cda18c2baa0c
+issue12810.pdf p1	drawn	1728x2592	6e3a48f5d4173f37	27e72f29d27e126f	4f53cda18c2baa0c
 issue12823.pdf p1	drawn	612x792	3979f46714224a0e	af7b96f5adf8e080	f934f76863df5d6d
 issue12841_reduced.pdf p1	drawn	612x792	2082f979a7ef6538	42de16f878ce8b37	4f53cda18c2baa0c
 issue1293r.pdf p1	drawn	200x50	0f9ba38f2e667066	112739d48d01786b	4f53cda18c2baa0c
@@ -460,7 +460,7 @@ issue13316_reduced.pdf p1	drawn	200x50	e2ce7238a89a97ff	ec564febf92da314	aa3ea2c
 issue13325_reduced.pdf p1	drawn	596x842	ba7eceb6fe0bfdc6	66195b70a313fa3b	4f53cda18c2baa0c
 issue13343.pdf p1	drawn	200x50	8a49d09ec8864a1a	e2980ab3d61c38ea	4f53cda18c2baa0c
 issue13372.pdf p1	drawn	595x842	393af03727496a33	62db492ed409bf88	4f53cda18c2baa0c
-issue13447.pdf p1	drawn	612x792	fffb06ef0c4c667a	e268a2420d4c6bae	4f53cda18c2baa0c
+issue13447.pdf p1	drawn	612x792	25c1cf59e03950ba	e268a2420d4c6bae	4f53cda18c2baa0c
 issue1350.pdf p1	drawn	612x492	6b89e022dd7b5fa9	9815ef620f8085d9	4f53cda18c2baa0c
 issue13520.pdf p1	drawn	209x90	ecbc84fae710eb1e	39d392d715aec6ca	4f53cda18c2baa0c
 issue13561_reduced.pdf p1	drawn	596x842	df5e6364c3566620	43cc2d979e8687dc	4f53cda18c2baa0c
@@ -546,9 +546,9 @@ issue16742.pdf p1	drawn	200x200	51140187544c33c4	9d6f1f09bfaad686	4f53cda18c2baa
 issue17056.pdf p1	drawn	596x842	c7131f0286d297a8	87a23353e13019b9	4f53cda18c2baa0c
 issue17064_readonly.pdf p1	drawn	550x750	777c329e0a916df3	67fb01dd096bafda	4f53cda18c2baa0c
 issue17065.pdf p1	drawn	200x200	0c76fb207ef0d14e	99004850a2356e48	4f53cda18c2baa0c
-issue17069.pdf p1	drawn	612x792	f5cd464cc2b74b56	35b0ad86332e68a7	4f53cda18c2baa0c
+issue17069.pdf p1	drawn	612x792	19c5ec7b78ec80e0	35b0ad86332e68a7	4f53cda18c2baa0c
 issue17147.pdf p1	drawn	596x842	dc240bc4c35ccc58	e88a1c160fe2ae27	4f53cda18c2baa0c
-issue17215.pdf p1	drawn	595x842	6c2895410e38da3e	2ba329c72a4cb5a3	4f53cda18c2baa0c
+issue17215.pdf p1	drawn	595x842	95daa713ca3e000b	2ba329c72a4cb5a3	4f53cda18c2baa0c
 issue17333.pdf p1	drawn	100x100	e2ce7238a89a97ff	05a0bdd0e8947576	62862e40e2315dcd
 issue17492.pdf p1	drawn	595x842	ceaff3e97f802245	8d5884e8065ba3e1	4f53cda18c2baa0c
 issue17540.pdf p1	drawn	612x792	f0cbb2a15313c6e3	acbf4d98e966186f	4f53cda18c2baa0c
@@ -589,7 +589,7 @@ issue18894.pdf p1	drawn	612x792	ce7ca8e457eb101c	503e44db0f3f364a	4f53cda18c2baa
 issue18911.pdf p1	drawn	612x792	4b6ba6e79e28ce94	3db7ebf56f7aef8b	4f53cda18c2baa0c
 issue18956.pdf p1	drawn	792x612	7ad9594e3dab8388	2ecfbd0690671a46	4f53cda18c2baa0c
 issue18986.pdf p1	drawn	595x842	b748ad2f71a947b2	1b8b29f185e76642	4f53cda18c2baa0c
-issue1905.pdf p1	drawn	1247x1984	9dbdfd3037d1b8c0	1d5e6e1f7ff76343	4f53cda18c2baa0c
+issue1905.pdf p1	drawn	1247x1984	8aacc2d9eb1c37f8	1d5e6e1f7ff76343	4f53cda18c2baa0c
 issue19083.pdf p1	drawn	150x68	a06baeb0724aa5d4	a91f9dd125eeadf7	4f53cda18c2baa0c
 issue19120.pdf p1	drawn	596x842	41a2d5837f0bbe5a	89f292e19a95ff50	4f53cda18c2baa0c
 issue19176.pdf p1	drawn	612x792	66b02c0af9b71986	d626f02820f9b4bd	4f53cda18c2baa0c
@@ -870,7 +870,7 @@ js-authors.pdf p1	drawn	612x792	8fa5be791432e05e	e4d390e2dc5596ab	4f53cda18c2baa
 js-buttons.pdf p1	drawn	612x792	4b779dc7167882bb	878c7664afd3fbe7	4f53cda18c2baa0c
 js-colors.pdf p1	drawn	612x792	743610f943fc825c	95e95a91ae5fc1ae	4f53cda18c2baa0c
 knockout_blend_multiply.pdf p1	drawn	200x160	24aadcab39d0f87d	3241e69b7763b6a3	4f53cda18c2baa0c
-knockout_groups_test.pdf p1	drawn	640x610	adddc6ce800a9ece	ae74602b68af4fab	4f53cda18c2baa0c
+knockout_groups_test.pdf p1	drawn	640x610	b87f472d61230c82	ae74602b68af4fab	4f53cda18c2baa0c
 knockout_inner_backdrop.pdf p1	drawn	200x200	7264fb4ff893ca51	3d429a86fda7f31e	4f53cda18c2baa0c
 knockout_isolated_overlap.pdf p1	drawn	200x160	e30b7c440bdf897b	d1e23fa772e31f18	4f53cda18c2baa0c
 knockout_nested.pdf p1	drawn	200x160	bff2f31540fb57b3	26c43165f89b11c9	4f53cda18c2baa0c

@@ -981,6 +981,14 @@ unreachable arm to four hosts that never answer `Listed`, and a C frame with a s
 does, so on the marks arm it covers the interpretation and not the drawing — which was already the
 host's, and which the worker had merely been duplicating and discarding.
 
+**A page drawn as §10.8.3's simulated press crosses as marks like any other**, because what it adds
+to a display list is data rather than a producer: the spot planes, each a companion list as the
+black one is, each colourant's name and its step b) samples, and the two sampled conversions around
+the multiply (`pdf_render::SpotSeparation`). The codec states it as the page's fourth blending shape,
+beside the pair, the curve and the cube, and a companion list stating one is refused on the way in,
+so the recursion stops one level down (ADR 1317). No message changed: the request is
+`Command::Separations`, and what it reaches is what the list says.
+
 What the prediction did not say, and what building it showed: **`viewer-core` needed no change at
 all**. The five rules below are a description of a confined process — no filesystem, no clock, no
 threads it was not handed — so the crate written to be free of a *toolkit* turned out to be free of

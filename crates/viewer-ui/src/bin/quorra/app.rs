@@ -71,8 +71,6 @@ pub(crate) struct Showing {
     pub(crate) title: String,
     /// Where the bytes came from.
     pub(crate) path: PathBuf,
-    /// Annex O's `ef`, where this document came out of another one.
-    pub(crate) embedded: Option<Vec<u8>>,
     /// Annex O's fragment identifier.
     pub(crate) fragment: Option<String>,
     /// The directory §12.7.6.4's policy resolves against.
@@ -159,14 +157,6 @@ pub(crate) struct App {
     /// The path rather than the bytes: a host that held a copy of every document it had failed
     /// to open would be holding a copy of every document.
     pub(crate) path: PathBuf,
-    /// The document this window is showing when it came out of another one — Annex O's `ef`.
-    ///
-    /// The bytes rather than a path, which is the exception [`Self::path`]'s rule needs and not a
-    /// contradiction of it: §7.11.4 puts an embedded file *inside* the document, so there is no
-    /// path to re-read when §7.6.4.1's prompt has to open it again. One file's worth, and only
-    /// while a fragment's `ef` has opened one — `None` for every window that opened a file from
-    /// the command line.
-    pub(crate) embedded: Option<Vec<u8>>,
     /// Annex O's fragment identifier, kept for the same reason as the path.
     ///
     /// A document that asked for a password and got one is opened a second time, and the URI that
@@ -718,7 +708,6 @@ impl App {
         Showing {
             title: std::mem::take(&mut self.title),
             path: std::mem::take(&mut self.path),
-            embedded: self.embedded.take(),
             fragment: self.fragment.take(),
             directory: self.directory.take(),
             caption: std::mem::take(&mut self.caption),
@@ -739,7 +728,6 @@ impl App {
         let Showing {
             title,
             path,
-            embedded,
             fragment,
             directory,
             caption,
@@ -755,7 +743,6 @@ impl App {
         } = showing;
         self.title = title;
         self.path = path;
-        self.embedded = embedded;
         self.fragment = fragment;
         self.directory = directory;
         self.caption = caption;
@@ -865,7 +852,6 @@ impl App {
             title: path.to_string_lossy().into_owned(),
             directory: path.parent().map(std::path::Path::to_path_buf),
             path,
-            embedded: None,
             fragment,
             caption: String::new(),
             measuring: viewer_host::Measuring::default(),

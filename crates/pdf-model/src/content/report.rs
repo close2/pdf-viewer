@@ -414,6 +414,19 @@ pub enum Unsupported {
         /// Which reference, which file, and which of those four this is.
         detail: String,
     },
+    /// Spot colourants a mark painted under §10.8.3's simulation that the simulated device has no
+    /// plane for, which were drawn in their alternate colour space instead.
+    ///
+    /// Raised only where a reader asked for the simulation and the page names more spot
+    /// colourants than `crate::colourants::MAX_SPOT_PLANES` carry, and only for a colourant a
+    /// painting operator actually painted (trap 11): its mark reverted to its alternate, which
+    /// §11.7.3's second bullet allows — "The spot colour shall be converted to its alternate colour
+    /// space" — and which is a different press from the one the rest of the page was printed on.
+    /// ADRs 1311, 1317.
+    SpotColourantsWithoutAPlane {
+        /// The colourants, by name, as the file wrote them.
+        colourants: String,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.
@@ -460,8 +473,9 @@ pub struct Interpretation {
     pub presses_named: usize,
     /// ISO 32000-2 §10.8.3 step a)'s separations of this page, where a reader asked for the
     /// simulation and the page names a spot colourant — `None` on every other page, and on a
-    /// page the model could not separate. No backend draws them yet; see
-    /// [`crate::colourants::Separation`] and ADR 1311.
+    /// page the model could not separate. Where it is `Some` the [`Self::display_list`] is the
+    /// separated page, every plane of it; see [`crate::colourants::Separation`] and ADRs 1311,
+    /// 1317.
     pub separation: Option<crate::colourants::Separation>,
     /// The page's text, in the order the content stream showed it.
     ///

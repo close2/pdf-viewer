@@ -69,7 +69,7 @@ impl std::fmt::Display for Missing {
             Self::NoFile(path) => write!(f, "no such file: {}", path.display()),
             Self::NoFunction => write!(f, "no /FunctionType 4 object"),
             Self::WrongLength { found, expected } => {
-                write!(f, "stream is {found} bytes, §1 names {expected}")
+                write!(f, "stream is {found} bytes, section 1 names {expected}")
             }
         }
     }

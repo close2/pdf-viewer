@@ -403,7 +403,7 @@ fn witness(adapter: Option<String>) {
     assert_eq!(
         cpu, gpu,
         "these marks are declined by the triangle test under either setting, so the two \
-         rasters are one page — a difference here means §B is timing two pictures"
+         rasters are one page — a difference here means section B is timing two pictures"
     );
 
     for id in outlines {
@@ -415,7 +415,7 @@ fn witness(adapter: Option<String>) {
         "a release must return the conversion's charge as well as the upload's"
     );
     println!(
-        "§C  upload charged {after_upload} B, the first GPU-lane frame charged \
+        "section C  upload charged {after_upload} B, the first GPU-lane frame charged \
          {} B more, the second charged nothing, and a release returned both",
         after_conversion - after_upload
     );
@@ -439,7 +439,7 @@ fn main() {
     println!("adapter: {}", device.description());
     if check {
         let digest = gpu_lane_digest(adapter.clone());
-        println!("§D  the GPU lane's page digests to {digest:#018x}");
+        println!("section D  the GPU lane's page digests to {digest:#018x}");
         witness(adapter);
         return;
     }
@@ -448,7 +448,7 @@ fn main() {
     let chord: Vec<Vec<Segment>> = cubic.iter().map(|path| chords(path)).collect();
     let segments: usize = cubic.iter().map(Vec::len).sum();
     println!(
-        "\n§A  {CORPUS_OUTLINES} outlines of {CORPUS_SEGMENTS} segments — {segments} \
+        "\nsection A  {CORPUS_OUTLINES} outlines of {CORPUS_SEGMENTS} segments — {segments} \
          segments per sample"
     );
     let mut best = [None::<Duration>; SHAPES.len()];
@@ -474,7 +474,7 @@ fn main() {
             }
         }
     }
-    println!("\n§A minima over {rounds} round-robin rounds, first round excluded:");
+    println!("\nsection A minima over {rounds} round-robin rounds, first round excluded:");
     for (at, shape) in SHAPES.iter().enumerate() {
         match best[at] {
             Some(best) => println!(
@@ -491,7 +491,7 @@ fn main() {
         ("second, Gpu", Coverage::Gpu, 1),
     ];
     println!(
-        "\n§B  {MARKS} marks of {MARK_SEGMENTS} segments, one outline each — \
+        "\nsection B  {MARKS} marks of {MARK_SEGMENTS} segments, one outline each — \
          {} segments, drawn identically by all three arms",
         MARKS * (MARK_SEGMENTS + 2)
     );
@@ -513,7 +513,7 @@ fn main() {
             }
         }
     }
-    println!("\n§B minima over {rounds} round-robin rounds, first round excluded:");
+    println!("\nsection B minima over {rounds} round-robin rounds, first round excluded:");
     for (at, (name, _, _)) in arms.into_iter().enumerate() {
         match frames[at] {
             Some(best) => println!("  {name:<12}  {best:>12?}"),
@@ -526,7 +526,7 @@ fn main() {
     // ahead of it for the same reason — its digest is the thing to compare between the
     // two trees, so it must be printed before the assertion that one of them fails.
     let digest = gpu_lane_digest(adapter.clone());
-    println!("\n§D  the GPU lane's page digests to {digest:#018x}");
+    println!("\nsection D  the GPU lane's page digests to {digest:#018x}");
     witness(adapter);
     println!("\nload average at the end: {}", load_average());
 }

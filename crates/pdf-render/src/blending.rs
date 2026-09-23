@@ -99,6 +99,18 @@ impl BlendingSpace {
     }
 
     /// The device colour of one set of four components, each in `0.0..=1.0`.
+    ///
+    /// **Inlined on request, and a measurement is why.** It is the per-pixel body of [`resolve`],
+    /// and while `resolve` was its only caller the compiler folded it in; a second caller,
+    /// `crate::separation::resolve`, made it an out-of-line call and a 3000-mark `DeviceCMYK` page
+    /// drawn twice under callgrind went from 1 163 145 880 instructions to 1 218 395 853, +4.7%,
+    /// every one of them in the call. A plain `#[inline]` left the call where it was, so the
+    /// request is the strong one (ADR 1317 section 9).
+    #[expect(
+        clippy::inline_always,
+        reason = "measured: the out-of-line call costs a four-component page 4.7% of its drawing"
+    )]
+    #[inline(always)]
     #[must_use]
     pub fn convert(&self, cyan: f32, magenta: f32, yellow: f32, black: f32) -> [f32; 3] {
         let last = self.side.saturating_sub(1);

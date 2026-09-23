@@ -60,7 +60,7 @@ is four costs with two owners:
 | raster's encode of a page seen for the first time, on the lane a page turn takes | quorra's | asked, with the measurement: `doc/QUORRA_FEEDBACK.md` §52 ask 1 |
 | an image restaged for every placement it is drawn at | quorra's | asked, with the byte counts: `doc/QUORRA_FEEDBACK.md` §52 ask 2 |
 | a mesh shading rasterised into device pixels on every view change | this tree's | the **paint** is divided across the pool (ADR 1259); `PatchMesh::tessellate` is still serial and is what remains |
-| a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which is most of it and is nobody's to divide — `doc/stack.md`'s crate is single-threaded by construction |
+| a photograph decoded on the way into a page turn | this tree's | **taken** (ADR 1271): the decoder is asked for the raster this tree used to widen its components into, and the walk that looks for a `DNL` marker reads the codestream a word at a time rather than a byte. What is left of that stage is `zune-jpeg`'s own Huffman and IDCT, which is most of it and is nobody's to divide — `doc/stack.md`'s crate is single-threaded by construction. A page of *several* photographs decodes them beside each other (ADR 1321) |
 
 ## Two standing facts about measuring this, which no command prints
 
@@ -77,21 +77,22 @@ is four costs with two owners:
 
 ## What the next round takes
 
-The two that are this tree's, in this order:
+One is this tree's; the other it had is built:
 
 1. **`PatchMesh::tessellate`.** Each patch is independent and produces its triangles in order, so
    ADR 1259's argument carries — but it needs its own measurement, because the paint was the half
    that was measured and the tessellation is what is left of that stage.
-2. **A page's images decoded in parallel.** Every image `XObject` a page names is decoded
-   independently and the pool is already there, so a page of many photographs is divisible where
-   one photograph is not — and nothing incorrect is ever presented, which is what separates this
-   from the deferral ADR 1272 prices and `doc/questions/Q121` puts to the owner. It is a change to
-   how the interpreter walks a content stream rather than to how a codestream is decoded, and it
-   needs a witness page with several images to be measured on.
+2. **A page's images are decoded in parallel** (ADR 1321). A pool task reads the content
+   stream ahead of the interpreter and starts each image's decode; the `Do` waits for its raster,
+   so the list is the one a serial run builds and nothing is presented early. The first image is
+   left to the interpreter and a page reaching fewer than two starts nothing, so a page of one
+   photograph is unchanged. What it does not reach: an image under a transparency group with a
+   blending space of its own, the sandboxed codecs behind their one worker, and a page whose cost
+   is one photograph's Huffman decode.
 
-Both are wall-clock changes on a shared machine, so both owe `doc/habits/measuring.md`'s method:
-arms alternated in one sitting, the minimum of several fresh processes, the load average printed
-beside every figure.
+The first is a wall-clock change on a shared machine, so it owes `doc/habits/measuring.md`'s
+method: arms alternated in one sitting, pinned to the faster core class, the minimum of several
+fresh processes, the load average printed beside every figure.
 
 ## Why the owner's framing is right, and worth keeping
 

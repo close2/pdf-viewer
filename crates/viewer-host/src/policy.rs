@@ -1458,6 +1458,26 @@ pub fn may_open_extracted(asked: Extraction) -> Result<(), String> {
     }
 }
 
+/// Whether §7.11.4's extracted bytes are a document §O.2.1's `ef` asks this reader to open.
+///
+/// The fragment asked, and the bytes begin with §7.5.2's header. Anything else that came out —
+/// a file a person asked for from the files panel, or an embedded file that is not a PDF — is a
+/// file to write, which [`may_write_extracted`] decides. One test for the three windows, because
+/// the day one of them opened what another wrote the three would disagree about the same URI.
+#[must_use]
+pub fn opens_as_document(asked: Extraction, bytes: &[u8]) -> bool {
+    matches!(asked, Extraction::Fragment) && bytes.starts_with(b"%PDF-")
+}
+
+/// What a window says as it opens the embedded file §O.2.1's `ef` named, beside the one holding it.
+#[must_use]
+pub fn opening_embedded(name: &str, fragment: Option<&str>) -> String {
+    match fragment {
+        Some(rest) => format!("opening the embedded file {name:?} at `{rest}` (§O.2.1)"),
+        None => format!("opening the embedded file {name:?} (§O.2.1)"),
+    }
+}
+
 /// Whether §7.11.4's extracted bytes may be written to disk without asking a person first.
 ///
 /// **The third decision this module holds, and the annex that needs it says why.** ISO 32000-2

@@ -310,7 +310,35 @@ impl Rasterizer for CpuRasterizer {
                 },
             )?;
             self.encode_in_strips(&mut ink, black, target)?;
-            pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space);
+            match list.separation() {
+                // ISO 32000-2 §10.8.3, under a reader's request for the simulation on a page naming
+                // a spot colourant: the pair above is the simulated press's process separation,
+                // and every spot plane is drawn beside it and multiplied in by steps b) to d),
+                // before the medium as the pair's own conversion is (`pdf_render::separation`,
+                // ADR 1317). Each plane is a page of its own for `check_group_blit`'s budget.
+                Some(separation) => {
+                    let mut spots = Vec::with_capacity(separation.planes().len());
+                    for plane in separation.planes() {
+                        pdf_render::check_group_blit(plane, target)?;
+                        let mut raster = tiny_skia::Pixmap::new(target.width, target.height)
+                            .ok_or(CpuRasterError::Allocation {
+                                width: target.width,
+                                height: target.height,
+                            })?;
+                        self.encode_in_strips(&mut raster, plane, target)?;
+                        spots.push(raster);
+                    }
+                    let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
+                    pdf_render::resolve_separation(
+                        pixmap.data_mut(),
+                        ink.data(),
+                        &spots,
+                        space,
+                        separation,
+                    );
+                }
+                None => pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space),
+            }
         }
         // The same clause for a space of one component that reaches the device through a
         // curve (`CalGray`, an `ICCBased` 'GRAY' profile): the page composited its component
@@ -807,6 +835,32 @@ impl CpuRasterizer {
                     pixmap,
                     list,
                     (object, shape),
+                    surface,
+                    masks,
+                    depth,
+                    compose,
+                )?;
+                continue;
+            }
+
+            // §11.4.6's bare draw is Porter-Duff Source modulated by the coverage, and the clip
+            // a command carries is part of that coverage (§8.5.4). `tiny-skia` applies a clip
+            // mask to Source by *scaling the source* rather than by interpolating, so wherever
+            // the mask is below 1.0 inside the path's reach the accumulated result is cleared
+            // rather than kept — a glyph-shaped clip on a tile knocked out a ring of the glyph
+            // beneath it. Where the clip cuts the mark, the element is drawn as the clause's two
+            // stages instead, with an opaque twin of itself as the shape: `(1 − f) × P + S`,
+            // which is what the bare draw means and what Destination-Out then Plus compute
+            // through a mask exactly (ADR 1320).
+            if compose == Compose::Knockout
+                && let Some(clip) = command.clip()
+                && !masks.cuts_nothing(list, clip, marks_reach(command, surface.page.transform))
+                && let Some(shape) = coverage_twin(command)
+            {
+                self.encode_shaped(
+                    pixmap,
+                    list,
+                    (command, &shape),
                     surface,
                     masks,
                     depth,
@@ -2566,6 +2620,37 @@ fn draw_rule_at_one_pixel(
         );
     }
     true
+}
+
+/// The same mark at full opacity, whose drawn alpha is therefore its coverage — the shape a
+/// bare knockout element knocks out with (ISO 32000-2 §11.4.6, §11.6.4.2).
+///
+/// A bare element is one `pdf-model` found opaque apart from a solid colour's constant alpha, so
+/// a solid paint goes to white and the rest is the mark itself with its constant lifted. `None`
+/// for anything else, which keeps the bare draw.
+fn coverage_twin(command: &Command) -> Option<Command> {
+    let mut twin = command.clone();
+    match &mut twin {
+        Command::Fill { paint, blend, .. } | Command::Stroke { paint, blend, .. } => {
+            match paint {
+                Paint::Solid(_) => *paint = Paint::Solid(pdf_render::Color::WHITE),
+                Paint::Shading(shading) if shading.is_opaque() => {}
+                _ => return None,
+            }
+            *blend = pdf_render::BlendMode::Normal;
+        }
+        Command::Image {
+            image,
+            alpha,
+            blend,
+            ..
+        } if image.is_opaque() => {
+            *alpha = 1.0;
+            *blend = pdf_render::BlendMode::Normal;
+        }
+        _ => return None,
+    }
+    Some(twin)
 }
 
 /// How far a command's marks reach in the page's own space, or `None` where this cannot say.

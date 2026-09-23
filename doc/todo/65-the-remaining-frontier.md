@@ -58,22 +58,17 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
   which asks for fields under names this document has not got. Table 253's `/F` is no longer the
   residue — a template page in another file is asked of a host under `--remote-documents=` and
   copied whole, and no second `pdf_syntax::Document` reaches the interpreter (ADR 1239).
-- §10.8.3 (`partial`) — separation simulation. The control exists (ADR 1228) and the four steps are
-  executed over the colourants one painting operation states (ADR 1229). What is left is the rest of
-  step a): "Process the PDF as if separations were to be created" is a claim about the *page*, and it
-  wants a plane per colourant. Overprint is not what is missing — §8.6.7 is implemented and
-  §11.7.4.3's special blend mode draws §10.8.2's cyan-over-yellow example green on the four process
-  planes — so what is missing is a plane for a **spot** ink, which reverts to the group's process
-  components as it is painted (§11.7.3). That plane is a staged build in `doc/todo/23`:
-  `ceil(S / 3)` planes beside the two process ones, one run of the content stream per plane.
-  Stages one and two are built (ADRs 1281, 1311): the page's spot colourants are enumerated before
-  the first mark lands (`pdf_model::colourants`), and under the reader's simulation a page naming one
-  is interpreted once per plane of the simulated device, spot planes included, each colour painted
-  by §11.7.3's "additive value of 1.0" rule (`colourants::Separation`), sixteen spot planes at most
-  and a mark past them named. No backend draws the planes: the render vocabulary and the backends
-  are the two stages left, with a page compositing in one or three components. Table 275's
-  requirement is still answered by `requirements::unmet` by name. §10.8.3 itself still requires nothing: its verb is a permission and
-  its four steps are a `should` conditional on performing one.
+- §10.8.3 (`partial`) — separation simulation. The control exists (ADR 1228) and all four steps are
+  executed: a page naming a spot colourant is interpreted once per plane of the simulated device
+  (ADRs 1281, 1311) and the CPU and `raster` backends multiply the planes' flat XYZ together and
+  convert the product to the screen, §11.7.4.2's Normal on the spot planes (ADR 1317); the GPU
+  backend refuses by name. What is left is one shape of page: a page whose group composites in one
+  or three components, or holds a group that does, is not separated and takes the four steps per
+  painting operation instead (ADR 1229) — 951 of the crawl's 8 517 spot pages, 875 of them because
+  the page group states `/DeviceRGB` or an `ICCBased` space. It is the model's, in
+  `Compositing::Grey`, `Calibrated` and `Additive`, which carry no spot colourant. Table 275's
+  requirement is met. §10.8.3 itself still requires nothing: its verb is a permission and its four
+  steps are a `should` conditional on performing one.
 
 ### 2. External-dependency-blocked — a crate release or an unheld specification
 
@@ -104,11 +99,6 @@ permanent) or an owner decision to acquire a specification.
   to a processor asks for *support* of the JPX baseline enumerated colour spaces, and "JPX baseline"
   is defined by ISO/IEC 15444-2, which the owner decided not to buy (`doc/questions/A51`). Checking
   the restriction on a file is not a reader's job and is not counted as debt (ADR 1184).
-- §8.9.6.2 — smoothing a low-resolution stencil's edges. The shipped rasteriser filters after
-  premultiplying, so a filtered tap is `mean(rgb) * mean(a)` where the clause asks for
-  `mean(rgb * a)` — 131 of 255 on the painted channel at a magnified stencil's partly covered pixel,
-  and it is what a reader sees. The premultiplication has to move into quorra's upload or sampler
-  (`doc/QUORRA_FEEDBACK.md` section 39).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
@@ -125,32 +115,23 @@ unblock them:** focused multi-round work on a shape channel, a per-pixel second-
 colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
 pixels.
 
-- §11.4.6, §11.7.4.4 — the knockout constructions' one remainder, reported by name: an element
-  whose shape needs the reading it was painted under carried beside it. The record of
-  §11.6.4.3's readings is one per scope — a path's portions, a tiling cell, a text object and its
-  glyph pairs each have their own, and a group or cell whose raster is its own shape keeps its
-  readings out of the enclosing one (ADR 1306) — so what is left is content painting under both
-  readings of `/AIS` with a mask or a constant as direct elements of one scope (§11.4.6), and a
-  cell under the other reading whose raster is not its shape (§11.7.4.4). A knockout group under a
-  mode at its own `Do` is drawn through §11.4.4's result step (ADR 1305). The product of shape and opacity no longer reaches a
-  knockout element on any route: the stencil under its own `/SMask` is stated as an image
-  (ADRs 1218, 1279) and through a pattern (ADR 1301), so §11.3.7.2, §11.3.7.3 and §11.4.4 have
-  left this bucket.
-- §11.4.3, §11.6.4.3 — one raster carrying the product where the clause wants the pair. Each row
-  names its own case — a group whose content painted under both readings of `/AIS` (§11.6.4.3);
-  and the same quantity in §11.4.3's own sentence, which asks that a group's "colour, shape, and
-  opacity" be treated as one object's — `Command::Group`'s `alpha_is_shape` states the groups where
-  the two coincide, and everywhere else the single object carries the product.
-- §11.4.7, §11.5.3 — a page that has already spent `colour::MAX_PRESSES`: such a group has no press
-  to composite in, so its elements are painted in the parent's space and `PagePress::Beyond` names
-  why. The bound is no longer a round number — it is twice what the standard says one profile can
-  be, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less the pair that clause
-  forbids, and the deepest page `examples/press_depth` finds names one press (ADR 1254) — so
-  §11.6.6 and §11.7.2 record it as a `departed` bound rather than a debt and have left this bucket.
-  §11.4.7 carries a second requirement of its own — a reference XObject's imported page is
-  composited under the containing page's group attributes instead of its own — which nothing on
-  this disk can witness, because no document here states a reference XObject at all. §11.5.3
-  carries its own second one: a blend mode inside a subtractive group of more than one component.
+- §11.4.3 — one raster carrying the product where the clause wants the pair: §11.4.3's own
+  sentence asks that a group's "colour, shape, and opacity" be treated as one object's —
+  `Command::Group`'s `alpha_is_shape` states the groups where the two coincide, and everywhere else
+  the single object carries the product. The knockout constructions' last remainder, an element
+  painted under the other reading of §11.6.4.3's `/AIS`, is read under its own (ADR 1319), so
+  §11.4.6, §11.6.4.3 and §11.7.4.4 have left this bucket.
+- §11.4.7, §11.5.3 — each row's own second requirement, and neither is witnessed on this disk.
+  §11.4.7's is a reference XObject's imported page, which the clause composites under the *imported*
+  page's group attributes and this tree under the containing page's — no document here states a
+  reference XObject at all (ADR 1101). §11.5.3's is a blend mode inside a subtractive group of more
+  than one component, which no curated or crawled document that opens paints. Both notes also name
+  `colour::MAX_PRESSES`: a page that has spent it has no press left for its group's space, so its
+  elements are painted in the parent's and `PagePress::Beyond` names why. That bound keeps neither
+  row open — it is twice what the standard says one profile can be, Table 69's four intents against
+  §8.6.5.9's `/UseBlackPtComp` less the pair that clause forbids, and the deepest page
+  `examples/press_depth` finds names one press (ADR 1254) — so §11.6.6 and §11.7.2 record it as a
+  `departed` bound and have left this bucket.
   **Beside this bucket and not in it**: §11.3.4 is `departed`. Its one departure is the choice of
   route into a one-component blending space (ADR 0790), which `doc/todo/23` still prices; the
   precision that stood beside it here is closed, the cube into a parent's components being carried
@@ -183,15 +164,20 @@ a normal round extending the existing code.
   its variants, and a JPEG 2000 image on its own grid is cleared and re-encoded. A picture's
   `/SMask` and `/Mask` are cleared on their own grids, a `JPXDecode` opacity channel becomes the
   soft mask Table 87 names, and an inline image behind `DCTDecode` or `CCITTFaxDecode` or naming a
-  colour-space resource is spliced (ADR 1277). The cases still owed are a stroke whose outline
-  holds an arc, a codec image whose decode is not on the grid its dictionary states, a `JPXDecode`
-  image stating more than eight bits per component, and a codec picture whose `/Mask` is a colour
-  key or whose soft mask states a `/Matte`. The overlay is a decided departure inside the row
-  (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236, 1248, 1277).
-- §12.7.4.3 — variable text whose `/DA` matrix states a linear part with **no inverse**: it sends
-  the whole plane onto one line, so the box has no preimage that is a region and the glyph outlines
-  enclose no area. Every invertible linear part is laid out, in the chord the box leaves the line
-  a given baseline carries (`doc/todo/22`, ADRs 1114, 1130, 1247).
+  colour-space resource is spliced (ADR 1277). A stroke whose outline holds an arc is cut as cubics
+  within a stated bound of it (ADR 1324). The cases still owed are a codec image whose decode is not
+  on the grid its dictionary states (a reduced `JPXDecode` write-back would resample everything
+  outside the region too), a `JPXDecode` image stating more than eight bits per component, and a
+  codec picture whose `/Mask` is a colour key or whose soft mask states a `/Matte`. The overlay is a
+  decided departure inside the row (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236, 1248, 1277, 1324).
+- §8.9.6.2 — a stencil painted through a pattern under a graphics-state soft mask, which the
+  construction would make two masks on one command, refused by name in `content/image.rs`. The
+  smoothing sentence is met on all three backends since the shipped rasteriser filters
+  premultiplied samples (ADR 1287, `doc/QUORRA_FEEDBACK.md` section 39).
+- **Beside this bucket and not in it** — §12.7.4.3 is `departed`: a rich text field's formatting,
+  which the clause hands to XFA 3.3, is reported rather than applied (ADRs 1122, 1197). A `/DA`
+  whose `Tm` has no inverse is the clause carried out — the translation is the processor's to
+  choose, and the producer's matrix draws no area — and says so (`doc/todo/22`).
 - **Beside this bucket and not in it** — §12.7.8.3.2 is `departed`: Table 249's `/APRef`, and it alone. `/AP`, `/A`, `/AA` and `/IF` are applied by one
   rule, a value that lives in the other file crossing as a *value* rather than as a reference
   (ADRs 1186, 1223); `/RV` is XFA rich text on `CLAUDE.md`'s closed exclusion list and is not a
@@ -220,13 +206,17 @@ honest state until then.
 - §7.6.6 — Table 27 and nothing else: its entries are the public-key handler's and reach nothing
   while §7.6.5 refuses the handler. Table 25's `/AuthEvent` is read and load-bearing.
 
-**`doc/questions/`'s open Q files, and what each holds in this map.** `tools/state.sh questions`
-prints the parity and names the open ones.
-Q98's answer is in and built: `viewer_host::submit` sends §12.7.6.2's request, so that row and
-§12.7.6 are `implemented` (ADR 1291), and `doc/questions/Q130` asks what the TLS stack's C costs
-principle 3. Q72 could move
-§12.7.5.4 out of the not-owed bucket below, and Q67 names no ledger row; Q76's answer is built in `raster/` (ADR 1295). Q97's answer is
-in: the XFDF text is held and §12.7.8.3.4 reads it (ADR 1297).
+**`doc/questions/`, and what each answer holds in this map.** `tools/state.sh questions` prints
+the parity and names the open ones. The owner's answers of 2026-09-22 are built: A98's client sends
+§12.7.6.2's request, so that row and §12.7.6 are `implemented` (ADR 1291); A72's bound — a quantity
+may be chosen where the clause names the kind of mark and withholds only the number — moved
+§12.4.4, §12.4.4.1, §12.5.6.19 and §12.6.4.15 to `implemented` (ADR 1299), puts §12.5.6.11's and
+§12.5.6.12's artwork on its far side, and moved §12.7.5.4 to `implemented` (ADR 1323); A76's
+mode is drawn in `raster/` (ADR 1295); A97's text is held and §12.7.8.3.4 reads it (ADR 1297);
+A100 made §8.6.6.5 `implemented`; A03 ratified Annex F, whose rows are all `implemented` (ADRs 1293,
+1309); A67 names no ledger row. Two stay open and move no row here: `doc/questions/Q130`, what the
+TLS stack's C costs principle 3, and `doc/questions/Q131`, how a linearised file's hint tables are
+padded.
 
 ### 6. Genuinely buildable now — the campaign's next targets
 
@@ -234,16 +224,11 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-- §11.6.5.2 — a `/Matte` on a parent whose raster is not on the grid its dictionary states, which is
-  a `JPXDecode` codestream decoded at one of its own reduced resolution levels (§7.4.9 NOTE 3,
-  ADR 0321): Table 143 pairs a `/Matte`'d mask with the parent's stated grid, and on a reduced
-  raster that pairing does not exist, so the pre-blending is named through the shortfall rather than
-  undone. The two residues this bucket named before are closed (ADR 1268) — a mask in a
-  one-component space Table 143 does not permit supplies its samples and reports the departure, and
-  the `/Matte` is undone in the image's own components before the colour conversion, in all three
-  domains a route holds them in — and the codec residue left before that (ADR 1232).
+No row is here at present. §11.6.5.2, the last one named, is `implemented`: a `/Matte` on a
+`JPXDecode` parent decoded at a reduced level is undone on that grid, the mask carried onto it over
+the same footprints (ADR 1324).
 
-Bucket 4's four rows are buildable by a normal round as well; what separates them is that each of
+Bucket 4's rows are buildable by a normal round as well; what separates them is that each of
 those closes a *case* while a row here closes the row. The seven this bucket last named — §7.5.6,
 §7.7.2, §7.7.3.3, §7.7.4, §7.11.3, §8.9.5.1 and §8.10.2 — are all `implemented`, which is the bucket
 doing what it is for and the reason its membership is re-derived rather than carried.
@@ -254,9 +239,8 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §8.9.6, §10.7, §11.4, §11.6,
-§11.6.4, §11.7, §11.7.4, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
-§12.7.5, §12.8, §12.8.3, §12.8.3.4.
+§7.6, §8.9.6, §10.7, §11.4, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.8, §12.8.3,
+§12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
@@ -280,10 +264,6 @@ reading.
 - §12.5.6.11, §12.5.6.12 (`reported`) — a caret's `/Sy` symbol and a rubber stamp's `/IT`, whose
   artwork the standard states nowhere (`doc/todo/26`); every corpus instance carries an appearance,
   and Table 184 is the only place any of the fourteen stamp legends is printed at all.
-- §12.7.5.4 — a choice field's selection *mark*: the clause names it and states no quantity for it, so
-  the page draws the list, auto-sized to what is visible and in `/Opt`'s own order, and reports which
-  item `/V` names. This is the class `doc/questions/Q72` asks the owner about, and the row's status is
-  the same under either reading of it.
 
 ### Expired premises — a decision whose factual ground the tree has since removed
 

@@ -297,7 +297,7 @@ pub const CASES: &[Case] = &[
         &[Op::PushInt(63), Op::Not],
         &[-64.0],
         "PLRM3 ch. 8, `not`, by the same sentence: ¬63 = −64 in two's complement. This \
-         is the case `raster/doc/spike-function-paint.md` §7 found the caller's evaluator \
+         is the case `raster/doc/spike-function-paint.md` section 7 found the caller's evaluator \
          answering with 0.0, because its compiled form carries no type on a literal — \
          which is why the pinned vocabulary has both `PushInt` and `PushReal`.",
     ),
@@ -349,7 +349,7 @@ pub const CASES: &[Case] = &[
          would return the operand unchanged, and Rust's `<<` overflows",
         "PLRM3 ch. 8, `bitshift`. \"Bits shifted out are lost\" suggests 0, but the \
          entry never says so, and the three plausible answers — 0, the operand back, and \
-         a panic — are all somebody's implementation. Research §5 already recorded this \
+         a panic — are all somebody's implementation. Research section 5 already recorded this \
          as unverified; the corpus records it as undefined.",
     ),
     // ---- true, false --------------------------------------------------------

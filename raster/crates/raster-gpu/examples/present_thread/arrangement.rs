@@ -210,7 +210,7 @@ pub(crate) fn the_shapes_are_the_ones_adr_0058_counted() {
         assert_eq!(
             got, want,
             "{label}: this file's shapes draw {got} fragments at {width} x {height}; \
-             ADR 0058 and raster/doc/notes-present-quad.md §2 count {want}",
+             ADR 0058 and raster/doc/notes-present-quad.md section 2 count {want}",
         );
     };
     same(

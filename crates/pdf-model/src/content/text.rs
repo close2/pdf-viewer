@@ -79,7 +79,7 @@ pub(super) struct TextObject {
     /// its own: §9.3.8's group is the object's glyphs, so the readings it asks about are the
     /// ones they were shown under, from the reading in force at `BT` on
     /// (`Interpreter::open_reading_scope`, ADR 1306). `None` outside a text object.
-    pub(super) enclosing_reading: Option<(AlphaSourcesSeen, usize)>,
+    pub(super) enclosing_reading: Option<super::transparency::Readings>,
 }
 
 /// What one glyph is to have done to it, decided once per show string rather than per glyph.
@@ -103,6 +103,9 @@ struct GlyphPainting {
     clipping: bool,
     /// Whether §9.3.8's text knockout could change a pixel of this object.
     knockout_can_show: bool,
+    /// Whether it could by a tiling cell's own marks alone, which only painting the glyph
+    /// answers, as [`Self::tiled_pair`] is for §11.7.4.4's.
+    knockout_by_cells: bool,
     /// Whether §11.7.4.4's implicit group could change a pixel of this glyph.
     combining: bool,
     /// Whether it could by a tiling cell's own marks alone, which only painting the glyph
@@ -185,6 +188,18 @@ impl GlyphPainting {
             knockout_can_show: (fills || strokes)
                 && state.text.knockout
                 && state.paint_composites(),
+            // §11.6.7 makes what a cell evaluates to the glyph's own opacity (ADR 1306), so a
+            // glyph whose paint is a tiling pattern may composite where the state does not.
+            knockout_by_cells: (fills || strokes)
+                && state.text.knockout
+                && !state.paint_composites()
+                && [
+                    fills.then_some(&state.fill_pattern),
+                    strokes.then_some(&state.stroke_pattern),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|pattern| matches!(pattern, Some(PatternPaint::Tiling(_)))),
             combining,
             tiled_pair,
             // §11.7.4.3's last paragraph asks for a group around "the object being painted"
@@ -1185,10 +1200,10 @@ impl Interpreter<'_> {
         // inside — `push_combined_glyphs` builds them on the other branch.
         let knockout_owed = text.knockout_owed;
         // The readings the object's glyphs were shown under, and the enclosing record back.
-        let reading = text
-            .enclosing_reading
-            .take()
-            .map_or(self.alpha_sources, |outer| self.close_reading_scope(outer));
+        let (reading, in_force) = match text.enclosing_reading.take() {
+            Some(outer) => self.close_reading_scope(outer),
+            None => (self.settled_readings(), state.alpha_is_shape),
+        };
         if knockout_owed || !text.combined.is_empty() {
             let glyphs = text.composited.len();
             let elements = self.list.split_off_commands(text.start);
@@ -1229,8 +1244,12 @@ impl Interpreter<'_> {
         text.combined.clear();
         text.composited.clear();
         // Whether as §9.3.8's group or glyph by glyph, the glyphs are elements of the
-        // enclosing content, read under its reading, so theirs join its record.
-        self.fold_reading(reading, text.start);
+        // enclosing content now, so the reading they were shown under joins its record — and
+        // the reading in force at `ET` stays in force, since §9.3.8 lets "[c]hanges made to
+        // graphics state parameters within the text object ... persist beyond the end of the
+        // text object" (ADR 1319).
+        self.absorb_reading(reading, text.start);
+        self.note_alpha_source(in_force);
 
         let path = std::mem::take(&mut text.clip);
         if path.is_empty() {
@@ -1277,7 +1296,7 @@ impl Interpreter<'_> {
         // §11.7.4.4's pair is read under the readings its own parts are painted under, which
         // only a glyph that may combine asks about.
         let enclosing_reading = (painting.combining || painting.tiled_pair)
-            .then(|| self.open_parts_reading(state.alpha_is_shape));
+            .then(|| self.open_knockout_reading_scope(state.alpha_is_shape));
         let mut cells_composite = false;
         if painting.fills {
             cells_composite |= self.fill_glyph(
@@ -1304,8 +1323,8 @@ impl Interpreter<'_> {
         // the page once — an empty outline, or a fill a tiling pattern drew nothing for — and
         // there is nothing for it to composite with.
         if let Some(outer) = enclosing_reading {
-            let reading = self.alpha_sources;
-            self.close_parts_reading(outer, parts_at);
+            let (reading, _) = self.close_reading_scope(outer);
+            self.absorb_reading(reading, parts_at);
             if (painting.combining || cells_composite)
                 && self.list.command_count() > parts_at.saturating_add(1)
             {
@@ -1320,7 +1339,9 @@ impl Interpreter<'_> {
             // that a hidden layer still reaches this line.
             text.clip.extend_transformed(outline, transform);
         }
-        if painting.knockout_can_show {
+        // §9.3.8 asks whether the glyphs composite, and a glyph painted through a cell whose
+        // marks do composites whatever the state at the `Tj` says.
+        if painting.knockout_can_show || (painting.knockout_by_cells && cells_composite) {
             text.note_knockout(outline_bounds(outline, transform));
         }
     }

@@ -122,6 +122,31 @@ section_cited() {
         cargo run -q --release -p conformance --bin cited
 }
 
+# Whether the four navigational documents — `doc/PLAN.md`, `doc/crate-map.md`,
+# `doc/state-of-play.md`, `doc/HANDOVER.md` — are still true of the tree, asked of the three sweeps
+# that count their own population and of the history `CLAUDE.md`'s comment rule keeps out of them.
+# `pointers` prints its counts and every absent pointer those four documents hold; `overtaken` and
+# `unread` print the counts over the page-list notes and the ledger, which the four documents point
+# into. `retired` is not run here, because its nouns are the caller's — the string a correction
+# retired — and a list of them written into this script would be the stale copy it exists to find.
+# A hit is a reading list and not a verdict: each sweep's own last line says what its noise is.
+section_navigation() {
+    run "the four navigational documents' pointers into the tree" \
+        '^[0-9]+ path pointer|— doc/(PLAN|crate-map|state-of-play|HANDOVER)\.md:[0-9]+$' \
+        cargo run -q --release -p conformance --bin pointers
+    run "page-list notes a later decision overtook" \
+        '^[0-9]+ page-list note' \
+        cargo run -q --release -p conformance --bin overtaken
+    run "ledger entries claimed unread that the tree quotes" \
+        '^[0-9]+ rows claim' \
+        cargo run -q --release -p conformance --bin unread
+    # `grep -c` exits 1 when no file matches, which is the clean answer, so only 2 is a failure.
+    run "history the comment rule keeps out of the four documents" \
+        ':[0-9]+$' \
+        bash -c 'grep -cE "hundred-and-|one round later|round [0-9]{3,4}|session [0-9]{3,4}|used to (reach|read|be|draw|name|hold|refuse)" "$@"; [ $? -le 1 ]' \
+        history doc/PLAN.md doc/crate-map.md doc/state-of-play.md doc/HANDOVER.md
+}
+
 # Every ledger note's opening and closing sentence, against the row's own `status` field. A note's
 # last sentence is the "what keeps this row `partial`" clause and every later round appends above
 # it; its first sentence is what a round that moves a status rewrites around. Both are inside the
@@ -849,8 +874,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
-quick="ledger departures flags names cited last-sentences conformance annex-o governing questions records counts hosts windows binaries disk remedies"
+all="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
+quick="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts hosts windows binaries disk remedies"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -876,6 +901,7 @@ for section in $sections; do
     names) section_names ;;
     cited) section_cited ;;
     last-sentences) section_last_sentences ;;
+    navigation) section_navigation ;;
     frontier) section_frontier ;;
     conformance) section_conformance ;;
     tests) section_tests ;;

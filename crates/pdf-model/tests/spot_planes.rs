@@ -82,11 +82,39 @@ fn interpreted(bytes: Vec<u8>, simulate: bool) -> Interpretation {
     pdf_model::content::interpret_with(&document, &page, &state)
 }
 
+/// A separated page: the model's record, and the display list that draws every plane.
+struct Separated {
+    record: Separation,
+    list: pdf_render::DisplayList,
+}
+
+impl Separated {
+    fn colourants(&self) -> &[pdf_syntax::Name] {
+        self.record.colourants()
+    }
+
+    fn plane_count(&self) -> usize {
+        self.record.plane_count()
+    }
+
+    fn without_a_plane(&self) -> &[pdf_syntax::Name] {
+        self.record.without_a_plane()
+    }
+
+    fn plane(&self, plane: Plane) -> Option<&pdf_render::DisplayList> {
+        pdf_model::colourants::plane(&self.list, plane)
+    }
+}
+
 /// Page one's separation under the simulation, which the fixture must have.
-fn separated(bytes: Vec<u8>) -> Separation {
-    interpreted(bytes, true)
-        .separation
-        .expect("a page naming a spot colourant is separated under the simulation")
+fn separated(bytes: Vec<u8>) -> Separated {
+    let interpretation = interpreted(bytes, true);
+    Separated {
+        record: interpretation
+            .separation
+            .expect("a page naming a spot colourant is separated under the simulation"),
+        list: interpretation.display_list,
+    }
 }
 
 /// The solid colours of the fills `commands` holds, groups entered, in drawing order.
@@ -106,7 +134,7 @@ fn fills(commands: &[Command]) -> Vec<Color> {
 }
 
 /// The fills of one plane of `separation`.
-fn plane(separation: &Separation, plane: Plane) -> Vec<Color> {
+fn plane(separation: &Separated, plane: Plane) -> Vec<Color> {
     fills(
         separation
             .plane(plane)
@@ -116,7 +144,7 @@ fn plane(separation: &Separation, plane: Plane) -> Vec<Color> {
 }
 
 /// The blend modes of one plane's top-level fills.
-fn blends(separation: &Separation, plane: Plane) -> Vec<BlendMode> {
+fn blends(separation: &Separated, plane: Plane) -> Vec<BlendMode> {
     separation
         .plane(plane)
         .expect("the device has this plane")
@@ -192,22 +220,81 @@ fn logo_green_paints_its_own_plane_and_no_process_ink() {
     }
 }
 
-/// The page a backend draws is the page it drew before: the separation sits beside it, and with
-/// the simulation off there is none at all.
+/// Under the simulation the separation is the page a backend draws — step d)'s "output it" — and
+/// with the simulation off there is none at all, on the model's record or on the list.
 #[test]
-fn the_drawn_page_is_unchanged_and_off_makes_no_separation() {
+fn the_separation_is_the_drawn_page_and_off_makes_none() {
     let bytes = logo_green("", "/LG cs 0.5 scn 0 0 20 20 re f");
     let off = interpreted(bytes.clone(), false);
     let on = interpreted(bytes, true);
     assert!(
-        off.separation.is_none(),
+        off.separation.is_none() && off.display_list.separation().is_none(),
         "no separation without the reader's request"
     );
     assert!(on.separation.is_some());
-    assert_eq!(
-        off.display_list, on.display_list,
-        "the drawn list does not move"
+    let spots = on
+        .display_list
+        .separation()
+        .expect("the drawn list carries the spot planes");
+    assert_eq!(spots.planes().len(), 1);
+    assert_eq!(spots.colourants()[0].name(), b"LogoGreen");
+    assert!(
+        on.display_list.blending().is_some() && on.display_list.black().is_some(),
+        "and the process pair beside them"
     );
+}
+
+/// §10.8.3 step b) for EXAMPLE 2's LogoGreen: its separation is the colour its tint transform
+/// states, on the matte where the tint is zero. At a tint of 1 the calculator function gives CMYK
+/// `[0.84 0.0 0.44 0.21]` — `1 dup 0.84 mul` is 0.84, `exch 0.00 exch` puts 0 under the tint, and
+/// `dup 0.44 mul exch 0.21 mul` gives 0.44 and 0.21 — and the curve's last sample is that CMYK's
+/// flat XYZ over D50, which `ColourSpace::flat_ratio` answers for the same space at the same tint.
+#[test]
+fn a_spot_colourants_curve_is_its_separations_flat_xyz() {
+    let separation = separated(logo_green("", "/LG cs 0.5 scn 0 0 20 20 re f"));
+    let spots = separation.list.separation().expect("separated");
+    let flat = spots.colourants()[0].flat();
+    assert_eq!(flat.len(), pdf_model::colourants::FLAT_SAMPLES);
+    for (axis, value) in flat[0].iter().enumerate() {
+        assert!(
+            (value - 1.0).abs() < 1.0e-3,
+            "no tint is the matte's white on axis {axis}: {value}"
+        );
+    }
+    let cmyk = pdf_model::colour::ColourSpace::Cmyk;
+    let expected = cmyk.flat_ratio(
+        &[0.84, 0.0, 0.44, 0.21],
+        pdf_model::icc::Rendering::compensating(),
+    );
+    let last = flat[flat.len() - 1];
+    for axis in 0..3 {
+        assert!(
+            (last[axis] - expected[axis]).abs() < 1.0e-4,
+            "full LogoGreen on axis {axis}: {last:?} against {expected:?}"
+        );
+    }
+}
+
+/// §11.7.4.2: "If the specified blend mode is not separable or not white-preserving, it shall apply
+/// only to process colour components, and the Normal blend mode shall be substituted for spot
+/// colours." `Difference` is not white-preserving and `Hue` is not separable; `Multiply` is both.
+#[test]
+fn a_spot_plane_substitutes_normal_for_a_mode_the_clause_names() {
+    for (mode, process, spot) in [
+        ("Difference", BlendMode::Difference, BlendMode::Normal),
+        ("Hue", BlendMode::Hue, BlendMode::Normal),
+        ("Multiply", BlendMode::Multiply, BlendMode::Multiply),
+    ] {
+        let separation = separated(file(
+            "",
+            &format!("/ColorSpace << /LG {LOGO_GREEN} >> /ExtGState << /B << /BM /{mode} >> >>"),
+            "/B gs /LG cs 0.5 scn 0 0 20 20 re f",
+            &[LOGO_GREEN_TINT],
+        ));
+        assert_eq!(blends(&separation, Plane::Chromatic), [process], "{mode}");
+        assert_eq!(blends(&separation, Plane::Black), [process], "{mode}");
+        assert_eq!(blends(&separation, Plane::Spot(0)), [spot], "{mode}");
+    }
 }
 
 /// A page naming no spot colourant has nothing to separate, simulation or not.
@@ -449,4 +536,49 @@ fn an_unpainted_colourant_past_the_bound_is_not_named() {
         &[],
     ));
     assert!(separation.without_a_plane().is_empty());
+}
+
+/// The colourant past the bound reaches the page's report, because the separated page is the page
+/// a person sees and a mark on it was printed in its alternate: named by the colourant, and raised
+/// by the mark that painted it (trap 11).
+#[test]
+fn a_colourant_without_a_plane_is_in_the_pages_report() {
+    let many = inks(MAX_SPOT_COLOURANTS);
+    let resources =
+        format!("/ColorSpace << /A [/DeviceN [{many}] /DeviceCMYK {TINT}] /LG {LOGO_GREEN} >>");
+    let painted = interpreted(
+        file(
+            "",
+            &resources,
+            "/LG cs 0.5 scn 0 0 20 20 re f",
+            &[LOGO_GREEN_TINT],
+        ),
+        true,
+    );
+    assert!(
+        painted
+            .unsupported
+            .contains(&pdf_model::Unsupported::SpotColourantsWithoutAPlane {
+                colourants: "LogoGreen".to_owned()
+            }),
+        "{:?}",
+        painted.unsupported
+    );
+    let unpainted = interpreted(
+        file(
+            "",
+            &resources,
+            "0 0 0 1 k 0 0 20 20 re f",
+            &[LOGO_GREEN_TINT],
+        ),
+        true,
+    );
+    assert!(
+        !unpainted.unsupported.iter().any(|item| matches!(
+            item,
+            pdf_model::Unsupported::SpotColourantsWithoutAPlane { .. }
+        )),
+        "{:?}",
+        unpainted.unsupported
+    );
 }

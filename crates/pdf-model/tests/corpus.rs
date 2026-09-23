@@ -1009,7 +1009,9 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a token §7.8.2 admits neither as an operand nor as an operator",
         ),
-        Unsupported::LimitReached { .. } => (Whose::NeitherOne, "a bound this program set"),
+        Unsupported::LimitReached { .. } | Unsupported::SpotColourantsWithoutAPlane { .. } => {
+            (Whose::NeitherOne, "a bound this program set")
+        }
         Unsupported::TextKnockout { .. }
         | Unsupported::CompositedInParts { .. }
         | Unsupported::TransparencyGroup { .. }

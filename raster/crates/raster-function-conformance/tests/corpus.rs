@@ -191,14 +191,17 @@ fn case_names_are_unique() {
 
 /// Every expectation says where it came from. The check is shallow on purpose — a test
 /// cannot read a citation — but an empty one, or one that names no source, is a case
-/// somebody wrote without opening the document.
+/// somebody wrote without opening the document. A source is ISO 32000-2 (by name or by a
+/// `§`, which means that standard and nothing else), PLRM3, or a document of this workspace
+/// named by its path and cited as "section N".
 #[test]
 fn every_case_cites_a_source() {
     for case in corpus::cases() {
         assert!(
             case.citation.contains("ISO 32000-2")
                 || case.citation.contains("PLRM3")
-                || case.citation.contains("§"),
+                || case.citation.contains("§")
+                || case.citation.contains(".md` section "),
             "{}: citation names no source: {:?}",
             case.name,
             case.citation

@@ -344,12 +344,12 @@ answers in two places"
             // Written beside the document with `.edited.pdf` appended rather than over it,
             // because overwriting somebody's file is a decision this program has not been given.
             Event::Extracted {
+                document,
                 asked,
                 name,
                 bytes,
                 fragment,
-                ..
-            } => self.extracted(asked, &name, bytes, fragment, queue),
+            } => self.extracted(document, asked, &name, bytes, fragment),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             // What a host does with this is mark its window and ask before closing. This one
             // has no dialogue to ask with, so it marks the title and says so on the way past.
@@ -779,21 +779,16 @@ impl App {
             self.open_arriving(Some(secret));
             return;
         }
-        // The file again — off the disk, or out of the document it was embedded in, which is where
-        // Annex O's `ef` left it: §7.11.4 puts an embedded file inside another document, so there
-        // is no path to re-read for one (§O.2.1, ADR 0431).
-        let bytes = if let Some(bytes) = self.embedded.clone() {
-            bytes.into()
-        } else {
-            // Trap 5, and the second `exit` this method used to carry: a file that has gone away
-            // between the first open and the second is a fact about this machine, and a window that
-            // vanished rather than saying so would be answering nothing.
-            match pdf_syntax::FileBytes::on_disk(&self.path) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    println!("note: cannot re-open {}: {error}", self.title);
-                    return;
-                }
+        // The file again, off the disk. An embedded file Annex O's `ef` opened is on its way to a
+        // tab of its own and holds its bytes there (`viewer_host::Arriving::bytes`), so the one in
+        // front always has a path. Trap 5: a file that has gone away between the first open and
+        // the second is a fact about this machine, and a window that vanished rather than saying so
+        // would be answering nothing.
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                println!("note: cannot re-open {}: {error}", self.title);
+                return;
             }
         };
         self.dispatch(Command::Open {

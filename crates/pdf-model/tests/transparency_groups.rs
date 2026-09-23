@@ -1107,13 +1107,18 @@ fn a_bare_constants_shape_weights_the_backdrop_at_a_half_covered_edge() {
 }
 
 /// The reading is a graphics state parameter, so what a group's *content* painted under
-/// decides it — and where that is both readings, no single one describes the group.
+/// decides it — element by element.
 ///
 /// Three scopes, each a shape a real file has. A statement `Q` has restored before the `Do`
 /// reaches no element (ADR 0327's narrowing, whose corpus witness is `issue18032.pdf`); a
-/// statement that opens the form's own content reached no mark of the earlier reading either,
-/// so it *replaces* rather than mixes; and a statement in the middle of the content leaves two
-/// readings over one group, which is refused by name.
+/// statement that opens the form's own content reached no mark of the earlier reading either;
+/// and a statement in the middle of the content reads the elements after it under the new
+/// reading and the ones before it under the old (ADR 1319). There the red square is opaque and
+/// maskless, so the flag reinterprets nothing in it, and the blue one is painted under
+/// `/GA`'s `/AIS true` and its `/Luminosity` mask of a 0.5 grey — shape ½ at opacity 1. At the
+/// overlap §11.4.6 keeps half the red and adds half the blue, `(½, 0, ½)` opaque, which over the
+/// white page is `(127, 0, 127)`; read as opacity the mask would knock the red out whole and
+/// leave half the blue over white, `(127, 127, 255)`.
 #[test]
 fn alpha_is_shape_is_scoped_to_what_the_groups_content_painted_under() {
     let knockout = "/Group << /S /Transparency /I true /K true >>";
@@ -1132,14 +1137,22 @@ fn alpha_is_shape_is_scoped_to_what_the_groups_content_painted_under() {
         !reported(&format!("/GT gs {squares}"), "/Fm Do").contains("/AIS"),
         "a statement in front of the group's first mark is the whole of what it painted under"
     );
-    let mixed = reported(
+    let mixed = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
         "1 0 0 rg 10 10 50 50 re f /GA gs 0 0 1 rg 30 30 50 50 re f",
         "/Fm Do",
-    );
-    assert!(
-        mixed.contains("knockout") && mixed.contains("/AIS was stated both ways"),
-        "two readings over one group is refused, and the report names why: {mixed}"
-    );
+    ));
+    assert!(mixed.is_complete(), "{:?}", mixed.unsupported);
+    // Page (40, 40) is inside both squares; device row 100 − 40 = 60.
+    let overlap = pixel(&mixed, 40, 60);
+    for (channel, expected) in overlap.iter().zip([127_u8, 0, 127, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 2,
+            "the mask is shape where it was painted under /AIS true: {overlap:?}"
+        );
+    }
+    assert_eq!(pixel(&mixed, 20, 80), [255, 0, 0, 255]);
 }
 
 /// §11.4.6's arithmetic, at the pixel, for an element whose shape is not its coverage.
@@ -1222,9 +1235,11 @@ fn a_stated_shape_knocks_the_element_under_it_out_entirely() {
 ///
 /// **Calibrated by planting** `AlphaSourcesSeen::settled_over` back to `settled`: the group is
 /// then refused, the overlap reads `(0, 0, 0)` and the page reports. The second fixture is
-/// the control that must *stay* refused — one fill under `/GS`, which states `ca 0.5`, is an
-/// element the flag genuinely reinterprets — and it is what says the narrowing is the clause's
-/// and not a blanket.
+/// one the flag does reinterpret: the red fill under `/GS`'s `ca 0.5` is painted under `/AIS
+/// true` — shape ½, opacity 1 — and the blue one under `/GBF`'s `false`, still at `ca 0.5` —
+/// shape 1, opacity ½. Each is read under its own (ADR 1319): at the overlap the blue's shape
+/// of 1 knocks the red out and leaves half the blue over white, `(127, 127, 255)`, where
+/// reading the blue's constant as shape would keep half the red, `(191, 64, 191)`.
 #[test]
 fn ais_stated_both_ways_refuses_nothing_the_flag_reinterprets_nothing_in() {
     let knockout = "/Group << /S /Transparency /I true /K true >>";
@@ -1244,20 +1259,29 @@ fn ais_stated_both_ways_refuses_nothing_the_flag_reinterprets_nothing_in() {
     assert_eq!(pixel(&opaque, 20, 80), [255, 0, 0, 255]);
     assert_eq!(pixel(&opaque, 70, 30), [0, 0, 255, 255]);
 
-    // The control: the same two fills, the lower painted under `/GS`'s `ca 0.5`, which is
-    // §11.6.4.4's constant — shape under one reading and opacity under the other. No single
-    // reading describes this group's content, and it keeps §11.4.6's report.
+    // The same two fills under §11.6.4.4's constant, which is shape under one reading and
+    // opacity under the other: each element keeps the reading it was painted under.
     let constant = interpret(fixture(
         knockout,
         "[0 0 100 100]",
         "/GT gs /GS gs 1 0 0 rg 10 10 50 50 re f /GBF gs 0 0 1 rg 30 30 50 50 re f",
         "/Fm Do",
     ));
-    let refusal = format!("{:?}", constant.unsupported);
-    assert!(
-        refusal.contains("/AIS was stated both ways"),
-        "the control must keep the report: {refusal}"
-    );
+    assert!(constant.is_complete(), "{:?}", constant.unsupported);
+    let overlap = pixel(&constant, 40, 60);
+    for (channel, expected) in overlap.iter().zip([127_u8, 127, 255, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 2,
+            "the blue's constant is opacity, so its shape knocks the red out: {overlap:?}"
+        );
+    }
+    let red = pixel(&constant, 20, 80);
+    for (channel, expected) in red.iter().zip([255_u8, 128, 128, 255]) {
+        assert!(
+            channel.abs_diff(expected) <= 2,
+            "the red alone is half its colour over white: {red:?}"
+        );
+    }
 }
 
 /// §11.4.4's NOTE 5: a non-isolated group whose result composites trivially is not built.

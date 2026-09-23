@@ -324,6 +324,21 @@ builder refuses *that* (ADR 1295). A page a refusal names is a page with at leas
 compare, and the refusal names the first. Run the witness page before the record says it compares,
 and let the corpus list's comment carry the new reason.
 
+### 51. A second caller can un-inline a per-pixel helper without a word
+
+`BlendingSpace::convert` stopped being inlined once the separation multiply became its second
+caller, and the CMYK page paid +4.9% with nothing in the source looking hot (ADR 1317); plain
+`#[inline]` did not restore it, `#[inline(always)]` did, and the number sits beside it. After adding
+a caller to anything a pixel loop reaches, diff callgrind per function before believing the total.
+
+### 52. A bare knockout element drawn through a clip mask clears the accumulation at the clip's edge
+
+A knockout element whose clip cut it was drawn as Porter-Duff Source scaled by the mask, and
+`tiny-skia` scales the source by the mask rather than interpolating, so pixels near the clip's edge
+were cleared to nothing; seven golden pages moved by a few levels at clip edges once it was drawn in
+two stages from an opaque twin (ADR 1319). Any route that draws a mark with a mode through a mask is
+tested with a clip that cuts the mark.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

@@ -578,3 +578,24 @@ begin only after the view has been still for as long as that work is predicted t
 Swapping one inline test for a discriminant test plus a niche `matches!` cost +0.10%, all inside
 `show_text`, with nothing in the source looking hot (ADR 1311); the fast test went back to the
 overprint parameter and the mode check into the cold half. The per-function diff is what found it.
+
+## 48. A parallel path is judged on this machine's two core classes, not only pinned
+
+A job handed to the pool may land on a Zen 5c core and take about 1.5 times as long as on the
+interpreter's own thread, so a decode that is faster pinned can be slower in the viewer: the
+single-image page's median went from 68.9 ms to 98.7 ms unpinned on an identical code path
+(ADR 1321), which is why the first image a walk finds is left to the interpreter. Measure pinned for
+the minimum and unpinned for what a person gets.
+
+## 49. A census's stderr goes to `/dev/null` before a walk
+
+A census binary picked up a sibling's temporary `eprintln!` and wrote 1.4 GB in two minutes
+(round 1240). Redirect a walk's stderr, or `strings`-check the binary, before the lock is taken.
+
+## 50. A changed pixel is held to the clause's geometry, never to the oracle's
+
+When a change re-expresses a mark, compute the clause's shape analytically and compare each moved
+pixel to it: the redacted arc was within one step of §8.4.3.3's semicircle while render-cpu's own
+stroker was eight off, so a byte comparison with the oracle would have called the correct output a
+regression (ADR 1324). And a plant must hit the step that differs — premultiplying a stencil at upload
+changes nothing because its alpha is 0 or 255; only the shader's multiply failed the test.

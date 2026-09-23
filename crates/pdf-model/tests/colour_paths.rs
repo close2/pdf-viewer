@@ -1445,11 +1445,35 @@ fn flatness_changes_nothing_because_the_clause_permits_ignoring_it() {
 /// `ViewState::set_separation_simulation` is where a host's answer arrives, and
 /// `pdf_model::interpret_with` is the interpretation that carries one.
 fn simulated_fill(extra: &str, operands: &str) -> (u8, u8, u8) {
+    simulated_fill_on(extra, operands, "")
+}
+
+/// [`simulated_fill`] on a page whose group names `DeviceRGB`, which §10.8.3's page-scale
+/// separation does not make (ADR 1311 section 6): the four steps are then run over the colourants
+/// the one painting operation states, which is ADR 1229's route by itself.
+fn unseparated_fill(extra: &str, operands: &str) -> (u8, u8, u8) {
+    simulated_fill_on(
+        extra,
+        operands,
+        "/Group << /S /Transparency /CS /DeviceRGB >>",
+    )
+}
+
+/// A fill in `/Sep` under the simulation, with `page` extra page-dictionary entries.
+fn simulated_fill_on(extra: &str, operands: &str, page: &str) -> (u8, u8, u8) {
     let bytes = pdf_with(
         extra,
         "/ColorSpace << /Sep 5 0 R >>",
         &format!("/Sep cs {operands} scn 0 0 20 20 re f"),
     );
+    let bytes = String::from_utf8(bytes)
+        .expect("the fixture is ASCII")
+        .replacen(
+            "/MediaBox [0 0 20 20]",
+            &format!("/MediaBox [0 0 20 20] {page}"),
+            1,
+        )
+        .into_bytes();
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let mut state = pdf_model::view::ViewState::of(&document);
@@ -1564,14 +1588,29 @@ fn two_separations_multiply_in_flat_xyz() {
 /// §10.8.3's step c) blends the separations "into a single result", and a product of one term
 /// is that term. So the preference cannot move a page whose spot colours are `Separation`
 /// spaces — which is most of them — and this is the assertion that says so rather than the
-/// hope: the same space, the same tint, the two answers to §10.8.3's condition.
+/// hope: the same space, the same tint, the two answers to §10.8.3's condition. Where the page
+/// is separated, the separation goes to flat XYZ and back (steps b) and d)) and the price of that
+/// round trip is at most one level; where it is not, one operation's single separation is never
+/// converted at all and the colour is exact.
 #[test]
 fn a_separation_space_is_the_same_colour_under_the_simulation() {
     let space = "5 0 obj\n[/Separation /Spot /DeviceRGB 6 0 R]\nendobj\n\
          6 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0.25 0.75] /N 1 >>\
          \nendobj\n";
-    assert_eq!(simulated_fill(space, "1"), devicen_fill(space, "1"));
-    assert_eq!(simulated_fill(space, "0.5"), devicen_fill(space, "0.5"));
+    for tint in ["1", "0.5"] {
+        let alternate = devicen_fill(space, tint);
+        assert_eq!(unseparated_fill(space, tint), alternate, "{tint}");
+        let separated = simulated_fill(space, tint);
+        let apart = [
+            separated.0.abs_diff(alternate.0),
+            separated.1.abs_diff(alternate.1),
+            separated.2.abs_diff(alternate.2),
+        ];
+        assert!(
+            apart.iter().all(|levels| *levels <= 1),
+            "{tint}: {separated:?} against {alternate:?}"
+        );
+    }
 }
 
 /// An `NChannel` space of process components alone is unmoved by the preference.
@@ -1626,6 +1665,14 @@ fn a_none_component_adds_no_separation_to_the_simulation() {
     clippy::doc_markdown,
     reason = "the comment quotes §8.6.6.5 and Table 70 verbatim, and a quotation is not marked up"
 )]
+///
+/// **That is the route one painting operation takes**, on a page §10.8.3 does not separate. On a
+/// page it does, every colourant has a plane and step b) reads each from the space that states it
+/// most directly (ADR 1317): `Spot1` from its `/Colorants` entry, blue at a tint of 1, and `Spot2`,
+/// which has none, from the tint transform with its component alone — red, because this transform
+/// states red whatever it is given. Step c) multiplies the two: blue's flat XYZ over D50 is
+/// (0.14838, 0.06061, 0.86568) and red's (0.45222, 0.22248, 0.01688), their product times D50 is
+/// (0.06470, 0.01349, 0.01206), and step d) takes that to sRGB (116, 0, 37).
 #[test]
 fn a_spot_component_without_its_separation_keeps_the_tint_transform() {
     let program = "{ pop pop 1 0 0 }";
@@ -1638,7 +1685,18 @@ fn a_spot_component_without_its_separation_keeps_the_tint_transform() {
          9 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0 0 1] /N 1 >>\nendobj\n",
         program.len().saturating_add(1)
     );
-    assert_eq!(simulated_fill(&space, "1 0"), (255, 0, 0));
+    assert_eq!(unseparated_fill(&space, "1 0"), (255, 0, 0));
+    let separated = simulated_fill(&space, "1 0");
+    assert!(
+        [
+            separated.0.abs_diff(116),
+            separated.1.abs_diff(0),
+            separated.2.abs_diff(37)
+        ]
+        .iter()
+        .all(|levels| *levels <= 1),
+        "blue times red on the separated page: {separated:?}"
+    );
 }
 
 /// A process component and a spot colourant are two separations, and they multiply.

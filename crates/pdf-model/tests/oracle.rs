@@ -1977,6 +1977,38 @@ const CONTRADICTED_MASK_QUANTISATION: [&str; 0] = [];
 /// and 0042 argue. What is no longer claimed is that `/VE` is what the gate measures.
 const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.pdf page 1"];
 
+/// Contradicted, where a tiling cell inside a Type 3 glyph description starts from the state that
+/// description began with — rendering mode 2 and a red stroke 20 units wide — and the references
+/// start it from something else.
+///
+/// `ContentStreamNoCycleType3insideType3.pdf` shows two Type 3 glyphs in mode 2; the first one's
+/// description sets `20 w` and a red stroke and shows a glyph of a second Type 3 font, whose
+/// description names `/P1` from that font's own `/Resources`. `/P1`'s cell shows Helvetica text
+/// at `1 0 1 rg` and sets no rendering mode, width or stroke colour. Four sentences decide what it
+/// inherits.
+///
+/// §8.7.2 names the stream: "the pattern's parent content stream (the content stream in which the
+/// pattern is defined as a resource)" — the second glyph's description. §8.7.3.1's step b):
+///
+/// > Installs the graphics state that was in effect at the beginning of the pattern's parent
+/// > content stream, with the current transformation matrix altered by the pattern matrix as
+/// > described in 8.7.2, "General properties of patterns"
+///
+/// §9.6.4 says what that beginning is:
+///
+/// > Aside from the CTM, the graphics state shall be inherited from the graphics state at the
+/// > point of invocation of the text-showing operator that caused the glyph description to be
+/// > invoked.
+///
+/// and §9.3.1 that the rendering mode is part of it: "The text state comprises those graphics
+/// state parameters that only affect text." §11.6.7 resets the blend mode, soft mask and alpha
+/// constant and nothing else. So the cell's text is shown in mode 2, filled magenta and stroked —
+/// §9.3.6: "if it calls for stroking, the current stroking colour shall be used" — in red at
+/// width 20. The four references draw four different pictures of the letters and none of them
+/// ours; `mupdf`'s holds red in the letters too. ADR 1320 section 1.
+const CONTRADICTED_PATTERN_CELL_STATE: [&str; 1] =
+    ["ContentStreamNoCycleType3insideType3.pdf page 1"];
+
 /// Contradicted, where the references that agree are two that did not draw the page.
 ///
 /// 2 pages. Trap 9's second shape at its plainest: "[a]n unimplemented feature almost always
@@ -14030,6 +14062,10 @@ const CONTRADICTED_GROUPS: &[(&str, &[&str])] = &[
     (
         "CONTRADICTED_VISIBILITY_EXPRESSION",
         &CONTRADICTED_VISIBILITY_EXPRESSION,
+    ),
+    (
+        "CONTRADICTED_PATTERN_CELL_STATE",
+        &CONTRADICTED_PATTERN_CELL_STATE,
     ),
     (
         "CONTRADICTED_REFERENCES_DREW_NOTHING",

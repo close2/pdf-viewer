@@ -916,7 +916,16 @@ const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
 /// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` section 45 is the ask: the
 /// stroked region is that rectangle traversed *twice*, and clamping the pixel-integrated winding
 /// is what makes a doubled contour heavier than the set §8.5.3.3 defines.
-const DIFFERS_IN_SHAPE: [&str; 4] = [
+///
+/// **`ContentStreamNoCycleType3insideType3.pdf`** is a tiling cell of stroked text, 20 units wide,
+/// inside a Type 3 glyph inside a Type 3 glyph. §8.7.3.1 starts the cell from the graphics state
+/// its parent stream began with, and that stream is the inner glyph's description, which begins in
+/// text rendering mode 2 with a red stroke of that width (ADR 1320) — so the cell's strokes cross
+/// its own box on every side. The oracle draws them solid; raster leaves magenta specks along the
+/// cells' seams, where each copy's box clip meets its neighbour's. Mean 0.089 over the page and
+/// 9.28 at the worst tile, in the seams alone.
+const DIFFERS_IN_SHAPE: [&str; 5] = [
+    "ContentStreamNoCycleType3insideType3.pdf",
     "issue15150.pdf",
     "issue19083.pdf",
     "issue20232.pdf",

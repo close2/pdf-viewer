@@ -387,7 +387,6 @@ fn main() {
         previews: viewer_host::panel::Previews::new(),
         title: path.to_string_lossy().into_owned(),
         path: PathBuf::from(&path),
-        embedded: None,
         fragment,
         // §12.7.6.4's import-data action names a file, and this is the only place that name is
         // allowed to mean anything: a *sibling of the document being shown*. See `supply`.

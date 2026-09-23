@@ -4874,6 +4874,14 @@ straight-alpha RGBA whose cleared samples are black, and all of them get that bl
 their edges wherever the filter is on — which, by `Image::is_smoothed`, is every reduction as well
 as every image whose file asks for interpolation.
 
+### 39.5 Answered
+
+**Closed by the first of the two constructions above**: image textures are premultiplied at
+realisation and `fs_main` returns the filtered sample as it stands (this tree's ADR 1287), and a
+stencil takes that lane — so `filtered_edge_colour` prints a departure of 0 for all three backends,
+and `render-raster/tests/masked_image_edge.rs::a_magnified_stencils_smoothed_edge_is_the_painted_colour_at_partial_coverage`
+holds a magnified stencil's partly covered pixels to the painted colour at four non-integer scales.
+
 ## 40. `issue1905.pdf` crosses the frame's scene-byte budget at 1× on `5fb011a` — a report with the message, not an ask for a larger budget
 
 Found by the merge round that integrated the page-space scene work (this tree's ADR 0702) with
@@ -5578,3 +5586,26 @@ picture.
 **Reproducing either.** `cargo run --release -p render-raster --example frame_budget`, or
 `tools/state.sh frame`. The example names its three documents, all committed here; the first is
 ISO 32000-2 itself.
+
+## 53. A plane per spot ink is section 17's two rasters, more times — drawn without asking, and one question about the readbacks
+
+**Where this comes from.** ISO 32000-2 §10.8.3 lets a reader ask to see a page as a press would
+print it, and its step a) processes the page "as if separations were to be created for a simulated
+device that supports subtractive process colourants and possibly spot colours". This side now
+draws that (ADR 1317): the page arrives as the process pair section 17 already carries and one more list
+per three spot colourants, every list the same geometry with different colours, and
+`pdf_render::resolve_separation` multiplies them together per pixel over the readbacks — steps b)
+to d), the flat XYZ of each separation against a white matte, multiplied, converted to the device.
+
+**Nothing had to be asked for, and that is section 17.1's answer paying again.** Each spot plane is one
+more `render(..., Target::Readback)` against the same device, and the glyph key has no colour in it,
+so a spot plane's geometry costs what the black pass's does — nothing. `render-raster`'s
+`tests/separation.rs` draws LogoGreen overprinting yellow and holds your pixels to within two
+levels of the CPU oracle's and the centre to the hand-worked (69, 139, 0).
+
+**The question: `2 + ceil(S / 3)` readbacks for one frame.** The planes are brought back to the host
+only to be combined by a function of the pixel alone — a table lookup per plane and a product — and
+the pair's own resolve is the same shape. Is there, or could there be, a pass that combines several
+rasters of one frame on the device, from tables the list supplies, before the one readback? The
+pages that reach it are few (a reader has to ask, and the page has to name a spot ink), so this is
+a question about whether the shape exists rather than a request for it.

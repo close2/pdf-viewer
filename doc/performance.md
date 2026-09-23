@@ -323,6 +323,18 @@ Huffman and IDCT. ADR 1271 has the three-arm instruction count, the wall-clock A
 the conditional walk that looks obvious is a refusal ISO/IEC 10918-1 does not permit; run
 `tools/state.sh frame` for where the row stands.
 
+**And a page of several photographs decodes them beside each other.** A pool task reads the
+content stream ahead of the interpreter and starts each image's decode; the `Do` that draws it
+takes the raster when it gets there, waiting where the decode is still running, so nothing is
+presented earlier and the list is the one the run alone builds (the owner's answer to
+`doc/questions/Q121`). On the three witnesses the turn's interpretation fell by between a third
+and two thirds; a page of one photograph takes exactly the path it took before, because the first
+image is left to the interpreter — this machine's slower core class decodes a photograph half
+again as slowly as the faster — and a page whose resources reach fewer than two candidates starts
+nothing. The population it helps is small: 39 of the pdf.js corpus's 958 first pages name two
+images or more. ADR 1321 has the census, the pinned A/B and the frame rows;
+`examples/image_decode_census` is the instrument.
+
 ## What a soft mask cost, and what naming one constant took off it
 
 **Instrument: `crates/pdf-model/examples/open_one`**, which opens, interprets and rasterises one

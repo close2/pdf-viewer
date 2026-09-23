@@ -7,7 +7,11 @@ five-hundred-and-second** (ADR 0337), **the list box itself drew in the
 five-hundred-and-seventy-first** (ADR 0407), reversing what this file had concluded about it, and
 **§7.3.5's font name closed in the six-hundred-and-seventeenth** (ADR 0453), and **the rich text
 `CLAUDE.md` was read as excluding turned out not to be excluded** (ADR 1197), and **the `/DA` text
-matrix is now laid out for every linear part that has an inverse** (ADR 1247). What is left is one
+matrix is now laid out for every linear part that has an inverse** (ADR 1247), **and one with no
+inverse is the clause carried out** — the translation is the processor's to choose, the producer's
+matrix is written in front of the value and draws no area, and the report says why the field is
+blank (`Owed::SingularTextMatrix`). The row is `departed` for rich text formatting alone, which
+§12.7.4.3 hands to XFA 3.3 (ADRs 1122, 1197). What is left is one
 refusal that belongs to another item, and the reasoning behind seven closed ones.
 Priority: 22
 Corpus: 1 document

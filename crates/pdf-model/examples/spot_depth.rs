@@ -18,6 +18,11 @@
 //! An argument of the form `@paths.txt` names a file holding one path per line, for a corpus
 //! too large for one command line. `--pages N` walks the first `N` pages of each document
 //! rather than the default.
+//!
+//! `--separate` also interprets every page naming a spot colourant under the reader's request for
+//! the simulation and counts the pages §10.8.3's separation is made for against the pages it is
+//! given up on (ADR 1311 section 6), naming each of the second — the population a page falls back
+//! from the press to one painting operation's simulation on (ADR 1317).
 
 #![expect(
     clippy::print_stdout,
@@ -37,9 +42,12 @@ const DEFAULT_PAGES: usize = 10;
 fn main() {
     let mut paths: Vec<String> = Vec::new();
     let mut pages_per_document = DEFAULT_PAGES;
+    let mut separate = false;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
-        if argument == "--pages" {
+        if argument == "--separate" {
+            separate = true;
+        } else if argument == "--pages" {
             if let Some(count) = arguments.next().and_then(|value| value.parse().ok()) {
                 pages_per_document = count;
             }
@@ -60,6 +68,8 @@ fn main() {
     // The documents with a page naming at least one, for the population's second number.
     let mut documents_with_spots = 0_usize;
     let mut largest: Vec<(usize, String, usize)> = Vec::new();
+    let mut separated = 0_usize;
+    let mut given_up: Vec<(String, usize)> = Vec::new();
 
     for path in paths {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -84,6 +94,27 @@ fn main() {
             if spots.saturating_add(2) >= bound {
                 largest.push((spots, name.clone(), index.saturating_add(1)));
             }
+            if separate && spots > 0 {
+                let mut state = pdf_model::view::ViewState::of(&document);
+                state.set_separation_simulation(true);
+                let interpretation = pdf_model::content::interpret_with(&document, &page, &state);
+                if interpretation.separation.is_some() {
+                    separated = separated.saturating_add(1);
+                } else {
+                    // Which of the two shapes ADR 1311 section 6 names: a page group stating a
+                    // `/CS` that is not four components, or something inside the page.
+                    let group = document.get_key(&page.dict, "Group");
+                    let space = group
+                        .as_dict()
+                        .map(|group| document.get_key(group, "CS"))
+                        .filter(|space| !space.is_null())
+                        .map_or_else(
+                            || "inside the page".to_owned(),
+                            |space| format!("{space:?}"),
+                        );
+                    given_up.push((format!("{name} ({space})"), index.saturating_add(1)));
+                }
+            }
         }
         if any {
             documents_with_spots = documents_with_spots.saturating_add(1);
@@ -100,5 +131,14 @@ fn main() {
     largest.sort_unstable();
     for (spots, name, page) in largest.iter().rev() {
         println!("  within two of the bound or past it: {name} page {page} names {spots}");
+    }
+    if separate {
+        println!(
+            "  separated under the simulation: {separated}; given up: {}",
+            given_up.len()
+        );
+        for (name, page) in &given_up {
+            println!("  given up: page {page} of {name}");
+        }
     }
 }

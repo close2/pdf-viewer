@@ -6,10 +6,9 @@
 //! all three hosts make and are stated once in `viewer_host::policy`; what stays here is the
 //! sentence a person in a terminal reads, because that part is this window's.
 
-use std::collections::VecDeque;
 use std::path::Path;
 
-use viewer_core::{Command, Purpose};
+use viewer_core::Purpose;
 use viewer_host::ImportRefusal;
 
 use crate::app::App;
@@ -30,28 +29,28 @@ impl App {
     /// sentence: `Command::Open` with those bytes and that fragment applies `page`, `search` or
     /// `highlight` to the file that came out rather than to the one it came out of.
     ///
-    /// **One window, so the embedded document replaces the one that named it**, and that is this
-    /// host's choice rather than the annex's requirement: everything after `ef` is a sentence about
-    /// the embedded file, so the file the URI is *about* is the one this window shows. A host with
-    /// tabs would open a second `DocumentId` beside the first and needs no other change.
+    /// **The embedded document opens in a tab of its own, in front**, and the document that named
+    /// it keeps its tab: the annex states no window rule, a reader following the URI asked to read
+    /// the file that came out, and replacing the document a person had open is the one choice that
+    /// loses something (`viewer_host::Arrivals::wait_held`). The three windows do the same.
     ///
     /// **Only a PDF**, because this window can show nothing else: an embedded spreadsheet is handed
     /// to [`Self::write_extracted`] and its policy, which is where a person can still get at it.
-    /// The header is §7.5.2's, checked here rather than by trying an open and printing a failure a
-    /// person did not ask for.
+    /// `viewer_host::opens_as_document` is the test, §7.5.2's header, checked rather than by trying
+    /// an open and printing a failure a person did not ask for.
     ///
     /// It terminates without a counter: each open consumes at least one `ef=…` from the fragment,
     /// so a document embedding itself under a name its own fragment repeats still runs out of
     /// fragment. See `pdf_model::fragment::Fragment::after_embedded_file`.
     pub(crate) fn extracted(
         &mut self,
+        document: viewer_core::DocumentId,
         asked: viewer_core::Extraction,
         name: &str,
         bytes: Vec<u8>,
         fragment: Option<String>,
-        queue: &mut VecDeque<Command>,
     ) {
-        if !matches!(asked, viewer_core::Extraction::Fragment) || !bytes.starts_with(b"%PDF-") {
+        if !viewer_host::opens_as_document(asked, &bytes) {
             self.write_extracted(asked, name, &bytes);
             return;
         }
@@ -60,20 +59,15 @@ impl App {
             println!("note: {refusal}");
             return;
         }
-        match &fragment {
-            Some(rest) => println!("opening the embedded file {name:?} at `{rest}` (§O.2.1)"),
-            None => println!("opening the embedded file {name:?} (§O.2.1)"),
-        }
-        name.clone_into(&mut self.title);
-        // §7.6.4.1's prompt re-opens the document, and an embedded one has no path to re-read.
-        self.embedded = Some(bytes.clone());
-        self.fragment.clone_from(&fragment);
-        queue.push_back(Command::Open {
-            id: crate::DOCUMENT,
-            bytes: bytes.into(),
-            password: None,
-            fragment,
-        });
+        println!(
+            "note: {}",
+            viewer_host::opening_embedded(name, fragment.as_deref())
+        );
+        let named = viewer_host::Named::embedded(self.directory.as_deref(), name, fragment);
+        let behind = document != self.documents.focused();
+        self.arrivals.wait_held(named, bytes.into(), behind);
+        // Started from `about_to_wait`, never from inside the pump that extracted it (ADR 1275).
+        self.arrival_due = true;
     }
 
     /// Writes an extracted embedded file beside the document.

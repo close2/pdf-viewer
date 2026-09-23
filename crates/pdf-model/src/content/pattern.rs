@@ -87,6 +87,26 @@ pub(super) struct PatternInitial {
     /// ADR 1207), and the bullet's list is "such as" rather than closed. It is also why this
     /// type is no longer `Copy`.
     black_generation: Option<Arc<BlackGeneration>>,
+    /// The whole graphics state the content stream began with, which is what a *tiling*
+    /// pattern's cell starts from (ISO 32000-2 §8.7.3.1).
+    ///
+    /// The second of the clause's four steps is
+    ///
+    /// > Installs the graphics state that was in effect at the beginning of the pattern's
+    /// > parent content stream, with the current transformation matrix altered by the pattern
+    /// > matrix as described in 8.7.2, "General properties of patterns"
+    ///
+    /// and §8.7.2 says which stream that is where a form is concerned:
+    ///
+    /// > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects" ), the
+    /// > pattern matrix maps pattern space to the form's default user space (that is, the form
+    /// > coordinate space at the time the form is painted with the Do operator).
+    ///
+    /// So a cell named inside a form starts from the form's
+    /// state at its `Do` — its `/AIS` among the rest — rather than from §8.4's initial state,
+    /// and [`Interpreter::run_cell`] takes §11.6.7's resets off this. Shared rather than copied
+    /// because a shading definition holds this struct too and never reads the field.
+    stream: Rc<GraphicsState>,
 }
 
 impl PatternInitial {
@@ -100,6 +120,7 @@ impl PatternInitial {
             intent: state.intent,
             smoothness: state.smoothness,
             black_generation: state.black_generation.clone(),
+            stream: Rc::new(state.clone()),
         }
     }
 
@@ -561,6 +582,30 @@ impl Interpreter<'_> {
         self.unclip_redundant(mark, box_in_pattern, to_pattern, outer)
     }
 
+    /// The graphics state a tiling pattern's cell starts in, placed by `to_page` (ISO 32000-2
+    /// §8.7.3.1, §11.6.7).
+    ///
+    /// §8.7.3.1's second step installs the state the parent content stream began with
+    /// ([`PatternInitial`]'s `stream`), and §11.6.7 says which of its parameters do not carry:
+    ///
+    /// > As always for transparency groups, those parameters related to transparency (blend
+    /// > mode, soft mask, and alpha constant) shall be initialised to their standard default
+    /// > values.
+    ///
+    /// Three parameters are named and the alpha source is not among them, so a cell inside a
+    /// form invoked under `/AIS true` reads its own constants as shape (§11.6.4.4). The clip is
+    /// the caller's: a cell is bounded by the painted area and Table 74's box, both inside the
+    /// parent stream's own clip.
+    fn cell_state(&self, to_page: Transform) -> GraphicsState {
+        let mut cell = (*self.pattern_initial.stream).clone();
+        cell.transform = to_page;
+        cell.blend = BlendMode::Normal;
+        cell.soft_mask = None;
+        cell.fill_alpha = 1.0;
+        cell.stroke_alpha = 1.0;
+        cell
+    }
+
     /// Runs the pattern's content stream, once, for the cell `to_page` places.
     ///
     /// **Once for the whole tiling**, since ADR 0430: every other site is that cell's commands
@@ -582,7 +627,7 @@ impl Interpreter<'_> {
         to_page: Transform,
         outer: Option<ClipId>,
     ) -> (Option<ClipId>, AlphaSourcesSeen) {
-        let mut cell = GraphicsState::initial(to_page);
+        let mut cell = self.cell_state(to_page);
         // Table 74: "These boundaries shall be used to clip the pattern cell." The box is in
         // pattern space, so it travels with the cell's own offset, and it sits *inside* the
         // path's clip rather than replacing it — a cell is bounded by both. A file whose box
@@ -600,6 +645,10 @@ impl Interpreter<'_> {
         if let Some(tint) = tiling.tint {
             cell.fill = tint;
             cell.stroke_colour = tint;
+            // The colour poured through the stencil is the tint alone, whatever colour the
+            // parent stream began with — a pattern colour among them.
+            cell.fill_pattern = None;
+            cell.stroke_pattern = None;
             self.uncoloured = true;
         }
         // §8.7.2's last sentence about nesting, which this reader did not apply until the
@@ -623,7 +672,7 @@ impl Interpreter<'_> {
         self.enter_ledger_frame(super::ledger::Route::TilingPattern, tiling.source);
         let enclosing_reading = self.open_reading_scope(cell.alpha_is_shape);
         self.run(&tiling.content, &tiling.resources, &cell);
-        let reading = self.close_reading_scope(enclosing_reading);
+        let (reading, _) = self.close_reading_scope(enclosing_reading);
         self.leave_ledger_frame();
         self.base = outer_base;
         self.uncoloured = saved_uncoloured;
@@ -1182,7 +1231,7 @@ impl Interpreter<'_> {
         // parameters at the time it is evaluated; those parameters shall take effect only
         // when the resulting pattern is later used to paint an object." So every cell below
         // runs with the transparency parameters at their defaults — which is what
-        // `GraphicsState::initial` gives it — and the state's own blend mode, alpha constant
+        // `Interpreter::cell_state` gives it — and the state's own blend mode, alpha constant
         // and soft mask are applied *once*, to the finished tiling, by the group pushed after
         // the loop. NOTE 2 asks for exactly that shape: "[i]n a raster-based implementation of
         // tiling, it is advisable to treat all tiles as a single transparency group. This
@@ -1215,7 +1264,7 @@ impl Interpreter<'_> {
         );
         // §11.7.5.2's sixth condition: "[i]f the current colour is a tiling pattern, all objects
         // in the definition of its pattern cell also satisfy the foregoing conditions." The cell
-        // runs from `GraphicsState::initial` for §11.6.7's reason, so a mark inside it cannot see
+        // runs from `Interpreter::cell_state` for §11.6.7's reason, so a mark inside it cannot see
         // the mark that invoked it; the four conditions are read off `state` here and carried
         // down, with `alpha` above naming which of §11.6.4.4's two constants the invoking mark
         // is under. **A stroke's shape mask is a fifth condition and it fails**: the tiles are
@@ -1228,7 +1277,7 @@ impl Interpreter<'_> {
             && state.blend == BlendMode::Normal
             && state.soft_mask.is_none();
         // Asked before the cell runs, because the clause asks it of the mark that paints the
-        // pattern and `run_cell` starts from `GraphicsState::initial` (§11.6.7).
+        // pattern and `run_cell` starts from `Interpreter::cell_state` (§11.6.7).
         let transfer = self.mark_transfer(
             state,
             Painted::of(state, matches!(region, Tiled::Stroke(_))),
@@ -1379,13 +1428,15 @@ impl Interpreter<'_> {
     /// shape and the painting mark's decides only its own constant and mask. Where the tiling
     /// reaches the enclosing content as one group whose raster is its own shape
     /// (`alpha_is_shape`), that object's shape is stated whatever reading the enclosing content
-    /// asks it under, and the cell's readings stay out of the enclosing record. Otherwise the
-    /// tiles are elements of the enclosing content read under its reading, and the cell's join
-    /// its record — which is where content painted under both readings is refused rather than
-    /// read under one of them. Tiles that would stand inline under a reading other than the
-    /// mark's are given the group, where §11.6.7's NOTE 1 makes an isolated one exact: "in the
+    /// asks it under (ADR 1306); tiles that would stand inline under a reading other than the
+    /// mark's are given that group where §11.6.7's NOTE 1 makes an isolated one exact: "in the
     /// common case in which the pattern consists entirely of objects painted with the Normal
-    /// blend mode … the pattern cell can be evaluated once and then replicated" (ADR 1306).
+    /// blend mode … the pattern cell can be evaluated once and then replicated".
+    ///
+    /// Everywhere else the tiles are read by whatever the enclosing content asks of it, under
+    /// the reading the mark is painted under — so where the cell ran under the other one, each
+    /// tile states its shape under the cell's reading first (`Interpreter::seal_elements`), and
+    /// the finished tiling is then described by the mark's reading alone (ADR 1319).
     fn compose_tiling(
         &mut self,
         mark: usize,
@@ -1393,24 +1444,39 @@ impl Interpreter<'_> {
         state: &GraphicsState,
         reading: AlphaSourcesSeen,
     ) {
-        let own_shape = self.wrap_tiling(mark, (alpha, shape), state, reading);
-        if !own_shape && self.list.command_count() > mark {
-            // Joined, never replacing: the record already holds the reading the painting mark
-            // is under, and the tiles are painted beside it.
-            self.alpha_sources = self.alpha_sources.with(reading);
+        let painted = AlphaSourcesSeen::of(state.alpha_is_shape);
+        let mut reading = reading;
+        let now = self.list.command_count();
+        if reading != painted && now > mark {
+            let tiles = self.list.commands().get(mark..).unwrap_or_default();
+            // The two routes `wrap_tiling` takes to one group whose raster is its shape: a
+            // group it always builds — a stroke's region, or the state's own parameters — and
+            // the isolated one NOTE 1 makes exact for inline tiles.
+            let composites =
+                alpha < 1.0 || state.blend != BlendMode::Normal || state.soft_mask.is_some();
+            let grouped = shape.is_some()
+                || composites
+                || self.enclosing_knockout == Some(KnockoutKind::Isolated)
+                || !any_command(tiles, &command_blends);
+            if !(grouped && group_alpha_is_shape(tiles, reading.settled_over(tiles))) {
+                if self.seal_elements(mark, now, reading) {
+                    reading = painted;
+                } else {
+                    self.poison_readings();
+                }
+            }
         }
+        self.wrap_tiling(mark, (alpha, shape), state, reading);
     }
 
-    /// [`Interpreter::compose_tiling`]'s groups, answering whether the outermost is one whose
-    /// raster is its own shape.
+    /// [`Interpreter::compose_tiling`]'s groups.
     fn wrap_tiling(
         &mut self,
         mark: usize,
         (alpha, shape): (f32, Option<SoftMaskId>),
         state: &GraphicsState,
         reading: AlphaSourcesSeen,
-    ) -> bool {
-        let mut own_shape = false;
+    ) {
         // A stroke's region, applied once to the finished tiling. §11.6.4.2 makes an object's
         // shape "1.0 inside and 0.0 outside" the mark it makes, and §11.5.2 derives a mask
         // from "the alpha of the group" — so a group holding the stroke alone, taken for its
@@ -1425,10 +1491,9 @@ impl Interpreter<'_> {
         if let Some(shape) = shape {
             let parts = self.list.split_off_commands(mark);
             if parts.is_empty() {
-                return false;
+                return;
             }
             let alpha_is_shape = group_alpha_is_shape(&parts, reading.settled_over(&parts));
-            own_shape = alpha_is_shape;
             self.draw(Command::Group {
                 commands: parts,
                 // The state's constant rides the group below; this one only shapes.
@@ -1456,14 +1521,14 @@ impl Interpreter<'_> {
         let composites =
             alpha < 1.0 || state.blend != BlendMode::Normal || state.soft_mask.is_some();
         if !composites {
-            if shape.is_none() && reading != AlphaSourcesSeen::of(state.alpha_is_shape) {
-                return self.wrap_inline_tiles(mark, reading);
+            if shape.is_none() {
+                self.wrap_inline_tiles(mark, reading, state);
             }
-            return own_shape;
+            return;
         }
         let parts = self.list.split_off_commands(mark);
         if parts.is_empty() {
-            return false;
+            return;
         }
         // §11.6.7 makes the implicit group *non-isolated*, and the display list says so
         // wherever the clause's own NOTE 1 does not make an isolated group exact: "in the common
@@ -1486,8 +1551,7 @@ impl Interpreter<'_> {
             || !any_command(&parts, &command_blends);
         // Asked of the cell's own marks under the `/AIS` reading the cell ran under, the way
         // every other group is asked — see `group_alpha_is_shape`. Stated truthfully rather
-        // than as `false` so that the field means one thing everywhere it is written, and it
-        // decides whether the cell's readings join the enclosing record.
+        // than as `false` so that the field means one thing everywhere it is written.
         let alpha_is_shape = group_alpha_is_shape(&parts, reading.settled_over(&parts));
         self.draw(Command::Group {
             commands: parts,
@@ -1504,23 +1568,34 @@ impl Interpreter<'_> {
             // force, so the implicit group introduces no space of its own.
             blending: None,
         });
-        alpha_is_shape
     }
 
-    /// Gives tiles §11.6.7's implicit group where they would otherwise stand inline under a
-    /// reading other than the painting mark's, and answers whether its raster is its shape.
+    /// Gives tiles §11.6.7's implicit group where standing inline would not be the same
+    /// picture: under a reading other than the painting mark's, or as marks that composite with
+    /// one another where the tiling is to be *one* element of a knockout group.
     ///
-    /// Only where the group is exact as an isolated one — nothing in the cell blends, or the
-    /// enclosing knockout group's initial backdrop is transparent — because that is the group
-    /// §11.4.4's NOTE 5 makes the same picture as the tiles drawn inline; a cell that blends
-    /// stays inline and its readings join the enclosing record.
-    fn wrap_inline_tiles(&mut self, mark: usize, reading: AlphaSourcesSeen) -> bool {
+    /// §11.6.7 makes the pattern "implicitly enclosed in a non-isolated transparency group: a
+    /// non-knockout group for tiling patterns", and §11.4.4's NOTE 5 makes that group the tiles
+    /// drawn inline only where its parent is not a knockout group — it asks that the group
+    /// have "the same knockout attribute as its parent group". Inside §9.3.8's text object or
+    /// §11.7.4.4's pair each tile would otherwise be an element of its own and knock the cell's
+    /// other marks out, where the clause composites them with one another (ADR 1320). That
+    /// group is the clause's own and is stated non-isolated where a tile blends, isolated where
+    /// §11.6.7's NOTE 1 makes that exact.
+    ///
+    /// For the reading alone the group is built only where it is exact as an isolated one —
+    /// nothing in the cell blends, or the enclosing knockout group's initial backdrop is
+    /// transparent — and a cell that blends stays inline for `compose_tiling` to seal.
+    fn wrap_inline_tiles(&mut self, mark: usize, reading: AlphaSourcesSeen, state: &GraphicsState) {
         let tiles = self.list.commands().get(mark..).unwrap_or_default();
-        if tiles.is_empty()
-            || (self.enclosing_knockout != Some(KnockoutKind::Isolated)
-                && any_command(tiles, &command_blends))
-        {
-            return false;
+        let isolated = self.enclosing_knockout == Some(KnockoutKind::Isolated)
+            || !any_command(tiles, &command_blends);
+        let as_one = (self.readings.knockout_elements() || self.enclosing_knockout.is_some())
+            && tiles.len() > 1
+            && any_command(tiles, &command_composites);
+        let for_reading = reading != AlphaSourcesSeen::of(state.alpha_is_shape) && isolated;
+        if tiles.is_empty() || !(as_one || for_reading) {
+            return;
         }
         let parts = self.list.split_off_commands(mark);
         let alpha_is_shape = group_alpha_is_shape(&parts, reading.settled_over(&parts));
@@ -1530,12 +1605,11 @@ impl Interpreter<'_> {
             clip: None,
             mask: None,
             blend: BlendMode::Normal,
-            isolated: true,
+            isolated,
             knockout: false,
             alpha_is_shape,
             blending: None,
         });
-        alpha_is_shape
     }
 
     /// Paints a shading across the current clip, for the `sh` operator.

@@ -2424,16 +2424,19 @@ impl Host {
     /// A document a *reader* named arrives here too, under the name `viewer_host::Arrivals` reserved
     /// for it; what comes back is the tab to put in front again, for one named behind the first.
     fn opened_beside(&mut self, id: DocumentId) -> Option<DocumentId> {
-        let (path, behind) = if let Some(arriving) = self.arrivals.settle(id) {
-            (arriving.named.path, arriving.behind)
+        let (path, behind, bytes) = if let Some(arriving) = self.arrivals.settle(id) {
+            let bytes = arriving.bytes();
+            (arriving.named.path, arriving.behind, bytes)
         } else {
             let (_, path) = self.reserved.take().filter(|(name, _)| *name == id)?;
-            (path, None)
+            // Read again rather than kept from the supply, because what this field is for is
+            // §7.6.4.1's second attempt with a password — and a document that opened without one
+            // will not need it. Opening on disk is what the launch path does with the first file
+            // (ADR 0809).
+            let bytes = pdf_syntax::FileBytes::on_disk(&path).map_err(|error| error.to_string());
+            (path, None, bytes)
         };
-        // Read again rather than kept from the supply, because what this field is for is
-        // §7.6.4.1's second attempt with a password — and a document that opened without one will
-        // not need it. Opening on disk is what the launch path does with the first file (ADR 0809).
-        let bytes = match pdf_syntax::FileBytes::on_disk(&path) {
+        let bytes = match bytes {
             Ok(bytes) => bytes,
             Err(error) => {
                 self.say(&format!(
@@ -2507,7 +2510,7 @@ impl Host {
             };
             let id = arriving.id;
             let fragment = arriving.named.fragment.clone();
-            match viewer_host::open_chosen(&arriving.named.path) {
+            match arriving.bytes() {
                 Ok(bytes) => {
                     self.dispatch(Command::Open {
                         id,
@@ -2527,16 +2530,16 @@ impl Host {
 
     /// §7.6.4.1's second attempt, for the document on its way to a tab rather than the one in front.
     fn open_arriving(&mut self, password: Option<viewer_core::Secret>) {
-        let Some((id, path, fragment)) = self.arrivals.current().map(|arriving| {
+        let Some((id, bytes, fragment)) = self.arrivals.current().map(|arriving| {
             (
                 arriving.id,
-                arriving.named.path.clone(),
+                arriving.bytes(),
                 arriving.named.fragment.clone(),
             )
         }) else {
             return;
         };
-        match viewer_host::open_chosen(&path) {
+        match bytes {
             Ok(bytes) => self.dispatch(Command::Open {
                 id,
                 bytes,
@@ -3186,8 +3189,12 @@ impl Host {
             // pages are rasterised for it. Both are said rather than swallowed.
             Event::Transition { transition, .. } => self.arm_transition(transition),
             Event::Extracted {
-                asked, name, bytes, ..
-            } => self.write_extracted(asked, &name, &bytes),
+                document,
+                asked,
+                name,
+                bytes,
+                fragment,
+            } => self.extracted(document, asked, &name, bytes, fragment),
             Event::Saved { bytes, .. } => self.write_saved(&bytes),
             Event::Dirty { dirty, .. } => {
                 self.showing.dirty = dirty;
@@ -3409,6 +3416,40 @@ impl Host {
             )),
             Err(error) => self.say(&format!("cannot write {}: {error}", path.display())),
         }
+    }
+
+    /// §7.11.4's bytes came out: a document §O.2.1's `ef` asked to be opened, or a file to write.
+    ///
+    /// ISO 32000-2 §O.2.1, Table Annex O.3's `ef` row:
+    ///
+    /// > When used as part of a PDF open parameter, the PDF processor shall open the embedded file
+    /// > contained within the EmbeddedFiles name tree identified by name .
+    ///
+    /// This window has a strip of tabs, so the embedded document opens in one of its own and the document holding it keeps its tab. What
+    /// follows `ef` in the fragment goes with it as its own fragment. It waits in
+    /// `viewer_host::Arrivals` like any document a reader named, and starts from the zero-length
+    /// timer rather than inside the pump that extracted it (ADR 1275).
+    fn extracted(
+        &mut self,
+        document: DocumentId,
+        asked: Extraction,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    ) {
+        if !viewer_host::opens_as_document(asked, &bytes) {
+            self.write_extracted(asked, name, &bytes);
+            return;
+        }
+        if let Err(refusal) = viewer_host::may_open_extracted(asked) {
+            self.say(&refusal);
+            return;
+        }
+        self.say(&viewer_host::opening_embedded(name, fragment.as_deref()));
+        let named = viewer_host::Named::embedded(self.showing.directory.as_deref(), name, fragment);
+        let behind = document != self.documents.focused();
+        self.arrivals.wait_held(named, bytes.into(), behind);
+        self.later_open_the_next();
     }
 
     /// §7.11.4's file, written beside the document.

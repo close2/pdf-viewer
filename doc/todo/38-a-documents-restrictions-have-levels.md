@@ -235,7 +235,9 @@ screen still takes the bar — that sentence is the reader asking rather than th
   `SCM_RIGHTS` beside `open_kind::ON_DISK` — and an attach is the second thing that should take it:
   the host opens the file, the worker never sees a path, and a large attachment stops being copied
   through a pipe. `encode_edit`'s arm 4 is where it lands, and what it needs is a `Payload` that can
-  name an open file rather than a `Vec`.
+  name an open file rather than a `Vec`. **It has no sender yet**: `quorra-confined` is the only
+  host on that boundary and makes no edit, so the route waits for the first host that attaches
+  across it rather than being built with no caller (ADR 1316).
 - **Table 22's bit 5 is consulted since session 1147, and it took a command rather than a query.**
   The entry above said a host had to say *this is a copy* and guessed at `Query::LogicalSelection`;
   the guess was wrong for a reason it named and one it did not. A readback cannot be refused without
@@ -260,7 +262,9 @@ screen still takes the bar — that sentence is the reader asking rather than th
   be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
   operation (`Command::Extract`) that no document restricts today. The level exists now; what is
-  missing is `Operation` reaching that path at all.
+  missing is `Operation` reaching that path at all. **The path is reached in all three windows**:
+  each opens the embedded document in a tab of its own through `viewer_host::may_open_extracted`
+  (ADR 1316), so the four levels are a change to that one function and to the menu's third group.
 - **Every position of Table 22 that has a meaning reaches an operation**, since session 1183. Bit 3
   is `Operation::Print` — `pdf-transform`'s page render, and a window's own `Command::Print` since
   session 1171. Bit 11 is `Operation::Assemble`, consumed where assembling happens: `pdf-transform`'s

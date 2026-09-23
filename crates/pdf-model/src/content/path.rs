@@ -51,7 +51,11 @@ impl Interpreter<'_> {
             // Which of §11.6.4.3's readings the portions paint under, for §11.7.4.4's group:
             // the one in force at this operator, and whatever a tiling cell among them ran
             // under — not the enclosing content's history (ADR 1301).
-            let outer_reading = self.open_parts_reading(state.alpha_is_shape);
+            let outer_reading = if fill.is_some() && stroke.is_some() {
+                self.open_knockout_reading_scope(state.alpha_is_shape)
+            } else {
+                self.open_reading_scope(state.alpha_is_shape)
+            };
 
             // A tiling pattern is not a paint: its cell is a content stream, replayed
             // across the area the path covers. Doing that here rather than in the display
@@ -146,7 +150,10 @@ impl Interpreter<'_> {
                 [fill.is_some(), stroke.is_some()],
                 (combined, cells_composite),
             );
-            self.close_parts_reading(outer_reading, mark);
+            // The portions are the enclosing content's elements now, one knockout group or
+            // two marks, painted under the pair's own reading (ADR 1319).
+            let (reading, _) = self.close_reading_scope(outer_reading);
+            self.absorb_reading(reading, mark);
         }
 
         // A pending `W` takes effect now: the specification says the clip changes *after*
@@ -326,15 +333,16 @@ impl Interpreter<'_> {
             // and the blend mode that would have been applied to each portion: they are
             // on the elements, and the group composites once at 1.0 under Normal.
             //
-            // The `/AIS` reading asked for is the one accumulated over the content so
-            // far rather than `state`'s own, and the difference matters where a part is
-            // a tiling pattern's group: §11.3.7.2 gives a group object the opacity of
-            // "all of the objects it contains", so the reading its *contents* ran under
-            // is what decides whether its alpha is its shape.
+            // The `/AIS` reading asked for is the one the portions were painted under,
+            // which a tiling cell among them may have stated its own shapes beside rather
+            // than share: §11.3.7.2 gives a group object the opacity of "all of the objects
+            // it contains", so the reading its *contents* ran under is what decides whether
+            // its alpha is its shape (ADR 1306, ADR 1319).
+            let reading = self.settled_readings();
             let parts = self.list.split_off_commands(mark);
             if let Some(group) = implicit_knockout_group(
                 &parts,
-                self.alpha_sources,
+                reading,
                 self.enclosing_knockout,
                 self.image_masks.shape_masks(),
             ) {

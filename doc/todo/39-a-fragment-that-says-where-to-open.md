@@ -93,6 +93,7 @@ than guessed at.
 - **Not a counter on the chain.** A document may embed a document whose fragment names another
   `ef`, and nothing guards the depth because nothing has to: each open consumes at least `ef=` and
   its argument, so the remainder is strictly shorter every time.
-- **Not a second window rule.** `quorra` shows the embedded document *instead of* the one that
-  named it because it has one window, and that is written down as a host's choice. A host with tabs
-  opens a second `DocumentId` and changes nothing else.
+- **Not a second window rule.** All three windows open the embedded document in a tab of its own,
+  through `viewer_host::Arrivals::wait_held`, and the document that named it keeps its tab: in front
+  where the holder was in front, behind where it was behind (ADR 1316). `viewer_host::opens_as_document`
+  is the one test for whether extracted bytes are opened or written.

@@ -379,13 +379,12 @@ fn an_fdf_answer_is_imported_into_the_document_that_sent_the_form() {
     assert!(
         notes
             .iter()
-            .any(|note| note == "import-data: status — Thank you"),
+            .any(|note| note == "submit-form answer: status — Thank you"),
         "{notes:?}"
     );
     assert!(
-        notes
-            .iter()
-            .any(|note| note.starts_with("import-data: 1 field(s) from http://127.0.0.1:")),
+        notes.iter().any(|note| note
+            .starts_with("submit-form answer: 1 field(s) imported from http://127.0.0.1:")),
         "{notes:?}"
     );
 }

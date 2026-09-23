@@ -96,19 +96,25 @@ const KNOWN_ENGINES: [&str; 4] = ["qcms", "moxcms", "lcms2", "lcms2-sys"];
 const FORBIDDEN_SUBSTRINGS: [(&str, &str); 12] = [
     (
         "cms",
-        "colour management (§9): qcms, moxcms and lcms2 all match",
+        "colour management (brief section 9): qcms, moxcms and lcms2 all match",
     ),
-    ("icc", "colour management (§9): an ICC profile parser"),
-    ("colormanagement", "colour management (§9)"),
-    ("colourmanagement", "colour management (§9)"),
+    (
+        "icc",
+        "colour management (brief section 9): an ICC profile parser",
+    ),
+    ("colormanagement", "colour management (brief section 9)"),
+    ("colourmanagement", "colour management (brief section 9)"),
     (
         "font",
-        "font loading (§9): outlines reach us already positioned",
+        "font loading (brief section 9): outlines reach us already positioned",
     ),
-    ("ttf", "font loading (§9)"),
-    ("glyph", "font loading (§9): a glyph is an OutlineId here"),
-    ("buzz", "shaping (§9): rustybuzz, harfbuzz"),
-    ("swash", "font loading and shaping (§9)"),
+    ("ttf", "font loading (brief section 9)"),
+    (
+        "glyph",
+        "font loading (brief section 9): a glyph is an OutlineId here",
+    ),
+    ("buzz", "shaping (brief section 9): rustybuzz, harfbuzz"),
+    ("swash", "font loading and shaping (brief section 9)"),
     (
         "skia",
         "a second 2D scene model: tiny-skia is also the caller's oracle",
@@ -274,7 +280,7 @@ fn a_published_crate_depends_on_four_names_and_each_has_a_reason() {
         added.is_empty(),
         "a crate this workspace publishes has acquired a direct dependency that DIRECT \
          does not name: {added:?}. Every dependency of ours is a dependency of a PDF \
-         viewer's process (deny.toml's opening paragraph), and §9's non-goals are the \
+         viewer's process (deny.toml's opening paragraph), and brief section 9's non-goals are the \
          list to check it against before it is added."
     );
     assert!(
@@ -334,7 +340,7 @@ fn the_shipping_graph_reaches_no_non_goal() {
                 !folded.contains(pattern),
                 "`{name}` is reachable from a published crate and its name matches \
                  `{pattern}` — {non_goal}. If this is a false positive, the pattern is \
-                 what to argue with; if it is not, §9 says this job belongs to the \
+                 what to argue with; if it is not, brief section 9 says this job belongs to the \
                  caller and doing it twice is how two implementations of one decision \
                  get into a process."
             );

@@ -855,6 +855,19 @@ impl Rasterizer for GpuRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        // ISO 32000-2 §10.8.3's simulated press, which a reader asked for on a page naming a spot
+        // colourant: the page is a plane per ink — the process pair and a plane for every three
+        // spot colourants — and steps b) to d) multiply them together per pixel
+        // (`pdf_render::separation`). A Vello scene renders one raster and has no pass over its
+        // result to multiply another into, so this is refused by name, ahead of the pair's own
+        // refusal below, because what is refused is the press rather than the four components:
+        // the CPU backend draws it — the job `CLAUDE.md` keeps that backend for (ADR 1317).
+        if list.separation().is_some() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a page drawn as §10.8.3's separation simulation, with a plane per spot ink"
+                    .to_owned(),
+            ));
+        }
         // §11.4.7's page group in a four-component blending space is drawn twice and the two
         // rasters put back together (`pdf_render::blending`); a Vello scene renders one, and
         // this backend has no place to hold the second. Refused by name, which sends the frame

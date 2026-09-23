@@ -71,8 +71,8 @@ use pdf_render::{
     BlackHalf, BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners,
     DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin,
     Luminance, MAX_GROUP_DEPTH, Paint, PatchCorners, PatchMesh, Path, PathCommand, Point, Ramp,
-    Rect, SampleAlpha, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind, Stop,
-    Stroke, SurfacePatch, Transfer, Transform, Triangle,
+    Rect, SampleAlpha, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind,
+    SpotColourant, SpotSeparation, Stop, Stroke, SurfacePatch, Transfer, Transform, Triangle,
 };
 
 use super::{ProtocolError, Reader, Writer};
@@ -479,6 +479,16 @@ fn write_list(
         list.grey_curve(),
         list.colour_cube(),
     ) {
+        // §10.8.3's simulated press: the process pair, and the spot planes with each colourant's
+        // step b) and the two conversions around the multiply (`pdf_render::separation`).
+        (true, Some(space), Some(black), _, _) if list.separation().is_some() => {
+            writer.u8(4);
+            write_blending_space(writer, space);
+            write_list(writer, black, false, budget.saturating_sub(writer.len()))?;
+            if let Some(separation) = list.separation() {
+                write_separation(writer, separation, budget)?;
+            }
+        }
         (true, Some(space), Some(black), _, _) => {
             writer.u8(1);
             write_blending_space(writer, space);
@@ -1010,6 +1020,33 @@ fn write_blending_space(writer: &mut Writer, space: &BlendingSpace) {
     }
 }
 
+/// §10.8.3's spot half of a separated page: the colourants, each with its name and its step b)
+/// samples, the two conversions, and one companion list per spot plane. The plane count is not
+/// written, because [`SpotSeparation::new`] derives it from the colourants and the decoder reads
+/// exactly that many.
+fn write_separation(
+    writer: &mut Writer,
+    separation: &SpotSeparation,
+    budget: usize,
+) -> Result<(), Uncodable> {
+    writer.usize(separation.colourants().len());
+    for colourant in separation.colourants() {
+        writer.bytes(colourant.name());
+        writer.usize(colourant.flat().len());
+        for sample in colourant.flat() {
+            for component in sample {
+                writer.f32(*component);
+            }
+        }
+    }
+    write_colour_cube(writer, separation.process_to_flat());
+    write_colour_cube(writer, separation.flat_to_device());
+    for plane in separation.planes() {
+        write_list(writer, plane, false, budget.saturating_sub(writer.len()))?;
+    }
+    Ok(())
+}
+
 fn write_grey_curve(writer: &mut Writer, curve: &GreyCurve) {
     writer.usize(curve.samples().len());
     for sample in curve.samples() {
@@ -1287,8 +1324,9 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
     match reader.u8("a page's blending space")? {
         0 => {}
         // The pair, the curve and the cube are three shapes of one statement — §11.4.7's
-        // space is the *page's* — so the companion list may carry none of them.
-        1..=3 if !page => {
+        // space is the *page's* — so the companion list may carry none of them, nor §10.8.3's
+        // separation, which is the pair with spot planes beside it.
+        1..=4 if !page => {
             return Err(ProtocolError::Unbuildable {
                 what: "a blending space",
                 why: "the companion list carrying the black component states one of its own",
@@ -1298,6 +1336,12 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
             let space = read_blending_space(reader)?;
             let black = read_list(reader, false)?;
             list.set_blending(space, black);
+        }
+        4 => {
+            let space = read_blending_space(reader)?;
+            let black = read_list(reader, false)?;
+            let separation = read_separation(reader)?;
+            list.set_separated(space, black, separation);
         }
         2 => list.set_grey_curve(read_grey_curve(reader)?),
         3 => list.set_colour_cube(read_colour_cube(reader)?),
@@ -1973,6 +2017,52 @@ fn read_colour_cube(reader: &mut Reader<'_>) -> Result<ColourCube, ProtocolError
     )
 }
 
+/// [`write_separation`]'s counterpart. Every spot plane is a companion list, so none of them can
+/// carry a separation or a blending space of its own and the recursion stops one level down.
+fn read_separation(reader: &mut Reader<'_>) -> Result<SpotSeparation, ProtocolError> {
+    let colourants = table(
+        reader,
+        "a separation's spot colourants",
+        least::SAMPLES,
+        |reader| {
+            let name = Arc::<[u8]>::from(reader.bytes("a spot colourant's name")?);
+            let flat = table(
+                reader,
+                "a spot colourant's flat samples",
+                least::SAMPLE,
+                |reader| {
+                    let mut sample = [0.0_f32; 3];
+                    for component in &mut sample {
+                        *component = reader.f32("a spot colourant's flat sample")?;
+                    }
+                    Ok(sample)
+                },
+            )?;
+            // `SpotColourant::new` owns the one condition, two samples at least.
+            SpotColourant::new(name, Arc::from(flat)).ok_or(ProtocolError::Unbuildable {
+                what: "a spot colourant",
+                why: "fewer than two samples is not a curve",
+            })
+        },
+    )?;
+    let process_to_flat = read_colour_cube(reader)?;
+    let flat_to_device = read_colour_cube(reader)?;
+    let wanted = colourants
+        .len()
+        .div_ceil(pdf_render::separation::COLOURANTS_PER_PLANE);
+    let mut planes = Vec::new();
+    for _ in 0..wanted {
+        planes.push(read_list(reader, false)?);
+    }
+    // `SpotSeparation::new` owns the rest — a colourant at least, and three to a plane.
+    SpotSeparation::new(colourants, planes, process_to_flat, flat_to_device).ok_or(
+        ProtocolError::Unbuildable {
+            what: "a separation",
+            why: "it names no spot colourant",
+        },
+    )
+}
+
 fn read_grey_curve(reader: &mut Reader<'_>) -> Result<GreyCurve, ProtocolError> {
     let samples = table(reader, "a grey curve's samples", least::SAMPLE, |reader| {
         let mut sample = [0.0_f32; 3];
@@ -2487,6 +2577,74 @@ mod tests {
         let bytes = encode(&list).expect("a list with no deferred producer");
         let back = decode(&bytes).expect("what this encoder wrote");
         assert_eq!(back, list);
+    }
+
+    /// ISO 32000-2 §10.8.3's simulated press — the process pair, four spot colourants on two spot
+    /// planes, each colourant's step b) samples and the two conversions — round-trips to an equal
+    /// list, and a companion list stating a separation of its own is refused, because every spot
+    /// plane is a companion and the recursion stops one level down.
+    #[test]
+    fn a_separated_page_round_trips_to_an_equal_list() {
+        let cube = |scale: f32| {
+            let grid: Vec<[f32; 3]> = (0..8)
+                .map(|corner| [corner as f32 / 7.0 * scale; 3])
+                .collect();
+            ColourCube::new(
+                Arc::from(vec![[0.0; 3], [1.0; 3]]),
+                2,
+                Arc::from(grid),
+                Arc::from(vec![0.0, scale]),
+            )
+            .expect("two curves and eight corners is a cube")
+        };
+        let plane = |grey: f32| {
+            let mut plane = DisplayList::new(Size::new(612.0, 792.0));
+            plane.push(Command::Fill {
+                path: a_path(),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(Color::grey(grey)),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            });
+            plane
+        };
+        let colourants: Vec<SpotColourant> = [b"Orange".as_slice(), b"Green", b"Gold", b"Violet"]
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                SpotColourant::new(
+                    Arc::from(*name),
+                    Arc::from(vec![[1.0; 3], [index as f32 / 4.0, 0.5, 0.25]]),
+                )
+                .expect("two samples is a curve")
+            })
+            .collect();
+        let separation = SpotSeparation::new(
+            colourants,
+            vec![plane(0.25), plane(0.75)],
+            cube(1.0),
+            cube(0.5),
+        )
+        .expect("four colourants take two planes");
+        let mut list = plane(0.5);
+        list.set_separated(a_blending_space(), plane(1.0), separation.clone());
+        let bytes = encode(&list).expect("a list with no deferred producer");
+        let back = decode(&bytes).expect("what this encoder wrote");
+        assert_eq!(back, list);
+        assert_eq!(back.separation(), Some(&separation));
+
+        // A spot plane that itself states a separation is refused on the way in: `write_list`
+        // never writes one, so only a hostile message can.
+        let mut writer = Writer::new();
+        write_list(&mut writer, &list, true, usize::MAX).expect("the page encodes");
+        let bytes = writer.finish();
+        let mut reader = Reader::new(&bytes);
+        assert!(matches!(
+            read_list(&mut reader, false),
+            Err(ProtocolError::Unbuildable { .. })
+        ));
     }
 
     /// The three-component shapes of §11.4.7, §11.7.2 and §11.5.3 — a page cube, a group

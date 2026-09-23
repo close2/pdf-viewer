@@ -49,8 +49,9 @@ and `kio/`'s worker the other;
 toolkits cost the core nothing and cost the flagship's build nothing: `doc/ui-boundary.md` is the
 interface and `doc/crate-map.md` says which crate is which.
 
-**No crate depends on `ashpd`, and no window of this tree's own opens a file chooser.** A document
-arrives on the command line or through the toolkit a native host already links. The decision
+**No crate depends on `ashpd`.** A document arrives on the command line or by Ctrl + O, which in
+`quorra-gtk` and `quorra-qt` is the toolkit's own file dialogue and in `quorra` a line over the page
+a path is typed into, every route ending in `viewer_host::open_chosen` (ADR 1275). The decision
 §12.7.6.4 actually puts on a host — which files a document may name — is `viewer-host`'s policy
 rather than a dialog, and `cargo metadata` is the authority for what is linked.
 
@@ -60,7 +61,11 @@ with `default-features = false` so that their optional SIMD backend — the only
 would reach — stays out of the tree. **No C or C++ library is linked into anything a document's
 bytes reach**, which is the claim that matters here: the C and C++ this tree does contain is the two
 faces it offers *outward*, `viewer-ffi`'s and `pdf-vfs-ffi`'s headers and example callers,
-`viewer-qt`'s `cxx` bridge and `kio/`'s worker.
+`viewer-qt`'s `cxx` bridge and `kio/`'s worker. The one C library a host links for a job of its
+own is `ring`, the provider under `rustls` in `viewer_host::submit`: it carries a form a person let
+leave and the server's answer, and parses nothing a document wrote. Principle 3's letter still asks
+for it to be confined, so it is argued in ADR 1291 section 4 and put to the owner in
+`doc/questions/Q130`.
 
 **What the sandbox is for.** Both codecs run inside it, and the reason is panic containment, an
 enforceable memory ceiling and the architecture principle 3 requires — not the containment of C,
@@ -139,7 +144,8 @@ incomplete page confidently is worse than one that admits the gap.
 clicks, selection and editing is `viewer-core` — `Command` in, `Event` out, `Query` → `Answer`
 beside them, with no windowing or graphics type in its API — and what is left in `viewer-ui` is a
 window, a keyboard, a graphics device and the decisions a host owns: which files a document may
-name, and what to do when one asks for a password. [`doc/ui-boundary.md`](ui-boundary.md) is that
+name, what to do when one asks for a password, and whether a form it composes may leave the
+machine (ADR 1291). [`doc/ui-boundary.md`](ui-boundary.md) is that
 interface's specification and ADRs 0116 to 0121 are its argument; `viewer-core/tests/headless.rs`
 drives the whole state machine with no display at all, and
 [`doc/state-of-play.md`](state-of-play.md) lists every consumer on the boundary.
@@ -469,6 +475,10 @@ missing standard costs every citation in the tree its only check. It:
 - fails on a `departed` row whose note names no ADR — "decided against with its cost recorded"
   is a claim about a document somebody can open, so the row has to name the one that argued and
   priced the departure, calibrated by a plant (trap 13);
+- fails on a `partial` or `reported` row that [`doc/todo/65`](todo/65-the-remaining-frontier.md)
+  does not place exactly once, and on a row the map places that is in neither status — both sides
+  are lists of clause numbers, so a disagreement is a fact rather than a reading
+  (`conformance::frontier`);
 - prints the coverage summary and **ratchets it**: `unreviewed` may only fall, and a clause
   cited by code may never be `unreviewed`.
 
@@ -481,6 +491,15 @@ set a ledger status, which is the point of having statuses rather than a compute
 Third, **it does not scan its own crate**, and `conformance::NOT_SCANNED` says why at length:
 its comments name `§8.9.6.5` and `§11.4.5.6` deliberately, because those are the two wrong
 numbers it was built to catch.
+
+**The crate's other test files gate the repository's own prose and tools rather than the
+standard**, because that is the crate whose gates already read the repository's files: a Rust path
+a doc comment names is one the tree declares (`tests/names.rs`, ADR 1273), a record is at most forty
+lines (`tests/records.rs`), `--bin cited`'s rank is calibrated by a planted pair (`tests/cited.rs`,
+ADR 1274), and `tools/batch.sh commit` stages the whole population by name while `close` refuses a
+worktree holding uncommitted work (`tests/batch.rs`, ADR 1313). The sweeps under `src/bin/` —
+`pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
+gates, since each judges prose; `tools/state.sh` runs them by section.
 
 Two ratchets, both in the gate and both two-directional. `UNREVIEWED_CEILING` may only fall.
 `REVIEW_OWED` names the clauses the code cites whose rows are still `unreviewed`, and a clause not
@@ -573,7 +592,9 @@ Memory safety is necessary, not sufficient.
   `CLAUDE.md`'s exclusion list, not designed out.
 
 **No C or C++ library reaches a document's bytes**; the confined codecs are pure Rust, and the
-confinement is for panic containment and a memory ceiling rather than for containing C. `pdf-sandbox` is
+confinement is for panic containment and a memory ceiling rather than for containing C. `ring`,
+under the host's submission client, is the one C library a host process links for a job of its
+own, and section 1 above says what reaches it (ADR 1291, `doc/questions/Q130`). `pdf-sandbox` is
 `#![forbid(unsafe_code)]` over `landlock`, `seccompiler`, `rustix` and `libc` for the system-call
 numbers — all four expose safe interfaces.
 

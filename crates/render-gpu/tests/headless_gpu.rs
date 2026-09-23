@@ -1702,9 +1702,9 @@ fn a_clip_whose_region_is_a_union_of_two_fills_is_refused_and_the_square_alone_i
 ///
 /// **This scene exists because every other image in this suite is opaque**, and on an opaque
 /// raster the two filters are the same arithmetic — so the rule had nothing holding it in any
-/// backend. It is calibrated against a live failure rather than a plant: the third rasteriser
-/// in this tree filters straight alpha, and `render-raster`'s `filtered_edge_colour` example
-/// prints this scene's partly covered pixels for all three (ADR 0697).
+/// backend. `render-raster`'s `filtered_edge_colour` example prints this scene's partly covered
+/// pixels for all three rasterisers (ADR 0697), and `render-raster/tests/masked_image_edge.rs`
+/// holds the third to the same answer through the whole pipeline (ADR 1287).
 #[test]
 fn cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour() {
     use pdf_render::{BlendMode, Command, DisplayList, Image, Size, Transform};

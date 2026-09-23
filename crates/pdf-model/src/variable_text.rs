@@ -172,6 +172,9 @@ pub(crate) struct Request<'a> {
     /// [`Asked::default`] for everything that only draws, which is every caller but the three
     /// queries in [`crate::appearance`].
     pub asked: Asked,
+    /// For [`Shape::ListBox`], the lines whose option the field's value selects, counted from the
+    /// first line drawn; each is marked with [`SELECTION_HIGHLIGHT`]. Empty for every other shape.
+    pub selected: &'a [usize],
 }
 
 /// What §12.7.4.3 asks for that this module cannot supply.
@@ -202,14 +205,13 @@ pub(crate) enum Owed {
     CharactersNotInFont(String),
     /// The value is longer than [`MAX_CODES`] and the rest is not laid out.
     Truncated(usize),
-    /// §12.7.5.4's list box: its options are drawn and which of them are selected is not marked.
+    /// §12.7.5.4's list box: its options are drawn and the ones its value selects are marked
+    /// with [`SELECTION_HIGHLIGHT`], a mark whose colour and extent this program chose.
     ///
-    /// **A report beside a drawing rather than a refusal**, since the round that read the clause
-    /// past the sentence this variant was named after. §12.7.5.4 states what is *shown* — the
-    /// `/Opt` array, in its own order, from Table 234's `/TI` — and states no appearance for the
-    /// selection alone. A mark distinguishing a selected item is added over an item that is
-    /// drawn either way, which is ADR 0106's test for an entry a refusal may not take the whole
-    /// annotation down with.
+    /// **A report beside a complete drawing**, on `doc/questions/A72`'s bound: the clause names
+    /// the selection — "one or more of which shall be selected as the field value", in a list box
+    /// whose items are displayed — and states no appearance for it, so the quantity is this
+    /// program's and the report says so (ADR 1323).
     ListBoxSelection,
     /// §12.7.5.3's Table 231 bit 26: the field's value is a rich text string, whose characters
     /// are laid out and whose formatting is not applied.
@@ -239,9 +241,13 @@ pub(crate) enum Owed {
     /// components is more appropriate than another, and the glyph outlines this matrix is
     /// written in front of are flattened onto that line and enclose no area.
     ///
-    /// **A report rather than a refusal.** The marks are still the producer's matrix applied to
-    /// the producer's value, which is what §12.7.4.3 leaves standing; what this says is that
-    /// there was nothing for the positioning half of the clause to work on.
+    /// **The clause is carried out, and this says what it drew.** The translation is the part
+    /// §12.7.4.3 hands to the processor — "positioning values it determines to be appropriate" —
+    /// and under a singular linear part every choice is as appropriate as another, so the value
+    /// is positioned where it would be in the box's own space ([`Frame::unmeasured`]) and the
+    /// producer's four numbers are written in front of it. What that draws is the producer's: in
+    /// a filling render mode, glyphs that enclose no area and so mark nothing. The report is how
+    /// a reader learns why a field with a value is blank.
     SingularTextMatrix,
 }
 
@@ -276,9 +282,10 @@ impl Owed {
             Self::CharactersNotInFont(characters) => {
                 format!("its value contains {characters}, for which its /DA's font states no code")
             }
-            Self::ListBoxSelection => "its /Opt options are drawn and which of them its value \
-                                       selects is not marked, because §12.7.5.4 states no \
-                                       appearance for a list box's selected items"
+            Self::ListBoxSelection => "its /Opt options are drawn and the ones its value selects \
+                                       are marked with a highlight whose colour and extent this \
+                                       program chose, because §12.7.5.4 names a list box's \
+                                       selection and states no appearance for it"
                 .to_owned(),
             Self::Truncated(limit) => {
                 format!("its value is longer than the {limit} characters laid out here")
@@ -289,9 +296,9 @@ impl Owed {
                                          is XFA 3.3's and is not applied here"
                 .to_owned(),
             Self::SingularTextMatrix => "its /DA sets a text matrix whose linear part has no \
-                                         inverse, so it flattens every glyph onto one line and \
-                                         the box it is laid out in has no room for the clause's \
-                                         positioning values to be measured against"
+                                         inverse, so its value is positioned in the box's own \
+                                         space and the matrix flattens every glyph onto one line, \
+                                         where it encloses no area"
                 .to_owned(),
         }
     }
@@ -752,7 +759,8 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
     };
 
     let mut stream = String::new();
-    open_marked_content(&mut stream, &appearance, (&font_name, size), box_);
+    let behind = selection_highlight(request.selected, &lines, size, stack, frame);
+    open_marked_content(&mut stream, &appearance, (&font_name, size), box_, &behind);
 
     // One value for both branches, because everything but the matrix is the same in each and two
     // spellings of it would be two chances to leave a question out of one of them.
@@ -802,11 +810,15 @@ pub(crate) fn lay_out(document: &Document, request: &Request) -> Result<LaidOut,
 /// changes, such as clipping", `BT`, the default appearance string, and the `Tf` — which is
 /// written after the `/DA` rather than trusting it, because auto-sizing has to replace the zero
 /// the clause puts there and a size the document did state is reproduced unchanged.
+///
+/// `behind` is painted between the clip and `BT`, because a path is not among the operators a
+/// text object admits (§8.2's Figure 9) and a mark behind the text has to precede it.
 fn open_marked_content(
     stream: &mut String,
     appearance: &DefaultAppearance,
     font: (&pdf_syntax::Name, f32),
     box_: [f32; 4],
+    behind: &str,
 ) {
     let (width, height) = ((box_[2] - box_[0]).max(0.0), (box_[3] - box_[1]).max(0.0));
     stream.push_str("/Tx BMC\nq\n");
@@ -815,6 +827,7 @@ fn open_marked_content(
         "{} {} {} {} re W n",
         box_[0], box_[1], width, height
     );
+    stream.push_str(behind);
     stream.push_str("BT\n");
     stream.push_str(&appearance.operators);
     let (name, size) = font;
@@ -822,6 +835,55 @@ fn open_marked_content(
     // number sign written raw here would name a different resource — or end the token early and
     // leave the size as an operand of nothing — which is what this stream did before ADR 0453.
     let _ = writeln!(stream, "/{} {size} Tf", name.escaped());
+}
+
+/// The colour a list box's selected option is highlighted in, `DeviceRGB`.
+///
+/// **A choice, and the quantity is this program's.** §12.7.5.4 names the selection — "one or
+/// more of which shall be selected as the field value" — for items it requires be "displayed on
+/// the screen", and it states no appearance for a selected one: no colour, no extent, no shape.
+/// `doc/questions/A72` rules that where a clause names the kind of mark and withholds only its
+/// quantity, the quantity is chosen, written down and reported (ADR 1323). A light blue, light
+/// enough that the black a `/DA` usually sets keeps a contrast of better than ten to one on it;
+/// the extent is the option's own line, the full chord the box leaves at its baseline and one
+/// leading tall from its ascent, so adjacent selected options join into one band.
+pub(crate) const SELECTION_HIGHLIGHT: [f32; 3] = [0.6, 0.75, 0.9];
+
+/// The highlight behind each selected line of a list box, as path operators in the box's space.
+///
+/// Each band is laid in the space the layout measures in and carried out through the `/DA`'s
+/// linear part corner by corner, so under a turned or sheared `Tm` the band is the parallelogram
+/// the line's own glyphs sit in rather than an upright box beside them. Balanced in a `q`/`Q` of
+/// its own, so the fill colour it sets cannot become the text's where the `/DA` states none.
+fn selection_highlight(
+    selected: &[usize],
+    lines: &[std::ops::Range<usize>],
+    size: f32,
+    stack: Stack,
+    frame: Frame,
+) -> String {
+    let mut out = String::new();
+    let ascent = stack.metrics.ascent * size;
+    let leading = stack.leading(size);
+    for &index in selected.iter().filter(|index| **index < lines.len()) {
+        let baseline = stack.baseline(size, lines.len(), index);
+        let (start, width) = stack.room.at(baseline);
+        let (top, bottom) = (baseline + ascent, baseline + ascent - leading);
+        let corners = [
+            [start, bottom],
+            [start + width, bottom],
+            [start + width, top],
+            [start, top],
+        ]
+        .map(|corner| frame.place(corner));
+        let [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = corners;
+        let _ = writeln!(out, "{x0} {y0} m {x1} {y1} l {x2} {y2} l {x3} {y3} l h");
+    }
+    if out.is_empty() {
+        return out;
+    }
+    let [r, g, b] = SELECTION_HIGHLIGHT;
+    format!("q\n{r} {g} {b} rg\n{out}f\nQ\n")
 }
 
 /// Where the lines of one value sit inside the box, and how much room each of them has.

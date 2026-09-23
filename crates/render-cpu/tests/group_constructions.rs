@@ -247,6 +247,85 @@ fn a_translucent_knockout_element_shows_the_initial_backdrop_not_the_element_bel
     );
 }
 
+/// A bare knockout element whose clip cuts it replaces the accumulation within its clip and
+/// nowhere else (ISO 32000-2 §11.4.6, §8.5.4).
+///
+/// §11.4.6: "each individual element shall be composited with the group's initial backdrop
+/// rather than with the stack of preceding elements in the group", and §8.5.4 makes the clip
+/// part of what the element's shape is. Two fills of the whole page at red ½, the first
+/// clipped to `x ∈ [15.5, 21.1]` and the second to `x ∈ [18.5, 24.1]`, over white: where the
+/// second's clip admits it, the first is knocked out and the pixel is one layer of red ½,
+/// `(255, 128, 128)`; where only the first's does, the first stands at the same value.
+///
+/// Column 17 is the discriminating pixel: inside the first clip and outside the second, and
+/// within a pixel and a half of the second's edge. Drawn as Porter-Duff Source through the
+/// clip mask, the second element scaled its source by the mask there instead of interpolating
+/// by it, and cleared the first to the white page underneath — `(255, 255, 255)`.
+#[test]
+fn a_clipped_knockout_element_replaces_nothing_outside_its_clip() {
+    let white = Color {
+        r: 1.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    let red_half = Color {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+        a: 0.5,
+    };
+    let mut list = DisplayList::new(Size {
+        width: 100.0,
+        height: 100.0,
+    });
+    list.push(fill([0.0, 0.0, 100.0, 100.0], white));
+    let mut clipped = |x0: f32, x1: f32| {
+        let clip = list
+            .add_clip(pdf_render::display_list::Clip {
+                path: test_scenes::rect(x0, 30.0, x1, 71.0),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("two clips fit");
+        let mut element = fill([0.0, 0.0, 100.0, 100.0], red_half);
+        element.set_clip(Some(clip));
+        element
+    };
+    let elements = vec![clipped(15.5, 21.1), clipped(18.5, 24.1)];
+    list.push(Command::Group {
+        commands: elements,
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: true,
+        alpha_is_shape: false,
+        blending: None,
+    });
+    let raster = render(&list);
+    assert_close(
+        "the first element where the second's clip does not reach",
+        pixel(&raster, 17, 50),
+        [255, 128, 128, 255],
+        2,
+    );
+    assert_close(
+        "the second element, which knocks the first out",
+        pixel(&raster, 20, 50),
+        [255, 128, 128, 255],
+        2,
+    );
+    assert_close(
+        "outside both clips",
+        pixel(&raster, 30, 50),
+        [255, 255, 255, 255],
+        1,
+    );
+}
+
 /// §11.6.6's group blending colour space: the pair composites in ink and resolves once.
 ///
 /// # The arithmetic

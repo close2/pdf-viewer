@@ -221,7 +221,7 @@ pub enum Command {
         /// which is why it travels beside the clip).
         mask: Option<MaskId>,
     },
-    /// Fill an uploaded outline (ISO 32000-2 §8.5.3.3's two rules, §11 for the
+    /// Fill an uploaded outline (ISO 32000-2 §8.5.3.3's two rules, §11.3 for the
     /// compositing). Drawable once the glyph and path lanes exist (M4/M5).
     Fill {
         /// The outline, uploaded once and referenced per occurrence (brief section 2.2).

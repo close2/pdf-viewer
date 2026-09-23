@@ -39,7 +39,7 @@ pub const CASES: &[Case] = &[
          stack with room for at least 100 entries. No implementation shall be required \
          to provide a larger stack, and it shall be an error to overflow the stack.\" So \
          the limit is normative, a program needing 101 entries may be refused by any \
-         conforming processor, and §5 of the brief's rule applies: the limit is \
+         conforming processor, and brief section 5's rule applies: the limit is \
          discoverable before the frame rather than after it.",
     ),
     Case::refused(
@@ -47,7 +47,7 @@ pub const CASES: &[Case] = &[
         &[Op::PushInt(1), Op::Jump { target: 0 }],
         Refusal::BackwardJump,
         "The pinned vocabulary's decision 2, and the reason `raster/doc/spike-function-paint.md` \
-         §4 could bound the interpreter's loop: forward-only jumps make the instruction \
+         section 4 could bound the interpreter's loop: forward-only jumps make the instruction \
          count the execution bound. Nothing in ISO 32000-2 forbids a loop, because \
          §7.10.5's syntax cannot express one — `if` and `ifelse` are the only control \
          flow — so a backward jump means the compiled form is not a lowering of any \
@@ -68,7 +68,7 @@ pub const CASES: &[Case] = &[
         Refusal::OutputCountMismatch,
         "ISO 32000-2 §7.10.5.3's count rule again, but statically: this program leaves \
          three values on every path and the paint declares one component, so no input \
-         makes it legal. §5 of the brief asks for limits that are discoverable before \
+         makes it legal. Brief section 5 asks for limits that are discoverable before \
          the frame, and a program that cannot ever produce the right number of outputs \
          is the cheapest such refusal there is.",
     ),
@@ -76,7 +76,7 @@ pub const CASES: &[Case] = &[
         "refusal/stack-count-that-is-not-a-literal",
         &[Op::PushInt(99), Op::Exch, Op::Cvi, Op::Index],
         Refusal::NonLiteralStackCount,
-        "`raster/doc/spike-function-paint.md` §6: \"copy/index/roll whose count is not a literal \
+        "`raster/doc/spike-function-paint.md` section 6: \"copy/index/roll whose count is not a literal \
          — shape (ii) cannot name a slot it cannot compute, and shape (i) cannot state \
          its own depth\". Here the count reaching `index` is the shading's own y \
          coordinate through `cvi`, so it is different at every fragment. **The reference \
@@ -99,7 +99,7 @@ pub const CASES: &[Case] = &[
             Op::PushInt(3),
         ],
         Refusal::JoinDepthMismatch,
-        "`raster/doc/spike-function-paint.md` §6: \"an `ifelse` whose arms leave different \
+        "`raster/doc/spike-function-paint.md` section 6: \"an `ifelse` whose arms leave different \
          depths — no static slot assignment describes the join\". The true arm leaves \
          three values and the false arm two. Only one arm runs, so the evaluator returns \
          three outputs and sees nothing wrong; a generated shader has to name the slots \
@@ -117,7 +117,7 @@ pub const CASES: &[Case] = &[
             Op::Not,
         ],
         Refusal::AmbiguousOperandType,
-        "`raster/doc/spike-function-paint.md` §6: \"`not` on a value two branches disagreed \
+        "`raster/doc/spike-function-paint.md` section 6: \"`not` on a value two branches disagreed \
          about\". Table 42's `not` is two operators (PLRM3: logical on a boolean, ones \
          complement on an integer), and here one arm leaves an integer and the other a \
          boolean, so *which operator this occurrence is* has no static answer. The \

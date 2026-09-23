@@ -23,7 +23,12 @@ transparency groups — composited in the blending colour space the page or an i
 states, four components as two rasters (ADR 0262), one component as one, `DeviceGray` on the
 channel (ADR 0790) and `CalGray` or a one-component profile through its curve (ADR 0792), and
 three CIE-based components — `CalRGB`, an RGB profile — as the space's own components through
-curves and a grid (ADR 0797) — soft masks, whose `/Luminosity` groups in such a space take
+curves and a grid (ADR 0797), a group's result carried into such a parent as the conversion's three
+stages — the device's decoding, a linear map and the space's own encoding — rather than as one
+sampled grid (ADR 1267) — soft masks, with §11.6.5.2's `/Matte` undone in the parent image's own
+space before any conversion, as the clause orders, and a mask's samples read as the opacity whatever
+one-component space it states (ADR 1268), a JPEG 2000 parent decoded at a reduced level
+included, its mask carried onto that grid (ADR 1324) — whose `/Luminosity` groups in such a space take
 §11.5.3's `Y` as three summed curves where the space decomposes, as a sampled grid where it
 does not (ADR 0851), and — where the space has *four* components — off §11.4.7's pair of rasters
 inside the mask, over a grid of the press's own four axes (ADR 0857), and annotations both from
@@ -150,8 +155,7 @@ and over the C ABI's `quorra_measure`, with the arithmetic and
 §12.9.2's five formatting steps the document's, so a length, an area, an angle and a slope come back
 in the units and the labels the producer chose rather than in any this program invented; a geospatial
 viewport says which system the map is in and states outright that §12.10 defines no position between
-its registration points (ADR 1191). No window draws the path it is measuring; each takes the points
-and shows the answer; a person can **add an annotation** — §12.5.6.10's four markups over what is
+its registration points (ADR 1191); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
@@ -255,7 +259,11 @@ after the first on a command line opens as a tab behind it once page one is on t
 them through `viewer_host::open_chosen` and one at a time, and each under `Command::Open`, so every
 answer the reader gave reaches the second document as it did the first. A tab says §14.3.3's
 `/Title` where the document states one and otherwise the file's name. `quorra-confined` holds one
-document, on ADR 1190's rule. ADRs 1263, 1264, 1275.
+document, on ADR 1190's rule. **A window is the front document's**: one opened behind obeys its
+`/PageMode` when it first comes to the front, so a presentation running when a second document
+arrives keeps its full screen and a `UseThumbs` document opens its pages panel then; full screen
+hides the strip; and a transition's faces are drawn on the window's own surround from the front
+document's page (ADR 1303). ADRs 1263, 1264, 1275.
 
 **And §12.9's measurement is drawn as well as said.** The traced path is over the page in all three
 windows, each press marked, in each platform's own colour — the points have been the host's since
@@ -282,15 +290,19 @@ sentence is about. Off by default, at 0.010% of an interpretation and no moved p
 a requirement executed under a control a host supplies is executed, which is the owner's ruling in
 `doc/questions/A100`, so §8.6.6.5 is `implemented` with its default argued in its row.
 
-**Under the same control a page naming a spot colourant is separated, and the separation is the
-model's alone.** §10.8.3's step a) processes the page "as if separations were to be created for a
-simulated device that supports subtractive process colourants and possibly spot colours", so the
-page is interpreted once per plane of that device — the two process planes and one for every three
-spot colourants, sixteen at most — on its own four-component press or the intent's, and every colour
-is resolved by §11.7.3: a colourant with a plane is painted directly on it, every component a mark
-does not name is no ink, `All` paints every plane, groups pass the spot planes through and soft
-masks carry none. `Interpretation::separation` holds the planes; no backend draws them yet, so the
-page drawn is the one drawn before (ADR 1311).
+**Under the same control a page naming a spot colourant is drawn as the press would print it.**
+§10.8.3's step a) processes the page "as if separations were to be created for a simulated device
+that supports subtractive process colourants and possibly spot colours", so the page is interpreted
+once per plane of that device — the two process planes and one for every three spot colourants,
+sixteen at most — on its own four-component press or the intent's, and every colour is resolved by
+§11.7.3: a colourant with a plane is painted directly on it, every component a mark does not name is
+no ink, `All` paints every plane, groups pass the spot planes through and soft masks carry none
+(ADR 1311). The planes are the page's display list, and the CPU and `raster` backends put them
+together by steps b) to d): each plane over the white matte, to flat XYZ through the press or the
+colourant's own separation, multiplied, and converted to the screen — so LogoGreen overprinting
+yellow comes out the product of the two inks rather than whichever was painted last. A spot plane
+composites under Normal where §11.7.4.2 forbids the mode, the GPU backend refuses the page by name,
+and an ink past the sixteen planes is named on the page's report (ADR 1317).
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the
@@ -323,7 +335,14 @@ reverts to a `DeviceCMYK` alternate is in the first bullet on the components its
 receives, which is §11.7.4.3's NOTE 2 and the equivalence §8.6.7's own EXAMPLE states (ADR 1241).
 A pair that is a direct element of a knockout group takes the implicit group too, with §11.4.6's
 NOTE 6 deciding which of that group's two initial backdrops it composites onto rather than refusing
-the position (ADR 1265). `render-raster` draws the mode too, through raster's `Compose::DestOver`
+the position (ADR 1265). **§11.4.6's knockout groups are drawn by `render-cpu`, isolated or
+not, and under a blend mode of the group's own too**, taking §11.4.4's result step
+with Table 140's group alpha kept beside the accumulation (ADR 1305); every element states its
+shape on every route, a stencil painted through a pattern included, and §11.6.4.3's reading of
+`/AIS` is kept by the scope that paints under it — a tiling cell, a text object, each glyph pair —
+restored by `Q`, and read element by element where one scope paints under both (ADRs 1301, 1306,
+1319). A tiling cell starts from the graphics state its parent stream began with (ADR 1320). The two graphics backends refuse the own-backdrop
+construction by name. `render-raster` draws the mode too, through raster's `Compose::DestOver`
 and `Compose::DestOverIn`, which were built in `raster/` from the clause alone so that the
 cross-backend run is the two readings' first meeting (ADR 1295). `render-gpu` refuses a display
 list carrying it by name. 2.7% of the crawled documents that open paint under it (ADRs 1178, 1181,
@@ -342,8 +361,8 @@ SurfacePatch` carries §8.7.4.5's control net, its corner values and a tolerance
 derives the subdivision from the net's second differences against half a device pixel and
 §10.7.3's colour tolerance — three times cheaper on the corpus page that states the most of them
 (ADR 1217). **And a stencil keeps its shape apart from its mask's opacity**: an image that is
-§8.9.6.2's stencil *and* carries §11.6.5.2's soft mask used to reach one raster holding their
-product, and now reaches the display list as a `Command::Shaped` whose two halves are §11.6.4.2's
+§8.9.6.2's stencil *and* carries §11.6.5.2's soft mask reaches the display list as a `Command::Shaped`, never as one raster holding their
+product, whose two halves are §11.6.4.2's
 shape and §11.6.4.3's opacity (ADR 1218) — including where the mask is behind an image codec,
 which is decoded once per document into a grey plane under the bound that routed it there
 (ADR 1232). **A clipping path that encloses an area and rules a line admits both**: §10.7.4's
@@ -403,7 +422,8 @@ collection is how a document *arranges* its files rather than a new population o
 §14.3.3's `/Info` with §14.3.2's XMP under it; §12.3.4's thumbnails, one row per page with the
 miniature fitted above §12.4.2's label and **fetched only for the rows about to be drawn**, which is
 `CLAUDE.md` section 2 reaching a panel rather than a preference — Table 29's `/PageMode /UseThumbs`
-opens that tab as a document opens, so the whole list was on the launch path until ADR 0564; and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
+opens that tab as a document opens, which is why a row is fetched when it is about to be drawn
+rather than the list at launch (ADR 0564); and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
 than to the page the first bead sits on, because activating one composes §12.6.4.7's own thread
 action rather than adding a second route (ADR 0200) — **including a thread Table 209's `/F` puts in
 another file**, whose bytes a host supplies under the reader's `--remote-documents=` level and whose
@@ -512,7 +532,7 @@ pass.
   matches, reads and answers. **The allow-list did not move for it and no host can move it**; what
   a host can do is decline, which is the default everywhere. Over `doc/pdf.js` it is 40 pages that
   differed from what this machine draws unconfined and are now byte-identical to it, twelve of them
-  blank before. **The allow-list did move one round later, and by one *command* rather than one
+  blank before. **The allow-list admits one *command* for the descriptor, rather than one
   call** (ADR 0888): a worker handed a descriptor has to give it back, and `OwnedFd::drop` asks
   `fcntl(fd, F_GETFD)` first — so that command is permitted on the interpreter profile and every
   other command of the same call still kills, which three probes and a decoder's fourth say rather
@@ -748,7 +768,9 @@ coefficients are the control points' own depths and cut by de Casteljau, so the 
 curve and nothing is flattened; a **§8.5.3.2 stroke cut as the outline it marks**, expanded with the
 graphics state's line parameters and §8.4.3.6's dash applied first, then painted as a fill in the
 **stroking** colour — replayed under Table 74's non-stroking operator from the producer's own
-operand bytes inside a §8.4.2-balanced `q`/`Q`; and a **form entered**, its
+operand bytes inside a §8.4.2-balanced `q`/`Q`, a round cap, a round join or a curved offset in
+that outline fitted as cubics within a stated hundredth of the cut's own widening and split at its
+roots (ADR 1324); and a **form entered**, its
 own content stream edited under §8.10.1's `/Matrix`. An object another page also draws is **copied**
 for the redacted page rather than replaced, because the other placement's marks are content the
 annotation did not identify. A path that is also §8.5.4's **clipping boundary** keeps the
@@ -763,12 +785,10 @@ dictionary naming the cleared ones, and an image mask behind a codec written bac
 stencil. An inline image behind `DCTDecode` or `CCITTFaxDecode` is decoded and spliced, and one
 naming a colour-space resource keeps the name.
 It refuses rather than cuts wrong — a Type 3 font, a composite font not
-`Identity-H`, `sh`, a soft mask over the region, a stroke whose outline came back
-with an arc in it (a round cap or join, or a curved offset, which an expansion can only
-approximate), a zero line width, a codec image whose decode is not on its stated grid, a JPX image
+`Identity-H`, `sh`, a soft mask over the region, a zero line width, a codec image whose decode is not on its stated grid, a JPX image
 stating more than eight bits, a codec picture with a colour-key `/Mask` or a matted soft mask —
 each with its sentence, and the overlay text and fill it does not compose (A65's fence), said as a
-departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277).
+departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

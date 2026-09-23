@@ -6,17 +6,22 @@ afterwards as single clean rounds — redaction application (ADR 1124), then its
 design below is what the two aborted drafts established and the builds followed; it stays here as
 *what is* for the cases still owed.
 
-**What a redaction still refuses**, each an owed capability with its own sentence: a stroke whose
-*outline* an expansion can only approximate — a round cap or join, or the offset of a curved
-segment (ADR 1236) — a stroke with a zero line width, one this walk has seen no stroking colour
+**What a redaction still refuses**, each an owed capability with its own sentence: a stroke with a
+zero line width, one this walk has seen no stroking colour
 operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a codec image
 whose decode is not on the grid its dictionary states (a JPEG 2000 codestream over the decoder's
-budget comes back at a reduced resolution level, §7.4.9 NOTE 3), a `JPXDecode` image stating more
+budget comes back at a reduced resolution level, §7.4.9 NOTE 3 — the region maps onto that grid,
+but writing it back would resample every sample outside the region too, and the budget is the
+decoder's resource bound, ADR 1324), a `JPXDecode` image stating more
 than eight bits per component (ADR 1248), a codec picture whose `/Mask` is a §8.9.6.4 colour key
 or whose soft mask states §11.6.5.2's `/Matte` (both are in the picture's own sample domain or
 colour space, which the re-encode leaves), a codec image whose decode has a shape no fresh raster
 holds; an inline image behind a filter §8.9.7 forbids there; a Type 3 font, a composite font not
 `Identity-H`, `sh`, and a soft-mask group.
+
+**One came off that list in ADR 1324.** A round cap, a round join and a stroked curve are cut:
+no path can state a circle (§8.5.2.2), so the outline is fitted as cubics within `ARC_TOLERANCE`,
+a hundredth of the widening the cut already takes, and cut at its roots like any Bézier.
 
 **Three came off that list in ADR 1277.** A mask is image data: a picture's §11.6.5.2 `/SMask` and
 §8.9.6.3 `/Mask` are cleared on their own grids under the picture's placement, copied wherever the
@@ -72,8 +77,8 @@ where "within the region" is under-specified the choice is documented as a choic
 - **A §8.5.3.2 stroke is cut as the outline it marks** (ADR 1236): expanded with the graphics
   state's line parameters — §8.4.3.6's dash pattern applied *before* the outline is taken — cut as
   a fill, and painted with `f` in the **stroking** colour, replayed under Table 74's non-stroking
-  operator from the producer's own operand bytes inside a §8.4.2-balanced `q`/`Q`. Admitted only
-  where the expansion came back polygonal, which is decided from its output.
+  operator from the producer's own operand bytes inside a §8.4.2-balanced `q`/`Q`. An arc in the
+  outline is fitted within `ARC_TOLERANCE` and cut at its roots (ADR 1324).
 - **A form is entered, always** (ADR 1196): the interpreter runs a form's content inline, so its
   codes are in the placed-code count the walk is calibrated against, and a walk that skipped the
   form refused every page whose text is inside one. An object the page does not own — a form or an

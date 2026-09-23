@@ -692,12 +692,17 @@ impl Interpreter<'_> {
                     // A `BT` inside a text object that never ended closes that object's record
                     // of §11.6.4.3's readings before this one opens its own.
                     if let Some(outer) = text_object.enclosing_reading.take() {
-                        let reading = self.close_reading_scope(outer);
-                        self.fold_reading(reading, text_object.start);
+                        let (reading, in_force) = self.close_reading_scope(outer);
+                        self.absorb_reading(reading, text_object.start);
+                        self.note_alpha_source(in_force);
                     }
                     text_object = TextObject {
                         start: self.list.command_count(),
-                        enclosing_reading: Some(self.open_reading_scope(state.alpha_is_shape)),
+                        enclosing_reading: Some(if state.text.knockout {
+                            self.open_knockout_reading_scope(state.alpha_is_shape)
+                        } else {
+                            self.open_reading_scope(state.alpha_is_shape)
+                        }),
                         ..TextObject::default()
                     };
                 }
@@ -1147,9 +1152,17 @@ impl Interpreter<'_> {
             });
         }
         if let Some(outer) = text_object.enclosing_reading.take() {
-            let reading = self.close_reading_scope(outer);
-            self.fold_reading(reading, text_object.start);
+            let (reading, in_force) = self.close_reading_scope(outer);
+            self.absorb_reading(reading, text_object.start);
+            self.note_alpha_source(in_force);
         }
+        // §8.10.1's `Do` ends with "[r]estores the saved graphics state, as if by invoking the Q
+        // operator", and a Type 3 glyph's description and an appearance stream are run the same
+        // way: whatever reading of §11.6.4.3's `/AIS` this stream left in force, the one it began
+        // under is in force again for whatever follows it. Stated whether or not it changed,
+        // because the statement is also what joins this stream's last elements to the record
+        // before a caller takes them off the list (ADR 1319).
+        self.note_alpha_source(initial.alpha_is_shape);
 
         // A `W` the stream ended on modified nothing: §8.5.4 has it "modify the effect of the
         // succeeding painting operator", and none succeeded it in this stream. It does not

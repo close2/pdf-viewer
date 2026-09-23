@@ -809,7 +809,14 @@ own per-document state parked beside the tab it belongs to. `Command::Beside` is
 needed: a name a host has free for a document §12.6.4.3's or §12.6.4.4's `/NewWindow true` would
 open beside the one showing, which is a fact about the window and about no file. Ctrl + Tab moves,
 Ctrl + W closes, and the strip hides itself for one document so a window that opened one file is
-the window it was. `quorra-confined` offers no name and is unchanged (ADR 1190).
+the window it was. **`quorra-confined` holds one document, and a second is not owed there**: ADR
+0713 Decision 2 scoped it to one and ADR 1190 kept that conclusion under its rule that a host owes
+the control for an operation exactly when it performs it — and this window performs no open
+beside, taking no second path, offering no chooser, and refusing §12.6.4.3 at `refuse`. That the
+wire carries `Command::Beside` is the wire encoding every command, not an operation this window
+performs; and whoever adds a second document here first has to decide whether two documents share
+one worker's confinement or each get their own, since a worker restart (`Resuming`) currently
+reopens the one file it held.
 
 **And a person can start one** (ADR 1275). Ctrl + O is `WindowAct::OpenDocument` in the one key
 table: a `gtk4::FileDialog`, a `QFileDialog`, and in `viewer-ui` a line over the page a path is
