@@ -40,8 +40,13 @@ pub(crate) struct ChildOp {
     pub residue_rect: [f32; 4],
     pub residue_origin: [f32; 2],
     /// §11.4.6's stage this group *is*, when it is one: 0 ordinary, 1 erase by the
-    /// group's own alpha, 2 add it (ADR 0033).
+    /// group's own alpha, 2 add it (ADR 0033) — or 3, §11.7.4.3's special overprinting
+    /// blend mode, whose channels are [`ChildOp::kept`] (`doc/adr/1295`).
     pub compose: u32,
+    /// Under `compose == 3`, which colour channels keep the backdrop — red in bit 0,
+    /// green in bit 1, blue in bit 2 — and so take `B(Cb, Cs) = Cb` in §11.3.6's formula;
+    /// every other channel takes `Cs`. Zero under every other `compose`.
+    pub kept: u32,
     /// The group's soft mask, as a mask index.
     pub mask: Option<u32>,
     /// §11.4.5's isolated group (the ordinary case) or §11.4.4's non-isolated one,
@@ -93,11 +98,41 @@ impl ChildOp {
             residue_rect: [0.0; 4],
             residue_origin: [0.0; 2],
             compose: 0,
+            kept: 0,
             mask,
             isolated: true,
             alpha_is_shape: false,
         }
     }
+
+    /// The composite of the layer a fill under §11.7.4.3's mode in a proper subset of the
+    /// channels draws through (`doc/adr/1295`).
+    ///
+    /// Every field but two is [`ChildOp::implicit_blend_group`]'s, for its reasons: the
+    /// wrapper is a device trick holding one element, which resolved its own clip inside
+    /// the layer, and the soft mask weighs the layer once here. The two are the mode
+    /// itself — `compose` 3 with the kept channels — under Normal, because §11.7.4.3's
+    /// value *is* the blend function and the builder refused it beside any other.
+    pub(super) fn implicit_overprint_group(
+        layer: usize,
+        kept: [bool; 3],
+        mask: Option<u32>,
+    ) -> Self {
+        Self {
+            compose: OVERPRINT_COMPOSE,
+            kept: kept_word(kept),
+            ..Self::implicit_blend_group(layer, BlendMode::Normal, mask)
+        }
+    }
+}
+
+/// `composite.wgsl`'s `compose` word for §11.7.4.3's special overprinting blend mode.
+const OVERPRINT_COMPOSE: u32 = 3;
+
+/// §11.7.4.3's kept channels as `composite.wgsl`'s `kept` bits: red in bit 0, green in
+/// bit 1, blue in bit 2.
+fn kept_word(kept: [bool; 3]) -> u32 {
+    u32::from(kept[0]) | (u32::from(kept[1]) << 1) | (u32::from(kept[2]) << 2)
 }
 
 /// A soft mask's realisation plan: its group's layer tree plus the reduction
@@ -197,10 +232,18 @@ impl Encoder<'_> {
             compose: match spec.compose {
                 Compose::DestOut => 1,
                 Compose::Plus => 2,
+                // §11.7.4.3's mode on a group is how a caller states it for a stroke or
+                // an image, as an isolated group holding the mark alone (`doc/adr/1295`).
+                Compose::DestOver | Compose::DestOverIn(_) => OVERPRINT_COMPOSE,
                 // §11.4.6's other two are the group's own model rather than a
                 // stage of it: `SrcOver` is the ordinary composite and `Src` is
                 // what `knockout` states, which the builder refuses on a group.
                 Compose::SrcOver | Compose::Src => 0,
+            },
+            kept: match spec.compose {
+                Compose::DestOver => kept_word([true; 3]),
+                Compose::DestOverIn(kept) => kept_word(kept),
+                Compose::SrcOver | Compose::Src | Compose::DestOut | Compose::Plus => 0,
             },
             mask,
             isolated: spec.isolated,

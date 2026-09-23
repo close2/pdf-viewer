@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <caret page="0" rect="50,40,60,55" fringe="1,1,1,1" symbol="paragraph">
+      <defaultappearance>/Helv 9 Tf 0 g</defaultappearance>
+    </caret>
+  </annots>
+</xfdf>

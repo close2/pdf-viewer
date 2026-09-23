@@ -1300,12 +1300,13 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
 ///
 /// A [`Command::Shaped`] answers with the shape it already carries: an inner knockout group's
 /// elements arrive stated. A soft mask the interpreter built out of a stencil is kept rather
-/// than removed, for the reason [`ShapeMasks::contains`] gives: that mask *is* shape.
+/// than removed, for the reason [`ShapeMasks::shape_of`] gives: that mask *is* shape — or,
+/// for a stencil under an `/SMask` of its own, the mask beside it that holds the stencil alone.
 fn shape_without_the_mask_and_the_constants(
     command: &Command,
     shape_masks: &ShapeMasks,
 ) -> Option<Command> {
-    let shape_mask = |mask: &Option<SoftMaskId>| mask.filter(|id| shape_masks.contains(*id));
+    let shape_mask = |mask: &Option<SoftMaskId>| mask.and_then(|id| shape_masks.shape_of(id));
     match command {
         Command::Fill {
             path,
@@ -1385,14 +1386,24 @@ fn shape_without_the_mask_and_the_constants(
         // and that is arithmetic rather than a simplification: §11.4.6 accumulates
         // `(1 − f) × F + f`, §11.4.4 accumulates `Union(F, f) = F + f − F × f`, and the two
         // expressions are equal.
-        Command::Group { commands, clip, .. } => Some(Command::Group {
+        //
+        // The group's own mask comes off for the reason a fill's does, unless it is a
+        // stencil's: a stencil painted through a tiling pattern reaches the page as the
+        // cells' group under the stencil (`Interpreter::tile`), and §11.6.4.2 makes that mask
+        // the group's shape.
+        Command::Group {
+            commands,
+            clip,
+            mask,
+            ..
+        } => Some(Command::Group {
             commands: commands
                 .iter()
                 .map(|command| shape_without_the_mask_and_the_constants(command, shape_masks))
                 .collect::<Option<_>>()?,
             alpha: 1.0,
             clip: *clip,
-            mask: None,
+            mask: shape_mask(mask),
             blend: BlendMode::Normal,
             // A shape is accumulated on transparency by definition — §11.6.4.2 gives it
             // from geometry alone — so the backdrop this is drawn over states nothing.
@@ -1660,6 +1671,25 @@ pub(super) fn implicit_knockout_group(
     shape_masks: &ShapeMasks,
 ) -> Option<ImplicitKnockout> {
     let alpha = seen.settled_over(commands)?;
+    // §11.4.6's NOTE 6 first, because where it applies it decides everything: this group is a
+    // direct element of `enclosing`, so its initial backdrop is that group's — "the initial
+    // backdrop of the inner group is the same as that of the outer group" — and an isolated
+    // knockout group's is transparent. Each part is then composited with a transparent backdrop,
+    // where §11.3.6 leaves a blend mode nothing to do ("[a]n alpha value of αs = 0.0 or αb = 0.0
+    // results in no blend mode effect"), and a part that is itself a non-isolated group is handed
+    // the same transparent backdrop by the same note. So the parts are drawn Normal, any nested
+    // group isolated, on transparency: exact whatever the parts blend with (ADR 1301).
+    if enclosing == Some(KnockoutKind::Isolated) {
+        let parts = commands
+            .iter()
+            .map(on_a_transparent_backdrop)
+            .collect::<Option<Vec<_>>>()?;
+        return Some(ImplicitKnockout {
+            elements: transparent_knockout_elements(&parts, alpha, shape_masks)?,
+            blend: BlendMode::Normal,
+            isolated: true,
+        });
+    }
     // §11.4.6's NOTE 6 decides which of the three constructions may take an element that is
     // itself a non-isolated group: such an element's own initial backdrop is *this* group's
     // initial backdrop, so only a construction that composites each element against that
@@ -1697,14 +1727,10 @@ pub(super) fn implicit_knockout_group(
         }
     }
     // §11.4.6's NOTE 6 from the other side: this group is a direct element of `enclosing`, so
-    // the backdrop the clause hands it is *that* group's initial backdrop. Where the enclosing
-    // knockout group is non-isolated, ADR 1256's construction gives each of its elements a
-    // private clone of exactly that backdrop, which is what the command below is seeded from;
-    // where it is isolated, its elements are drawn on transparency and this one would be seeded
-    // from the accumulation instead, which is neither backdrop. ADR 1265.
-    if enclosing == Some(KnockoutKind::Isolated) {
-        return None;
-    }
+    // the backdrop the clause hands it is *that* group's initial backdrop. The enclosing group
+    // is non-isolated here — the isolated one was answered above — and ADR 1256's construction
+    // gives each of its elements a private clone of exactly that backdrop, which is what the
+    // command below is seeded from. ADR 1265.
     Some(ImplicitKnockout {
         elements: stated_elements(commands, alpha, shape_masks)?,
         blend: BlendMode::Normal,
@@ -1892,6 +1918,28 @@ fn without_blend(command: &Command) -> Option<Command> {
         _ => return None,
     }
     Some(stripped)
+}
+
+/// A part of a knockout group whose initial backdrop is transparent, as §11.3.6 makes it there:
+/// its blend mode has no effect, so it is Normal, and a group among the parts is isolated,
+/// because §11.4.6's NOTE 6 hands a non-isolated one the same transparent backdrop. `None` for a
+/// command of a kind this crate does not know. See [`implicit_knockout_group`].
+fn on_a_transparent_backdrop(command: &Command) -> Option<Command> {
+    let mut part = command.clone();
+    match &mut part {
+        Command::Fill { blend, .. }
+        | Command::Stroke { blend, .. }
+        | Command::Image { blend, .. } => *blend = BlendMode::Normal,
+        Command::Group {
+            blend, isolated, ..
+        } => {
+            *blend = BlendMode::Normal;
+            *isolated = true;
+        }
+        Command::Shaped { object, .. } => **object = on_a_transparent_backdrop(object)?,
+        _ => return None,
+    }
+    Some(part)
 }
 
 /// Whether §11.4.6's knockout could change a pixel of this group.
@@ -3461,7 +3509,9 @@ impl Interpreter<'_> {
         // Folded into the enclosing scope's record, unless that scope had painted nothing
         // before this group — in which case the enclosing reading reached no mark either and
         // this group's is the whole of what the enclosing content has painted under so far.
-        self.alpha_sources = if mark == outer_ais_mark {
+        // A record of both readings is folded rather than replaced, for the reason
+        // `Interpreter::note_alpha_source` gives.
+        self.alpha_sources = if mark == outer_ais_mark && outer_ais != AlphaSourcesSeen::Mixed {
             ais_inside
         } else {
             outer_ais.with(ais_inside)
@@ -3844,6 +3894,63 @@ impl Interpreter<'_> {
             knockout: false,
             colour_space: Object::Null,
         })
+    }
+
+    /// Records that the content being run now paints under §11.6.4.3's reading
+    /// `alpha_is_shape`, which a `gs` stating `/AIS` and a `Q` restoring a different one both
+    /// change: the entry is a graphics state parameter, so `Q` puts the reading back as it puts
+    /// back every other one.
+    ///
+    /// A reading nothing was painted under is replaced rather than mixed in — see
+    /// `Interpreter::alpha_sources_mark` — which is what lets a form that opens with the `gs`
+    /// stating `/AIS` be drawn instead of reported, and a `q`…`Q` that states it and paints
+    /// nothing leave the record as it found it. **Only a record of one reading is replaced**: a
+    /// record of both may hold a reading something *was* painted under before the mark, and
+    /// replacing it would forget that — the one direction a record may not err in, because a
+    /// reading forgotten is a knockout element's shape built from the wrong quantity, where a
+    /// reading kept too long is a report (ADR 1301).
+    pub(super) fn note_alpha_source(&mut self, alpha_is_shape: bool) {
+        let stated = AlphaSourcesSeen::of(alpha_is_shape);
+        let painted = self.list.command_count();
+        self.alpha_sources = if painted == self.alpha_sources_mark
+            && self.alpha_sources != AlphaSourcesSeen::Mixed
+        {
+            stated
+        } else {
+            self.alpha_sources.with(stated)
+        };
+        self.alpha_sources_mark = painted;
+    }
+
+    /// Opens the record of §11.6.4.3's readings a combined fill and stroke's portions are
+    /// painted under, and answers the enclosing content's record for [`Self::close_parts_reading`].
+    ///
+    /// §11.7.4.4's implicit group asks which reading its portions painted under, and the
+    /// enclosing content's history is the wrong question: both portions are painted under the
+    /// one graphics state in force at the operator, and what else can enter is a tiling
+    /// pattern's cell, whose own run folds its readings in here as it closes.
+    pub(super) fn open_parts_reading(&mut self, alpha_is_shape: bool) -> (AlphaSourcesSeen, usize) {
+        let outer = (self.alpha_sources, self.alpha_sources_mark);
+        self.alpha_sources = AlphaSourcesSeen::of(alpha_is_shape);
+        // No command count is this one, so a cell's run folds its reading in rather than
+        // replacing the operator's own.
+        self.alpha_sources_mark = usize::MAX;
+        outer
+    }
+
+    /// Folds the portions' readings back into the enclosing content's record opened by
+    /// [`Self::open_parts_reading`] at the command count `mark`, the way a group's run does.
+    pub(super) fn close_parts_reading(&mut self, outer: (AlphaSourcesSeen, usize), mark: usize) {
+        let (outer_sources, outer_mark) = outer;
+        let parts = self.alpha_sources;
+        self.alpha_sources = if self.list.command_count() == mark {
+            outer_sources
+        } else if mark == outer_mark && outer_sources != AlphaSourcesSeen::Mixed {
+            parts
+        } else {
+            outer_sources.with(parts)
+        };
+        self.alpha_sources_mark = outer_mark;
     }
 
     /// Reports the parts of §11.4 this group asks for and does not get.
@@ -4236,7 +4343,7 @@ mod tests {
         let multiply = implicit_knockout_group(
             &two_parts(BlendMode::Multiply),
             opacity,
-            Some(KnockoutKind::Isolated),
+            None,
             &ShapeMasks::default(),
         )
         .expect("Multiply is affine in its source");
@@ -4259,13 +4366,9 @@ mod tests {
                 None,
             ),
         ];
-        let difference = implicit_knockout_group(
-            &same_colour,
-            opacity,
-            Some(KnockoutKind::Isolated),
-            &ShapeMasks::default(),
-        )
-        .expect("one colour under any mode is one colour after averaging");
+        let difference =
+            implicit_knockout_group(&same_colour, opacity, None, &ShapeMasks::default())
+                .expect("one colour under any mode is one colour after averaging");
         assert!(difference.isolated);
         assert_eq!(difference.blend, BlendMode::Difference);
 
@@ -4283,21 +4386,23 @@ mod tests {
             "every element of a group on its own backdrop states its shape"
         );
         // §11.4.6's NOTE 6, and the two enclosing kinds part company here. An *isolated*
-        // knockout group draws its elements on transparency, so this command — seeded from its
-        // immediate backdrop — would take the accumulation and neither of the backdrops the
-        // note contrasts. A *non-isolated* one keeps its initial backdrop and hands each
-        // element a private clone of it (ADR 1256), which is what this command is seeded from,
-        // so the note is met rather than refused. ADR 1265.
+        // knockout group's initial backdrop is transparent, and the note hands it to this
+        // group, where §11.3.6 leaves the mode no effect: the parts are drawn Normal on
+        // transparency (ADR 1301). A *non-isolated* one keeps its initial backdrop and hands
+        // each element a private clone of it (ADR 1256), which is what the own-backdrop
+        // command is seeded from, so the note is met there too. ADR 1265.
+        let inside_isolated = implicit_knockout_group(
+            &differing,
+            opacity,
+            Some(KnockoutKind::Isolated),
+            &ShapeMasks::default(),
+        )
+        .expect("an isolated knockout group hands its element a transparent backdrop");
+        assert!(inside_isolated.isolated);
+        assert_eq!(inside_isolated.blend, BlendMode::Normal);
         assert!(
-            implicit_knockout_group(
-                &differing,
-                opacity,
-                Some(KnockoutKind::Isolated),
-                &ShapeMasks::default()
-            )
-            .is_none(),
-            "inside an isolated knockout group the immediate backdrop is the accumulation \
-             rather than the initial one (NOTE 6)"
+            !inside_isolated.elements.iter().any(super::command_blends),
+            "a mode composited with a transparent backdrop has no effect (§11.3.6)"
         );
         let inside_non_isolated = implicit_knockout_group(
             &differing,
@@ -4338,7 +4443,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            Some(KnockoutKind::Isolated),
+            None,
             &ShapeMasks::default(),
         )
         .expect("Multiply moves to the Do");
@@ -4448,7 +4553,7 @@ mod tests {
         let answer = implicit_knockout_group(
             &parts,
             AlphaSourcesSeen::Opacity,
-            Some(KnockoutKind::Isolated),
+            None,
             &ShapeMasks::default(),
         )
         .expect("one coloured part under any mode moves it to the Do");
@@ -4992,6 +5097,270 @@ mod tests {
             page_pixel(&drawn, 70, 50),
             [0, 0, 255],
             1,
+        );
+    }
+
+    /// The same stencil painted through a **tiling** pattern, whose cells reach the page as a
+    /// group carrying the stencil as its mask (`Interpreter::tile`). The group is an element
+    /// here, and §11.3.7.2 makes its shape "the union ... of the shapes of the objects it
+    /// contains" as they reach the page — through the stencil, which §11.6.4.2 makes shape.
+    /// So the stencil's mask stays on the group's shape exactly as it stays on a fill's, and
+    /// the two pixels are the shading pattern's: red at ½ where the stencil paints, `(255,
+    /// 128, 0)` over the yellow page, and the blue beneath where it does not. With the mask
+    /// removed from the group's shape the right half is knocked out to the page, `(255, 255,
+    /// 0)`, which is what planting `mask: None` back into the group arm draws.
+    #[test]
+    fn a_stencil_painted_through_a_tiling_pattern_keeps_its_shape() {
+        let drawn = interpret_fixture(knockout_form_fixture(
+            "/ExtGState << /GH << /ca 0.5 >> >> /XObject << /St 6 0 R >> \
+             /Pattern << /P 7 0 R >>",
+            "0 0 1 rg 10 10 80 80 re f /GH gs /Pattern cs /P scn \
+             q 80 0 0 80 10 10 cm /St Do Q",
+            &[
+                stream(
+                    "/Type /XObject /Subtype /Image /ImageMask true /Width 2 /Height 1 \
+                     /BitsPerComponent 1",
+                    &[0b0100_0000],
+                ),
+                stream(
+                    "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+                     /XStep 10 /YStep 10 /Resources << >>",
+                    b"1 0 0 rg 0 0 10 10 re f",
+                ),
+            ],
+        ));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "where the stencil paints, the cells at ½ over the page",
+            page_pixel(&drawn, 30, 50),
+            [255, 128, 0],
+            1,
+        );
+        assert_close(
+            "where the stencil does not paint, the blue beneath",
+            page_pixel(&drawn, 70, 50),
+            [0, 0, 255],
+            1,
+        );
+    }
+
+    /// A stencil painted through a pattern under an `/SMask` of its own: the one stencil whose
+    /// mask on the fill is not its shape alone. §11.6.4.2 makes the stencil's painted areas the
+    /// shape — "the shape shall be 1.0 for painted areas and 0.0 for masked areas" — and
+    /// §11.6.4.3 makes the image's `/SMask` opacity, so inside a knockout group the element knocks
+    /// out wherever the stencil paints, whatever the mask says there. Both samples paint; the
+    /// mask is 0 on the left and 1 on the right. On the right the red fills over the blue; on
+    /// the left §11.4.6's NOTE 5 gives shape 1.0 "the colour and opacity that result from
+    /// compositing the object with the initial backdrop", which at opacity 0 over the transparent
+    /// initial backdrop is nothing — so the blue is knocked out and the yellow page shows. The
+    /// product read as shape leaves the blue at a shape of 0, `(0, 0, 255)`, which is what
+    /// recording the drawn mask as the shape (`ShapeMasks::record`) draws (ADR 1301).
+    #[test]
+    fn a_stencil_under_its_own_soft_mask_through_a_pattern_knocks_out_where_it_paints() {
+        let drawn = interpret_fixture(knockout_form_fixture(
+            "/XObject << /St 6 0 R >> \
+             /Pattern << /P << /PatternType 2 /Shading << /ShadingType 2 \
+             /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Extend [true true] \
+             /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [1 0 0] /N 1 >> >> >> >>",
+            "0 0 1 rg 10 10 80 80 re f /Pattern cs /P scn q 80 0 0 80 10 10 cm /St Do Q",
+            &[
+                stream(
+                    "/Type /XObject /Subtype /Image /ImageMask true /Width 2 /Height 1 \
+                     /BitsPerComponent 1 /SMask 7 0 R",
+                    &[0b0000_0000],
+                ),
+                stream(
+                    "/Type /XObject /Subtype /Image /Width 2 /Height 1 \
+                     /ColorSpace /DeviceGray /BitsPerComponent 8",
+                    &[0, 255],
+                ),
+            ],
+        ));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        let (object, shape) = the_stated_element(the_knockout_group(&drawn));
+        let (
+            Command::Fill {
+                mask: Some(of_object),
+                ..
+            },
+            Command::Fill {
+                mask: Some(of_shape),
+                ..
+            },
+        ) = (object, shape)
+        else {
+            panic!("both halves are fills through a mask: {object:?} / {shape:?}");
+        };
+        assert_ne!(
+            of_object, of_shape,
+            "the page is drawn through the product and the shape through the stencil alone"
+        );
+        assert_close(
+            "where the stencil paints at opacity 0, the blue is knocked out to the page",
+            page_pixel(&drawn, 30, 50),
+            [255, 255, 0],
+            1,
+        );
+        assert_close(
+            "where the stencil paints at opacity 1, the red",
+            page_pixel(&drawn, 70, 50),
+            [255, 0, 0],
+            1,
+        );
+    }
+
+    /// §11.7.4.4's implicit group for a `B` whose portions blend under a mode no construction
+    /// moves, as a direct element of an **isolated** knockout group. §11.4.6's NOTE 6 gives it
+    /// the outer group's initial backdrop — "the initial backdrop of the inner group is the same
+    /// as that of the outer group" — and that backdrop is transparent, where §11.3.6 leaves a
+    /// blend mode nothing to do: "[a]n alpha value of αs = 0.0 or αb = 0.0 results in no blend
+    /// mode effect". So the portions are drawn on transparency under the knockout rule and
+    /// `/Color` changes no pixel. The fill is opaque red; the stroke, blue at `CA ½`, knocks the
+    /// fill out where it covers it and composites with the transparent backdrop alone. Over the
+    /// yellow page: red inside, `(128, 128, 128)` under the stroke inside the fill and outside it
+    /// alike. Refusing the position left the portions flat and reported, which draws the stroke
+    /// blended with the fill beneath it — NOTE 2's double border (ADR 1301).
+    #[test]
+    fn a_blending_pair_inside_an_isolated_knockout_group_is_drawn_on_its_transparent_backdrop() {
+        let drawn = interpret_fixture(knockout_form_fixture(
+            "/ExtGState << /GC << /BM /Color /CA 0.5 >> >>",
+            "/GC gs 1 0 0 rg 0 0 1 RG 20 w 20 20 60 60 re B",
+            &[],
+        ));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close("the fill alone", page_pixel(&drawn, 50, 50), [255, 0, 0], 1);
+        assert_close(
+            "the stroke over the fill, which it knocks out",
+            page_pixel(&drawn, 25, 50),
+            [128, 128, 128],
+            1,
+        );
+        assert_close(
+            "the stroke outside the fill",
+            page_pixel(&drawn, 15, 50),
+            [128, 128, 128],
+            1,
+        );
+    }
+
+    /// A page stating `resources` and painting `content` on a white 100 × 100 page.
+    fn page_fixture(resources: &str, content: &str) -> Vec<u8> {
+        objects_fixture(&[
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+                 /Resources << {resources} >> /Contents 4 0 R >>"
+            )
+            .into_bytes(),
+            stream("", content.as_bytes()),
+        ])
+    }
+
+    /// A `B` is painted under the `/AIS` in force when it is painted, whatever the page stated
+    /// earlier inside a `q`…`Q` that has since been undone. §11.6.4.4: "the AIS ('alpha is
+    /// shape') entry in a graphics state parameter dictionary shall determine whether the alpha
+    /// constants are interpreted as shape values ( true ) or opacity values ( false )", and the
+    /// entry is a graphics state parameter, so the `Q` restores it. The stroke's `CA ½` is
+    /// therefore opacity, and §11.7.4.4's knockout gives it shape 1.0 where it covers the fill:
+    /// the fill is knocked out and the stroke composites with the page alone, `½ blue + ½ white
+    /// = (128, 128, 255)`. Read as shape, the stroke would weight the red fill beneath it by ½ —
+    /// `(128, 0, 128)` — which is what a reading left at the undone `true` drew; and a record of
+    /// both readings refused the pair and drew NOTE 2's double border instead (ADR 1301).
+    #[test]
+    fn a_pair_is_read_under_the_alpha_source_in_force_when_it_is_painted() {
+        for inside in ["", "0 1 0 rg 0 0 5 5 re f"] {
+            let drawn = interpret_fixture(page_fixture(
+                "/ExtGState << /GA << /AIS true /ca 0.5 >> /GH << /CA 0.5 >> >>",
+                &format!("q /GA gs {inside} Q /GH gs 1 0 0 rg 0 0 1 RG 20 w 20 20 60 60 re B"),
+            ));
+            assert!(drawn.is_complete(), "{inside:?}: {:?}", drawn.unsupported);
+            assert_close(
+                "the stroke over the fill it knocks out",
+                page_pixel(&drawn, 25, 50),
+                [128, 128, 255],
+                1,
+            );
+            assert_close("the fill alone", page_pixel(&drawn, 50, 50), [255, 0, 0], 1);
+        }
+    }
+
+    /// A `Q` restores §11.6.4.3's reading as it restores every graphics state parameter, so a
+    /// knockout group whose content opens by stating `/AIS true` inside a `q`…`Q` that paints
+    /// nothing paints everything after it under `false`. §11.6.4.4: "the AIS ('alpha is shape')
+    /// entry in a graphics state parameter dictionary shall determine whether the alpha constants
+    /// are interpreted as shape values ( true ) or opacity values ( false )". The elements are
+    /// two shadings, clipped — marks a path's own record of its reading does not reach — a blue
+    /// one opaque and a red one at `ca ½`, and the red's constant is opacity: its shape is 1.0,
+    /// so it knocks the blue out whole and composites with the transparent initial backdrop, red
+    /// at ½ over the yellow page, `(255, 128, 0)`. The record left at the undone `true` read the
+    /// constant as shape and weighted the opaque red against the blue by ½, `(128, 0, 128)`,
+    /// without a word (ADR 1301).
+    #[test]
+    fn a_restored_alpha_source_is_the_one_a_knockout_group_reads() {
+        let axial = |colour: &str| {
+            format!(
+                "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [{colour}] /C1 [{colour}] \
+                 /N 1 >> >>"
+            )
+        };
+        let drawn = interpret_fixture(knockout_form_fixture(
+            &format!(
+                "/ExtGState << /GA << /AIS true >> /GH << /ca 0.5 >> >> \
+                 /Shading << /Sb {} /Sr {} >>",
+                axial("0 0 1"),
+                axial("1 0 0")
+            ),
+            "q /GA gs Q q 10 10 80 80 re W n /Sb sh Q \
+             /GH gs q 20 20 60 60 re W n /Sr sh Q",
+            &[],
+        ));
+        assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+        assert_close(
+            "the translucent shading knocks the blue out whole",
+            page_pixel(&drawn, 50, 50),
+            [255, 128, 0],
+            1,
+        );
+        assert_close("the blue alone", page_pixel(&drawn, 15, 50), [0, 0, 255], 1);
+    }
+
+    /// A record of both readings is kept, never replaced, because what it forgets is a reading
+    /// something was painted under. The blue shading at `ca ½` is painted under `/AIS false`,
+    /// the first red one under `true`; then `false` and `true` are stated with nothing painted
+    /// between them, and the second red one is painted under `true`. Replacing the record at
+    /// that last statement — its rule for a reading nothing was painted under — would forget the
+    /// blue's `false` and read its constant as shape; the group painted under both, with a
+    /// constant under each, and is reported by that name (ADR 1301).
+    #[test]
+    fn a_record_of_both_readings_is_not_forgotten() {
+        let axial = |colour: &str| {
+            format!(
+                "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [{colour}] /C1 [{colour}] \
+                 /N 1 >> >>"
+            )
+        };
+        let drawn = interpret_fixture(knockout_form_fixture(
+            &format!(
+                "/ExtGState << /GA << /AIS true >> /GO << /AIS false >> /GH << /ca 0.5 >> >> \
+                 /Shading << /Sb {} /Sr {} >>",
+                axial("0 0 1"),
+                axial("1 0 0")
+            ),
+            "/GH gs q 10 10 80 80 re W n /Sb sh Q /GA gs q 20 20 60 60 re W n /Sr sh Q \
+             /GO gs /GA gs q 30 30 40 40 re W n /Sr sh Q",
+            &[],
+        ));
+        assert!(
+            drawn.unsupported.iter().any(|report| matches!(
+                report,
+                crate::content::report::Unsupported::TransparencyGroup { detail }
+                    if detail.contains("/AIS was stated both ways")
+            )),
+            "content painted under both readings is reported by that name: {:?}",
+            drawn.unsupported
         );
     }
 

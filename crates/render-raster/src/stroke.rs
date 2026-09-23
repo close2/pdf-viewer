@@ -35,7 +35,7 @@ use pdf_render::{
 use raster_scene::SceneBuilder;
 
 use crate::QuorraRasterError;
-use crate::scene::{Encoder, blend_mode, colour};
+use crate::scene::{Encoder, blend_mode, colour, compose, overprinted};
 
 /// Encodes one stroke command.
 pub(crate) fn encode(
@@ -147,7 +147,7 @@ pub(crate) fn encode(
                 raster_paint,
                 clip,
                 blend_mode(blend),
-                raster_scene::Compose::SrcOver,
+                compose(blend),
                 mask,
             )?;
         } else {
@@ -159,28 +159,33 @@ pub(crate) fn encode(
             } else {
                 enc.transient_outline(solid)?
             };
-            builder.stroke(
-                outline,
-                at,
-                raster_scene::Stroke {
-                    // Scene-space since raster's ADR 0085 (this tree's ADR 0701): the
-                    // width travels as the file stated it, and the encode applies
-                    // §8.4.3.2's zero and §10.7.5's adjustment per placement — the
-                    // amendment that lets one scene be true at every magnification.
-                    width: s.width,
-                    adjust: s.adjust,
-                    cap: cap(s.cap),
-                    join: join(s.join),
-                    // §8.4.3.5 defines the limit as a ratio of at least 1; a
-                    // smaller value from a malformed file behaves as the smallest
-                    // legal one.
-                    miter_limit: s.miter_limit.max(1.0),
-                },
-                raster_paint,
-                clip,
-                blend_mode(blend),
-                mask,
-            )?;
+            let stroke = raster_scene::Stroke {
+                // Scene-space since raster's ADR 0085 (this tree's ADR 0701): the
+                // width travels as the file stated it, and the encode applies
+                // §8.4.3.2's zero and §10.7.5's adjustment per placement — the
+                // amendment that lets one scene be true at every magnification.
+                width: s.width,
+                adjust: s.adjust,
+                cap: cap(s.cap),
+                join: join(s.join),
+                // §8.4.3.5 defines the limit as a ratio of at least 1; a
+                // smaller value from a malformed file behaves as the smallest
+                // legal one.
+                miter_limit: s.miter_limit.max(1.0),
+            };
+            // A raster stroke carries no compositing operator, so §11.7.4.3's mode puts
+            // it in a group of one (`crate::scene::overprinted`).
+            overprinted(builder, blend, enc.knockout_element(), |builder| {
+                builder.stroke(
+                    outline,
+                    at,
+                    stroke,
+                    raster_paint,
+                    clip,
+                    blend_mode(blend),
+                    mask,
+                )
+            })?;
         }
     }
     fill_dots(
@@ -268,7 +273,7 @@ fn fill_dots(
         paint,
         clip,
         blend_mode(blend),
-        raster_scene::Compose::SrcOver,
+        compose(blend),
         mask,
     )?;
     Ok(())

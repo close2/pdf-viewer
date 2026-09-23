@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <circle page="0" rect="20,20,80,80" interior-color="#CCCCCC" fringe="2,2,2,2"
+            width="1.5" style="cloudy" intensity="1"/>
+  </annots>
+</xfdf>

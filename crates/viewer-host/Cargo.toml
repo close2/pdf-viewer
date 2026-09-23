@@ -27,6 +27,12 @@ render-cpu.workspace = true
 pdf-signature.workspace = true
 # Every refusal in this crate is a typed error, as everywhere else in the tree.
 thiserror.workspace = true
+# §12.7.6.2's verb: the one HTTP client in the tree, blocking and without an async runtime, on
+# `rustls` over `ring` with this machine's own trust store — no OpenSSL anywhere. The owner's
+# answer to `doc/questions/Q98`, and ADR 1291 prices every package it brings.
+ureq.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
 
 [lints]
 workspace = true

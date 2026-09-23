@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <line page="0" rect="5,5,195,95" start="10,50" end="190,50" head="OpenArrow" tail="Butt"
+          interior-color="#0000FF" leaderLength="12" leaderExtend="3" leader-offset="2"
+          caption="yes" caption-style="Top" caption-offset-h="4" intent="LineDimension"
+          width="2" dashes="3,1" style="dash">
+      <contents>180 mm</contents>
+    </line>
+  </annots>
+</xfdf>

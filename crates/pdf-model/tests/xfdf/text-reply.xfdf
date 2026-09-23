@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <text page="0" rect="20,60,40,80" name="question"><contents>Why?</contents></text>
+    <text page="0" rect="45,60,65,80" name="answer" inreplyto="question" replyType="group">
+      <contents>Because.</contents>
+    </text>
+    <text page="0" rect="70,60,90,80" name="late" inreplyto="on-the-page"><contents>Agreed.</contents></text>
+    <text page="0" rect="95,60,115,80" name="lost" inreplyto="nowhere" replyType="reply"/>
+  </annots>
+</xfdf>

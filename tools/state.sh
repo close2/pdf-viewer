@@ -111,10 +111,11 @@ section_names() {
 # reader cites the clause beside the code, because principle 5 requires it, and editing a row in
 # another file is the step it forgets (ADR 1274). It ranks rather than fails — a citation may point
 # at a neighbour rather than implement anything — so the filter keeps the denominators and the top
-# rung; `cargo test -p conformance --test cited` gates the calibration alone.
+# rung; `cargo test -p conformance --test cited` gates the calibration alone. A checker citing the
+# clause it checks has a rung of its own, printed as a count per named crate (`cited::CHECKERS`).
 section_cited() {
     run "a clause a file cites against that clause's own code list" \
-        'pair\(s\) over |a row claiming work|pair\(s\) the row already names|^  §' \
+        'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|^  §' \
         cargo run -q --release -p conformance --bin cited
 }
 

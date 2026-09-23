@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <highlight page="0" rect="10,10,110,22" color="#FFFF00"
+               coords="10,22,110,22,10,10,110,10">
+      <contents-richtext><body xmlns="http://www.w3.org/1999/xhtml"><p>Marked <b>here</b></p></body></contents-richtext>
+    </highlight>
+  </annots>
+</xfdf>

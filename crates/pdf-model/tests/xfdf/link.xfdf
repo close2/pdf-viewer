@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <link page="0" rect="10,10,60,30" Highlight="Outline" coords="10,30,60,30,10,10,60,10">
+      <OnActivation><Action><URI Name="https://example.org/"/></Action></OnActivation>
+    </link>
+  </annots>
+</xfdf>

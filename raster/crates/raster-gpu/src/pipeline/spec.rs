@@ -3,11 +3,12 @@
 //!
 //! One place, so that adding a pass means adding an arm here and nothing else, and so
 //! that `pipeline.rs` is the store's laziness and its warm-up rather than a table of
-//! entry-point names. The three blend states below are the whole of ADR 0010's algebra
-//! as `wgpu` factors, named once and referred to by name from the arms that use them.
+//! entry-point names. Three of the four blend states below are the whole of ADR 0010's
+//! algebra as `wgpu` factors, and the fourth is §11.7.4.3's destination-over
+//! (`doc/adr/1295`); each is named once and referred to by name from the arms that use it.
 //!
-//! The table has two axes and is written as two: twelve of the eighteen kinds are a
-//! [`Lane`] family — rectangles, coverage quads, images, shadings — in one of three
+//! The table has two axes and is written as two: sixteen of the twenty-two kinds are a
+//! [`Lane`] family — rectangles, coverage quads, images, shadings — in one of four
 //! [`Style`]s, and the style means the same thing in every family. Three more are the
 //! compositor's full-screen passes, which differ only in what they read. Writing the
 //! product out would be four copies of one two-line rule, which is a promise of
@@ -26,18 +27,25 @@ pub(crate) enum Kind {
     RectErase,
     /// Rectangle additive deposit for knockout (`fs_main`, factors `ONE`/`ONE`).
     RectAdd,
+    /// Rectangle under §11.7.4.3's destination-over (`fs_main`, factors
+    /// `1-dst_alpha`/`ONE`).
+    RectDestOver,
     /// Coverage quads, premultiplied over (`coverage.wgsl` `fs_main`).
     CoverOver,
     /// Coverage shape-erase for knockout.
     CoverErase,
     /// Coverage additive deposit for knockout.
     CoverAdd,
+    /// Coverage quad under §11.7.4.3's destination-over.
+    CoverDestOver,
     /// One image quad, premultiplied over (`image.wgsl` `fs_main`, ADR 0011).
     ImageOver,
     /// Image shape-erase for knockout (`fs_shape`).
     ImageErase,
     /// Image additive deposit for knockout.
     ImageAdd,
+    /// Image under §11.7.4.3's destination-over.
+    ImageDestOver,
     /// One shading or mesh quad, premultiplied over (`shading.wgsl` `fs_main`,
     /// ISO 32000-2 §8.7.4.5).
     ShadedOver,
@@ -45,6 +53,8 @@ pub(crate) enum Kind {
     ShadedErase,
     /// Shading additive deposit for knockout.
     ShadedAdd,
+    /// Shading under §11.7.4.3's destination-over.
+    ShadedDestOver,
     /// One finished layer onto its backdrop under a §11.3.5 blend mode
     /// (`composite.wgsl`; REPLACE, arithmetic wholly in-shader).
     Composite,
@@ -70,6 +80,16 @@ const OVER: wgpu::BlendState = both(wgpu::BlendFactor::One, wgpu::BlendFactor::O
 const ERASE: wgpu::BlendState = both(wgpu::BlendFactor::Zero, wgpu::BlendFactor::OneMinusSrcAlpha);
 /// Knockout's deposit, and the winding lane's accumulation: `(ONE, ONE)`. ADR 0010.
 const ADD: wgpu::BlendState = both(wgpu::BlendFactor::One, wgpu::BlendFactor::One);
+/// Porter-Duff destination-over: `(ONE_MINUS_DST_ALPHA, ONE)` on both channels, which is
+/// `cr = cb + (1 − αb)·cs` and `αr = αb + (1 − αb)·αs`.
+///
+/// ISO 32000-2 §11.7.4.3's special overprinting blend mode where every channel keeps the
+/// backdrop: §11.3.3's formula with `B(Cb, Cs) = Cb`, whose derivation is on
+/// [`Compose::DestOverIn`](raster_scene::Compose::DestOverIn). The alpha line is §11.3.7.3's
+/// union written the other way round, so it is the alpha every other style computes.
+/// `doc/adr/1295`.
+const DEST_OVER: wgpu::BlendState =
+    both(wgpu::BlendFactor::OneMinusDstAlpha, wgpu::BlendFactor::One);
 
 /// One pair of factors on colour and alpha alike.
 const fn both(src: wgpu::BlendFactor, dst: wgpu::BlendFactor) -> wgpu::BlendState {
@@ -137,6 +157,8 @@ pub(crate) enum Style {
     Erase,
     /// Knockout's additive deposit.
     Add,
+    /// §11.7.4.3's special overprinting blend mode, keeping every channel of the backdrop.
+    DestOver,
 }
 
 impl Style {
@@ -152,6 +174,7 @@ impl Style {
             DrawStyle::Knockout => [Some(Self::Erase), Some(Self::Add)],
             DrawStyle::DestOut => [Some(Self::Erase), None],
             DrawStyle::Plus => [Some(Self::Add), None],
+            DrawStyle::DestOver => [Some(Self::DestOver), None],
         }
     }
 }
@@ -214,12 +237,13 @@ impl<'a> Lane<'a> {
             vertex: "vs_main",
             entry: match style {
                 Style::Erase => "fs_shape",
-                Style::Over | Style::Add => "fs_main",
+                Style::Over | Style::Add | Style::DestOver => "fs_main",
             },
             blend: Some(match style {
                 Style::Over => OVER,
                 Style::Erase => ERASE,
                 Style::Add => ADD,
+                Style::DestOver => DEST_OVER,
             }),
             buffer: self.buffer,
             step: wgpu::VertexStepMode::Instance,
@@ -236,15 +260,19 @@ impl<'a> Spec<'a> {
             Kind::RectOver => Lane::rect(layouts, modules).spec(Style::Over),
             Kind::RectErase => Lane::rect(layouts, modules).spec(Style::Erase),
             Kind::RectAdd => Lane::rect(layouts, modules).spec(Style::Add),
+            Kind::RectDestOver => Lane::rect(layouts, modules).spec(Style::DestOver),
             Kind::CoverOver => Lane::cover(layouts, modules).spec(Style::Over),
             Kind::CoverErase => Lane::cover(layouts, modules).spec(Style::Erase),
             Kind::CoverAdd => Lane::cover(layouts, modules).spec(Style::Add),
+            Kind::CoverDestOver => Lane::cover(layouts, modules).spec(Style::DestOver),
             Kind::ImageOver => Lane::image(layouts, modules).spec(Style::Over),
             Kind::ImageErase => Lane::image(layouts, modules).spec(Style::Erase),
             Kind::ImageAdd => Lane::image(layouts, modules).spec(Style::Add),
+            Kind::ImageDestOver => Lane::image(layouts, modules).spec(Style::DestOver),
             Kind::ShadedOver => Lane::shading(layouts, modules).spec(Style::Over),
             Kind::ShadedErase => Lane::shading(layouts, modules).spec(Style::Erase),
             Kind::ShadedAdd => Lane::shading(layouts, modules).spec(Style::Add),
+            Kind::ShadedDestOver => Lane::shading(layouts, modules).spec(Style::DestOver),
             // REPLACE on all three: each computes what it writes wholly in the shader,
             // the composite because §11.3.6's arithmetic is not a pair of wgpu factors.
             Kind::Composite => Self::full_screen(

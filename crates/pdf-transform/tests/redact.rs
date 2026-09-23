@@ -926,6 +926,7 @@ fn object_stream_fixture() -> Vec<u8> {
             prune: true,
             object_streams: ObjectStreams::DEFAULT,
             streams: Streams::DEFAULT,
+            linearize: false,
         }),
         &[Source::new(plain)],
         &sinks,

@@ -824,13 +824,13 @@ impl DisplayList {
 
     /// Whether any command here composites under §11.7.4.3's special overprinting blend mode.
     ///
-    /// `render-gpu` and `render-raster` read it to refuse the list by name: neither
-    /// rasteriser's scene vocabulary has a mode outside Table 135's sixteen, and a page drawn
-    /// as though the document had not asked for overprinting is the silent divergence the
-    /// cross-backend comparison exists to prevent. So the answer has to be **exactly** whether
-    /// a command under the mode is here — a refusal for a mark that is not on the page costs
-    /// the page its backend for nothing. [`DisplayList::settle_overprinting`] is what makes it
-    /// that. ADRs 1157, 1181.
+    /// `render-gpu` reads it to refuse the list by name: Vello's scene vocabulary cannot choose
+    /// a compositing operator per channel, and a page drawn as though the document had not asked
+    /// for overprinting is the silent divergence the cross-backend comparison exists to prevent.
+    /// So the answer has to be **exactly** whether a command under the mode is here — a refusal
+    /// for a mark that is not on the page costs the page its backend for nothing.
+    /// [`DisplayList::settle_overprinting`] is what makes it that. `render-raster` draws the mode
+    /// (ADR 1295). ADRs 1157, 1181.
     #[must_use]
     pub fn overprints(&self) -> bool {
         self.overprinting

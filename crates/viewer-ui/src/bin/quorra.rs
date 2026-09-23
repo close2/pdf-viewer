@@ -433,6 +433,7 @@ fn main() {
         restrictions: standing,
         links,
         remote_documents,
+        submitter: viewer_host::submit::Submitter::new(),
         asked: None,
         refused: viewer_ui::chrome::Refusal::default(),
         locked: None,

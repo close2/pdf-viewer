@@ -457,6 +457,9 @@ impl Interpreter<'_> {
                 }
                 b"Q" => {
                     if let Some((previous, matrix, line)) = stack.pop() {
+                        if previous.alpha_is_shape != state.alpha_is_shape {
+                            self.note_alpha_source(previous.alpha_is_shape);
+                        }
                         state = previous;
                         // The two matrices come back only *inside* a text object, which is
                         // where §9.4.2's addition places them: outside one they are the

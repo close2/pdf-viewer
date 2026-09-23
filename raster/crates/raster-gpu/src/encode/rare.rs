@@ -39,16 +39,19 @@ use crate::raster::{DeviceTransform, Polyline, Rule};
 
 /// One image draw (ISO 32000-2 §8.9.5), executed as a single uniform-driven quad.
 ///
-/// The fragment shader maps device pixels back through `inv`, so the quad only has
+/// The fragment shader maps device pixels back through `texel`, so the quad only has
 /// to cover the footprint; an axis-preserving placement gets analytic edge coverage
-/// from `image_rect`, an oblique one paints where centres land inside the unit
-/// square (ADR 0011 carries both decisions).
+/// from `image_rect`, an oblique one paints where centres land inside the image
+/// (ADR 0011 carries both decisions).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ImageOp {
     /// The resident image's raw id.
     pub image: u32,
-    /// Inverse of the unit-square → device transform, §8.3.3 coefficient order.
-    pub inv: [f32; 6],
+    /// Device space → the drawn texture's texel space, §8.3.3 coefficient order: `s` to
+    /// the right and `t` down from the image's top row, one unit per texel of the texture
+    /// this op binds — the reduced grid where [`Self::reduced`] names one. See
+    /// [`texel_transform`] for why it is carried instead of the unit square's inverse.
+    pub texel: [f32; 6],
     /// The footprint's device bounding rectangle (exact when `axis_aligned`).
     pub image_rect: [f32; 4],
     /// The quad drawn: footprint ∩ clip ∩ target, at pixel bounds.
@@ -236,7 +239,14 @@ impl Encoder<'_> {
             Some(factors) => self.used_reductions.insert((image.0, factors.0, factors.1)),
             None => self.used_images.insert(image.0),
         };
-        let Some(inverse) = transform.then(self.viewport.transform).invert() else {
+        let (width, height) = match reduced {
+            Some((fx, fy)) => (
+                stored.spec.width.div_ceil(fx.max(1)),
+                stored.spec.height.div_ceil(fy.max(1)),
+            ),
+            None => (stored.spec.width, stored.spec.height),
+        };
+        let Some(texel) = texel_transform(&to_device, width, height) else {
             // A singular placement collapses the unit square to a zero-area set:
             // nothing to paint, and no way to map pixels back into it.
             return Ok(());
@@ -292,9 +302,7 @@ impl Encoder<'_> {
         };
         self.push_op(Op::Image(Box::new(ImageOp {
             image: image.0,
-            inv: [
-                inverse.a, inverse.b, inverse.c, inverse.d, inverse.e, inverse.f,
-            ],
+            texel,
             image_rect: [bx0, by0, bx1, by1],
             dest: [left as f32, top as f32, vx1.ceil(), vy1.ceil()],
             clip: [
@@ -530,4 +538,69 @@ impl RarePaint {
             Self::Function(geometry) => Op::Function(Box::new(geometry.at(placement))),
         }
     }
+}
+
+/// The map from a device point to the texel space of the `width` × `height` texture an image
+/// op binds, or `None` for a singular placement.
+///
+/// ISO 32000-2 §10.7.4 decides a sampled image's pixel by one point:
+///
+/// > The position of the centre of such a pixel -in other words, the point whose coordinate
+/// > values have fractional parts of one-half -shall be mapped back into source space to
+/// > determine how to colour the pixel.
+///
+/// and §8.9.4 gives source space one unit per sample, "[t]he upper-left corner of the first
+/// sample is at coordinates (0, 0)". So the texel a nearest lookup reads is the one whose
+/// square holds that point — the sample whose upper-left corner is the floor of it, which is
+/// §10.7.4's own convention for pixels ("[a] pixel is a square region identified by the
+/// location of its corner with minimum horizontal and vertical coordinates"), applied to the
+/// samples, where §8.9.4 states the squares and not which of two neighbours owns the edge
+/// they share. That edge is where a pixel centre lands at one device pixel per sample with the
+/// image's origin on a half pixel, which is an ordinary placement rather than a corner case.
+///
+/// **Composed here in `f64` and rounded once, rather than composed per fragment**, because the
+/// shader would otherwise multiply the unit square's inverse — whose `1 ⁄ w` no float holds
+/// exactly — back up by the texture's dimensions, landing a hair below the whole number on
+/// some rows and columns and reading the sample above or to the left: a whole image shifted by
+/// one sample wherever it happened, which `render-raster`'s `masked_image_edge.rs` measured at
+/// up to 239 levels against the oracle (the caller's ADR 1302). Rounded once, a native
+/// placement's coefficients are exactly ±1 and its translation a half pixel, so every centre
+/// maps to a whole number exactly and the floor is the clause's.
+fn texel_transform(to_device: &DeviceTransform, width: u32, height: u32) -> Option<[f32; 6]> {
+    let m = [
+        to_device.a,
+        to_device.b,
+        to_device.c,
+        to_device.d,
+        to_device.e,
+        to_device.f,
+    ]
+    .map(f64::from);
+    let det = m[0] * m[3] - m[1] * m[2];
+    if det == 0.0 || !det.is_finite() {
+        return None;
+    }
+    // The unit square's inverse, §8.3.3 order: u = inv[0]·x + inv[2]·y + inv[4], and v the
+    // same with the odd coefficients.
+    let inv = [
+        m[3] / det,
+        -m[1] / det,
+        -m[2] / det,
+        m[0] / det,
+        (m[2] * m[5] - m[3] * m[4]) / det,
+        (m[1] * m[4] - m[0] * m[5]) / det,
+    ];
+    // §8.9.4's image space: s = width·u, and t = height·(1 − v) because the top row sits at
+    // v = 1.
+    let (across, down) = (f64::from(width), f64::from(height));
+    let texel = [
+        inv[0] * across,
+        -inv[1] * down,
+        inv[2] * across,
+        -inv[3] * down,
+        inv[4] * across,
+        (1.0 - inv[5]) * down,
+    ];
+    #[expect(clippy::cast_possible_truncation)] // rounding to f32 once is the point
+    Some(texel.map(|coefficient| coefficient as f32))
 }

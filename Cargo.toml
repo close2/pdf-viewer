@@ -185,6 +185,18 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
 # XWayland.
 arboard = { version = "3.6.1", default-features = false }
 
+# §12.7.6.2's submission, sent by `viewer-host` and by nothing else (the owner's answer to
+# `doc/questions/Q98`; ADR 1291 is the price). `ureq` is blocking and needs no async runtime,
+# which `CLAUDE.md` principle 2 asks for. **No default features**: the default would bring
+# `webpki-roots`, a copy of Mozilla's roots under a licence `deny.toml` does not list, and `gzip`,
+# which a form's answer does not need. `rustls-no-provider` is the TLS stack with the provider
+# chosen here rather than by a feature named with a leading underscore: `ring`, through `rustls`'s
+# own feature, and the roots are this machine's own trust store through `rustls-native-certs` —
+# which certificates a person trusts is their setting and not this program's.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8.4"
+
 # The first native host's toolkit (ADR 0244, `doc/todo/30`). `gtk4-rs` is the GNOME
 # project's own binding: safe Rust over the C library, generated from GIR, with no C++
 # bridge — which is why `doc/todo/30`'s order puts GTK4 first and Qt second.

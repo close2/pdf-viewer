@@ -670,8 +670,41 @@ and section 5.7.1's one sentence separating annotations from forms. `pdf_model::
 
 **What it cannot answer.** Sections 6.2 to 6.7 — the element reference, the annotation elements,
 the annotation attributes and the PDF-to-XFDF mapping tables — are the other ninety pages and are
-not in any preview. That is why an XFDF file's `<annots>` is counted and named rather than read,
-and a round wanting it needs the full text; the preview will not grow.
+not in any preview; the preview will not grow. That material is read from the document the
+standard was made from, the next section.
+
+## XML Forms Data Format Specification 3.0 (Adobe, 2009) — the text ISO 19444-1 was made from
+
+Held as `doc/XFDF_Spec_3.0.pdf`: Adobe's *XML Forms Data Format Specification*, version 3.0,
+August 2009, 145 pages, describing XFDF for Adobe Extension Level 3 to ISO 32000-1 and Acrobat 9.
+The owner fetched it on 2026-09-22 from Adobe's own free distribution of it by way of the Internet
+Archive, and `doc/questions/A97` records that and the owner's direction to hold it rather than buy
+ISO 19444-1. `/doc/*.pdf` excludes it, and `python3 tools/spec-md.py doc/XFDF_Spec_3.0.pdf` put its
+text under the ignored `doc/md/` as `XFDF_Spec_3.0.md`, in the structure tree's order.
+
+**It is the document ISO 19444-1 was made from**, which is why it is held: the preview above
+carries ISO 19444-1:2019's field half, sections 5.4 to 5.7.1, and this text carries what the preview
+does not reach — chapter 2's whole element reference, the `annots` element and every annotation
+element under it, the annotation attributes grouped by the PDF dictionary each belongs to, and the
+two mapping tables. The two are not interchangeable. ISO 19444-1:2019 is a second edition written
+against ISO 32000-2, and this is Adobe's edition written against ISO 32000-1; a later round that
+finds the two differ materially in ISO 19444-1's sections 6.2 to 6.7 has the revisit condition
+`A97` names, and the purchase is catalogue number 74272.
+
+**The licence position is ADR 0187's, unchanged: cite the section and paraphrase, never quote.**
+Its headings below chapter level are not numbered, so it is cited by chapter, heading and page —
+*XFDF 3.0, chapter 2, Annotation attributes, page 70* — never with a `§`, never in a `>`
+blockquote, and never inside a comment in its own words. Nothing of it is committed: the fixtures
+under `crates/pdf-model/tests/xfdf/` are files written for the tests, in the format's grammar with
+values of their own. Where it and ISO 32000-2 disagree about an entry, ISO 32000-2 wins, and ADR
+1297 lists each place.
+
+**What it settled.** `pdf_model::xfdf` reads `<annots>` into the same annotations an FDF file's
+`/Annots` is read into, so both formats are placed by one import (ADR 1297). Its extraction was
+checked for the element reference and the annotation material before anything was built on it:
+chapter 2's *Annotation Elements*, *Annotation Subelements* and *Annotation attributes* and both
+mapping tables are present and in order, pages 37 to 99. Appendix A, the `ex_data` element for
+comments on 3D and rich media annotations, is read and refused: its subject is clause 13's.
 
 ## PDF Association TechNote 0010, and a licence that could not be confirmed
 

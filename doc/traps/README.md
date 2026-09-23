@@ -89,6 +89,9 @@ machinery, and those are not indexed here.
 | 43 | you fetch a specification PDF into `doc/` | its page one joins the oracle's judged population; run the oracle and diagnose the page your file added before reporting | oracle |
 | 44 | you remove a tab or notebook page in a host that moves one widget tree between pages | the page owns its child; reparent the view before the page is destroyed | loop |
 | 45 | you write a host method that sends a command and it is reachable from the event handler | a method reachable from `react` takes the queue as a parameter; it does not start a `pump` of its own | loop |
+| 46 | you copy an object that resolves every reference it meets, and the object names one that names it back (a popup and its parent, a bead and its thread) | read a mutual reference as a link before carrying anything; a depth budget refuses the whole entry, not the loop | parsers |
+| 47 | you build a page list from `pdf_model::Pages::indices()` | it maps interior page-tree nodes too; build page lists from `Pages::get(i).id` — it bit a writer and its checker in one round | parsers |
+| 48 | you delete a by-name refusal and promise the page it named will now compare | run the witness page first: the refusal that stood behind it takes over (an implicit Multiply group did, ADR 1295) | pixels |
 
 **Two are not optional for the round they are about.** If this round can change a pixel, **trap 1**
 is the one that has paid every session since the tenth. If this round adds a report, **trap 11** is

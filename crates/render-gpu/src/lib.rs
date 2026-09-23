@@ -866,10 +866,17 @@ impl Rasterizer for GpuRasterizer {
             ));
         }
         // ISO 32000-2 §11.7.4.3's special overprinting blend mode is not one of Table 135's
-        // sixteen: no document names it, its value comes from the overprint parameters, and no
-        // rasteriser's scene vocabulary has it. Refused by name, because a page whose producer
-        // asked for a component of the backdrop to be left alone and got it erased instead is a
-        // silent difference from the backend `CLAUDE.md` keeps as the oracle. ADR 1157.
+        // sixteen: no document names it and its value is the backdrop's or the source's per
+        // channel. Vello's `Mix` has no arm for it and its `Compose` chooses one operator for
+        // all four channels, so the per-channel choice cannot be stated in a Vello scene
+        // (`render-raster` states it through raster's `Compose::DestOverIn`, ADR 1295).
+        // Refused by name, because a page whose producer asked for a component of the backdrop
+        // to be left alone and got it erased instead is a silent difference from the backend
+        // `CLAUDE.md` keeps as the oracle. The uniform case — every channel kept — is
+        // `peniko::Compose::DestOver` and is not taken either, because it would buy no page:
+        // the interpreter emits the mode only in a four-component blending space, which this
+        // backend refuses above for the page and at the group for a group, so a list built by
+        // hand is what reaches this test. ADR 1157.
         if list.overprints() {
             return Err(GpuRasterError::UnsupportedCommand(
                 "a mark composited under §11.7.4.3's special overprinting blend mode".to_owned(),

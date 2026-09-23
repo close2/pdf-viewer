@@ -309,3 +309,9 @@ a tab behind the front never drew, Ctrl + Tab did nothing in GTK, one switch loo
 (ADR 1275). No gate drives a window's event handling; driving it is the instrument. And `rustfmt` on
 a binary root formats every `#[path]` child module, siblings' files included — format module files
 one by one.
+
+## A quorra dialogue under Xvfb takes a key only after `windowfocus --sync`
+
+A bare `xdotool key` did not answer the ask card; `xdotool windowfocus --sync <id>` then
+`key --window <id>` did (round 1227). A driven test that "could not press Enter" is an instrument
+finding before it is a defect.

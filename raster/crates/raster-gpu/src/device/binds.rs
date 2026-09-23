@@ -277,6 +277,8 @@ fn composite_params_bytes(
     // ADR 0074's assertion about this layer's alpha, which decides whether the clip
     // meets it by §8.5.4's intersection or by a product.
     bytes[128..132].copy_from_slice(&u32::from(op.alpha_is_shape).to_le_bytes());
+    // §11.7.4.3's kept channels, read only under `compose == 3` (`doc/adr/1295`).
+    bytes[132..136].copy_from_slice(&op.kept.to_le_bytes());
     bytes
 }
 
@@ -354,6 +356,7 @@ mod tests {
             residue_rect: [5.0, 6.0, 7.0, 8.0],
             residue_origin: [9.0, 10.0],
             compose: 2,
+            kept: 5,
             mask: None,
             isolated: false,
             alpha_is_shape: true,
@@ -405,6 +408,7 @@ mod tests {
                 ("mask_rect", Lane::Vec4([21.0, 22.0, 23.0, 24.0])),
                 ("mask_outside", Lane::Vec4([0.5, 0.0, 0.0, 0.0])),
                 ("alpha_is_shape", Lane::Word(1)),
+                ("kept", Lane::Word(5)),
             ],
         );
     }

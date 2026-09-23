@@ -315,6 +315,15 @@ The sweep that finds this is not a grep over reasons, because the reason named n
 refusal with a good sentence is the most convincing kind, and the sentence is only as current as
 the last time somebody read the file it is in.
 
+### 48. Deleting a by-name refusal exposes whatever refusal stood behind it
+
+The special overprinting mode was built in raster and the refusal that named it deleted, and the
+one corpus page the ask was written for still did not compare: it paints under `/BM /Multiply`, so
+§11.7.4.3's last paragraph wraps the mark in a non-isolated group under Multiply, and the group
+builder refuses *that* (ADR 1295). A page a refusal names is a page with at least one reason not to
+compare, and the refusal names the first. Run the witness page before the record says it compares,
+and let the corpus list's comment carry the new reason.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

@@ -339,3 +339,17 @@ afterwards, so the black stored under a soft mask's zeros leaked along its edges
 reduction — the icon fringe the owner saw on Windows, and the long-unexplained heaviness of one corpus
 page (ADR 1287). The test is a fixture whose colour under the transparent area is black, swept over
 non-integer reductions against the CPU oracle; an integer-only sweep hides the leak.
+
+## A record kept at statement time is restored wherever the state is restored
+
+The `/AIS` reading was recorded when `gs` set it and never restored by `Q`, so a knockout group whose
+content did `q /AIS-true gs Q` read every later constant as shape (ADR 1301). Test such a record by
+putting the statement inside a `q`…`Q` that paints nothing; and a replace-if-nothing-painted rule may
+only replace a record of one value, never one that already holds both readings.
+
+## Inside an isolated knockout group every mode computes Normal's arithmetic
+
+§11.3.6 makes a blend mode inert where either alpha is zero, and NOTE 6 of §11.7.4.4 hands an
+implicit group the outer group's transparent backdrop — so a mode refused in that position was a
+clause already answered (ADRs 1295, 1301). Before refusing a blend or compose inside an isolated
+knockout group, read §11.3.6's sentence for that position.

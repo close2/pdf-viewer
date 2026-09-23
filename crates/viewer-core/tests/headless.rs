@@ -5077,7 +5077,8 @@ fn a_transition_frame_is_between_the_two_pages() {
         pdf_render::Point::new(0.0, 0.0),
         pdf_render::Point::new(200.0, 100.0),
     );
-    let (outgoing, incoming) = (
+    let faces = viewer_core::transition::Faces::new(
+        &transition,
         viewer_core::transition::drawable(&leaving).expect("a page is drawable"),
         viewer_core::transition::drawable(&arriving).expect("a page is drawable"),
     );
@@ -5086,7 +5087,7 @@ fn a_transition_frame_is_between_the_two_pages() {
         let frame = viewer_core::transition::frame(&transition, viewport, progress)
             .expect("a /Wipe is shaped");
         let list = frame
-            .draw(viewport, &outgoing, &incoming)
+            .draw(viewport, &faces)
             .expect("two images and one clip");
         let drawn = CpuRasterizer::new()
             .rasterize(
@@ -5120,14 +5121,14 @@ fn a_transition_frame_is_between_the_two_pages() {
     }
 }
 
-/// A style Table 164 names and this reader does not draw is reported by name.
+/// A style Table 164 names without its quantity is drawn at this program's, and says so.
 ///
-/// Trap 5 where a viewer is most tempted to be silent: the page that arrives looks right, and
-/// only the file knows it asked for an effect. `Blinds` is "[m]ultiple lines, evenly spaced
-/// across the screen" and the clause never says how many, which is why it is one of the four
-/// left unshaped (ADR 0230).
+/// `Blinds` is "[m]ultiple lines, evenly spaced across the screen" and the clause never says how
+/// many. `doc/questions/A72` rules that such a quantity is chosen, written down as this
+/// program's and reported as ours (ADR 1299) — so the page moved to carries a sentence naming
+/// the style and the choice, beside the transition a host draws.
 #[test]
-fn a_transition_this_reader_does_not_draw_is_named_rather_than_cut() {
+fn a_transition_drawn_at_a_chosen_quantity_says_the_quantity_is_ours() {
     let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 >>\nendobj\n\
@@ -5149,10 +5150,13 @@ fn a_transition_this_reader_does_not_draw_is_named_rather_than_cut() {
             Event::Reported { notes, page, .. } => Some((notes.join(" "), *page)),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("a style with no frames is reported: {advanced:?}"));
-    assert!(said.0.contains("/Blinds"), "{said:?}");
+        .unwrap_or_else(|| panic!("a chosen quantity is reported: {advanced:?}"));
+    assert!(
+        said.0.contains("/Blinds") && said.0.contains("this program's own"),
+        "{said:?}"
+    );
     assert_eq!(said.1, Some(1), "about the page it was moving to");
-    // And it is still *named*, because a host that can draw it is not this one.
+    // And the transition is raised beside it, for the host to draw.
     assert!(
         advanced
             .iter()

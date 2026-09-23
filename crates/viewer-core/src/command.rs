@@ -624,6 +624,28 @@ pub enum Command {
         /// The file, or nothing.
         bytes: Option<Vec<u8>>,
     },
+    /// §12.7.8's form data a server answered [`crate::Event::Submit`]'s request with.
+    ///
+    /// §12.7.8.1 says FDF "can be used when submitting form data to a server, receiving the
+    /// response, and incorporating it into the interactive form", and the incorporating is the
+    /// import §12.7.6.4's action already performs — so this is applied through the same reader, the
+    /// same `/Status` display and the same `ViewState::import`, with the URL standing where the
+    /// action's file name stands.
+    ///
+    /// **Named by document rather than applied to the one in front**, because an answer arrives
+    /// when the server sends it and a person may have changed tabs in between: the form that was
+    /// sent is the form the answer is about. A document no longer open takes nothing. What reaches
+    /// the network, and whether, is a host's (rule 2, ADR 1291).
+    Respond {
+        /// The document whose submission this answers.
+        document: DocumentId,
+        /// Where the submission went, which the sentences name as the file an import names.
+        source: String,
+        /// FDF or XFDF, as the answer's media type said.
+        format: pdf_model::action::DataFormat,
+        /// The answer's body.
+        bytes: Vec<u8>,
+    },
     /// A worker finished — or failed — the request it was handed.
     ///
     /// A token that does not match the request outstanding is **dropped**, which is the whole

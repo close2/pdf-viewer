@@ -305,6 +305,23 @@ own numbers the answer is usually no, and Annex C.1 says so. For a bound on what
 hold, it is often yes.
 
 
+### 46. A copy that resolves every reference goes round two objects that name each other
+
+An FDF annotation's `/Popup` and its `/Parent` refer to each other, and the import's copy followed
+that pair until its depth budget refused the whole annotation, so any FDF annotation with a popup
+was silently dropped (ADR 1297). The budget is a bound against cycles and it did its job; what it
+cannot do is tell a cycle the format *means* from one a hostile file built. Read a mutual reference
+as a link — positions in the list, written as references to what the import allocates — before
+carrying anything, and test the pair the format states rather than only a bare chain.
+
+### 47. `Pages::indices()` maps interior page-tree nodes as well as pages
+
+A page list built from it has an entry per interior node, so the linearised writer laid out part 4
+around objects that were not pages and its own checker counted them too — twice in one round, in
+the writer and in the checker that was meant to catch the writer (ADR 1293). Build page lists from
+`Pages::get(i).id`; the corpus walk found it, not the unit tests, because every fixture had a flat
+tree.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

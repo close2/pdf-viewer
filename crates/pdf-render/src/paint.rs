@@ -657,8 +657,8 @@ pub enum SampleAlpha {
     /// an image is its whole rectangle.
     Opacity,
     /// Both, multiplied: a stencil (shape) under an `/SMask` of its own (opacity). One raster
-    /// cannot separate them again, so an element like this inside a knockout group is
-    /// reported rather than drawn.
+    /// cannot separate them again, so the producer of such samples keeps the stencil apart and
+    /// hands it back as [`ImageSource::shape`], which is what §11.4.6's knockout reads.
     ///
     /// A file a producer may write, rather than a malformed one, and three places say so.
     /// §8.9.5 Table 87 lists what a stencil may not carry — `/BitsPerComponent` other than 1,
@@ -669,7 +669,7 @@ pub enum SampleAlpha {
     /// list of masking effects an image dictionary may carry without excluding a stencil:
     /// "a fourth type of masking effect, soft masking, is available through the SMask entry".
     /// §11.6.5.2's Table 143 restricts the *soft-mask image's* dictionary and not the
-    /// parent's. ADR 1022 §5 prices stating this element's shape.
+    /// parent's. ADRs 1218 and 1279 keep the pair apart on every route.
     Both,
 }
 
@@ -756,9 +756,10 @@ impl Image {
     /// `render_gpu::scene` call it, and `render_raster::scene` calls it only for an image
     /// whose grid is deferred — an ordinary one crosses into raster as its samples plus
     /// §8.9.5.3's flag, and raster's own encode resolves the filter from a copy of this rule
-    /// so that a scene survives a zoom (ADR 0702, raster's ADR 0089). The copy is what makes
-    /// a change here an *ask* rather than a change: `doc/QUORRA_FEEDBACK.md` section 47 is the
-    /// one this paragraph's own native case owes.
+    /// so that a scene survives a zoom (ADR 0702, raster's ADR 0089). The copy is held to this
+    /// one by `render-raster`'s `tests/masked_image_edge.rs`, which draws the native case both
+    /// ways against its closed form (ADR 1302), so a change here that the copy does not follow
+    /// fails there.
     #[must_use]
     pub fn is_smoothed(&self, placement: Transform) -> bool {
         smoothed(self.width, self.height, self.interpolate, placement)

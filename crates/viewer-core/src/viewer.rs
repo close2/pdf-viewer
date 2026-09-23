@@ -682,6 +682,12 @@ impl Viewer {
             }
             Command::Pointer { at, action } => self.pointer(at, action, events),
             Command::Supply { purpose, bytes } => self.supply(purpose, bytes.as_deref(), events),
+            Command::Respond {
+                document,
+                source,
+                format,
+                bytes,
+            } => self.respond(document, source, format, &bytes, events),
             Command::RenderReady { token, rendered } => self.rendered(token, rendered, events),
         }
     }
@@ -1290,6 +1296,52 @@ impl Viewer {
             (Purpose::ThreadDocument, None) => interact::decline_threaded(open),
         };
         self.apply(id, outcome, events);
+    }
+
+    /// Applies §12.7.8's form data a server answered a submission with — [`Command::Respond`].
+    ///
+    /// The document in front takes the whole of [`Self::apply`], exactly as an import-data action's
+    /// file does. One behind it takes the values and the sentences, and is drawn again when it next
+    /// comes to the front; what it cannot take is Table 253's second file, because
+    /// [`Command::Supply`] answers the document in front, so that is declined out loud rather than
+    /// asked for on behalf of a document nobody is looking at.
+    fn respond(
+        &mut self,
+        document: DocumentId,
+        source: String,
+        format: pdf_model::action::DataFormat,
+        bytes: &[u8],
+        events: &mut Vec<Event>,
+    ) {
+        let in_front = self.focused == Some(document);
+        let Some(open) = self.documents.get_mut(&document) else {
+            return;
+        };
+        open.importing = Some(pdf_model::action::ImportData {
+            file: source,
+            format,
+        });
+        let mut outcome = interact::import(open, bytes);
+        if in_front {
+            self.apply(document, outcome, events);
+            return;
+        }
+        if outcome.redraw {
+            open.stale();
+        }
+        if !outcome.needs_file.is_empty() {
+            outcome.needs_file.clear();
+            outcome
+                .notes
+                .extend(interact::decline_named_page(open).notes);
+        }
+        if !outcome.notes.is_empty() {
+            events.push(Event::Reported {
+                document,
+                page: Some(open.page_index),
+                notes: outcome.notes,
+            });
+        }
     }
 
     /// Turns what a click asked for into events, and does the parts that are this crate's.
@@ -3562,9 +3614,10 @@ impl Viewer {
         if let Some(transition) = pdf_model::navigation::transition(&open.document, &page.dict) {
             // A transition no frame is shaped for is *named* rather than quietly drawn as a cut,
             // which is trap 5 in the one place a viewer is most tempted to be silent: the page
-            // that arrives looks right, and only the file knows it asked for an effect.
-            // `crate::transition` decides which those are, because it is what draws the rest —
-            // and it is asked the whole transition, because a style is not the whole of what
+            // that arrives looks right, and only the file knows it asked for an effect. And one
+            // drawn at a quantity this program chose says the quantity is ours (ADR 1299).
+            // `crate::transition` decides which those are, because it is what draws them — and
+            // it is asked the whole transition, because a style is not the whole of what
             // decides a frame.
             if let Some(note) = crate::transition::note(&transition) {
                 let index = self.focused().map(|open| open.page_index);

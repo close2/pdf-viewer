@@ -1653,19 +1653,37 @@ impl ViewState {
         outcome: &mut Imported,
     ) {
         // Table 246's `/EmbeddedFDFs` are files, so their annotations are this import's too, in
-        // `FormsData::files`' order (ADR 1185).
-        let annotations: Vec<&crate::forms_data::FdfAnnotation> = data
-            .files()
-            .into_iter()
-            .flat_map(|file| &file.annotations)
-            .collect();
-        if annotations.is_empty() {
+        // `FormsData::files`' order (ADR 1185). Each file's `popup` and `parent` positions are
+        // positions in that file's own list, so the files are placed one at a time.
+        let files = data.files();
+        if files.iter().all(|file| file.annotations.is_empty()) {
             return;
         }
         let pages = crate::Pages::new(document);
-        for annotation in annotations {
-            let (Some(ordinal), Some(dict)) = (annotation.page, annotation.dictionary.as_ref())
-            else {
+        for file in files {
+            self.place_file_annotations(document, &pages, &file.annotations, outcome);
+        }
+    }
+
+    /// Places one file's annotations, and writes the links between them as references.
+    ///
+    /// Three passes, because an annotation may name one later in the list: which are placed and on
+    /// which page; which popups lose their parent to a refusal and are refused with it; and only
+    /// then the writing, when every placed annotation has the object it will be saved under.
+    /// Table 172's `/Popup` and Table 186's `/Parent` become references to those objects, and
+    /// Table 172's `/IRT` becomes one to the annotation its text string names (ADR 1297).
+    fn place_file_annotations(
+        &mut self,
+        document: &Document,
+        pages: &crate::Pages<'_>,
+        annotations: &[crate::forms_data::FdfAnnotation],
+        outcome: &mut Imported,
+    ) {
+        let mut target: Vec<Option<ObjectId>> = vec![None; annotations.len()];
+        for (index, annotation) in annotations.iter().enumerate() {
+            // A popup the file carried beside its parent states the parent's page where it
+            // states none of its own, which `forms_data` has already filled in.
+            let (Some(ordinal), Some(_)) = (annotation.page, annotation.dictionary.as_ref()) else {
                 // Both absences are already named on `FormsData::owed`, which is the list a host
                 // prints; saying them twice would double every line a person reads.
                 continue;
@@ -1685,16 +1703,114 @@ impl ViewState {
                 ));
                 continue;
             };
-            let id = self.allocate(document);
+            target[index] = Some(page);
+        }
+        // A popup exists to show its parent's text (§12.5.6.14), so one whose parent was refused
+        // has nothing to show and is refused with it rather than left as a window of nobody's.
+        for (index, annotation) in annotations.iter().enumerate() {
+            if target[index].is_some()
+                && annotation
+                    .parent
+                    .is_some_and(|parent| target.get(parent).copied().flatten().is_none())
+            {
+                target[index] = None;
+                outcome.refused.push(
+                    "an FDF popup annotation whose parent annotation was not placed".to_owned(),
+                );
+            }
+        }
+        let placed: Vec<Option<(ObjectId, ObjectId)>> = target
+            .iter()
+            .map(|page| page.map(|page| (self.allocate(document), page)))
+            .collect();
+        let link = |at: Option<usize>| at.and_then(|at| placed.get(at).copied().flatten());
+        for (index, annotation) in annotations.iter().enumerate() {
+            let (Some((id, page)), Some(dict)) = (placed[index], annotation.dictionary.as_ref())
+            else {
+                continue;
+            };
             let mut dict = dict.clone();
             // Table 254's own entry is the FDF file's way of spelling Table 166's `/P`, and the
             // save writes that one: carrying the ordinal into the document would leave two
             // statements about which page this is on, one of them in a key §12.5.2 does not
             // define for an annotation in a PDF file.
             dict.remove("Page");
+            if let Some((popup, _)) = link(annotation.popup) {
+                dict.insert(Name::new(&b"Popup"[..]), Object::Reference(popup));
+            }
+            if let Some((parent, _)) = link(annotation.parent) {
+                dict.insert(Name::new(&b"Parent"[..]), Object::Reference(parent));
+            }
+            self.link_reply(document, annotations, &placed, page, &mut dict, outcome);
             self.added.push(Added { id, page, dict });
             outcome.annotations = outcome.annotations.saturating_add(1);
         }
+    }
+
+    /// Table 172's `/IRT`, turned from the FDF file's text string into the reference a PDF file
+    /// states.
+    ///
+    /// The table gives an FDF file its own spelling of the entry — "its type shall not be a
+    /// dictionary but a text string containing the contents of the NM entry of the annotation
+    /// being replied to" — and a PDF file the other: "[a] reference to the annotation that this
+    /// annotation is "in reply to." Both annotations shall be on the same page of the document."
+    /// So the name is looked for among what this import places on the same page, then among what
+    /// was added to that page before it, then among the page's own `/Annots`. One found nowhere
+    /// on the page is refused by name, and `/RT` with it, which the same table makes meaningful
+    /// only where `/IRT` is present.
+    fn link_reply(
+        &self,
+        document: &Document,
+        annotations: &[crate::forms_data::FdfAnnotation],
+        placed: &[Option<(ObjectId, ObjectId)>],
+        page: ObjectId,
+        dict: &mut Dictionary,
+        outcome: &mut Imported,
+    ) {
+        let Some(Object::String(name)) = dict.get("IRT").cloned() else {
+            return;
+        };
+        let named = |candidate: &Dictionary| {
+            candidate
+                .get("NM")
+                .and_then(Object::as_string)
+                .is_some_and(|stated| {
+                    pdf_syntax::text_string(stated) == pdf_syntax::text_string(&name)
+                })
+        };
+        let in_import = annotations.iter().zip(placed).find_map(|(other, at)| {
+            let (id, on) = (*at)?;
+            (on == page && other.dictionary.as_ref().is_some_and(named)).then_some(id)
+        });
+        let added_before = || {
+            self.added
+                .iter()
+                .find(|added| added.page == page && named(&added.dict))
+                .map(|added| added.id)
+        };
+        let on_the_page = || {
+            let stated = document.get(page);
+            let annots = document.get_key(stated.as_dict()?, "Annots");
+            annots.as_array()?.iter().find_map(|entry| {
+                let id = entry.as_reference()?;
+                document
+                    .resolve(entry)
+                    .as_dict()
+                    .is_some_and(named)
+                    .then_some(id)
+            })
+        };
+        if let Some(id) = in_import.or_else(added_before).or_else(on_the_page) {
+            dict.insert(Name::new(&b"IRT"[..]), Object::Reference(id));
+            return;
+        }
+        dict.remove("IRT");
+        dict.remove("RT");
+        outcome.refused.push(format!(
+            "an imported annotation replies to one named {:?}, which this page holds nowhere, \
+             so Table 172's /IRT and /RT are left out",
+            pdf_syntax::text_string(&name)
+        ));
     }
 
     /// Adds one of §12.5.6.10's text markup annotations over a run of quadrilaterals.
@@ -3073,6 +3189,17 @@ impl ViewState {
             // site: an annotation a person made this session was most recently modified when the
             // host says it was.
             update.stamp(&mut dict);
+            // A carried annotation may hold a stream elsewhere than its `/AP` — Table 187's `/FS`
+            // with its embedded file, Table 188's `/Sound` — and §7.3.8.1 makes every stream an
+            // indirect object, so each becomes one before the dictionary is written.
+            let carried: Vec<(Name, Object)> = dict
+                .iter()
+                .filter(|(key, _)| key.as_bytes() != b"AP")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            for (key, value) in carried {
+                dict.insert(key, promote_streams(update, value));
+            }
             write_added_appearance(document, update, &mut dict);
             update.put(added.id, Object::Dictionary(dict));
 

@@ -522,8 +522,9 @@ enum Refusal {
     NonStandardIcon(String),
     /// The clause names an appearance without stating what it looks like.
     NotDerivable(&'static str),
-    /// Table 192's `/TP` names the side the caption goes on and not how much room it gets.
-    CaptionBeside(i64),
+    /// Table 192's `/TP` names the side the caption goes on and not how much room it gets, so
+    /// the caption is drawn in [`CAPTION_SHARE`] of the rectangle — a share this program chose.
+    CaptionShareChosen(i64),
     /// Table 177's `/DS` styles this note's text in a specification this tree does not hold.
     ///
     /// §12.5.6.2 names the entry once, in its group-attribute list — "Contents (or RC and DS )"
@@ -554,9 +555,10 @@ impl Refusal {
             Self::DefaultStyleUnapplied => "its /DS states a default style in XFA 3.3's format, \
                  which is not applied; the text is laid out under /DA"
                 .to_owned(),
-            Self::CaptionBeside(code) => format!(
+            Self::CaptionShareChosen(code) => format!(
                 "no appearance stream, and Table 192's /TP {code} states which side of the icon \
-                 the caption goes on and not how much of the rectangle it takes"
+                 the caption goes on and not how much of the rectangle it takes, so it is drawn \
+                 in a third of it — a share this program chose rather than the document"
             ),
             Self::Text(owed) => owed.detail(),
         }
@@ -2546,7 +2548,7 @@ fn widget(
         document,
         annotation,
         source,
-        inner,
+        button.caption_box.unwrap_or(inner),
         value,
         view.appearance,
         Asked::default(),
@@ -2591,7 +2593,10 @@ struct ButtonIcon {
     drawn: bool,
     /// Whether `/TP` leaves the caption to be laid out at all.
     draws_caption: bool,
-    /// What the clause states and this did not draw.
+    /// Where the caption is laid out, where `/TP` puts it beside the icon rather than over the
+    /// whole of the rectangle inside the border.
+    caption_box: Option<[f32; 4]>,
+    /// What the clause states and this did not draw, or drew at a quantity this program chose.
     report: Option<Refusal>,
 }
 
@@ -2600,6 +2605,7 @@ impl ButtonIcon {
     const NONE: Self = Self {
         drawn: false,
         draws_caption: true,
+        caption_box: None,
         report: None,
     };
 }
@@ -2677,8 +2683,9 @@ const fn caption_entries(
 ///
 /// - `/I` and `/IF` are drawn. Both are fully stated: Table 192 gives the icon as a form `XObject`
 ///   and Table 250 gives every rule for fitting it, with a default for every entry.
-/// - `/TP` decides which of the icon and the caption is drawn, for the three codes that say so
-///   without stating a proportion; the other four are reported by [`CaptionPosition::Beside`].
+/// - `/TP` decides which of the icon and the caption is drawn and where: codes 0, 1 and 6 give
+///   whichever is drawn the whole rectangle, and codes 2 to 5 divide it at [`CAPTION_SHARE`],
+///   which is this program's number and is reported as one (ADR 1299).
 /// - `/RI` and `/IX` are the rollover and down icons, selected by [`icon_entries`] from the
 ///   pointer state the caller is in — the same state that selects among §12.5.5's `/N`, `/R` and
 ///   `/D`. `/RC` and `/AC` are their captions and are [`caption_entries`]'s, one layer up.
@@ -2715,14 +2722,18 @@ fn push_button_icon(
     };
 
     let report = match position {
-        CaptionPosition::Beside(code) => Some(Refusal::CaptionBeside(code)),
+        CaptionPosition::Beside(code) => Some(Refusal::CaptionShareChosen(code)),
         _ => None,
     };
+    // `/FB` decides the icon's room below; the caption's is always inside §12.5.4's border,
+    // which is where every widget's text goes.
+    let caption_box = position.split(inner).map(|(_, caption)| caption);
 
     if !position.draws_icon() {
         return Ok(ButtonIcon {
             drawn: false,
             draws_caption: position.draws_caption(),
+            caption_box,
             report,
         });
     }
@@ -2732,6 +2743,7 @@ fn push_button_icon(
         return Ok(ButtonIcon {
             drawn: false,
             draws_caption: position.draws_caption(),
+            caption_box,
             report: report.or(entries
                 .iter()
                 .all(|key| matches!(characteristics.get(key), None | Some(Object::Null)))
@@ -2747,10 +2759,12 @@ fn push_button_icon(
     // annotation without taking into consideration the line width of the border" — so the
     // target is `/Rect` itself rather than `/Rect` inset by §12.5.4's border.
     let target = if fit.ignore_border { rect } else { inner };
+    let target = position.split(target).map_or(target, |(icon, _)| icon);
     let Some(placement) = fit.place(icon.extent, target) else {
         return Ok(ButtonIcon {
             drawn: false,
             draws_caption: position.draws_caption(),
+            caption_box,
             report: report.or(Some(Refusal::NotDerivable(
                 "Table 192's /I has a /BBox of no area, so Table 250 has nothing to fit",
             ))),
@@ -2760,9 +2774,21 @@ fn push_button_icon(
     Ok(ButtonIcon {
         drawn: true,
         draws_caption: position.draws_caption(),
+        caption_box,
         report,
     })
 }
+
+/// How much of a push-button's rectangle its caption takes when Table 192's `/TP` puts it beside
+/// the icon, along the side the code names — this program's number, not the standard's
+/// (ADR 1299).
+///
+/// Codes 2 to 5 are "Caption below the icon", "Caption above the icon", "Caption to the right of
+/// the icon" and "Caption to the left of the icon": the kind of layout, with no proportion for
+/// it anywhere in the standard. A third leaves the icon, which is the button's picture, the
+/// larger share, and leaves the caption room for one line of text at the sizes §12.7.4.3's
+/// auto-sizing reaches in a button of ordinary proportions.
+const CAPTION_SHARE: f32 = 1.0 / 3.0;
 
 /// Table 192's `/TP`: where a push-button's caption sits relative to its icon.
 ///
@@ -2773,13 +2799,13 @@ fn push_button_icon(
 /// > above the icon 4 Caption to the right of the icon 5 Caption to the left of the icon 6 Caption
 /// > overlaid directly on the icon Default value: 0 .
 ///
-/// **Three of the seven codes are carried out and four are named, and the split is the standard's
-/// own.** Codes 0, 1 and 6 each say which of the two things is drawn and give both of them the
-/// whole rectangle; codes 2 to 5 say which *side* the caption is on and state nothing about how
-/// much of the rectangle it takes. Choosing that proportion would be inventing a layout the
-/// document did not ask for — the same refusal §12.5.6.12's stamp legends get — so those four are
-/// reported by name with the icon drawn and the caption left off, which is the half the clause
-/// does state.
+/// **All seven codes are carried out, and four of them at a proportion this program chose.**
+/// Codes 0, 1 and 6 each say which of the two things is drawn and give both of them the whole
+/// rectangle; codes 2 to 5 say which *side* the caption is on and state nothing about how much of
+/// the rectangle it takes. That is a kind of mark with only its quantity withheld, and the
+/// owner's ruling in `doc/questions/A72` is to choose the quantity and say so: the caption takes
+/// [`CAPTION_SHARE`] of the rectangle on its side and the icon is fitted into the rest, and the
+/// widget's report says the share is this program's (ADR 1299).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CaptionPosition {
     /// 0, the table's default: the caption is drawn and the icon is not.
@@ -2793,6 +2819,30 @@ enum CaptionPosition {
 }
 
 impl CaptionPosition {
+    /// `area` divided into the icon's part and the caption's, for a code that puts them side by
+    /// side; `None` for one that gives both, or either, the whole of it.
+    ///
+    /// In the widget's own axes — the box [`Rotation::content_box`] lays the contents out in — so
+    /// "below" is below after Table 192's `/R` has turned the contents, which is what `/R`
+    /// rotating the widget "counterclockwise relative to the page" means for a caption.
+    fn split(self, area: [f32; 4]) -> Option<([f32; 4], [f32; 4])> {
+        let Self::Beside(code) = self else {
+            return None;
+        };
+        let [x0, y0, x1, y1] = area;
+        let (across, up) = ((x1 - x0) * CAPTION_SHARE, (y1 - y0) * CAPTION_SHARE);
+        Some(match code {
+            // "Caption below the icon": this space's y grows upward.
+            2 => ([x0, y0 + up, x1, y1], [x0, y0, x1, y0 + up]),
+            // "Caption above the icon".
+            3 => ([x0, y0, x1, y1 - up], [x0, y1 - up, x1, y1]),
+            // "Caption to the right of the icon".
+            4 => ([x0, y0, x1 - across, y1], [x1 - across, y0, x1, y1]),
+            // "Caption to the left of the icon".
+            _ => ([x0 + across, y0, x1, y1], [x0, y0, x0 + across, y1]),
+        })
+    }
+
     /// Table 192's `/TP`, or `None` for a value outside the seven codes it defines.
     fn read(document: &Document, characteristics: &Dictionary) -> Option<Self> {
         match document.get_key(characteristics, "TP") {
@@ -2804,9 +2854,10 @@ impl CaptionPosition {
         }
     }
 
-    /// Whether the caption is drawn at all under this code.
+    /// Whether the caption is drawn at all under this code: every code but "[n]o caption; icon
+    /// only".
     fn draws_caption(self) -> bool {
-        matches!(self, Self::CaptionOnly | Self::Overlaid)
+        !matches!(self, Self::IconOnly)
     }
 
     /// Whether the icon is drawn at all under this code.

@@ -48,6 +48,10 @@ impl Interpreter<'_> {
             let shared = Arc::new(path.clone());
             // Where the two portions start, for §11.6.2 below.
             let mark = self.list.command_count();
+            // Which of §11.6.4.3's readings the portions paint under, for §11.7.4.4's group:
+            // the one in force at this operator, and whatever a tiling cell among them ran
+            // under — not the enclosing content's history (ADR 1301).
+            let outer_reading = self.open_parts_reading(state.alpha_is_shape);
 
             // A tiling pattern is not a paint: its cell is a content stream, replayed
             // across the area the path covers. Doing that here rather than in the display
@@ -151,6 +155,7 @@ impl Interpreter<'_> {
                     }
                 }
             }
+            self.close_parts_reading(outer_reading, mark);
         }
 
         // A pending `W` takes effect now: the specification says the clip changes *after*

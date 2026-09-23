@@ -80,10 +80,10 @@ pub use crate::crypt::{Entropy, SystemEntropy};
 const MAX_REWRITE_DEPTH: usize = 257;
 
 /// §7.5.4's generation for the free head of the list: "shall never be reused".
-const FREE_FOREVER: u16 = 65_535;
+pub(crate) const FREE_FOREVER: u16 = 65_535;
 
 /// The largest offset §7.5.4's ten-digit field can state.
-const MAX_TABLE_OFFSET: u64 = 9_999_999_999;
+pub(crate) const MAX_TABLE_OFFSET: u64 = 9_999_999_999;
 
 /// Which cross-reference structure the output uses.
 ///
@@ -399,7 +399,7 @@ enum RootReach {
 
 /// One entry of the output's object table.
 #[derive(Debug, Clone)]
-enum Slot {
+pub(crate) enum Slot {
     /// Copied by reference from `sources[from]`.
     Copied {
         /// Which source.
@@ -563,13 +563,13 @@ pub struct Assembly<'a> {
     /// The documents objects may be copied out of.
     sources: Vec<&'a Document>,
     /// Every slot, in output order; slot `n` is object number `n + 1`.
-    slots: Vec<Slot>,
+    pub(crate) slots: Vec<Slot>,
     /// Where a source's object landed, so that a second `copy` of it answers the first.
     placed: BTreeMap<(usize, ObjectId), ObjectId>,
     /// The output's catalog.
-    root: Option<ObjectId>,
+    pub(crate) root: Option<ObjectId>,
     /// The output's §14.3.3 document information dictionary, where the caller carries one.
-    info: Option<ObjectId>,
+    pub(crate) info: Option<ObjectId>,
 }
 
 impl<'a> Assembly<'a> {
@@ -799,7 +799,12 @@ impl<'a> Assembly<'a> {
     /// The object slot `index` holds, as it will be written, with its references renumbered.
     ///
     /// `None` for a reserved slot nobody filled, which [`serialize`] turns into a refusal.
-    fn resolved(&self, index: usize, streams: Streams, tally: &mut Written) -> Option<Object> {
+    pub(crate) fn resolved(
+        &self,
+        index: usize,
+        streams: Streams,
+        tally: &mut Written,
+    ) -> Option<Object> {
         match self.slots.get(index)? {
             Slot::Copied { from, id } => {
                 let document = self.sources.get(*from)?;
@@ -1550,7 +1555,7 @@ fn write_file<W: Write>(
 /// Before rather than during, because a refusal that arrives after half a file has reached the
 /// caller's sink is a refusal it has to clean up after. `RootReach::Unplaced` is left to the
 /// writing loop, which names the number that was owed.
-fn catalog_of(assembly: &Assembly<'_>) -> Result<ObjectId, SerializeError> {
+pub(crate) fn catalog_of(assembly: &Assembly<'_>) -> Result<ObjectId, SerializeError> {
     let root = assembly.root.ok_or(SerializeError::NoRoot)?;
     match assembly.root_reaches(root) {
         RootReach::Dictionary | RootReach::Unplaced => Ok(root),
@@ -1588,10 +1593,16 @@ fn write_header<W: Write>(
     sink: &mut Counted<'_, W>,
     version: Version,
 ) -> Result<(), SerializeError> {
+    sink.put(&header(version))
+}
+
+/// §7.5.2's two lines as bytes, for both writers of a whole file.
+pub(crate) fn header(version: Version) -> Vec<u8> {
     let mut header = String::new();
     let _ = writeln!(header, "%PDF-{version}");
-    sink.put(header.as_bytes())?;
-    sink.put(b"%\xE2\xE3\xCF\xD3\n")
+    let mut bytes = header.into_bytes();
+    bytes.extend_from_slice(b"%\xE2\xE3\xCF\xD3\n");
+    bytes
 }
 
 /// Writes the `/Encrypt` dictionary as the file's last indirect object, and answers its number.
@@ -1640,9 +1651,10 @@ fn write_encrypt_dictionary<W: Write>(
 /// - **"An object representing the value of the Length entry in an object stream dictionary"**
 ///   — this writer states `/Length` as a direct integer, so no such object exists.
 /// - **"In linearized files … the document catalog dictionary, the linearization dictionary,
-///   and page objects"** — conditional on a construct `CLAUDE.md` excludes until Annex F is
-///   separately ratified. Nothing here writes a linearized file, so the condition is false and
-///   the rule does not bind; it is named so that whoever ratifies Annex F finds it.
+///   and page objects"** — conditional on a linearised file, which only
+///   [`crate::linearize::serialize_linearized`] writes, and that writer puts no object in an
+///   object stream at all. So the condition is false for every file this function writes, and
+///   met by construction in every file that one does.
 ///
 /// And one sentence from further down the clause, which is a rule about the *value* rather
 /// than about the object: "[a]n object in an object stream shall not consist solely of an

@@ -142,6 +142,13 @@ enum Pending {
         /// The URI as `viewer_host::resolve_uri` left it.
         uri: String,
     },
+    /// §12.7.6.2's composed request, answered by sending it or by saying it was not (ADR 1291).
+    Submit {
+        /// The document whose form it is, which is where an FDF answer goes.
+        document: DocumentId,
+        /// The request exactly as `pdf_model::submission::compose` made it.
+        submission: Box<pdf_model::submission::Submission>,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.
@@ -310,6 +317,9 @@ pub struct Host {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     remote_documents: viewer_host::RemoteDocuments,
+    /// §12.7.6.2's submissions on the wire, each on a `submit-form` thread of its own, and the
+    /// answers that have come back — looked at on the drawing timer while one is out (ADR 1291).
+    submitter: viewer_host::submit::Submitter,
     /// §10.8.3: whether this window has asked for the separation simulation.
     ///
     /// Held here rather than asked of the core, because it is a preference a person toggles and
@@ -504,6 +514,7 @@ impl Host {
             restrictions: viewer_host::Restrictions::new(settings.restrictions),
             links: settings.links,
             remote_documents: settings.remote_documents,
+            submitter: viewer_host::submit::Submitter::new(),
             separations: settings.separations,
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
@@ -1450,6 +1461,72 @@ impl Host {
         self.prompt.clone()
     }
 
+    /// §12.7.6.2's composed request, under the level the menu holds (ADR 1291).
+    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
+        match viewer_host::may_submit(&submission, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.send_form(document, submission, None),
+            viewer_host::Sending::Warn(note) => self.send_form(document, submission, Some(note)),
+            viewer_host::Sending::Ask(words) => self.put_the_question(
+                Pending::Submit {
+                    document,
+                    submission: Box::new(submission),
+                },
+                &words,
+            ),
+            viewer_host::Sending::Refuse(why) => self.say(&viewer_host::policy::submission_note(
+                &submission,
+                Some(&why),
+            )),
+        }
+    }
+
+    /// Puts the request on a `submit-form` thread of its own. The answer is looked for on the
+    /// drawing timer, which [`Host::drawing_wait`] keeps running while one is out.
+    fn send_form(
+        &mut self,
+        document: DocumentId,
+        submission: pdf_model::submission::Submission,
+        warned: Option<String>,
+    ) {
+        self.say(&viewer_host::policy::submission_note(&submission, None));
+        if let Err(sentence) = self.submitter.send(document, submission, warned, None) {
+            self.say(&sentence);
+        }
+    }
+
+    /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
+    fn take_the_answers(&mut self) {
+        for returned in self.submitter.collect() {
+            let (document, url) = (returned.document, returned.url.clone());
+            match returned.reply() {
+                viewer_host::submit::Reply::Import {
+                    format,
+                    bytes,
+                    note,
+                } => {
+                    self.say(&note);
+                    self.dispatch(Command::Respond {
+                        document,
+                        source: url,
+                        format,
+                        bytes,
+                    });
+                }
+                viewer_host::submit::Reply::Document { bytes, note } => {
+                    match viewer_host::submit::keep_answer(&bytes) {
+                        Ok(path) => {
+                            self.say(&format!("{note}; kept at {}", path.display()));
+                            self.arrivals.wait(viewer_host::Named::file(path), false);
+                            self.open_the_next();
+                        }
+                        Err(sentence) => self.say(&format!("{note}; {sentence}")),
+                    }
+                }
+                viewer_host::submit::Reply::Say(note) => self.say(&note),
+            }
+        }
+    }
+
     /// §12.6.4.8's URI, resolved against this document's location and then opened, declined or put
     /// to the person at the level `--links=` set.
     fn follow_the_link(&mut self, uri: &str) {
@@ -1579,6 +1656,24 @@ impl Host {
             // §12.6.4.8: the act is this host's own rather than an edit the core is holding, so
             // what the answer decides is whether the URI reaches `xdg-open` (ADR 1155).
             Pending::Link { uri } => self.say(&viewer_host::answered(&uri, proceed)),
+            // §12.7.6.2: the act is this host's own, so the answer decides whether the request
+            // leaves this machine at all (ADR 1291).
+            Pending::Submit {
+                document,
+                submission,
+            } => {
+                if proceed {
+                    self.send_form(document, *submission, None);
+                } else {
+                    self.say(&viewer_host::policy::submission_note(
+                        &submission,
+                        Some(&format!(
+                            "you answered \"{}\"",
+                            viewer_host::restriction::DO_NOT
+                        )),
+                    ));
+                }
+            }
             // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
             // nothing and the core says the link declined (ADR 1227).
             Pending::RemoteDocument {
@@ -1643,21 +1738,27 @@ impl Host {
             .rows()
             .into_iter()
             .map(|row| match row {
-                viewer_host::Row::Scope { label, note, .. } => crate::bridge::ffi::QtMenuEntry {
+                viewer_host::Row::Scope { label, note, .. }
+                | viewer_host::Row::Machine { label, note } => crate::bridge::ffi::QtMenuEntry {
                     depth: 0,
                     label: label.to_owned(),
                     note: note.to_owned(),
                     chosen: false,
                 },
-                viewer_host::Row::Operation { label, note, .. } => {
-                    crate::bridge::ffi::QtMenuEntry {
-                        depth: 1,
-                        label: label.to_owned(),
-                        note: note.to_owned(),
-                        chosen: false,
-                    }
-                }
+                viewer_host::Row::Operation { label, note, .. }
+                | viewer_host::Row::Act { label, note } => crate::bridge::ffi::QtMenuEntry {
+                    depth: 1,
+                    label: label.to_owned(),
+                    note: note.to_owned(),
+                    chosen: false,
+                },
                 viewer_host::Row::Level(entry) => crate::bridge::ffi::QtMenuEntry {
+                    depth: 2,
+                    label: entry.label.to_owned(),
+                    note: String::new(),
+                    chosen: entry.chosen,
+                },
+                viewer_host::Row::Sending(entry) => crate::bridge::ffi::QtMenuEntry {
                     depth: 2,
                     label: entry.label.to_owned(),
                     note: String::new(),
@@ -1673,9 +1774,15 @@ impl Host {
     /// policy — two scopes, every operation, four levels and one way back — and only what is
     /// ticked does. A heading's index chooses nothing, which is what a `QMenu` title is.
     pub(crate) fn chose_restriction(&mut self, entry: usize) {
-        let Some(viewer_host::Row::Level(picked)) = self.restrictions.rows().get(entry).copied()
-        else {
-            return;
+        let picked = match self.restrictions.rows().get(entry).copied() {
+            Some(viewer_host::Row::Level(picked)) => picked,
+            // §12.7.6.2's row sets a level this host reads and sends the viewer nothing (ADR 1291).
+            Some(viewer_host::Row::Sending(sending)) => {
+                self.restrictions.send(sending.level);
+                self.say(&viewer_host::sending_chosen(sending.level));
+                return;
+            }
+            _ => return,
         };
         let command = self.restrictions.chose(picked.chose);
         self.dispatch(command);
@@ -2889,8 +2996,16 @@ impl Host {
     /// drawn page wakes for this exactly never. [`Host::presentation_wait`]'s shape and the same
     /// argument: the interval is `viewer_host::Drawing`'s decision, shared with the other native
     /// host, and the timer is Qt's.
+    ///
+    /// **The same timer looks for §12.7.6.2's answers** while one is out, rather than a fifth timer
+    /// and a bridge function for it: the look is one channel drain, and the shorter of the two
+    /// intervals is the one that stands (ADR 1291).
     pub(crate) fn drawing_wait(&self) -> i32 {
-        self.drawing.interval().map_or(-1, |interval| {
+        let interval = match (self.drawing.interval(), self.submitter.interval()) {
+            (Some(drawing), Some(submitting)) => Some(drawing.min(submitting)),
+            (drawing, submitting) => drawing.or(submitting),
+        };
+        interval.map_or(-1, |interval| {
             i32::try_from(interval.as_millis()).unwrap_or(i32::MAX)
         })
     }
@@ -2902,6 +3017,7 @@ impl Host {
     /// second, and rebuilding this window's `QImage` at that rate would copy megabytes for a
     /// picture that has not changed.
     pub(crate) fn drawing_pump(&mut self) {
+        self.take_the_answers();
         let mut queue = VecDeque::new();
         self.take_the_drawn(&mut queue);
         if queue.is_empty() {
@@ -3023,11 +3139,11 @@ impl Host {
             // string the *document* chose (ADRs 1079, 1155). What this arm owns is the dialogue.
             Event::OpenUri { uri, .. } => self.follow_the_link(&uri),
             // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
-            // `viewer_host::policy::may_submit`'s one answer rather than this window's (ADR 1062).
-            Event::Submit { submission, .. } => self.say(&viewer_host::policy::submission_note(
-                &submission,
-                viewer_host::policy::may_submit().err().as_deref(),
-            )),
+            // `viewer_host::may_submit`'s one answer rather than this window's (ADRs 1062, 1291).
+            Event::Submit {
+                document,
+                submission,
+            } => self.submit(document, *submission),
             // Three of the five purposes are asked at one of four levels and §12.7.6.4's own
             // file is not, and the difference is what each does: an import puts another file's
             // *values* into the document being read, while a remote go-to, a thread in another

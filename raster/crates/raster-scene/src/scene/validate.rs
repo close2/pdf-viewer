@@ -21,7 +21,9 @@ pub(crate) mod function;
 
 use super::{GroupSpec, SceneBuilder};
 use crate::blend::{BlendMode, Compose};
-use crate::error::{GroupComposeReason, NonIsolatedReason, SceneError, StagedComposeReason};
+use crate::error::{
+    GroupComposeReason, NonIsolatedReason, OverprintComposeReason, SceneError, StagedComposeReason,
+};
 use crate::geom::{Affine, Rect};
 use crate::ids::{ClipId, MaskId};
 use crate::mask::MaskKind;
@@ -167,7 +169,7 @@ impl SceneBuilder {
         compose: Compose,
         blend: BlendMode,
     ) -> Result<(), SceneError> {
-        if matches!(compose, Compose::SrcOver | Compose::Src) {
+        if !matches!(compose, Compose::DestOut | Compose::Plus) {
             return Ok(());
         }
         // Inside a knockout group is where §11.4.6 *puts* this pair, and refusing it
@@ -177,6 +179,42 @@ impl SceneBuilder {
         let reason = (blend != BlendMode::Normal).then_some(StagedComposeReason::BlendNotNormal);
         match reason {
             Some(reason) => Err(SceneError::StagedComposeUnsupported { compose, reason }),
+            None => Ok(()),
+        }
+    }
+
+    /// Where §11.7.4.3's special overprinting blend mode may be drawn: on a mark or a group
+    /// whose own blend is Normal and — for a group, `isolated` being `Some` — on one that is
+    /// isolated and is not an element of a knockout group. See [`OverprintComposeReason`] for
+    /// what each refusal would otherwise have drawn.
+    ///
+    /// A *mark* in a knockout group is accepted: it composites with the group's transparent
+    /// initial backdrop, where §11.3.6 gives every blend function Normal's arithmetic —
+    /// "An alpha value of αs = 0.0 or αb = 0.0 results in no blend mode effect" — and the
+    /// device draws it in the group's knockout pass.
+    ///
+    /// Every other operator passes untouched: their positions are
+    /// [`Self::check_staged_compose`]'s and [`Self::check_group_compose`]'s.
+    pub(super) fn check_overprint_compose(
+        &self,
+        compose: Compose,
+        blend: BlendMode,
+        isolated: Option<bool>,
+    ) -> Result<(), SceneError> {
+        if !compose.overprints() {
+            return Ok(());
+        }
+        let reason = if blend != BlendMode::Normal {
+            Some(OverprintComposeReason::BlendNotNormal)
+        } else if isolated.is_some() && self.element_of_knockout() {
+            Some(OverprintComposeReason::KnockoutElement)
+        } else if isolated == Some(false) {
+            Some(OverprintComposeReason::NonIsolated)
+        } else {
+            None
+        };
+        match reason {
+            Some(reason) => Err(SceneError::OverprintComposeUnsupported { compose, reason }),
             None => Ok(()),
         }
     }

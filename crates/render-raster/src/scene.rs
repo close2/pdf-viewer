@@ -69,6 +69,10 @@ pub(crate) struct Encoder<'a> {
     /// coverage a mark is drawn with — so the coverage-as-alpha substitutions §10.7.4 asks for
     /// are withheld there, exactly as `render-cpu` withholds them under Porter-Duff Source.
     knockouts: u32,
+    /// Whether the commands being translated are the **direct** elements of a §11.4.6
+    /// knockout group, which is where [`overprinted`] leaves a mark unwrapped: see
+    /// [`Self::knockout_element`].
+    element_of_knockout: bool,
     /// §14.11.2.1's boundary as a clip every chain in this list hangs from, or `None`.
     ///
     /// See [`Encoder::crop_to_page`], which is the only thing that sets it and says why this
@@ -363,6 +367,7 @@ impl<'a> Encoder<'a> {
             admits: HashMap::new(),
             masks: HashMap::new(),
             knockouts: 0,
+            element_of_knockout: false,
             root: None,
             root_rect: None,
         }
@@ -467,6 +472,17 @@ impl<'a> Encoder<'a> {
     /// be read back as opacity, so the substitutions §10.7.4 asks for are withheld under it.
     pub(crate) fn inside_knockout(&self) -> bool {
         self.knockouts > 0
+    }
+
+    /// Whether this command is a direct element of ISO 32000-2 §11.4.6's knockout group.
+    ///
+    /// Such an element composites with the group's initial backdrop, which raster's scene keeps
+    /// transparent, and §11.3.6 gives every blend function Normal's arithmetic there — "An alpha
+    /// value of αs = 0.0 or αb = 0.0 results in no blend mode effect" — so §11.7.4.3's mode needs
+    /// no group of its own in this position, and one would be refused as a knockout element
+    /// whose shape a layer does not carry (`doc/adr/1295`).
+    pub(crate) fn knockout_element(&self) -> bool {
+        self.element_of_knockout
     }
 
     /// Translates one command list into the builder — the page's, a group's or a
@@ -587,6 +603,21 @@ impl<'a> Encoder<'a> {
             return Ok(()); // the clip admits nothing: the group draws nothing
         };
         let mask = self.mask_id(builder, parts.mask)?;
+        // A group whose own blend is §11.7.4.3's mode states it as its compositing
+        // operator, which a group that is also one of §11.4.6's staged halves cannot hold
+        // twice. Table 146's last row has a group revert to Normal and the interpreter
+        // emits none such, so this refuses a construction rather than a page.
+        let compose = match (compose, self::compose(parts.blend)) {
+            (stated, raster_scene::Compose::SrcOver) => stated,
+            (raster_scene::Compose::SrcOver, own) => own,
+            (_, _) => {
+                return Err(QuorraRasterError::Unsupported(
+                    "a group that is one of §11.4.6's staged halves and composites under \
+                     §11.7.4.3's special overprinting blend mode"
+                        .to_owned(),
+                ));
+            }
+        };
         let spec = raster_scene::GroupSpec {
             alpha: parts.alpha,
             blend: blend_mode(parts.blend),
@@ -620,7 +651,9 @@ impl<'a> Encoder<'a> {
         // its elements may not do — carry a coverage in the paint's alpha — is true of every
         // element at every depth under it, not only of its immediate children.
         let outer = self.knockouts;
+        let outer_element = self.element_of_knockout;
         self.knockouts = outer.saturating_add(u32::from(parts.knockout));
+        self.element_of_knockout = parts.knockout;
         builder.group(spec, |body| {
             walked = self.commands(body, parts.commands);
             // The builder's own error channel carries scene refusals;
@@ -628,6 +661,7 @@ impl<'a> Encoder<'a> {
             Ok(())
         })?;
         self.knockouts = outer;
+        self.element_of_knockout = outer_element;
         walked
     }
 
@@ -844,7 +878,7 @@ impl<'a> Encoder<'a> {
                     raster_scene::Paint::Mesh(id),
                     clip,
                     blend_mode(blend),
-                    raster_scene::Compose::SrcOver,
+                    compose(blend),
                     mask,
                 )
                 .map_err(Into::into);
@@ -860,7 +894,7 @@ impl<'a> Encoder<'a> {
                     raster_scene::Paint::Mesh(cone),
                     clip,
                     blend_mode(blend),
-                    raster_scene::Compose::SrcOver,
+                    compose(blend),
                     mask,
                 )
                 .map_err(Into::into);
@@ -892,7 +926,7 @@ impl<'a> Encoder<'a> {
             paint,
             clip,
             blend_mode(blend),
-            raster_scene::Compose::SrcOver,
+            compose(blend),
             mask,
         )?;
         Ok(())
@@ -1177,15 +1211,18 @@ impl<'a> Encoder<'a> {
         let shape_clip = builder.clip(outline, self.placed(transform), fill_rule(rule), clip)?;
         // Unit square → the part of the domain these cells cover → shading space → page.
         let placement = grid.onto_shading().then(shading.transform);
-        builder.image(
-            image,
-            self.placed(placement),
-            1.0,
-            raster_scene::ImageFilter::Linear,
-            Some(shape_clip),
-            blend_mode(blend),
-            mask,
-        )?;
+        let at = self.placed(placement);
+        overprinted(builder, blend, self.knockout_element(), |builder| {
+            builder.image(
+                image,
+                at,
+                1.0,
+                raster_scene::ImageFilter::Linear,
+                Some(shape_clip),
+                blend_mode(blend),
+                mask,
+            )
+        })?;
         Ok(())
     }
 
@@ -1222,17 +1259,13 @@ impl<'a> Encoder<'a> {
             let resolved = source.at(placement);
             let image: &Image = &resolved;
             let id = self.cached_image(image)?;
-            builder.image(
-                id,
-                self.placed(transform),
-                alpha,
-                raster_scene::ImageFilter::Auto {
-                    interpolate: image.interpolate,
-                },
-                clip,
-                blend_mode(blend),
-                mask,
-            )?;
+            let at = self.placed(transform);
+            let filter = raster_scene::ImageFilter::Auto {
+                interpolate: image.interpolate,
+            };
+            overprinted(builder, blend, self.knockout_element(), |builder| {
+                builder.image(id, at, alpha, filter, clip, blend_mode(blend), mask)
+            })?;
             return Ok(());
         }
         // Samples the display list deferred are produced here, where the device scale
@@ -1254,15 +1287,10 @@ impl<'a> Encoder<'a> {
         } else {
             raster_scene::ImageFilter::Nearest
         };
-        builder.image(
-            id,
-            self.placed(transform),
-            alpha,
-            filter,
-            clip,
-            blend_mode(blend),
-            mask,
-        )?;
+        let at = self.placed(transform);
+        overprinted(builder, blend, self.knockout_element(), |builder| {
+            builder.image(id, at, alpha, filter, clip, blend_mode(blend), mask)
+        })?;
         Ok(())
     }
 
@@ -1884,9 +1912,17 @@ pub(crate) fn fill_rule(rule: FillRule) -> raster_scene::FillRule {
     }
 }
 
+/// The blend function half of a display-list blend mode, as raster's scene states it.
+///
+/// Table 134 and Table 135's sixteen go straight across. §11.7.4.3's special overprinting
+/// blend mode is not one of them: its value is `C_b` or `C_s` per channel, which
+/// [`compose`] states as a compositing operator, and the blend function beside that operator
+/// is Normal — the builder refuses any other there (`doc/adr/1295`).
 #[expect(
     clippy::match_same_arms,
-    reason = "the overprinting arm is unreachable — `Rasterizer::rasterize` refuses such a list               — and shares Normal's value only because this scene vocabulary has none of its               own. Merging it into Normal would state that they are the same mode"
+    reason = "the overprinting arm shares Normal's blend function because its own value \
+              travels as the compositing operator; merging it into Normal would state that \
+              the two are the same mode"
 )]
 pub(crate) fn blend_mode(blend: BlendMode) -> raster_scene::BlendMode {
     match blend {
@@ -1906,11 +1942,63 @@ pub(crate) fn blend_mode(blend: BlendMode) -> raster_scene::BlendMode {
         BlendMode::Saturation => raster_scene::BlendMode::Saturation,
         BlendMode::Color => raster_scene::BlendMode::Color,
         BlendMode::Luminosity => raster_scene::BlendMode::Luminosity,
-        // §11.7.4.3's special overprinting blend mode, which `Rasterizer::rasterize` refuses
-        // by name before a command of such a list reaches here — this scene vocabulary has no
-        // arm for it, and Normal is the value the clause's own bullet does *not* give.
+        // §11.7.4.3's special overprinting blend mode: [`compose`] carries its value.
         BlendMode::Overprint(_) => raster_scene::BlendMode::Normal,
     }
+}
+
+/// The compositing operator a display-list blend mode asks for: source-over for every
+/// mode but §11.7.4.3's special overprinting one, which is destination-over in the channels
+/// it keeps and source-over in the rest.
+///
+/// ISO 32000-2 §11.7.4.3 decides the blend function per component — "process colour
+/// components with nonzero values shall replace the corresponding component values of the
+/// backdrop; components with zero values leave the existing backdrop value unchanged" — and
+/// `pdf_render::Overprint` carries the answer the interpreter took on the document's own
+/// tints. Substituted into §11.3.3's formula, `B = C_b` is Porter-Duff destination-over and
+/// `B = C_s` is source-over, which is the vocabulary [`raster_scene::Compose::keeping`]
+/// states; its own documentation carries the derivation (`doc/adr/1295`).
+pub(crate) fn compose(blend: BlendMode) -> raster_scene::Compose {
+    match blend {
+        BlendMode::Overprint(overprint) => raster_scene::Compose::keeping(overprint.kept()),
+        _ => raster_scene::Compose::SrcOver,
+    }
+}
+
+/// One mark with no compositing operator of its own — an image, or a stroke raster strokes
+/// itself — drawn by `mark`, directly or under §11.7.4.3's special overprinting blend mode.
+///
+/// Under the mode the mark is the one element of an isolated group at alpha 1 under no clip,
+/// mask or blend, composited by the mode's operator: onto a transparent backdrop the group
+/// is the mark's own premultiplied colour, so compositing it is compositing the mark — the
+/// construction [`Encoder::shaped`]'s halves use for §11.4.6, for the same reason. The mark
+/// keeps its own clip and mask inside the group, where §11.3.7.2 multiplies them into the
+/// source alpha the mode is written against.
+///
+/// `knockout_element` is [`Encoder::knockout_element`]: there the mode is Normal's arithmetic and
+/// the mark is drawn as it stands.
+pub(crate) fn overprinted(
+    builder: &mut SceneBuilder,
+    blend: BlendMode,
+    knockout_element: bool,
+    mark: impl FnOnce(&mut SceneBuilder) -> Result<(), raster_scene::SceneError>,
+) -> Result<(), raster_scene::SceneError> {
+    let operator = compose(blend);
+    if operator == raster_scene::Compose::SrcOver || knockout_element {
+        return mark(builder);
+    }
+    builder.group(
+        raster_scene::GroupSpec {
+            alpha: 1.0,
+            blend: raster_scene::BlendMode::Normal,
+            clip: None,
+            knockout: false,
+            mask: None,
+            compose: operator,
+            isolated: true,
+        },
+        mark,
+    )
 }
 
 /// A display-list path as raster segments: both are cubics-only, so the mapping

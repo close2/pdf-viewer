@@ -147,6 +147,16 @@ impl<'a> Encoder<'a> {
         mask: Option<MaskId>,
     ) -> Result<(), RenderError> {
         let mask = self.use_mask(mask)?;
+        // ISO 32000-2 §11.3.6: "An alpha value of αs = 0.0 or αb = 0.0 results in no blend
+        // mode effect". An element of a knockout group composites with the group's initial
+        // backdrop, which is transparent here — the builder refuses a non-isolated knockout
+        // group — so §11.7.4.3's mode computes Normal's arithmetic in that position, and the
+        // element takes the group's knockout pass like any other (`doc/adr/1295`).
+        let compose_mode = if self.style == DrawStyle::Knockout && compose_mode.overprints() {
+            Compose::SrcOver
+        } else {
+            compose_mode
+        };
         let stored = self
             .resources
             .outline(outline)
@@ -194,15 +204,14 @@ impl<'a> Encoder<'a> {
                 mask,
             );
         }
-        // A staged operator names its own pass; anything else inherits the enclosing
-        // group's style, which is knockout or over (ADR 0025 refuses the combination at
-        // the builder, so these cases cannot overlap).
-        let style = match compose_mode {
-            Compose::Src => DrawStyle::Knockout,
-            Compose::DestOut => DrawStyle::DestOut,
-            Compose::Plus => DrawStyle::Plus,
-            Compose::SrcOver => self.style,
-        };
+        // §11.7.4.3's mode in a proper subset of the channels has no blend state of its
+        // own, and draws through a layer (`doc/adr/1295`); the builder refused it beside
+        // any other blend mode, so the arm above cannot also have taken it.
+        if let Compose::DestOverIn(kept) = compose_mode {
+            return self
+                .fill_through_overprint_group(outline, transform, rule, paint, clip, kept, mask);
+        }
+        let style = self.style_of(compose_mode);
         self.distinct_outlines.insert(outline.0);
         self.segments = self.segments.saturating_add(stored.segments.len() as u64);
         let rule = match rule {
@@ -310,12 +319,7 @@ impl<'a> Encoder<'a> {
         clip: Option<ClipId>,
         compose_mode: Compose,
     ) {
-        let style = match compose_mode {
-            Compose::Src => DrawStyle::Knockout,
-            Compose::DestOut => DrawStyle::DestOut,
-            Compose::Plus => DrawStyle::Plus,
-            Compose::SrcOver => self.style,
-        };
+        let style = self.style_of(compose_mode);
         if let Paint::Solid(color) = paint {
             self.record(super::ReplayRecord::SolidFill {
                 outline: outline.0,
@@ -779,6 +783,26 @@ pub(super) fn corner_bounds(
 }
 
 impl Encoder<'_> {
+    /// The pass a fill under `compose` draws in.
+    ///
+    /// A staged operator names its own pass, and so does §11.7.4.3's destination-over;
+    /// anything else inherits the enclosing group's style, which is knockout or over
+    /// (ADR 0025 refuses the staged combination at the builder, and [`Encoder::encode_fill`]
+    /// takes §11.7.4.3's mode as source-over inside a knockout group, where §11.3.6 gives it
+    /// Normal's arithmetic, so these cases cannot overlap). [`Compose::DestOverIn`] never reaches a
+    /// pass of its own — [`Encoder::fill_through_overprint_group`] draws it through a
+    /// layer — so it is the enclosing style here only for the replay record written
+    /// before that route is taken, which the route then abandons.
+    pub(super) fn style_of(&self, compose: Compose) -> DrawStyle {
+        match compose {
+            Compose::Src => DrawStyle::Knockout,
+            Compose::DestOut => DrawStyle::DestOut,
+            Compose::Plus => DrawStyle::Plus,
+            Compose::DestOver => DrawStyle::DestOver,
+            Compose::SrcOver | Compose::DestOverIn(_) => self.style,
+        }
+    }
+
     /// §11.3.5 for a single element: the implicit one-element group a blended fill
     /// draws through, so the blend function sees the element's own colour rather than
     /// the accumulated layer's.

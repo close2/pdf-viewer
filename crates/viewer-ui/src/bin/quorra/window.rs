@@ -113,6 +113,8 @@ impl ApplicationHandler for App {
     /// at the next unrelated event, which for a person using only a screen reader is never.
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, (): ()) {
         self.act();
+        // §12.7.6.2's `submit-form` thread wakes the loop the same way (ADR 1291).
+        self.take_the_answers();
         // A wake from another thread means somebody has news for the next tick — the
         // accessibility bridge's request, or the render thread's sharp picture (ADR 0699)
         // — and a loop at rest would otherwise sit on it until the next input.

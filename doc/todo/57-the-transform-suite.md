@@ -122,8 +122,7 @@ used, kept only where it is smaller (qpdf's `--optimize-images` rule, applied to
 13.62% of the pdf.js corpus sample, attributed pass by pass in ADR 0842's table. Lossy image
 optimisation is **not** taken and is refused by name, because RFC §13's second question — a DCT
 encoder — is unanswered and without one a downsampler would keep every image under the
-fails-to-shrink rule and do nothing while claiming to; `--linearize` is refused by name pointing
-at `CLAUDE.md`'s Annex F sentence. `tests/optimize.rs`, `tests/optimize_corpus.rs` — the fifth
+fails-to-shrink rule and do nothing while claiming to; `--linearize` is Annex F's writer, below. `tests/optimize.rs`, `tests/optimize_corpus.rs` — the fifth
 corpus walk, carrying RFC §9's idempotence property gate — and `support::check_optimized`.
 
 **Session 910 (ADRs 0862, 0863): what a piece still says about its pages, and the last mode of
@@ -144,6 +143,14 @@ is `Refusal::NoBookmarks` at exit 2. `support::check_navigation` is four more cl
 properties in `check_structure`'s discipline, and the foreign readback gained a sixth lane because
 an at-bookmarks piece is a different *shape* to show another reader.
 
+
+**Annex F (ADR 1293): `optimize --linearize`.** Ratified by the owner on 2026-09-22
+(`doc/questions/A03`). `pdf_syntax::linearize::serialize_linearized` writes the eleven parts in
+F.3's order with part 5 before part 4, the page offset and shared object hint tables and every
+other table Table F.2 requires of the document, and every offset computed to a fixed point before
+a byte is written; `pdf_syntax::linearize::state` is F.1's reader half. `tests/linearize.rs` reads
+each table back through `support::linearized`, a second reader written from Tables F.1 to F.12,
+and `tests/optimize_corpus.rs` walks the corpus through a linearised arm.
 ## 1. What the suite still owes
 
 - **What a piece does not carry** is the short list it is, because sessions 888, 897 and 910 built
@@ -178,6 +185,13 @@ an at-bookmarks piece is a different *shape* to show another reader.
   and downsampling to `FlateDecode`-compressed raw samples makes a photograph larger, so the
   keep-the-original rule would keep every image and the flag would do nothing while claiming to.
   One question, two features, and `doc/stack.md` is where it is answered.
+
+- **Annex F inside the linearised writer's two refusals** (ADR 1293 §5): `optimize --linearize`
+  writes no object stream (F.3.1's numbering for them, about one round) and does not encrypt
+  (F.3.5's `/Encrypt` in part 4, under a round); each is exit 4 by name. F.3.7 (b)'s bead arrays
+  are carried as the producer wrote them, and a missing `/B` or bead `/T` is not synthesised
+  (about a day). `doc/questions/Q131` asks whether the hint tables should follow Adobe's padding
+  instead of F.4.1's, which qpdf's checker expects.
 
 ## 2. The RFC 0003 hand-off
 

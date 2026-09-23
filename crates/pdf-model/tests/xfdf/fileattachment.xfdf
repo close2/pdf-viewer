@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <fileattachment page="0" rect="170,70,185,90" icon="Paperclip" file="notes.txt"
+                    size="5" mimetype="text/plain" creation="D:20260901000000Z"
+                    modification="D:20260902000000Z">
+      <data mode="raw" encoding="hex" length="5" filter="">68656C6C6F</data>
+      <contents>The notes</contents>
+    </fileattachment>
+  </annots>
+</xfdf>

@@ -37,9 +37,10 @@
 //! names and values of selected interactive form fields" to a URL, and
 //! `pdf_model::submission::compose` has answered every part of that which is about the
 //! *document*; what reaches a host is one question about *this machine*, the same kind the
-//! §12.7.6.4 paragraph asks about a filesystem. [`may_submit`] is where it is asked and
-//! [`submission_note`] is the sentence, and they are one unit here for [`refused`]'s reason
-//! (ADR 1062).
+//! §12.7.6.4 paragraph asks about a filesystem. [`may_submit`] is where it is asked, at one of
+//! [`Submissions`]' four levels, and [`submission_note`] is the sentence, and they are one unit
+//! here for [`refused`]'s reason (ADR 1062). What carries a `yes` out is `crate::submit`, the one
+//! HTTP client in the tree (ADR 1291).
 //!
 //! **And a sixth** — whether a link's URI is handed to whatever this machine opens one with.
 //! §12.6.4.8 says "[a] URI action causes a URI to be resolved", and the same division applies for
@@ -519,27 +520,175 @@ pub fn supply_note(purpose: Purpose, refusal: &str) -> String {
     format!("{}: declined — {refusal}", asked_for(purpose))
 }
 
+/// The schemes a submission may be sent to, whatever the level.
+///
+/// **The narrowest list that still performs what the clause describes**, and [`LINK_SCHEMES`]'s
+/// shape for [`LINK_SCHEMES`]'s reason. Table 239's `/F` is "[a] URL file specification … giving
+/// the uniform resource locator (URL) of the script at the Web server that will process the
+/// submission", and Table 240's own vocabulary is HTTP's — bit 4 chooses "an HTTP GET request"
+/// over "a POST request" — so a URL naming anything but a Web server is outside what the clause is
+/// about. `file` is absent for ADR 1155's reason, one act over: a document that could choose a path
+/// on this machine to write its form into is §12.7.6.4's hazard reversed. `mailto` is absent
+/// although a link may use it, because a submission is an entity body with a media type and no
+/// handler this program starts takes one. ADR 1291.
+pub const SUBMIT_SCHEMES: [&str; 2] = ["http", "https"];
+
+/// What this reader does when §12.7.6.2's composed request is ready to leave the machine.
+///
+/// `CLAUDE.md`'s four levels over the one act [`may_submit`] decides, spelled in [`Links`]'s
+/// direction rather than [`RESTRICTIONS`]'s — `refuse`, `ask`, `warn`, `send` — for ADR 1155's
+/// reason: the subject is this machine doing something a *document* asked for, so the permissive
+/// end is the one where the request is sent, and a reader who read `off` as permissive would have
+/// turned the wrong way in the same menu that holds the restrictions. ADR 1291.
+///
+/// **Global rather than per document**, which the owner's answer to `doc/questions/Q98` settled:
+/// what a reader decides here is what their machine sends to the network, and that is a fact about
+/// the person rather than about the file that asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Submissions {
+    /// Send nothing: the submission is declined and the request said out loud.
+    Refuse,
+    /// Put the request to the person first, and send it on a `yes`.
+    ///
+    /// **The default**, and the owner's (`doc/questions/Q98`): a document must not be able to send
+    /// a form from this machine by itself, and a reader must not be refused by their own viewer
+    /// the act the clause describes. [`Links::Ask`]'s argument, one act over.
+    #[default]
+    Ask,
+    /// Send it, and say afterwards what was sent where.
+    Warn,
+    /// Send it without asking.
+    Send,
+}
+
+impl Submissions {
+    /// All four, least permissive first — the order a menu offers them in.
+    pub const ALL: [Self; 4] = [Self::Refuse, Self::Ask, Self::Warn, Self::Send];
+
+    /// The word a person reads for this level.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Ask => "ask",
+            Self::Warn => "warn",
+            Self::Send => "send",
+        }
+    }
+
+    /// The level a word names, or `None` for a word that names none.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.as_str() == word)
+    }
+}
+
+/// What a host does about one §12.7.6.2 submission, under the level the reader set.
+///
+/// [`Opening`]'s four arms, for its reason: a policy with four levels answers in four ways, and a
+/// host matching three would have a level that silently behaved like another. Closed, and **not**
+/// `#[non_exhaustive]`, for `doc/ui-boundary.md`'s reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sending {
+    /// Hand it to `crate::submit::Submitter` now.
+    Send,
+    /// Hand it over now, and say this beside what comes back.
+    Warn(String),
+    /// Put this question to the person, and send it on a `yes`.
+    Ask(crate::restriction::Question),
+    /// Send nothing. The sentence says why, for [`submission_note`].
+    Refuse(String),
+}
+
 /// Whether §12.7.6.2's composed submission may be **transmitted** from this machine.
 ///
 /// §12.7.6.2 says an interactive PDF processor "shall transmit the names and values of selected
-/// interactive form fields to a specified uniform resource locator (URL)", and every part of
-/// that sentence except the verb is a question about the document, which
-/// `pdf_model::submission::compose` has already answered. The verb is a network request, and
-/// `CLAUDE.md` principle 3 gives the process that read the file neither a network nor any way to
-/// acquire one — so the answer here is a refusal, and it is a refusal about *this program*
-/// rather than about the file.
+/// interactive form fields to a specified uniform resource locator (URL)", and every part of that
+/// sentence except the verb is a question about the document, which
+/// `pdf_model::submission::compose` has already answered. The verb is a network request, sent by
+/// `crate::submit` from the host side of `CLAUDE.md` principle 3's boundary: the process that read
+/// the file still has no network and acquires none.
 ///
-/// **A function rather than a refusal written at each call site**, for the reason
-/// [`may_open_extracted`] gives and ADR 1062 repeats: the policy is asked once, in a place a
-/// host can supply, so that a host which *does* have a network — or `doc/todo/38`'s *ask* and
-/// *warn* levels — is a change here and nowhere else. A refusal that cannot become an "ask" is
-/// the thing `CLAUDE.md` says to avoid, and one spelled out in four windows is exactly that.
+/// **The one place the level is read**, for ADR 1062's reason: the policy is asked once, in a place
+/// a host can supply, and every window asks it here rather than wording its own.
 ///
-/// # Errors
+/// **Two questions are answered before the level is consulted, and the order is the point** —
+/// [`may_open_uri`]'s. A URL that names no scheme names no Web server at any level, and a scheme
+/// outside [`SUBMIT_SCHEMES`] is not one this machine sends a form to however permissive the
+/// reader is — so neither is a thing *send* turns on. ADR 1291.
+#[must_use]
+pub fn may_submit(submission: &Submission, level: Submissions) -> Sending {
+    let Some(scheme) = scheme_of(&submission.url) else {
+        return Sending::Refuse(
+            "Table 239's /F states no scheme this reader could read, so it names no Web server \
+             (ISO 32000-2 §12.7.6.2, RFC 3986 section 3.1)"
+                .to_owned(),
+        );
+    };
+    if !SUBMIT_SCHEMES.contains(&scheme.as_str()) {
+        return Sending::Refuse(format!(
+            "{scheme}: is not one of the schemes this reader sends a form to ({}), and a document \
+             does not get to choose where on this machine its fields are written",
+            SUBMIT_SCHEMES.join(", ")
+        ));
+    }
+    match level {
+        Submissions::Refuse => Sending::Refuse(format!(
+            "this reader is set to send no form ({}: {}); {} puts the request to you first",
+            crate::restriction::SUBMITTING,
+            Submissions::Refuse.as_str(),
+            Submissions::Ask.as_str()
+        )),
+        Submissions::Ask => Sending::Ask(asked_to_submit(submission)),
+        Submissions::Warn => Sending::Warn(format!(
+            "it was sent without asking you first, because this reader is set to {} ({})",
+            Submissions::Warn.as_str(),
+            crate::restriction::SUBMITTING
+        )),
+        Submissions::Send => Sending::Send,
+    }
+}
+
+/// What a window puts in front of a person at [`Submissions::Ask`].
 ///
-/// The sentence to say to the person. Every host in this tree gets one today.
-pub fn may_submit() -> Result<(), String> {
-    Err("no network — CLAUDE.md principle 3 gives this program none".to_owned())
+/// [`asked_to_open`]'s two-string shape. The first string says *where* and *what*, whole: the URL,
+/// the method, the media type and the size are what a person can judge a submission by, and a
+/// question that left one out would be asking for a decision without its subject.
+#[must_use]
+pub fn asked_to_submit(submission: &Submission) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "This document asks to send its form from this machine: {}.",
+            request_line(submission)
+        ),
+        choice: format!(
+            "You have set this reader to ask before a form is sent ({submitting}: {}). \"{}\" sends \
+             this one and leaves the level where it is; \"{}\" sends nothing. Setting \
+             {submitting} to {} in the restrictions menu stops the question being asked, and {} \
+             stops forms being sent at all.",
+            Submissions::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT,
+            Submissions::Send.as_str(),
+            Submissions::Refuse.as_str(),
+            submitting = crate::restriction::SUBMITTING,
+        ),
+    }
+}
+
+/// The request in one line: method, URL, media type, fields and bytes.
+fn request_line(submission: &Submission) -> String {
+    let method = match submission.method {
+        Method::Get => "GET",
+        Method::Post => "POST",
+    };
+    format!(
+        "{method} {} ({}), {} field(s), {} byte(s)",
+        submission.url,
+        submission.media_type,
+        submission.fields,
+        submission.body.len(),
+    )
 }
 
 /// What a host says about a submission, whether it sends it or declines.
@@ -550,17 +699,7 @@ pub fn may_submit() -> Result<(), String> {
 /// `Submission::owed` into an `Event::Reported`, and a host that said both would say them twice.
 #[must_use]
 pub fn submission_note(submission: &Submission, refused: Option<&str>) -> String {
-    let method = match submission.method {
-        Method::Get => "GET",
-        Method::Post => "POST",
-    };
-    let what = format!(
-        "{method} {} ({}), {} field(s), {} byte(s)",
-        submission.url,
-        submission.media_type,
-        submission.fields,
-        submission.body.len(),
-    );
+    let what = request_line(submission);
     match refused {
         Some(why) => format!("submit-form: declined — {why}. It would have been {what}"),
         None => format!("submit-form: {what}"),

@@ -62,10 +62,26 @@
 //!   keep-the-original rule would keep every image and the flag would be a switch that does
 //!   nothing while claiming to. It is not implemented, no flag states it, and `doc/todo/57`
 //!   carries it with the dependency it waits on.
-//! - **Linearisation.** `--linearize` is refused by name, pointing at `CLAUDE.md`'s sentence:
-//!   "Annex F stays excluded until linearisation is separately ratified."
 //! - **Encryption on the way out.** The serializer emits no `/Encrypt`, so optimising an
 //!   encrypted document produces an unencrypted one, and that is a warning rather than a silence.
+//!
+//! # Linearisation, the fifth pass, off by default
+//!
+//! [`OptimizePlan::linearize`] writes the result as ISO 32000-2 Annex F's linearised file through
+//! [`pdf_syntax::linearize`], which orders the objects and writes the hint tables and says why in
+//! its own documentation. This verb's part is the two things that module leaves to its caller:
+//! which objects are the pages, in §7.7.3.2's order, and which of them §F.3.7 makes the first. A
+//! catalog `/OpenAction` naming a page other than page 0 makes "that page shall be considered the
+//! first page", and which page it names is decided here by
+//! [`pdf_model::destination::Destination::open_action`], this tree's one reading of Table 29's
+//! entry.
+//!
+//! **Two combinations are refused by name**, each because the linearised writer does not build
+//! it rather than because the annex forbids it: §7.5.7's object streams, whose linearised form
+//! §F.3.1 conditions ("Objects stored within object streams shall be given the highest range of
+//! object numbers within the main and first-page cross-reference sections") and §F.4.1 restates for
+//! the hints; and §7.6's encryption on the way out, whose dictionary §F.3.5 places in part 4
+//! ("All values in the encryption dictionary shall also be located here"). ADR 1293 prices both.
 //!
 //! # Idempotence
 //!
@@ -114,6 +130,12 @@ pub struct OptimizePlan {
     pub object_streams: ObjectStreams,
     /// What happens to a stream's bytes.
     pub streams: Streams,
+    /// Whether the output is written as Annex F's linearised file.
+    ///
+    /// Off by default: §F.1's own account is that a linearised file is "optimised for viewing of
+    /// read-only PDF documents" and "intended to be generated once and read many times", which is
+    /// a choice about how the file will be read, not a saving every caller wants.
+    pub linearize: bool,
 }
 
 /// What one run of the verb changed, for the report and for the walk.
@@ -181,6 +203,11 @@ impl Savings {
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the source states its structure
 /// only through §C.4's recovery, [`Refusal::Assembly`] where the document cannot be rewritten at
 /// all, and [`Refusal::Sink`] where the output cannot be written.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one rewrite, from the closure to the report, with the linearised and the ordinary \
+              write as the two arms of one step"
+)]
 pub(crate) fn run(
     plan: &OptimizePlan,
     at: usize,
@@ -229,6 +256,11 @@ pub(crate) fn run(
     let version = document
         .version()
         .unwrap_or(pdf_syntax::Version { major: 1, minor: 7 });
+    let linearization = if plan.linearize {
+        Some(linearization_plan(plan, document, &assembly, protect)?)
+    } else {
+        None
+    };
     let expanded = plan.names.expand(&Fill {
         ordinal: 1,
         count: 1,
@@ -240,8 +272,21 @@ pub(crate) fn run(
         name: expanded.name.clone(),
         error,
     })?;
-    let written = Protect::write(protect, &assembly, version, options, &mut writer)
-        .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?;
+    let written = match &linearization {
+        Some(linear) => {
+            pdf_syntax::linearize::serialize_linearized(
+                &assembly,
+                version,
+                plan.streams,
+                linear,
+                &mut writer,
+            )
+            .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?
+            .written
+        }
+        None => Protect::write(protect, &assembly, version, options, &mut writer)
+            .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?,
+    };
     writer.flush().map_err(|error| Refusal::Sink {
         name: expanded.name.clone(),
         error,
@@ -280,6 +325,75 @@ pub(crate) fn run(
         },
     });
     Ok(())
+}
+
+/// What [`pdf_syntax::linearize`] is told: the pages in the output's numbering, and the first.
+///
+/// # Errors
+///
+/// [`Refusal::Linearization`], naming the clause: a combination the linearised writer does not
+/// build, or a page this document states in a way §F.3.1's numbering cannot place.
+fn linearization_plan(
+    plan: &OptimizePlan,
+    document: &Document,
+    assembly: &Assembly<'_>,
+    protect: Option<&Protect>,
+) -> Result<pdf_syntax::linearize::Plan, Refusal> {
+    if matches!(plan.object_streams, ObjectStreams::Generate { .. }) {
+        return Err(Refusal::Linearization(
+            "--linearize with §7.5.7's object streams: F.3.1 requires that \"[o]bjects stored \
+             within object streams shall be given the highest range of object numbers within the \
+             main and first-page cross-reference sections\", and the linearised writer does not \
+             build that numbering; ask for --object-streams disable (ADR 1293)"
+                .to_owned(),
+        ));
+    }
+    if protect.is_some() {
+        return Err(Refusal::Linearization(
+            "--linearize with encryption: F.3.5 places the encryption dictionary in part 4 — \"All \
+             values in the encryption dictionary shall also be located here\" — and the linearised \
+             writer does not encrypt; write it linearised or encrypted, not both (ADR 1293)"
+                .to_owned(),
+        ));
+    }
+    let pages = Pages::new(document);
+    let mut ordered: Vec<(usize, ObjectId)> = Vec::with_capacity(pages.len());
+    let mut direct = 0usize;
+    for index in 0..pages.len() {
+        match pages.get(index).and_then(|page| page.id) {
+            Some(id) => ordered.push((index, id)),
+            None => direct = direct.saturating_add(1),
+        }
+    }
+    if direct > 0 || ordered.is_empty() {
+        return Err(Refusal::Linearization(format!(
+            "F.3.1: every object of a linearised file is numbered in one of two groups, and {direct} \
+             of this document's {} pages are not indirect objects its page tree names",
+            pages.len()
+        )));
+    }
+    let mut mapped = Vec::with_capacity(ordered.len());
+    for (index, id) in &ordered {
+        let Some(output) = assembly.copied(0, *id) else {
+            return Err(Refusal::Linearization(format!(
+                "F.3.7: page {} is not an object the rewrite carries",
+                index.saturating_add(1)
+            )));
+        };
+        mapped.push(output);
+    }
+    // §F.3.7: an `/OpenAction` naming another page makes that page the first. Where it names no
+    // page this reader can find — a remote go-to, a destination that does not resolve — page 0
+    // is the first, which is Table 29's own default: "If this entry is absent, the document shall
+    // be opened to the top of the first page".
+    let first_page = pdf_model::destination::Destination::open_action(document)
+        .and_then(|destination| destination.page_index(document, &pages))
+        .filter(|index| *index < mapped.len())
+        .unwrap_or(0);
+    Ok(pdf_syntax::linearize::Plan {
+        pages: mapped,
+        first_page,
+    })
 }
 
 /// The object §7.5.5's `/Root` names, or a refusal saying the trailer does not name one.

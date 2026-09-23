@@ -460,9 +460,8 @@ fn the_default_submission_is_an_fdf_of_every_field_with_a_value() {
     let submission = composed(0, "");
     assert_eq!(submission.method, Method::Post);
     assert_eq!(submission.format, Format::Fdf);
-    // The registry's name and not the vendor-tree one: `application/fdf`, registered by ISO
-    // TC 171/SC 2, which is the committee that owns this standard.
-    assert_eq!(submission.format.content_type(), "application/fdf");
+    // §12.7.8.1: "FDF shall use the MIME media type application/vnd.fdf."
+    assert_eq!(submission.format.content_type(), "application/vnd.fdf");
     assert_eq!(submission.url, "https://example.invalid/cgi");
 
     let body = body(&submission);

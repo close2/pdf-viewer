@@ -21,21 +21,19 @@
 //! and never to quote in committed source. Nothing below is verbatim; where the exact words matter,
 //! read the section. `doc/third-party-data.md` carries the rule and the provenance.)
 //!
-//! Four entries, and [`read`] answers three of them into the very same [`FormsData`] that
+//! Four entries, and [`read`] answers all four into the very same [`FormsData`] that
 //! [`FormsData::read`] fills from an FDF file — `<f>` into its `source`, `<ids>` into its
-//! `identifier`, `<fields>` into its `fields`. That is the point of returning that type rather
-//! than one of this module's own: §12.7.6.4's import has one meaning, `ViewState::import` applies
-//! it once, and a second path into it could disagree with the first about what a fully qualified
-//! name is.
+//! `identifier`, `<fields>` into its `fields`, `<annots>` into its `annotations`. That is the
+//! point of returning that type rather than one of this module's own: §12.7.6.4's import has one
+//! meaning, `ViewState::import` applies it once, and a second path into it could disagree with the
+//! first about what a fully qualified name is or where an annotation goes.
 //!
-//! **`<annots>` is the fourth and is counted rather than read**, which ADR 1108 argues and
-//! [`FormsData::owed`] says out loud. The clause makes it owed — ISO 19444-1:2019 section 5.7.1
-//! says an import may create a *new* annotation, which is the one thing it says a form import may
-//! not do — and what it would take is that standard's sections 6.4 and 6.6, its per-subtype
-//! elements and its PDF-to-XFDF
-//! attribute mapping, which the preview this tree holds does not carry. Inventing them from
-//! another reader or from sample files is what `CLAUDE.md` principle 5 forbids, so the count and
-//! the sentence are the honest answer and the field data is imported beside them.
+//! **`<annots>` is read from the text ISO 19444-1 was made from**, Adobe's *XML Forms Data Format
+//! Specification* 3.0, held whole at `doc/XFDF_Spec_3.0.pdf`, because the preview this module's
+//! field half is written against stops before the annotation elements. ISO 19444-1:2019 section
+//! 5.7.1 is why they are owed — an import may create a *new* annotation, the one thing it says a
+//! form import may not do — and the private `annotations` module is the mapping, with the
+//! places ISO 32000-2 overrides the text named there and in ADR 1297.
 //!
 //! # The grammar, as far as this reads it
 //!
@@ -72,7 +70,21 @@
 //! writes an FDF from, and the round trip through [`read`] is what the tests here and there
 //! check together.
 
+mod annotations;
+
 use crate::forms_data::{Encoding, FdfField, FlagChange, FormsData, MAX_FIELD_DEPTH, MAX_FIELDS};
+
+/// How deep one annotation element's own children are followed.
+///
+/// The deepest the text's content models go is an annotation, its `<inklist>` and a `<gesture>`
+/// inside that; rich text is not captured as elements. Sixteen is room for that and for a file
+/// nesting an element the text does not define, and it is what bounds a hostile nesting.
+const MAX_ANNOTATION_DEPTH: usize = 16;
+
+/// Most elements captured under one file's `<annots>`, over all its annotations.
+///
+/// An ink annotation's gestures are the largest honest count, one per stroke.
+const MAX_ANNOTATION_ELEMENTS: usize = 1 << 18;
 
 /// The namespace ISO 19444-1:2019 section 5.5.2 requires of an XFDF document.
 pub const NAMESPACE: &str = "http://ns.adobe.com/xfdf/";
@@ -127,7 +139,7 @@ pub fn read(bytes: &[u8]) -> Result<FormsData, XfdfError> {
     if !reader.saw_xfdf {
         return Err(XfdfError::NotXfdf);
     }
-    Ok(reader.finish())
+    Ok(reader.finish(text))
 }
 
 /// One element the walk is inside, by local name.
@@ -147,8 +159,13 @@ enum Element {
     File,
     /// `<ids>`, whose two attributes are §14.4's file identifier.
     Ids,
-    /// `<annots>`, counted rather than read.
+    /// `<annots>`, whose children are the annotations.
     Annots,
+    /// An annotation element or one of its children, captured whole into [`Reader::capture`].
+    Captured,
+    /// Anything inside a `<contents-richtext>`: its rich text is taken as markup rather than read
+    /// as elements.
+    RichText,
     /// Anything else. Its children are `Other` too, so nothing inside an element this reader does
     /// not know can be mistaken for field data.
     Other,
@@ -182,8 +199,12 @@ struct Reader {
     ids: [Option<Vec<u8>>; 2],
     /// The fields, in the order the file states them.
     fields: Vec<FdfField>,
-    /// How many `<annots>` children were counted, for the sentence ADR 1108 owes.
-    annotations: usize,
+    /// The annotation element being captured and its open children, outermost first.
+    capture: Vec<annotations::Node>,
+    /// Every annotation element captured whole, in the order the file states them.
+    captured: Vec<annotations::Node>,
+    /// How many elements have been captured, against [`MAX_ANNOTATION_ELEMENTS`].
+    elements: usize,
     /// What this file states and this reader does not apply, in the order it was first met.
     ///
     /// A list rather than a flag apiece because each entry is a sentence for a person and not a
@@ -200,28 +221,38 @@ impl Reader {
     fn token(&mut self, token: &xmlparser::Token<'_>) {
         match *token {
             xmlparser::Token::ElementStart { local, .. } => self.start(local.as_str()),
-            xmlparser::Token::Attribute { local, value, .. } => {
-                self.attribute(local.as_str(), value.as_str());
+            xmlparser::Token::Attribute {
+                prefix,
+                local,
+                value,
+                ..
+            } => {
+                // Namespace declarations and the `xml:` attributes are the document's XML, not
+                // its data.
+                if !matches!(prefix.as_str(), "xmlns" | "xml") && local.as_str() != "xmlns" {
+                    self.attribute(local.as_str(), value.as_str());
+                }
             }
-            xmlparser::Token::ElementEnd { end, .. } => match end {
-                xmlparser::ElementEnd::Open => self.opened(),
+            xmlparser::Token::ElementEnd { end, span } => match end {
+                xmlparser::ElementEnd::Open => self.opened(span.end()),
                 // An empty element opens and closes at once: `<field name="x"/>` is a field with
                 // no value, which §12.7.8.3.2's "replace" makes a value removed.
                 xmlparser::ElementEnd::Empty => {
-                    self.opened();
-                    self.close();
+                    self.opened(span.end());
+                    self.close(span.end());
                 }
-                xmlparser::ElementEnd::Close(..) => self.close(),
+                xmlparser::ElementEnd::Close(..) => self.close(span.start()),
             },
-            // Character content, collected only while a `<value>` is open. CDATA carries no
-            // entity references by definition, which is why only the first is unescaped.
+            // Character content, collected while a `<value>` is open or an annotation is being
+            // captured. CDATA carries no entity references by definition, which is why only the
+            // first is unescaped.
             xmlparser::Token::Text { text } => {
-                if let Some(into) = self.value.as_mut() {
+                if let Some(into) = self.characters() {
                     crate::xmp::unescape(text.as_str(), into);
                 }
             }
             xmlparser::Token::Cdata { text, .. } => {
-                if let Some(into) = self.value.as_mut() {
+                if let Some(into) = self.characters() {
                     into.push_str(text.as_str());
                 }
             }
@@ -229,21 +260,27 @@ impl Reader {
         }
     }
 
+    /// Where character content goes at this point of the walk, if anywhere.
+    fn characters(&mut self) -> Option<&mut String> {
+        if self.value.is_some() {
+            return self.value.as_mut();
+        }
+        match self.open.last().map(|frame| frame.element) {
+            Some(Element::Captured | Element::RichText) => {
+                self.capture.last_mut().map(|node| &mut node.text)
+            }
+            _ => None,
+        }
+    }
+
     /// An element's name has been read; its attributes have not.
     fn start(&mut self, local: &str) {
         let parent = self.open.last().map(|frame| frame.element);
         let element = match parent {
-            // Section 5.7.1's annotations: each child of `<annots>` is one, counted at the point
-            // it opens and read by nothing. What reading it would take is ISO 19444-1 sections
-            // 6.4 and 6.6, which the text this tree holds does not carry (ADR 1108).
-            Some(Element::Annots) => {
-                self.annotations = self.annotations.saturating_add(1);
-                self.owe(
-                    "<annots>: ISO 19444-1 section 5.7.1's annotations, whose elements and \
-                     attributes are that standard's sections 6.4 and 6.6",
-                );
-                Element::Other
-            }
+            // Each child of `<annots>` is one annotation, and it and everything under it are
+            // captured whole and read by `annotations::read` once the file is done (ADR 1297).
+            Some(Element::Annots | Element::Captured) => self.capture_element(local),
+            Some(Element::RichText) => Element::RichText,
             // Nothing below an unread element is read, whatever it is called.
             Some(Element::Other) => Element::Other,
             _ => match local {
@@ -270,6 +307,26 @@ impl Reader {
         });
     }
 
+    /// One element under `<annots>`, opened as a captured node where the bounds allow.
+    fn capture_element(&mut self, local: &str) -> Element {
+        if let Some(node) = self.capture.last_mut()
+            && node.name == "contents-richtext"
+        {
+            node.has_elements = true;
+            return Element::RichText;
+        }
+        if self.capture.len() >= MAX_ANNOTATION_DEPTH || self.elements >= MAX_ANNOTATION_ELEMENTS {
+            self.owe("<annots>: more or deeper elements than this reader walks, and they were cut");
+            return Element::Other;
+        }
+        self.elements = self.elements.saturating_add(1);
+        self.capture.push(annotations::Node {
+            name: local.to_owned(),
+            ..annotations::Node::default()
+        });
+        Element::Captured
+    }
+
     /// One attribute of the element that is being opened.
     fn attribute(&mut self, local: &str, value: &str) {
         let Some(frame) = self.open.last_mut() else {
@@ -277,6 +334,12 @@ impl Reader {
         };
         let mut text = String::with_capacity(value.len());
         crate::xmp::unescape(value, &mut text);
+        if frame.element == Element::Captured {
+            if let Some(node) = self.capture.last_mut() {
+                node.attributes.push((local.to_owned(), text));
+            }
+            return;
+        }
         match (frame.element, local) {
             // ISO 19444-1:2019 section 5.6.2 explains this attribute as pointing at the PDF
             // document holding the form fields. A name for a person, never a path this crate
@@ -301,11 +364,16 @@ impl Reader {
     /// A `<field>` becomes a [`FdfField`] here rather than at its close, so that a field stating
     /// no value is recorded exactly once and in the order the file writes it — the same order
     /// `forms_data::read_fields` records an FDF's `/Kids` in.
-    fn opened(&mut self) {
+    fn opened(&mut self, offset: usize) {
         let Some(frame) = self.open.last() else {
             return;
         };
         match frame.element {
+            Element::Captured => {
+                if let Some(node) = self.capture.last_mut() {
+                    node.markup = Some((offset, offset));
+                }
+            }
             Element::Value => self.value = Some(String::new()),
             Element::Field if frame.named => {
                 let index = self.record();
@@ -317,12 +385,21 @@ impl Reader {
         }
     }
 
-    /// The innermost element closes.
-    fn close(&mut self) {
+    /// The innermost element closes, its close tag beginning at `offset`.
+    fn close(&mut self, offset: usize) {
         let Some(frame) = self.open.pop() else {
             self.unbalanced = true;
             return;
         };
+        if frame.element == Element::Captured
+            && let Some(mut node) = self.capture.pop()
+        {
+            node.markup = node.markup.map(|(start, _)| (start, offset.max(start)));
+            match self.capture.last_mut() {
+                Some(parent) => parent.children.push(node),
+                None => self.captured.push(node),
+            }
+        }
         if frame.element == Element::Value
             && let Some(text) = self.value.take()
         {
@@ -387,7 +464,10 @@ impl Reader {
     }
 
     /// The file, with what it states this program does not apply named on `owed`.
-    fn finish(self) -> FormsData {
+    ///
+    /// `source` is the file's text, which a `<contents-richtext>`'s markup is taken from.
+    fn finish(mut self, source: &str) -> FormsData {
+        let annotations = annotations::read(&self.captured, source, &mut self.owed);
         let identifier = match self.ids {
             [Some(original), Some(modified)] => Some([original, modified]),
             // Half an identifier compared against a whole one would answer, which is
@@ -410,7 +490,7 @@ impl Reader {
             // Section 5.5.2 makes the file UTF-8, so its values arrive as characters rather than
             // as bytes in some registered character set. `Unicode` is the entry that says so.
             encoding: Encoding::Unicode,
-            annotations: Vec::new(),
+            annotations,
             pages: Vec::new(),
             target: None,
             embedded: Vec::new(),
@@ -588,23 +668,39 @@ mod tests {
         assert!(data.fields[0].value.is_none());
     }
 
-    /// ISO 19444-1:2019 section 5.7.1 makes annotations importable and this reader does not read
-    /// them,
-    /// so the file says how many it carried rather than dropping them in silence (ADR 1108).
+    /// Annotations and field data are read side by side: `<annots>` into the same
+    /// [`FormsData::annotations`] an FDF file's `/Annots` fills, `<fields>` into its fields, and
+    /// the markup inside a `<contents-richtext>` taken whole as Table 172's `/RC` rather than read
+    /// as elements of the file (ADR 1297).
     #[test]
-    fn annotations_are_counted_and_named_rather_than_read() {
+    fn annotations_are_read_beside_the_field_data() {
         let data = read(
             "<xfdf xmlns=\"http://ns.adobe.com/xfdf/\">\
-             <annots><text page=\"0\"/><highlight page=\"1\"/></annots>\
+             <annots><text page=\"0\" rect=\"1,2,3,4\"><contents-richtext>\
+             <body xmlns=\"http://www.w3.org/1999/xhtml\"><p>rich &amp; <i>set</i></p></body>\
+             </contents-richtext></text>\
+             <highlight page=\"1\" rect=\"0,0,5,5\" coords=\"0,5,5,5,0,0,5,0\"/></annots>\
              <fields><field name=\"a\"><value>x</value></field></fields></xfdf>"
                 .as_bytes(),
         )
         .expect("well-formed XFDF");
         assert_eq!(data.fields.len(), 1, "the field data is still imported");
-        assert!(
-            data.owed.iter().any(|owed| owed.starts_with("<annots>")),
-            "an unread <annots> is named, not silent: {:?}",
-            data.owed
+        assert!(data.owed.is_empty(), "{:?}", data.owed);
+        assert_eq!(data.annotations.len(), 2);
+        assert_eq!(data.annotations[1].page, Some(1));
+        let note = data.annotations[0]
+            .dictionary
+            .as_ref()
+            .expect("a dictionary");
+        let rich = note
+            .get("RC")
+            .and_then(pdf_syntax::Object::as_string)
+            .map(pdf_syntax::text_string)
+            .expect("/RC");
+        // The markup as the file wrote it, entity reference and all: `/RC` is itself XML.
+        assert_eq!(
+            rich,
+            "<body xmlns=\"http://www.w3.org/1999/xhtml\"><p>rich &amp; <i>set</i></p></body>"
         );
     }
 

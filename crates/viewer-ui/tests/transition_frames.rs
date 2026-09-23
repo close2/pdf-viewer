@@ -135,7 +135,10 @@ fn both_backends_draw_the_same_transition_frame() {
     // identity is what a reused scene is keyed on, so it is an identity that can be pinned.
     let list = std::sync::Arc::new(
         frame
-            .draw(viewport, &outgoing, &incoming)
+            .draw(
+                viewport,
+                &viewer_core::transition::Faces::new(&wipe(), outgoing, incoming),
+            )
             .expect("two images and one clip"),
     );
     let target = TargetSpec {
@@ -184,4 +187,100 @@ fn both_backends_draw_the_same_transition_frame() {
         differing <= column,
         "{differing} pixels differ, which is more than the one column the line lands in"
     );
+}
+
+/// A `Dissolve` and a `Fly` half way through are the same frame on both backends.
+///
+/// The two styles drawn at a quantity this program chose (ADR 1299) are the ones whose frame is not
+/// one rectangle: a `Dissolve` is a clip of many runs of cells, and a `Fly` draws a picture built
+/// from the two pages' difference. At 240 by 120 a cell is 6 pixels square, so every edge falls on
+/// a pixel boundary and the two backends have no partial pixel to distribute differently; the
+/// closed forms are that half the window is the page moved to, and that a `Fly` of two pages which
+/// differ everywhere has carried the new page half a window in from the left.
+#[test]
+fn a_dissolve_and_a_fly_are_the_same_frame_on_both_backends() {
+    let viewport = Rect::from_corners(
+        Point::new(0.0, 0.0),
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's extent in pixels, which is hundreds"
+        )]
+        Point::new(WINDOW.0 as f32, WINDOW.1 as f32),
+    );
+    let target = TargetSpec {
+        width: WINDOW.0,
+        height: WINDOW.1,
+        transform: Transform::IDENTITY,
+    };
+    let mut gpu = match QuorraRasterizer::new_headless_software() {
+        Ok(gpu) => Some(gpu),
+        Err(error) => {
+            println!("the device half is skipped: no software adapter on this machine: {error}");
+            None
+        }
+    };
+    for style in [Style::Dissolve, Style::Fly] {
+        let transition = Transition {
+            style: style.clone(),
+            ..wipe()
+        };
+        let faces = viewer_core::transition::Faces::new(
+            &transition,
+            page([255, 0, 0, 255], [255, 255, 0, 255]),
+            page([0, 0, 255, 255], [0, 0, 255, 255]),
+        );
+        let list = std::sync::Arc::new(
+            viewer_core::transition::frame(&transition, viewport, 0.5)
+                .expect("drawn at a chosen quantity")
+                .draw(viewport, &faces)
+                .expect("two images and two clips"),
+        );
+        let processor = CpuRasterizer::new()
+            .rasterize(&list, target)
+            .expect("the correctness oracle draws the frame");
+        let blue = processor
+            .data
+            .chunks_exact(4)
+            .filter(|pixel| pixel[0..3] == [0, 0, 255])
+            .count();
+        let half = (WINDOW.0 as usize).saturating_mul(WINDOW.1 as usize) / 2;
+        assert_eq!(
+            blue, half,
+            "{style:?}: half the window is the page moved to"
+        );
+        if style == Style::Fly {
+            assert_eq!(
+                at(&processor, 60, 30),
+                [0, 0, 255],
+                "the new page, flown half in"
+            );
+            assert_eq!(
+                at(&processor, 180, 30),
+                [255, 0, 0],
+                "the old page, not yet covered"
+            );
+        }
+        let Some(gpu) = gpu.as_mut() else { continue };
+        let device = gpu
+            .rasterize_frame(&PresentFrame {
+                width: WINDOW.0,
+                height: WINDOW.1,
+                pages: &[(&list, target)],
+                raster: None,
+                overlays: &[],
+            })
+            .unwrap_or_else(|error| {
+                panic!("the graphics device refused a {style:?} frame: {error}")
+            });
+        let differing = processor
+            .data
+            .chunks_exact(4)
+            .zip(device.data.chunks_exact(4))
+            .filter(|(ours, theirs)| ours[0..3] != theirs[0..3])
+            .count();
+        assert_eq!(
+            differing, 0,
+            "{style:?}: {differing} pixels differ between the backends"
+        );
+    }
 }

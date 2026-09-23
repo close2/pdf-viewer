@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <sound page="0" rect="170,10,185,30" icon="Mic" rate="8000" bits="8" channels="1" encoding="signed">
+      <data mode="filtered" encoding="ascii" length="4" filter="">ABCD</data>
+    </sound>
+  </annots>
+</xfdf>

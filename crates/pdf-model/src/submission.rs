@@ -144,18 +144,20 @@ impl Format {
     ///
     /// Table 240 bit 9 states the third — "the MIME media type application/pdf as defined by
     /// Internet RFC 8118" — and HTML 4.01 section 17.13.4 states the second. ISO 32000-2 states
-    /// none for FDF, so the third comes from the registry rather than from a habit:
-    /// `application/fdf`, registered 2022-04-05 by ISO TC 171/SC 2 — the committee that owns this
-    /// standard — at <https://www.iana.org/assignments/media-types/application/fdf>. The older
-    /// `application/vnd.fdf` is a vendor-tree name for the same bytes and is not what the
-    /// registry lists. XFDF's is `application/xfdf`, the same committee's and by the same
-    /// argument — its registration names ISO Technical Committee 171, Sub-Committee 2, Working
-    /// Group 8 as the body that standardizes XFDF, and makes `application/vnd.adobe.xfdf` a
-    /// "[d]eprecated alias".
+    /// FDF's itself, in §12.7.8.1:
+    ///
+    /// > FDF shall use the MIME media type application/vnd.fdf.
+    ///
+    /// so that is what is sent, although IANA also lists `application/fdf` for the same bytes:
+    /// the specification is the source of truth, and a registry is evidence beside it (ADR 1291).
+    /// ISO 32000-2 states none for XFDF, whose `application/xfdf` is the registry's — its
+    /// registration names ISO Technical Committee 171, Sub-Committee 2, Working Group 8 as the
+    /// body that standardizes XFDF, and makes `application/vnd.adobe.xfdf` a "[d]eprecated
+    /// alias".
     #[must_use]
     pub const fn content_type(self) -> &'static str {
         match self {
-            Self::Fdf => "application/fdf",
+            Self::Fdf => "application/vnd.fdf",
             Self::HtmlForm => "application/x-www-form-urlencoded",
             Self::Xfdf => "application/xfdf",
             Self::Pdf => "application/pdf",

@@ -530,7 +530,18 @@ pub struct FdfAnnotation {
     /// page Table 254's `/Page` states. ADR 1223.
     ///
     /// `None` where the copy exceeded its budget, which [`FormsData::owed`] names.
+    ///
+    /// Two entries are never in it: Table 172's `/Popup` and Table 186's `/Parent`. Each is "an
+    /// indirect reference" to another annotation, which a copy cannot be, so they cross as
+    /// [`Self::popup`] and [`Self::parent`] and the import writes them as references to the
+    /// objects it gives the two annotations (ADR 1297).
     pub dictionary: Option<Dictionary>,
+    /// Table 172's `/Popup`: where in the same file's annotations the popup annotation this one
+    /// opens is.
+    pub popup: Option<usize>,
+    /// Table 186's `/Parent`: where in the same file's annotations the annotation this popup
+    /// belongs to is.
+    pub parent: Option<usize>,
 }
 
 impl FormsData {
@@ -608,7 +619,7 @@ impl FormsData {
         // that saw only the string form would read that file as naming no source at all.
         let source = crate::file_spec::FileSpec::parse(document, &document.get_key(&fdf, "F"));
 
-        let annotations = read_annotations(document, &document.get_key(&fdf, "Annots"));
+        let annotations = read_annotations(document, &document.get_key(&fdf, "Annots"), &mut owed);
         let embedded = read_embedded(document, &fdf, budget, depth, &mut owed);
         for (key, why) in [
             (
@@ -1289,30 +1300,124 @@ fn read_pages(document: &Document, entry: &Object, encoding: &Encoding) -> Vec<F
 /// and a name, so neither can be a reference into anything — and the dictionary that crosses is
 /// [`carry`]'s copy. An annotation whose copy the budget stopped keeps its page and its subtype
 /// and states no dictionary, which is what `FormsData::owed` then names. ADR 1223.
-fn read_annotations(document: &Document, entry: &Object) -> Vec<FdfAnnotation> {
+///
+/// **Two entries are links between annotations rather than values, and they are read as links.**
+/// Table 172's `/Popup` is "[a]n indirect reference to a popup annotation" and Table 186's
+/// `/Parent` names the annotation a popup belongs to, so a popup and its parent name each other —
+/// and a copy that followed either would follow the pair round until its depth bound refused the
+/// whole annotation. They cross as positions in the list instead ([`FdfAnnotation::popup`],
+/// [`FdfAnnotation::parent`]), both halves made to agree, and a popup the array does not list
+/// itself is carried beside the annotation that opens it, on that annotation's page where it
+/// states none of its own. ADR 1297.
+///
+/// **Table 172's `/IRT` is the third**, and the table settles its type for this file format: "[i]f
+/// this entry is present in an FDF file (see 12.7.8, "Forms data format"), its type shall not be a
+/// dictionary but a text string containing the contents of the NM entry of the annotation being
+/// replied to". A string crosses as it is and the import resolves it; anything else has broken
+/// that sentence and is named rather than copied, since copying a reference would carry the whole
+/// replied-to annotation into this one.
+fn read_annotations(
+    document: &Document,
+    entry: &Object,
+    owed: &mut Vec<&'static str>,
+) -> Vec<FdfAnnotation> {
     let resolved = document.resolve(entry);
     let Some(items) = resolved.as_array() else {
         return Vec::new();
     };
-    items
-        .iter()
-        .take(MAX_ANNOTATIONS)
-        .filter_map(|item| {
-            let resolved = document.resolve(item);
-            let stated = resolved.as_dict()?;
-            Some(FdfAnnotation {
-                page: document
-                    .get_key(stated, "Page")
-                    .as_integer()
-                    .and_then(|page| usize::try_from(page).ok()),
-                subtype: document
-                    .get_key(stated, "Subtype")
-                    .as_name()
-                    .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
-                dictionary: carry_dictionary(document, stated, &mut Carried::new(), 0),
-            })
-        })
-        .collect()
+    let items: Vec<&Object> = items.iter().take(MAX_ANNOTATIONS).collect();
+    let ids: Vec<Option<ObjectId>> = items.iter().map(|item| item.as_reference()).collect();
+    let mut out: Vec<FdfAnnotation> = Vec::new();
+    // Where each array element landed in `out`, which differs once an element is not a dictionary.
+    let mut slot: Vec<Option<usize>> = vec![None; items.len()];
+    let mut links: Vec<(Object, Object)> = Vec::new();
+    for (at, item) in items.iter().enumerate() {
+        let resolved = document.resolve(item);
+        let Some(stated) = resolved.as_dict() else {
+            continue;
+        };
+        slot[at] = Some(out.len());
+        links.push((
+            stated.get("Popup").cloned().unwrap_or(Object::Null),
+            stated.get("Parent").cloned().unwrap_or(Object::Null),
+        ));
+        out.push(read_annotation(document, stated, owed));
+    }
+    let listed = |value: &Object| {
+        value
+            .as_reference()
+            .and_then(|id| ids.iter().position(|stated| *stated == Some(id)))
+            .and_then(|at| slot[at])
+    };
+    for (index, (popup, parent)) in links.iter().enumerate() {
+        if let Some(parent) = listed(parent) {
+            out[index].parent = Some(parent);
+        }
+        if let Some(popup) = listed(popup) {
+            out[index].popup = Some(popup);
+            continue;
+        }
+        let resolved = document.resolve(popup);
+        if let Some(stated) = resolved.as_dict()
+            && out.len() < MAX_ANNOTATIONS
+        {
+            let mut beside = read_annotation(document, stated, owed);
+            beside.page = beside.page.or(out[index].page);
+            beside.parent = Some(index);
+            out[index].popup = Some(out.len());
+            out.push(beside);
+        }
+    }
+    // Either half of the pair is the file's statement that the two belong together, so each is
+    // made to say what the other says.
+    for index in 0..out.len() {
+        if let Some(popup) = out[index].popup
+            && out[popup].parent.is_none()
+        {
+            out[popup].parent = Some(index);
+        }
+        if let Some(parent) = out[index].parent
+            && out[parent].popup.is_none()
+        {
+            out[parent].popup = Some(index);
+        }
+    }
+    out
+}
+
+/// One FDF annotation dictionary, carried without the two entries [`read_annotations`] reads as
+/// links and without an `/IRT` that is not the text string Table 172 requires in an FDF file.
+fn read_annotation(
+    document: &Document,
+    stated: &Dictionary,
+    owed: &mut Vec<&'static str>,
+) -> FdfAnnotation {
+    let mut copy = stated.clone();
+    copy.remove("Popup");
+    copy.remove("Parent");
+    if copy
+        .get("IRT")
+        .is_some_and(|reply| !matches!(document.resolve(reply), Object::String(_)))
+    {
+        copy.remove("IRT");
+        let why = "/Annots: an /IRT that is not the text string Table 172 requires in an FDF file";
+        if !owed.contains(&why) {
+            owed.push(why);
+        }
+    }
+    FdfAnnotation {
+        page: document
+            .get_key(stated, "Page")
+            .as_integer()
+            .and_then(|page| usize::try_from(page).ok()),
+        subtype: document
+            .get_key(stated, "Subtype")
+            .as_name()
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned()),
+        dictionary: carry_dictionary(document, &copy, &mut Carried::new(), 0),
+        popup: None,
+        parent: None,
+    }
 }
 
 /// What one FDF field says about one widget of the target document.

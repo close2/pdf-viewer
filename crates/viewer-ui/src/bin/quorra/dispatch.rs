@@ -104,19 +104,89 @@ impl App {
         }
     }
 
-    /// §12.7.6.2's composed request, said out loud under the host policy that decides it.
+    /// §12.7.6.2's composed request, under the level the menu holds.
     ///
-    /// A function of its own rather than four lines in the arm above, and not only for the
-    /// line count: this is the whole of what a *host* contributes to the clause, and a reader
-    /// looking for where the decision is made should find one name to follow.
-    fn submit(submission: &pdf_model::submission::Submission) {
+    /// `viewer_host::may_submit` decides and this carries the decision out: three of the four
+    /// levels end in a sentence or a send, and the fourth in a question (ADR 1291).
+    fn submit(
+        &mut self,
+        document: viewer_core::DocumentId,
+        submission: pdf_model::submission::Submission,
+    ) {
+        match viewer_host::may_submit(&submission, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.send_form(document, submission, None),
+            viewer_host::Sending::Warn(note) => self.send_form(document, submission, Some(note)),
+            viewer_host::Sending::Ask(words) => self.put_a_question(
+                crate::app::Pending::Submit {
+                    document,
+                    submission: Box::new(submission),
+                },
+                &words,
+            ),
+            viewer_host::Sending::Refuse(why) => println!(
+                "{}",
+                viewer_host::policy::submission_note(&submission, Some(&why))
+            ),
+        }
+    }
+
+    /// Puts the request on a `submit-form` thread of its own, and says where it went.
+    ///
+    /// The thread wakes this loop when the answer is in, which is what `user_event` is for; the
+    /// answer is taken by [`App::take_the_answers`] there.
+    fn send_form(
+        &mut self,
+        document: viewer_core::DocumentId,
+        submission: pdf_model::submission::Submission,
+        warned: Option<String>,
+    ) {
         println!(
             "{}",
-            viewer_host::policy::submission_note(
-                submission,
-                viewer_host::policy::may_submit().err().as_deref(),
-            )
+            viewer_host::policy::submission_note(&submission, None)
         );
+        let wake = self.waker.clone().map(|waker| -> Box<dyn Fn() + Send> {
+            Box::new(move || {
+                // A loop that has already exited has nobody to wake, and the answer it would have
+                // read is one nobody is owed.
+                let _ = waker.send_event(());
+            })
+        });
+        if let Err(sentence) = self.submitter.send(document, submission, warned, wake) {
+            println!("note: {sentence}");
+        }
+    }
+
+    /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
+    pub(crate) fn take_the_answers(&mut self) {
+        for returned in self.submitter.collect() {
+            let (document, url) = (returned.document, returned.url.clone());
+            match returned.reply() {
+                viewer_host::submit::Reply::Import {
+                    format,
+                    bytes,
+                    note,
+                } => {
+                    println!("{note}");
+                    self.dispatch(Command::Respond {
+                        document,
+                        source: url,
+                        format,
+                        bytes,
+                    });
+                }
+                viewer_host::submit::Reply::Document { bytes, note } => {
+                    match viewer_host::submit::keep_answer(&bytes) {
+                        Ok(path) => {
+                            println!("{note}; kept at {}", path.display());
+                            self.arrivals.wait(viewer_host::Named::file(path), false);
+                            self.open_the_next();
+                        }
+                        Err(sentence) => println!("{note}; {sentence}"),
+                    }
+                }
+                viewer_host::submit::Reply::Say(note) => println!("{note}"),
+            }
+        }
     }
 
     /// Does what one event asks.
@@ -242,7 +312,10 @@ answers in two places"
             // §12.7.6.2: the policy is `viewer_host::policy::may_submit`'s and not this
             // window's, so that a host with a network — or `doc/todo/38`'s ask and warn levels —
             // is a change in one place (ADR 1062). What this arm owns is saying it out loud.
-            Event::Submit { submission, .. } => Self::submit(&submission),
+            Event::Submit {
+                document,
+                submission,
+            } => self.submit(document, *submission),
             // Three of the five purposes are asked at one of four levels and §12.7.6.4's own
             // file is not, and the difference is what each does: an import puts another file's
             // *values* into the document being read, while a remote go-to, a thread in another
@@ -505,6 +578,27 @@ impl App {
             crate::app::Pending::Link { uri } => {
                 println!("{}", viewer_host::answered(&uri, proceed));
             }
+            // §12.7.6.2: the act is this host's own, so the answer decides whether the request
+            // leaves this machine at all (ADR 1291).
+            crate::app::Pending::Submit {
+                document,
+                submission,
+            } => {
+                if proceed {
+                    self.send_form(document, *submission, None);
+                } else {
+                    println!(
+                        "{}",
+                        viewer_host::policy::submission_note(
+                            &submission,
+                            Some(&format!(
+                                "you answered \"{}\"",
+                                viewer_host::restriction::DO_NOT
+                            )),
+                        )
+                    );
+                }
+            }
             // §12.6.4.3: the act is opening a document in place of this one, so a `no` supplies
             // nothing and the core says the link declined (ADR 1227).
             crate::app::Pending::RemoteDocument {
@@ -626,6 +720,15 @@ impl App {
     /// The menu stays up, which is what a person setting three levels at once needs, and its rows
     /// are taken again so that the tick follows the choice.
     pub(crate) fn chose_restriction(&mut self) {
+        // §12.7.6.2's row sets a level this host reads and sends the viewer nothing (ADR 1291).
+        if let Some(level) = self.menu.sending() {
+            self.restrictions.send(level);
+            println!("note: {}", viewer_host::sending_chosen(level));
+            let rows = self.restrictions.rows();
+            self.menu.refill(rows);
+            self.redraw();
+            return;
+        }
         let Some(chose) = self.menu.chosen() else {
             return;
         };

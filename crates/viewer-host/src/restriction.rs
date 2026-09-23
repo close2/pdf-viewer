@@ -27,6 +27,16 @@
 //! depart from the window's levels, in as many operations as it likes and no more, for as long as
 //! it is open (ADR 1145).
 //!
+//! # The third group, which is not a restriction
+//!
+//! Below the two scopes sits one act a *document* asks this *machine* to do: sending a form
+//! (§12.7.6.2). Its four levels are `crate::policy::Submissions` — `refuse`, `ask`, `warn`, `send`,
+//! the direction ADR 1155 spelled for links — and they are here because the owner put the level on
+//! this menu (`doc/questions/Q98`): it is global, like the window's own levels, and a person who
+//! opens the menu to see what a document may do to them should find what it may do *from* their
+//! machine beside it. It sends no command, because the viewer never decides it: the level is read
+//! by `crate::policy::may_submit` in the host and nowhere else (ADR 1291).
+//!
 //! # What a host still owns
 //!
 //! Every pixel, and one thing without any: **what a dismissed question means**. [`DO_NOT`] is the
@@ -35,6 +45,7 @@
 //! `pdf-transform` makes for a pipe with `Refusal::Unanswered` and the one [`crate::unanswerable`]
 //! makes for a face with no dialogue at all.
 
+use crate::policy::Submissions;
 use pdf_model::restriction::{Level, Operation};
 use viewer_core::{
     Command, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope,
@@ -88,6 +99,18 @@ pub const INERT: &str = "no verb in this window yet";
 pub const NOT_THE_DOCUMENTS_TO_HIDE: &str = "this document asks to hide the menu bar (§12.2's /HideMenubar); the only menu here is this \
      reader's own restriction levels, which a document does not get to take away (CLAUDE.md: it \
      shall always be possible to turn them off). /HideToolbar and /HideWindowUI are obeyed";
+
+/// The heading a window puts over what a document may ask this machine to do.
+pub const MACHINE: &str = "What a document may ask this machine to do";
+
+/// What a window says under [`MACHINE`]: the level is the window's, for every document in it.
+///
+/// Short, because three windows draw it on one line. That the levels run the other way from the
+/// restrictions — the permissive end last — is said by their words, `refuse` to `send`.
+pub const MACHINE_NOTE: &str = "for every document in this window";
+
+/// The one act under [`MACHINE`], and the name the sentences about its level use.
+pub const SUBMITTING: &str = "sending a form";
 
 /// Which of a reader's two policies an entry sets.
 ///
@@ -185,6 +208,36 @@ pub enum Row {
     },
     /// A level a person can choose, under the operation above it.
     Level(Entry),
+    /// The heading over what a document may ask this machine to do — [`MACHINE`].
+    Machine {
+        /// [`MACHINE`].
+        label: &'static str,
+        /// [`MACHINE_NOTE`].
+        note: &'static str,
+    },
+    /// The act under [`Row::Machine`] — [`SUBMITTING`], §12.7.6.2's submission.
+    Act {
+        /// [`SUBMITTING`].
+        label: &'static str,
+        /// The clause, for a person who wants to know what the act is.
+        note: &'static str,
+    },
+    /// A level of that act a person can choose.
+    Sending(SendingEntry),
+}
+
+/// One of `crate::policy::Submissions`' four levels, with the tick a toolkit draws it from.
+///
+/// [`Entry`]'s shape, and a type of its own because what choosing it means is not a [`Chose`]: it
+/// sets a value the host reads, and sends the viewer nothing (ADR 1291).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SendingEntry {
+    /// `Submissions::as_str`'s word.
+    pub label: &'static str,
+    /// Whether this is the level that stands now.
+    pub chosen: bool,
+    /// The level choosing it sets.
+    pub level: Submissions,
 }
 
 /// The words of one [`viewer_core::Event::Asking`], from [`asked`].
@@ -236,6 +289,14 @@ pub fn declined(operation: Operation) -> String {
     )
 }
 
+/// What a window says when a person picks a level of [`SUBMITTING`] out of the menu.
+///
+/// [`chosen`]'s sentence, for its reason: the level a person just set has no appearance.
+#[must_use]
+pub fn sending_chosen(level: Submissions) -> String {
+    format!("{SUBMITTING} is now {} in this window", level.as_str())
+}
+
 /// What a window says when a person picks a level out of the menu.
 ///
 /// **Said rather than left to the tick**, for two reasons that are the same reason: a menu closes
@@ -266,6 +327,9 @@ pub struct Restrictions {
     window: RestrictionPolicy,
     /// What the open document departs from them in.
     document: RestrictionOverride,
+    /// What §12.7.6.2's submission does on this machine — global, and `ask` until a person picks
+    /// another (ADR 1291).
+    submissions: Submissions,
 }
 
 impl Restrictions {
@@ -275,7 +339,33 @@ impl Restrictions {
         Self {
             window,
             document: RestrictionOverride::NONE,
+            submissions: Submissions::Ask,
         }
+    }
+
+    /// The level `crate::policy::may_submit` is asked at — the one place a window reads it.
+    #[must_use]
+    pub const fn submissions(self) -> Submissions {
+        self.submissions
+    }
+
+    /// Sets that level, which is what a [`Row::Sending`] comes to. Nothing is sent to the viewer:
+    /// the level is the host's to read (ADR 1291).
+    pub const fn send(&mut self, level: Submissions) {
+        self.submissions = level;
+    }
+
+    /// The four levels of [`SUBMITTING`], and which of them stands.
+    #[must_use]
+    pub fn sending_entries(self) -> Vec<SendingEntry> {
+        Submissions::ALL
+            .into_iter()
+            .map(|level| SendingEntry {
+                label: level.as_str(),
+                chosen: level == self.submissions,
+                level,
+            })
+            .collect()
     }
 
     /// The window's levels, which is what a host sends before it opens a document.
@@ -318,7 +408,8 @@ impl Restrictions {
         self.document = RestrictionOverride::NONE;
     }
 
-    /// The menu, whole: two scopes, every operation in each, four levels each and one way back.
+    /// The menu, whole: two scopes, every operation in each, four levels each and one way back —
+    /// and then [`MACHINE`]'s one act and its four levels.
     ///
     /// Built on demand rather than held, because it is a function of two values a host already
     /// has and because a window that built it at startup would have built it before anything
@@ -342,6 +433,15 @@ impl Restrictions {
                 rows.extend(self.entries(scope, operation).into_iter().map(Row::Level));
             }
         }
+        rows.push(Row::Machine {
+            label: MACHINE,
+            note: MACHINE_NOTE,
+        });
+        rows.push(Row::Act {
+            label: SUBMITTING,
+            note: "ISO 32000-2 §12.7.6.2's submit-form action",
+        });
+        rows.extend(self.sending_entries().into_iter().map(Row::Sending));
         rows
     }
 

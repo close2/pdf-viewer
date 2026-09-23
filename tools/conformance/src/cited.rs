@@ -44,6 +44,17 @@
 //! and reporting it would be asking the row to name the same file twice. A clause with no row at
 //! all — Annex or front-matter numbering the ledger does not carry — is [`Reach::NoRow`].
 //!
+//! # A checker citing the clause it checks
+//!
+//! A crate that *checks* a document against another standard cites the ISO 32000-2 clause each
+//! check reads, and it cites it often: `pdf-archive`'s ISO 19005 requirements each name the clause
+//! whose structure they examine. Those citations are claims about what a check reads, not about
+//! where the clause is implemented, so the row is right not to name the file — and while the
+//! checkers had no rung of their own every one of them sat on the top rung, re-read by every round
+//! that ran the sweep. [`CHECKERS`] names the crates, [`Rung::Checker`] is where their pairs go,
+//! and the report prints that rung as a count per crate rather than as a list, beside any crate
+//! [`CHECKERS`] names that the workspace no longer has, so that the list cannot rot quietly.
+//!
 //! # Why it is not a gate
 //!
 //! [`crate::pointers`]' reason, in the other direction: the sweep cannot tell an implementing
@@ -66,6 +77,17 @@ use crate::ledger::{Ledger, Status};
 /// on the top rung and so is a run of files whose single `§` is a "see also". The constant is the
 /// rank's only number and it moves nothing else.
 pub const REPEATED: usize = 3;
+
+/// The workspace members that check a document against another standard, rather than implement
+/// ISO 32000-2, each with the reason it is one.
+///
+/// A list here rather than a marker in each crate so that the population is named where the
+/// report is, and a crate joins it by an argument in this file rather than by a line nobody reads
+/// beside its own code.
+pub const CHECKERS: [(&str, &str); 1] = [(
+    "crates/pdf-archive",
+    "decides ISO 19005 conformance, citing the ISO 32000-2 clause each requirement examines",
+)];
 
 /// Why the sweep could not be run.
 #[derive(Debug, thiserror::Error)]
@@ -98,6 +120,9 @@ pub enum Rung {
     /// A row claiming work whose `code` names this crate and not this file, read [`REPEATED`]
     /// times or more by a library source of it.
     UnknownFile,
+    /// Either of the two above, in a crate [`CHECKERS`] names: a checker citing the clause it
+    /// checks, which is not a gap in the row. Counted per crate rather than listed.
+    Checker,
 }
 
 /// One file's citations of one clause.
@@ -122,6 +147,8 @@ pub struct Citing {
     pub is_library: bool,
     /// Whether the row's `code` names any file of the citing file's own crate.
     pub crate_named: bool,
+    /// The [`CHECKERS`] member the citing file lies in, where it lies in one.
+    pub checker: Option<&'static str>,
 }
 
 impl Citing {
@@ -135,7 +162,9 @@ impl Citing {
         {
             return None;
         }
-        if self.crate_named {
+        if self.checker.is_some() {
+            Some(Rung::Checker)
+        } else if self.crate_named {
             Some(Rung::UnknownFile)
         } else {
             Some(Rung::UnknownCrate)
@@ -157,6 +186,16 @@ pub fn crate_of<'a>(members: &'a [String], path: &str) -> Option<&'a str> {
         .filter(|member| path.starts_with(&format!("{member}/")))
         .max_by_key(|member| member.len())
         .map(String::as_str)
+}
+
+/// The [`CHECKERS`] member a path lies in, where it lies in one.
+#[must_use]
+pub fn checker_of(members: &[String], path: &str) -> Option<&'static str> {
+    let home = crate_of(members, path)?;
+    CHECKERS
+        .iter()
+        .map(|(member, _)| *member)
+        .find(|member| *member == home)
 }
 
 /// Whether a path is a library source rather than a test, an example, a bench or a fuzz target.
@@ -181,6 +220,8 @@ pub struct Found {
     pub citing: Vec<Citing>,
     /// How many source files were read.
     pub files_read: usize,
+    /// Every crate [`CHECKERS`] names that the workspace does not have.
+    pub absent_checkers: Vec<&'static str>,
 }
 
 impl Found {
@@ -235,6 +276,11 @@ pub fn judge(
 ) -> Found {
     let mut found = Found {
         files_read: scanned.len(),
+        absent_checkers: CHECKERS
+            .iter()
+            .map(|(member, _)| *member)
+            .filter(|member| !members.iter().any(|known| known == member))
+            .collect(),
         ..Found::default()
     };
     for (path, scan) in scanned {
@@ -277,6 +323,7 @@ pub fn judge(
                 status: row.map(|row| row.status),
                 is_library: is_library(&named),
                 crate_named,
+                checker: checker_of(members, &named),
             });
         }
     }
@@ -347,7 +394,8 @@ pub fn calibrate(root: &Path, ledger: &Ledger) -> Result<Option<Calibration>, Er
     }))
 }
 
-/// The report: the three rungs, then what the run was clean over.
+/// The report: the two rungs a person reads, the checkers' rung by crate, then what the run was
+/// clean over.
 #[must_use]
 pub fn report(found: &Found) -> String {
     let mut out = String::new();
@@ -377,6 +425,32 @@ pub fn report(found: &Found) -> String {
             );
         }
     }
+    let checked = found.on(Rung::Checker);
+    let mut per_checker: BTreeMap<&str, usize> = BTreeMap::new();
+    for citing in &checked {
+        if let Some(checker) = citing.checker {
+            let count = per_checker.entry(checker).or_default();
+            *count = count.saturating_add(1);
+        }
+    }
+    let _ = writeln!(
+        out,
+        "{} pair(s) a checker cites for the clause it checks, not listed",
+        checked.len()
+    );
+    for (member, why) in CHECKERS {
+        let _ = writeln!(
+            out,
+            "  {member}: {} — {why}",
+            per_checker.get(member).copied().unwrap_or(0)
+        );
+    }
+    for member in &found.absent_checkers {
+        let _ = writeln!(
+            out,
+            "  {member} is named as a checker and is not a workspace member"
+        );
+    }
     let _ = writeln!(
         out,
         "\n{} pair(s) the row already names, {} with no row at all",
@@ -400,6 +474,7 @@ mod tests {
             status,
             is_library: true,
             crate_named: false,
+            checker: None,
         }
     }
 
@@ -446,6 +521,25 @@ mod tests {
             None,
             "a test citing the clause it tests belongs to the `test` array"
         );
+    }
+
+    #[test]
+    fn a_checker_citing_the_clause_it_checks_has_a_rung_of_its_own() {
+        let mut checked = citing(REPEATED, Reach::Unnamed, Some(Status::Implemented));
+        checked.checker = Some(CHECKERS[0].0);
+        assert_eq!(checked.rung(), Some(Rung::Checker));
+        checked.crate_named = true;
+        assert_eq!(
+            checked.rung(),
+            Some(Rung::Checker),
+            "whether or not the row names the crate"
+        );
+        let members = vec![CHECKERS[0].0.to_owned()];
+        assert_eq!(
+            checker_of(&members, &format!("{}/src/survey.rs", CHECKERS[0].0)),
+            Some(CHECKERS[0].0)
+        );
+        assert_eq!(checker_of(&members, "crates/pdf-model/src/page.rs"), None);
     }
 
     #[test]

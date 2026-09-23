@@ -90,6 +90,14 @@ pub struct GroupSpec {
     /// its shape, and the deposit half as the group itself. [`Compose::Src`] is refused
     /// here: an element whose shape is its coverage is what [`GroupSpec::knockout`]
     /// already means.
+    ///
+    /// [`Compose::DestOver`] and [`Compose::DestOverIn`] composite the finished group under
+    /// ISO 32000-2 §11.7.4.3's special overprinting blend mode, which is how a caller states
+    /// that mode for a mark with no operator of its own — a stroke or an image — as an
+    /// isolated group holding the mark alone: onto a transparent backdrop the group *is*
+    /// the mark, so compositing it is compositing the mark. The group's own blend must be
+    /// Normal and it must be isolated
+    /// ([`SceneError::OverprintComposeUnsupported`](crate::error::SceneError::OverprintComposeUnsupported)).
     pub compose: Compose,
     /// What the elements composite **onto** (ISO 32000-2 §11.4.5, §11.4.4).
     ///
@@ -215,7 +223,8 @@ pub enum Command {
         /// How the result combines with the backdrop (§11.3.5).
         blend: BlendMode,
         /// The compositing behaviour — §4.1's coverage-modulated source is the second
-        /// variant and the reason the field exists.
+        /// variant and the reason the field exists, and §11.7.4.3's special overprinting
+        /// blend mode ([`Compose::DestOver`], [`Compose::DestOverIn`]) the last two.
         compose: Compose,
         /// Active soft mask, or `None`.
         mask: Option<MaskId>,

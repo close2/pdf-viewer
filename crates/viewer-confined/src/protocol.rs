@@ -15,7 +15,9 @@
 //! [`viewer_core::Command::RenderReady`] and [`viewer_core::Event::NeedsRender`] — are named as
 //! [`Uncarried`], which is a refusal a caller can read, and they are not carried because the
 //! confined process answers them *itself*: it holds the rasteriser, so the render round trip
-//! never crosses the pipe. That is `doc/ui-boundary.md`'s "one boundary, not two".
+//! never crosses the pipe. That is `doc/ui-boundary.md`'s "one boundary, not two". A third,
+//! [`viewer_core::Command::Respond`], is [`Uncarried`] because the confined window sends no form,
+//! so no server's answer exists to cross (ADR 1291).
 //!
 //! **A message that cannot be decoded is a refusal that says so.** [`ProtocolError`] names what
 //! was truncated or unrecognised; nothing here defaults, clamps or guesses.
@@ -1467,6 +1469,14 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 // placement (ADR 1204).
                 writer.f32(sheet.page_scale);
             }
+        }
+        Command::Respond { .. } => {
+            return Err(Uncarried {
+                message: "Command::Respond",
+                reason: "the confined window sends no form (`viewer_host::policy::may_submit` is \
+                         asked there at `Submissions::Refuse`), so no server's answer comes back \
+                         to cross",
+            });
         }
         Command::RenderReady { .. } => {
             return Err(Uncarried {

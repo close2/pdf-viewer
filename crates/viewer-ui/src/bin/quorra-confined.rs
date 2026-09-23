@@ -630,16 +630,26 @@ impl Host {
                     }
                 }
             }
-            // §12.7.6.2, the same way: composed by the confined process and declined here,
-            // because whether this machine makes a network request is a host's answer and this
-            // window has none to give (ADR 1062).
+            // §12.7.6.2, the same way: composed by the confined process and declined here at
+            // `Submissions::Refuse`, for `Links::Refuse`'s reason above — this window has no
+            // dialogue to put the *ask* level's question in (ADRs 1062, 1291).
             Event::Submit { submission, .. } => {
+                let why =
+                    match viewer_host::may_submit(&submission, viewer_host::Submissions::Refuse) {
+                        viewer_host::Sending::Refuse(why) => why,
+                        // Unreachable at this level and said rather than ignored, because a level that
+                        // grew a question this window cannot put would otherwise go quiet (trap 5).
+                        viewer_host::Sending::Ask(words) => {
+                            viewer_host::unanswerable(&[words.reasons])
+                        }
+                        viewer_host::Sending::Send | viewer_host::Sending::Warn(_) => {
+                            "this window sends no form: it has no dialogue to ask you in (ADR 1291)"
+                                .to_owned()
+                        }
+                    };
                 eprintln!(
                     "{}",
-                    viewer_host::policy::submission_note(
-                        &submission,
-                        viewer_host::policy::may_submit().err().as_deref(),
-                    )
+                    viewer_host::policy::submission_note(&submission, Some(&why))
                 );
             }
             // A file the document asks for is a question about *this* machine's filesystem

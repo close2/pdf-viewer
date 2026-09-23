@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <freetext page="0" rect="10,60,190,95" justification="centered" intent="FreeTextCallout">
+      <defaultappearance>/Helv 10 Tf 0 0 1 rg</defaultappearance>
+      <defaultstyle>font: Helvetica 10pt; color:#0000FF</defaultstyle>
+      <contents-richtext><body xmlns="http://www.w3.org/1999/xhtml"><p>Typed on the page</p></body></contents-richtext>
+      <contents>Typed on the page</contents>
+      <border width="2"/>
+    </freetext>
+  </annots>
+</xfdf>

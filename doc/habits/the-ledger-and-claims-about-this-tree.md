@@ -389,3 +389,10 @@ previous round had already built; `grep` of the refusal's call sites showed it i
 site left was labelled `Both` on a raster that never multiplied anything, and behind it a JPX
 opacity channel was dropped with nothing said (ADR 1279). A rename greps the old name in doc comments
 too — `cargo test -p conformance --test names` is now a zero gate and catches it.
+
+**When a ruling retires an argument, every row whose first sentence cites the retired ADR moves,
+not only the rows a brief lists.** A72 retired the argument under four transition styles and the
+brief named three rows; `tools/state.sh departures` found the fourth, §12.6.4.15, resting on the same
+four styles (ADR 1299). And where a brief names the file a feature lives in, grep the function's
+callers before building — the transition frames were reached through `viewer_host::Clock`, not the
+presentation module the brief named.

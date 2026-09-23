@@ -7,6 +7,8 @@
     reason = "a support module is compiled into each test binary and each uses part of it"
 )]
 
+pub(crate) mod linearized;
+
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 

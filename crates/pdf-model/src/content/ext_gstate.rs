@@ -496,17 +496,7 @@ impl Interpreter<'_> {
         // forms later for it (ADR 0327).
         if let Object::Boolean(flag) = self.document.get_key(dict, "AIS") {
             state.alpha_is_shape = flag;
-            let stated = super::AlphaSourcesSeen::of(flag);
-            let painted = self.list.command_count();
-            // A reading nothing was painted under is replaced rather than mixed in — see
-            // `Interpreter::alpha_sources_mark`, and it is what lets a form that opens with
-            // the `gs` stating `/AIS` be drawn instead of reported.
-            self.alpha_sources = if painted == self.alpha_sources_mark {
-                stated
-            } else {
-                self.alpha_sources.with(stated)
-            };
-            self.alpha_sources_mark = painted;
+            self.note_alpha_source(flag);
         }
 
         // §11.6.4.3's soft mask: an independent source of shape or opacity, defined by a

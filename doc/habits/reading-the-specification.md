@@ -203,3 +203,17 @@ construct read elsewhere (ADR 1197).
 with the `/Params` `/ModDate` answer in the same sentence (ADR 1270). `CLAUDE.md` states the rule
 for recording a silence; a choice is a claim that the standard states nothing, and it decays the
 same way — grep for the value, not only the clause number.
+
+## "The standard states nothing here" is checked against the clause's own headings before anything rests on it
+
+FDF was sent as `application/fdf` beside a comment saying the standard names no media type, and
+§12.7.8.1's sentence naming `application/vnd.fdf` sits four lines under its heading (ADR 1292).
+`CLAUDE.md` says this of a ledger silence; it binds a code comment the same way, and a value about to
+reach a real server is where such a comment is finally read.
+
+## A reference implementation's disagreement on packing is confirmed by a scratch build in its convention
+
+qpdf pads every hint-table item to a byte where F.4.1 says the fields run without regard to byte
+boundaries; one scratch build with padding cleared its warnings and turned a suspicion into a
+measurement before the disagreement was recorded and put to the owner (ADR 1293, `doc/questions/Q131`).
+The annex stands; the build is what makes the record a fact rather than a reading.

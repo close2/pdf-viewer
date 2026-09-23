@@ -18,7 +18,8 @@ link asks it to start another program on a string the *document* chose (`--links
 open`, `ask` by default, ADR 1155). The levels here are a reader deciding how much of what a
 document asserts *over them* to obey; there they are a reader deciding what a document may ask
 their machine to do. One vocabulary for both would have made `off` mean the permissive end in one
-and the restrictive end in the other.
+and the restrictive end in the other. **A third, `viewer_host::Submissions`, is on this menu**: what
+§12.7.6.2's submission does, `refuse|ask|warn|send`, `ask` by default, global (ADR 1291).
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
@@ -292,6 +293,9 @@ screen still takes the bar — that sentence is the reader asking rather than th
   the file assert something untrue is not. The types keep the two apart —
   `RestrictionLevel` reaches `Viewer::refusal` and nothing else, and `withdrawn_usage_rights` is
   reached from `ViewState::save` with no policy in scope at all — and it must stay that way.
-- **§12.7.6.2's submit is still not one of these**, re-checked in the three-hundred-and-seventy-third
-  session: it is refused because it needs a network this program does not have (principle 3), which
-  is a capability rather than a permission, and no level would turn it on.
+- **§12.7.6.2's submit is not one of these, and it has four levels of its own.** It is a request
+  this machine makes at a document's asking — `Links`' direction, not a restriction's — so its
+  levels are `viewer_host::Submissions`, `refuse`, `ask` (the default), `warn` and `send`, read once
+  by `viewer_host::may_submit`, global, and set from the third group of this same menu in all three
+  windows, *What a document may ask this machine to do*. No command-line word sets it. A URL outside
+  `http` and `https` is refused before the level is read (ADR 1291).

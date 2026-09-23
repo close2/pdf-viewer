@@ -251,8 +251,8 @@ The exclusions, closed, each with its reason:
 
   Generator obligations come into scope only where the serializer actually emits the construct:
   §7.5.4/§7.5.5/§7.5.7/§7.5.8 on the way out, §14.4, §7.6 encryption on the way out. Annex F
-  stays excluded until linearisation is separately ratified. The ledger's `writer-side` status
-  narrows accordingly.
+  is in scope since the owner ratified linearisation on 2026-09-22 (`doc/questions/A03`), and
+  `optimize --linearize` emits it. The ledger's `writer-side` status narrows accordingly.
 
   The boundary line that keeps the exclusion enforceable: **does the operation invent marks?**
   Rotate does not (it writes an integer the producer's renderer already honours); a watermark

@@ -1114,25 +1114,34 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        // 112 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "documents with structure, whole population",
             census.with_structure,
-            112,
+            113,
         );
         // 2_463 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        // 2509 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "pages that answer at all, whole population",
             census.answered_pages,
-            2509,
+            2654,
         );
         // 227_618 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        gate_ratchet::floor("elements reached, whole population", census.nodes, 228_725);
+        // 228_725 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("elements reached, whole population", census.nodes, 248_085);
         // 665 until the merge of sessions 1074-1079: `T-REC-X.690-202102.pdf`, a tagged
         // specification fetched for reading by round 1075, joined the population the way
         // `ICC.1-2022-05.pdf` did — the oracle registered it the same day. The rise is the
@@ -1146,72 +1155,99 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        gate_ratchet::floor("elements placed, whole population", census.placed, 12_202);
+        // 12_202 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("elements placed, whole population", census.placed, 14_026);
         // 191_815 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        // 192_882 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements placed by their own marks, whole population",
             census.derived,
-            192_882,
+            211_328,
         );
         // 23183 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         // 36388 until session 1154: 12 510 of these were `ISO-19444-1-2019-preview.pdf`'s cells
         // counted once per page, and the document answers 695 where it answered 13 205 (ADR 1151).
+        // 23_878 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "cells with headers, whole population",
             census.header_cells,
-            23_878,
+            23_988,
         );
         // 33931 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
         // 47725 until session 1154, the associations of the cells the floor above lost, and
         // from the same cause (ADR 1151).
+        // 34_657 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "header associations, whole population",
             census.header_associations,
-            34_657,
+            34_767,
         );
         gate_ratchet::floor("§12.7.5's controls, whole population", census.controls, 272);
         // 11_258 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        // 11_295 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements that are annotations, whole population",
             census.annotations,
-            11_295,
+            13_031,
         );
         // 113_098 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
+        // 113_809 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "elements a caret reaches, whole population",
             census.with_lines,
-            113_809,
+            121_194,
         );
         // 199_568 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        gate_ratchet::floor("lines, whole population", census.lines, 201_290);
+        // 201_290 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("lines, whole population", census.lines, 209_705);
         // 5_354_660 until the merge of sessions 1207-1212: `ISO-CD-18619-2013.pdf`,
         // `ICC-White-Paper-40-BPC.pdf` and `AdobeBPC-2006.pdf`, three tagged texts fetched for
         // reading by round 1208 (ADR 1253), joined the population the way every `doc/*.pdf`
         // does (ADR 1075: the bound sits beside the population it admits; trap 43).
-        gate_ratchet::floor("characters, whole population", census.characters, 5_420_256);
+        // 5_420_256 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
+        gate_ratchet::floor("characters, whole population", census.characters, 5_681_047);
         // 887 until the merge of sessions 1098-1104: `ETSI_EN_319_102-1_v1.4.1.pdf`, a tagged
         // specification fetched for reading by round 1098, joined the population the way every
         // `doc/*.pdf` does (ADR 1075: the bound sits beside the population it admits).
+        // 888 until the merge of sessions 1227-1232: `XFDF_Spec_3.0.pdf`, the XFDF 3.0 text
+        // held for `doc/questions/A97`, joined the population the way every `doc/*.pdf` does
+        // (ADR 1075: the bound sits beside the population it admits; trap 43).
         gate_ratchet::floor(
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
-            888,
+            889,
         );
     } else {
         println!(

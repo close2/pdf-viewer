@@ -47,6 +47,7 @@ fn default_plan() -> OptimizePlan {
         prune: true,
         object_streams: ObjectStreams::DEFAULT,
         streams: Streams::DEFAULT,
+        linearize: false,
     }
 }
 

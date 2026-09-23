@@ -39,6 +39,13 @@ pub(crate) enum Pending {
         /// The URI as `viewer_host::resolve_uri` left it.
         uri: String,
     },
+    /// §12.7.6.2's composed request, answered by sending it or by saying it was not (ADR 1291).
+    Submit {
+        /// The document whose form it is, which is where an FDF answer goes.
+        document: viewer_core::DocumentId,
+        /// The request exactly as `pdf_model::submission::compose` made it.
+        submission: Box<pdf_model::submission::Submission>,
+    },
     /// A file a document named, answered by reading it and supplying it (ADRs 1227, 1239).
     RemoteDocument {
         /// Which of the three purposes asked, so that the answer goes back to the right one.
@@ -388,6 +395,9 @@ pub(crate) struct App {
     /// beside the one it is in* are two decisions, and one word for both would make each of them
     /// mean the other (ADR 1227).
     pub(crate) remote_documents: viewer_host::RemoteDocuments,
+    /// §12.7.6.2's submissions on the wire, each on a thread of its own, and the answers that have
+    /// come back — collected when the thread wakes this loop (ADR 1291).
+    pub(crate) submitter: viewer_host::submit::Submitter,
     /// What the standing question is about.
     ///
     /// Kept for [`App::locked`]'s reason one field down — the card is answered on a later turn of

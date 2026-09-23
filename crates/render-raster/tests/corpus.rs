@@ -398,8 +398,16 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// list in the four-hundred-and-thirty-ninth and is back on it, which is the second time a name
 /// has arrived because the oracle learned to state something this vocabulary cannot.
 /// `doc/QUORRA_FEEDBACK.md` section 49 is the ask, and ADR 1182 is what it turned out to be: the
-/// mode is Porter-Duff destination-over in the channels it keeps and source-over in the rest, so
-/// what this vocabulary is short of is one compositing operator rather than a blend function.
+/// mode is Porter-Duff destination-over in the channels it keeps and source-over in the rest.
+///
+/// **The mode is drawn now and the page stays, behind the refusal the mode stood in front of**
+/// (ADR 1295). raster's `Compose::DestOver` and `Compose::DestOverIn` state the mode, and the
+/// by-name refusal is gone; what this page meets next is §11.7.4.3's last paragraph, which puts an
+/// object painted under `/BM /Multiply` in "a non-isolated, non-knockout transparency group" and
+/// paints that group under Multiply — the §11.4.4 result step `raster_scene::GroupSpec` accepts
+/// only under Normal, refused at the builder as *a non-isolated group (§11.4.4) cannot be drawn
+/// here because its own blend mode is not Normal*. The mode is compared on the crawl's pages that
+/// paint it under Normal instead, which is ADR 1295 section 5.
 const REFUSED_BEFORE_THE_SCENE: [&str; 5] = [
     "bug1721218_reduced.pdf",
     "issue12798_page1_reduced.pdf",
@@ -763,21 +771,7 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// converter's own tolerance is within 0.011% of its limit. The worst tile the gate prints is at
 /// (32, 224), which is the raster's own bottom row and one pixel tall — trap 26, and the verdict
 /// here rests on the differing fraction.
-///
-/// **`pr12564.pdf`'s worst tile is a sampled image at one device pixel per sample, and the
-/// difference is raster's filter.** The page is a newsletter, and the tile at (64, 64) holds a
-/// 90 × 90 seal placed by `90 0 0 90 32.08 872.42 cm` — a native placement at a fractional offset.
-/// §10.7.4 maps each device pixel's centre back into source space and forbids averaging over the
-/// pixel area, so the clause's answer there is the one sample, unfiltered; `pdf_render::Image::
-/// is_smoothed` answers `false` for it (ADR 1107 section 3) and the oracle draws exactly that.
-/// `render_raster::scene` hands quorra the samples with a mirrored copy of the older rule deciding
-/// (ADR 0702), and quorra filters — the device rectangle is 0.49 of 255 from the bilinear answer
-/// and 0.35 from the point sample, each about 10.8 from the other rule, while the ink totals agree
-/// (8949.51 against 8947.80), which is why this page sat on the edge list rather than the ink list.
-/// `doc/QUORRA_FEEDBACK.md` section 47 is the ask; the measurement that shows the two answers away from
-/// any document is `examples/image_phase`, whose control is the same image at a scale of 1.5, where
-/// both backends filter and agree.
-const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
+const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
@@ -924,27 +918,11 @@ const DIFFERS_AT_THE_EDGES: [&str; 2] = ["issue2177.pdf", "pr12564.pdf"];
 /// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` section 45 is the ask: the
 /// stroked region is that rectangle traversed *twice*, and clamping the pixel-integrated winding
 /// is what makes a doubled contour heavier than the set §8.5.3.3 defines.
-///
-/// **`issue269_2.pdf` is `pr12564.pdf`'s rule one reduction earlier, and it is not a variance.**
-/// The page is one 200 × 200 `DCTDecode` image drawn 32 times at 100 × 100 device pixels
-/// (`pdf-model/examples/image_region_census`), so the ratio is exactly two and
-/// `pdf_render::Image::reduction`'s floor leaves **no residual**. `examples/ink_ladder`
-/// reads 142 089.03 against 142 078.17 at 1×, 0.008% apart, and 141 996.09 on both at 2×, 4× and 8×:
-/// the same ink, in different pixels. After the reduction the grid is 100 × 100 on 100 × 100 device
-/// pixels — a native placement — and `render_cpu` asks `pdf_render::Image::is_smoothed` of the grid
-/// it is about to draw rather than of the one the file states, so §10.7.4's point sample is what the
-/// oracle lays down. `render_raster::scene` hands an ordinary image across as the *stated* samples
-/// plus §8.9.5.3's flag (ADR 0702), and quorra's own copy of the rule decides after its own reduce.
-/// `examples/image_phase`'s third rung is that page away from any document — sixteen rows in like
-/// pairs onto eight device pixels — and it reproduces the first rung's two columns to the thousandth
-/// at all ten phases, which is the measurement that the two placements are one rule.
-/// `doc/QUORRA_FEEDBACK.md` section 48 is the ask, and it is section 47's with the grid named.
-const DIFFERS_IN_SHAPE: [&str; 5] = [
+const DIFFERS_IN_SHAPE: [&str; 4] = [
     "issue15150.pdf",
     "issue19083.pdf",
     "issue20232.pdf",
     "issue21068.pdf",
-    "issue269_2.pdf",
 ];
 
 /// The two groups as one list, sorted as the run produces them.

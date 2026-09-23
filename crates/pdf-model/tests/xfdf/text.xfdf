@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <f href="target.pdf"/>
+  <annots>
+    <text page="0" rect="20,60,40,80" color="#00FF80" date="D:20260922101500Z"
+          flags="print,nozoom,norotate" name="note-one" title="Reviewer"
+          creationdate="D:20260922101000Z" opacity="0.5" subject="A question"
+          icon="Help" state="Accepted" statemodel="Review">
+      <contents>Is this figure current?</contents>
+      <popup page="0" rect="120,40,190,95" open="yes" flags="print"/>
+    </text>
+  </annots>
+</xfdf>

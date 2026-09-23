@@ -283,10 +283,9 @@ pub enum Exclusion {
     /// JavaScript and script-driven form behaviour. Field *appearance* is not excluded.
     Script,
     /// Writer-side requirements: they address whoever generated the content, or a construct
-    /// this program's writers do not emit (see [`Status::WriterSide`]). Annex F's linearisation
-    /// is the standing member — `CLAUDE.md` keeps it excluded "until linearisation is
-    /// separately ratified", which is a statement about this program's writers rather than
-    /// about the annex.
+    /// this program's writers do not emit (see [`Status::WriterSide`]). No row carries it today:
+    /// Annex F's rows, the last that did, are read against `pdf_syntax::linearize`, which emits
+    /// the annex since `CLAUDE.md`'s scope list admits it (ADR 1293).
     WriterSide,
 }
 

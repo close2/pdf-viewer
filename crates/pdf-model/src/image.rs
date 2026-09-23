@@ -4313,17 +4313,60 @@ pub(crate) fn decode_reporting_frame(
         shortfall,
         contradiction,
     } = decode_parts(document, stream, resources, fill, into, &mut masks)?;
-    let image = match picture {
-        Picture::Complete(image) => image,
+    let (image, _) = flattened(picture);
+    Ok((Flattened { image, shortfall }, contradiction))
+}
+
+/// [`decode_reporting_frame`] for a §8.9.6.2 stencil, with §11.6.4.2's shape beside the raster
+/// where the two are not the same: a stencil under an `/SMask` of its own, whose flattened alpha
+/// is the stencil's shape times §11.6.5.2's opacity. `None` beside every other raster, whose
+/// alpha is the stencil's shape already.
+///
+/// The one caller is a stencil painted through a pattern, which becomes a mask on the fill and
+/// so cannot travel as the [`Picture::Masked`] pair an image command carries; the pair is kept
+/// as two masks instead (ADR 1301).
+///
+/// # Errors
+///
+/// See [`ImageError`].
+pub(crate) fn decode_stencil_reporting_frame(
+    document: &Document,
+    stream: &Stream,
+    resources: &Dictionary,
+    into: &Conversion,
+) -> Result<(Flattened, Option<Image>, Option<String>), ImageError> {
+    let mut masks = MaskCache::default();
+    let Parts {
+        picture,
+        shortfall,
+        contradiction,
+    } = decode_parts(
+        document,
+        stream,
+        resources,
+        pdf_render::Color::BLACK,
+        into,
+        &mut masks,
+    )?;
+    let (image, shape) = flattened(picture);
+    Ok((Flattened { image, shortfall }, shape, contradiction))
+}
+
+/// A picture as one raster, and the base raster it was made from where a soft mask was
+/// multiplied in to make it.
+fn flattened(picture: Picture) -> (Image, Option<Image>) {
+    match picture {
+        Picture::Complete(image) => (image, None),
         Picture::Masked { base, opacity } => {
             let grid = pdf_render::Grid {
                 width: base.width,
                 height: base.height,
             };
-            opacity.over(base).samples(grid)
+            let mut shape = base.clone();
+            shape.sample_alpha = SampleAlpha::Shape;
+            (opacity.over(base).samples(grid), Some(shape))
         }
-    };
-    Ok((Flattened { image, shortfall }, contradiction))
+    }
 }
 
 /// Names an image whose decoded samples fall short of the grid its dictionary states, for the
@@ -5436,25 +5479,45 @@ impl MaskCache {
 /// group states an element's shape by taking the opacity off it (§11.4.6), so this is the one
 /// mask it must keep, and this record is what tells it so.
 ///
+/// A stencil carrying an `/SMask` of its own is the one such mask that is not shape alone: the
+/// mask the fill draws through is the stencil's shape times §11.6.5.2's opacity, which is what
+/// the page is owed, and the record pairs it with a second mask holding the stencil alone,
+/// which is what the knockout's shape is owed (ADR 1301).
+///
 /// An *image's* kind needs no record: [`pdf_render::Image`] carries its own [`SampleAlpha`],
 /// decided by [`decode_parts`] where the masks are applied (ADR 1022). Until that field
 /// existed this type held that too, keyed by the raster's identity, and the identity was the
 /// cost of the substitute.
 #[derive(Debug, Default)]
 pub struct ShapeMasks {
-    masks: Vec<pdf_render::SoftMaskId>,
+    /// Each drawn mask, and the mask holding its stencil's shape — the same id where the
+    /// stencil carried no soft mask and the drawn mask is its shape already.
+    masks: Vec<(pdf_render::SoftMaskId, pdf_render::SoftMaskId)>,
 }
 
 impl ShapeMasks {
     /// Records that the soft mask `id` is a stencil's shape rather than an opacity.
     pub(crate) fn record(&mut self, id: pdf_render::SoftMaskId) {
-        self.masks.push(id);
+        self.masks.push((id, id));
     }
 
-    /// Whether the soft mask `id` is a stencil's shape.
+    /// Records that the soft mask `drawn` is a stencil's shape multiplied by its own
+    /// `/SMask`'s opacity, and that `shape` holds the stencil alone.
+    pub(crate) fn record_apart(
+        &mut self,
+        drawn: pdf_render::SoftMaskId,
+        shape: pdf_render::SoftMaskId,
+    ) {
+        self.masks.push((drawn, shape));
+    }
+
+    /// The mask holding the shape of the stencil the soft mask `id` was built from, or `None`
+    /// where `id` is §11.6.4.3's opacity and no stencil's.
     #[must_use]
-    pub(crate) fn contains(&self, id: pdf_render::SoftMaskId) -> bool {
-        self.masks.contains(&id)
+    pub(crate) fn shape_of(&self, id: pdf_render::SoftMaskId) -> Option<pdf_render::SoftMaskId> {
+        self.masks
+            .iter()
+            .find_map(|&(drawn, shape)| (drawn == id).then_some(shape))
     }
 }
 

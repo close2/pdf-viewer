@@ -3133,6 +3133,25 @@ const RESTRICTION_CURSOR: Color = Color {
 /// would.
 const RESTRICTION_MARKS: [char; 2] = ['\u{25cf}', '\u{25cb}'];
 
+/// One row of the restrictions menu as the card draws it: its depth, its words and its note.
+///
+/// A heading is its label; a level is the label behind a filled or an empty mark, for the tick
+/// every other toolkit draws. §12.7.6.2's group has the same three depths (ADR 1291).
+fn row_words(row: &viewer_host::Row) -> (f32, String, &'static str) {
+    let level =
+        |chosen: bool, label: &str| format!("{} {label}", RESTRICTION_MARKS[usize::from(!chosen)]);
+    match row {
+        viewer_host::Row::Scope { label, note, .. } | viewer_host::Row::Machine { label, note } => {
+            (0.0, (*label).to_owned(), *note)
+        }
+        viewer_host::Row::Operation { label, note, .. } | viewer_host::Row::Act { label, note } => {
+            (1.0, (*label).to_owned(), *note)
+        }
+        viewer_host::Row::Level(entry) => (2.0, level(entry.chosen, entry.label), ""),
+        viewer_host::Row::Sending(entry) => (2.0, level(entry.chosen, entry.label), ""),
+    }
+}
+
 /// `CLAUDE.md`'s *ask* level, as a card this window draws for itself.
 ///
 /// **The password card's shape, with the entry taken out.** Both hold something until a person
@@ -3302,13 +3321,24 @@ impl RestrictionsCard {
         }
     }
 
+    /// The level of §12.7.6.2's submission the keyboard is on, where it is on one (ADR 1291).
+    #[must_use]
+    pub fn sending(&self) -> Option<viewer_host::Submissions> {
+        match self.rows.get(self.at) {
+            Some(viewer_host::Row::Sending(entry)) => Some(entry.level),
+            _ => None,
+        }
+    }
+
     /// The first row at or after `from` in a direction that a person can choose.
     fn next_level(&self, from: usize, by: isize) -> Option<usize> {
         let mut at = from;
         loop {
             match self.rows.get(at) {
                 None => return None,
-                Some(viewer_host::Row::Level(_)) => return Some(at),
+                Some(viewer_host::Row::Level(_) | viewer_host::Row::Sending(_)) => {
+                    return Some(at);
+                }
                 Some(_) => at = at.checked_add_signed(if by < 0 { -1 } else { 1 })?,
             }
         }
@@ -3369,24 +3399,8 @@ impl RestrictionsCard {
                     RESTRICTION_CURSOR,
                 );
             }
-            let (depth, text, note, ink) = match row {
-                viewer_host::Row::Scope { label, note, .. } => {
-                    (0.0, (*label).to_owned(), *note, CARD_INK)
-                }
-                viewer_host::Row::Operation { label, note, .. } => {
-                    (1.0, (*label).to_owned(), *note, CARD_INK)
-                }
-                viewer_host::Row::Level(entry) => (
-                    2.0,
-                    format!(
-                        "{} {}",
-                        RESTRICTION_MARKS[usize::from(!entry.chosen)],
-                        entry.label
-                    ),
-                    "",
-                    CARD_INK,
-                ),
-            };
+            let (depth, text, note) = row_words(row);
+            let ink = CARD_INK;
             let bold = depth < 1.5;
             let after = chrome.text(
                 &mut list,
@@ -3613,9 +3627,13 @@ mod tests {
         let mut card = RestrictionsCard::default();
         card.toggle(standing.rows());
         assert!(card.shown);
-        let mut chosen = Vec::new();
+        let (mut chosen, mut sending) = (Vec::new(), Vec::new());
         loop {
-            chosen.push(card.chosen().expect("the cursor is on a level"));
+            match (card.chosen(), card.sending()) {
+                (Some(chose), None) => chosen.push(chose),
+                (None, Some(level)) => sending.push(level),
+                other => panic!("the cursor is on one level and nothing else: {other:?}"),
+            }
             if !card.move_by(1) {
                 break;
             }
@@ -3626,6 +3644,8 @@ mod tests {
         // that grew an entry would otherwise leave this passing over a menu missing nine rows.
         let operations = viewer_core::RestrictionPolicy::OPERATIONS.len();
         assert_eq!(chosen.len(), operations * 4 + operations * 5);
+        // And §12.7.6.2's four, last (ADR 1291).
+        assert_eq!(sending, viewer_host::Submissions::ALL);
         assert!(
             chosen.iter().any(|chose| chose.level.is_none()),
             "the document's way back to the window's level is reachable"

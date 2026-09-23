@@ -303,13 +303,19 @@ impl Kind {
             // contents of each item in the collection", which is `Command::Extract` — a
             // collection's items *are* the `/EmbeddedFiles` tree's entries, which is the key that
             // command takes.
+            //
+            // **`Transitions` is met too**, on Table 275's two halves: every one of Table 164's
+            // twelve styles is drawn by `viewer_core::transition` — four of them at a quantity
+            // this program chose and says so, which is the owner's ruling in `doc/questions/A72`
+            // (ADR 1299) — and §12.6.4.15's `Trans` action is read and performed.
             Self::OcAutoStates
             | Self::Navigation
             | Self::Encryption
             | Self::OcInteract
             | Self::AcroFormInteract
             | Self::Attachment
-            | Self::Collection => return None,
+            | Self::Collection
+            | Self::Transitions => return None,
             // **Eight reasons below were false or expired when the three-hundred-and-seventy-fifth
             // session read them against the code, between six and about a hundred and eighty
             // sessions after each stopped being true.** Every one named a clause as *unread* that
@@ -340,34 +346,6 @@ impl Kind {
                 // are refused by name in `action::refused`.
                 "eight of the sixteen §12.6.4 action types this requirement covers are performed \
                  and eight are refused by name"
-            }
-            Self::Transitions => {
-                // **This arm's third decay, and the second one it predicted about itself.** It
-                // read "no transition player: §12.4.4's timing is obeyed and the animation
-                // between two pages is not drawn", and the animation has been drawn since the
-                // three-hundred-and-ninety-third session (ADR 0230) — `viewer_core::transition`
-                // shapes the frame at a fraction of the way through and both backends draw it,
-                // which §12.4.4's own ledger row has said since that round while this sentence
-                // went on saying the opposite for over two hundred more. The doc comment above
-                // names exactly this shape; nothing fires when a capability two crates away
-                // arrives, which is why the sweep is over the source and not only the ledger.
-                //
-                // What is genuinely missing is **four** of Table 164's twelve styles, each one
-                // described with a quantity the table does not state — how many lines a `Blinds`
-                // has, how wide a `Glitter`'s band is, what a `Dissolve` does to a pixel, what a
-                // `Fly`'s "changes" are — which `transition::note` reports by name rather than
-                // drawing as a cut. `R` is shaped by nothing either and is not among them,
-                // because Table 164 defines it as the cut: "[t]he new page simply replaces the
-                // old one with no special transition effect", so a cut is what the file asked
-                // for and there is nothing to report.
-                //
-                // **This sentence said "five" until the six-hundred-and-sixty-third session**,
-                // which is the wording §12.6.4.15's ledger row retired in the
-                // five-hundred-and-fifty-third — and it was left standing in the one place that
-                // is not a note but a sentence a person reads. Table 275 also asks for transition
-                // actions, and §12.6.4.15's `Trans` is read and performed.
-                "four of Table 164's twelve transition styles are reported by name rather than \
-                 drawn, because the clause states no quantity to shape their frames from"
             }
             Self::DPartInteract => {
                 // Table 275 asks for two things. §12.6.4.5's `GoToDp` navigates to a part

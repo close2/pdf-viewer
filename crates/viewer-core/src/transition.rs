@@ -16,55 +16,62 @@
 //!
 //! Table 164 states which styles exist, what each one's `/Dm`, `/M`, `/Di`, `/SS` and `/B` mean,
 //! and that `/D` is "[t]he duration of the transition effect, in seconds". It states **not one
-//! word about what a frame in the middle looks like**: no timing curve, no line count for
-//! `Blinds`, no band width for `Glitter`, no dissolve pattern. So every geometric choice below is
-//! a *choice*, recorded as one, in the manner ADR 0211 recorded a caret's colour and ADR 0225 its
-//! placement — and the choices are confined to the two questions the clause leaves open:
+//! word about what a frame in the middle looks like**, so the choices below are recorded as
+//! choices, in the manner ADR 0211 recorded a caret's colour and ADR 0225 its placement. Two are
+//! shared by every style:
 //!
 //! - **Progress is linear in time.** A host divides elapsed time by `/D`; nothing here reads a
 //!   curve into the clause that the clause does not state.
 //! - **A sweep reveals what it has passed over.** Table 164's verbs are "sweep across the
 //!   screen, revealing the new page" and "slides on to the screen … covering the old page", so
 //!   the swept or covered area shows the page being moved to, and the rest shows the page being
-//!   left. That is a reading of the table's own sentences rather than an invention, and it is the
-//!   only part of this module that claims to be.
+//!   left. That is a reading of the table's own sentences rather than an invention.
 //!
-//! # Which styles are shaped here, and why those
+//! # Eleven styles are drawn, and four of them at a quantity this program chose
 //!
-//! **The seven whose frame is determined by Table 164's own words**: `Wipe`, `Split`, `Box`,
-//! `Cover`, `Uncover`, `Push` and `Fade`. Each one is a placement of two pages plus a rectangular
-//! region — nothing in any of them needs a number the standard does not give.
+//! **Seven are determined by Table 164's own words**: `Wipe`, `Split`, `Box`, `Cover`,
+//! `Uncover`, `Push` and `Fade`. Each is a placement of two pages plus a rectangular region, and
+//! nothing in any of them needs a number the standard does not give.
 //!
-//! The other five are **named and reported rather than silently cut**, which is trap 5's rule
-//! everywhere else in this tree, and each is left for the same kind of reason: it needs a
-//! quantity Table 164 does not state.
+//! **Four name the kind of mark and withhold only a quantity**, and the owner's ruling for that
+//! shape (`doc/questions/A72`) is to choose the quantity, write it down as this program's, and
+//! draw (ADR 1299):
 //!
-//! | style | what the clause does not say |
-//! |---|---|
-//! | `Blinds` | how many "[m]ultiple lines, evenly spaced across the screen" there are |
-//! | `Glitter` | how wide "a wide band" is, and what a dissolve looks like inside it |
-//! | `Dissolve` | what "dissolves gradually" does to a pixel between the two pages |
-//! | `Fly` | what "[c]hanges" are — the flown object is the *difference* between two pages |
-//! | `R` | nothing: it is a cut by the table's own definition, "no special transition effect" |
+//! | style | what the clause names | the quantity it withholds | this program's choice |
+//! |---|---|---|---|
+//! | `Blinds` | "[m]ultiple lines, evenly spaced across the screen" | how many | [`BLINDS`] lines |
+//! | `Dissolve` | "[t]he old page dissolves gradually" | the grain and the order | square cells, [`DISSOLVE_CELLS`] along the longer side, in one fixed pseudo-random order |
+//! | `Glitter` | a dissolve that "sweeps across the page in a wide band" | how wide | [`GLITTER_BAND`] of the distance swept, over `Dissolve`'s cells and order |
+//! | `Fly` | "[c]hanges are flown out or in" | what the changes are | the pixels in which the two pages differ |
 //!
-//! `R` is therefore not reported. The other four are, by name, so that a person watching a slide
-//! show that cuts knows the file asked for something this reader does not draw.
+//! [`note`] says so to a person on every page that asks for one of the four, because a quantity
+//! the reader chose is not one the producer specified. `R` is the cut by the table's own
+//! definition, "no special transition effect", and is neither drawn nor reported.
 //!
-//! **A style is not the whole of what decides a frame, and for four of the seven the direction
-//! decides it too.** `Wipe`, `Cover`, `Uncover` and `Push` travel along `/Di`, and every value
-//! Table 164 gives those four is a quarter turn — 0 and 270 for the three that slide, and 90 and
-//! 180 as well for `Wipe`, with 315 belonging to `Glitter` and the name `None` to `Fly`. A file
-//! stating any other direction has asked for an effect no rectangle here sweeps, so [`frame`]
-//! shapes none — and [`note`] therefore asks the *whole* transition rather than its style, since
-//! a report keyed on less than what decides the drawing is a report that fires on the wrong
-//! condition (trap 11).
+//! **The dissolve's order is a fixed sequence, not a random one**, for two reasons that are both
+//! requirements. A frame is a pure function of the transition, the view and the fraction, which
+//! is what lets a test with no display see the frame a window shows and what lets the two
+//! backends be compared; and a cell once replaced has to stay replaced for the page to dissolve
+//! *gradually* rather than flicker, which a draw per frame achieves only if every frame of one
+//! transition agrees on the order. A generator seeded by the clock would satisfy neither.
+//!
+//! **A style is not the whole of what decides a frame, and for six of the eleven the direction
+//! decides it too.** `Wipe`, `Cover`, `Uncover`, `Push` and `Fly` travel along `/Di` in quarter
+//! turns — every value Table 164 gives them is one, with 315 belonging to `Glitter` and the name
+//! `None` to `Fly` where `/SS` is not 1 — and `Glitter`'s band can sweep along any angle. A file
+//! stating a direction none of those expresses has asked for an effect nothing here draws, so
+//! [`frame`] shapes none — and [`note`] therefore asks the *whole* transition rather than its
+//! style, since a report keyed on less than what decides the drawing is a report that fires on
+//! the wrong condition (trap 11).
 //!
 //! # What a host does with this
 //!
-//! Two pages' pixels and a fraction in, one [`pdf_render::DisplayList`] out. The list holds at
-//! most two image commands, so **both backends draw it** — which is what keeps the CPU
-//! rasteriser's job as the frame a graphics device refuses (`CLAUDE.md`'s startup rules), and is
-//! the same reason the sidebar and the caret cross as display lists rather than as pixels.
+//! Two pages' pixels and a fraction in, one [`pdf_render::DisplayList`] out. The list holds
+//! two image commands, so **both backends draw it** — which is what keeps the CPU rasteriser's
+//! job as the frame a graphics device refuses (`CLAUDE.md`'s startup rules), and is the same
+//! reason the sidebar and the caret cross as display lists rather than as pixels.
+
+use std::sync::OnceLock;
 
 use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
 use pdf_render::{
@@ -72,67 +79,222 @@ use pdf_render::{
     PathCommand, Point, Raster, RasterFormat, Rect, Size, Transform,
 };
 
-/// Which of a transition's two pages a [`Layer`] draws.
+/// How many lines a `Blinds` sweeps — this program's number, not the standard's (ADR 1299).
+///
+/// Table 164: "Multiple lines, evenly spaced across the screen, synchronously sweep in the same
+/// direction to reveal the new page." *Multiple* is the whole of what it says about the count.
+/// Eight is enough that the effect reads as blinds rather than as a `Wipe`, and few enough that
+/// each band is still an eighth of the view on a small screen.
+pub const BLINDS: u16 = 8;
+
+/// How many square cells a `Dissolve` or a `Glitter` divides the view's longer side into — this
+/// program's number, not the standard's (ADR 1299).
+///
+/// Table 164 says the old page "dissolves gradually to reveal the new one" and states no grain.
+/// A count along the view rather than a size in pixels, so the pattern is the same at every
+/// window size and the cells never become too many to clip by; the shorter side takes as many
+/// cells of the same size as it needs, the last row or column cut by the view's edge.
+pub const DISSOLVE_CELLS: u16 = 40;
+
+/// How wide a `Glitter`'s band is, as a fraction of the distance the band travels — this
+/// program's number, not the standard's (ADR 1299).
+///
+/// Table 164: "Similar to Dissolve , except that the effect sweeps across the page in a wide band
+/// moving from one side of the screen to the other". *Wide* is the whole of what it says.
+pub const GLITTER_BAND: f32 = 0.25;
+
+/// The seed of the fixed sequence [`DISSOLVE_CELLS`]'s cells are replaced in.
+///
+/// Any constant would do; what matters is that it is one (this module's documentation has the
+/// argument). The ADR's number, so that a reader who meets it knows where it was decided.
+const DISSOLVE_SEED: u64 = 1299;
+
+/// Which of a transition's pictures a [`Layer`] draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
     /// The page being left — what the screen showed before the presentation advanced.
     Outgoing,
     /// The page being moved to, which §12.4.4.1 makes the one whose `/Trans` this is.
     Incoming,
+    /// What a `Fly` carries: the part of one page that differs from the other, and nothing else.
+    ///
+    /// The page flown in for `/M /I` and the page flown out for `/M /O`; [`Faces`] builds it.
+    Flown,
 }
 
-/// One page's placement in one frame of a transition.
+/// One picture's placement in one frame of a transition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
-    /// Which page this draws.
+    /// Which picture this draws.
     pub face: Face,
     /// Where the page goes, in device pixels, relative to the viewport it was rasterised for.
     ///
-    /// `(0.0, 0.0)` for every style but the three that slide. A page offset by the viewport's
-    /// full width is entirely off the screen, which is what the end of a `Push` is.
+    /// `(0.0, 0.0)` for every style but the ones that slide or fly. A page offset by the
+    /// viewport's full width is entirely off the screen, which is what the end of a `Push` is.
     pub offset: (f32, f32),
+    /// The size the picture is drawn at, about the viewport's centre, where 1 is its own.
+    ///
+    /// Only a `Fly` moves it off 1: Table 164's `/SS` is "[t]he starting or ending scale at which
+    /// the changes shall be drawn". The table names no point to scale about, and the viewport's
+    /// centre is this program's choice (ADR 1299).
+    pub scale: f32,
     /// Constant alpha in `0.0..=1.0`, which only `Fade` moves off 1.
     pub alpha: f32,
     /// The parts of the viewport this layer marks, in device pixels.
     ///
     /// One rectangle for a whole page, two for a `Split` sweeping inward, four for a `Box`
     /// doing the same — a `Box`'s inward sweep reveals the *complement* of a shrinking
-    /// rectangle, and a complement of a rectangle inside a rectangle is four bands. Empty means
-    /// the layer marks nothing at all, which is what the first frame of an outward `Box` is.
+    /// rectangle, and a complement of a rectangle inside a rectangle is four bands — and one per
+    /// run of replaced cells for a `Dissolve`. Empty means the layer marks nothing at all, which
+    /// is what the first frame of an outward `Box` is.
     pub reveal: Vec<Rect>,
 }
 
 /// One frame of a transition: what to draw, and in what order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
-    /// The layers, back to front. At most two, and both faces appear in every frame of every
-    /// style shaped here — a transition that showed only one page would be a cut.
+    /// The layers, back to front. Always two: a transition that showed only one picture would be
+    /// a cut.
     pub layers: Vec<Layer>,
 }
 
+/// The pictures one transition's frames are drawn from, prepared once per transition.
+///
+/// The two pages, rasterised for the whole viewport, and — only for a `Fly`, and only when a
+/// frame first asks — the picture of what differs between them. A host builds this **once per
+/// transition**: [`pdf_render::Image`] holds its samples behind an `Arc`, and the GPU backend's
+/// caches are keyed by that pointer, so each picture crosses to the device once however many
+/// frames the transition lasts.
+#[derive(Debug, Clone)]
+pub struct Faces {
+    /// The page being left.
+    outgoing: Image,
+    /// The page being moved to.
+    incoming: Image,
+    /// Table 164's `/M`, which decides which page's changes fly.
+    motion: Motion,
+    /// Table 164's `/B`, which decides whether they fly as their shape or as its rectangle.
+    opaque: bool,
+    /// [`Face::Flown`]'s picture, built the first time a frame draws one.
+    flown: OnceLock<Image>,
+}
+
+impl Faces {
+    /// The pictures `transition`'s frames are drawn from.
+    #[must_use]
+    pub fn new(transition: &Transition, outgoing: Image, incoming: Image) -> Self {
+        Self {
+            outgoing,
+            incoming,
+            motion: transition.motion,
+            opaque: transition.opaque,
+            flown: OnceLock::new(),
+        }
+    }
+
+    /// The picture a layer of this face draws.
+    fn image(&self, face: Face) -> &Image {
+        match face {
+            Face::Outgoing => &self.outgoing,
+            Face::Incoming => &self.incoming,
+            Face::Flown => self.flown.get_or_init(|| match self.motion {
+                // "Changes are flown out or in (as specified by M)": flown *in* is the arriving
+                // page's changes landing on the page being left, and flown *out* is the leaving
+                // page's changes departing from the page arrived at.
+                Motion::Inward => changes(&self.incoming, &self.outgoing, self.opaque),
+                Motion::Outward => changes(&self.outgoing, &self.incoming, self.opaque),
+            }),
+        }
+    }
+}
+
+/// The part of `carried` that differs from `other`, transparent everywhere else.
+///
+/// Table 164's `Fly` flies "[c]hanges" and does not say what they are; **the pixels in which the
+/// two pages differ** is this program's reading (ADR 1299), and it is the one under which the
+/// last frame is the arriving page exactly: the old page with the new page's changes laid on it
+/// is the new page. `/B` is the table's own refinement of it — "[i]f true , the area that shall
+/// be flown in is rectangular and opaque" — so `rectangular` takes the changes' bounding
+/// rectangle, whole and opaque, instead of their exact shape.
+///
+/// Two pages rasterised at different sizes cannot be compared, and every pixel is then a change.
+fn changes(carried: &Image, other: &Image, rectangular: bool) -> Image {
+    let comparable = carried.width == other.width
+        && carried.height == other.height
+        && carried.data.len() == other.data.len();
+    let differs = |index: usize| {
+        let at = index.saturating_mul(4);
+        !comparable
+            || carried.data.get(at..at.saturating_add(4))
+                != other.data.get(at..at.saturating_add(4))
+    };
+    let width = (carried.width as usize).max(1);
+    let mut data = vec![0_u8; carried.data.len()];
+    let bounds = if rectangular {
+        (0..carried.data.len() / 4)
+            .filter(|index| differs(*index))
+            .fold(
+                None,
+                |bounds: Option<(usize, usize, usize, usize)>, index| {
+                    let (x, y) = column_and_row(index, width);
+                    Some(bounds.map_or((x, y, x, y), |(x0, y0, x1, y1)| {
+                        (x0.min(x), y0.min(y), x1.max(x), y1.max(y))
+                    }))
+                },
+            )
+    } else {
+        None
+    };
+    for (index, (pixel, out)) in carried
+        .data
+        .chunks_exact(4)
+        .zip(data.chunks_exact_mut(4))
+        .enumerate()
+    {
+        let kept = match bounds {
+            Some((x0, y0, x1, y1)) => {
+                let (x, y) = column_and_row(index, width);
+                (x0..=x1).contains(&x) && (y0..=y1).contains(&y)
+            }
+            None => !rectangular && differs(index),
+        };
+        if kept {
+            out.copy_from_slice(pixel);
+            if rectangular {
+                // "rectangular and opaque": the rectangle hides what it lands on.
+                out[3] = u8::MAX;
+            }
+        }
+    }
+    Image {
+        width: carried.width,
+        height: carried.height,
+        data: data.into(),
+        interpolate: carried.interpolate,
+        sample_alpha: carried.sample_alpha,
+    }
+}
+
 impl Frame {
-    /// Turns this frame into commands, over the two pages' pixels.
+    /// Turns this frame into commands, over the transition's pictures.
     ///
-    /// Both images are the page rasterised for the whole viewport — the same
-    /// [`pdf_render::TargetSpec`] a frame outside a transition uses — so this places each of
-    /// them by mapping the unit square onto the viewport, offset by the layer's own offset. A
-    /// host converts each raster **once per transition** with [`drawable`] and draws every frame
-    /// from the result: [`pdf_render::Image`] holds its samples behind an `Arc`, and the GPU
-    /// backend's caches are keyed by that pointer, so two pages cross to the device once each
-    /// however many frames the transition lasts.
+    /// Every picture is the viewport's size — the page rasterised for the whole viewport, the
+    /// same [`pdf_render::TargetSpec`] a frame outside a transition uses — so this places each of
+    /// them by mapping the unit square onto the viewport, scaled about its centre and offset by
+    /// the layer's own numbers. A host converts each raster once per transition with
+    /// [`drawable`], builds [`Faces`] from the two, and draws every frame from those.
     ///
     /// # Errors
     ///
-    /// [`DisplayListError::TooManyClips`] cannot arise from a frame — the largest one here adds
-    /// four clips — but the list's own limit is stated in its type and swallowing it would be a
-    /// silence this project does not permit anywhere else.
-    pub fn draw(
-        &self,
-        viewport: Rect,
-        outgoing: &Image,
-        incoming: &Image,
-    ) -> Result<DisplayList, DisplayListError> {
+    /// [`DisplayListError::TooManyClips`] cannot arise from a frame — a frame adds two clips —
+    /// but the list's own limit is stated in its type and swallowing it would be a silence this
+    /// project does not permit anywhere else.
+    pub fn draw(&self, viewport: Rect, faces: &Faces) -> Result<DisplayList, DisplayListError> {
         let mut list = DisplayList::new(Size::new(viewport.max.x, viewport.max.y));
+        let centre = (
+            f32::midpoint(viewport.min.x, viewport.max.x),
+            f32::midpoint(viewport.min.y, viewport.max.y),
+        );
         for layer in &self.layers {
             if layer.reveal.is_empty() || layer.alpha <= 0.0 {
                 continue;
@@ -147,13 +309,10 @@ impl Frame {
                 fill_rule: FillRule::NonZero,
                 parent: None,
             })?;
-            let image = match layer.face {
-                Face::Outgoing => outgoing,
-                Face::Incoming => incoming,
-            };
             list.push(Command::Image {
-                image: ImageSource::Decoded(image.clone()),
-                // The unit square onto the viewport, then wherever the layer slid it.
+                image: ImageSource::Decoded(faces.image(layer.face).clone()),
+                // The unit square onto the viewport, then scaled about its centre, then wherever
+                // the layer slid it.
                 //
                 // **The y scale is negative and that is the whole of the flip.** A
                 // `Command::Image` draws "the unit square in user space, with the image's
@@ -161,12 +320,16 @@ impl Frame {
                 // pixels are a *device* raster whose first row is the top one. A positive scale
                 // would stand every frame of every transition on its head, which is invisible in
                 // a page of flat colour and was found by looking at a real window.
-                transform: Transform::scale(viewport.width(), -viewport.height()).then(
-                    Transform::translate(
-                        viewport.min.x + layer.offset.0,
-                        viewport.min.y + layer.offset.1 + viewport.height(),
-                    ),
-                ),
+                transform: Transform::scale(viewport.width(), -viewport.height())
+                    .then(Transform::translate(
+                        viewport.min.x - centre.0,
+                        viewport.min.y + viewport.height() - centre.1,
+                    ))
+                    .then(Transform::scale(layer.scale, layer.scale))
+                    .then(Transform::translate(
+                        centre.0 + layer.offset.0,
+                        centre.1 + layer.offset.1,
+                    )),
                 alpha: layer.alpha,
                 clip: Some(clip),
                 mask: None,
@@ -201,8 +364,8 @@ pub fn drawable(raster: &Raster) -> Option<Image> {
     })
 }
 
-/// The frame of `transition` at `progress` of the way through it, or `None` for a style this
-/// does not shape.
+/// The frame of `transition` at `progress` of the way through it, or `None` for one this does
+/// not shape.
 ///
 /// `progress` is a fraction: 0 is the moment the transition begins, showing the outgoing page,
 /// and 1 is its end, showing the incoming one. A host divides elapsed time by Table 164's `/D`
@@ -213,11 +376,10 @@ pub fn drawable(raster: &Raster) -> Option<Image> {
 /// nonsense ends the transition rather than freezing it, since the end state is the page the
 /// document asked to arrive at.
 ///
-/// `None` is the answer for the four styles Table 164 describes with a quantity it does not
-/// state, for `R`, which the table defines as a cut, and for one of the four styles that travel
-/// along `/Di` asked for in a direction the table does not give it. See this module's own
-/// documentation for the list and [`note`] for what a person is told — every `None` here but
-/// `R`'s has a sentence there, and that is a property this module tests rather than asserts.
+/// `None` is the answer for `R`, which the table defines as a cut, for a name the table does not
+/// define, and for a style asked for in a direction nothing here draws it in — see this module's
+/// own documentation. Every `None` but `R`'s has a sentence in [`note`], and that is a property
+/// this module tests rather than asserts.
 #[must_use]
 pub fn frame(transition: &Transition, viewport: Rect, progress: f32) -> Option<Frame> {
     let done = if progress.is_finite() {
@@ -248,6 +410,19 @@ pub fn frame(transition: &Transition, viewport: Rect, progress: f32) -> Option<F
                 },
             )
         }
+        // "Multiple lines, evenly spaced across the screen, synchronously sweep in the same
+        // direction to reveal the new page. The lines may be either horizontal or vertical, as
+        // specified by the Dm entry. Horizontal lines move downward; vertical lines move to the
+        // right." So `/M` and `/Di` do not apply, which is also what the table's scoping of
+        // those two entries says.
+        Style::Blinds => revealing(
+            viewport,
+            blinds(
+                viewport,
+                done,
+                transition.dimension == Dimension::Horizontal,
+            ),
+        ),
         // "A rectangular box sweeps inward from the edges of the page or outward from the centre,
         // as specified by the M entry, revealing the new page."
         Style::Box => revealing(
@@ -259,6 +434,14 @@ pub fn frame(transition: &Transition, viewport: Rect, progress: f32) -> Option<F
                 Motion::Inward => outside(viewport, centred(viewport, 1.0 - done)),
             },
         ),
+        // "The old page dissolves gradually to reveal the new one." The first `done` of the
+        // cells in the fixed order are the new page's.
+        Style::Dissolve => revealing(viewport, dissolved(viewport, done)),
+        // "Similar to Dissolve , except that the effect sweeps across the page in a wide band
+        // moving from one side of the screen to the other in the direction specified by the Di
+        // entry." Ahead of the band nothing is replaced and behind it everything is; inside it,
+        // a cell goes once the band's leading edge is its own share of the band past it.
+        Style::Glitter => revealing(viewport, glittered(viewport, transition.direction, done)?),
         // "The new page slides on to the screen in the direction specified by Di, covering the
         // old page." So the old page does not move and the new one arrives from the edge the
         // motion points away from.
@@ -295,37 +478,116 @@ pub fn frame(transition: &Transition, viewport: Rect, progress: f32) -> Option<F
                 travelled(transition, viewport, done - 1.0)?,
             ),
         ],
+        Style::Fly => fly(transition, viewport, done)?,
         // "The new page gradually becomes visible through the old one" — the one style whose
         // frame is an opacity rather than a region.
         Style::Fade => vec![
             Layer::whole(Face::Outgoing, viewport),
             Layer {
-                face: Face::Incoming,
-                offset: (0.0, 0.0),
                 alpha: done,
-                reveal: vec![viewport],
+                ..Layer::whole(Face::Incoming, viewport)
             },
         ],
-        Style::Blinds
-        | Style::Glitter
-        | Style::Dissolve
-        | Style::Fly
-        | Style::Replace
-        | Style::Unrecognised(_) => return None,
+        Style::Replace | Style::Unrecognised(_) => return None,
     };
     Some(Frame { layers })
 }
 
+/// The cells of a `Dissolve` replaced after `done` of it: the first `done` of them in the fixed
+/// order.
+fn dissolved(viewport: Rect, done: f32) -> Vec<Rect> {
+    let cells = Cells::of(viewport);
+    let ranks = cells.ranks();
+    let replaced = done * f32::from(cells.count());
+    cells.runs(|index| {
+        ranks
+            .get(index)
+            .is_some_and(|rank| f32::from(rank.saturating_add(1)) <= replaced)
+    })
+}
+
+/// The cells of a `Glitter` replaced after `done` of it, or `None` for a `/Di` that names no angle.
+///
+/// Ahead of the band nothing is replaced and behind it everything is; inside it, a cell goes once
+/// the band's leading edge is its own share of the band past it — the share being the cell's
+/// place in the same fixed sequence `Dissolve` uses.
+fn glittered(viewport: Rect, direction: Direction, done: f32) -> Option<Vec<Rect>> {
+    let Direction::Degrees(degrees) = direction else {
+        return None;
+    };
+    if !degrees.is_finite() {
+        return None;
+    }
+    let cells = Cells::of(viewport);
+    let along = Along::new(viewport, degrees);
+    let front = done * (1.0 + GLITTER_BAND);
+    Some(cells.runs(|index| {
+        cells.rect(index).is_some_and(|rect| {
+            let centre = Point::new(
+                f32::midpoint(rect.min.x, rect.max.x),
+                f32::midpoint(rect.min.y, rect.max.y),
+            );
+            along.position(centre) + GLITTER_BAND * unit(cell_key(index)) <= front
+        })
+    }))
+}
+
+/// Table 164's `Fly`, or `None` for a direction it does not fly in.
+///
+/// "Changes are flown out or in (as specified by M ), in the direction specified by Di , to or
+/// from a location that is offscreen except when Di is None ." And `/SS`: "If M specifies an
+/// inward transition, the scale of the changes drawn shall progress from SS to 1.0 over the
+/// course of the transition. If M specifies an outward transition, the scale of the changes drawn
+/// shall progress from 1.0 to SS over the course of the transition".
+///
+/// The offscreen end is the nearest place a picture at that end's scale is wholly off the view,
+/// which follows from the sentence rather than being chosen: a page drawn at `/SS` about the
+/// centre is off the screen once it has travelled half the view plus half of itself. `/Di /None`
+/// flies nowhere and only scales, and the table makes it "relevant only for the Fly transition
+/// when the value of SS is not 1.0" — with `/SS` 1 nothing would move, so that one is not drawn
+/// and [`note`] says why.
+fn fly(transition: &Transition, viewport: Rect, done: f32) -> Option<Vec<Layer>> {
+    // A scale is a size, and a size below nothing is not one; a scale that is not a number at all
+    // is taken as the table's default.
+    let end_scale = if transition.scale.is_finite() {
+        transition.scale.max(0.0)
+    } else {
+        1.0
+    };
+    let way = match transition.direction {
+        Direction::None if (end_scale - 1.0).abs() < f32::EPSILON => return None,
+        Direction::None => None,
+        Direction::Degrees(_) => Some(quarter(transition.direction)?),
+    };
+    // How far from rest the changes are: all the way at the start of a flight in, and at the end
+    // of a flight out. The base is the page the changes are *not* part of.
+    let (base, from_rest, sign) = match transition.motion {
+        Motion::Inward => (Face::Outgoing, 1.0 - done, -1.0),
+        Motion::Outward => (Face::Incoming, done, 1.0),
+    };
+    let offset = way.map_or((0.0, 0.0), |way| {
+        let reach = f32::midpoint(1.0, end_scale);
+        let (dx, dy) = travel(way, viewport.width() * reach, viewport.height() * reach);
+        (sign * dx * from_rest, sign * dy * from_rest)
+    });
+    Some(vec![
+        Layer::whole(base, viewport),
+        Layer {
+            offset,
+            scale: 1.0 + (end_scale - 1.0) * from_rest,
+            ..Layer::whole(Face::Flown, viewport)
+        },
+    ])
+}
+
 /// The whole outgoing page with the incoming one showing through `reveal`, which is the shape of
-/// every style that sweeps rather than slides.
+/// every style that sweeps or dissolves rather than slides.
 fn revealing(viewport: Rect, reveal: Vec<Rect>) -> Vec<Layer> {
     vec![
         Layer::whole(Face::Outgoing, viewport),
         Layer {
-            face: Face::Incoming,
-            offset: (0.0, 0.0),
-            alpha: 1.0,
             reveal,
+            ..Layer::whole(Face::Incoming, viewport)
         },
     ]
 }
@@ -343,28 +605,26 @@ fn travelled(transition: &Transition, viewport: Rect, fraction: f32) -> Option<(
     Some((dx * fraction, dy * fraction))
 }
 
-/// What to tell a person about a transition no frame is shaped for, or `None` where there is
-/// nothing to say.
+/// What to tell a person about a transition, or `None` where there is nothing to say.
 ///
-/// Trap 5's channel and this tree's rule everywhere else: a named effect that is silently drawn
-/// as a cut is indistinguishable from a file that asked for a cut. `R` is the one style with
-/// nothing to report, because Table 164 defines it as the cut — "[t]he new page simply replaces
-/// the old one with no special transition effect".
+/// Two things are said, and they are the two ways a picture can differ from what the producer
+/// specified. **A style asked for and not drawn** is trap 5's channel: a named effect silently
+/// drawn as a cut is indistinguishable from a file that asked for a cut. **A style drawn at a
+/// quantity this program chose** is the owner's ruling in `doc/questions/A72`: the number is
+/// ours, and a person watching is told so rather than left to take it for the document's.
 ///
-/// **This asks the whole transition rather than its style**, because [`frame`] does: four of the
-/// seven styles it shapes need a direction it can sweep along, and until the
-/// seven-hundred-and-twentieth session a `/Di` outside the four quarter turns produced no frame
-/// and no sentence at all. `note` and `frame` are one decision made in two expressions, which is
-/// why [`the_report_fires_on_exactly_what_is_not_drawn`] holds them against each other over every
-/// style rather than against a list written out by hand.
+/// `R` is the one style with nothing to report, because Table 164 defines it as the cut — "[t]he
+/// new page simply replaces the old one with no special transition effect".
+///
+/// **This asks [`frame`] rather than restating its conditions**, because a style is not the whole
+/// of what decides a frame: `note` and `frame` are one decision in two expressions, which is why
+/// [`the_report_fires_on_exactly_what_is_not_drawn`] holds them against each other over every
+/// style and direction rather than against a list written out by hand.
 ///
 /// [`the_report_fires_on_exactly_what_is_not_drawn`]: tests::the_report_fires_on_exactly_what_is_not_drawn
 pub(crate) fn note(transition: &Transition) -> Option<String> {
-    let missing = match &transition.style {
-        Style::Blinds => "how many evenly spaced lines it has",
-        Style::Glitter => "how wide its band is",
-        Style::Dissolve => "what dissolving does to a pixel",
-        Style::Fly => "what the changes are that fly",
+    match &transition.style {
+        Style::Replace => return None,
         // A name the table does not define, in the file's own spelling — except where the file
         // wrote the empty name, which is a legal PDF name and reads as a bare `/` in a sentence
         // a person is meant to understand. It is not a hypothetical: the empty `/S` is the
@@ -383,42 +643,60 @@ pub(crate) fn note(transition: &Transition) -> Option<String> {
                 String::from_utf8_lossy(name.as_bytes())
             ));
         }
-        // The four that travel along `/Di`: shaped where the direction is one Table 164 gives
-        // them, and reported where it is not.
-        Style::Wipe | Style::Cover | Style::Uncover | Style::Push => return askew(transition),
-        // The three whose frame needs no direction, and `R`, which is the cut the table defines.
-        Style::Split | Style::Box | Style::Fade | Style::Replace => return None,
+        _ => {}
+    }
+    // Any viewport answers whether a frame is shaped: no style's refusal depends on its size.
+    let probe = Rect::from_corners(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
+    if frame(transition, probe, 0.5).is_none() {
+        return Some(askew(transition));
+    }
+    let chosen = match transition.style {
+        Style::Blinds => format!("with {BLINDS} lines, a number Table 164 does not state"),
+        Style::Dissolve => format!(
+            "in square cells, {DISSOLVE_CELLS} along the longer side, replaced in a fixed order \
+             — Table 164 states neither"
+        ),
+        Style::Glitter => format!(
+            "as Dissolve's cells in a band {GLITTER_BAND} of the distance it sweeps wide, a width \
+             Table 164 does not state"
+        ),
+        Style::Fly => "by flying the pixels in which the two pages differ — Table 164 does not \
+                       say what the changes are"
+            .to_owned(),
+        _ => return None,
     };
     Some(format!(
-        "transition: /{} is named but not drawn — ISO 32000-2 Table 164 does not state {missing} \
-         — so the page is shown at once",
+        "transition: /{} is drawn {chosen}, so that quantity is this program's own choice rather \
+         than the document's",
         spelling(&transition.style)
     ))
 }
 
-/// What to tell a person about an effect this module shapes, asked for in a direction it cannot.
+/// What to tell a person about a style asked for in a direction nothing here draws it in.
 ///
-/// Every `/Di` Table 164 gives `Wipe`, `Cover`, `Uncover` and `Push` is a quarter turn: 0 and 270
-/// for all four, 90 and 180 for `Wipe` alone, with 315 reserved to `Glitter` and the name `None`
-/// to `Fly`. [`quarter`] is the expression that says so and is the one [`frame`] refuses on, so
-/// this asks it rather than restating the list — the duplicate that has to agree is the defect
-/// this function was added to close, not one to introduce a second time.
-///
-/// `None` where the direction is one of the four, which is every conforming file: a document has
-/// to state a direction the table does not give the style it stated for this to say anything.
-fn askew(transition: &Transition) -> Option<String> {
-    if quarter(transition.direction).is_some() {
-        return None;
-    }
+/// Every `/Di` Table 164 gives `Wipe`, `Cover`, `Uncover`, `Push` and `Fly` is a quarter turn, with
+/// 315 reserved to `Glitter` and the name `None` to `Fly` where `/SS` is not 1 — "which is
+/// relevant only for the Fly transition when the value of SS is not 1.0". A document has to state
+/// a direction the table does not give the style it stated for this to be reached.
+fn askew(transition: &Transition) -> String {
     let stated = match transition.direction {
-        Direction::None => "the name /None".to_owned(),
-        Direction::Degrees(degrees) => format!("{degrees} degrees"),
+        Direction::None if transition.style == Style::Fly => {
+            "the name /None with an /SS of 1, which ISO 32000-2 Table 164 makes relevant only \
+             when /SS is not 1"
+                .to_owned()
+        }
+        Direction::None => {
+            "the name /None, which ISO 32000-2 Table 164 gives only to /Fly".to_owned()
+        }
+        Direction::Degrees(degrees) => {
+            format!("{degrees} degrees, which ISO 32000-2 Table 164 does not give that style")
+        }
     };
-    Some(format!(
-        "transition: /{} is named but not drawn — its /Di is {stated}, which ISO 32000-2 \
-         Table 164 does not give that style — so the page is shown at once",
+    format!(
+        "transition: /{} is named but not drawn — its /Di is {stated} — so the page is shown at \
+         once",
         spelling(&transition.style)
-    ))
+    )
 }
 
 /// Table 164's own spelling of a style, for a sentence a person reads beside the file.
@@ -446,6 +724,7 @@ impl Layer {
         Self {
             face,
             offset: (0.0, 0.0),
+            scale: 1.0,
             alpha: 1.0,
             reveal: vec![viewport],
         }
@@ -457,11 +736,211 @@ impl Layer {
     /// it is however much of it the viewport still contains.
     fn slid(face: Face, viewport: Rect, offset: (f32, f32)) -> Self {
         Self {
-            face,
             offset,
-            alpha: 1.0,
-            reveal: vec![viewport],
+            ..Self::whole(face, viewport)
         }
+    }
+}
+
+/// `Blinds`' [`BLINDS`] bands, each revealed `done` of the way along the way its line moves.
+///
+/// "Horizontal lines move downward; vertical lines move to the right" — so a horizontal blind
+/// reveals from its top edge down, and a vertical one from its left edge rightward. Every band
+/// is revealed by the same share at the same moment, which is the table's "synchronously".
+fn blinds(viewport: Rect, done: f32, horizontal_lines: bool) -> Vec<Rect> {
+    let count = f32::from(BLINDS);
+    (0..BLINDS)
+        .map(|band| {
+            let band = f32::from(band);
+            if horizontal_lines {
+                let height = viewport.height() / count;
+                let top = viewport.min.y + height * band;
+                Rect::from_corners(
+                    Point::new(viewport.min.x, top),
+                    Point::new(viewport.max.x, top + height * done),
+                )
+            } else {
+                let width = viewport.width() / count;
+                let left = viewport.min.x + width * band;
+                Rect::from_corners(
+                    Point::new(left, viewport.min.y),
+                    Point::new(left + width * done, viewport.max.y),
+                )
+            }
+        })
+        .collect()
+}
+
+/// The square cells `Dissolve` and `Glitter` replace, [`DISSOLVE_CELLS`] along the longer side.
+struct Cells {
+    /// The view the grid covers.
+    viewport: Rect,
+    /// A cell's side, in device pixels.
+    side: f32,
+    /// How many cells across.
+    columns: u16,
+    /// How many cells down.
+    rows: u16,
+}
+
+impl Cells {
+    /// The grid over `viewport`.
+    fn of(viewport: Rect) -> Self {
+        let longer = viewport.width().max(viewport.height());
+        let side = longer / f32::from(DISSOLVE_CELLS);
+        // As many cells as cover each side: the longer one by construction, the shorter one
+        // counted, since a cell is square and the shorter side need not be a whole number of
+        // them. The allowance of a ten-thousandth of a cell is for the division's rounding, so
+        // that a side of exactly twenty cells is not counted as twenty-one. A view of no extent
+        // has no cells.
+        let along = |extent: f32| {
+            if side.is_nan() || side <= 0.0 {
+                return 0;
+            }
+            (1..=DISSOLVE_CELLS)
+                .find(|count| f32::from(*count) * side >= extent - side * 1e-4)
+                .unwrap_or(DISSOLVE_CELLS)
+        };
+        Self {
+            viewport,
+            side,
+            columns: along(viewport.width()),
+            rows: along(viewport.height()),
+        }
+    }
+
+    /// How many cells there are. At most [`DISSOLVE_CELLS`] squared, which is why a `u16` holds
+    /// it.
+    fn count(&self) -> u16 {
+        self.columns.saturating_mul(self.rows)
+    }
+
+    /// Cell `index`, row by row from the top left, cut by the view's edge.
+    fn rect(&self, index: usize) -> Option<Rect> {
+        let columns = usize::from(self.columns);
+        if columns == 0 || index >= usize::from(self.count()) {
+            return None;
+        }
+        let (column, row) = column_and_row(index, columns);
+        let (column, row) = (u16::try_from(column).ok()?, u16::try_from(row).ok()?);
+        let (x, y) = (
+            self.viewport.min.x + f32::from(column) * self.side,
+            self.viewport.min.y + f32::from(row) * self.side,
+        );
+        Some(Rect::from_corners(
+            Point::new(x, y),
+            Point::new(
+                (x + self.side).min(self.viewport.max.x),
+                (y + self.side).min(self.viewport.max.y),
+            ),
+        ))
+    }
+
+    /// Each cell's place in the fixed order, indexed by cell.
+    ///
+    /// The order sorts the cells by [`cell_key`], ties by index, so it is one permutation of the
+    /// grid and the same one in every frame of every transition over a view of this shape.
+    fn ranks(&self) -> Vec<u16> {
+        let count = usize::from(self.count());
+        let mut order: Vec<usize> = (0..count).collect();
+        order.sort_by_key(|index| (cell_key(*index), *index));
+        let mut ranks = vec![0_u16; count];
+        for (rank, index) in order.into_iter().enumerate() {
+            if let (Some(slot), Ok(rank)) = (ranks.get_mut(index), u16::try_from(rank)) {
+                *slot = rank;
+            }
+        }
+        ranks
+    }
+
+    /// The replaced cells, as one rectangle per unbroken run along a row.
+    ///
+    /// A run rather than a cell because the rectangles become one clip path, and a row of
+    /// neighbours is one rectangle to a rasteriser whichever way it is written; it also keeps the
+    /// last frames, where nearly everything is replaced, near one rectangle per row.
+    fn runs(&self, replaced: impl Fn(usize) -> bool) -> Vec<Rect> {
+        let columns = usize::from(self.columns);
+        let mut runs = Vec::new();
+        for row in 0..usize::from(self.rows) {
+            let mut open: Option<Rect> = None;
+            for column in 0..columns {
+                let index = row.saturating_mul(columns).saturating_add(column);
+                let Some(cell) = self.rect(index).filter(|_| replaced(index)) else {
+                    runs.extend(open.take());
+                    continue;
+                };
+                open = Some(open.map_or(cell, |run| Rect::from_corners(run.min, cell.max)));
+            }
+            runs.extend(open);
+        }
+        runs
+    }
+}
+
+/// A cell's place in the fixed sequence: `SplitMix64`'s finaliser over its index and
+/// [`DISSOLVE_SEED`].
+///
+/// A hash rather than a stateful generator so that a cell's key depends on nothing but the cell,
+/// which is what makes the order a pure function. `SplitMix64` because its three lines are the
+/// whole of it and every output bit depends on every input bit; nothing here needs more.
+fn cell_key(index: usize) -> u64 {
+    let mut z = (index as u64)
+        .wrapping_add(DISSOLVE_SEED)
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// A key as a fraction in `0..1`, from its top sixteen bits.
+fn unit(key: u64) -> f32 {
+    // The shift leaves sixteen bits, so the conversion cannot fail and the fallback is unreached.
+    f32::from(u16::try_from(key >> 48).unwrap_or(u16::MAX)) / 65_536.0
+}
+
+/// Where a point lies along a direction across the view, as a fraction from the side the
+/// direction starts at (0) to the side it ends at (1).
+struct Along {
+    /// The direction as a unit vector in device space.
+    direction: (f32, f32),
+    /// The projection of the view's first corner the direction reaches.
+    start: f32,
+    /// How far the direction crosses the view.
+    length: f32,
+}
+
+impl Along {
+    /// `/Di`'s angle across `viewport`: counterclockwise from left-to-right, in a device space
+    /// whose y grows downward — so 270, "[t]op to bottom", is a *positive* y.
+    fn new(viewport: Rect, degrees: f32) -> Self {
+        let radians = degrees.to_radians();
+        let direction = (radians.cos(), -radians.sin());
+        let project = |point: Point| point.x * direction.0 + point.y * direction.1;
+        let corners = [
+            viewport.min,
+            viewport.max,
+            Point::new(viewport.min.x, viewport.max.y),
+            Point::new(viewport.max.x, viewport.min.y),
+        ];
+        let (start, end) = corners
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), corner| {
+                let at = project(*corner);
+                (lo.min(at), hi.max(at))
+            });
+        Self {
+            direction,
+            start,
+            length: end - start,
+        }
+    }
+
+    /// `point`'s position along the direction, 0 at the side the band starts from.
+    fn position(&self, point: Point) -> f32 {
+        if self.length <= 0.0 {
+            return 0.0;
+        }
+        (point.x * self.direction.0 + point.y * self.direction.1 - self.start) / self.length
     }
 }
 
@@ -488,10 +967,10 @@ const TOLERANCE: f32 = 0.5;
 
 /// Which quarter turn `/Di` names, or `None` for a direction no rectangular sweep expresses.
 ///
-/// 315 is Table 164's fifth value and is `Glitter`'s alone, which is not shaped here; the name
-/// `None` "is relevant only for the Fly transition", which is not either. Both are therefore a
-/// direction this module cannot draw with rather than a direction it draws wrongly, and the
-/// caller reports the style by name.
+/// 315 is Table 164's fifth value and is `Glitter`'s alone, whose band is not a rectangle and is
+/// placed by [`Along`] instead; the name `None` is `Fly`'s alone, and [`fly`] reads it before
+/// asking this. Both are therefore a direction a sweep or a slide cannot draw with rather than a
+/// direction it draws wrongly, and the caller reports the style by name.
 fn quarter(direction: Direction) -> Option<Quarter> {
     let Direction::Degrees(degrees) = direction else {
         return None;
@@ -654,6 +1133,16 @@ fn outside(viewport: Rect, inner: Rect) -> Vec<Rect> {
     bands
 }
 
+/// Where item `index` of a row-major grid `width` wide sits: its column and its row.
+///
+/// A grid of no width has nothing in it, and every index is then the first cell's.
+fn column_and_row(index: usize, width: usize) -> (usize, usize) {
+    (
+        index.checked_rem(width).unwrap_or(0),
+        index.checked_div(width).unwrap_or(0),
+    )
+}
+
 /// Appends `rect` to `path` as a closed subpath.
 fn push_rect(path: &mut Path, rect: Rect) {
     path.push(PathCommand::MoveTo(rect.min));
@@ -665,9 +1154,11 @@ fn push_rect(path: &mut Path, rect: Rect) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Face, Quarter, frame, note, quarter};
+    use super::{
+        BLINDS, Face, Faces, Frame, GLITTER_BAND, Quarter, cell_key, frame, note, quarter,
+    };
     use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
-    use pdf_render::{Point, Rect};
+    use pdf_render::{Image, Point, Rasterizer, Rect, TargetSpec, Transform};
 
     /// The viewport every test here shapes a frame in: 200 wide, 100 tall, at the origin.
     fn viewport() -> Rect {
@@ -685,6 +1176,19 @@ mod tests {
             scale: 1.0,
             opaque: false,
         }
+    }
+
+    /// The area a list of rectangles covers, which none of this module's reveals overlap.
+    fn area(rects: &[Rect]) -> f32 {
+        rects.iter().map(|rect| rect.width() * rect.height()).sum()
+    }
+
+    /// Whether `point` is inside one of the incoming layer's rectangles.
+    fn revealed(shaped: &Frame, point: Point) -> bool {
+        shaped.layers[1].reveal.iter().any(|rect| {
+            (rect.min.x..rect.max.x).contains(&point.x)
+                && (rect.min.y..rect.max.y).contains(&point.y)
+        })
     }
 
     /// A `Wipe` in each of the four directions reveals the strip against the edge it starts at.
@@ -732,11 +1236,14 @@ mod tests {
         }
     }
 
-    /// The seven styles a frame is shaped for.
-    const SHAPED: [Style; 7] = [
+    /// The ten styles whose frame is two whole pages and a region, alpha or slide.
+    const SHAPED: [Style; 10] = [
         Style::Wipe,
         Style::Split,
+        Style::Blinds,
         Style::Box,
+        Style::Dissolve,
+        Style::Glitter,
         Style::Cover,
         Style::Uncover,
         Style::Push,
@@ -749,30 +1256,28 @@ mod tests {
     /// shows, because everything under it is covered and everything over it marks less than all
     /// of it. That is the only reading of a frame that does not need a rasteriser, which is what
     /// makes it the assertion for the two ends of a transition.
-    fn shows_everywhere(shaped: &super::Frame) -> Option<Face> {
+    fn shows_everywhere(shaped: &Frame) -> Option<Face> {
         shaped
             .layers
             .iter()
             .rev()
             .find(|layer| {
-                let area: f32 = layer
-                    .reveal
-                    .iter()
-                    .map(|rect| rect.width() * rect.height())
-                    .sum();
                 layer.offset == (0.0, 0.0)
+                    && (layer.scale - 1.0).abs() < f32::EPSILON
                     && layer.alpha >= 1.0
-                    && (area - 200.0 * 100.0).abs() < 0.01
+                    && (area(&layer.reveal) - 200.0 * 100.0).abs() < 0.01
             })
             .map(|layer| layer.face)
     }
 
-    /// Every shaped style begins on the page it is leaving and ends on the page it moved to.
+    /// Every region-shaped style begins on the page it is leaving and ends on the page it moved
+    /// to.
     ///
     /// The property that makes a transition a transition rather than an effect: at `/D` seconds
     /// the screen is the page the document moved to, whatever route it took to get there — and
     /// before the first frame it is still the one being left. Failing either end is a cut with
-    /// extra steps.
+    /// extra steps. `Fly` is held to the same property in pixels, by
+    /// [`a_fly_begins_on_the_old_page_and_lands_on_the_new_one`].
     #[test]
     fn every_shaped_style_runs_from_the_old_page_to_the_new_one() {
         for style in SHAPED {
@@ -840,6 +1345,317 @@ mod tests {
         );
     }
 
+    /// A `Blinds` half way through has revealed the top half of every band, or the left half.
+    ///
+    /// Table 164: "Multiple lines, evenly spaced across the screen, synchronously sweep in the
+    /// same direction to reveal the new page. The lines may be either horizontal or vertical, as
+    /// specified by the Dm entry. Horizontal lines move downward; vertical lines move to the
+    /// right." *Synchronously* is what makes the share the same in every band.
+    #[test]
+    fn blinds_reveal_the_same_share_of_every_band() {
+        for done in [0.0_f32, 0.5, 1.0] {
+            let shaped = frame(&of(Style::Blinds), viewport(), done).expect("shaped");
+            let bands = &shaped.layers[1].reveal;
+            assert_eq!(bands.len(), usize::from(BLINDS));
+            let height = 100.0 / f32::from(BLINDS);
+            for (index, band) in bands.iter().enumerate() {
+                let top = height * f32::from(u16::try_from(index).expect("eight bands"));
+                assert!(
+                    (band.min.y - top).abs() < 1e-3,
+                    "band {index} starts at its top"
+                );
+                assert!(
+                    (band.height() - height * done).abs() < 1e-3,
+                    "band {index} at {done}: {band:?}"
+                );
+                assert!(
+                    (band.width() - 200.0).abs() < 1e-3,
+                    "a horizontal line spans the width"
+                );
+            }
+        }
+
+        let mut vertical = of(Style::Blinds);
+        vertical.dimension = Dimension::Vertical;
+        let shaped = frame(&vertical, viewport(), 0.5).expect("shaped");
+        let width = 200.0 / f32::from(BLINDS);
+        for (index, band) in shaped.layers[1].reveal.iter().enumerate() {
+            let left = width * f32::from(u16::try_from(index).expect("eight bands"));
+            assert!(
+                (band.min.x - left).abs() < 1e-3,
+                "vertical lines move to the right"
+            );
+            assert!((band.width() - width / 2.0).abs() < 1e-3, "{band:?}");
+            assert!((band.height() - 100.0).abs() < 1e-3);
+        }
+    }
+
+    /// A `Dissolve` has replaced exactly the fraction of its cells the transition has run for,
+    /// and a cell once replaced stays replaced.
+    ///
+    /// Table 164: "The old page dissolves gradually to reveal the new one." The viewport is 200 by
+    /// 100, so the cells are 5 pixels square, 40 by 20 of them, and half of 800 cells is half the
+    /// view.
+    #[test]
+    fn a_dissolve_replaces_the_share_of_its_cells_it_has_run_for() {
+        let at = |done: f32| frame(&of(Style::Dissolve), viewport(), done).expect("shaped");
+        assert!(
+            area(&at(0.0).layers[1].reveal) < 0.01,
+            "nothing at the start"
+        );
+        assert!(
+            (area(&at(0.5).layers[1].reveal) - 10_000.0).abs() < 0.5,
+            "half the view half way: {}",
+            area(&at(0.5).layers[1].reveal)
+        );
+        assert!(
+            (area(&at(1.0).layers[1].reveal) - 20_000.0).abs() < 0.5,
+            "everything at the end"
+        );
+        // Gradually: every cell replaced at a third is still replaced at two thirds, and the same
+        // fraction asked twice is the same frame.
+        let (early, late) = (at(1.0 / 3.0), at(2.0 / 3.0));
+        for row in 0..20_u16 {
+            for column in 0..40_u16 {
+                let centre = Point::new(2.5 + 5.0 * f32::from(column), 2.5 + 5.0 * f32::from(row));
+                assert!(
+                    !revealed(&early, centre) || revealed(&late, centre),
+                    "cell {column},{row} came back"
+                );
+            }
+        }
+        assert_eq!(at(0.4), at(0.4), "a pure function of the fraction");
+        assert_ne!(
+            cell_key(0),
+            cell_key(1),
+            "and the order is not the grid's own"
+        );
+    }
+
+    /// A `Glitter` has replaced everything its band has passed and nothing it has not reached.
+    ///
+    /// Table 164: "Similar to Dissolve , except that the effect sweeps across the page in a wide
+    /// band moving from one side of the screen to the other in the direction specified by the Di
+    /// entry." Left to right at a half: the band's leading edge is at `0.5 × (1 + band)` of the
+    /// width and its trailing edge one band behind, and a cell is judged at its centre, so the
+    /// margins below are one cell wide.
+    #[test]
+    fn a_glitter_is_a_dissolve_inside_a_band_that_sweeps_along_di() {
+        let shaped = frame(&of(Style::Glitter), viewport(), 0.5).expect("shaped");
+        let front = 0.5 * (1.0 + GLITTER_BAND) * 200.0;
+        let behind = front - GLITTER_BAND * 200.0;
+        for row in 0..20_u16 {
+            let y = 2.5 + 5.0 * f32::from(row);
+            for column in 0..40_u16 {
+                let x = 2.5 + 5.0 * f32::from(column);
+                if x < behind - 5.0 {
+                    assert!(
+                        revealed(&shaped, Point::new(x, y)),
+                        "{x},{y} is behind the band"
+                    );
+                }
+                if x > front + 5.0 {
+                    assert!(
+                        !revealed(&shaped, Point::new(x, y)),
+                        "{x},{y} is ahead of it"
+                    );
+                }
+            }
+        }
+        // And the band is a dissolve rather than a wipe: inside it some cells have gone and some
+        // have not.
+        let inside: Vec<bool> = (0..20_u16)
+            .map(|row| revealed(&shaped, Point::new(97.5, 2.5 + 5.0 * f32::from(row))))
+            .collect();
+        assert!(
+            inside.contains(&true) && inside.contains(&false),
+            "{inside:?}"
+        );
+
+        // 315 is "[t]op-left to bottom-right", Glitter's own: the top-left corner goes first.
+        let mut diagonal = of(Style::Glitter);
+        diagonal.direction = Direction::Degrees(315.0);
+        let shaped = frame(&diagonal, viewport(), 0.5).expect("shaped");
+        assert!(
+            revealed(&shaped, Point::new(2.5, 2.5)),
+            "the corner it starts from"
+        );
+        assert!(
+            !revealed(&shaped, Point::new(197.5, 97.5)),
+            "and not the one it ends at"
+        );
+    }
+
+    /// A `Fly` in the table's own directions: the changes travel from offscreen, at `/SS`.
+    ///
+    /// Table 164's `/SS`: "If M specifies an inward transition, the scale of the changes drawn
+    /// shall progress from SS to 1.0 over the course of the transition." At the start the flown
+    /// picture is `/SS` of its size and just off the left edge — its right edge, `100 + offset +
+    /// 100 × SS`, at zero.
+    #[test]
+    fn a_fly_carries_the_changes_from_offscreen_at_its_starting_scale() {
+        let mut inward = of(Style::Fly);
+        inward.scale = 0.5;
+        let began = frame(&inward, viewport(), 0.0).expect("shaped");
+        assert_eq!(
+            began.layers[0].face,
+            Face::Outgoing,
+            "the old page holds still"
+        );
+        let flown = &began.layers[1];
+        assert_eq!(flown.face, Face::Flown);
+        assert!((flown.scale - 0.5).abs() < 1e-6);
+        assert!(
+            (100.0 + flown.offset.0 + 100.0 * flown.scale).abs() < 1e-3,
+            "{flown:?}"
+        );
+        let ended = frame(&inward, viewport(), 1.0).expect("shaped");
+        assert_eq!(ended.layers[1].offset, (0.0, 0.0), "at rest");
+        assert!(
+            (ended.layers[1].scale - 1.0).abs() < 1e-6,
+            "at its own size"
+        );
+
+        // Outward is the mirror: from rest to offscreen, from 1 to `/SS`, over the new page.
+        let mut outward = inward.clone();
+        outward.motion = Motion::Outward;
+        outward.direction = Direction::Degrees(270.0);
+        let ended = frame(&outward, viewport(), 1.0).expect("shaped");
+        assert_eq!(ended.layers[0].face, Face::Incoming);
+        assert!((ended.layers[1].scale - 0.5).abs() < 1e-6);
+        assert!(
+            (50.0 + ended.layers[1].offset.1 - 25.0 - 100.0).abs() < 1e-3,
+            "downward, its top edge at the bottom of the view: {:?}",
+            ended.layers[1]
+        );
+
+        // `/Di /None` scales in place, and is not drawn at all where `/SS` is 1.
+        let mut still = inward.clone();
+        still.direction = Direction::None;
+        let half = frame(&still, viewport(), 0.5).expect("shaped");
+        assert_eq!(half.layers[1].offset, (0.0, 0.0));
+        assert!((half.layers[1].scale - 0.75).abs() < 1e-6);
+        still.scale = 1.0;
+        assert!(frame(&still, viewport(), 0.5).is_none());
+    }
+
+    /// A page of one colour with a rectangle of another, at the viewport's size.
+    fn page(background: [u8; 4], mark: [u8; 4], marked: impl Fn(u32, u32) -> bool) -> Image {
+        let mut data = Vec::with_capacity(200 * 100 * 4);
+        for y in 0..100 {
+            for x in 0..200 {
+                data.extend_from_slice(if marked(x, y) { &mark } else { &background });
+            }
+        }
+        Image {
+            width: 200,
+            height: 100,
+            data: data.into(),
+            interpolate: false,
+            sample_alpha: pdf_render::SampleAlpha::Shape,
+        }
+    }
+
+    /// Where pixel `(x, y)` of a 200-wide raster starts.
+    fn pixel(x: usize, y: usize) -> usize {
+        y.saturating_mul(200).saturating_add(x).saturating_mul(4)
+    }
+
+    /// The colour a frame puts at one device pixel.
+    fn drawn(shaped: &Frame, faces: &Faces, x: usize, y: usize) -> Vec<u8> {
+        let list = shaped.draw(viewport(), faces).expect("a frame builds");
+        let raster = render_cpu::CpuRasterizer::new()
+            .rasterize(
+                &list,
+                TargetSpec {
+                    width: 200,
+                    height: 100,
+                    transform: Transform::IDENTITY,
+                },
+            )
+            .expect("the CPU backend draws a frame");
+        let at = pixel(x, y);
+        raster.data[at..at.saturating_add(3)].to_vec()
+    }
+
+    /// A `Fly` begins on the old page and lands on the new one, flying only what changed.
+    ///
+    /// The old page is white with a red square on the left; the new one is white with a blue
+    /// square on the right. What differs is both squares' pixels, so the flown picture is the new
+    /// page there and nothing elsewhere: half way through a flight in from the left, the blue
+    /// square is half a view short of its place and the old red square still shows.
+    #[test]
+    fn a_fly_begins_on_the_old_page_and_lands_on_the_new_one() {
+        let white = [255, 255, 255, 255];
+        let outgoing = page(white, [255, 0, 0, 255], |x, y| {
+            (20..40).contains(&x) && (40..60).contains(&y)
+        });
+        let incoming = page(white, [0, 0, 255, 255], |x, y| {
+            (160..180).contains(&x) && (40..60).contains(&y)
+        });
+        let transition = of(Style::Fly);
+        let faces = Faces::new(&transition, outgoing, incoming);
+
+        let began = frame(&transition, viewport(), 0.0).expect("shaped");
+        assert_eq!(
+            drawn(&began, &faces, 30, 50),
+            vec![255, 0, 0],
+            "the old page's square"
+        );
+        assert_eq!(drawn(&began, &faces, 170, 50), vec![255, 255, 255]);
+
+        let half = frame(&transition, viewport(), 0.5).expect("shaped");
+        assert_eq!(
+            drawn(&half, &faces, 70, 50),
+            vec![0, 0, 255],
+            "the new square in flight"
+        );
+        assert_eq!(
+            drawn(&half, &faces, 170, 50),
+            vec![255, 255, 255],
+            "not yet landed"
+        );
+
+        let ended = frame(&transition, viewport(), 1.0).expect("shaped");
+        assert_eq!(drawn(&ended, &faces, 170, 50), vec![0, 0, 255], "landed");
+        assert_eq!(
+            drawn(&ended, &faces, 30, 50),
+            vec![255, 255, 255],
+            "and the old square is covered by the new page's white, which is a change too"
+        );
+    }
+
+    /// `/B` makes the flown area the changes' bounding rectangle, opaque.
+    ///
+    /// Table 164: "If true , the area that shall be flown in is rectangular and opaque." Two
+    /// changed pixels at opposite corners of a square span the square, so under `/B` the white
+    /// between them flies too.
+    #[test]
+    fn b_flies_the_rectangle_round_the_changes() {
+        let white = [255, 255, 255, 255];
+        let outgoing = page(white, white, |_, _| false);
+        let incoming = page(white, [0, 0, 0, 255], |x, y| {
+            (x, y) == (50, 20) || (x, y) == (90, 60)
+        });
+        let mut transition = of(Style::Fly);
+        transition.opaque = true;
+        let faces = Faces::new(&transition, outgoing.clone(), incoming.clone());
+        let flown = faces.image(Face::Flown);
+        let alpha = |x: usize, y: usize| flown.data[pixel(x, y).saturating_add(3)];
+        assert_eq!(alpha(70, 40), u8::MAX, "inside the rectangle, opaque");
+        assert_eq!(alpha(10, 10), 0, "outside it, nothing");
+
+        transition.opaque = false;
+        let faces = Faces::new(&transition, outgoing, incoming);
+        let flown = faces.image(Face::Flown);
+        assert_eq!(
+            flown.data[(40 * 200 + 70) * 4 + 3],
+            0,
+            "without /B, only what changed"
+        );
+        assert_eq!(flown.data[(20 * 200 + 50) * 4 + 3], u8::MAX);
+    }
+
     /// A `Box` sweeping inward reveals the complement of a shrinking rectangle: four bands that
     /// tile what is outside it exactly once.
     #[test]
@@ -847,12 +1663,12 @@ mod tests {
         let shaped = frame(&of(Style::Box), viewport(), 0.5).expect("shaped");
         let bands = &shaped.layers[1].reveal;
         assert_eq!(bands.len(), 4, "{bands:?}");
-        let area: f32 = bands.iter().map(|rect| rect.width() * rect.height()).sum();
         // The inner rectangle is half the viewport's extent on each axis, so a quarter of its
         // area, and what is outside it is the other three quarters.
         assert!(
-            (area - 200.0 * 100.0 * 0.75).abs() < 0.01,
-            "{area} of an expected 15000"
+            (area(bands) - 200.0 * 100.0 * 0.75).abs() < 0.01,
+            "{} of an expected 15000",
+            area(bands)
         );
 
         let mut outward = of(Style::Box);
@@ -914,20 +1730,30 @@ mod tests {
         assert_eq!(shaped.layers[1].reveal, vec![viewport()], "the whole page");
     }
 
-    /// The five styles no frame is shaped for, and the four of them a person is told about.
+    /// The four styles drawn at a chosen quantity say so, and the one the table defines as a cut
+    /// says nothing.
+    ///
+    /// `doc/questions/A72`: where a clause names the kind of mark and withholds only a quantity,
+    /// the quantity is chosen, written down as this program's, and a report says it is ours.
     #[test]
-    fn a_style_with_a_quantity_the_table_does_not_state_is_named_rather_than_cut() {
+    fn a_style_drawn_at_a_chosen_quantity_says_the_quantity_is_ours() {
         for style in [Style::Blinds, Style::Glitter, Style::Dissolve, Style::Fly] {
             assert!(
-                frame(&of(style.clone()), viewport(), 0.5).is_none(),
+                frame(&of(style.clone()), viewport(), 0.5).is_some(),
                 "{style:?}"
             );
-            let said = note(&of(style)).expect("a sentence naming it");
-            assert!(said.contains("Table 164"), "{said}");
+            let said = note(&of(style)).expect("a sentence naming the choice");
+            assert!(
+                said.contains("Table 164") && said.contains("this program's own"),
+                "{said}"
+            );
         }
+        assert!(note(&of(Style::Blinds)).is_some_and(|said| said.contains("8 lines")));
         // `R` is the cut, by the table's own definition, so there is nothing to report.
         assert!(frame(&of(Style::Replace), viewport(), 0.5).is_none());
         assert_eq!(note(&of(Style::Replace)), None);
+        // And the seven the table determines have nothing to say either.
+        assert_eq!(note(&of(Style::Wipe)), None);
         // And a name the table does not define is reported as the file wrote it.
         let unknown = Style::Unrecognised(pdf_syntax::Name::new(b"Swirl".to_vec()));
         assert!(frame(&of(unknown.clone()), viewport(), 0.5).is_none());
@@ -940,14 +1766,14 @@ mod tests {
         assert!(said.contains("an empty /S"), "{said}");
     }
 
-    /// A report fires on exactly what is not drawn, over every style and every direction.
+    /// A report fires on exactly what is not drawn or drawn at a chosen quantity, over every style
+    /// and every direction.
     ///
-    /// Trap 11, and the defect that put this here: [`note`] asked the *style* while [`frame`]
-    /// asked the style **and** `/Di`, so a `Wipe` at an angle Table 164 does not give it produced
-    /// no frame and no sentence — a cut with nothing said, which is the one outcome trap 5
-    /// forbids. Holding the two expressions against each other over the whole cross-product is
-    /// what a list written out by hand cannot do: a style added to either side without the other
-    /// fails here.
+    /// Trap 11, and the defect that put this here: a report keyed on the *style* beside a frame
+    /// decided by the style **and** `/Di` let a `Wipe` at an angle Table 164 does not give it
+    /// arrive as a cut with nothing said, which is the one outcome trap 5 forbids. Holding the two
+    /// expressions against each other over the whole cross-product is what a list written out by
+    /// hand cannot do: a style added to either side without the other fails here.
     ///
     /// `R` is the single exception and it is the table's own: "[t]he new page simply replaces the
     /// old one with no special transition effect", so a file asking for `R` and getting a cut got
@@ -969,6 +1795,7 @@ mod tests {
             Style::Fade,
             Style::Unrecognised(pdf_syntax::Name::new(b"Swirl".to_vec())),
         ];
+        let chosen = [Style::Blinds, Style::Dissolve, Style::Glitter, Style::Fly];
         let directions = [
             Direction::Degrees(0.0),
             Direction::Degrees(90.0),
@@ -979,17 +1806,31 @@ mod tests {
             // An angle the table gives to nothing at all.
             Direction::Degrees(45.0),
             // "If the value is a name, it shall be None, which is relevant only for the Fly
-            // transition."
+            // transition when the value of SS is not 1.0."
             Direction::None,
         ];
         for style in styles {
             for direction in directions {
-                let mut transition = of(style.clone());
-                transition.direction = direction;
-                let drawn = frame(&transition, viewport(), 0.5).is_some();
-                let said = note(&transition).is_some();
-                let owed = !drawn && style != Style::Replace;
-                assert_eq!(said, owed, "{style:?} at {direction:?}: drawn {drawn}");
+                for scale in [1.0, 0.5] {
+                    let mut transition = of(style.clone());
+                    transition.direction = direction;
+                    transition.scale = scale;
+                    let drawn = frame(&transition, viewport(), 0.5).is_some();
+                    let said = note(&transition);
+                    let owed = if drawn {
+                        chosen.contains(&style)
+                    } else {
+                        style != Style::Replace
+                    };
+                    assert_eq!(
+                        said.is_some(),
+                        owed,
+                        "{style:?} at {direction:?}, /SS {scale}: drawn {drawn}, said {said:?}"
+                    );
+                    if let (true, Some(said)) = (drawn, &said) {
+                        assert!(said.contains("this program's own"), "{said}");
+                    }
+                }
             }
         }
     }
@@ -997,8 +1838,7 @@ mod tests {
     /// `/Di` is read as an angle, and only the four quarter turns describe a rectangular sweep.
     ///
     /// 315 is Table 164's fifth value and belongs to `Glitter` alone; the name `None` "is
-    /// relevant only for the Fly transition". Neither is shaped, so neither may quietly become
-    /// one of the four.
+    /// relevant only for the Fly transition". Neither may quietly become one of the four.
     #[test]
     fn only_the_four_quarter_turns_name_a_sweep() {
         assert_eq!(quarter(Direction::Degrees(0.0)), Some(Quarter::Rightward));
@@ -1009,9 +1849,7 @@ mod tests {
         assert_eq!(quarter(Direction::Degrees(f32::NAN)), None);
 
         // And a `Wipe` at an angle no rectangle sweeps is reported rather than drawn at some
-        // nearby angle the file did not ask for. **The second half of that sentence was written
-        // in the three-hundred-and-ninety-third session and was false until the
-        // seven-hundred-and-twentieth**: the frame was refused and nothing was reported.
+        // nearby angle the file did not ask for.
         let mut askew = of(Style::Wipe);
         askew.direction = Direction::Degrees(315.0);
         assert!(frame(&askew, viewport(), 0.5).is_none());

@@ -14,9 +14,9 @@
 //! placement (`tiny-skia-0.12.0/src/shaders/pattern.rs`: `if ts.is_identity() || ts.is_translate()
 //! { quality = Nearest }`, with its whole-pixel refinement unreachable underneath). Now that the
 //! request is `Nearest` at a native placement too, request and delivery agree and the oracle draws
-//! what §10.7.4 states. `render_raster::scene` hands quorra the samples with a **mirrored copy** of
-//! the old rule deciding (ADR 0702), and quorra filters — the departure `doc/QUORRA_FEEDBACK.md`
-//! section 47 asks about, with this example as its measurement.
+//! what §10.7.4 states. `render_raster::scene` hands raster the samples with a **mirrored copy** of
+//! the rule deciding (ADR 0702), and the copy asks the native question too (ADR 1302) — the answer
+//! `doc/QUORRA_FEEDBACK.md` section 47 asked for, with this example as its measurement.
 //!
 //! What this prints is the two answers as numbers. The image is eight rows of alternating black
 //! and white drawn onto eight device rows at ten sub-pixel offsets, and **the ink column is the

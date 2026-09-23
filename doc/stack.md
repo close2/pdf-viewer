@@ -20,6 +20,7 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Spec model | Arlington PDF Model → generated validation layer |
 | FUSE | `fuser`, pinned `=0.18.0`, default features — its pure-Rust `/dev/fuse` path, no libfuse and no C linkage (ADR 0861) |
 | KIO | CMake, extra-cmake-modules, `Qt6::Core` and `KF6::KIOCore`, for `kio/` alone — **outside the cargo workspace**, no `Cargo.toml`, named by no manifest, so a machine with no KDE builds and tests the whole workspace unchanged and the one test that reaches it skips saying which package is missing (ADR 0869) |
+| HTTP | `ureq` 3, blocking and without an async runtime, in **`viewer-host` only**, for §12.7.6.2's submission: `rustls` over `ring` for TLS and this machine's own trust store through `rustls-native-certs` — no OpenSSL, no `native-tls`, no bundled `webpki-roots`, each banned in `deny.toml`. `ring` is the one C and assembly package it brings, and ADR 1291 states that cost and asks the owner about it (`doc/questions/Q130`) |
 
 **Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
 them again would move glyphs away from where the document specifies. It may return later,

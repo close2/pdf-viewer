@@ -1231,19 +1231,13 @@ fn output_intent_profile(arguments: &Arguments) -> Result<Option<Arc<[u8]>>, Fai
     Ok(Some(bytes.into()))
 }
 
-/// `optimize`: the two knobs RFC 0002 section 6.5 names, and the one it defers.
+/// `optimize`: the knobs RFC 0002 section 6.5 names.
 ///
-/// The lossless default is every pass on. `--linearize` is refused rather than ignored, because
-/// an ignored flag is a promise this program did not keep.
+/// The lossless default is every pass on. `--linearize` writes Annex F's linearised file, and
+/// under it §7.5.7's object streams default to off, because the linearised writer does not build
+/// F.3.1's numbering for them; asking for both is refused by name rather than ignored (ADR 1293).
 fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, Failure> {
-    if arguments.switch("--linearize") {
-        return Err(Failure::Usage(
-            "--linearize: Annex F is excluded — CLAUDE.md's amended exclusion says \"Annex F \
-             stays excluded until linearisation is separately ratified\", and RFC 0002 section \
-             6.5 puts it in a phase of its own that may be declined permanently"
-                .to_owned(),
-        ));
-    }
+    let linearize = arguments.switch("--linearize");
     if let Some(word) = arguments.value(&["--images"]) {
         return Err(Failure::Usage(format!(
             "--images {word:?}: lossy image optimisation needs a DCT encoder, which this tree \
@@ -1252,6 +1246,7 @@ fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, 
         )));
     }
     let object_streams = match arguments.value(&["--object-streams"]) {
+        None if linearize => ObjectStreams::Disable,
         None | Some("generate") => ObjectStreams::DEFAULT,
         Some("disable") => ObjectStreams::Disable,
         Some(other) => {
@@ -1285,6 +1280,7 @@ fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, 
         prune: !arguments.switch("--no-prune"),
         object_streams,
         streams,
+        linearize,
     })
 }
 
@@ -2001,8 +1997,11 @@ optimize:
                              changes; an image codec stops the walk and its bytes are carried
                              inside the new outer filter
   --compression-level <n>    zlib's 0 to 9 (default 9)
-  --linearize                refused by name: CLAUDE.md excludes Annex F until linearisation
-                             is separately ratified
+  --linearize                write ISO 32000-2 Annex F's linearised file: the first page's
+                             objects at the front, every other page's after it in page order,
+                             the page offset and shared object hint tables and every other
+                             table Table F.2 requires of this document. Object streams default
+                             to off under it and are refused if asked for; so is encryption
   lossy image optimisation is deliberately absent: it needs a DCT encoder this tree does not
   have (RFC 0002 section 13's second question), and a downsampler without one would keep every
   image under qpdf's fails-to-shrink rule and do nothing while claiming to. Optimising an

@@ -1800,3 +1800,45 @@ fn an_imported_action_replaces_the_widgets_own() {
         "{actions:?}"
     );
 }
+
+/// Table 172's `/Popup` and Table 186's `/Parent` in an FDF file name each other, and a copy that
+/// followed them would go round the pair until its depth bound refused the whole annotation. They
+/// are read as links instead and written as references to the objects the import gives both, and
+/// Table 172's `/IRT` — which in an FDF file "shall not be a dictionary but a text string
+/// containing the contents of the NM entry of the annotation being replied to" — becomes a
+/// reference to the annotation that name finds on the same page. ADR 1297.
+#[test]
+fn an_fdf_popup_and_reply_are_linked_by_reference_when_placed() {
+    let document = Document::open(form()).expect("the fixture is a valid PDF");
+    let mut view = ViewState::of(&document);
+    let data = FormsData::read(&fdf_with_objects(
+        "<< /Annots [2 0 R 3 0 R 4 0 R] >>",
+        "2 0 obj\n<< /Type /Annot /Subtype /Text /Page 0 /Rect [10 10 30 30] /NM (first) \
+         /Contents (asked) /Popup 3 0 R >>\nendobj\n\
+         3 0 obj\n<< /Type /Annot /Subtype /Popup /Page 0 /Rect [40 10 120 60] /Parent 2 0 R \
+         >>\nendobj\n\
+         4 0 obj\n<< /Type /Annot /Subtype /Text /Page 0 /Rect [60 10 80 30] /IRT (first) \
+         /RT /R /Contents (answered) >>\nendobj\n",
+    ))
+    .expect("an FDF catalog");
+    assert!(data.owed.is_empty(), "{:?}", data.owed);
+    assert_eq!(data.annotations[0].popup, Some(1));
+    assert_eq!(data.annotations[1].parent, Some(0));
+
+    let outcome = view.import(&document, &data);
+    assert_eq!(outcome.annotations, 3, "{outcome:?}");
+    assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+    let added = view.additions();
+    assert_eq!(
+        added[0].dict.get("Popup"),
+        Some(&pdf_syntax::Object::Reference(added[1].id))
+    );
+    assert_eq!(
+        added[1].dict.get("Parent"),
+        Some(&pdf_syntax::Object::Reference(added[0].id))
+    );
+    assert_eq!(
+        added[2].dict.get("IRT"),
+        Some(&pdf_syntax::Object::Reference(added[0].id))
+    );
+}

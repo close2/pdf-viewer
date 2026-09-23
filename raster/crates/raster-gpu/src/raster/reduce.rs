@@ -27,16 +27,41 @@ use raster_scene::ImageSpec;
 /// `placement` — the caller's `smoothed`, statement for statement.
 ///
 /// `placement` maps the unit square onto the device (§8.9.5.1), so the length of its
-/// two columns is how many device pixels the image covers. `/Interpolate` true always
-/// filters; otherwise a *magnified* image — a sample covering more than one device
-/// pixel, the case §8.9.5.3 is about — is drawn as flat rectangles, and a reduced one
-/// keeps the filter on (their ADR 0025 carries the §10.7.4 argument).
+/// two columns is how many device pixels the image covers.
+///
+/// **One device pixel per sample is point-sampled before anything else is asked**, because
+/// there ISO 32000-2 §10.7.4 states the colour outright:
+///
+/// > The position of the centre of such a pixel -in other words, the point whose coordinate
+/// > values have fractional parts of one-half -shall be mapped back into source space to
+/// > determine how to colour the pixel. There shall not be averaging over the pixel area.
+///
+/// At that placement every pixel centre maps back inside exactly one sample whatever the
+/// sub-pixel offset, so the caller's reduction departure has no subject and `/Interpolate`
+/// has nothing to smooth. A filter there lays the mean of four samples on every pixel of an
+/// image whose origin sits on a half pixel — a whole image shifted by half a sample — which
+/// is what the caller's `render-raster` sweep `tests/masked_image_edge.rs` measured before this
+/// branch existed (the caller's ADR 1302, their feedback sections 47 and 48). The caller's
+/// [`Reduction`] asks the same question of the reduced grid, so an exact integer reduction
+/// lands here too.
+///
+/// Otherwise `/Interpolate` true filters; a *magnified* image — a sample covering more than
+/// one device pixel, the case §8.9.5.3 is about — is drawn as flat rectangles, and a reduced
+/// one keeps the filter on (their ADR 0025 carries the §10.7.4 argument).
 pub(crate) fn smoothed(width: u32, height: u32, interpolate: bool, placement: &[f32; 6]) -> bool {
+    let across = length(placement[0], placement[1]);
+    let down = length(placement[2], placement[3]);
+    // The equality is the condition rather than an approximation of it, exactly as the
+    // caller's is: a placement a hair either side of native is magnified or reduced and is
+    // classified below.
+    #[expect(clippy::float_cmp, clippy::cast_precision_loss)]
+    let native = across == width as f32 && down == height as f32;
+    if native {
+        return false;
+    }
     if interpolate {
         return true;
     }
-    let across = length(placement[0], placement[1]);
-    let down = length(placement[2], placement[3]);
     #[expect(clippy::cast_precision_loss)] // dimensions are far below f32's exact range
     let magnified = across > width as f32 || down > height as f32;
     !magnified
@@ -243,14 +268,17 @@ mod tests {
         }
     }
 
-    /// The filter rule at both ends: magnified without `/Interpolate` is flat
-    /// rectangles; at or below the image's own size the filter stays on; the flag
-    /// always filters.
+    /// The filter rule at every rung: magnified without `/Interpolate` is flat
+    /// rectangles; below the image's own size the filter stays on; the flag filters
+    /// everywhere but at one device pixel per sample, where §10.7.4's point sample is
+    /// the answer whatever the flag says.
     #[test]
     fn the_filter_follows_the_clause() {
         assert!(!smoothed(8, 8, false, &[16.0, 0.0, 0.0, 16.0, 0.0, 0.0]));
-        assert!(smoothed(8, 8, false, &[8.0, 0.0, 0.0, 8.0, 0.0, 0.0]));
+        assert!(smoothed(8, 8, false, &[4.0, 0.0, 0.0, 4.0, 0.0, 0.0]));
         assert!(smoothed(8, 8, true, &[16.0, 0.0, 0.0, 16.0, 0.0, 0.0]));
+        assert!(!smoothed(8, 8, false, &[8.0, 0.0, 0.0, 8.0, 0.5, 0.5]));
+        assert!(!smoothed(8, 8, true, &[8.0, 0.0, 0.0, -8.0, 0.5, 8.5]));
     }
 
     /// A transparent sample pulls nothing: the mean is premultiplied, so a block of

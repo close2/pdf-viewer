@@ -77,6 +77,11 @@ pub(crate) enum DrawStyle {
     DestOut,
     /// §11.4.6's second stage alone: add the mark, premultiplied ([`Compose::Plus`](raster_scene::Compose::Plus)).
     Plus,
+    /// §11.7.4.3's special overprinting blend mode where it keeps every channel of the
+    /// backdrop ([`Compose::DestOver`](raster_scene::Compose::DestOver)): one
+    /// fixed-function pass, instanced like over, because a single blend state composes
+    /// overlapping marks in order.
+    DestOver,
 }
 
 /// A run of consecutive instances in one lane with one style and one soft mask, in

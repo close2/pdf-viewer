@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <strikeout page="0" rect="10,10,110,22" coords="10,22,110,22,10,10,110,10" title="Editor"/>
+  </annots>
+</xfdf>

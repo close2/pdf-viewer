@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <redact page="0" rect="10,10,110,40" coords="10,40,110,40,10,10,110,10"
+            interior-color="#000000" overlay-text="REMOVED" overlay-text-repeat="true"
+            justification="2">
+      <defaultappearance>/Helv 8 Tf 1 g</defaultappearance>
+      <overlayappearance>q Q</overlayappearance>
+    </redact>
+  </annots>
+</xfdf>

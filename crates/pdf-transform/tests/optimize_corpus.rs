@@ -22,6 +22,15 @@
 //! byte for byte **or recompressed without reinterpretation**" — so the encoded bytes are
 //! *expected* to change and what must not change is what they decode to.
 //!
+//! **And the fifth pass, `--linearize`, is walked as its own arm** over the same population:
+//! every document is written again as ISO 32000-2 Annex F's linearised file, and that file is
+//! asked every statement the annex lets a reader check against it by `support::linearized::faults`
+//! — Table F.1's entries, and every page and shared object group where the hint tables say it is
+//! — then re-read, its decoded content compared, its page 1 drawn against the source's, and
+//! linearised a second time to hold RFC 0002 section 9's idempotence. A document the arm declines
+//! is counted by the clause it names; a raster difference nobody has read fails the run as the
+//! first arm's do ([`LINEAR_HELD`]).
+//!
 //! And one thing no layer above can see: **whether pruning removed something that mattered**.
 //! A rewrite that dropped half the document's objects would still draw page 1 correctly if none
 //! of them was on page 1. So the walk also holds the output's own closure — after pruning,
@@ -66,6 +75,7 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 mod support;
 
+use support::linearized::faults;
 use support::{check_optimized, check_structure};
 
 /// The dots per inch both rasters are drawn at, for `split_corpus.rs`'s reason.
@@ -91,9 +101,30 @@ const KNOWN_PASSWORDS: &[(&str, &str)] = &[
 /// document's rather than the verb's, and the walk fails on any difference it does not name.
 const HELD: &[(&str, &str)] = &[];
 
+/// Documents whose linearised rewrite does not draw as the source does, each with its diagnosis.
+///
+/// Empty is the state to keep, for [`HELD`]'s reason.
+const LINEAR_HELD: &[(&str, &str)] = &[];
+
 /// What the walk found.
 #[derive(Default)]
 struct Tally {
+    /// Documents written as Annex F's linearised file and read back with their pages.
+    linearized: usize,
+    /// Linearised rewrites whose page 1 drew bit-identically to the source's.
+    linear_identical: usize,
+    /// Documents the linearised arm declined by name, by reason.
+    linear_refused: Vec<(String, String)>,
+    /// Linearised outputs stating something Annex F's reader finds false.
+    linear_faults: Vec<(String, String)>,
+    /// Linearised outputs that did not reopen with their pages, or whose content changed.
+    linear_reread_failed: Vec<(String, String)>,
+    /// Linearised outputs whose page 1 drew differently.
+    linear_differ: Vec<(String, String)>,
+    /// A linearised output linearised again that was not the same file.
+    linear_not_idempotent: Vec<(String, String)>,
+    /// Bytes the linearised outputs come to.
+    linear_bytes: u64,
     /// Documents the suite could not open, by reason.
     refused_open: Vec<(String, String)>,
     /// Documents `optimize` declined by name, by reason.
@@ -258,6 +289,16 @@ fn default_plan() -> OptimizePlan {
         prune: true,
         object_streams: ObjectStreams::DEFAULT,
         streams: Streams::DEFAULT,
+        linearize: false,
+    }
+}
+
+/// The fifth pass: `optimize --linearize`, with object streams off as the flag defaults them.
+fn linear_plan() -> OptimizePlan {
+    OptimizePlan {
+        object_streams: ObjectStreams::Disable,
+        linearize: true,
+        ..default_plan()
     }
 }
 
@@ -407,7 +448,102 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     }
 
     attribute(&name, &bytes, &once, tally);
-    reread_and_draw(&name, &document, pages, &bytes, &once, tally);
+    let source_raster = reread_and_draw(&name, &document, pages, &bytes, &once, tally);
+    linearized(
+        &name,
+        &document,
+        pages,
+        &bytes,
+        source_raster.as_deref(),
+        tally,
+    );
+}
+
+/// The fifth pass's arm: Annex F's file, asked what the annex lets a reader check, re-read,
+/// drawn, and linearised again.
+fn linearized(
+    name: &str,
+    document: &Document,
+    pages: usize,
+    bytes: &[u8],
+    source_raster: Option<&[u8]>,
+    tally: &Mutex<Tally>,
+) {
+    let name = name.to_owned();
+    let out = match rewrite(&name, bytes, linear_plan()) {
+        Ok(out) => out,
+        Err(error) => {
+            record(tally, |t| {
+                t.linear_refused
+                    .push((name, format!("exit {}: {error}", error.exit().code())));
+            });
+            return;
+        }
+    };
+    for fault in faults(&out) {
+        record(tally, |t| t.linear_faults.push((name.clone(), fault)));
+    }
+    match rewrite(&name, &out, linear_plan()) {
+        Ok(again) if again == out => {}
+        Ok(again) => record(tally, |t| {
+            t.linear_not_idempotent.push((
+                name.clone(),
+                format!(
+                    "{} bytes became {} on a second pass",
+                    out.len(),
+                    again.len()
+                ),
+            ));
+        }),
+        Err(error) => record(tally, |t| {
+            t.linear_not_idempotent
+                .push((name.clone(), format!("the second pass refused: {error}")));
+        }),
+    }
+    let read = match Document::open_with_limits(out.clone(), Limits::DEFAULT) {
+        Ok(read) => read,
+        Err(error) => {
+            record(tally, |t| {
+                t.linear_reread_failed
+                    .push((name, format!("does not open: {error}")));
+            });
+            return;
+        }
+    };
+    let after = pdf_model::Pages::new(&read).len();
+    if after != pages {
+        record(tally, |t| {
+            t.linear_reread_failed
+                .push((name, format!("{pages} pages became {after}")));
+        });
+        return;
+    }
+    if decoded_contents(&read) != decoded_contents(document) {
+        record(tally, |t| {
+            t.linear_reread_failed.push((
+                name.clone(),
+                "a page's decoded content is not the producer's".to_owned(),
+            ));
+        });
+    }
+    record(tally, |t| {
+        t.linearized = t.linearized.saturating_add(1);
+        t.linear_bytes = t.linear_bytes.saturating_add(out.len() as u64);
+    });
+    match (source_raster, draw(&name, &out)) {
+        (Some(before), Some(after)) if before == after.as_slice() => {
+            record(tally, |t| {
+                t.linear_identical = t.linear_identical.saturating_add(1);
+            });
+        }
+        (Some(before), Some(after)) => record(tally, |t| {
+            t.linear_differ.push((
+                name,
+                format!("{} bytes of raster became {}", before.len(), after.len()),
+            ));
+        }),
+        _ => {}
+    }
 }
 
 /// The A/B that says what each pass is worth: the same document with each one switched off.
@@ -469,25 +605,25 @@ fn reread_and_draw(
     bytes: &[u8],
     once: &[u8],
     tally: &Mutex<Tally>,
-) {
+) -> Option<Vec<u8>> {
     let name = name.to_owned();
     let read = match Document::open_with_limits(once.to_vec(), Limits::DEFAULT) {
         Ok(read) => read,
         Err(error) => {
             record(tally, |t| {
                 t.reread_failed
-                    .push((name, format!("does not open: {error}")));
+                    .push((name.clone(), format!("does not open: {error}")));
             });
-            return;
+            return draw(&name, bytes);
         }
     };
     let after = pdf_model::Pages::new(&read).len();
     if after != pages {
         record(tally, |t| {
             t.reread_failed
-                .push((name, format!("{pages} pages became {after}")));
+                .push((name.clone(), format!("{pages} pages became {after}")));
         });
-        return;
+        return draw(&name, bytes);
     }
     record(tally, |t| t.rewritten = t.rewritten.saturating_add(1));
 
@@ -502,8 +638,9 @@ fn reread_and_draw(
 
     check_structure_of(&name, document, &read, tally);
 
-    match (draw(&name, bytes), draw(&name, once)) {
-        (Some(before), Some(after)) if before == after => {
+    let source = draw(&name, bytes);
+    match (&source, draw(&name, once)) {
+        (Some(before), Some(after)) if *before == after => {
             record(tally, |t| t.identical = t.identical.saturating_add(1));
         }
         (Some(before), Some(after)) => {
@@ -527,6 +664,7 @@ fn reread_and_draw(
             });
         }
     }
+    source
 }
 
 /// The two structural questions no raster comparison can ask, over one rewrite.
@@ -704,6 +842,16 @@ fn census(tally: &Tally, files: usize, elapsed: std::time::Duration) {
     print_list("drew differently", &tally.differ);
     print_list("two rewrites, two files", &tally.nondeterministic);
     print_list("not idempotent", &tally.not_idempotent);
+    println!(
+        "transform-optimize:   --linearize: {} written as Annex F files and read back, {} drawn \
+         bit-identically, {} bytes",
+        tally.linearized, tally.linear_identical, tally.linear_bytes
+    );
+    print_list("--linearize refused by name", &tally.linear_refused);
+    print_list("--linearize Annex F faults", &tally.linear_faults);
+    print_list("--linearize did not read back", &tally.linear_reread_failed);
+    print_list("--linearize drew differently", &tally.linear_differ);
+    print_list("--linearize not idempotent", &tally.linear_not_idempotent);
     print_list("panicked", &tally.panicked);
 }
 
@@ -779,6 +927,29 @@ fn every_corpus_document_is_rewritten_smaller_and_says_the_same_thing() {
             "a rewrite that draws differently and nobody has read: {name}: {why}"
         );
     }
+    assert!(
+        tally.linear_faults.is_empty(),
+        "Annex F: every linearised file's parameter dictionary and hint tables say where each \
+         object is"
+    );
+    assert!(
+        tally.linear_reread_failed.is_empty(),
+        "a linearised file reopens with every page and the producer's content"
+    );
+    assert!(
+        tally.linear_not_idempotent.is_empty(),
+        "RFC 0002 section 9: optimize --linearize is idempotent"
+    );
+    for (name, why) in &tally.linear_differ {
+        assert!(
+            LINEAR_HELD.iter().any(|(held, _)| held == name),
+            "a linearised rewrite that draws differently and nobody has read: {name}: {why}"
+        );
+    }
+    assert!(
+        tally.linearized > 0,
+        "a corpus in which nothing linearises is not this corpus"
+    );
     assert!(
         tally.bytes_after < tally.bytes_before,
         "a verb called optimize made the corpus larger"

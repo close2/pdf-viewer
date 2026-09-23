@@ -53,9 +53,9 @@ the entry, the `APP14` segment that silences it, and the component count, ranked
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing eleven of §12.6's actions, §14.9's accessibility entries, §12.4.4's whole presentation
-read **and played** — the Table 164 transition styles whose frame the table's own words determine,
-drawn frame by frame, and the rest reported by name for the quantity the clause does not state
-(ADR 0230), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode
+read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),
+four of them — `Blinds`, `Dissolve`, `Glitter`, `Fly` — at a quantity the table does not state,
+which this program chose and says is its own (ADR 1299), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode
 a host states because that clause conditions its whole state machine on one (ADR 0316), and
 §12.6.4.15's transition action played **outside** a presentation too, because that clause says the
 transition is the action's and not the mode's — the same two faces and the same clock, driven for
@@ -108,9 +108,12 @@ name a second file is **asked of a host and applied when the file arrives**, whi
 question raised while the import is being applied and which Table 252's `/TRef` travels on too — the
 page becomes the button's appearance or a page of the document, copied so that it names nothing of
 the file it came from, under the reader's `--remote-documents=` level (ADRs 1235, 1239) —
-XFDF against ISO 19444-1, which ISO 32000-2 names and defines nowhere, with an `<annots>` element
-**counted and said out loud rather than read**, because the grammar that would let it create an
-annotation is in sections of that standard this tree does not hold (ADR 1108); a person can **fill
+XFDF's fields against ISO 19444-1, which ISO 32000-2 names and defines nowhere, and its
+**`<annots>` from the Adobe text that standard was made from**, every annotation element spelled
+into the dictionary §12.5.6's tables define and placed by the same import as an FDF file's, with
+Table 172's `/Popup`, `/Parent` and `/IRT` written as references to the objects the import makes
+and every place ISO 32000-2 overrides the text, or the text says too little, refused by name (ADRs
+1108, 1297); a person can **fill
 in a form field** — where the host keeps the *point* it
 clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR
 0201), with a caret that says where the next character goes so that correcting the middle of a
@@ -123,7 +126,11 @@ whose contents shall be submitted as the field's value" and only a host has a fi
 them from — the path a *person* typed, under one policy function with a stated memory budget, which
 is not the path a *document* wrote (ADR 1216), and which GTK and Qt now offer a **native chooser**
 for, inside the widget's own §12.5.2 rectangle and behind the same policy function
-`viewer_host::form::edit_of` asks (ADR 1240); a person can **choose an option
+`viewer_host::form::edit_of` asks (ADR 1240); a person can **send a form** — §12.7.6.2's composed
+request leaves from the host with `ureq` over `rustls`, never from the confined worker, at a level
+the restriction menu holds (`ask` until a person picks `refuse`, `warn` or `send`), and an FDF
+answer is imported into the form that sent it with its `/Status` shown while a PDF answer opens
+beside (ADRs 1291, 1292); a person can **choose an option
 in §12.7.5.4's two controls in all three windows**, which is Table 233 bit 19 obeyed in both of the
 directions it states rather than in the one that reads as a permission: the flag set is an editable
 text box beside a drop-down list — composed in GTK4, which has no widget that is both — and the flag
@@ -270,7 +277,9 @@ through Table 71's process space, and the results converted to flat XYZ against 
 multiply-blended in that matte's own white. Every other space is the same space under both answers —
 a `Separation` is one separation and a product of one term, and a `DeviceN` of process components
 alone is what its process space already says — so the preference moves only the spaces the clause's
-sentence is about. Off by default, at 0.010% of an interpretation and no moved pixel (ADR 1229).
+sentence is about. Off by default, at 0.010% of an interpretation and no moved pixel (ADR 1229);
+a requirement executed under a control a host supplies is executed, which is the owner's ruling in
+`doc/questions/A100`, so §8.6.6.5 is `implemented` with its default argued in its row.
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the
@@ -303,10 +312,11 @@ reverts to a `DeviceCMYK` alternate is in the first bullet on the components its
 receives, which is §11.7.4.3's NOTE 2 and the equivalence §8.6.7's own EXAMPLE states (ADR 1241).
 A pair that is a direct element of a knockout group takes the implicit group too, with §11.4.6's
 NOTE 6 deciding which of that group's two initial backdrops it composites onto rather than refusing
-the position (ADR 1265). The other two backends refuse a display
-list carrying the mode by name and the frame falls back, which is the largest by-name coverage loss
-either carries: 2.7% of the crawled documents that open paint under it, counted rather than guessed
-(ADRs 1178, 1181, 1241; `doc/questions/Q76` asks who builds it in quorra). **And where the file states a
+the position (ADR 1265). `render-raster` draws the mode too, through raster's `Compose::DestOver`
+and `Compose::DestOverIn`, which were built in `raster/` from the clause alone so that the
+cross-backend run is the two readings' first meeting (ADR 1295). `render-gpu` refuses a display
+list carrying it by name. 2.7% of the crawled documents that open paint under it (ADRs 1178, 1181,
+1241). **And where the file states a
 black generation, it replaces the device's default**: Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2`
 reach both routes into a subtractive space — the graphics state's and §11.6.7's pattern dictionary's
 — so §10.4.2.4's conversion runs the producer's functions instead of this device's, `/BG2 /Default`
@@ -788,6 +798,13 @@ clause requires. It is **asked for and never inherited**, because revision 6 sto
 as a one-way hash and an opened document yields none to carry: `split`, `merge`, `pages` and
 `optimize` warn and write in the clear where nobody supplied passwords, `redact` refuses, and
 `quorra-transform` takes both from descriptors rather than from argv (ADRs 1161, 1162).
+**It writes Annex F's linearised file too**, where `optimize --linearize` asks: the first page's
+objects at the front — page 0's, or the page `/OpenAction` names — every other page's after it in
+page order, the objects two later pages share, then F.3.10's categories; the page offset and
+shared object hint tables and every other table Table F.2 requires of the document at hand; and
+every offset computed to a fixed point before a byte is written. Object streams and encryption
+inside a linearised file are refused by name, and `pdf_syntax::linearize::state` says of any file
+this tree opens whether it is still linearised, which after §7.5.6's update it is not (ADR 1293).
 `split` is the first verb on it — one file per page, per group of
 *n*, per comma-separated group of the selection, or **at §12.3.3's outline**, where a piece begins
 on every page an item at the stated depth resolves to and the front matter ahead of the first is a

@@ -97,6 +97,7 @@ mod hull;
 mod instance;
 mod layer;
 mod opacity;
+mod overprint;
 mod parallel;
 mod plan;
 mod rare;

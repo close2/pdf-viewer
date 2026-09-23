@@ -138,10 +138,7 @@ impl Executor<'_> {
             };
             let Some(buffer) = buffer else { continue };
             let bind = &self.lane_binds[&batch.mask];
-            let (erase_kind, add_kind, over_kind) = match batch.kind {
-                BatchKind::Rect => (Kind::RectErase, Kind::RectAdd, Kind::RectOver),
-                BatchKind::Quad => (Kind::CoverErase, Kind::CoverAdd, Kind::CoverOver),
-            };
+            let family = batch_family(batch.kind);
             let draw =
                 |pass: &mut wgpu::RenderPass<'_>, kind: &Kind, range: std::ops::Range<u32>| {
                     pass.set_pipeline(&pipelines[kind]);
@@ -152,19 +149,22 @@ impl Executor<'_> {
                 };
             let whole = batch.first..batch.first.saturating_add(batch.count);
             match batch.style {
-                DrawStyle::Over => draw(&mut pass, &over_kind, whole),
+                DrawStyle::Over => draw(&mut pass, &family.over, whole),
                 // One stage of §11.4.6, asked for by name (ADR 0025): the batch is
                 // instanced like any other, because a single pass over independent
                 // marks needs no interleaving.
-                DrawStyle::DestOut => draw(&mut pass, &erase_kind, whole),
-                DrawStyle::Plus => draw(&mut pass, &add_kind, whole),
+                DrawStyle::DestOut => draw(&mut pass, &family.erase, whole),
+                DrawStyle::Plus => draw(&mut pass, &family.add, whole),
+                // §11.7.4.3's destination-over is one blend state, so overlapping marks
+                // compose in draw order within the instanced call (`doc/adr/1295`).
+                DrawStyle::DestOver => draw(&mut pass, &family.dest_over, whole),
                 DrawStyle::Knockout => {
                     // §11.4.6 per element: erase by shape, then deposit — strictly
                     // interleaved, or overlapping elements compose wrongly
                     // (ADR 0010 carries the algebra).
                     for i in whole {
-                        draw(&mut pass, &erase_kind, i..i.saturating_add(1));
-                        draw(&mut pass, &add_kind, i..i.saturating_add(1));
+                        draw(&mut pass, &family.erase, i..i.saturating_add(1));
+                        draw(&mut pass, &family.add, i..i.saturating_add(1));
                     }
                 }
             }
@@ -204,9 +204,12 @@ impl Executor<'_> {
                 RunOp::Image(image) => {
                     let kinds = style_kinds(
                         image.style,
-                        Kind::ImageOver,
-                        Kind::ImageErase,
-                        Kind::ImageAdd,
+                        Family {
+                            over: Kind::ImageOver,
+                            erase: Kind::ImageErase,
+                            add: Kind::ImageAdd,
+                            dest_over: Kind::ImageDestOver,
+                        },
                     );
                     let mask = self.mask_for(image.mask);
                     let scratch = self.scratch_view.as_ref().unwrap_or(&self.dummy_view);
@@ -217,9 +220,12 @@ impl Executor<'_> {
                 RunOp::Shaded(shaded) => {
                     let kinds = style_kinds(
                         shaded.style,
-                        Kind::ShadedOver,
-                        Kind::ShadedErase,
-                        Kind::ShadedAdd,
+                        Family {
+                            over: Kind::ShadedOver,
+                            erase: Kind::ShadedErase,
+                            add: Kind::ShadedAdd,
+                            dest_over: Kind::ShadedDestOver,
+                        },
                     );
                     let mask = self.mask_for(shaded.mask);
                     let scratch = self.scratch_view.as_ref().unwrap_or(&self.dummy_view);
@@ -276,12 +282,35 @@ impl Executor<'_> {
     }
 }
 
+/// One lane family's pipelines, one per [`Style`].
+#[derive(Clone, Copy)]
+struct Family {
+    over: Kind,
+    erase: Kind,
+    add: Kind,
+    dest_over: Kind,
+}
+
+/// The family an instanced batch draws in.
+fn batch_family(kind: BatchKind) -> Family {
+    match kind {
+        BatchKind::Rect => Family {
+            over: Kind::RectOver,
+            erase: Kind::RectErase,
+            add: Kind::RectAdd,
+            dest_over: Kind::RectDestOver,
+        },
+        BatchKind::Quad => Family {
+            over: Kind::CoverOver,
+            erase: Kind::CoverErase,
+            add: Kind::CoverAdd,
+            dest_over: Kind::CoverDestOver,
+        },
+    }
+}
+
 fn batch_kinds(batch: &Batch) -> Vec<Kind> {
-    let (over, erase, add) = match batch.kind {
-        BatchKind::Rect => (Kind::RectOver, Kind::RectErase, Kind::RectAdd),
-        BatchKind::Quad => (Kind::CoverOver, Kind::CoverErase, Kind::CoverAdd),
-    };
-    style_kinds(batch.style, over, erase, add)
+    style_kinds(batch.style, batch_family(batch.kind))
         .into_iter()
         .flatten()
         .collect()
@@ -289,12 +318,13 @@ fn batch_kinds(batch: &Batch) -> Vec<Kind> {
 
 /// The pipelines one style needs, in the order they must run — one lane family's [`Kind`]s
 /// under [`Style::of`], which is where that rule is stated for all five families.
-fn style_kinds(style: DrawStyle, over: Kind, erase: Kind, add: Kind) -> [Option<Kind>; 2] {
+fn style_kinds(style: DrawStyle, family: Family) -> [Option<Kind>; 2] {
     Style::of(style).map(|wanted| {
         wanted.map(|wanted| match wanted {
-            Style::Over => over,
-            Style::Erase => erase,
-            Style::Add => add,
+            Style::Over => family.over,
+            Style::Erase => family.erase,
+            Style::Add => family.add,
+            Style::DestOver => family.dest_over,
         })
     })
 }

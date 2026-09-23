@@ -25,6 +25,8 @@ struct Params {
     non_isolated: u32,
     // §11.4.6's stage this group *is*, when it is one (ADR 0033): 0 the ordinary
     // composite below, 1 the erase `P' = (1 − f) × P`, 2 the deposit `P' = P + S`.
+    // 3 is ISO 32000-2 §11.7.4.3's special overprinting blend mode: the ordinary
+    // composite with the blend function chosen per channel by `kept` (doc/adr/1295).
     // A caller writes a knockout element whose shape is not its coverage as two groups
     // under these, because §11.6.4.2 makes a group's shape the union of its elements'
     // and no fill can state that.
@@ -64,6 +66,9 @@ struct Params {
     // meets the group by §8.5.4's intersection or by the product a compositor that
     // cannot tell shape from opacity is left with (ADR 0074).
     alpha_is_shape: u32,
+    // Under `compose == 3`, the colour channels that keep the backdrop — red in bit 0,
+    // green in bit 1, blue in bit 2. Zero otherwise.
+    kept: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -255,6 +260,23 @@ fn blend(mode: u32, cb: vec3f, cs: vec3f) -> vec3f {
     }
 }
 
+// ISO 32000-2 §11.7.4.3's special overprinting blend mode, per channel: "process colour
+// components with nonzero values shall replace the corresponding component values of the
+// backdrop; components with zero values leave the existing backdrop value unchanged". So
+// B(Cb, Cs) is Cb in the channels the caller marks as kept — decided on the tints the
+// document stated, which this pass never sees — and Cs in the rest. Table 146's closing
+// paragraph has the mode work on additive values like every blend function, and a
+// selection commutes with the complement, so no channel is complemented here.
+//
+// Substituted into §11.3.6's formula below, a kept channel is Porter-Duff
+// destination-over and every other is source-over; the formula is used as it stands
+// rather than the two operators, so that this pass states the clause and the lanes'
+// fixed-function destination-over (spec.rs `DEST_OVER`) is a second derivation of it.
+fn overprint(kept: u32, cb: vec3f, cs: vec3f) -> vec3f {
+    let keeps = vec3<bool>((kept & 1u) != 0u, (kept & 2u) != 0u, (kept & 4u) != 0u);
+    return select(cs, cb, keeps);
+}
+
 // The pixel-cell overlap with the group's clip rectangle (ADR 0005's coverage rule,
 // applied to the clip as ADR 0007 defers it here for composited groups).
 fn clip_coverage(p: vec2f) -> f32 {
@@ -386,7 +408,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     // its straight colour is irrelevant because its weight below is zero.
     let cb = select(b.rgb / vec3f(ab), vec3f(0.0), ab <= 0.0);
     let cs = select(s.rgb / vec3f(as_), vec3f(0.0), as_ <= 0.0);
-    let mixed = blend(params.mode, cb, cs);
+    // A group under §11.7.4.3's mode carries Normal as its mode (the builder refuses any
+    // other), so the selection replaces `blend` rather than composing with it.
+    var mixed = blend(params.mode, cb, cs);
+    if params.compose == 3u {
+        mixed = overprint(params.kept, cb, cs);
+    }
 
     // §11.3.6's compositing formula, written premultiplied:
     //   co = as·(1−ab)·Cs + ab·(1−as)·Cb + as·ab·B(Cb, Cs)

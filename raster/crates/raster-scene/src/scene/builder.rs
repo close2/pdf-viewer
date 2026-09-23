@@ -113,6 +113,7 @@ impl SceneBuilder {
         Self::check_paint(paint)?;
         self.check_clip(clip)?;
         self.check_mask(mask)?;
+        self.check_overprint_compose(compose, blend, None)?;
         Self::check_staged_compose(compose, blend)?;
         self.push(Command::Fill {
             outline,
@@ -225,6 +226,7 @@ impl SceneBuilder {
         self.check_clip(spec.clip)?;
         self.check_mask(spec.mask)?;
         Self::check_group_compose(&spec)?;
+        self.check_overprint_compose(spec.compose, spec.blend, Some(spec.isolated))?;
         self.check_isolation(&spec)?;
         self.check_knockout_element_group(&spec)?;
         // §11.4.6 governs the *elements* of a knockout group, so `element` is this

@@ -39,7 +39,9 @@ pub mod paint;
 pub mod scene;
 
 pub use blend::{BlendMode, Compose, FillRule};
-pub use error::{GroupComposeReason, NonIsolatedReason, SceneError, StagedComposeReason};
+pub use error::{
+    GroupComposeReason, NonIsolatedReason, OverprintComposeReason, SceneError, StagedComposeReason,
+};
 pub use function::{FnOp, FnRange, MAX_PROGRAM_LENGTH, check_program};
 pub use geom::{Affine, Point, Rect, Segment, Size, axis_aligned_rect};
 pub use ids::{ClipId, FunctionId, ImageId, MaskId, MeshId, OutlineId, RampId, ResourceId};

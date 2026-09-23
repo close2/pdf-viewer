@@ -5414,6 +5414,11 @@ session, and it is off the cross-backend comparison until the mode exists.
 `crates/render-raster/tests/overprint_refusal.rs` holds the refusal against a scene built by hand,
 so it moves the day the vocabulary does.
 
+**Closed by ADR 1295**: a round of this project built `raster_scene::Compose::DestOver` and
+`Compose::DestOverIn` in `raster/` from Table 146 and §11.3.6 alone, without reading `render-cpu`,
+as `doc/questions/A76` asked. `render-raster` draws the mode now, and on the crawl's pages that
+paint it the two readings met within the rasterisers' edge floor.
+
 ## 50. §11.4.6's own backdrop: the one value a `GroupSpec` would need is a backdrop *saved*, not the one under the brush
 
 This is a record of what the refusal costs and what would lift it, not a request — the population

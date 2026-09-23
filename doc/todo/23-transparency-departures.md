@@ -476,9 +476,10 @@ formulas, and the three fixtures.
    accumulation with a scratch per element — `f × E = S − (1 − f) × B` recovering stage a)'s
    shape-1.0 composite from an ordinary draw. One backend rather than three: the other two refuse
    by name and the frame goes to the oracle, which is the deliberate cost recorded there.
-2. **A blend mode at the `Do`**, where the collapse genuinely fails and NOTE 4's second
-   accumulator would genuinely be needed — 0.601 of full scale wrong if it is assumed anyway. No
-   corpus document states one.
+2. ~~**A blend mode at the `Do`**~~ — **built, ADR 1107**: NOTE 4's second accumulator is the
+   elements run again onto transparency, and `render-cpu`'s `remove_the_backdrop` performs NOTE 3's
+   removal. What it does not yet reach is a *knockout* group under a mode at its own `Do` whose
+   elements blend under modes no construction moves: `knockout_on_backdrop` has no result step.
 3. **`render-gpu` refuses the command**, because a Vello layer begins transparent and cannot be
    seeded from the surface; the frame goes to the CPU backend, which is what `CLAUDE.md` keeps
    that backend for. **`render-raster` draws it since the four-hundred-and-thirty-eighth** (ADR
@@ -507,9 +508,10 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    colour key is *shape* by §11.6.4.2, an `/SMask` or `/SMaskInData` is *opacity* by §11.6.4.3, a
    stencil under its own `/SMask` is both), and a shading needs no bit at all because its colours
    are opaque before §11.6.4.4's constant is folded in (`Shading::opaque()`). A knockout group now
-   states the shape of either instead of reporting; the one element still reported by name is the
-   stencil-under-its-own-soft-mask, whose two quantities really do share one raster — and Table 87
-   permits that file, which ADR 1022 §5 reads.
+   states the shape of either instead of reporting, and the stencil under its own soft mask — whose
+   two quantities one raster would multiply, in a file Table 87 permits (ADR 1022 section 5) — is
+   kept as a pair on every image route (ADRs 1218, 1279) and, painted through a pattern, as two
+   masks, the product drawn and the stencil its shape (ADR 1301).
 
    **Where the bit lives took two rounds and the second reversed the first.** ADR 1017 put it
    beside the interpreter's own record of what it drew, keyed by the raster's identity, because
@@ -539,8 +541,12 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    now, wherever the knockout group composites its elements against an initial backdrop it keeps
    (ADR 1256). **Which knockout groups those are is a field rather than a guess since ADR 1265**:
    `Interpreter::enclosing_knockout` carries §11.4.6's own "isolated or non-isolated" as a kind, so
-   the own-backdrop construction is refused under an *isolated* enclosing group alone and the
-   non-isolated one — which keeps its initial backdrop and clones it per element — takes it.
+   the non-isolated enclosing group — which keeps its initial backdrop and clones it per element —
+   takes the own-backdrop construction, and under an *isolated* one §11.7.4.4's implicit group is
+   drawn on the transparent backdrop NOTE 6 gives it, where §11.3.6 leaves a blend mode no effect
+   (ADR 1301). The record of which readings content painted under is restored by `Q`, never forgets
+   a reading something was painted under, and is kept at paint time for a path's portions
+   (ADR 1301); a text object's portions still read the enclosing content's record.
 3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed in the
    four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
    three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
@@ -628,7 +634,7 @@ inside a knockout group; §11.6.4.3 makes that opacity and §11.4.6's NOTE 5 giv
 this tree does not follow them — and if the owner ever wants Acrobat's picture, that is a
 `doc/questions/` item, not a rewrite.
 
-## §11.7.4.3's overprinting mode is 2.8% of the web, and the two backends refuse all of it
+## §11.7.4.3's overprinting mode is 2.8% of the web, and `render-raster` draws it
 
 **ADR 1158 section 4 left the frequency unmeasured and handed the census here; ADR 1178 is the
 count.** `crates/pdf-model/examples/overprint_ink_group_census.rs` asks the interpreter's own
@@ -650,9 +656,11 @@ knockout group that group's initial backdrop, which ADR 1256's construction hand
 private clone of, so `Interpreter::non_isolated_group` states which backdrop the note gives it
 instead of refusing the position, and `implicit_group_statable` is gone with them.
 
-So the row this file gains is a backend one rather than a reading one, and it is `render-raster`'s
-alone. That backend refuses a page by name whenever the flag is set and `render-cpu` draws them;
-`render-gpu` refuses every page *and* every group compositing in four components before it reaches
+So the row this file gains is a backend one rather than a reading one. `render-raster` draws the
+mode through raster's `Compose::DestOver` and `Compose::DestOverIn`, built in `raster/` from the
+clause alone (ADR 1295); what still keeps a page under it off that backend is the §11.4.4 result
+step under a non-Normal blend that §11.7.4.3's last paragraph asks for, which `raster_scene::GroupSpec`
+draws only under Normal. `render-gpu` refuses every page *and* every group compositing in four components before it reaches
 the overprint test, so what its own refusal takes off it is the one position left over — a
 §11.6.5.1 soft-mask group with four components on a page whose space is the device's (ADR 1182
 section 2).
@@ -662,10 +670,9 @@ section 2).
 source-over, one union alpha (ADR 1182, held against `render-cpu`'s own compositing function). Of
 the 27 462 715 marks, 13 786 113 keep all three channels, 13 663 468 keep none, and **13 134 keep a
 proper subset** — so **9670 of 9890 pages and 1702 of 1799 documents need nothing but
-`Compose::DestOver`**, and the per-channel choice is 97 documents. `raster_scene::Compose` has
-`SrcOver`, `Src`, `DestOut` and `Plus`, and the staged pair cannot stand in for destination-over
-(the missing factor is the destination's own alpha per pixel). `doc/QUORRA_FEEDBACK.md` section 49
-is the ask in those terms; `doc/questions/Q76` asks the owner who builds it.
+`Compose::DestOver`**, and the per-channel choice is 97 documents. Both are built: destination-over
+as one blend state in every lane, the per-channel choice through a layer composited by §11.3.6's
+formula (ADR 1295, which closed `doc/QUORRA_FEEDBACK.md` section 49 on `doc/questions/A76`).
 
 **The flag itself is no longer wider than the marks** (ADR 1181): it was set where the mode was
 *computed*, so 177 of the 10 040 pages carrying the verdict had no command under it, and the

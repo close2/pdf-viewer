@@ -613,6 +613,14 @@ pub enum Refusal {
     /// the clause.
     #[error("{0}")]
     Reconstructed(String),
+    /// `optimize --linearize` was asked for something the Annex F writer does not build, or a
+    /// document it cannot lay out, and it says which by clause.
+    ///
+    /// Exit 4 rather than 2, for [`Refusal::Reconstructed`]'s reason: the request is well formed
+    /// and the document readable, and it is this program's writer that declines by name rather
+    /// than writing a file that states a layout it does not have (ADR 1293).
+    #[error("{0}")]
+    Linearization(String),
     /// A merge names one page twice, and Table 31 gives a page one `/Parent`.
     #[error(
         "source {at}: page {page} would be in the merged document twice, and Table 31 makes a \
@@ -811,7 +819,8 @@ impl Refusal {
             | Self::FieldCollision { .. }
             | Self::StructureConflict { .. }
             | Self::DuplicateWidget { .. }
-            | Self::Reconstructed(_) => Exit::Refused,
+            | Self::Reconstructed(_)
+            | Self::Linearization(_) => Exit::Refused,
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }

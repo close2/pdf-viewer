@@ -410,6 +410,7 @@ fn derive(
             prune: true,
             object_streams: ObjectStreams::DEFAULT,
             streams: Streams::DEFAULT,
+            linearize: false,
         }),
         &[Source::new(bytes.to_vec())],
         MemorySinks::new(),

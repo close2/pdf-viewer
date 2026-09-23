@@ -2947,6 +2947,31 @@ fn table_192s_three_captions_are_chosen_by_what_the_pointer_is_doing() {
     );
 }
 
+/// Table 192's `/TP 2` and `/TP 3` lay the caption out in its own third of the rectangle.
+///
+/// "Caption below the icon" and "Caption above the icon" name the side and no share of it; the
+/// share is a third, this program's choice (ADR 1299). The `/Rect` is 60 points tall from y = 20,
+/// so the band below runs to y = 40 and the band above from y = 60, and the caption's ink stays
+/// inside its band — which is §12.7.4.3's layout given the band as its box.
+#[test]
+fn a_caption_beside_its_icon_is_laid_out_in_its_own_third() {
+    for (code, band) in [(2, 20..=41), (3, 59..=80)] {
+        let (_, raster) = draw(pdf_with(
+            "",
+            &format!(
+                "<< /Type /Annot /Subtype /Widget /Rect [20 20 180 80] /F 4 /FT /Btn \
+                 /Ff 65536 /T (go) /DA (/Helv 10 Tf 0 g) /MK << /CA (Go) /TP {code} >> >>"
+            ),
+        ));
+        let rows = inked_rows(&raster);
+        assert!(!rows.is_empty(), "/TP {code}: the caption is drawn");
+        assert!(
+            rows.iter().all(|row| band.contains(row)),
+            "/TP {code}: every inked row is inside {band:?}: {rows:?}"
+        );
+    }
+}
+
 /// Table 192's `/RC` and `/AC` are "push-button fields only", and a check box keeps its `/CA`.
 ///
 /// The table exempts exactly one of its eleven entries from that scope: "[u]nlike the remaining

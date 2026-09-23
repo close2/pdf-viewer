@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <polygon page="0" rect="10,10,90,90" interior-color="#00FF00" intent="polygon-dimension"
+             style="cloudy" intensity="2" width="1">
+      <vertices>10,10;90,10;50,90</vertices>
+    </polygon>
+  </annots>
+</xfdf>

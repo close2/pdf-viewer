@@ -85,6 +85,51 @@ impl GroupComposeReason {
     }
 }
 
+/// Why §11.7.4.3's special overprinting blend mode — [`Compose::DestOver`] or
+/// [`Compose::DestOverIn`] — cannot be drawn where it was placed.
+///
+/// Each is a position where the mode would meet a second compositing rule, and the clause
+/// says which of the two wins in none of them. A refusal rather than a guess (§5 of the
+/// brief): the caller's own interpreter already builds §11.7.4.3's implicit group for the
+/// first, and the other two are constructions it does not emit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverprintComposeReason {
+    /// The mark or group also carries a blend mode other than
+    /// [`BlendMode::Normal`](crate::blend::BlendMode::Normal). The mode *is* the blend
+    /// function, and §11.7.4.3's last paragraph puts the document's own mode on an
+    /// implicit group around the object rather than beside the special one.
+    BlendNotNormal,
+    /// The group is an element of a knockout group, where §11.4.6 weights it by its shape —
+    /// the union of its elements' shapes, which a finished layer does not carry apart from
+    /// its opacity (`SceneError::KnockoutElementGroupUnsupported` is the same reason for an
+    /// ordinary group). A *mark* there is accepted: onto the group's transparent initial
+    /// backdrop the mode is Normal's arithmetic.
+    KnockoutElement,
+    /// The group is not isolated, so §11.4.4 seeds its buffer with its own backdrop and
+    /// the composite back is an interpolation that no longer reads the group's alpha as
+    /// the source alpha the mode is written against.
+    NonIsolated,
+}
+
+impl OverprintComposeReason {
+    /// The clause-shaped half of the message; see [`GroupComposeReason::because`].
+    fn because(self) -> &'static str {
+        match self {
+            Self::BlendNotNormal => {
+                "it also carries a blend mode, and §11.7.4.3 puts that mode on an implicit \
+                 group around the object rather than beside the special one"
+            }
+            Self::KnockoutElement => {
+                "it is a group used as an element of a knockout group, whose §11.4.6 shape \
+                 a finished layer does not carry"
+            }
+            Self::NonIsolated => {
+                "it is not isolated, so §11.4.4 seeds its buffer with its own backdrop"
+            }
+        }
+    }
+}
+
 /// Why one of §11.4.6's staged operators cannot be drawn where it was placed.
 ///
 /// [`Compose::DestOut`] and [`Compose::Plus`] are a caller's own expansion of §11.4.6's
@@ -257,6 +302,15 @@ pub enum SceneError {
         /// Which position refused it.
         reason: StagedComposeReason,
     },
+    /// §11.7.4.3's special overprinting blend mode ([`Compose::DestOver`],
+    /// [`Compose::DestOverIn`]) in a position where it would meet a second compositing
+    /// rule.
+    OverprintComposeUnsupported {
+        /// The operator that was asked for.
+        compose: Compose,
+        /// Which position refused it.
+        reason: OverprintComposeReason,
+    },
     /// A non-isolated group (§11.4.4) in a position where a one-accumulator raster
     /// cannot draw it. The reason names which of the three conditions failed; see
     /// [`GroupSpec::isolated`](crate::scene::GroupSpec::isolated) for why each is
@@ -408,6 +462,12 @@ impl fmt::Display for SceneError {
                      because {because}"
                 )
             }
+            Self::OverprintComposeUnsupported { compose, reason } => write!(
+                f,
+                "{compose:?} is §11.7.4.3's special overprinting blend mode, and cannot be \
+                 drawn here because {}",
+                reason.because()
+            ),
             Self::NonIsolatedGroupUnsupported { reason } => {
                 let because = match reason {
                     NonIsolatedReason::GroupBlendNotNormal => {

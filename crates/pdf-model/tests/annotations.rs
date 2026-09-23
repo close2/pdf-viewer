@@ -3361,28 +3361,52 @@ fn a_check_box_does_not_draw_table_192s_push_button_icon() {
     );
 }
 
-/// Table 192's codes 2 to 5 name the caption's side and not its size, and are reported.
+/// Table 192's codes 2 to 5 put the caption on one side of the icon, at a share this program
+/// chose, and say so.
 ///
-/// "Caption below the icon" fixes a relation and no proportion, and the clause states none
-/// anywhere: choosing one would put a layout on the page that neither the document nor the
-/// standard asked for. The icon is still drawn, which is the half the code does state.
+/// "Caption below the icon", "Caption above the icon", "Caption to the right of the icon" and
+/// "Caption to the left of the icon" fix a relation and no proportion; `doc/questions/A72` rules
+/// that such a quantity is chosen and reported as ours (ADR 1299). The caption takes a third of
+/// the rectangle on its side, so the icon is fitted into the other two thirds: a square icon in
+/// the 80-point square `/Rect [10 10 90 90]` becomes a square of about 53 points, against the
+/// side away from the caption's band. The points below are PDF's, y upward. The fixture states
+/// no caption text, so what reports is the share rather than a caption with no `/DA`.
 #[test]
-fn table_192s_beside_codes_are_named_rather_than_invented() {
-    let interpretation = interpret(pdf_with(
-        "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
-         /T (go) /MK << /I 6 0 R /TP 2 /CA (Go) >> >>",
-        "/BBox [0 0 10 10]",
-        "1 0 0 rg 0 0 10 10 re f",
-    ));
-    let reported = format!("{:?}", interpretation.unsupported);
-    assert!(
-        reported.contains("/TP 2"),
-        "the code that states a side and no size must be named: {reported}"
-    );
-    assert!(
-        !interpretation.display_list.commands().is_empty(),
-        "and the icon the code does state is still drawn"
-    );
+fn table_192s_beside_codes_divide_the_rectangle_at_a_chosen_share() {
+    let widget = |code: u8| {
+        format!(
+            "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 90] /F 4 /FT /Btn /Ff 65536 \
+             /T (go) /MK << /I 6 0 R /TP {code} >> >>"
+        )
+    };
+    // (code, a point inside the icon's two thirds, a point inside the caption's third)
+    for (code, icon, caption) in [
+        (2, (50, 70), (50, 20)),
+        (3, (50, 30), (50, 80)),
+        (4, (30, 50), (80, 50)),
+        (5, (70, 50), (20, 50)),
+    ] {
+        let interpretation = interpret(pdf_with(
+            &widget(code),
+            "/BBox [0 0 10 10]",
+            "1 0 0 rg 0 0 10 10 re f",
+        ));
+        let raster = render_incomplete(&interpretation);
+        assert_eq!(
+            colour_at(&raster, icon.0, icon.1),
+            (255, 0, 0),
+            "/TP {code}: the icon is in its two thirds"
+        );
+        assert!(
+            !painted(&raster, caption.0, caption.1),
+            "/TP {code}: and not in the caption's third"
+        );
+        let reported = format!("{:?}", interpretation.unsupported);
+        assert!(
+            reported.contains(&format!("/TP {code}")) && reported.contains("this program chose"),
+            "the share is named as this program's: {reported}"
+        );
+    }
 }
 
 /// A one-page fixture whose widget states the `/MK` entries given, with three icons to pick from.

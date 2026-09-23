@@ -139,6 +139,7 @@ pub mod printing;
 pub mod report;
 pub mod restriction;
 pub mod status;
+pub mod submit;
 pub mod trace;
 
 pub use arrangement::next_layout;
@@ -160,9 +161,10 @@ pub use policy::{
     ACCEPT_UNKNOWN_REVOCATION, AnchorRefusal, IGNORE_RESTRICTIONS, INTERFACE_LANGUAGE,
     ImportRefusal, LINK_SCHEMES, LINKS, Link, Links, MACHINE_FONTS, MACHINE_FONTS_VARIABLE,
     Opening, READER_NAME, READER_ORGANISATION, READER_TITLE, REFERENCE_FILES, REMOTE_DOCUMENTS,
-    RESTRICTIONS, ReferenceRefusal, Remote, RemoteDocuments, SEPARATIONS, Settings, TRUST_ANCHORS,
-    URI_HANDLER, answered, asked_for, asked_to_open, asked_to_open_remote, audience, link, links,
-    may_choose_file, may_open_extracted, may_open_uri, may_write_extracted, offers_machine_fonts,
+    RESTRICTIONS, ReferenceRefusal, Remote, RemoteDocuments, SEPARATIONS, SUBMIT_SCHEMES, Sending,
+    Settings, Submissions, TRUST_ANCHORS, URI_HANDLER, answered, asked_for, asked_to_open,
+    asked_to_open_remote, asked_to_submit, audience, link, links, may_choose_file,
+    may_open_extracted, may_open_uri, may_submit, may_write_extracted, offers_machine_fonts,
     open_chosen, open_uri, read_import, reference_files, refused, remote, remote_declined,
     remote_documents, remote_note, resolve_import, resolve_uri, restrictions, separations,
     separations_note, supply_note, trust_anchors, unanswerable, under_remote_documents, uri_note,
@@ -171,7 +173,10 @@ pub use policy::{
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};
 pub use printing::Defaults as PrintDefaults;
-pub use restriction::{Chose, Entry, Question, Restrictions, Row, Scope, asked, chosen, declined};
+pub use restriction::{
+    Chose, Entry, Question, Restrictions, Row, Scope, SendingEntry, asked, chosen, declined,
+    sending_chosen,
+};
 pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,
 };

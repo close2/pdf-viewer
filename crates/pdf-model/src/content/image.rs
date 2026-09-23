@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use pdf_render::{BlendMode, Color, Command, FillRule, Path, PathCommand, Point};
+use pdf_render::{BlendMode, Command, FillRule, Path, PathCommand, Point, SoftMaskId, Transform};
 use pdf_syntax::{Dictionary, Object};
 
 use crate::colour::Conversion;
@@ -418,20 +418,19 @@ impl Interpreter<'_> {
         // The stencil carries no colour of its own — §11.5.2 derives the mask "from the
         // alpha of the group" — so what is composited into decides nothing here, and
         // `Conversion::device()` says that rather than borrowing an answer from the state.
-        let image = match crate::image::decode_reporting_frame(
+        let (image, shape) = match crate::image::decode_stencil_reporting_frame(
             self.document,
             stream,
             resources,
-            Color::BLACK,
             &Conversion::device(),
         ) {
-            Ok((crate::image::Flattened { image, shortfall }, contradiction)) => {
+            Ok((crate::image::Flattened { image, shortfall }, shape, contradiction)) => {
                 for detail in contradiction.into_iter().chain(shortfall) {
                     self.note(Unsupported::Image {
                         name: format!("{name}: {detail}"),
                     });
                 }
-                image
+                (image, shape)
             }
             Err(error) => {
                 self.note(Unsupported::Image {
@@ -440,24 +439,7 @@ impl Interpreter<'_> {
                 return;
             }
         };
-        let mask = pdf_render::SoftMask {
-            commands: vec![Command::Image {
-                image: image.into(),
-                transform: state.transform,
-                alpha: 1.0,
-                clip: None,
-                mask: None,
-                blend: BlendMode::Normal,
-            }],
-            kind: pdf_render::SoftMaskKind::Alpha,
-            transfer: None,
-            luminance: None,
-            black: None,
-        };
-        let Ok(mask) = self.list.add_soft_mask(mask) else {
-            self.note(Unsupported::LimitReached {
-                limit: "max_soft_masks",
-            });
+        let Some(mask) = self.stencil_mask(image, state.transform) else {
             return;
         };
         // This mask is §8.9.6.2's stencil wearing §11.5.2's vocabulary, and a stencil is
@@ -465,7 +447,18 @@ impl Interpreter<'_> {
         // (§11.6.4.2) — where every other mask a command carries is §11.6.4.3's opacity. A
         // knockout group states an element's shape by removing the opacity from it, and this
         // is the one mask it must keep; the record is what tells it so (`image::ShapeMasks`).
-        self.image_masks.shape_masks_mut().record(mask);
+        // A stencil under an `/SMask` of its own is drawn through the product, which is what
+        // the page is owed, and its shape is the stencil alone, which is a second mask
+        // (ADR 1301).
+        match shape {
+            None => self.image_masks.shape_masks_mut().record(mask),
+            Some(shape) => {
+                let Some(shape) = self.stencil_mask(shape, state.transform) else {
+                    return;
+                };
+                self.image_masks.shape_masks_mut().record_apart(mask, shape);
+            }
+        }
 
         // The image's own unit square, which is the region the stencil can mark.
         let mut path = Path::new();
@@ -509,5 +502,35 @@ impl Interpreter<'_> {
             },
             transfer,
         );
+    }
+
+    /// §11.5.2's alpha mask made of a stencil's raster placed under `transform`, or `None`
+    /// once the list's bound on soft masks is reached, which is noted.
+    fn stencil_mask(
+        &mut self,
+        image: pdf_render::Image,
+        transform: Transform,
+    ) -> Option<SoftMaskId> {
+        let mask = pdf_render::SoftMask {
+            commands: vec![Command::Image {
+                image: image.into(),
+                transform,
+                alpha: 1.0,
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }],
+            kind: pdf_render::SoftMaskKind::Alpha,
+            transfer: None,
+            luminance: None,
+            black: None,
+        };
+        let Ok(mask) = self.list.add_soft_mask(mask) else {
+            self.note(Unsupported::LimitReached {
+                limit: "max_soft_masks",
+            });
+            return None;
+        };
+        Some(mask)
     }
 }

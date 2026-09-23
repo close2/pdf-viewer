@@ -105,6 +105,18 @@ deny = [
     # in the same commit that documents why.
     { crate = "rustybuzz", reason = "see CLAUDE.md — shaping would break PDF text fidelity" },
     { crate = "harfbuzz-sys", reason = "as rustybuzz, and adds a C dependency" },
+    # §12.7.6.2's submission is sent by `ureq` over `rustls` (the owner's answer to
+    # `doc/questions/Q98`; ADR 1291 prices it). OpenSSL is the TLS stack that choice declines —
+    # a C library of its own, linked from the system, with a history this program does not need
+    # to inherit — and a ban is what keeps a later feature flag from bringing it in quietly.
+    # `ring` is the one C and assembly package the choice does bring, built from source by `cc`
+    # and reached only from `viewer-host`; ADR 1291 states that cost against CLAUDE.md principle 3.
+    { crate = "openssl", reason = "the TLS stack ADR 1291 declined: rustls is the one this tree uses" },
+    { crate = "openssl-sys", reason = "as openssl" },
+    { crate = "native-tls", reason = "as openssl: it is OpenSSL on Linux" },
+    # Mozilla's roots, under CDLA-Permissive-2.0, which the licence list above does not hold; the
+    # roots are this machine's own trust store instead, through `rustls-native-certs` (ADR 1291).
+    { crate = "webpki-roots", reason = "the machine's own trust store is used (ADR 1291)" },
 ]
 
 [sources]

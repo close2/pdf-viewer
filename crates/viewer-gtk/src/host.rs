@@ -450,6 +450,9 @@ pub struct Host {
     /// on a URL and opening a PDF beside this one in this reader are two decisions, and one word
     /// for both would make each of them mean the other (ADR 1227).
     remote_documents: viewer_host::RemoteDocuments,
+    /// §12.7.6.2's submissions on the wire, each on a `submit-form` thread of its own, and the
+    /// answers that have come back — looked at on GTK's main loop while one is out (ADR 1291).
+    submitter: viewer_host::submit::Submitter,
     /// §10.8.3: whether this window has asked for the separation simulation.
     ///
     /// Held here rather than asked of the core, because it is a preference a person toggles and
@@ -640,6 +643,7 @@ impl Host {
                 restrictions: viewer_host::Restrictions::new(settings.restrictions),
                 links: settings.links,
                 remote_documents: settings.remote_documents,
+                submitter: viewer_host::submit::Submitter::new(),
                 separations: settings.separations,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
@@ -962,6 +966,106 @@ impl Host {
             .window
             .insert_action_group(MENU_ACTIONS, Some(&actions));
         self.ui.menu.set_menu_model(Some(&model));
+    }
+
+    /// §12.7.6.2's composed request, under the level the menu holds (ADR 1291).
+    fn submit(&mut self, document: DocumentId, submission: pdf_model::submission::Submission) {
+        match viewer_host::may_submit(&submission, self.restrictions.submissions()) {
+            viewer_host::Sending::Send => self.send_form(document, submission, None),
+            viewer_host::Sending::Warn(note) => self.send_form(document, submission, Some(note)),
+            viewer_host::Sending::Ask(words) => self.put_a_question(
+                "Send this form?",
+                &words,
+                Rc::new(move |host: &mut Self, proceed| {
+                    if proceed {
+                        host.send_form(document, submission.clone(), None);
+                    } else {
+                        host.say(&viewer_host::policy::submission_note(
+                            &submission,
+                            Some(&format!(
+                                "you answered \"{}\"",
+                                viewer_host::restriction::DO_NOT
+                            )),
+                        ));
+                    }
+                }),
+            ),
+            viewer_host::Sending::Refuse(why) => self.say(&viewer_host::policy::submission_note(
+                &submission,
+                Some(&why),
+            )),
+        }
+    }
+
+    /// Puts the request on a `submit-form` thread of its own and looks for the answer on GTK's
+    /// main loop, at `viewer_host::submit::LOOK`, while one is out.
+    fn send_form(
+        &mut self,
+        document: DocumentId,
+        submission: pdf_model::submission::Submission,
+        warned: Option<String>,
+    ) {
+        self.say(&viewer_host::policy::submission_note(&submission, None));
+        let first = self.submitter.interval().is_none();
+        if let Err(sentence) = self.submitter.send(document, submission, warned, None) {
+            self.say(&sentence);
+            return;
+        }
+        if first {
+            let me = self.me.clone();
+            glib::timeout_add_local(viewer_host::submit::LOOK, move || {
+                let mut more = false;
+                with(&me, |host| {
+                    host.take_the_answers();
+                    more = host.submitter.interval().is_some();
+                });
+                if more {
+                    glib::ControlFlow::Continue
+                } else {
+                    glib::ControlFlow::Break
+                }
+            });
+        }
+    }
+
+    /// Every server's answer that has arrived: imported, opened beside, or said (ADR 1291).
+    fn take_the_answers(&mut self) {
+        for returned in self.submitter.collect() {
+            let (document, url) = (returned.document, returned.url.clone());
+            match returned.reply() {
+                viewer_host::submit::Reply::Import {
+                    format,
+                    bytes,
+                    note,
+                } => {
+                    self.say(&note);
+                    self.dispatch(Command::Respond {
+                        document,
+                        source: url,
+                        format,
+                        bytes,
+                    });
+                }
+                viewer_host::submit::Reply::Document { bytes, note } => {
+                    match viewer_host::submit::keep_answer(&bytes) {
+                        Ok(path) => {
+                            self.say(&format!("{note}; kept at {}", path.display()));
+                            self.arrivals.wait(viewer_host::Named::file(path), false);
+                            self.open_the_next();
+                        }
+                        Err(sentence) => self.say(&format!("{note}; {sentence}")),
+                    }
+                }
+                viewer_host::submit::Reply::Say(note) => self.say(&note),
+            }
+        }
+    }
+
+    /// A person picked §12.7.6.2's level out of the menu: kept here, and nothing sent to the
+    /// viewer, because the level is this host's to read (ADR 1291).
+    fn chose_sending(&mut self, level: viewer_host::Submissions) {
+        self.restrictions.send(level);
+        self.say(&viewer_host::sending_chosen(level));
     }
 
     /// A level a person picked out of the menu, sent to the viewer and kept for the next opening.
@@ -1339,11 +1443,11 @@ impl Host {
                 }
             }
             // §12.7.6.2: composed by `viewer-core`, and whether this machine transmits it is
-            // `viewer_host::policy::may_submit`'s one answer rather than this window's (ADR 1062).
-            Event::Submit { submission, .. } => self.say(&viewer_host::policy::submission_note(
-                &submission,
-                viewer_host::policy::may_submit().err().as_deref(),
-            )),
+            // `viewer_host::may_submit`'s one answer rather than this window's (ADRs 1062, 1291).
+            Event::Submit {
+                document,
+                submission,
+            } => self.submit(document, *submission),
             Event::NeedsFile { purpose, name, .. } => self.needs_file(purpose, &name, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
@@ -4474,7 +4578,64 @@ fn restrictions_menu(
         };
         model.append_submenu(Some(&label), &per_scope);
     }
+    model.append_submenu(
+        Some(&format!(
+            "{} — {}",
+            viewer_host::restriction::MACHINE,
+            viewer_host::restriction::MACHINE_NOTE
+        )),
+        &sending_menu(me, restrictions, &actions),
+    );
     (model, actions)
+}
+
+/// What a document may ask this machine to do: one act, §12.7.6.2's, whose four levels are a value
+/// this host reads rather than a command the viewer takes (ADR 1291). One stateful action, so the
+/// levels are radio entries as the restrictions' are.
+fn sending_menu(
+    me: &Weak<RefCell<Host>>,
+    restrictions: viewer_host::Restrictions,
+    actions: &gio::SimpleActionGroup,
+) -> gio::Menu {
+    let entries = restrictions.sending_entries();
+    let chosen = entries
+        .iter()
+        .find(|entry| entry.chosen)
+        .map_or("", |entry| entry.label);
+    let action = gio::SimpleAction::new_stateful(
+        "sending",
+        Some(glib::VariantTy::STRING),
+        &chosen.to_variant(),
+    );
+    let picked: Vec<(&'static str, viewer_host::Submissions)> = entries
+        .iter()
+        .map(|entry| (entry.label, entry.level))
+        .collect();
+    let listener = me.clone();
+    action.connect_activate(move |action, parameter| {
+        let Some(target) = parameter.and_then(glib::Variant::str) else {
+            return;
+        };
+        let Some((_, level)) = picked.iter().find(|(label, _)| *label == target) else {
+            return;
+        };
+        action.set_state(&target.to_variant());
+        let level = *level;
+        with(&listener, |host| host.chose_sending(level));
+    });
+    actions.add_action(&action);
+    let per_act = gio::Menu::new();
+    for entry in &entries {
+        let item = gio::MenuItem::new(Some(entry.label), None);
+        item.set_action_and_target_value(
+            Some(&format!("{MENU_ACTIONS}.sending")),
+            Some(&entry.label.to_variant()),
+        );
+        per_act.append_item(&item);
+    }
+    let per_machine = gio::Menu::new();
+    per_machine.append_submenu(Some(viewer_host::restriction::SUBMITTING), &per_act);
+    per_machine
 }
 
 /// The menu button, empty until somebody opens it.

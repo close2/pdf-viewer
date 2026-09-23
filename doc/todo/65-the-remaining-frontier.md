@@ -107,22 +107,12 @@ permanent) or an owner decision to acquire a specification.
   `mean(rgb * a)` — 131 of 255 on the painted channel at a magnified stencil's partly covered pixel,
   and it is what a reader sees. The premultiplication has to move into quorra's upload or sampler
   (`doc/QUORRA_FEEDBACK.md` section 39).
-- §12.7.6.2 — a submission's *client*. The request itself is composed — method, URL, media type,
-  body — and `viewer_host::policy::may_submit` is the one place the answer is decided; what is
-  absent is something to send it with, because `viewer-host` has no HTTP dependency and `xdg-open`
-  cannot carry an entity body. A dependency is not a thing a round adds by itself, so
-  `doc/questions/Q98` puts three options to the owner with a recommendation (ADR 1062).
 - §12.8.3.4.4 — enforcing a signature policy's constraints. Everything the held texts define is read:
   ETSI EN 319 122-1 clause 5.2.9's attribute whole — which policy, its digest with the all-zero *not
   known* kept apart, the URL, the notice meant to be shown, the specification identifier — and clause
   5.2.10's stored copy checked against that digest. What is missing is the specification the policy's
   own syntax is written in, and the signature *names* it, so the block is per file and named at
   runtime rather than one text to acquire (ADR 1219).
-
-  **Beside this bucket and not in it**: §12.7.8.3.4 is `departed`, and the **XFDF** spelling of an
-  FDF file's annotations needs ISO 19444-1 sections 6.4 and 6.6, where the preview held stops at
-  5.7.1. `doc/questions/Q97` asks the owner for the text; the PDF-side import is built and needed
-  none of it (ADRs 1223, 1224).
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
@@ -133,22 +123,22 @@ unblock them:** focused multi-round work on a shape channel, a per-pixel second-
 colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
 pixels.
 
-- §11.4.4, §11.4.6 — a knockout element whose one alpha is the product of shape and opacity. A bare
-  constant is read as opacity at every shape, not only where the two readings agree; what is left is
-  the element whose two quantities reach the compositor as one number. §11.4.4's recurrence and
-  NOTE 3's backdrop removal are executed and measured; its residue is this same element, which is
-  why the two rows move together (ADR 1022 section 5).
-- §11.3.7.2, §11.3.7.3, §11.4.3, §11.6.4.3, §11.7.4.4 — one raster carrying the product where the clause wants
-  the pair, and the two-object seam a rasteriser leaves nothing between. **The one image that had
-  both is drawn** (ADR 1218): a stencil under its own `/SMask` is routed to the device-scale producer,
-  so §11.6.4.2's shape and §11.6.4.3's opacity reach a command apart. Each row still names its own
-  case — a shape channel every command carries and a non-isolated group used as a knockout element
-  (§11.3.7.2); a soft mask behind an image codec and one carrying Table 144's `/Matte` (§11.3.7.3); a
-  group whose content painted under both readings of `/AIS` (§11.6.4.3); a fill-and-stroke pair that
-  is a direct element of a non-isolated knockout group (§11.7.4.4); and the same quantity in §11.4.3's
-  own sentence, which asks that a group's "colour, shape, and opacity" be treated as one object's —
-  `Command::Group`'s `alpha_is_shape` states the groups where the two coincide, and everywhere else
-  the single object carries the product.
+- §11.4.6, §11.7.4.4 — the knockout constructions' two remainders, each reported by name. A
+  non-isolated knockout group whose elements blend under modes no construction moves *and* whose
+  `Do` composites under a mode of its own wants §11.4.4's result step after `render-cpu`'s
+  `knockout_on_backdrop`, which has it only for a non-knockout group (§11.4.6); and content that
+  painted under both readings of `/AIS` while stating a mask or a constant has no one shape — a
+  path's portions are read at paint time and `Q` restores the reading (ADR 1301), so what is left
+  is a tiling cell run under the other reading and a text object's portions, which still read the
+  enclosing content's record (§11.7.4.4). The product of shape and opacity no longer reaches a
+  knockout element on any route: the stencil under its own `/SMask` is stated as an image
+  (ADRs 1218, 1279) and through a pattern (ADR 1301), so §11.3.7.2, §11.3.7.3 and §11.4.4 have
+  left this bucket.
+- §11.4.3, §11.6.4.3 — one raster carrying the product where the clause wants the pair. Each row
+  names its own case — a group whose content painted under both readings of `/AIS` (§11.6.4.3);
+  and the same quantity in §11.4.3's own sentence, which asks that a group's "colour, shape, and
+  opacity" be treated as one object's — `Command::Group`'s `alpha_is_shape` states the groups where
+  the two coincide, and everywhere else the single object carries the product.
 - §11.4.7, §11.5.3 — a page that has already spent `colour::MAX_PRESSES`: such a group has no press
   to composite in, so its elements are painted in the parent's space and `PagePress::Beyond` names
   why. The bound is no longer a round number — it is twice what the standard says one profile can
@@ -200,6 +190,13 @@ a normal round extending the existing code.
   the whole plane onto one line, so the box has no preimage that is a region and the glyph outlines
   enclose no area. Every invertible linear part is laid out, in the chord the box leaves the line
   a given baseline carries (`doc/todo/22`, ADRs 1114, 1130, 1247).
+- §F.3.1, §F.3.5 — `optimize --linearize` writes Annex F without §7.5.7's object streams and
+  without §7.6's encryption, each asked-for combination refused by name at exit 4: F.3.1's
+  numbering for compressed objects is about one round, F.3.5's `/Encrypt` in part 4 under one
+  (ADR 1293 section 5).
+- §F.3.7 — the first page's section is built; (b)'s bead arrays and each bead's `/T` are carried as
+  the producer wrote them rather than synthesised from §12.4.3's thread chain, about a day's work
+  (ADR 1293 section 5).
 - **Beside this bucket and not in it** — §12.7.8.3.2 is `departed`: Table 249's `/APRef`, and it alone. `/AP`, `/A`, `/AA` and `/IF` are applied by one
   rule, a value that lives in the other file crossing as a *value* rather than as a reference
   (ADRs 1186, 1223); `/RV` is XFA rich text on `CLAUDE.md`'s closed exclusion list and is not a
@@ -228,15 +225,13 @@ honest state until then.
 - §7.6.6 — Table 27 and nothing else: its entries are the public-key handler's and reach nothing
   while §7.6.5 refuses the handler. Table 25's `/AuthEvent` is read and load-bearing.
 
-**Five of `doc/questions/`'s Q files have no A file, and one of them holds a row in this map.**
-`tools/state.sh questions` prints the parity; the open ones are Q67, Q72, Q76, Q97 and Q98.
-§12.7.6.2 is the row that waits on one: submitting a form composes the request and hands it over —
-method, URL, media type, body, with `viewer_host::policy::may_submit` the one place the answer is
-decided — and what is absent is a *client*, because `viewer-host` has no HTTP dependency and
-`xdg-open` cannot carry an entity body. A dependency is not a thing a round adds by itself, so
-`doc/questions/Q98` puts three options to the owner with a recommendation (ADR 1062). Q72 could move
-§12.7.5.4 out of the not-owed bucket below, Q97 could unblock the `departed` §12.7.8.3.4, and Q67 and
-Q76 name no ledger row.
+**`doc/questions/`'s open Q files, and what each holds in this map.** `tools/state.sh questions`
+prints the parity and names the open ones.
+Q98's answer is in and built: `viewer_host::submit` sends §12.7.6.2's request, so that row and
+§12.7.6 are `implemented` (ADR 1291), and `doc/questions/Q130` asks what the TLS stack's C costs
+principle 3. Q72 could move
+§12.7.5.4 out of the not-owed bucket below, and Q67 names no ledger row; Q76's answer is built in `raster/` (ADR 1295). Q97's answer is
+in: the XFDF text is held and §12.7.8.3.4 reads it (ADR 1297).
 
 ### 6. Genuinely buildable now — the campaign's next targets
 
@@ -264,9 +259,9 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §8.9.6, §10.7, §11.3.7, §11.4, §11.6,
+§7.6, §8.9.6, §10.7, §11.4, §11.6,
 §11.6.4, §11.7, §11.7.4, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
-§12.7.5, §12.7.6, §12.8, §12.8.3, §12.8.3.4.
+§12.7.5, §12.8, §12.8.3, §12.8.3.4, §F, §F.3.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

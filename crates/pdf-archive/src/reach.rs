@@ -30,9 +30,9 @@
 //! **Annex F's linearisation parameter dictionary and hint stream are deliberately not roots.**
 //! The first object of a linearised file states `/Linearized`, and its `/H` gives the hint
 //! stream's offset and length as integers rather than as a reference, so no edge of the object
-//! graph reaches either. A walk that named them would be implementing a normative annex
-//! `CLAUDE.md`'s scope list leaves out until linearisation is separately ratified, and leaving
-//! them in [`Reach::unreferenced`] is the true answer to the question this module asks. They are
+//! graph reaches either. A walk that named them would be answering Annex F's question — which
+//! objects the file's layout describes — rather than this module's, which is which objects the
+//! graph reaches, so leaving them in [`Reach::unreferenced`] is the true answer here. They are
 //! most of what that set holds over `doc/veraPDF-corpus`; a stray `/Info` no trailer names, an
 //! orphaned integer and a `/Metadata` nothing references are the rest, and each of those three is
 //! a fact about the document worth having.

@@ -392,7 +392,7 @@ cargo run --profile gates -p pdf-model --example colour_transform_census -- @<pa
   # the other list. §8.9.7's inline images are walked too
 cargo run --profile gates -p pdf-model --example overprint_ink_group_census -- @<paths>
   # how far §11.7.4.3's special overprinting blend mode actually reaches, which is what
-  # `render-raster`'s and `render-gpu`'s by-name refusal costs (ADR 1158 section 4). Every
+  # `render-gpu`'s by-name refusal costs (ADR 1158 section 4; `render-raster` draws it, ADR 1295). Every
   # column is the interpreter's own verdict — `DisplayList::overprints()`, the commands whose
   # `blend()` is `BlendMode::Overprint`, the non-Normal group §11.7.4.3 builds around one, and
   # `Unsupported::Overprint` — so a change to the rule moves the number and not the predicate.

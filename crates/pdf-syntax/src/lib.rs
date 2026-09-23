@@ -31,6 +31,7 @@ pub mod error;
 pub mod file;
 pub mod filter;
 pub mod lexer;
+pub mod linearize;
 pub mod object;
 pub mod parser;
 pub mod serialize;

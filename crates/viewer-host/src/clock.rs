@@ -78,6 +78,7 @@ use std::time::{Duration, Instant};
 
 use pdf_model::navigation::Transition;
 use pdf_render::{DisplayList, DisplayListError, Image, Rect, TargetSpec, Transform};
+use viewer_core::transition::Faces;
 
 /// One transition, mid-flight: what it is, when it began, and the two pages it is between.
 #[derive(Debug)]
@@ -86,10 +87,8 @@ struct Playing {
     transition: Transition,
     /// When the first frame of it was drawn.
     began: Instant,
-    /// The page being left, rasterised for the whole viewport.
-    outgoing: Image,
-    /// The page being moved to, at the same size.
-    incoming: Image,
+    /// The page being left and the page being moved to, rasterised for the whole viewport.
+    faces: Faces,
 }
 
 /// Which clause a clock is running for, which decides whether it advances pages.
@@ -200,10 +199,9 @@ impl Clock {
 
     /// Whether `viewer_core::transition` shapes frames for this transition at all.
     ///
-    /// Five of Table 164's twelve styles are shaped by nothing: four are reported by name, each
-    /// because the table describes it with a quantity it does not state, and the fifth is `R`,
-    /// which is the cut the table defines and so has nothing to report. **A sixth refusal is not
-    /// a style**: `Wipe`, `Cover`, `Uncover` and `Push` travel along `/Di`, and a direction
+    /// One of Table 164's twelve styles is shaped by nothing: `R`, which is the cut the table
+    /// defines and so has nothing to report. **The other refusal is not a style**: `Wipe`,
+    /// `Cover`, `Uncover`, `Push`, `Fly` and `Glitter` travel along `/Di`, and a direction
     /// Table 164 does not give the style is a frame this program does not shape either — which is
     /// why the argument here is the whole transition and not its style. `viewer_core::transition`
     /// owns every one of those decisions and the core has said which by the time a
@@ -227,10 +225,9 @@ impl Clock {
         now: Instant,
     ) {
         self.playing = Some(Playing {
+            faces: Faces::new(&transition, outgoing, incoming),
             transition,
             began: now,
-            outgoing,
-            incoming,
         });
     }
 
@@ -247,7 +244,7 @@ impl Clock {
     /// # Errors
     ///
     /// [`DisplayListError`] where the frame's own commands would not build. Not reachable from a
-    /// frame — the largest one adds four clips — and returned rather than swallowed for the reason
+    /// frame — a frame adds two clips — and returned rather than swallowed for the reason
     /// every refusal in this tree is. The transition ends, so a window cannot be left holding a
     /// picture it could not draw.
     pub fn frame(
@@ -273,7 +270,7 @@ impl Clock {
             self.ended(now);
             return Ok(None);
         };
-        match shaped.draw(viewport, &playing.outgoing, &playing.incoming) {
+        match shaped.draw(viewport, &playing.faces) {
             Ok(list) => Ok(Some(list)),
             Err(problem) => {
                 self.ended(now);
@@ -433,16 +430,23 @@ mod tests {
         assert_eq!(clock.interval(), Clock::ANIMATING);
     }
 
-    /// Five of Table 164's twelve styles are shaped by nothing — four reported by name and `R`,
-    /// which is the cut — so a host asks before it rasterises two pages for a transition nobody
-    /// will see.
+    /// `R` is shaped by nothing — it is the cut — and neither is a direction Table 164 does not
+    /// give a style, so a host asks before it rasterises two pages for a transition nobody will
+    /// see. `Dissolve` is drawn, at a grain this program chose (ADR 1299).
     #[test]
     fn a_style_this_program_does_not_shape_is_refused_before_the_pages_are_taken() {
         assert!(Clock::shapes(&wipe(), viewport()));
-        assert!(!Clock::shapes(
+        assert!(Clock::shapes(
             &over_two_seconds(Style::Dissolve),
             viewport()
         ));
+        assert!(!Clock::shapes(
+            &over_two_seconds(Style::Replace),
+            viewport()
+        ));
+        let mut askew = wipe();
+        askew.direction = Direction::Degrees(45.0);
+        assert!(!Clock::shapes(&askew, viewport()));
     }
 
     /// A face is the page's own list drawn into the whole viewport at the placement the viewport

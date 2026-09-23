@@ -1,11 +1,13 @@
 // The image lane: a decoded RGBA image mapped into the unit square (ISO 32000-2
 // §8.9.5), drawn as one quad per command.
 //
-// The fragment's device position maps back through the inverse of the command ×
-// viewport transform carried in the params, giving the unit-square (u, v) exactly —
-// the same construction as the shading lane, so the drawn quad only has to *cover*
-// the footprint, never trace it. §8.9.5's orientation puts the image's TOP row at
-// v = 1, so the v axis flips at sampling.
+// The fragment's device position maps through the device → texel transform carried
+// in the params, giving the point's place in the bound texture's texel space — s to the
+// right and t down from the image's top row (§8.9.4), one unit per texel — so the drawn
+// quad only has to *cover* the footprint, never trace it. The transform is composed on
+// the CPU in double precision and rounded once (`encode::rare::texel_transform`), so a
+// placement of one device pixel per sample maps every pixel centre onto a whole number
+// exactly and the nearest texel is the floor of it (§10.7.4).
 //
 // Coverage (ADR 0011):
 // - An axis-preserving placement gets the analytic cell-overlap of the rectangle
@@ -22,9 +24,9 @@
 // bounded by the tests' tolerance rather than hidden.
 
 struct Params {
-    // Inverse of the device transform of the unit square, §8.3.3 layout.
-    inv0: vec4f, // a, b, c, d
-    inv1: vec4f, // e, f, constant alpha (§11.6.4.4's ca), filter (1 = linear)
+    // Device space → the bound texture's texel space, §8.3.3 layout.
+    texel0: vec4f, // a, b, c, d
+    texel1: vec4f, // e, f, constant alpha (§11.6.4.4's ca), filter (1 = linear)
     // The image's device rectangle (exact for the axis-preserving case).
     image_rect: vec4f,
     // Quad destination rectangle, device space.
@@ -97,11 +99,11 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
     return out;
 }
 
-// The unit-square coordinate of a device point, through the carried inverse.
-fn to_unit(p: vec2f) -> vec2f {
+// The texel-space coordinate of a device point, through the carried transform.
+fn to_texel(p: vec2f) -> vec2f {
     return vec2f(
-        params.inv0.x * p.x + params.inv0.z * p.y + params.inv1.x,
-        params.inv0.y * p.x + params.inv0.w * p.y + params.inv1.y,
+        params.texel0.x * p.x + params.texel0.z * p.y + params.texel1.x,
+        params.texel0.y * p.x + params.texel0.w * p.y + params.texel1.y,
     );
 }
 
@@ -109,7 +111,7 @@ fn to_unit(p: vec2f) -> vec2f {
 // … the shape shall be 1.0 inside the image rectangle and 0.0 outside it", met with
 // §8.5.4's clip). The image's own alpha, the constant alpha and the soft mask are all
 // opacity, not shape, and stay out of this product on purpose (ADR 0011, ADR 0066).
-fn shape_at(p: vec2f, uv: vec2f) -> f32 {
+fn shape_at(p: vec2f, st: vec2f, dims: vec2f) -> f32 {
     var cov: f32;
     if params.coverage.w > 0.5 {
         // Axis-preserving: the exact cell overlap with the image's rectangle.
@@ -118,8 +120,8 @@ fn shape_at(p: vec2f, uv: vec2f) -> f32 {
         let e = max(o_max - o_min, vec2f(0.0, 0.0));
         cov = e.x * e.y;
     } else {
-        // Oblique: painted where the centre lands inside the unit square.
-        cov = f32(uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0);
+        // Oblique: painted where the centre lands inside the image.
+        cov = f32(all(st >= vec2f(0.0)) && all(st <= dims));
     }
     if params.coverage.z > 0.5 {
         let texel = vec2i(params.coverage.xy + (p - params.dest.xy));
@@ -134,17 +136,16 @@ fn shape_at(p: vec2f, uv: vec2f) -> f32 {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
     let p = floor(in.position.xy) + params.origin;
-    let uv = to_unit(p + vec2f(0.5, 0.5));
-    let shape = shape_at(p, uv);
-    // §8.9.5: top row at v = 1.
-    let tex_uv = clamp(vec2f(uv.x, 1.0 - uv.y), vec2f(0.0), vec2f(1.0));
+    let st = to_texel(p + vec2f(0.5, 0.5));
+    let dims = vec2f(textureDimensions(image_tex));
+    let shape = shape_at(p, st, dims);
     var sample: vec4f;
-    if params.inv1.w > 0.5 {
+    if params.texel1.w > 0.5 {
+        let tex_uv = clamp(st / dims, vec2f(0.0), vec2f(1.0));
         sample = textureSampleLevel(image_tex, image_sampler, tex_uv, 0.0);
     } else {
-        // Nearest: the exact texel containing the point, no sampler arithmetic.
-        let dims = vec2f(textureDimensions(image_tex));
-        let texel = vec2i(clamp(floor(tex_uv * dims), vec2f(0.0), dims - vec2f(1.0)));
+        // Nearest: the texel whose square holds the point, no sampler arithmetic.
+        let texel = vec2i(clamp(floor(st), vec2f(0.0), dims - vec2f(1.0)));
         sample = textureLoad(image_tex, texel, 0);
     }
     // The texture is premultiplied at realisation (`device::textures::premultiplied`),
@@ -152,13 +153,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     // neighbours. The constant alpha (§11.6.4.4), the soft mask (§11.6.4.3) and the
     // image's own alpha are opacity, so all three scale the premultiplied source and
     // none enters `shape`.
-    return sample * (shape * params.inv1.z * soft_mask_at(p));
+    return sample * (shape * params.texel1.z * soft_mask_at(p));
 }
 
 // The knockout erase pass wants the shape alone (§11.4.6 with ADR 0010's algebra).
 @fragment
 fn fs_shape(in: VsOut) -> @location(0) vec4f {
     let p = floor(in.position.xy) + params.origin;
-    let uv = to_unit(p + vec2f(0.5, 0.5));
-    return vec4f(0.0, 0.0, 0.0, shape_at(p, uv));
+    let st = to_texel(p + vec2f(0.5, 0.5));
+    return vec4f(0.0, 0.0, 0.0, shape_at(p, st, vec2f(textureDimensions(image_tex))));
 }

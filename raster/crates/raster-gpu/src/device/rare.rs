@@ -136,8 +136,8 @@ impl Device {
 fn image_params_bytes(op: &ImageOp, region: Region, mask: MaskPlacement) -> [u8; 144] {
     let mut bytes = [0_u8; 144];
     let mut put = |at: usize, v: f32| bytes[at..at + 4].copy_from_slice(&v.to_le_bytes());
-    for (i, v) in op.inv.iter().enumerate() {
-        put(i * 4, *v); // inv0 then inv1.xy
+    for (i, v) in op.texel.iter().enumerate() {
+        put(i * 4, *v); // texel0 then texel1.xy
     }
     put(24, op.alpha);
     put(28, if op.linear { 1.0 } else { 0.0 });
@@ -254,7 +254,7 @@ mod tests {
     fn the_image_uniform_is_images_params() {
         let op = ImageOp {
             image: 0,
-            inv: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            texel: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             image_rect: [11.0, 12.0, 13.0, 14.0],
             dest: [21.0, 22.0, 23.0, 24.0],
             clip: [31.0, 32.0, 33.0, 34.0],
@@ -272,9 +272,9 @@ mod tests {
             "Params",
             &bytes,
             &[
-                ("inv0", Lane::Vec4([1.0, 2.0, 3.0, 4.0])),
+                ("texel0", Lane::Vec4([1.0, 2.0, 3.0, 4.0])),
                 // §8.3.3's e and f, then §11.6.4.4's constant alpha and the resolved filter.
-                ("inv1", Lane::Vec4([5.0, 6.0, 0.5, 1.0])),
+                ("texel1", Lane::Vec4([5.0, 6.0, 0.5, 1.0])),
                 ("image_rect", Lane::Vec4([11.0, 12.0, 13.0, 14.0])),
                 ("dest", Lane::Vec4([21.0, 22.0, 23.0, 24.0])),
                 ("clip", Lane::Vec4([31.0, 32.0, 33.0, 34.0])),

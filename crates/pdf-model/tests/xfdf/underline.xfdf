@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve">
+  <annots>
+    <underline page="0" rect="10,10,110,22" intent="Emphasis"
+               coords="10,22,110,22,10,10,110,10,10,40,60,40,10,30,60,30">
+      <contents-richtext>Plain words, not markup</contents-richtext>
+    </underline>
+  </annots>
+</xfdf>

@@ -1,13 +1,8 @@
 # A presentation player
 
-Status: seven of Table 164's twelve styles are drawn; **four** are reported by name, and the fifth
-of the unshaped is `R`, which the table defines as the cut and which therefore needs nothing.
-§12.4.4.2's states are walked, **there is a window since the six-hundred-and-thirty-eighth session**
-(ADR 0470), and **all three hosts drive the clock since the six-hundred-and-forty-second** (ADR
-0473). What is left is the four styles below. (This line said *five* until the
-six-hundred-and-sixty-third session, which is the wording §12.6.4.15's and §12.4's ledger rows
-retired in the five-hundred-and-fifty-third and which was still standing in eight other places, one
-of them a sentence a host shows a person and one of them this line — ADR 0490.)
+Status: all twelve of Table 164's styles are drawn — four of them at a quantity this program chose
+and reports as its own (ADR 1299) — §12.4.4.2's states are walked, there is a window (ADR 0470),
+and all three hosts drive the clock (ADR 0473). Nothing in §12.4.4 is owed.
 Priority: 32
 Clauses: §12.4.4, §12.2, Table 29
 Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentation.rs`,
@@ -22,27 +17,25 @@ the frames (ADR 0230): `viewer_core::transition::frame` shapes the frame at a fr
 through, `Frame::draw` turns it into a display list of two page rasters so both backends draw it,
 and `viewer-ui`'s `p` is the clock.
 
-What is left, in the order the cost rises:
+**The four styles Table 164 names without their quantity are drawn at this program's** — the
+owner's ruling in `doc/questions/A72`, where a clause names the kind of mark and withholds only a
+quantity (ADR 1299):
 
-- **`Blinds`** — one number the clause does not state: how many "[m]ultiple lines, evenly spaced
-  across the screen" there are. The reveal vocabulary already expresses it (a list of rectangles).
-- **`Glitter`** — a band width and what a dissolve looks like inside it, "in a wide band moving
-  from one side of the screen to the other in the direction specified by the Di entry". `/Di 315`
-  is this style's alone and `quarter` refuses it today, so a diagonal band is part of the work.
-- **`Dissolve`** — the one of the four the display list's vocabulary does not already express: a
-  per-pixel pattern rather than a region. A coarse cell grid would be a *choice* and would have to
-  say so.
-- **`Fly`** — "[c]hanges are flown out or in", so the flown object is the **difference** between
-  two pages, with `/SS` scaling it and `/B` deciding whether it is rectangular and opaque. That is
-  a page diff and a different kind of problem from the other three.
+- **`Blinds`** — 8 lines (`transition::BLINDS`), each band revealed by the same share at once.
+- **`Dissolve`** — square cells, 40 along the view's longer side (`transition::DISSOLVE_CELLS`),
+  replaced in one fixed pseudo-random order, so a frame is a pure function of the fraction and a
+  replaced cell stays replaced.
+- **`Glitter`** — `Dissolve`'s cells and order inside a band 0.25 of the distance swept
+  (`transition::GLITTER_BAND`), along any `/Di`, 315 included.
+- **`Fly`** — the pixels in which the two pages differ (`transition::Faces`), or their bounding
+  rectangle opaque under `/B`, flown from or to the nearest offscreen place and scaled by `/SS`
+  about the view's centre; `/Di /None` scales in place.
 
-Each is reported by name today rather than drawn as a cut, which is the rule that keeps this
-honest debt rather than a silence.
+`transition::note` tells a person on every page asking for one of the four that the quantity is
+this program's own.
 
-**And the four are ranked by demand since the six-hundred-and-sixty-third session, which is a
-different order from the one above.** The curated corpora state no presentation at all — 0 of 1133
-documents, which is why this list has only ever been ordered by what it would cost — and the
-SafeDocs crawl states 276 of them. Over the 65 703 documents of `CC-MAIN-2021-31` that open
+**The demand for each style is counted.** The curated corpora state no presentation at all — 0 of
+1133 documents — and the SafeDocs crawl states 276 of them. Over the 65 703 documents of `CC-MAIN-2021-31` that open
 (`examples/presentation_census`, chunked through `xargs -P 8`, under a minute):
 
 | style | pages | documents | drawn? |
@@ -50,20 +43,17 @@ SafeDocs crawl states 276 of them. Over the 65 703 documents of `CC-MAIN-2021-31
 | `R` | 4084 | 187 | the cut, by definition |
 | `Fade` | 596 | 33 | yes |
 | `Wipe` | 258 | 15 | yes |
-| **`Dissolve`** | **221** | **11** | no |
+| **`Dissolve`** | **221** | **11** | at a chosen grain |
 | `Push` | 162 | 12 | yes |
 | `Box` | 66 | 7 | yes |
 | `Cover` / `Uncover` | 23 / 21 | 5 / 4 | yes |
-| **`Blinds`** | **16** | **4** | no |
+| **`Blinds`** | **16** | **4** | at a chosen count |
 | `Split` | 2 | 1 | yes |
-| **`Glitter`**, **`Fly`** | **0** | **0** | no |
+| **`Glitter`**, **`Fly`** | **0** | **0** | at a chosen band / reading |
 | a name not in Table 164 | 106 | 3 | reported as the thirteenth case |
 
-So **`Dissolve` is the whole of the demand in practice**, and it is the one the display list's
-vocabulary does not express — the cheapest item on the list above is the one nobody asks for and the
-dearest but one is the one everybody does. `Glitter` and `Fly` are refusals no file has ever
-reached, which is a reason to leave them rather than to do them: a sentence nobody reads costs
-nothing and a choice this reader would have to invent is worse than a report. All three documents in
+So **`Dissolve` is the whole of the demand in practice** for the four chosen quantities, and
+`Glitter` and `Fly` are drawn although no crawled file asks for either. All three documents in
 the last row write `/Trans<</S/>>` — an **empty** name, which is a syntactically valid name object
 and not one of Table 164's values — and this reader keeps it as `Style::Unrecognised`, shows the
 page at once and says so. The page a conforming reader draws is the same one Table 164's default

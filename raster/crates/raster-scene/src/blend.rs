@@ -3,8 +3,8 @@
 //! Three enumerations, all of them transcriptions of a specification rather than design
 //! choices of ours, which is why they are real code in a skeleton (`raster/doc/adr/0003`):
 //! [`BlendMode`] because ISO 32000-2 §11.3.5 names sixteen modes, [`Compose`] because
-//! §11.4.6 needs a second compositing behaviour that a general vector API does not have,
-//! and [`FillRule`] because §8.5.3.3 defines two.
+//! §11.4.6 needs a second compositing behaviour that a general vector API does not have
+//! and §11.7.4.3 a third, and [`FillRule`] because §8.5.3.3 defines two.
 //!
 //! The functions that *implement* these arrive with M6 and are ours alone: the caller's
 //! CPU backend implements the sixteen modes itself rather than using `tiny-skia`'s,
@@ -181,6 +181,114 @@ pub enum Compose {
     /// At zero coverage it adds nothing, so like [`Compose::DestOut`] it cannot mark
     /// outside the shape.
     Plus,
+    /// Porter-Duff Destination-over, weighted by coverage: the backdrop stays where it is
+    /// and the source fills in only as much as the backdrop's own alpha leaves uncovered.
+    ///
+    /// ISO 32000-2 §11.7.4.3's special overprinting blend mode where it keeps **every**
+    /// channel of the backdrop. The derivation is [`Compose::DestOverIn`]'s, in the case
+    /// where every channel takes `B = C_b`; it is its own operator because that case is
+    /// nearly the whole population and costs one fixed-function blend state rather than a
+    /// layer (`doc/adr/1295`).
+    ///
+    /// At zero coverage it deposits nothing, so like [`Compose::DestOut`] it cannot mark
+    /// outside the shape.
+    DestOver,
+    /// Destination-over in the colour channels marked `true` and source-over in the rest,
+    /// with the union alpha either way: ISO 32000-2 §11.7.4.3's special overprinting blend
+    /// mode, stated channel by channel.
+    ///
+    /// # What the clause asks
+    ///
+    /// The mode is one no document can name — ISO 32000-2 §11.7.4.3:
+    ///
+    /// > It shall not be invoked explicitly; rather, it may be implicitly invoked whenever an
+    /// > elementary graphics object is painted while overprinting is enabled (that is, when
+    /// > the overprint parameter in the graphics state is true ).
+    ///
+    /// and its value is not arithmetic over the two colours but a choice between them, per
+    /// component:
+    ///
+    /// > If the overprint mode is 1 (nonzero overprint mode) and the current colour space and
+    /// > group colour space are both DeviceCMYK , then process colour components with nonzero
+    /// > values shall replace the corresponding component values of the backdrop; components
+    /// > with zero values leave the existing backdrop value unchanged.
+    ///
+    /// Table 146 states the same cell as `B = C_s` where the source tint is nonzero and
+    /// `B = C_b` where it is zero, and the paragraph under it, ISO 32000-2 §11.7.4.5, says
+    /// the choice is made on additive values like every other blend function's:
+    ///
+    /// > In reality, however, the special overprinting blend mode (like all blend modes)
+    /// > shall treat colour components as additive values; subtractive components shall be
+    /// > complemented before and after application of the special blend function.
+    ///
+    /// A selection commutes with a complement, so the channel that keeps the backdrop's
+    /// tint keeps its additive value too, and nothing here complements anything.
+    ///
+    /// # What that is, in this vocabulary
+    ///
+    /// §11.3.3's basic compositing formula, with §11.3.7.3's union for the result alpha
+    /// `αr = αb + αs − αb·αs`, reads in premultiplied form (`c = α·C`):
+    ///
+    /// ```text
+    /// cr = (1 − αs)·cb + (1 − αb)·cs + αs·αb·B(Cb, Cs)
+    /// ```
+    ///
+    /// — the weighting §11.3.6 describes, the backdrop and source alphas controlling their
+    /// own colours and their product controlling the blend function's. Substituting the
+    /// clause's two values of `B`:
+    ///
+    /// - `B = Cb`, a channel the mark leaves alone: `αs·αb·Cb = αs·cb`, and the line is
+    ///   `cr = cb + (1 − αb)·cs` — Porter-Duff **destination-over**;
+    /// - `B = Cs`, a channel the mark replaces: `αs·αb·Cs = αb·cs`, and the line is
+    ///   `cr = cs + (1 − αs)·cb` — Porter-Duff **source-over**, which is Normal.
+    ///
+    /// `αr` does not depend on `B`, so the alpha is the union in every channel. Nothing in
+    /// the selection varies within a mark: the caller decides it on the tints the document
+    /// stated (§8.6.7 makes the zero test on "the tint value defined within the PDF file,
+    /// before quantisation into a device tint value"), which a shader handed an eight-bit
+    /// colour could not repeat, so it travels on the command.
+    ///
+    /// # How it is drawn
+    ///
+    /// No single fixed-function blend state states two operators in two channels. Two draws
+    /// under write masks could — destination-over into the kept channels first, while the
+    /// backdrop's alpha is still there to be read, then source-over into the rest and the
+    /// alpha — at two more pipelines per lane for each of the six proper subsets. The
+    /// caller counted this operator's population at 0.048% of the marks under the mode, so
+    /// a mark under it is drawn into a layer of its own instead and composited once, by
+    /// `composite.wgsl`, with the formula above and the selected `B` (`doc/adr/1295`).
+    /// [`Compose::keeping`] sends the two uniform selections to [`Compose::DestOver`] and
+    /// [`Compose::SrcOver`], which need no layer.
+    DestOverIn([bool; 3]),
+}
+
+impl Compose {
+    /// ISO 32000-2 §11.7.4.3's special overprinting blend mode for a mark that keeps the
+    /// backdrop in exactly the channels marked `true`: [`Compose::DestOverIn`], or one of
+    /// the two operators its uniform cases are.
+    ///
+    /// Keeping every channel is [`Compose::DestOver`] and keeping none is
+    /// [`Compose::SrcOver`] — the same arithmetic the per-channel operator would compute,
+    /// reached without a layer. The derivation is on [`Compose::DestOverIn`].
+    #[must_use]
+    pub const fn keeping(kept: [bool; 3]) -> Self {
+        match kept {
+            [true, true, true] => Self::DestOver,
+            [false, false, false] => Self::SrcOver,
+            _ => Self::DestOverIn(kept),
+        }
+    }
+
+    /// Whether this is §11.7.4.3's special overprinting blend mode: [`Compose::DestOver`]
+    /// or [`Compose::DestOverIn`].
+    ///
+    /// The builder asks it to refuse the positions where the mode would meet a second
+    /// compositing rule it cannot be combined with — see
+    /// [`SceneError::OverprintComposeUnsupported`](crate::error::SceneError::OverprintComposeUnsupported).
+    #[must_use]
+    pub const fn overprints(self) -> bool {
+        matches!(self, Self::DestOver | Self::DestOverIn(_))
+    }
 }
 
 /// Which of ISO 32000-2 §8.5.3.3's two rules decides the inside of a path.
@@ -222,6 +330,23 @@ mod tests {
             .filter(|mode| !mode.is_separable())
             .count();
         assert_eq!(non_separable, 4);
+    }
+
+    /// ISO 32000-2 §11.7.4.3's selection has two uniform cases, and each is an operator
+    /// this vocabulary already has: keeping every channel is destination-over and keeping
+    /// none is `B = C_s` everywhere, which is Normal's source-over. Only a proper subset
+    /// needs the per-channel operator, and it carries exactly the channels it was given.
+    #[test]
+    fn keeping_sends_the_uniform_selections_to_their_operators() {
+        assert_eq!(Compose::keeping([true; 3]), Compose::DestOver);
+        assert_eq!(Compose::keeping([false; 3]), Compose::SrcOver);
+        for bits in 1_u8..7 {
+            let kept = [bits & 1 != 0, bits & 2 != 0, bits & 4 != 0];
+            assert_eq!(Compose::keeping(kept), Compose::DestOverIn(kept));
+            assert!(Compose::keeping(kept).overprints());
+        }
+        assert!(!Compose::SrcOver.overprints());
+        assert!(Compose::DestOver.overprints());
     }
 
     /// §11.6.6 initialises the blend mode to Normal, and an ordinary mark composites
