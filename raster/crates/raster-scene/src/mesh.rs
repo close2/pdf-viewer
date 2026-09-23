@@ -16,7 +16,7 @@
 //! outlines and images a mesh upload is viewport-dependent — a zoom re-rasterises and
 //! re-uploads its meshes. That is the cost of the shared-rasteriser correctness
 //! argument, it is the caller's decision (trap 2: taken once, upstream), and meshes
-//! are rare enough on real pages that §6 never mentions them in a hot path.
+//! are rare enough on real pages that brief section 6 never mentions them in a hot path.
 
 use crate::image::ImageSpec;
 

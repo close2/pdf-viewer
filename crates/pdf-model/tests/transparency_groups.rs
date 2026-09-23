@@ -1374,10 +1374,10 @@ fn nested_fixture(inner: &str, content: &str, outer_body: &str) -> Vec<u8> {
 /// paints Normal is drawn as an isolated one whatever it declares, and says nothing.
 ///
 /// Where an element *does* blend, the display list states the group's own backdrop (ADR
-/// 0237) on three conditions, and this pins what happens either side of each of them: a
-/// constant alpha and a soft mask at the `Do` are drawn, a blend mode at the `Do` is not,
-/// and neither is a knockout group whose rule can change a pixel — which is where §11.4.6's
-/// initial backdrop and §11.4.4's immediate one part company, and nowhere else (ADR 0307).
+/// 0237), and this pins that every position is drawn: a constant alpha, a soft mask and a
+/// blend mode at the `Do`, and a knockout group whose rule can change a pixel — which is
+/// where §11.4.6's initial backdrop and §11.4.4's immediate one part company (ADR 0307),
+/// under a Normal `Do` and under a mode of its own (ADR 1305).
 #[test]
 fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
     let reported = |group: &str, form: &str, page: &str| {
@@ -1439,15 +1439,15 @@ fn a_non_isolated_group_reports_only_where_the_backdrop_cannot_be_stated() {
          (ADR 0327)"
     );
     assert!(
-        reported(
+        !reported(
             "/Group << /S /Transparency /K true >>",
             "1 0 0 rg 10 10 50 50 re f /GB gs 0 0 1 rg 30 30 50 50 re f",
             "/GB gs /Fm Do"
         )
         .contains("non-isolated"),
-        "§11.4.4's result step is performed on the group as a whole, which a knockout group \
-         whose rule can show is not: §11.4.6 gives each of its elements the group's own \
-         initial backdrop, and that is the refusal this still names"
+        "and under a blend mode at the `Do` that group's accumulation is taken through \
+         §11.4.4's result step, which §11.4.8 states once for every kind of group, and \
+         composited as one object under the mode (ADR 1305)"
     );
 }
 
@@ -3240,22 +3240,111 @@ fn a_knockout_rule_that_can_show_nothing_leaves_the_group_the_backdrop_it_has() 
 
     // The control, and it is one entry of one content stream: a second element that composites
     // *over* the first is what §11.4.6's rule can show, so the group stops being §11.4.4's and
-    // states its own backdrop instead — `a_knockout_groups_elements_blend_against_the_pages_own
-    // _backdrop` holds the pixels. Without a still-refused control the assertion above would
-    // pass just as well for a renderer that had stopped implementing knockout altogether, so
-    // the refusal is pinned one condition over: under a blend mode at the `Do` the collapse of
-    // §11.4.4's backdrop removal fails and the group keeps its two reports.
+    // states its own backdrop and the knockout rule instead — `a_knockout_groups_elements_blend
+    // _against_the_pages_own_backdrop` holds the pixels. Without it the assertion above would
+    // pass just as well for a renderer that had stopped implementing knockout altogether.
     let shows = interpret(fixture(
         "/Group << /S /Transparency /I false /K true >>",
         "[0 0 100 100]",
         "0 1 1 rg 20 20 60 60 re f /GB gs 1 0 1 rg 30 30 60 60 re f",
-        "1 1 0 rg 0 0 100 100 re f /GB gs /Fm Do",
+        "1 1 0 rg 0 0 100 100 re f /Fm Do",
     ));
-    let reported = format!("{:?}", shows.unsupported);
     assert!(
-        reported.contains("knockout, and an element composites over another"),
-        "a knockout group composited under a blend mode of its own is still refused by \
-         name: {reported}"
+        shows.display_list.commands().iter().any(|command| matches!(
+            command,
+            Command::Group {
+                isolated: false,
+                knockout: true,
+                ..
+            }
+        )),
+        "a group whose knockout rule can show states it: {:?}",
+        shows.display_list.commands()
+    );
+}
+
+/// §11.4.6's own-backdrop group composited under a blend mode of its own at the `Do`
+/// (ADR 1305).
+///
+/// §11.4.4 says what the group's result is and what it is composited with:
+///
+/// > In those formulas, the colour, shape, and alpha ( C, 𝑓 , and α ) calculated by the
+/// > group compositing function shall be used, respectively, as the source colour 𝐶𝑠 , the
+/// > object shape 𝑓 j , and the object alpha α j .
+///
+/// # The arithmetic, by hand from §11.4.8 and §11.3.5
+///
+/// The page is opaque `C0 = (1, 1, ½)`. The group states `/I false /K true`; element 1 is
+/// opaque cyan under Normal, element 2 magenta at `ca ½` under `Multiply`, which overlaps
+/// it, and the `Do` is under `Multiply` too. Where element 2 paints, §11.4.6's stage a)
+/// composites it with the initial backdrop: `B(C0, magenta) = (1, 0, ½)`, so
+/// `Ct = ½ × C0 + ½ × (1, 0, ½) = (1, ½, ½)` at alpha 1, and stage b) at shape 1 makes
+/// that `Cn`. Table 140's group alpha there is `αg = (1 − 1) × αg₁ + ½ = ½` — element 1 is
+/// knocked out of it too. §11.4.4's result step gives
+/// `C = Cn + (Cn − C0) × (α0 ÷ αg − α0) = 2 × Cn − C0 = (1, 0, ½)` at `α = ½`, and
+/// §11.3.6 composites that onto the page under the group's Multiply:
+/// `½ × C0 + ½ × (C0 × C) = (1, ½, ⅜)`, `(255, 128, 96)`.
+///
+/// Where element 1 alone paints, `C = cyan` at `α = 1`, and Multiply with the page gives
+/// `(0, 1, ½)`, `(0, 255, 128)`.
+///
+/// # Where the other constructions disagree
+///
+/// The Normal collapse — the accumulation interpolated back as if the `Do` were Normal —
+/// draws `Cn` itself: `(255, 128, 128)` where element 2 paints and cyan `(0, 255, 255)` where
+/// element 1 does. The accumulation composited under Multiply *without* the result step
+/// draws `(255, 128, 64)`: the backdrop enters twice. The refusal drew the elements flat and
+/// reported the group. Each fails an assertion below.
+#[test]
+fn a_knockout_group_under_a_mode_of_its_own_is_composited_as_one_object() {
+    let drawn = interpret(fixture(
+        "/Group << /S /Transparency /I false /K true >>",
+        "[0 0 100 100]",
+        "0 1 1 rg 20 20 60 60 re f /GS gs /GB gs 1 0 1 rg 30 30 60 60 re f",
+        "1 1 0.5 rg 0 0 100 100 re f /GB gs /Fm Do",
+    ));
+    assert!(drawn.is_complete(), "{:?}", drawn.unsupported);
+    assert!(
+        drawn.display_list.commands().iter().any(|command| matches!(
+            command,
+            Command::Group {
+                isolated: false,
+                knockout: true,
+                blend: pdf_render::BlendMode::Multiply,
+                ..
+            }
+        )),
+        "the group states its own backdrop, the knockout rule and the mode at its `Do`: {:?}",
+        drawn.display_list.commands()
+    );
+    let near = |what: &str, got: [u8; 4], want: [u8; 4]| {
+        assert!(
+            got.iter()
+                .zip(want)
+                .all(|(got, want)| (i32::from(*got) - i32::from(want)).abs() <= 2),
+            "{what}: {got:?} against {want:?}"
+        );
+    };
+    near(
+        "the overlap: element 2 knocks element 1 out, and the result step's colour is \
+         multiplied onto the page at the group alpha",
+        pixel(&drawn, 50, 50),
+        [255, 128, 96, 255],
+    );
+    near(
+        "element 2 alone is the same composite",
+        pixel(&drawn, 85, 15),
+        [255, 128, 96, 255],
+    );
+    near(
+        "element 1 alone is cyan multiplied onto the page",
+        pixel(&drawn, 25, 75),
+        [0, 255, 128, 255],
+    );
+    near(
+        "and the page is untouched where the group does not mark",
+        pixel(&drawn, 5, 95),
+        [255, 255, 128, 255],
     );
 }
 

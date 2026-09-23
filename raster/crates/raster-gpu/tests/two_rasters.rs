@@ -1,6 +1,6 @@
 //! Two rasters of one page, from one device — §11.4.7's four-component blending space.
 //!
-//! `doc/QUORRA_FEEDBACK.md` §17 asks for one of two things, and says the section closes
+//! `doc/QUORRA_FEEDBACK.md` section 17 asks for one of two things, and says the section closes
 //! with no change if the second is already true:
 //!
 //! > - a way to render the same viewport twice and read both back within one frame, or

@@ -315,3 +315,22 @@ one by one.
 A bare `xdotool key` did not answer the ask card; `xdotool windowfocus --sync <id>` then
 `key --window <id>` did (round 1227). A driven test that "could not press Enter" is an instrument
 finding before it is a defect.
+
+## A refusal is proved on a neutered copy before the live command runs
+
+Before `tools/batch.sh close` gained its guard, its refusal was proved against the live worktree with
+a copy whose `worktree remove`, `branch -D` and `prune` were replaced by `echo` (round 1238): the
+refusal fired, exit 1, and nothing could have been removed had it not. Any command that deletes is
+tried that way first.
+
+## When driving tabs, the document that states a page mode is opened second as well as first
+
+Four of round 1233's ten defects hid behind one ordering: a second document's `/PageMode` was obeyed
+while it was behind, taking a running presentation's full screen (ADR 1303). Open the document with
+`FullScreen` or `UseThumbs` second, and drive Ctrl + Tab both ways.
+
+## A test helper that reads a PDF's tail searches bytes, never text
+
+`support::linearized::startxref` read the file's tail as UTF-8 and a cross-reference stream's binary
+rows can end within a few bytes of `startxref`; the fixtures hid it and the corpus found it
+(ADR 1309).

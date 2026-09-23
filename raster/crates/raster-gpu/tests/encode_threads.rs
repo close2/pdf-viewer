@@ -4,7 +4,7 @@
 //! `Options::encode_threads` divides the one part of `encode` that is a pure function of
 //! a mark's own geometry (`encode/parallel.rs`). Everything the frame's order depends on
 //! stays on the calling thread, so byte equality is a property the design **has** rather
-//! than a tolerance it approximates — and the caller's `doc/QUORRA_ENCODE_THREADS.md` §5
+//! than a tolerance it approximates — and the caller's `doc/QUORRA_ENCODE_THREADS.md` section 5
 //! asks for exactly that, in a tree whose own corpus gate holds four lanes to equality
 //! and would find a violation after we shipped it.
 //!
@@ -313,7 +313,7 @@ fn draw(threads: usize, scene: impl Fn(&mut Device) -> Scene) -> (Vec<u8>, Count
     (frame.into_raster().unwrap().into_pixels(), counters)
 }
 
-/// brief section 4.6, and the caller's §5: *a frame drawn on 24 threads must be the same bytes as the
+/// brief section 4.6, and the caller's section 5: *a frame drawn on 24 threads must be the same bytes as the
 /// same frame drawn on one.*
 #[test]
 fn a_busy_page_is_the_same_bytes_at_every_thread_count() {
@@ -355,7 +355,7 @@ fn a_repeated_atlas_key_is_rasterised_once_at_every_thread_count() {
     }
 }
 
-/// **The refusals must not move** (the caller's §5): a frame that exceeds its budget
+/// **The refusals must not move** (the caller's section 5): a frame that exceeds its budget
 /// refuses with the same variant and the same two numbers on any thread count, because
 /// the commit charges in encounter order whoever rasterised.
 #[test]

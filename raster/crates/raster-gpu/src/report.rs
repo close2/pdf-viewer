@@ -2,7 +2,7 @@
 //!
 //! # This is not a logging convenience
 //!
-//! Sections 2.5 and 5 of the brief, and the sentence in `raster/doc/RENDER_LIBRARY.md` §5
+//! Sections 2.5 and 5 of the brief, and the sentence in `raster/doc/RENDER_LIBRARY.md` section 5
 //! that makes it a specification item rather than a nicety:
 //!
 //! > anything you cannot draw as asked is a `Report`, not a silent approximation. A

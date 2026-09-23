@@ -1,7 +1,7 @@
 //! Phase 2 of a frame: the buffers and textures it stages, sized by phase 1's counts
 //! and scheduled before anything is recorded.
 //!
-//! **Counting precedes allocation** (§5), and the counting is not here: `encode.rs`
+//! **Counting precedes allocation** (brief section 5), and the counting is not here: `encode.rs`
 //! did it on a walk that ran before any allocation and regardless of the target's
 //! size. What is left for this module is to allocate exactly what was counted and to
 //! charge exactly what it wrote — a lane with nothing to draw gets no buffer rather
@@ -22,7 +22,7 @@ use crate::error::RenderError;
 /// Phase 2's product: the frame's buffers and textures, scheduled for upload.
 pub(super) struct Upload {
     /// `None` for a lane with nothing to draw — wgpu is never handed a zero-length
-    /// buffer (§5: the `debug_layers` lesson).
+    /// buffer (brief section 5: the `debug_layers` lesson).
     pub(super) rect_instances: Option<wgpu::Buffer>,
     pub(super) quad_instances: Option<wgpu::Buffer>,
     /// The frame's scratch coverage texture, kept alive until the submit.
@@ -236,7 +236,7 @@ impl Device {
     }
 
     /// New glyph tiles into the persistent atlas texture (created on first need —
-    /// the startup path never pays for it, §7).
+    /// the startup path never pays for it, brief section 7).
     ///
     /// **One `write_texture` per dirty row span, never one per tile** (ADR 0078). A
     /// `write_texture` costs a fixed price before its first byte — validation, a

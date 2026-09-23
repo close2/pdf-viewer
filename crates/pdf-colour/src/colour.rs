@@ -140,16 +140,18 @@ pub enum Compositing {
     /// compositing purposes, so a `DeviceRGB` mark keeps its numbers. ADR 0797.
     Additive(Arc<RgbRoute>),
     /// A page §11.4.7 composites in four components, painted in the plane of them this raster
-    /// carries. See [`Plane`] for which plane, [`Press`] for whose four, and
-    /// `pdf_render::blending`.
-    Subtractive(Plane, Arc<Press>),
+    /// carries. See [`Plane`] for which plane, [`Press`] for whose four, [`DeviceSpots`] for the
+    /// spot colourants §10.8.3's simulated device has beside them — none, on every run a backend
+    /// draws today — and `pdf_render::blending`.
+    Subtractive(Plane, Arc<Press>, DeviceSpots),
 }
 
 /// What distinguishes one [`Compositing`] from another, for the caches keyed on one.
 ///
 /// Written out rather than derived because the press is behind an `Arc` and two `Arc`s of one
 /// profile are one press — [`SAMPLED`] evicts, so that case is reachable. Ordering and hashing
-/// both go through here, which is what keeps them agreeing with equality.
+/// both go through here, which is what keeps them agreeing with equality. A subtractive run's
+/// [`DeviceSpots`] is compared after the tuple, by its colourants, for the same reason.
 type CompositingKey = (
     u8,
     Option<InkScale>,
@@ -165,7 +167,7 @@ impl Compositing {
         match self {
             Self::Device => (0, None, None, None, None, None),
             Self::Luminosity(scale) => (1, Some(*scale), None, None, None, None),
-            Self::Subtractive(plane, press) => {
+            Self::Subtractive(plane, press, _) => {
                 (2, None, Some(*plane), Some(press.identity), None, None)
             }
             Self::Grey => (3, None, None, None, None, None),
@@ -175,9 +177,24 @@ impl Compositing {
     }
 }
 
+impl Compositing {
+    /// The spot colourants a subtractive run carries planes for, and none for every other run.
+    #[inline]
+    #[must_use]
+    pub fn spots(&self) -> &DeviceSpots {
+        match self {
+            Self::Subtractive(_, _, spots) => spots,
+            _ => &NO_SPOTS,
+        }
+    }
+}
+
+/// What [`Compositing::spots`] answers for a run that carries no spot plane.
+static NO_SPOTS: DeviceSpots = DeviceSpots(None);
+
 impl PartialEq for Compositing {
     fn eq(&self, other: &Self) -> bool {
-        self.key() == other.key()
+        self.key() == other.key() && self.spots() == other.spots()
     }
 }
 
@@ -191,13 +208,16 @@ impl PartialOrd for Compositing {
 
 impl Ord for Compositing {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.key().cmp(&other.key())
+        self.key()
+            .cmp(&other.key())
+            .then_with(|| self.spots().cmp(other.spots()))
     }
 }
 
 impl std::hash::Hash for Compositing {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.key().hash(state);
+        self.spots().hash(state);
     }
 }
 
@@ -222,17 +242,23 @@ impl std::hash::Hash for Compositing {
 /// Storing the complement is that requirement met by construction rather than by an arithmetic
 /// step around every blend.
 ///
-/// **A spot colourant has no plane here**, so each one reverts to its alternate colour space as
-/// it is painted — §11.7.3's second bullet, "[t]he spot colour shall be converted to its
-/// alternate colour space" — and lands on these two. The planes a page's spot colourants would
-/// take are counted by `pdf_model::colourants`, [`Self::COLOURANTS`] to a plane; ADR 1281 is the
-/// design that adds them.
+/// **A spot colourant has a plane only where §10.8.3's simulated device gives it one**
+/// ([`Self::Spot`], [`DeviceSpots`]): `pdf_model::colourants` counts the page's spot colourants,
+/// [`Self::COLOURANTS`] to a plane, and a run carrying them paints each on its own plane and
+/// §11.7.3's "additive value of 1.0" everywhere else. On every other run a spot colourant reverts
+/// to its alternate colour space as it is painted — §11.7.3's second bullet, "[t]he spot colour
+/// shall be converted to its alternate colour space" — and lands on the two process planes.
+/// ADRs 1281 and 1311.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Plane {
     /// Cyan, magenta and yellow, one per channel.
     Chromatic,
     /// The black component, in every channel, so a backend may read any of them.
     Black,
+    /// Three of the simulated device's spot colourants, one per channel: colourant `3 × n + c`
+    /// of [`DeviceSpots::names`] in channel `c` of spot plane `n`, stored as §11.3.4's additive
+    /// complement like the process planes, and white in a channel no colourant fills.
+    Spot(usize),
 }
 
 impl Plane {
@@ -243,6 +269,434 @@ impl Plane {
     /// How many colourants one plane carries: a raster's three channels, each composited on
     /// its own under §11.3.4.
     pub const COLOURANTS: usize = 3;
+}
+
+/// The names §8.6.6.4 and §8.6.6.5 reserve: "Cyan , Magenta , Yellow and Black … are reserved to
+/// name the process colourants of a CMYK device", in the order of `DeviceCMYK`'s components.
+pub const PROCESS_COLOURANTS: [&[u8]; 4] = [b"Cyan", b"Magenta", b"Yellow", b"Black"];
+
+/// The spot colourants ISO 32000-2 §10.8.3's simulated device has a plane for, and the press
+/// whose process colourants it has.
+///
+/// Step a) processes the page "as if separations were to be created for a simulated device that
+/// supports subtractive process colourants and possibly spot colours" and leaves which ones to
+/// the processor; `pdf_model::colourants` enumerates them before the first mark and this carries
+/// the answer to every place a colour is resolved, beside the [`Press`] in
+/// [`Compositing::Subtractive`]. Empty on every run no reader asked the simulation of, which is
+/// every run a backend draws today: [`Compositing::paint`] then takes the path it took before
+/// the type existed. ADR 1311.
+///
+/// A name the page states beyond the plane bound is held too, apart, so that a mark painting it
+/// can be named by it — [`DeviceSpots::without_a_plane`] — rather than the page as a whole.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DeviceSpots(Option<Arc<SpotSet>>);
+
+/// What a non-empty [`DeviceSpots`] holds.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct SpotSet {
+    /// The colourants with a plane, in plane order.
+    names: Vec<Name>,
+    /// The colourants the page names past the bound, which revert as they are painted.
+    beyond: Vec<Name>,
+    /// The simulated device's own press, whose process colourants a `Separation` named `Cyan`
+    /// may paint directly — §11.7.3 allows it only where "the group inherits the native colour
+    /// space of the output device".
+    device: PressIdentity,
+}
+
+impl DeviceSpots {
+    /// The spot colourants `names` given planes on a device whose process colourants are
+    /// `device`'s, with `beyond` the ones past the bound. No names at all is no spot plane.
+    #[must_use]
+    pub fn new(names: Vec<Name>, beyond: Vec<Name>, device: &Press) -> Self {
+        if names.is_empty() && beyond.is_empty() {
+            return Self(None);
+        }
+        Self(Some(Arc::new(SpotSet {
+            names,
+            beyond,
+            device: device.identity,
+        })))
+    }
+
+    /// Whether the device has no spot colourant at all, which is every run but a simulation's.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// The colourants that have a plane, in plane order.
+    #[must_use]
+    pub fn names(&self) -> &[Name] {
+        self.0.as_ref().map_or(&[], |set| set.names.as_slice())
+    }
+
+    /// How many spot planes the colourants take: `ceil(S / 3)`.
+    #[must_use]
+    pub fn planes(&self) -> usize {
+        self.names().len().div_ceil(Plane::COLOURANTS)
+    }
+
+    /// The colourants a mark in `space` paints that the page named past the bound, and which
+    /// therefore revert where the others have a plane — each named, for the mark's report.
+    #[must_use]
+    pub fn without_a_plane(&self, space: &ColourSpace) -> Vec<Name> {
+        let Some(set) = &self.0 else {
+            return Vec::new();
+        };
+        if set.beyond.is_empty() {
+            return Vec::new();
+        }
+        let mut named = Vec::new();
+        let mut space = space;
+        for _ in 0..=MAX_DEPTH {
+            match space {
+                ColourSpace::Indexed { base, .. } | ColourSpace::Pattern { base: Some(base) } => {
+                    space = base;
+                }
+                ColourSpace::Separation { names, .. } | ColourSpace::Simulated { names, .. } => {
+                    named.extend(
+                        names
+                            .iter()
+                            .filter(|name| set.beyond.contains(name))
+                            .cloned(),
+                    );
+                    break;
+                }
+                _ => break,
+            }
+        }
+        named
+    }
+
+    /// §11.7.4.3's special overprinting blend mode for one mark on a device with spot planes:
+    /// which of `plane`'s three channels keep the backdrop, or `None` where the mark leaves no
+    /// component of any plane to it and the mode is the one in the graphics state.
+    ///
+    /// The clause's two bullets, with the spot components the first one names:
+    ///
+    /// > If the overprint mode is 1 (nonzero overprint mode) and the current colour space and
+    /// > group colour space are both DeviceCMYK , then process colour components with nonzero
+    /// > values shall replace the corresponding component values of the backdrop; components
+    /// > with zero values leave the existing backdrop value unchanged. … For spot colour
+    /// > components, the value shall always be 𝐶𝑏 .
+    ///
+    /// > In all other cases, the value of 𝐵(𝐶𝑏,𝐶𝑠) shall be 𝐶𝑠 for all colour components
+    /// > specified in the current colour space, otherwise 𝐶𝑏 .
+    ///
+    /// `tints` is the mark's four components where its current colour space is `DeviceCMYK` or
+    /// reverts to it (§11.7.4.3 NOTE 2), and `nonzero_mode` the overprint mode being 1. The
+    /// answer's `None`-ness depends on the mark alone and never on `plane`, so every run of one
+    /// page takes the same blend mode for the same mark — a spot plane's list and a process
+    /// plane's are then one structure, which is what lets them be checked against each other.
+    #[must_use]
+    pub fn overprint(
+        &self,
+        plane: Plane,
+        press: &Press,
+        space: &ColourSpace,
+        tints: Option<[f32; 4]>,
+        nonzero_mode: bool,
+    ) -> Option<[bool; 3]> {
+        let set = self.0.as_ref()?;
+        let mut space = space;
+        for _ in 0..MAX_DEPTH {
+            match space {
+                ColourSpace::Indexed { base, .. } | ColourSpace::Pattern { base: Some(base) } => {
+                    space = base;
+                }
+                _ => break,
+            }
+        }
+        let reached = set.named(space, press);
+        let process: [bool; 4] = match &reached {
+            Named::All | Named::Nothing => return None,
+            Named::Direct(names) => PROCESS_COLOURANTS
+                .map(|colourant| names.iter().any(|name| name.as_bytes() == colourant)),
+            Named::PerComponent { process, .. } => {
+                std::array::from_fn(|component| match process {
+                    // Table 71's process components, where the space names only some of a CMYK
+                    // space's four: an unnamed one is not specified.
+                    Some(ColourSpace::Separation {
+                        tints: Tints::Process(from),
+                        ..
+                    }) => from.get(component).is_some_and(Option::is_some),
+                    Some(_) => true,
+                    None => false,
+                })
+            }
+            Named::Process => match (nonzero_mode, tints) {
+                (true, Some(tints)) => tints.map(|tint| tint != 0.0),
+                _ => [true; 4],
+            },
+        };
+        let spot = |colourant: &Name| match &reached {
+            Named::Direct(names) => names.contains(colourant),
+            Named::PerComponent { names, spots, .. } => names
+                .iter()
+                .zip(spots.iter())
+                .any(|(name, spot)| spot.is_some() && name == colourant),
+            Named::All | Named::Nothing | Named::Process => false,
+        };
+        let kept_anywhere =
+            process.contains(&false) || set.names.iter().any(|colourant| !spot(colourant));
+        if !kept_anywhere {
+            return None;
+        }
+        Some(match plane {
+            Plane::Chromatic => [!process[0], !process[1], !process[2]],
+            Plane::Black => [!process[3]; 3],
+            Plane::Spot(index) => std::array::from_fn(|offset| {
+                index
+                    .checked_mul(Plane::COLOURANTS)
+                    .and_then(|first| first.checked_add(offset))
+                    .and_then(|colourant| set.names.get(colourant))
+                    .is_none_or(|colourant| !spot(colourant))
+            }),
+        })
+    }
+
+    /// §11.7.3's paint of one colour on `plane`, where the device carries spot colourants.
+    ///
+    /// > In effect, every object paints every existing colour component, both process and
+    /// > spot. Where no value has been explicitly specified for a given component in a given
+    /// > object, an additive value of 1.0 (or a subtractive tint value of 0.0) shall be assumed.
+    ///
+    /// So a colour reaches every plane, and what it reaches each with is decided by which
+    /// colourants its space names — [`SpotSet::reach`].
+    fn paint(
+        &self,
+        plane: Plane,
+        press: &Press,
+        space: &ColourSpace,
+        values: &[f32],
+        rendering: Rendering,
+        generation: Option<&BlackGeneration>,
+    ) -> Color {
+        let Some(set) = &self.0 else {
+            return process_plane(
+                plane,
+                space.to_cmyk_under(values, rendering, press, generation),
+            );
+        };
+        set.reach(plane, press, space, values, rendering, generation, 0)
+    }
+}
+
+#[expect(
+    clippy::doc_markdown,
+    reason = "the paragraphs quote §8.6.6.4, §8.6.6.5 and §11.7.3 verbatim, and a quotation may \
+              not gain backticks"
+)]
+impl SpotSet {
+    /// Whether a space naming `names` paints its colourants directly on this device.
+    ///
+    /// §8.6.6.4: "At the moment the colour space is set to a Separation space, the PDF reader
+    /// shall determine whether the device has an available colourant corresponding to the name
+    /// of the requested space. If so, the PDF processor shall ignore the alternateSpace and
+    /// tintTransform parameters; subsequent painting operations within the space shall apply the
+    /// designated colourant directly, according to the tint values supplied." §8.6.6.5 asks it of
+    /// every name, and "[r]eversion shall occur only if at least one colour component (other
+    /// than None ) is specified and is not available on the device".
+    ///
+    /// A spot colourant is available where it has a plane. A process name is available where the
+    /// run composites in the device's own press, and only there — §11.7.3: "within a transparency
+    /// group, this should be done only if the group inherits the native colour space of the
+    /// output device … If any other colour space has been specified for the group, the
+    /// Separation or DeviceN colour space shall be converted to its alternate colour space."
+    fn available(&self, names: &[Name], press: &Press) -> bool {
+        names.iter().all(|name| {
+            let bytes = name.as_bytes();
+            bytes == b"None"
+                || self.names.contains(name)
+                || (PROCESS_COLOURANTS.contains(&bytes) && press.identity == self.device)
+        })
+    }
+
+    /// What a space's colour paints on this device, by which colourants the space names.
+    ///
+    /// Asked of a space that is not `Indexed` or a pattern space: those two name their colourants
+    /// through their base, and [`SpotSet::reach`] and [`DeviceSpots::overprint`] look through
+    /// them first (§8.6.6.3, §8.7.3.3, and §11.7.4.3 NOTE 2 for the overprint question).
+    fn named<'s>(&self, space: &'s ColourSpace, press: &Press) -> Named<'s> {
+        match space {
+            ColourSpace::AllColourants => Named::All,
+            ColourSpace::NoColourant { .. } => Named::Nothing,
+            ColourSpace::Separation { names, .. } if self.available(names, press) => {
+                Named::Direct(names)
+            }
+            ColourSpace::Simulated {
+                names,
+                process,
+                spots,
+            } if names
+                .iter()
+                .zip(spots)
+                .all(|(name, spot)| spot.is_none() || self.names.contains(name)) =>
+            {
+                Named::PerComponent {
+                    names,
+                    spots,
+                    process: process.as_deref(),
+                }
+            }
+            _ => Named::Process,
+        }
+    }
+
+    /// One colour on `plane`, by what its space names ([`SpotSet::named`]).
+    ///
+    /// - **An `Indexed` or pattern space** is the colour its base space gives, which is where the
+    ///   colourants are named (§8.6.6.3, §8.7.3.3).
+    /// - **`All`** paints its tint on every colourant the device has — §8.6.6.4's "all colourants
+    ///   available on an output device, including those for the standard process colourants" —
+    ///   so every process component and every spot colourant with a plane.
+    /// - **A `Separation` or `DeviceN` whose colourants are all available** paints each named
+    ///   colourant's tint on the plane that carries it and no ink everywhere else, `None`
+    ///   components discarded: "When a DeviceN colour space is painting the named device
+    ///   colourants directly, colour components corresponding to None colourants shall be
+    ///   discarded."
+    /// - **An `NChannel` space under the simulation** is evaluated per component, §8.6.6.5's "only
+    ///   the ones not present on the output device shall use the alternate colour space of that
+    ///   component": where every spot component has a plane, its process components go through
+    ///   Table 71's process space onto the process planes and its spot components onto theirs.
+    /// - **Every other colour** — a process colour, and a space that reverts — is its four
+    ///   process components and no spot ink, §11.7.3's "the process colour components shall be
+    ///   painted as specified and the spot colour components shall be painted with an additive
+    ///   value of 1.0".
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "`Compositing::paint`'s four inputs, the run's plane and press, and the depth a \
+                  nested space costs"
+    )]
+    fn reach(
+        &self,
+        plane: Plane,
+        press: &Press,
+        space: &ColourSpace,
+        values: &[f32],
+        rendering: Rendering,
+        generation: Option<&BlackGeneration>,
+        depth: usize,
+    ) -> Color {
+        let deeper = depth.saturating_add(1);
+        match space {
+            _ if depth > MAX_DEPTH => return process_plane(plane, [0.0; 4]),
+            ColourSpace::Indexed { base, .. } => {
+                return self.reach(
+                    plane,
+                    press,
+                    base,
+                    &space.entry_of(values),
+                    rendering,
+                    generation,
+                    deeper,
+                );
+            }
+            ColourSpace::Pattern { base: Some(base) } => {
+                return self.reach(plane, press, base, values, rendering, generation, deeper);
+            }
+            _ => {}
+        }
+        let tint = |index: usize| channel(values.get(index).copied().unwrap_or(0.0));
+        match self.named(space, press) {
+            Named::All => {
+                let all = channel(values.first().copied().unwrap_or(1.0));
+                self.on_plane(plane, [all; 4], |_| all)
+            }
+            Named::Nothing => process_plane(plane, [0.0; 4]),
+            Named::Direct(names) => {
+                let tint_of = |colourant: &[u8]| {
+                    names
+                        .iter()
+                        .position(|name| name.as_bytes() == colourant)
+                        .map_or(0.0, tint)
+                };
+                self.on_plane(plane, PROCESS_COLOURANTS.map(tint_of), |colourant| {
+                    tint_of(colourant.as_bytes())
+                })
+            }
+            Named::PerComponent {
+                names,
+                spots,
+                process,
+            } => {
+                let inks = match (plane, process) {
+                    (Plane::Chromatic | Plane::Black, Some(process)) => {
+                        process.to_cmyk_under(values, rendering, press, generation)
+                    }
+                    _ => [0.0; 4],
+                };
+                self.on_plane(plane, inks, |colourant| {
+                    names
+                        .iter()
+                        .zip(spots)
+                        .position(|(name, spot)| spot.is_some() && name == colourant)
+                        .map_or(0.0, tint)
+                })
+            }
+            Named::Process => match plane {
+                Plane::Chromatic | Plane::Black => process_plane(
+                    plane,
+                    space.to_cmyk_under(values, rendering, press, generation),
+                ),
+                Plane::Spot(_) => Color::rgb(1.0, 1.0, 1.0),
+            },
+        }
+    }
+
+    /// `process` on a process plane, or each spot colourant's tint on its spot plane, as §11.3.4's
+    /// additive complement; a channel no colourant fills is white.
+    fn on_plane(&self, plane: Plane, process: [f32; 4], spot: impl Fn(&Name) -> f32) -> Color {
+        match plane {
+            Plane::Chromatic | Plane::Black => process_plane(plane, process),
+            Plane::Spot(index) => {
+                let channel = |offset: usize| {
+                    index
+                        .checked_mul(Plane::COLOURANTS)
+                        .and_then(|first| first.checked_add(offset))
+                        .and_then(|colourant| self.names.get(colourant))
+                        .map_or(1.0, |name| 1.0 - spot(name))
+                };
+                Color::rgb(channel(0), channel(1), channel(2))
+            }
+        }
+    }
+}
+
+/// Which colourants one colour paints on a device with spot planes: [`SpotSet::named`]'s
+/// answer, which the paint and the overprint question both read so that they cannot disagree
+/// about a space (trap 6).
+enum Named<'s> {
+    /// §8.6.6.4's `All`: every colourant the device has.
+    All,
+    /// §8.6.6.4's `None`, or a `DeviceN` of nothing else: no colourant at all.
+    Nothing,
+    /// A `Separation` or `DeviceN` painting the colourants it names directly.
+    Direct(&'s [Name]),
+    /// An `NChannel` space under the simulation, every spot component with a plane: Table 71's
+    /// process components through `process`, the spot components by name.
+    PerComponent {
+        /// The space's `names`.
+        names: &'s [Name],
+        /// Which components are spot ones — `Some` — as [`ColourSpace::Simulated`] holds them.
+        spots: &'s [Option<ColourSpace>],
+        /// The process space the process components are painted through, where there are any.
+        process: Option<&'s ColourSpace>,
+    },
+    /// Four process components and no spot ink: a process colour, or a space that reverts.
+    Process,
+}
+
+/// Four process tints on a process plane, as §11.3.4's additive complement: cyan, magenta and
+/// yellow on the chromatic plane, black on the black one. A spot plane carries none of them.
+fn process_plane(plane: Plane, [cyan, magenta, yellow, black]: [f32; 4]) -> Color {
+    match plane {
+        Plane::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
+        Plane::Black => Color::grey(1.0 - black),
+        Plane::Spot(_) => Color::rgb(1.0, 1.0, 1.0),
+    }
 }
 
 impl Compositing {
@@ -304,12 +758,16 @@ impl Compositing {
                     ..Color::rgb(a, b, c)
                 }
             }
-            Self::Subtractive(plane, press) => {
-                let [cyan, magenta, yellow, black] =
-                    space.to_cmyk_under(values, rendering, press, generation);
-                let painted = match *plane {
-                    Plane::Chromatic => Color::rgb(1.0 - cyan, 1.0 - magenta, 1.0 - yellow),
-                    Plane::Black => Color::grey(1.0 - black),
+            Self::Subtractive(plane, press, spots) => {
+                // One discriminant test on every run a backend draws: with no spot colourant
+                // the device is §11.4.7's four process components and nothing else (ADR 1311).
+                let painted = if spots.is_empty() {
+                    process_plane(
+                        *plane,
+                        space.to_cmyk_under(values, rendering, press, generation),
+                    )
+                } else {
+                    spots.paint(*plane, press, space, values, rendering, generation)
                 };
                 Color {
                     a: colour.a,
@@ -1423,6 +1881,15 @@ pub enum ColourSpace {
     Separation {
         /// How many tint components the space takes.
         inputs: usize,
+        /// The colourant each tint component names, in the order the space states them: a
+        /// `Separation`'s one `name` or a `DeviceN`'s `names` array.
+        ///
+        /// Carried because a colourant is what a separation is *of*. §8.6.6.4 has the reader
+        /// "determine whether the device has an available colourant corresponding to the name
+        /// of the requested space", and under §10.8.3's simulated device the answer is yes for
+        /// every name `pdf_model::colourants` gave a plane to — which [`Compositing::paint`]
+        /// cannot tell without the name. ADR 1311.
+        names: Arc<[Name]>,
         /// The space the tints are converted into.
         ///
         /// §8.6.6.5 calls it "the alternate colour space of that component", and which space
@@ -1441,6 +1908,9 @@ pub enum ColourSpace {
     /// Built only under [`Separations::Simulated`], which is a host's answer to §10.8.3's own
     /// condition; without it such a space is a [`Self::Separation`]. ADR 1229.
     Simulated {
+        /// The space's `names` array, one entry per tint component, for the reason
+        /// [`Self::Separation`] carries it.
+        names: Arc<[Name]>,
         /// Table 71's process colour space, carrying every process component's tint at once,
         /// where the space has process components.
         ///
@@ -1959,6 +2429,7 @@ impl ColourSpace {
             )
         {
             return Some(Self::Simulated {
+                names: named(&names),
                 process: process.map(Box::new),
                 spots,
             });
@@ -1979,6 +2450,7 @@ impl ColourSpace {
         {
             return Some(Self::Separation {
                 inputs,
+                names: named(&names),
                 alternate: Box::new(alternate),
                 tints: Tints::Process(from),
             });
@@ -1993,6 +2465,7 @@ impl ColourSpace {
         let transform = Function::parse(document, items.get(3)?).ok()?;
         Some(Self::Separation {
             inputs,
+            names: named(&names),
             alternate: Box::new(alternate),
             tints: Tints::Transform(Box::new(transform)),
         })
@@ -2165,6 +2638,7 @@ impl ColourSpace {
 
         let process = process.map(|(space, _)| Self::Separation {
             inputs: names.len(),
+            names: named(names),
             alternate: Box::new(space),
             tints: Tints::Process(from.unwrap_or_default()),
         });
@@ -3170,7 +3644,7 @@ impl ColourSpace {
                 alternate, tints, ..
             } => alternate.cie_xyz_at(&tints.eval(values), depth.saturating_add(1), rendering),
             // §10.8.3's steps b) and c), which end in an XYZ; step d) is in `to_rgb_at`.
-            Self::Simulated { process, spots } => Some(Self::simulated_xyz(
+            Self::Simulated { process, spots, .. } => Some(Self::simulated_xyz(
                 process.as_deref(),
                 spots,
                 values,
@@ -3237,7 +3711,7 @@ impl ColourSpace {
             }
             // §10.8.3 step d): "Convert the result to the actual device colour space and
             // output it." This device's is sRGB (ADR 0009).
-            Self::Simulated { process, spots } => xyz_d50_to_srgb(Self::simulated_xyz(
+            Self::Simulated { process, spots, .. } => xyz_d50_to_srgb(Self::simulated_xyz(
                 process.as_deref(),
                 spots,
                 values,
@@ -5025,6 +5499,11 @@ fn linear_srgb_to_xyz_d50(linear: [f32; 3]) -> [f32; 3] {
 /// an array of them, whose length is also how many operands `scn` takes. The returned vector
 /// therefore keeps the array's *arity*: an entry that is not a name becomes empty rather than
 /// disappearing, so a malformed name cannot silently change the number of components.
+/// The colourant names a space carries, as [`Name`]s shared between its clones.
+fn named(names: &[Vec<u8>]) -> Arc<[Name]> {
+    names.iter().map(|name| Name::new(name.clone())).collect()
+}
+
 fn colourant_names(document: &Document, object: Option<&Object>, single: bool) -> Vec<Vec<u8>> {
     let name_of = |item: &Object| {
         document
@@ -5314,6 +5793,7 @@ mod tests {
         // matte's white whatever tint it is handed.
         let white = ColourSpace::Separation {
             inputs: 1,
+            names: std::sync::Arc::from([Name::new(b"Paper".to_vec())]),
             alternate: Box::new(ColourSpace::Cmyk),
             tints: Tints::Process(vec![None, None, None, None]),
         };
@@ -5321,14 +5801,19 @@ mod tests {
         // achieve and 1.0 the darkest, which is §8.6.6.4's own convention.
         let ink = ColourSpace::Separation {
             inputs: 1,
+            names: std::sync::Arc::from([Name::new(b"Black".to_vec())]),
             alternate: Box::new(ColourSpace::Cmyk),
             tints: Tints::Process(vec![None, None, None, Some(0)]),
         };
         let alone = ColourSpace::Simulated {
+            names: std::sync::Arc::from([Name::new(b"Ink".to_vec())]),
             process: None,
             spots: vec![Some(ink.clone())],
         };
         let with_white = ColourSpace::Simulated {
+            names: [b"Ink".as_slice(), b"Paper", b"Card"]
+                .map(|name| Name::new(name.to_vec()))
+                .into(),
             process: None,
             spots: vec![Some(ink), Some(white.clone()), Some(white)],
         };
@@ -5626,6 +6111,9 @@ mod tests {
         let press = super::assumed_press();
         let all_four = ColourSpace::Separation {
             inputs: 4,
+            names: [b"Cyan".as_slice(), b"Magenta", b"Yellow", b"Black"]
+                .map(|name| Name::new(name.to_vec()))
+                .into(),
             alternate: Box::new(ColourSpace::Cmyk),
             tints: Tints::Process(vec![Some(0), Some(1), Some(2), Some(3)]),
         };
@@ -5639,6 +6127,9 @@ mod tests {
         // for a CMYK process space alone.
         let subset = ColourSpace::Separation {
             inputs: 2,
+            names: [b"Cyan".as_slice(), b"Black"]
+                .map(|name| Name::new(name.to_vec()))
+                .into(),
             alternate: Box::new(ColourSpace::Cmyk),
             tints: Tints::Process(vec![Some(0), None, None, Some(1)]),
         };

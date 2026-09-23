@@ -43,6 +43,8 @@
 //! not a concession: a test file citing the clause it tests is exactly where a `test` entry goes,
 //! and reporting it would be asking the row to name the same file twice. A clause with no row at
 //! all — Annex or front-matter numbering the ledger does not carry — is [`Reach::NoRow`].
+//! The no-row pairs under [`RASTER`] are listed as well as counted, for the reason its own
+//! comment gives.
 //!
 //! # A checker citing the clause it checks
 //!
@@ -88,6 +90,16 @@ pub const CHECKERS: [(&str, &str); 1] = [(
     "crates/pdf-archive",
     "decides ISO 19005 conformance, citing the ISO 32000-2 clause each requirement examines",
 )];
+
+/// The directory whose no-row pairs the report lists on lines of their own.
+///
+/// `raster/` is the rendering library's own tree, with its own design documents under
+/// `raster/doc/`, and a section of one of those is written "section N" there because a `§` reads
+/// to [`crate::citation`] as a clause of ISO 32000-2. A no-row pair under it is therefore either
+/// an ISO 32000-2 clause the ledger carries no row for or a section sign that means the library's
+/// own document, and only reading the line says which; the report lists them so that what is left
+/// is printed rather than written down.
+pub const RASTER: &str = "raster/";
 
 /// Why the sweep could not be run.
 #[derive(Debug, thiserror::Error)]
@@ -241,6 +253,15 @@ impl Found {
                 .then_with(|| left.clause.cmp(&right.clause))
         });
         found
+    }
+
+    /// The pairs with no row at all whose citing file lies under `prefix`.
+    #[must_use]
+    pub fn no_row_under(&self, prefix: &str) -> Vec<&Citing> {
+        self.citing
+            .iter()
+            .filter(|citing| citing.reach == Reach::NoRow && citing.path.starts_with(prefix))
+            .collect()
     }
 
     /// How many pairs reached the row the way they should.
@@ -457,6 +478,14 @@ pub fn report(found: &Found) -> String {
         found.counted(Reach::Named),
         found.counted(Reach::NoRow),
     );
+    let _ = writeln!(
+        out,
+        "{} of the no-row pair(s) lie under {RASTER}",
+        found.no_row_under(RASTER).len(),
+    );
+    for citing in found.no_row_under(RASTER) {
+        let _ = writeln!(out, "  §{} {}:{}", citing.clause, citing.path, citing.first);
+    }
     out
 }
 
@@ -489,6 +518,29 @@ mod tests {
     #[test]
     fn a_clause_with_no_row_is_no_finding() {
         assert_eq!(citing(9, Reach::NoRow, None).rung(), None);
+    }
+
+    #[test]
+    fn the_no_row_pairs_under_raster_are_counted_and_listed_apart() {
+        let under = Citing {
+            path: "raster/crates/raster-gpu/src/a.rs".to_owned(),
+            ..citing(1, Reach::NoRow, None)
+        };
+        let found = Found {
+            citing: vec![
+                under.clone(),
+                citing(1, Reach::NoRow, None),
+                Citing {
+                    reach: Reach::Named,
+                    ..under.clone()
+                },
+            ],
+            ..Found::default()
+        };
+        assert_eq!(found.no_row_under(RASTER), vec![&under]);
+        let report = report(&found);
+        assert!(report.contains("1 of the no-row pair(s) lie under raster/"));
+        assert!(report.contains("  §8.4.5 raster/crates/raster-gpu/src/a.rs:1"));
     }
 
     #[test]

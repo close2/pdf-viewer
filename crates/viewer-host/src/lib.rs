@@ -143,7 +143,7 @@ pub mod submit;
 pub mod trace;
 
 pub use arrangement::next_layout;
-pub use clock::{Clock, face_target};
+pub use clock::{Clock, face, face_target};
 pub use copying::{ContentOrder, Copied, copied};
 pub use documents::{Arrivals, Arriving, Close, Documents, Named};
 pub use drawing::{DrawRequest, Drawing, Finished};
@@ -174,8 +174,8 @@ pub use popup::Window;
 pub use presentation::{Chrome, Presenting};
 pub use printing::Defaults as PrintDefaults;
 pub use restriction::{
-    Chose, Entry, Question, Restrictions, Row, Scope, SendingEntry, asked, chosen, declined,
-    sending_chosen,
+    Chose, Entry, Question, Restrictions, Row, Scope, SendingEntry, Subject, asked, chosen,
+    declined, sending_chosen,
 };
 pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,

@@ -169,8 +169,8 @@ fn the_archetypes_cost_what_they_are_recorded_to_cost() {
 /// **A curve clip clips the marks under it** — asserted as an interaction, in the two
 /// quantities that say the interaction happened, on both sides of the library's boundary.
 ///
-/// The trap this exists for is written down in `raster/doc/notes-tiling-bound.md` §3 and cost
-/// two ADRs: a fixture whose subject is an *interaction* needs a gate that fails when the
+/// The trap this exists for is written down in `raster/doc/notes-tiling-bound.md` section 3 and
+/// cost two ADRs: a fixture whose subject is an *interaction* needs a gate that fails when the
 /// interaction stops happening, and the signature above was not one. It counted 40 and
 /// 600 tiles for two pages whose clips and marks did not overlap at all, because until
 /// ADR 0057 a mark whose chain admitted nothing still got a mark-sized tile — so the

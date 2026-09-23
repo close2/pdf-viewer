@@ -222,8 +222,8 @@ impl SceneBuilder {
     /// What a group may be composited with (ADR 0033), in the order a reader of §11.4.6
     /// meets the conditions.
     ///
-    /// Both refusals are §5's kind: the operator would be drawn somewhere the clause does
-    /// not put it, and a plausible-looking wrong page is the worst outcome either project
+    /// Both refusals are brief section 5's kind: the operator would be drawn somewhere the clause
+    /// does not put it, and a plausible-looking wrong page is the worst outcome either project
     /// has a name for.
     pub(super) fn check_group_compose(spec: &GroupSpec) -> Result<(), SceneError> {
         let staged = matches!(spec.compose, Compose::DestOut | Compose::Plus);
@@ -266,7 +266,7 @@ impl SceneBuilder {
     /// premultiplied raster, whose alpha is the union of each element's shape *times its
     /// opacity* — so the two quantities §11.4.6 weights apart arrive as one number, and
     /// the group would be composited by §11.3.6 instead. That is a plausible-looking
-    /// wrong page rather than a hole, which §5 of the brief refuses.
+    /// wrong page rather than a hole, which section 5 of the brief refuses.
     ///
     /// **Two things this deliberately does not refuse**, and both are load-bearing:
     ///
@@ -293,16 +293,16 @@ impl SceneBuilder {
         Ok(())
     }
 
-    /// The three conditions of [`GroupSpec::isolated`], in the order a reader of the
+    /// The two conditions of [`GroupSpec::isolated`], in the order a reader of the
     /// clause meets them. Checked before the body runs, so a refusal costs nothing
-    /// that was built inside it.
+    /// that was built inside it. The group's own blend mode is not among them: under
+    /// Normal §11.4.4's removal cancels, and under any other the device recovers the
+    /// group's colour from its group alpha (`GroupSpec::isolated` states both).
     pub(super) fn check_isolation(&self, spec: &GroupSpec) -> Result<(), SceneError> {
         if spec.isolated {
             return Ok(());
         }
-        let reason = if spec.blend != BlendMode::Normal {
-            Some(NonIsolatedReason::GroupBlendNotNormal)
-        } else if spec.knockout {
+        let reason = if spec.knockout {
             Some(NonIsolatedReason::KnockoutGroup)
         } else if self.inside_knockout() {
             Some(NonIsolatedReason::InsideKnockoutGroup)

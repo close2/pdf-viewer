@@ -1,9 +1,9 @@
 //! Pipelines and shaders: how few, how late, and what happens when one is refused.
 //!
-//! §7 of the brief makes this module a startup-latency problem before it is a
+//! Section 7 of the brief makes this module a startup-latency problem before it is a
 //! rendering problem. The caller renders page one on its CPU backend *while we
 //! initialise*, so what we cost before the first frame is what decides whether the
-//! handover is invisible. The rules, from the brief and `raster/doc/PLAN.md` §1.8:
+//! handover is invisible. The rules, from the brief and `raster/doc/PLAN.md` section 1.8:
 //!
 //! - **No pipeline compilation on the critical path of device construction.**
 //!   `PipelineStore::new` creates nothing on the GPU; the warm set compiles on a
@@ -25,7 +25,7 @@
 //!   [`Presenter`](crate::present::Presenter) draws with, so that detaching one
 //!   compiles nothing (ADR 0056).
 //!
-//! The pipeline cache blob §7 also asks for is deliberately absent: `wgpu` 30 exposes
+//! The pipeline cache blob brief section 7 also asks for is deliberately absent: `wgpu` 30 exposes
 //! it only through an `unsafe` constructor, this crate is `#![forbid(unsafe_code)]`,
 //! and ADR 0013 weighed the exception against the startup measurement and declined
 //! it — the warm set compiles in ~9 ms on a thread nobody blocks on.
@@ -48,7 +48,7 @@
 //! pipeline no adapter can refuse, `spec.rs` is what each pipeline `Kind` *is*, and
 //! this file is the store. `warm.rs` is cut along a different one — it is a state
 //! machine with a thread of its own — and `function.rs` along a third, the key. rustdoc
-//! inlines a re-export from a private module (ADR 0051 §1), so this table is the only
+//! inlines a re-export from a private module (ADR 0051 section 1), so this table is the only
 //! place the structure survives into the documentation:
 //!
 //! | Module | Its one thing |

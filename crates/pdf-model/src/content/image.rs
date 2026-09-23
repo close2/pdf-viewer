@@ -488,6 +488,7 @@ impl Interpreter<'_> {
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
+        self.note_colourants_without_a_plane(&state.fill_space);
         let transfer = self.mark_transfer(state, Painted::of(state, false));
         let paint = self.fill_paint(state);
         self.draw_mark(

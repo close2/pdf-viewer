@@ -400,17 +400,15 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// `doc/QUORRA_FEEDBACK.md` section 49 is the ask, and ADR 1182 is what it turned out to be: the
 /// mode is Porter-Duff destination-over in the channels it keeps and source-over in the rest.
 ///
-/// **The mode is drawn now and the page stays, behind the refusal the mode stood in front of**
-/// (ADR 1295). raster's `Compose::DestOver` and `Compose::DestOverIn` state the mode, and the
-/// by-name refusal is gone; what this page meets next is §11.7.4.3's last paragraph, which puts an
-/// object painted under `/BM /Multiply` in "a non-isolated, non-knockout transparency group" and
-/// paints that group under Multiply — the §11.4.4 result step `raster_scene::GroupSpec` accepts
-/// only under Normal, refused at the builder as *a non-isolated group (§11.4.4) cannot be drawn
-/// here because its own blend mode is not Normal*. The mode is compared on the crawl's pages that
-/// paint it under Normal instead, which is ADR 1295 section 5.
-const REFUSED_BEFORE_THE_SCENE: [&str; 5] = [
+/// **The mode is drawn now, and the page has left this list and agrees with the CPU oracle**
+/// (ADR 1295, ADR 1307). raster's `Compose::DestOver` and `Compose::DestOverIn` state the mode,
+/// and §11.7.4.3's last paragraph — which puts an object painted under `/BM /Multiply` in "a
+/// non-isolated, non-knockout transparency group" and paints that group under Multiply — is
+/// §11.4.4's result step under a blend of the group's own, which raster draws from the group
+/// alpha NOTE 4's second accumulator carries. At 100% the page is mean 0.0053, worst tile 0.82;
+/// at 200%, 0.0124 and 1.70 (`examples/zoom_ladder`).
+const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
     "bug1721218_reduced.pdf",
-    "issue12798_page1_reduced.pdf",
     "issue16742.pdf",
     "issue21346.pdf",
     "issue5044.pdf",

@@ -370,6 +370,19 @@ impl ApplicationHandler for App {
                     reason = "a pointer position in this window, which is thousands of pixels"
                 )]
                 let at = (self.cursor.0 as f32, self.cursor.1 as f32);
+                // The question and the menu are modal to the pointer as they are to the keys: a
+                // press that reached the page behind a question about a form could press the
+                // button that asked it. The menu answers a press on one of its levels; the
+                // question is answered by its two keys.
+                if self.question.shown {
+                    return;
+                }
+                if self.menu.shown {
+                    if element == ElementState::Pressed {
+                        self.pressed_the_menu(at);
+                    }
+                    return;
+                }
                 if element == ElementState::Pressed && self.pressed_the_strip(at) {
                     return;
                 }

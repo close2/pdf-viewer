@@ -1,7 +1,7 @@
 //! How a device comes to exist: what configures construction, how the adapter is
 //! chosen, and what each step of it cost.
 //!
-//! §7 of the brief and CLAUDE.md's "startup is a first-class requirement" are this
+//! Section 7 of the brief and CLAUDE.md's "startup is a first-class requirement" are this
 //! module's whole subject. The caller's decision that page one goes to the graphics
 //! device (their ADR 0179) put bring-up on their time-to-first-page, so the two
 //! obligations here are sharper than they were at M1:
@@ -23,8 +23,8 @@
 //!   `Backends::all()` and is unchanged. This is an escape hatch from a driver, not a
 //!   speed knob — restricting the instance to Vulkan halves `Instance::new` and gives
 //!   every millisecond back in `request_adapter`, which the caller measured (their
-//!   feedback §8.3), so the total is the invariant. What it *is* for is the machine in
-//!   their §12, where wgpu reached an Intel Vulkan driver that crashed and nothing
+//!   feedback section 8.3), so the total is the invariant. What it *is* for is the machine in
+//!   their section 12, where wgpu reached an Intel Vulkan driver that crashed and nothing
 //!   could ask for the DX12 one. ADR 0017 records the shape and the two silences that
 //!   go with it: no backend field in [`Options`], and no `WGPU_BACKEND`.
 
@@ -34,7 +34,7 @@ use crate::error::{DeviceError, PipelineProblem};
 
 /// Where the background pipeline warm-up has got to.
 ///
-/// One running state and three ways of being finished, for the reason §5 gives about
+/// One running state and three ways of being finished, for the reason brief section 5 gives about
 /// frames: a caller that waits for the warm set — by polling [`Device::warm_up`] or by
 /// blocking in [`Device::wait_until_warm`] — must be able to learn that it is never
 /// coming, and only one of the three finished states means it arrived.
@@ -86,13 +86,13 @@ pub const DEFAULT_MAX_RESOURCE_BYTES: u64 = 512 * 1024 * 1024;
 
 /// The default glyph-atlas budget, in bytes (an R8 texel is one byte).
 ///
-/// §6.3: the atlas is sized from a budget the caller sets, never from a constant of ours
-/// alone; this is only the default. It stays an afterthought next to a single 1191×1684
+/// The brief's section 6.3: the atlas is sized from a budget the caller sets, never from a constant
+/// of ours alone; this is only the default. It stays an afterthought next to a single 1191×1684
 /// target.
 ///
 /// **The justification was an argument about the brief's dense page at 1×** — 8 MiB holds
 /// roughly two thousand 64×64 tiles, far beyond 107 outlines at several phases each — and
-/// a scale-1 argument says nothing about the magnifications §6 cares about. ADR 0063
+/// a scale-1 argument says nothing about the magnifications brief section 6 cares about. ADR 0063
 /// replaced it with the measurement: over page one of 974 corpus documents at **4×**, the
 /// largest single page's [`Counters::atlas_working_set_bytes`] is **4 298 422 bytes**, the
 /// p99 is 1.4 MiB and the median is 11 KiB. So the default is right by a factor of two at
@@ -275,7 +275,7 @@ pub struct Options {
     /// software adapter.
     pub compute_assist: Option<bool>,
     /// Subdivide [`Timings::encode`] into geometry, staging and recording, reported
-    /// through [`Timings::phases`] (the caller's feedback §13; ADR 0023).
+    /// through [`Timings::phases`] (the caller's feedback section 13; ADR 0023).
     ///
     /// **Off by default, because the measurement is not free.** Encode's parts
     /// interleave per command, so the subdivision reads the clock at each seam: about
@@ -341,7 +341,7 @@ impl Default for Options {
     }
 }
 
-/// What startup cost, one field per step that can regress on its own (§7), so a
+/// What startup cost, one field per step that can regress on its own (brief section 7), so a
 /// regression can be attributed rather than argued about. Gated in CI from the commit
 /// that first produced it.
 ///
@@ -425,7 +425,7 @@ impl PreSteps {
 /// a thread started at `main`'s first line while the document is read and the window
 /// opened; `wgpu::Instance` is `Send + Sync`, so that thread can hand it back. The
 /// caller measured the overlap at roughly 20 ms of a 145 ms launch (their feedback
-/// §8.2). Hand the result to
+/// section 8.2). Hand the result to
 /// [`Device::for_surface_with_instance`](crate::device::Device::for_surface_with_instance).
 ///
 /// Use this rather than constructing a `wgpu::Instance` by hand: the descriptor is
@@ -453,11 +453,11 @@ pub fn create_instance() -> wgpu::Instance {
 /// and the question here is which driver stack talks to it. With no restriction the
 /// choice falls to wgpu's hub order, where Vulkan precedes DX12; that is how the
 /// caller's project owner reached a crashing Intel Vulkan driver on Windows with no way
-/// to ask for the other one (their feedback §12). The backend set belongs to the
+/// to ask for the other one (their feedback section 12). The backend set belongs to the
 /// instance, which is made before an [`Options`] exists, so it is an argument here and
 /// nowhere else (ADR 0017).
 ///
-/// **Not a speed knob**, and the measurement is in ADR 0014 §3: restricting to Vulkan
+/// **Not a speed knob**, and the measurement is in ADR 0014 section 3: restricting to Vulkan
 /// halves `Instance::new` and gives every millisecond of it back in `request_adapter`.
 /// A host with no driver to avoid should call [`create_instance`].
 ///

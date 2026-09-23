@@ -52,7 +52,7 @@ fn the_handle_travels_between_threads() {
     );
 }
 
-/// A blank scene is a legitimate scene, and a legitimate thing to retain (§5).
+/// A blank scene is a legitimate scene, and a legitimate thing to retain (brief section 5).
 #[test]
 fn a_blank_scene_replays_like_any_other() {
     let mut device = device();

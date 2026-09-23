@@ -92,6 +92,8 @@ machinery, and those are not indexed here.
 | 46 | you copy an object that resolves every reference it meets, and the object names one that names it back (a popup and its parent, a bead and its thread) | read a mutual reference as a link before carrying anything; a depth budget refuses the whole entry, not the loop | parsers |
 | 47 | you build a page list from `pdf_model::Pages::indices()` | it maps interior page-tree nodes too; build page lists from `Pages::get(i).id` — it bit a writer and its checker in one round | parsers |
 | 48 | you delete a by-name refusal and promise the page it named will now compare | run the witness page first: the refusal that stood behind it takes over (an implicit Multiply group did, ADR 1295) | pixels |
+| 49 | you sweep how a citation is spelled (`§N` → "section N", a document's name moved) | run `cargo test -p conformance --test conformance every_quotation` after every chunk: a respelling silently un-attributes the blockquotes that cited through it, and two fell through to an unrelated ISO clause (ADR 1314) | instruments |
+| 50 | you A/B two exported trees that share a `CARGO_TARGET_DIR` | cargo hashes path dependencies relative to the workspace root, so the trees reuse each other's artifacts by mtime and the "after" binary can be the "before" one; separate target directories, and `md5sum` the two binaries before measuring | instruments |
 
 **Two are not optional for the round they are about.** If this round can change a pixel, **trap 1**
 is the one that has paid every session since the tenth. If this round adds a report, **trap 11** is

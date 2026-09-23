@@ -1,12 +1,12 @@
 //! Tier 1's price: copy out, map, and convert to straight alpha, exactly once.
 //!
-//! §6.1 of the brief measured this path as the item that dominates an offscreen frame
+//! Section 6.1 of the brief measured this path as the item that dominates an offscreen frame
 //! — about 1.2 GB/s of copy, map and demultiply at 4× scale — which is why it lives
 //! behind [`Target::Readback`](crate::target::Target::Readback) alone and why
-//! `Timings::readback` prices it separately: §11.1 asks how much of the old backend's
+//! `Timings::readback` prices it separately: brief section 11.1 asks how much of the old backend's
 //! fixed cost this was, and the split is the answer.
 //!
-//! The premultiplied→straight conversion here is the boundary conversion of §3, done
+//! The premultiplied→straight conversion here is the boundary conversion of brief section 3, done
 //! once; its rounding rule is raster's own and is recorded in `raster/doc/adr/0005`.
 
 use crate::error::RenderError;
@@ -179,7 +179,7 @@ const fn build_straight_table() -> [u8; 65_536] {
 }
 
 /// Premultiplied RGBA8 rows (with copy padding) to straight-alpha RGBA8, tightly
-/// packed. The conversion happens exactly once, at this boundary (§3 of the brief).
+/// packed. The conversion happens exactly once, at this boundary (section 3 of the brief).
 ///
 /// Three shapes of pixel, in the order a real page has them: fully transparent (most
 /// of a page of text), fully opaque (a filled background, and every pixel of a photo),

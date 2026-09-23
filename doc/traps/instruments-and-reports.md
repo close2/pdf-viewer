@@ -926,6 +926,21 @@ only as good as what it excludes; when a doc comment or an ADR promises a specif
 branch that prints it, and when a refusal's written reason carries a qualifier, check the code tests
 that qualifier.
 
+### 49. A citation-spelling sweep changes what the quotation gate can attribute
+
+Rewriting raster's `doc §N` into `doc section N` silently un-attributed sixteen blockquotes: the
+gate had read the `§` as the attribution to a project document, fourteen quotations became
+unattributed, and two fell through to an earlier ISO clause and failed as not verbatim (ADR 1314).
+`citation::section_in_prose` now reads a project document named before "section N" as the
+attribution. Run the quotation gate after every chunk of such a sweep, not at its end.
+
+### 50. Two exported trees sharing a build directory can hand you the same binary twice
+
+cargo hashes a path dependency relative to the workspace root, so a "before" export and an "after"
+export under one `CARGO_TARGET_DIR` reuse each other's artifacts by mtime, and the A/B's first pass
+produced two identical binaries (ADR 1311). Give each export its own target directory, or touch the
+overlaid sources, and `md5sum` the two binaries before quoting a difference.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

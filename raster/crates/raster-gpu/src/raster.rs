@@ -32,7 +32,7 @@
 //!
 //! Those three sentences are three clauses and three files, and a mark drawn on the CPU
 //! passes through them in one order: **segments → polylines → polygons → bytes**.
-//! rustdoc inlines a re-export from a private module (ADR 0051 §1), so this table is
+//! rustdoc inlines a re-export from a private module (ADR 0051 section 1), so this table is
 //! the only place that structure survives into the documentation:
 //!
 //! | Module | Its one thing |

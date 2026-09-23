@@ -88,7 +88,7 @@ pub(crate) fn programs(cases: &[Case]) {
 
 /// What each shape declines, and on what ground.
 ///
-/// `QUORRA_FUNCTION_PAINT.md` §5.2 asks for "a refusal by name … for any program the
+/// `QUORRA_FUNCTION_PAINT.md` section 5.2 asks for "a refusal by name … for any program the
 /// device declines". These are constructed programs, one per ground, so the grounds
 /// are demonstrated rather than merely listed — a ground nobody can reach is not a
 /// ground. Both witnesses pass all of them.

@@ -1,7 +1,7 @@
 //! One program per refusal ground, each of which actually reaches it.
 //!
-//! `raster/doc/spike-function-paint.md` §6 states the rule these cases exist to satisfy: "each
-//! is demonstrated on a constructed program that reaches it, because a ground nobody can
+//! `raster/doc/spike-function-paint.md` section 6 states the rule these cases exist to satisfy:
+//! "each is demonstrated on a constructed program that reaches it, because a ground nobody can
 //! reach is not a ground". Principle 6 is why they are refusals and not approximations —
 //! a program we cannot lower is an `Err` that names what it could not do, never a
 //! plausible colour.

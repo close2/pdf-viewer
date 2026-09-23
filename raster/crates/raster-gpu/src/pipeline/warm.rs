@@ -94,7 +94,7 @@ impl PipelineStore {
     }
 
     /// The warm-up itself: the two over-lanes a page of text needs, the two passes
-    /// a page with a group needs (§7 — the knockout variants, the reduction and the
+    /// a page with a group needs (brief section 7 — the knockout variants, the reduction and the
     /// winding lane still compile on first use), and — for a device constructed for a
     /// surface — the presenting lanes again in the surface's own format.
     ///

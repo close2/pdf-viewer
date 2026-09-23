@@ -1,7 +1,7 @@
 //! What a `Readback` frame costs in host memory — ADR 0022's claim, as a property.
 //!
-//! Tier 1's price is the largest single item in an offscreen frame (§6.1), and ADR 0022
-//! is the decision that made it *"read once and divide never"*: the demultiply runs
+//! Tier 1's price is the largest single item in an offscreen frame (brief section 6.1), and ADR
+//! 0022 is the decision that made it *"read once and divide never"*: the demultiply runs
 //! straight out of the mapped range, where the shape before it staged the whole target
 //! into a `Vec` first and then converted that. The saving is a full target buffer —
 //! 8 MB at page size — of allocation, copy and traffic.
@@ -60,7 +60,7 @@ fn a_readback_frame_allocates_one_target_and_no_second_copy() {
 
     // Three frames first, so that what the watched frame allocates is the frame's rather
     // than a pool reaching its steady size. Every pool here grows and never shrinks
-    // (PLAN.md §1.5), so three is enough and the fourth would prove nothing.
+    // (PLAN.md section 1.5), so three is enough and the fourth would prove nothing.
     for _ in 0..3 {
         let frame = device
             .render(&scene, &viewport, Target::Readback)

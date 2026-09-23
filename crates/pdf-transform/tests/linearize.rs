@@ -40,12 +40,11 @@ use pdf_syntax::{Document, Limits, Object, ObjectId};
 use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::{
-    Budget, Exit, MemorySinks, Plan, Policy, Protect, Refusal, Secret, Source, apply,
-    apply_protected,
+    Budget, MemorySinks, Plan, Policy, Protect, Refusal, Secret, Source, apply, apply_protected,
 };
 
 use support::linearized::{
-    PageHint, Read, faults, generic, object_at, page_offsets, shared_objects,
+    PageHint, Read, faults, faults_with, generic, object_at, page_offsets, shared_objects,
 };
 
 /// The test's own shorthand over the reader: a file that is not linearised, or an object that
@@ -65,8 +64,8 @@ impl Must for Read {
     }
 
     fn at(&self, number: u64) -> u64 {
-        self.offset(number)
-            .unwrap_or_else(|| panic!("object {number} is not at an offset"))
+        self.placed(number)
+            .unwrap_or_else(|| panic!("object {number} is not in the file"))
     }
 
     fn page_number(&self, index: usize) -> u64 {
@@ -75,7 +74,7 @@ impl Must for Read {
 }
 
 /// What varies between the fixtures.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct Shape {
     /// The catalog's `/OpenAction` names page 2.
     open_at_page_two: bool,
@@ -87,6 +86,11 @@ struct Shape {
     every_table: bool,
     /// The catalog's `/PageMode` is `/UseOutlines`.
     use_outlines: bool,
+    /// Two article threads cross page one, and the producer stated neither a page's `/B` nor any
+    /// bead's `/T` but the first's, which Table 163 and Table 31 permit and §F.3.7 (b) does not.
+    threads: bool,
+    /// Written with §7.5.7's object streams, and so with §7.5.8's cross-reference streams.
+    object_streams: bool,
 }
 
 /// A classic PDF file out of numbered object bodies, with a correct §7.5.4 table.
@@ -144,6 +148,9 @@ fn fixture(shape: Shape) -> Vec<u8> {
     }
     if shape.open_action_is_a_page {
         catalog.push_str(" /OpenAction 3 0 R");
+    }
+    if shape.threads {
+        catalog.push_str(" /Threads [100 0 R 110 0 R]");
     }
     if shape.every_table {
         catalog.push_str(
@@ -281,16 +288,46 @@ fn fixture(shape: Shape) -> Vec<u8> {
         ]);
         objects.sort_by_key(|(number, _)| *number);
     }
+    if shape.threads {
+        // Thread A runs from page one to page two, thread B from page three back to page one; only
+        // each thread's first bead states `/T`, as Table 163 permits.
+        objects.extend([
+            (100, b"<< /Type /Thread /F 101 0 R >>".to_vec()),
+            (
+                101,
+                b"<< /Type /Bead /T 100 0 R /N 102 0 R /V 102 0 R /P 3 0 R /R [0 0 90 90] >>"
+                    .to_vec(),
+            ),
+            (
+                102,
+                b"<< /Type /Bead /N 101 0 R /V 101 0 R /P 4 0 R /R [0 0 90 90] >>".to_vec(),
+            ),
+            (110, b"<< /Type /Thread /F 111 0 R >>".to_vec()),
+            (
+                111,
+                b"<< /Type /Bead /T 110 0 R /N 112 0 R /V 112 0 R /P 5 0 R /R [0 0 90 90] >>"
+                    .to_vec(),
+            ),
+            (
+                112,
+                b"<< /Type /Bead /N 111 0 R /V 111 0 R /P 3 0 R /R [100 100 190 190] >>".to_vec(),
+            ),
+        ]);
+    }
     file(&objects, 1, Some(30))
 }
 
-/// `optimize --linearize`'s plan, with §7.5.7's object streams off as the flag defaults them.
-fn linear_plan(streams: Streams) -> OptimizePlan {
+/// `optimize --linearize`'s plan, with §7.5.7's object streams as the shape asks.
+fn linear_plan(shape: Shape, streams: Streams) -> OptimizePlan {
     OptimizePlan {
         source: 0,
         names: "out.pdf".parse().expect("a pattern"),
         prune: true,
-        object_streams: ObjectStreams::Disable,
+        object_streams: if shape.object_streams {
+            ObjectStreams::DEFAULT
+        } else {
+            ObjectStreams::Disable
+        },
         streams,
         linearize: true,
     }
@@ -313,11 +350,45 @@ fn run(bytes: &[u8], plan: OptimizePlan) -> Result<Vec<u8>, Refusal> {
 
 /// The fixture, linearised.
 fn linearised(shape: Shape) -> Vec<u8> {
-    run(&fixture(shape), linear_plan(Streams::Carry)).expect("the fixture linearises")
+    run(&fixture(shape), linear_plan(shape, Streams::Carry)).expect("the fixture linearises")
 }
 
-/// The whole file, three ways: the fixtures.
-fn fixtures() -> Vec<(&'static str, Shape)> {
+/// Runs `optimize` with passwords, answering the one output.
+fn run_protected(bytes: &[u8], plan: OptimizePlan, protect: &Protect) -> Vec<u8> {
+    let sinks = MemorySinks::new();
+    let source = Source::new(bytes.to_vec());
+    apply_protected(
+        &Plan::Optimize(plan),
+        &[&source],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+        Some(protect),
+    )
+    .expect("the fixture linearises encrypted");
+    let mut outputs = sinks.into_outputs();
+    assert_eq!(outputs.len(), 1, "one input, one output");
+    outputs.remove(0).1
+}
+
+/// Every fixture, once with classic tables and once with object streams.
+fn fixtures() -> Vec<(String, Shape)> {
+    let mut out = Vec::new();
+    for (name, shape) in base_fixtures() {
+        out.push((name.to_owned(), shape));
+        out.push((
+            format!("{name}, in object streams"),
+            Shape {
+                object_streams: true,
+                ..shape
+            },
+        ));
+    }
+    out
+}
+
+/// The document's own shapes.
+fn base_fixtures() -> Vec<(&'static str, Shape)> {
     vec![
         ("plain", Shape::default()),
         (
@@ -345,6 +416,13 @@ fn fixtures() -> Vec<(&'static str, Shape)> {
             "every table",
             Shape {
                 every_table: true,
+                ..Shape::default()
+            },
+        ),
+        (
+            "two threads crossing page one",
+            Shape {
+                threads: true,
                 ..Shape::default()
             },
         ),
@@ -417,17 +495,7 @@ fn every_value_of_the_parameter_dictionary_is_where_the_file_says() {
         );
         // /N.
         assert_eq!(p.pages, 3, "{name}: /N");
-        // /T: "the offset of the white-space character preceding the first entry of the main
-        // cross-reference table (the entry for object number 0)".
         let t = usize::try_from(p.main_cross_reference).expect("an offset");
-        assert!(bytes[t].is_ascii_whitespace(), "{name}: /T is white space");
-        assert_eq!(
-            &bytes[t + 1..t + 20],
-            b"0000000000 65535 f ",
-            "{name}: /T precedes entry 0"
-        );
-        // §F.3.4: "The trailer's Prev entry shall give the offset of the main cross-reference
-        // table", and the main table is the one /T is inside.
         let prev = read
             .document
             .trailer()
@@ -435,26 +503,83 @@ fn every_value_of_the_parameter_dictionary_is_where_the_file_says() {
             .and_then(Object::as_integer)
             .expect("a /Prev");
         let prev = usize::try_from(prev).expect("an offset");
-        assert_eq!(&bytes[prev..prev + 4], b"xref", "{name}: /Prev");
-        assert!(prev < t, "{name}: /T is inside the table /Prev names");
         // §F.3.11: "The startxref line shall give the offset of the first-page cross-reference
         // table in the PDF file."
-        let tail = std::str::from_utf8(&bytes[bytes.len() - 32..]).unwrap_or("");
-        let startxref: usize = tail
-            .split("startxref")
-            .nth(1)
-            .and_then(|rest| rest.split_whitespace().next())
-            .and_then(|number| number.parse().ok())
-            .expect("a startxref");
-        assert_eq!(
-            &bytes[startxref..startxref + 4],
-            b"xref",
-            "{name}: startxref"
-        );
+        let startxref = support::linearized::startxref(bytes).expect("a startxref");
         assert!(
             startxref < 1024 && startxref > first_object,
             "{name}: part 3 follows part 2"
         );
+        assert_eq!(
+            read.streams_form(),
+            shape.object_streams,
+            "{name}: Table 18's type 2 entry needs a cross-reference stream, and only then is one written"
+        );
+        if shape.object_streams {
+            // Table F.1's `/T` for "[d]ocuments that use cross-reference streams exclusively":
+            // "the offset of the main cross-reference stream object in the PDF file"; and §F.3.4's
+            // `/Prev`, "with the appropriate syntactic changes", names the same object.
+            let main = object_at(bytes, t as u64).expect("an object at /T");
+            let main = read.document.get(ObjectId::new(main, 0));
+            let main = main.as_stream().expect("a stream");
+            assert_eq!(
+                main.dict
+                    .get("Type")
+                    .and_then(Object::as_name)
+                    .map(|n| n.as_bytes().to_vec()),
+                Some(b"XRef".to_vec()),
+                "{name}: /T is the main cross-reference stream"
+            );
+            // "The main trailer has no Prev entry".
+            assert!(
+                main.dict.get("Prev").is_none(),
+                "{name}: no /Prev in the main stream"
+            );
+            assert_eq!(prev, t, "{name}: /Prev");
+            // §F.3.4's "single cross-reference subsection that has no free entries", from the
+            // parameter dictionary to the hint stream: `/Index [k+1 n]` and `/Size` k + 1 + n.
+            let first = object_at(bytes, startxref as u64).expect("an object at startxref");
+            assert_eq!(
+                first,
+                parameters_number + 1,
+                "{name}: part 3 follows part 2 in number"
+            );
+            let first = read.document.get(ObjectId::new(first, 0));
+            let index = first
+                .as_stream()
+                .and_then(|stream| stream.dict.get("Index"))
+                .and_then(Object::as_array)
+                .expect("an /Index")
+                .iter()
+                .filter_map(Object::as_integer)
+                .collect::<Vec<i64>>();
+            assert_eq!(
+                index,
+                vec![
+                    i64::from(parameters_number),
+                    size - i64::from(parameters_number)
+                ],
+                "{name}: the first-page section runs from the parameter dictionary to the end"
+            );
+        } else {
+            // /T: "the offset of the white-space character preceding the first entry of the main
+            // cross-reference table (the entry for object number 0)".
+            assert!(bytes[t].is_ascii_whitespace(), "{name}: /T is white space");
+            assert_eq!(
+                &bytes[t + 1..t + 20],
+                b"0000000000 65535 f ",
+                "{name}: /T precedes entry 0"
+            );
+            // §F.3.4: "The trailer's Prev entry shall give the offset of the main cross-reference
+            // table", and the main table is the one /T is inside.
+            assert_eq!(&bytes[prev..prev + 4], b"xref", "{name}: /Prev");
+            assert!(prev < t, "{name}: /T is inside the table /Prev names");
+            assert_eq!(
+                &bytes[startxref..startxref + 4],
+                b"xref",
+                "{name}: startxref"
+            );
+        }
         // /P: stated where the first page is not page 0, and absent where it is.
         let expected_first = u64::from(shape.open_at_page_two);
         assert_eq!(p.first_page, expected_first, "{name}: /P");
@@ -875,6 +1000,11 @@ fn every_page_object_states_its_media_box_and_resources_itself() {
 
 /// Page `index` of `bytes` as a PPM.
 fn draw(bytes: &[u8], index: usize) -> Vec<u8> {
+    draw_source(Source::new(bytes.to_vec()), index)
+}
+
+/// Page `index` of a source as a PPM.
+fn draw_source(source: Source, index: usize) -> Vec<u8> {
     let sinks = MemorySinks::new();
     apply(
         &Plan::Render(RenderPlan {
@@ -887,7 +1017,7 @@ fn draw(bytes: &[u8], index: usize) -> Vec<u8> {
             names: "page.ppm".parse().expect("a pattern"),
             strips: None,
         }),
-        &[Source::new(bytes.to_vec())],
+        &[source],
         &sinks,
         &Policy::default(),
         &Budget::default(),
@@ -902,7 +1032,7 @@ fn a_linearised_file_reopened_draws_every_page_as_its_source_does() {
     for (name, shape) in fixtures() {
         let source = fixture(shape);
         for streams in [Streams::Carry, Streams::DEFAULT] {
-            let out = run(&source, linear_plan(streams)).expect("linearises");
+            let out = run(&source, linear_plan(shape, streams)).expect("linearises");
             let before =
                 Document::open_with_limits(source.clone(), Limits::DEFAULT).expect("opens");
             let after = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("opens");
@@ -994,7 +1124,7 @@ fn an_incremental_update_leaves_a_file_that_opens_and_is_no_longer_linearised() 
 fn linearising_a_linearised_file_changes_nothing() {
     for (name, shape) in fixtures() {
         let once = linearised(shape);
-        let twice = run(&once, linear_plan(Streams::Carry)).expect("linearises again");
+        let twice = run(&once, linear_plan(shape, Streams::Carry)).expect("linearises again");
         assert!(
             once == twice,
             "{name}: the second pass wrote {} bytes over {}",
@@ -1004,39 +1134,276 @@ fn linearising_a_linearised_file_changes_nothing() {
     }
 }
 
-/// The two combinations the linearised writer does not build are refused by name, at exit 4.
+/// §F.3.1's conditions on a linearised file that holds object streams, each asked of the file.
 #[test]
-fn object_streams_or_encryption_with_linearize_are_refused_by_name() {
-    let source = fixture(Shape::default());
-    let with_streams = OptimizePlan {
-        object_streams: ObjectStreams::DEFAULT,
-        ..linear_plan(Streams::Carry)
+fn object_streams_in_a_linearised_file_meet_every_condition_f_3_1_states() {
+    for (name, shape) in fixtures()
+        .into_iter()
+        .filter(|(_, shape)| shape.object_streams)
+    {
+        let read = Read::of(linearised(shape));
+        let size = read
+            .document
+            .trailer()
+            .get("Size")
+            .and_then(Object::as_integer)
+            .and_then(|size| u64::try_from(size).ok())
+            .expect("a /Size");
+        let parameters = support::linearized::first_object(&read.bytes)
+            .and_then(|at| object_at(&read.bytes, at as u64))
+            .map(u64::from)
+            .expect("part 2");
+        // Both sections hold compressed objects: the first page's own dictionaries in the first,
+        // the later pages', the shared objects' and part 9's in the main.
+        let first: Vec<u64> = (parameters..size - 1)
+            .filter(|n| read.compressed(*n))
+            .collect();
+        let main: Vec<u64> = (1..parameters).filter(|n| read.compressed(*n)).collect();
+        assert!(!first.is_empty(), "{name}: part 4 and part 6 are packed");
+        assert!(!main.is_empty(), "{name}: parts 7 to 9 are packed");
+        // "Objects stored within object streams shall be given the highest range of object
+        // numbers within the main and first-page cross-reference sections."
+        let highest_uncompressed_main = (1..parameters)
+            .filter(|n| !read.compressed(*n))
+            .max()
+            .expect("an uncompressed object");
+        assert!(
+            main.iter().all(|n| *n > highest_uncompressed_main),
+            "{name}: the main section's compressed objects are numbered last"
+        );
+        let highest_uncompressed_first = (parameters..size - 1)
+            .filter(|n| !read.compressed(*n))
+            .max()
+            .expect("an uncompressed object");
+        assert!(
+            first.iter().all(|n| *n > highest_uncompressed_first),
+            "{name}: the first-page section's compressed objects are numbered last"
+        );
+        // "These additional objects may not be contained in an object stream: the linearization
+        // dictionary, the document catalog dictionary, and page objects."
+        let root = read
+            .document
+            .trailer()
+            .get("Root")
+            .and_then(Object::as_reference)
+            .expect("a catalog");
+        assert!(
+            !read.compressed(u64::from(root.number)),
+            "{name}: the catalog"
+        );
+        assert!(
+            !read.compressed(parameters),
+            "{name}: the parameter dictionary"
+        );
+        for page in &read.page_numbers {
+            assert!(!read.compressed(*page), "{name}: page object {page}");
+        }
+        // "For PDF files containing object streams, hint data may specify the location and size
+        // of the object streams only (or uncompressed objects), not the individual compressed
+        // objects": every object the page offset and shared object tables count is at an offset
+        // of its own, which `faults` asks of every entry.
+        let found = faults(&read.bytes);
+        assert!(found.is_empty(), "{name}: {found:?}");
+        // "Similarly, shared object references shall be made to the object stream containing a
+        // compressed object": font 11 is compressed and shared by pages 2 and 3, so each names
+        // the group that is its carrier — and that group is one object, the carrier.
+        let pages = page_offsets(&read.data, 3);
+        let table = shared_objects(&read.data, read.table("S").expect("/S"));
+        for hint in pages.pages.iter().skip(1) {
+            for id in &hint.shared {
+                let group = table.groups[usize::try_from(*id).expect("an index")];
+                assert!(group.objects >= 1, "{name}: shared group {id}");
+            }
+        }
+    }
+}
+
+/// §F.3.5 and §7.6: a linearised file encrypted on the way out, opened with its password, every
+/// offset read back.
+#[test]
+fn a_linearised_file_is_encrypted_and_every_offset_reads_back_with_the_password() {
+    let encrypted = |shape: &Shape| {
+        let tables = Shape {
+            object_streams: false,
+            ..*shape
+        };
+        tables == Shape::default()
+            || tables
+                == Shape {
+                    every_table: true,
+                    ..Shape::default()
+                }
     };
-    match run(&source, with_streams) {
-        Err(refusal @ Refusal::Linearization(_)) => {
-            assert_eq!(refusal.exit(), Exit::Refused);
-            assert!(refusal.to_string().contains("F.3.1"), "{refusal}");
+    for (name, shape) in fixtures().into_iter().filter(|(_, shape)| encrypted(shape)) {
+        let protect = Protect {
+            user_password: Secret::from("reader".to_owned()),
+            ..Protect::owner_only(Secret::from("keeper".to_owned()))
+        };
+        let source = fixture(shape);
+        let out = run_protected(&source, linear_plan(shape, Streams::Carry), &protect);
+        // §7.6.4.1's user password is not the empty one, so the file does not open without it.
+        assert!(
+            Document::open_with_limits(out.clone(), Limits::DEFAULT).is_err(),
+            "{name}: the file asks for its password"
+        );
+        let found = faults_with(&out, "reader");
+        assert!(found.is_empty(), "{name}: {found:?}");
+        let read = Read::open_with(out.clone(), "reader").expect("opens with the password");
+        // F.3.5: "The Encrypt entry in the first-page trailer dictionary. All values in the
+        // encryption dictionary shall also be located here" — part 4, before the first page.
+        let encrypt = read
+            .document
+            .trailer()
+            .get("Encrypt")
+            .and_then(Object::as_reference)
+            .expect("F.3.4: the first-page trailer names the encryption dictionary");
+        let at = read
+            .offset(u64::from(encrypt.number))
+            .expect("§7.5.7: an encryption dictionary is not in an object stream");
+        assert!(
+            at < read.at(u64::from(read.parameters.first_page_object)),
+            "{name}: the encryption dictionary is in part 4"
+        );
+        let dictionary = read.document.get(encrypt);
+        let dictionary = dictionary.as_dict().expect("a dictionary");
+        assert!(
+            dictionary
+                .iter()
+                .all(|(_, value)| !matches!(value, Object::Reference(_))),
+            "{name}: every value of the encryption dictionary is where it is"
+        );
+        // Table 15: "If there is an Encrypt entry, this array and the two byte-strings shall be
+        // direct objects and shall be unencrypted" — read in the first-page section as written.
+        let startxref = support::linearized::startxref(&read.bytes).expect("a startxref");
+        let section = &read.bytes
+            [startxref..usize::try_from(read.parameters.primary_hints.0).expect("an offset")];
+        let identifier = read
+            .document
+            .trailer()
+            .get("ID")
+            .and_then(Object::as_array)
+            .and_then(|pair| pair.first())
+            .and_then(Object::as_string)
+            .map(<[u8]>::to_vec)
+            .expect("an /ID");
+        let hex = identifier.iter().fold(String::new(), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02X}");
+            hex
+        });
+        assert!(
+            String::from_utf8_lossy(section).contains(&format!("<{hex}>")),
+            "{name}: the /ID is stated in the clear in the first-page section"
+        );
+        // The hint stream is a stream like any other, and §7.6.2 encrypts it: what the file holds
+        // is not the tables the password recovers.
+        let (offset, length) = read.parameters.primary_hints;
+        let hint = &read.bytes
+            [usize::try_from(offset).expect("o")..usize::try_from(offset + length).expect("e")];
+        assert!(
+            !hint
+                .windows(read.data.len().min(16))
+                .any(|window| window == &read.data[..read.data.len().min(16)]),
+            "{name}: the hint stream's data is ciphertext on disk"
+        );
+        // And the document is the source's: every page draws alike under the password.
+        for index in 0..3 {
+            assert_eq!(
+                draw(&source, index),
+                draw_source(
+                    Source::with_password(out.clone(), Secret::from("reader".to_owned())),
+                    index
+                ),
+                "{name}: page {} draws",
+                index + 1
+            );
         }
-        other => panic!("object streams under --linearize: {other:?}"),
     }
-    let sinks = MemorySinks::new();
-    let source = Source::new(fixture(Shape::default()));
-    let encrypted = apply_protected(
-        &Plan::Optimize(linear_plan(Streams::Carry)),
-        &[&source],
-        &sinks,
-        &Policy::default(),
-        &Budget::default(),
-        Some(&Protect::owner_only(Secret::from("keeper".to_owned()))),
-    );
-    match encrypted {
-        Err(refusal @ Refusal::Linearization(_)) => {
-            assert_eq!(refusal.exit(), Exit::Refused);
-            assert!(refusal.to_string().contains("F.3.5"), "{refusal}");
+}
+
+/// §F.3.7 (b): every bead names its thread, and every page with beads lists them.
+#[test]
+fn every_bead_names_its_thread_and_every_page_with_beads_lists_them_in_part_six() {
+    for object_streams in [false, true] {
+        let shape = Shape {
+            threads: true,
+            object_streams,
+            ..Shape::default()
+        };
+        let read = Read::of(linearised(shape));
+        let document = &read.document;
+        let reference = |id: ObjectId, key: &str| {
+            document
+                .get(id)
+                .as_dict()
+                .and_then(|dict| dict.get(key))
+                .and_then(Object::as_reference)
+        };
+        let threads: Vec<ObjectId> = document
+            .catalog()
+            .expect("a catalog")
+            .get("Threads")
+            .and_then(Object::as_array)
+            .expect("/Threads")
+            .iter()
+            .filter_map(Object::as_reference)
+            .collect();
+        assert_eq!(threads.len(), 2);
+        // §12.4.3's chain from each thread's `/F` through `/N`, the definition of which beads a
+        // thread holds; "each bead in the thread (not just the first bead) shall contain a T entry
+        // referring to the associated thread dictionary".
+        let mut beads_on: BTreeMap<u32, Vec<ObjectId>> = BTreeMap::new();
+        for thread in &threads {
+            let first = reference(*thread, "F").expect("/F");
+            let mut bead = first;
+            loop {
+                assert_eq!(
+                    reference(bead, "T"),
+                    Some(*thread),
+                    "bead {} names its thread",
+                    bead.number
+                );
+                let page = reference(bead, "P").expect("/P");
+                beads_on.entry(page.number).or_default().push(bead);
+                bead = reference(bead, "N").expect("/N");
+                if bead == first {
+                    break;
+                }
+            }
         }
-        other => panic!("encryption under --linearize: {other:?}"),
+        // "If any beads exist for this page, the B array shall be present in the page dictionary":
+        // the beads on it, thread by thread and along each chain (ADR 1309's order).
+        let pages = Pages::new(document);
+        let first_page = pages.get(0).and_then(|page| page.id).expect("page one");
+        for index in 0..pages.len() {
+            let id = pages.get(index).and_then(|page| page.id).expect("a page");
+            let stated: Vec<ObjectId> = document
+                .get(id)
+                .as_dict()
+                .and_then(|dict| dict.get("B"))
+                .and_then(Object::as_array)
+                .map(|beads| beads.iter().filter_map(Object::as_reference).collect())
+                .unwrap_or_default();
+            assert_eq!(
+                stated,
+                beads_on.get(&id.number).cloned().unwrap_or_default(),
+                "page {index}'s /B"
+            );
+        }
+        let on_page_one = beads_on
+            .get(&first_page.number)
+            .expect("page one has beads");
+        assert_eq!(on_page_one.len(), 2, "both threads cross page one");
+        // (b) is in part 6's list: page one's beads lie before `/E`.
+        for bead in on_page_one {
+            assert!(
+                read.at(u64::from(bead.number)) < read.parameters.end_of_first_page,
+                "bead {} is in the first-page section",
+                bead.number
+            );
+        }
+        let found = faults(&read.bytes);
+        assert!(found.is_empty(), "{found:?}");
     }
-    assert!(sinks.into_outputs().is_empty(), "nothing is written");
 }
 
 /// [`faults`], the corpus walk's instrument, finds nothing wrong with any fixture — and finds
@@ -1045,7 +1412,7 @@ fn object_streams_or_encryption_with_linearize_are_refused_by_name() {
 fn every_statement_the_annex_lets_a_reader_check_holds_and_a_planted_fault_is_named() {
     for (name, shape) in fixtures() {
         for streams in [Streams::Carry, Streams::DEFAULT] {
-            let out = run(&fixture(shape), linear_plan(streams)).expect("linearises");
+            let out = run(&fixture(shape), linear_plan(shape, streams)).expect("linearises");
             let found = faults(&out);
             assert!(found.is_empty(), "{name}: {found:?}");
         }

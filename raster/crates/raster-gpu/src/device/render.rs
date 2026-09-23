@@ -12,7 +12,7 @@
 //! **The order the refusals are taken in is a decision, not an accident.** Every
 //! refusal a scene can earn is taken before the target is bound, because a `Surface`
 //! refusal must cost no swapchain acquire; the frame's internal textures are priced
-//! while nothing of the frame exists yet (§5: count, then allocate); and a [`Frame`]
+//! while nothing of the frame exists yet (brief section 5: count, then allocate); and a [`Frame`]
 //! is constructed only after every fallible step has succeeded, so a failed frame
 //! cannot report itself drawn.
 
@@ -241,9 +241,9 @@ impl Device {
         // Every refusal a scene can earn has been taken; bind the target last, so
         // the acquire happens only for a frame that will run.
         //
-        // Timed and reported: the caller's feedback §13 prints a `device` minus our
+        // Timed and reported: the caller's feedback section 13 prints a `device` minus our
         // phases remainder to name the acquire and the present, and says it no longer
-        // believes that subtraction is a duration of anything (§11.1's clocks do not
+        // believes that subtraction is a duration of anything (brief section 11.1's clocks do not
         // mix). Two clock reads a frame is nothing next to being able to name them.
         let acquire_started = Instant::now();
         let bound = self.bind_target(into, viewport)?;
@@ -391,7 +391,7 @@ impl Device {
     }
 
     /// Price the compositor's internal textures while nothing of the frame
-    /// exists yet (§5: count then allocate; the refusal names both numbers).
+    /// exists yet (brief section 5: count then allocate; the refusal names both numbers).
     ///
     /// Before the target is bound on purpose: a `Surface` refusal must cost no
     /// swapchain acquire, because a texture acquired and then dropped unpresented
@@ -481,8 +481,8 @@ impl Device {
         repack
     }
 
-    /// Phase 4: resolve. Only `Readback` pays anything here (§6.1: this is the cost
-    /// that dominated the old backend's offscreen frame, priced separately so §11.1
+    /// Phase 4: resolve. Only `Readback` pays anything here (brief section 6.1: this is the cost
+    /// that dominated the old backend's offscreen frame, priced separately so brief section 11.1
     /// finally has its answer — and ADR 0022 is what it bought).
     ///
     /// A `Surface` frame has already been presented and a `Texture` frame is where the
@@ -579,7 +579,7 @@ impl Device {
     /// **2.43 ms on a device's first frame** — a `QuerySet` and two sixteen-byte buffers,
     /// which the driver charges for once and then hands back from a pool. That was a
     /// fifth of the eleven milliseconds a first frame pays over its successors
-    /// (`QUORRA_FEEDBACK.md` §9), spent on an instrument rather than on the page.
+    /// (`QUORRA_FEEDBACK.md` section 9), spent on an instrument rather than on the page.
     ///
     /// It goes back at the end of a frame that read it, and does not after one that
     /// could not: a map that failed may leave the buffer mapped, and the next frame's

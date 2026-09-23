@@ -14,7 +14,17 @@
 #   tools/batch.sh open  batch-1038-1043   # worktree at /home/AI/pdf-viewer-rounds, guard on
 #   tools/batch.sh gates                   # tiers 2 and 3, one line per gate, into batch-gates.log
 #   tools/batch.sh check                   # the six things a merge looks at by hand, one line each
+#   tools/batch.sh commit /path/message    # stage the whole population by name, count it, commit
 #   tools/batch.sh close batch-1038-1043   # after `git merge --ff-only` on main: remove both
+#
+# `commit`, the fast-forward and `close` are three commands, run one at a time with each one's
+# output read before the next is typed. Chained with `;` or `&&` they are how batch thirty-five's
+# worktree was deleted with 128 files in it (ADR 1313): a refused `git add` let a commit of one
+# deletion through, the fast-forward took that, and the close removed the tree. `close` now
+# refuses a worktree holding anything uncommitted outside `scratchpad/`, and offers no `--force`.
+#
+# Checked by `cargo test -p conformance --test batch`, which runs this script against a
+# throwaway repository (`BATCH_WORKTREE` moves the worktree there; nothing else reads it).
 #
 # The loop itself is `doc/todo/02` §8. The gitlink guard is the same one `tools/worktree.sh`
 # carries, for the same incident: a symlink where git expects a submodule is staged as a blob
@@ -24,7 +34,7 @@
 set -euo pipefail
 
 root=$(dirname "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-format=absolute --git-common-dir)")
-wt=/home/AI/pdf-viewer-rounds
+wt=${BATCH_WORKTREE:-/home/AI/pdf-viewer-rounds}
 log=${BATCH_GATES_LOG:-/home/AI/batch-gates.log}
 
 open_batch() {
@@ -117,9 +127,10 @@ check_batch() {
     # `.h` is somebody's copy. An ICC profile is the one binary a round does legitimately add, and
     # it is admitted **by path rather than by extension**: `data/icc/` is the only place one
     # belongs, `NOTICE` and `data/icc/PROVENANCE.md` are what it owes, and a `.icc` anywhere else
-    # is still somebody's copy.
+    # is still somebody's copy. `scratchpad/` is the rounds' and never committed (`commit`
+    # refuses it), so it is not a finding here either.
     found=$(git status --porcelain --untracked-files=all |
-        awk '$1 == "??" { print $2 }' |
+        awk '$1 == "??" { print $2 }' | grep -v '^scratchpad/' |
         grep -vE '\.(rs|md|toml|tsv|txt|py|pem|der|crt|xfdf)$' |
         grep -vE '^data/icc/[^/]+\.icc$' || true)
     printf 'untracked, unexpected extension  %s\n' "$([ -z "$found" ] && echo none || echo "$(printf '%s\n' "$found" | wc -l) file(s)")"
@@ -203,11 +214,103 @@ check_batch() {
     return "$bad"
 }
 
+# The population a merge commits and a close would destroy: every path `git status` reports in
+# the worktree — modified, deleted, untracked, both sides of a rename — except `scratchpad/`, which
+# is the rounds' and never committed. One record per path, `XY<TAB>path`, NUL-terminated. `check`
+# reads the same `git status`, so what it reports and what `commit` stages are one population.
+population() {
+    local entry
+    git -C "$wt" status --porcelain=v1 -z --untracked-files=all --no-renames |
+        while IFS= read -r -d '' entry; do
+            case "${entry:3}" in scratchpad/*) continue ;; esac
+            printf '%s\t%s\0' "${entry:0:2}" "${entry:3}"
+        done
+}
+
+# Stage the population by name, prove the index holds exactly it, and commit. It never
+# fast-forwards and never closes: those are the next two commands, each run on its own after this
+# one's output has been read (`doc/todo/02` section 8 step 5, ADR 1313).
+commit_batch() {
+    local message=$1
+    [ -s "$message" ] || { echo "$message: no commit message there"; return 1; }
+    message=$(realpath "$message")
+    case "$message" in
+        "$wt"/scratchpad/*) ;;
+        "$wt"/*) echo "$message is in the worktree outside scratchpad/, so it would be committed with the batch — put it under scratchpad/ or outside the tree"; return 1 ;;
+    esac
+    cd "$wt" || return 1
+    local entry code path listing
+    local -a to_add=()
+    listing=$(population | tr '\0' '\n') || { echo "cannot read $wt's status — nothing staged"; return 1; }
+    [ -n "$listing" ] || { echo "nothing to commit outside scratchpad/"; return 1; }
+    while IFS= read -r -d '' entry; do
+        code=${entry%%$'\t'*}; path=${entry#*$'\t'}
+        # A deletion already staged is in the population and on no disk, and `git add` refuses a
+        # pathspec that matches nothing — for the whole list, which is how batch thirty-five's
+        # commit came to carry one deletion and nothing else. It is staged already: count it,
+        # never name it to `git add`.
+        [ "$code" = "D " ] || to_add+=("$path")
+    done < <(population)
+    if [ "${#to_add[@]}" -gt 0 ]; then
+        printf '%s\0' "${to_add[@]}" |
+            git --literal-pathspecs add -A --pathspec-from-file=- --pathspec-file-nul ||
+            { echo "git add refused (above) — nothing committed; the index may be partly staged, read git status"; return 1; }
+    fi
+    local want got
+    want=$(printf '%s\n' "$listing" | cut -f2- | sort -u)
+    got=$(git diff --cached --no-renames --name-only -z | tr '\0' '\n' | sort -u)
+    printf 'population %s path(s), staged %s path(s)\n' "$(printf '%s\n' "$want" | grep -c .)" "$(printf '%s\n' "$got" | grep -c .)"
+    if [ "$want" != "$got" ]; then
+        echo "the index is not the population — nothing committed:"
+        comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed 's/^/    not staged: /'
+        comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed 's/^/    staged, not in the population: /'
+        return 1
+    fi
+    if printf '%s\n' "$got" | grep -q '^scratchpad/'; then
+        echo "a path under scratchpad/ is staged — nothing committed:"
+        printf '%s\n' "$got" | grep '^scratchpad/' | sed 's/^/    /'
+        return 1
+    fi
+    if [ -f .gitmodules ]; then
+        local blobs
+        blobs=$(git ls-files --stage -- $(git config -f .gitmodules --get-regexp '\.path$' | awk '{print $2}') |
+            awk '$1 != "160000" { print $4 }' || true)
+        [ -z "$blobs" ] || { echo "a submodule is staged as a blob — nothing committed:"; printf '%s\n' "$blobs" | sed 's/^/    /'; return 1; }
+    fi
+    git commit -q -F "$message" || { echo "git commit failed — the index is staged, nothing is committed"; return 1; }
+    local left; left=$(population | tr '\0' '\n')
+    printf 'committed %s; uncommitted outside scratchpad/ now %s (must be 0)\n' \
+        "$(git log --oneline -1 | cut -c1-80)" "$(printf '%s' "$left" | grep -c . || true)"
+    [ -z "$left" ] || return 1
+    printf 'next, as its own command, from %s: git merge --ff-only %s — read it; then tools/batch.sh close %s\n' \
+        "$root" "$(git rev-parse --abbrev-ref HEAD)" "$(git rev-parse --abbrev-ref HEAD)"
+}
+
 close_batch() {
+    # There is no `--force`, and a spelling of one is refused rather than read as a branch name.
+    # The fix for a refusal is to commit the work or to move it; discarding it blind is the one
+    # answer this command does not offer (ADR 1313).
+    case "$1" in -*) echo "close takes a branch name and no options — commit the work (tools/batch.sh commit) or move it; nothing here discards it (ADR 1313)"; return 1 ;; esac
     # A shell whose working directory is the worktree loses it when the worktree goes: every
     # command after the close then fails with "getcwd: cannot access parent directories", which is
     # what happened to the merge of sessions 1038-1043 half a line after the fast-forward. Refuse.
     case "$PWD/" in "$wt"/*) echo "close from outside $wt — your shell is inside it"; return 1 ;; esac
+    if [ -d "$wt" ]; then
+        # Work nobody committed. `worktree remove --force` below deletes it without a word, and
+        # batch thirty-five lost 128 files that way after a chained commit carried one deletion
+        # (ADR 1313). Refuse, and say what is there.
+        local dirty
+        dirty=$(population | tr '\0' '\n') || { echo "cannot read $wt's status — not closing"; return 1; }
+        [ -z "$dirty" ] || {
+            echo "$wt holds $(printf '%s\n' "$dirty" | grep -c .) uncommitted path(s) outside scratchpad/ — commit them (tools/batch.sh commit) or move them; close would delete them:"
+            printf '%s\n' "$dirty" | head -40 | sed 's/^/    /'
+            return 1
+        }
+        # The branch named is the branch the worktree is on: the checks below read the name, and a
+        # typed name that matches nothing read as "no commits main lacks".
+        local on; on=$(git -C "$wt" rev-parse --abbrev-ref HEAD)
+        [ "$on" = "$1" ] || { echo "$wt is on $on, not $1 — not closing"; return 1; }
+    fi
     # And a branch with commits main lacks is not finished: the merge of sessions 1038-1043 ran
     # `git merge --ff-only` from inside the worktree, which merged the branch into itself and
     # exited 0, then closed it — deleting the only ref to the batch. The commit was recovered
@@ -218,9 +321,14 @@ close_batch() {
     # floors fail for a cause nobody made — sessions 1071 and 1079. Refuse, and say where it goes.
     local stray; stray=$(find "$wt/doc" -maxdepth 1 -name "*.pdf" -type f 2>/dev/null || true)
     [ -z "$stray" ] || { echo "regular PDF(s) under the worktree's doc/ — move each to $root/doc/ and symlink it here, then close:"; echo "$stray"; return 1; }
-    local ahead; ahead=$(git -C "$root" rev-list --count "main..$1" 2>/dev/null || echo 0)
+    local ahead
+    ahead=$(git -C "$root" rev-list --count "main..$1") || { echo "$1 is not a branch main can be compared with — not closing"; return 1; }
     [ "$ahead" = 0 ] || { echo "$1 has $ahead commit(s) main lacks — fast-forward main first (from the main checkout, not from inside the worktree)"; return 1; }
-    git -C "$root" worktree remove --force "$wt" 2>/dev/null || true
+    # `--force` here is for `scratchpad/` and the symlinked data, which the checks above have
+    # already shown to be the only things left in the tree.
+    if [ -d "$wt" ]; then
+        git -C "$root" worktree remove --force "$wt" || { echo "git worktree remove failed (above) — branch kept"; return 1; }
+    fi
     git -C "$root" branch -D "$1" 2>/dev/null || true
     git -C "$root" worktree prune
     echo "$1: worktree and branch gone"
@@ -230,6 +338,7 @@ case "${1:-}" in
     open)  open_batch "${2:?branch name}" ;;
     gates) gates ;;
     check) check_batch ;;
+    commit) commit_batch "${2:?a commit message file}" ;;
     close) close_batch "${2:?branch name}" ;;
     *) awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"; exit 1 ;;
 esac

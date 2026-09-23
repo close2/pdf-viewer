@@ -58,6 +58,37 @@ use viewer_core::{
 /// puts.
 pub const GO_AHEAD: &str = "Go ahead";
 
+/// What each question's window is called, by what it is about.
+///
+/// **One set of words for the windows that title a dialogue**, [`GO_AHEAD`]'s rule again. A
+/// submission is not a restriction — it is a document asking this machine to do something (ADR
+/// 1291) — and a title saying otherwise would be the one sentence a person reads before the
+/// question itself (ADR 1303).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Subject {
+    /// An operation the document restricts, held by the viewer until the answer comes back.
+    Restricted,
+    /// §12.6.4.8's URI, which would start another program on this machine.
+    Link,
+    /// A file a document named, which would be read from this machine.
+    Document,
+    /// §12.7.6.2's submission, which would leave this machine.
+    Submission,
+}
+
+impl Subject {
+    /// The window's title.
+    #[must_use]
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Restricted => "Restricted",
+            Self::Link => "Open this link?",
+            Self::Document => "Open this document?",
+            Self::Submission => "Send this form?",
+        }
+    }
+}
+
 /// What a person presses to leave it undone, and what a window sends for a prompt that was
 /// dismissed rather than answered.
 pub const DO_NOT: &str = "Do not";
@@ -445,6 +476,26 @@ impl Restrictions {
         rows
     }
 
+    /// The headings a menu bar puts up, one per group [`Restrictions::rows`] opens, in its order.
+    ///
+    /// **Taken from the rows rather than from [`Scope::ALL`]**, because the rows have three groups
+    /// and the scopes are two of them: a bar built from the scopes has no heading for [`MACHINE`],
+    /// and a window nesting the rows under it drops that group's levels on the floor.
+    ///
+    /// **The label alone, without the group's note.** A bar lays its headings out on one line, and
+    /// the document scope's note is a sentence that would push the third heading off its end. The
+    /// note is in the group's row, where a window puts it inside the menu it heads (ADR 1303).
+    #[must_use]
+    pub fn headings(self) -> Vec<&'static str> {
+        self.rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                Row::Scope { label, .. } | Row::Machine { label, .. } => Some(label),
+                Row::Operation { .. } | Row::Level(_) | Row::Act { .. } | Row::Sending(_) => None,
+            })
+            .collect()
+    }
+
     /// The levels one operation offers in one scope, and which of them stands.
     ///
     /// `CLAUDE.md`'s four everywhere, and under [`Scope::Document`] a fifth entry that is not a
@@ -554,7 +605,7 @@ const fn named(level: Level) -> RestrictionLevel {
 #[cfg(test)]
 mod tests {
     use super::{
-        Chose, DO_NOT, GO_AHEAD, INERT, INHERIT, Restrictions, Row, Scope, asked, declined,
+        Chose, DO_NOT, GO_AHEAD, INERT, INHERIT, MACHINE, Restrictions, Row, Scope, asked, declined,
     };
     use pdf_model::restriction::Operation;
     use viewer_core::{Command, RestrictionLevel, RestrictionPolicy, RestrictionScope};
@@ -571,6 +622,25 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// A bar has a heading for every group the rows open, the machine's third among them.
+    ///
+    /// A bar built from [`Scope::ALL`] has two headings for three groups, and a window nesting the
+    /// rows under it shows no menu for the third — the submission's levels. This holds the headings
+    /// to the rows they head (ADR 1303).
+    #[test]
+    fn every_group_the_rows_open_has_a_heading() {
+        let restrictions = Restrictions::new(RestrictionPolicy::default());
+        let groups = restrictions
+            .rows()
+            .iter()
+            .filter(|row| matches!(row, Row::Scope { .. } | Row::Machine { .. }))
+            .count();
+        let headings = restrictions.headings();
+        assert_eq!(headings.len(), groups);
+        assert_eq!(groups, Scope::ALL.len() + 1);
+        assert_eq!(headings.last(), Some(&MACHINE));
     }
 
     /// `CLAUDE.md`'s four, everywhere, and one way back under the document alone.

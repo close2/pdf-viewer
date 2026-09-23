@@ -1,7 +1,7 @@
 //! Handles: uploaded once, referenced many times.
 //!
-//! `raster/doc/RENDER_LIBRARY.md` §2.2 gives the reason these exist at all — **the 107 distinct
-//! outlines of one dense page are uploaded once and referenced 5 933 times**, and a zoom
+//! `raster/doc/RENDER_LIBRARY.md` section 2.2 gives the reason these exist at all — **the 107
+//! distinct outlines of one dense page are uploaded once and referenced 5 933 times**, and a zoom
 //! must re-upload none of them. Separating upload from scene building is what makes that
 //! possible, and an identifier is what a scene carries instead of the data.
 //!
@@ -31,7 +31,7 @@ pub struct OutlineId(pub u32);
 
 /// A decoded image uploaded to a device.
 ///
-/// Straight-alpha RGBA8, row-major, no padding — see §3, and note that the filtering
+/// Straight-alpha RGBA8, row-major, no padding — see brief section 3, and note that the filtering
 /// decision is made upstream and reaches us resolved, not as the flag it came from
 /// (`raster/doc/PLAN.md`, integration note 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,7 +56,7 @@ pub struct MeshId(pub u32);
 /// outline is: it is heavy, it is shared, and identity is what a device wants. ADR 0053
 /// caches a generated shader by the program's hash, and an upload is the one place that
 /// hash is computed — so `Device::upload_function` is also where a program the analyser
-/// cannot accept is refused **by name, before a frame exists**, which is §5's second
+/// cannot accept is refused **by name, before a frame exists**, which is brief section 5's second
 /// preference satisfied properly rather than by accident.
 ///
 /// Two shadings may share one program under different matrices, which is why the domain,

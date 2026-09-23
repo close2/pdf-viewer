@@ -171,8 +171,8 @@ fn nesting_is_what_costs_a_texture() {
 /// target, so the copy reads at a negative origin and must write *transparency* — not
 /// stale bytes, and not the nearest edge texel — everywhere the page marked nothing.
 ///
-/// A page rendered onto transparency (§3) has exactly that outside its marks, so the test
-/// is that a corner-marking page equals itself pixel for pixel: inside the group's patch,
+/// A page rendered onto transparency (brief section 3) has exactly that outside its marks, so the
+/// test is that a corner-marking page equals itself pixel for pixel: inside the group's patch,
 /// and transparent in all three of the other quadrants.
 ///
 /// `m8`'s `a_group_smaller_than_the_damage_patches_too` is the other half — the same copy

@@ -1,7 +1,7 @@
 //! The caller's section 19 measurement: what does a `Rect` command save over a `Fill` of the
 //! same four-edge outline?
 //!
-//! Their `doc/QUORRA_FEEDBACK.md` §19 reports that not one page of their 995-page corpus
+//! Their `doc/QUORRA_FEEDBACK.md` section 19 reports that not one page of their 995-page corpus
 //! emits a `Command::Rect`: every rectangle a document draws arrives as a `Fill` whose
 //! outline happens to be one, because `pdf_render::Command::Fill` carries an outline and
 //! their translation hands it over without asking whether it is four axis-aligned edges.

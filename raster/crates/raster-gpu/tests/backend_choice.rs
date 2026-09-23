@@ -1,6 +1,6 @@
 //! Which driver stack talks to the hardware is the host's to say.
 //!
-//! ADR 0017, from the caller's feedback §12: their project owner's Windows machine
+//! ADR 0017, from the caller's feedback section 12: their project owner's Windows machine
 //! crashed inside an Intel Vulkan driver, and nothing in this library could ask for the
 //! DX12 one. `create_instance_with` is the whole answer, so what these tests hold is the
 //! three claims that make it usable:

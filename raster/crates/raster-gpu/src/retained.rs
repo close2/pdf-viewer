@@ -14,7 +14,7 @@
 //!
 //! The device could cache the last frame's encode against the scene it was made from,
 //! and the caller this library is written for would never hit it: their frame's scene
-//! is rebuilt with fresh `Arc`s every frame (`pdf-viewer/doc/todo/44` §3), so a key on
+//! is rebuilt with fresh `Arc`s every frame (`pdf-viewer/doc/todo/44` section 3), so a key on
 //! scene identity misses every time. The unit that survives their frame loop is a
 //! *handle they hold*, and making the handle own the scene has a second property worth
 //! more than the first:
@@ -35,7 +35,7 @@
 //! tiles at 4× magnification. So the bytes are [`RetainedScene::retained_bytes`], a
 //! number a caller can read and budget against, and the decision to hold one — for how
 //! many pages, and for how long — is the caller's, where the knowledge of how many
-//! pages are resident already lives (§11.5 of the brief puts that posture on `Scene`,
+//! pages are resident already lives (section 11.5 of the brief puts that posture on `Scene`,
 //! and this is the same posture one layer down).
 
 use raster_scene::Scene;

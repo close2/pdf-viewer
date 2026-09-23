@@ -10,7 +10,7 @@
 //!   the right one of its two meanings without a run-time type tag;
 //! - **the count of every `copy`, `index` and `roll`**, because a generated shader cannot
 //!   name a slot it cannot compute;
-//! - **whether an inexact operator reaches an amplifier** — `raster/doc/adr/0053` §3's
+//! - **whether an inexact operator reaches an amplifier** — `raster/doc/adr/0053` section 3's
 //!   classification, and the reason a program can be accepted at all;
 //! - **whether the program pops an empty operand stack**, which is a decision rather than a
 //!   reading and must therefore be reported.
@@ -96,7 +96,7 @@ impl Analysis {
     /// `Range` itself is one a clamp can be written against.
     ///
     /// Separate from [`analyse`] because the `Range` belongs to the *shading*, not to the
-    /// program: one uploaded program may serve two shadings, and §5 of the brief wants both
+    /// program: one uploaded program may serve two shadings, and section 5 of the brief wants both
     /// questions answerable before a frame rather than during one.
     ///
     /// **Exactly**, per ISO 32000-2 §7.10.5.3: "it shall be an error for the number of
@@ -202,7 +202,7 @@ impl Analysis {
 /// Admit a program, or refuse it by name.
 ///
 /// This is what `Device::upload_function` runs, and running it there rather than mid-encode
-/// is the point: §5 of the brief wants a limit discoverable *before* the frame, and a caller
+/// is the point: section 5 of the brief wants a limit discoverable *before* the frame, and a caller
 /// that learns its program is unsupported at upload can fall back before it has built a
 /// scene at all.
 ///

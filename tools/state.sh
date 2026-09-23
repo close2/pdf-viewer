@@ -113,9 +113,12 @@ section_names() {
 # at a neighbour rather than implement anything — so the filter keeps the denominators and the top
 # rung; `cargo test -p conformance --test cited` gates the calibration alone. A checker citing the
 # clause it checks has a rung of its own, printed as a count per named crate (`cited::CHECKERS`).
+# The no-row pairs under `raster/` have a line and a listing of their own (`cited::RASTER`): a `§`
+# there that meant one of the library's own documents is written "section N", and the listing is
+# what is left of that.
 section_cited() {
     run "a clause a file cites against that clause's own code list" \
-        'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|^  §' \
+        'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|no-row pair\(s\) lie under|^  §' \
         cargo run -q --release -p conformance --bin cited
 }
 

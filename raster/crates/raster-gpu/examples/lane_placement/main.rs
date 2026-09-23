@@ -1,6 +1,6 @@
 //! **Where each coverage lane puts a hairline, and what the sampled grid does to its ink.**
 //!
-//! The caller's `QUORRA_FEEDBACK.md` §31 reports that our two coverage lanes disagree
+//! The caller's `QUORRA_FEEDBACK.md` section 31 reports that our two coverage lanes disagree
 //! about the *placement* of an axis-aligned rule about one device pixel wide, by up to an
 //! eighth of a device pixel, on four of their corpus pages. They ask two questions, and
 //! this is the instrument that answers them from our own arithmetic rather than from their
@@ -45,7 +45,7 @@
 //!
 //! - [`STEPS`] is a prime. Sixteen steps land every sample on the atlas's own 1/16
 //!   quantisation grid, and the sweep reported zero error at all sixteen while a
-//!   whole-pixel defect sat inside the buckets (`raster/doc/notes-glyph-phase-carry.md` §2).
+//!   whole-pixel defect sat inside the buckets (`raster/doc/notes-glyph-phase-carry.md` section 2).
 //! - [`CHECK_STEPS`] is a prime. Four steps are 0, ¼, ½ and ¾, every one a multiple of the
 //!   sampled grid's own ¼ pitch, so phase 2's ladder came back with **one rung** where
 //!   there are two.

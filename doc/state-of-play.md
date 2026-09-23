@@ -38,7 +38,8 @@ oracle — and it is one because it computes a path's coverage of a pixel as the
 lattice, leaving the library beneath it the axis-aligned rectangle and the one case §11.6.2 forbids
 compositing with itself (ADR 1082) — `render-cpu` is also where a **non-isolated group the file
 composites under a mode other than Normal is drawn** instead of reported, by performing §11.4.4's
-backdrop removal (ADR 1107), and where §10.7.4's substituted width for a mark too thin to measure
+backdrop removal (ADR 1107) — which `render-raster` now draws too, through raster's own reading of
+the clause (ADR 1307) — and where §10.7.4's substituted width for a mark too thin to measure
 begins **one level of 255 below visible rather than one whole device pixel below it**, so between
 those two widths every backend draws the shape the document states (ADR 1102); `render-gpu` is Vello and the backend it is compared against — they agree to the channel
 over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
@@ -280,6 +281,16 @@ alone is what its process space already says — so the preference moves only th
 sentence is about. Off by default, at 0.010% of an interpretation and no moved pixel (ADR 1229);
 a requirement executed under a control a host supplies is executed, which is the owner's ruling in
 `doc/questions/A100`, so §8.6.6.5 is `implemented` with its default argued in its row.
+
+**Under the same control a page naming a spot colourant is separated, and the separation is the
+model's alone.** §10.8.3's step a) processes the page "as if separations were to be created for a
+simulated device that supports subtractive process colourants and possibly spot colours", so the
+page is interpreted once per plane of that device — the two process planes and one for every three
+spot colourants, sixteen at most — on its own four-component press or the intent's, and every colour
+is resolved by §11.7.3: a colourant with a plane is painted directly on it, every component a mark
+does not name is no ink, `All` paints every plane, groups pass the spot planes through and soft
+masks carry none. `Interpretation::separation` holds the planes; no backend draws them yet, so the
+page drawn is the one drawn before (ADR 1311).
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the
@@ -802,9 +813,10 @@ as a one-way hash and an opened document yields none to carry: `split`, `merge`,
 objects at the front — page 0's, or the page `/OpenAction` names — every other page's after it in
 page order, the objects two later pages share, then F.3.10's categories; the page offset and
 shared object hint tables and every other table Table F.2 requires of the document at hand; and
-every offset computed to a fixed point before a byte is written. Object streams and encryption
-inside a linearised file are refused by name, and `pdf_syntax::linearize::state` says of any file
-this tree opens whether it is still linearised, which after §7.5.6's update it is not (ADR 1293).
+every offset computed to a fixed point before a byte is written. It packs object streams under
+F.3.1's conditions, encrypts where passwords are supplied, and derives a page's `/B` and each bead's
+`/T` from the thread chain (ADR 1309); `pdf_syntax::linearize::state` says of any file this tree
+opens whether it is still linearised, which after §7.5.6's update it is not (ADR 1293).
 `split` is the first verb on it — one file per page, per group of
 *n*, per comma-separated group of the selection, or **at §12.3.3's outline**, where a piece begins
 on every page an item at the stated depth resolves to and the front matter ahead of the first is a

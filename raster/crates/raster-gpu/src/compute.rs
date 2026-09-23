@@ -692,7 +692,7 @@ fn coverage_rows(@builtin(global_invocation_id) id: vec3<u32>) {
 ";
 
 /// The lane's three pipelines, compiled together on the first frame that takes the
-/// lane and kept — never on the startup path (§7).
+/// lane and kept — never on the startup path (brief section 7).
 #[derive(Debug)]
 pub(crate) struct Pipelines {
     count: wgpu::ComputePipeline,

@@ -1,6 +1,6 @@
 //! Where the two programs come from: the caller's own corpus, read, never copied.
 //!
-//! `QUORRA_FUNCTION_PAINT.md` §1 names both witnesses — "2580 bytes of PostScript
+//! `QUORRA_FUNCTION_PAINT.md` section 1 names both witnesses — "2580 bytes of PostScript
 //! calculator with `ifelse` branches driving a seven-segment display" and "1605
 //! computing π by the BBP series". They are tracked bytes in
 //! `/home/cl/projects/pdf-viewer/doc/corpora-own/`, and this reads the type 4 stream
@@ -14,13 +14,13 @@
 
 use std::path::{Path, PathBuf};
 
-/// One witness: its file, and what §1 says its program is.
+/// One witness: its file, and what `QUORRA_FUNCTION_PAINT.md` section 1 says its program is.
 pub(crate) struct Witness {
     /// Short name for the tables.
     pub(crate) name: &'static str,
     /// The file under the corpus root.
     pub(crate) file: &'static str,
-    /// The `/Length` the stream must have, from §1 of the caller's document.
+    /// The `/Length` the stream must have, from section 1 of the caller's document.
     pub(crate) length: usize,
 }
 
@@ -53,7 +53,8 @@ pub(crate) enum Missing {
     NoFile(PathBuf),
     /// No `/FunctionType 4` object in it.
     NoFunction,
-    /// The stream is not the length §1 promised, so it is not the program measured.
+    /// The stream is not the length `QUORRA_FUNCTION_PAINT.md` section 1 promised, so it is not the
+    /// program measured.
     WrongLength {
         /// What the file has.
         found: usize,

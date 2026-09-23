@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 /// A decoded image as uploaded to a device: straight-alpha RGBA8, row-major, top row
-/// first, no padding (§3 of the brief) — the caller's own `Image` layout.
+/// first, no padding (section 3 of the brief) — the caller's own `Image` layout.
 ///
 /// The samples sit behind an `Arc` because the caller already holds them behind one;
 /// an upload borrows the same allocation rather than copying it.

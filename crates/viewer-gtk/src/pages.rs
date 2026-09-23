@@ -83,19 +83,33 @@ pub(crate) fn page_list(
 /// A row the host could not answer for — which is a re-entrant call and nothing else, since every
 /// page of an open document has a label — draws its number rather than nothing, because a blank row
 /// in a list of pages is a page a reader cannot find their way to.
+///
+/// **And it is asked again once the host is free**, because that first draw is the only one GTK
+/// makes: a list binds a row when it lays it out and not again until it scrolls away and back. A
+/// document arriving in a tab moves the view between notebook pages from inside a command, which
+/// lays out the list while the host is held, and a row answered then would keep no Table 31
+/// `/Thumb`. The retry is on the idle queue, which runs after the command has unwound, and only
+/// while the item still holds the same page (ADR 1303).
 fn bind(item: &glib::Object, row: &Rc<dyn Fn(usize) -> Option<Row>>) {
     let Some(item) = item.downcast_ref::<gtk4::ListItem>() else {
         return;
     };
-    let Some(held) = item.item().and_downcast::<glib::BoxedAnyObject>() else {
+    let Some(index) = index_of(item) else {
         return;
     };
-    let index: usize = *held.borrow::<usize>();
 
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
     column.set_margin_top(4);
     column.set_margin_bottom(4);
     let answered = row(index);
+    if answered.is_none() {
+        let (again, row) = (item.clone(), Rc::clone(row));
+        glib::idle_add_local_once(move || {
+            if index_of(&again) == Some(index) {
+                bind(again.upcast_ref(), &row);
+            }
+        });
+    }
     if let Some(texture) = answered.as_ref().and_then(|row| row.picture.as_ref()) {
         let picture = gtk4::Picture::for_paintable(texture);
         picture.set_size_request(-1, PICTURE_HEIGHT);
@@ -110,4 +124,11 @@ fn bind(item: &glib::Object, row: &Rc<dyn Fn(usize) -> Option<Row>>) {
     label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     column.append(&label);
     item.set_child(Some(&column));
+}
+
+/// The page index a list item is showing, or `None` for an item holding nothing.
+fn index_of(item: &gtk4::ListItem) -> Option<usize> {
+    let held = item.item().and_downcast::<glib::BoxedAnyObject>()?;
+    let index: usize = *held.borrow::<usize>();
+    Some(index)
 }

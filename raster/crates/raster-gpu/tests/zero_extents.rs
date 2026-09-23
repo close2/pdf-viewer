@@ -1,9 +1,9 @@
 //! A zero-sized thing is a legal thing for a document to ask for, and each kind of it has
 //! its own answer.
 //!
-//! `raster/doc/notes-ceilings-audit.md` §4 is the round this file witnesses, and the question is
-//! the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1 on their `#351`,
-//! `#352` and `#357`:
+//! `raster/doc/notes-ceilings-audit.md` section 4 is the round this file witnesses, and the
+//! question is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` section 1 on their
+//! `#351`, `#352` and `#357`:
 //!
 //! > A zero-width surface is a legal thing for a document to ask for, and the question
 //! > every renderer answers eventually is whether the zero is caught at the top (where a

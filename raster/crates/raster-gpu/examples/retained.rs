@@ -25,8 +25,8 @@
 //!   copy-out and a map — the largest single cost a frame has — on top of the thing being
 //!   measured, and a `Surface` frame would block on vsync.
 //! - **The counters are checked against the page's recorded row** before any number is
-//!   printed. That is what says this binary encoded §6.2's page and not a lookalike, and
-//!   it is the same discipline the callgrind harness of ADR 0045 used. Since ADR 0060
+//!   printed. That is what says this binary encoded brief section 6.2's page and not a lookalike,
+//!   and it is the same discipline the callgrind harness of ADR 0045 used. Since ADR 0060
 //!   the row is `raster-pages`' — the one `tests/archetypes.rs` compares against — rather
 //!   than a copy of it here, which is what let this gate go stale for two days.
 //! - **The pixels of the two variants are compared**, once, through a `Readback` pair, so
@@ -48,12 +48,12 @@ use raster_gpu::{Counters, Device, EncodeSource, Options, RetainedScene, Target,
 use raster_pages::{Archetype, DENSE_TEXT, GLYPH_PAGE, GlyphPage, Recorded};
 use raster_scene::{Affine, OutlineId, Scene};
 
-/// The brief's window scale (§6.2): the size both baselines were measured at.
+/// The brief's window scale (section 6.2): the size both baselines were measured at.
 const WIDTH: u32 = 1191;
 const HEIGHT: u32 = 1684;
 
-/// §6.2's page: `raster_pages::DENSE_TEXT`, the corpus's 99th percentile at its measured
-/// reuse — 4 320 placements over 818 outlines, 40 of them under a curve clip.
+/// Brief section 6.2's page: `raster_pages::DENSE_TEXT`, the corpus's 99th percentile at its
+/// measured reuse — 4 320 placements over 818 outlines, 40 of them under a curve clip.
 ///
 /// **This file carried a private copy of that page until 2026-08-17, and the copy is
 /// exactly what ADR 0060 exists for.** ADR 0057 changed what a clipped mark costs; the
@@ -195,7 +195,7 @@ const OVERFLOW_ATLAS: u64 = 256 * 1024;
 ///
 /// This file's copy of it said "verbatim" and was not: it drew in the *archetypes'* ink
 /// rather than the glyph page's. Nothing here reads a colour, which is why nobody
-/// noticed and why reconciling it moves no number (ADR 0060 §5).
+/// noticed and why reconciling it moves no number (ADR 0060 section 5).
 const OVERFLOW_PAGE: &GlyphPage = &GLYPH_PAGE;
 
 /// The overflow page, built on this device.

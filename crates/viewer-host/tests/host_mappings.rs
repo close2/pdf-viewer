@@ -2069,3 +2069,69 @@ fn every_named_layout_table_160_defines_is_one_this_panel_draws() {
         );
     }
 }
+
+/// A one-page document whose page states Table 31's `/Thumb`: a 4 by 2 `DeviceRGB` image,
+/// left half red and right half blue, unfiltered.
+fn a_page_with_a_thumbnail() -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let samples: Vec<u8> = (0..8)
+        .flat_map(|at| if at % 4 < 2 { [255, 0, 0] } else { [0, 0, 255] })
+        .collect();
+    let mut out = b"%PDF-2.0\n".to_vec();
+    let mut offsets = Vec::new();
+    let objects: [Vec<u8>; 4] = [
+        b"<< /Type /Catalog /Pages 2 0 R /PageMode /UseThumbs >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] /Thumb 4 0 R >>".to_vec(),
+        [
+            format!(
+                "<< /Width 4 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {} >>\
+                 \nstream\n",
+                samples.len()
+            )
+            .into_bytes(),
+            samples,
+            b"\nendstream".to_vec(),
+        ]
+        .concat(),
+    ];
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", index.saturating_add(1)).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let at = out.len();
+    let size = objects.len().saturating_add(1);
+    let mut tail = format!("xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(tail, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        tail,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.extend_from_slice(tail.as_bytes());
+    out
+}
+
+/// ISO 32000-2 §7.7.3.3, Table 31's `/Thumb`: "A stream object that shall define the page's
+/// thumbnail image". The row a pages panel draws for that page carries the image, at the size
+/// the stream states and with its samples, which is what a host's miniature is made of — the GTK
+/// window's pages list binds exactly this row.
+#[test]
+fn a_page_stating_a_thumb_gives_its_row_the_image() {
+    let viewer = opened(a_page_with_a_thumbnail());
+    let entry = viewer_host::page_entry(&viewer, 0);
+    let Some(image) = entry.thumbnail else {
+        panic!("the page states a /Thumb, so its row carries one");
+    };
+    assert_eq!((image.width, image.height), (4, 2));
+    let pixel = |x: usize, y: usize| {
+        let at = (y * 4 + x) * 4;
+        image.data[at..at + 3].to_vec()
+    };
+    assert_eq!(pixel(0, 0), [255, 0, 0], "the left half is red");
+    assert_eq!(pixel(3, 1), [0, 0, 255], "the right half is blue");
+}

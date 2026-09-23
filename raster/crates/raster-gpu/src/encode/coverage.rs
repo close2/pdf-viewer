@@ -247,7 +247,7 @@ impl Encoder<'_> {
     /// are rasterised on the CPU: **35 marks on 7 pages of the caller's 954-page corpus at
     /// scale 1, 26 on 2 pages at 4× and 16 on 1 page at 8×**, each of them under a quarter
     /// pixel across and so among the smallest tiles the sheet ever holds
-    /// (`raster/doc/notes-thin-mark-options.md` §2.2).
+    /// (`raster/doc/notes-thin-mark-options.md` section 2.2).
     ///
     /// Measured on RADV at sixteen samples by `tests/lane_crossover.rs`, with the lane
     /// forced either way — a page of star outlines at 3 600 × 3 600, drawn to a texture
@@ -387,7 +387,7 @@ impl Encoder<'_> {
         self.drain_queue()?;
         // Its own refusal, not the frame budget's: this one is about texture
         // capacity, and a message whose arithmetic contradicts itself costs the
-        // reader the diagnosis (QUORRA_FEEDBACK.md §3 was exactly that report).
+        // reader the diagnosis (QUORRA_FEEDBACK.md section 3 was exactly that report).
         let span = self.clock.start();
         let packed = self.scratch.pack(tile);
         self.clock.staging(span);

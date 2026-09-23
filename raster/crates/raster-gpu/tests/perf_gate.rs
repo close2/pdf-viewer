@@ -72,7 +72,7 @@ fn dense_page_at_window_scale_stays_under_the_gate() {
     }
 }
 
-/// The readback gate: tier 1's price, which is most of an offscreen frame (§6.1).
+/// The readback gate: tier 1's price, which is most of an offscreen frame (brief section 6.1).
 ///
 /// A `Readback` frame at page size pays a copy-out, a map and the premultiplied→straight
 /// conversion over 8 MB, and nothing else in the frame is close to it — the same page to
@@ -232,7 +232,7 @@ fn the_gpu_lane_draws_and_culls_the_same_frame() {
 /// the driver for them, and 0.02 to 0.04 ms after — so raster makes them with the device
 /// and lends them to each frame, where it used to make a set per frame and pay that on
 /// the first one, which is a fifth of the eleven milliseconds a first frame costs over
-/// its successors (`QUORRA_FEEDBACK.md` §9).
+/// its successors (`QUORRA_FEEDBACK.md` section 9).
 ///
 /// What that risks is the instrument rather than the picture: a map buffer is read and
 /// unmapped every frame, and a set that came back wrong would quietly downgrade

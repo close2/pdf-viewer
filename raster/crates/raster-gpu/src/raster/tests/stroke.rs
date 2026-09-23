@@ -209,7 +209,7 @@ fn hairline() -> Stroke {
 /// `direction`'s `dx * dx` overflows to infinity above `1.9e19`, which is eight
 /// orders of magnitude below what the contract admits; the length was then infinite,
 /// the normal `(0, 0)`, and the stroke's quad had no width at all. A mark asked for
-/// and drawn as nothing is §5's forbidden third state, and no test could see it
+/// and drawn as nothing is brief section 5's forbidden third state, and no test could see it
 /// because every fixture in the tree is a page-sized number.
 #[test]
 fn a_stroke_spanning_the_coordinate_range_is_not_drawn_as_nothing() {

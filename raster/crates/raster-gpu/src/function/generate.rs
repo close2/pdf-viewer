@@ -12,7 +12,7 @@
 //!
 //! # Determinism
 //!
-//! `RENDER_LIBRARY.md` §4.6 wants a frame to be a function of its inputs, and a *pipeline
+//! `RENDER_LIBRARY.md` section 4.6 wants a frame to be a function of its inputs, and a *pipeline
 //! cache keyed by a hash* needs the stronger form: the same program must produce
 //! byte-identical WGSL, in every process, always. Nothing here iterates a map, reads a
 //! clock, formats a pointer or depends on an environment variable; the steps are a `Vec`

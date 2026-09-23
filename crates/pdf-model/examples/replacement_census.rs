@@ -135,6 +135,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
         view_dependent,
         unsupported,
         presses_named,
+        separation,
         text,
         glyphs,
         codes_without_a_glyph,
@@ -159,6 +160,7 @@ fn differences(replaced: &Interpretation, whole: &Interpretation) -> Vec<&'stati
     differs(view_dependent == &whole.view_dependent, "view_dependent");
     differs(unsupported == &whole.unsupported, "reports");
     differs(presses_named == &whole.presses_named, "presses named");
+    differs(separation == &whole.separation, "§10.8.3's separation");
     differs(text == &whole.text, "readback");
     differs(glyphs == &whole.glyphs, "glyphs");
     differs(

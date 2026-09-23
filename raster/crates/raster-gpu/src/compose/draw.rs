@@ -22,7 +22,7 @@ use super::Executor;
 /// What a content pass does with the pixels already in the attachment it draws onto.
 ///
 /// The first pass onto a plan's accumulator clears it: §11.4.5 begins a group over a
-/// fully transparent initial backdrop, and §3 hands the caller pixels over one. Every
+/// fully transparent initial backdrop, and brief section 3 hands the caller pixels over one. Every
 /// later pass onto the same accumulator keeps what the earlier ones put there, because
 /// the painter's order is passes as much as it is instances — so this says which pass
 /// this is, and never a preference.
@@ -106,7 +106,7 @@ impl Executor<'_> {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    // Render onto transparency, always (§3; §11.4.7).
+                    // Render onto transparency, always (brief section 3; §11.4.7).
                     load: match load {
                         PassLoad::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         PassLoad::Keep => wgpu::LoadOp::Load,

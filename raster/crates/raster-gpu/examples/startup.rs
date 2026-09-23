@@ -1,8 +1,8 @@
-//! What bring-up costs, one step at a time — the §7 measurement, attributable.
+//! What bring-up costs, one step at a time — the brief section 7 measurement, attributable.
 //!
 //! The caller put GPU bring-up on its time-to-first-page (its ADR 0179: page one goes
 //! to the graphics device, with no CPU first frame), which makes every number here
-//! part of a launch a person waits through. Its feedback §8.1 then showed that the
+//! part of a launch a person waits through. Its feedback section 8.1 then showed that the
 //! single `adapter_enumeration` figure raster used to report measured three unrelated
 //! steps at once — the driver loader, surface creation and physical-device
 //! enumeration — so a regression in it could not be attributed. This example prints
@@ -20,7 +20,7 @@
 //! ```
 //!
 //! `hoisted` builds the device from an instance created first, the way a host would
-//! on a thread at `main`'s first line — the lever of feedback §8.2. It reports no
+//! on a thread at `main`'s first line — the lever of feedback section 8.2. It reports no
 //! instance number, because that step was not the constructor's; what it shows is the
 //! blocking remainder, which is what a launch actually waits for once the instance is
 //! made in parallel with reading the document.

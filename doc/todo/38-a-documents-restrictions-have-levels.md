@@ -212,11 +212,14 @@ screen still takes the bar — that sentence is the reader asking rather than th
 
 ## What is left
 
-- **A pointer on the menu `viewer-ui` draws.** Its rows are answered by the arrows and Enter, which
-  is what every other card in that window is answered with — there is no window manager behind them.
-  A click model exists in that crate (`ChoiceList`) and is deliberately not used here: it is there
-  because §12.7.5.4's list is a control the *document* placed at a point on a page, and a menu is
-  not (trap 17 — this is a choice about what the window is, not a claim about winit).
+- **The menu `viewer-ui` draws answers a press as well as the arrows**:
+  `viewer_ui::chrome::RestrictionsCard::press` hit-tests the rows where `draw` places them, moves the
+  keyboard's row there and then chooses through Enter's own path, so a press and a key cannot mean two
+  things. The menu and the question card are modal to the pointer as they are to the keys, so a
+  press behind a question about a form cannot press the button that asked it (ADR 1303).
+- **Every window's bar or menu has a heading for each of the three groups**: the Qt window takes
+  its headings from `viewer_host::Restrictions::headings`, the rows' own groups, and puts a group's
+  note as the first line inside its menu rather than in its title (ADR 1303).
 - **The gestures that send `Edit::Attach` and `Edit::Detach`, and they wait on the mockups the
   owner asked for on 2026-09-03** — HTML, per platform, demonstrating the functionality rather than
   the look. None has been supplied, so no drag-and-drop, no command palette and no file dialog has

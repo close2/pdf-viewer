@@ -210,7 +210,7 @@ fn mask_bytes(encoded: &Encoded, width: u32, height: u32) -> u64 {
 }
 
 /// What the compositor's internal textures cost this frame, for the budget check before
-/// any of them exist (§5: count then allocate; the refusal names both numbers).
+/// any of them exist (brief section 5: count then allocate; the refusal names both numbers).
 ///
 /// The heaviest chain of layer textures, plus every reduced mask — each at its own plan's
 /// rectangle rather than at the target (ADR 0036 for the layers, ADR 0037 for the masks,

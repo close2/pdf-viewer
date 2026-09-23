@@ -48,7 +48,7 @@
 //! **no — take one rather than make one**, for three reasons that are still true: their
 //! `rayon` would be oversubscribed, their confined worker's seccomp filter kills the
 //! `/sys` read `glibc` sizes its arenas from, and a pool built at construction is on
-//! their time-to-first-page. Their `doc/QUORRA_ENCODE_THREADS.md` §4 asks for the shape
+//! their time-to-first-page. Their `doc/QUORRA_ENCODE_THREADS.md` section 4 asks for the shape
 //! that satisfies all three: a frame that enters threads inside `Device::render` and has
 //! left them before the call returns. [`std::thread::scope`] is exactly that, and needs
 //! no dependency, no `unsafe`, and nothing alive between frames.
@@ -123,7 +123,7 @@ pub(super) fn in_flight_limit(frame_budget_bytes: u64) -> u64 {
 /// than six thousand triangles and the fan-out should take the first. The measurement
 /// that set it is in `raster/doc/notes-encode-threads.md`; the median corpus page (twelve
 /// marks, ninety-six segments) is two orders of magnitude below it, which is the
-/// property the caller's §4 asks for by name.
+/// property the caller's section 4 asks for by name.
 const PARALLEL_FLOOR_SEGMENTS: u64 = 4_096;
 
 /// One mark's rasterisation, lifted out of the walk.
@@ -427,7 +427,7 @@ pub(super) fn rasterise_all(jobs: &[Job<'_>], threads: usize) -> Vec<Rasterised>
 /// How many threads a run of this weight takes: what the host allowed, or one when the
 /// run is too small to pay for a spawn.
 ///
-/// The caller's §4 asks for this by name — *"anything on the frame path that a small page
+/// The caller's section 4 asks for this by name — *"anything on the frame path that a small page
 /// pays for"* is the one thing they excluded, and their own ADR 0228 had to put a
 /// measured floor under a `rayon` image resampler for the same reason. Ours is
 /// [`PARALLEL_FLOOR_SEGMENTS`].
@@ -545,7 +545,7 @@ mod tests {
         );
     }
 
-    /// **No small page pays for a large one's lane** (the caller's §4). The median corpus
+    /// **No small page pays for a large one's lane** (the caller's section 4). The median corpus
     /// page's twelve marks carry 120 segments between them — `tests/archetypes.rs` and
     /// `examples/encode_threads.rs` both read that number off it — and the floor is
     /// thirty-four times higher, so a page that size never enters a scope at all.

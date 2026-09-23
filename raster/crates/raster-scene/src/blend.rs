@@ -116,7 +116,7 @@ impl BlendMode {
 /// Which Porter-Duff compositing operator a mark uses.
 ///
 /// This enumeration is the reason a general 2D vector library cannot be patched into
-/// ISO 32000-2 clause 11, and `raster/doc/RENDER_LIBRARY.md` §4.1 is the argument. §11.4.6:
+/// ISO 32000-2 clause 11, and `raster/doc/RENDER_LIBRARY.md` section 4.1 is the argument. §11.4.6:
 ///
 /// > In a knockout group, each individual element shall be composited with the group's
 /// > initial backdrop rather than with the stack of preceding elements in the group.

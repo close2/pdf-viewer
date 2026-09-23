@@ -1,7 +1,7 @@
 //! One page at 1×, 2× and 4×, and the property that must hold at each.
 //!
-//! `raster/doc/notes-ceilings-audit.md` §5 is the round this file witnesses, and the reason it
-//! exists is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1 on hayro's
+//! `raster/doc/notes-ceilings-audit.md` section 5 is the round this file witnesses, and the reason
+//! it exists is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` section 1 on hayro's
 //! `#40`/`#8`/`#63` — three crashes that appear at scale 2 and not at scale 1:
 //!
 //! > the zoom lane is exactly where this tree exercises raster hardest […] and a defect

@@ -458,6 +458,11 @@ pub struct Interpretation {
     /// measured. Zero for a page that composites on the device's own components, which is
     /// almost every page.
     pub presses_named: usize,
+    /// ISO 32000-2 §10.8.3 step a)'s separations of this page, where a reader asked for the
+    /// simulation and the page names a spot colourant — `None` on every other page, and on a
+    /// page the model could not separate. No backend draws them yet; see
+    /// [`crate::colourants::Separation`] and ADR 1311.
+    pub separation: Option<crate::colourants::Separation>,
     /// The page's text, in the order the content stream showed it.
     ///
     /// Produced by the same pass that draws the glyphs, and from the same code-to-glyph

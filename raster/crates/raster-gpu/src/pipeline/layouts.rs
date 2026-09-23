@@ -104,7 +104,7 @@ pub(crate) struct Layouts {
     /// whole of what a device-evaluated colour changes about a shading's bindings
     /// (ADR 0053).
     pub(crate) function: wgpu::BindGroupLayout,
-    /// Composite pass: params, backdrop, src, soft mask, scratch.
+    /// Composite pass: params, backdrop, src, soft mask, scratch, group alpha.
     pub(crate) composite: wgpu::BindGroupLayout,
     /// Reduce pass: params (with the transfer table), src.
     pub(crate) reduce: wgpu::BindGroupLayout,
@@ -247,11 +247,12 @@ fn bind_layouts(device: &wgpu::Device) -> BindLayouts {
         composite: make(
             "raster composite",
             &[
-                uniform_entry(0, 144, wgpu::ShaderStages::FRAGMENT),
+                uniform_entry(0, 160, wgpu::ShaderStages::FRAGMENT),
                 texture_entry(1),
                 texture_entry(2),
                 texture_entry(3),
                 texture_entry(4),
+                texture_entry(5),
             ],
         ),
         reduce: make(

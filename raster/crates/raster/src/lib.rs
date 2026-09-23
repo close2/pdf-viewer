@@ -11,7 +11,7 @@
 //!
 //! **M1.** A device (headless and surface-attached), the three targets of the brief's
 //! brief section 2.4, analytically-covered axis-aligned rectangles, timestamped and truthful
-//! frames, and the startup split of §7. The requirements are in
+//! frames, and the startup split of brief section 7. The requirements are in
 //! `raster/doc/RENDER_LIBRARY.md`, the order of work in `raster/doc/PLAN.md`, and `raster/doc/adr/0003`
 //! says what a module may contain before the milestone that fills it.
 //!
@@ -67,7 +67,7 @@
 //! **We do not colour-manage, load fonts, shape text, lay out anything, or parse any
 //! document format.** Colours arrive as device RGB and glyphs arrive as positioned outlines,
 //! because the caller has already decided those questions and deciding them twice is how two
-//! renderers disagree. The full list is §9 of the brief.
+//! renderers disagree. The full list is section 9 of the brief.
 
 #![forbid(unsafe_code)]
 

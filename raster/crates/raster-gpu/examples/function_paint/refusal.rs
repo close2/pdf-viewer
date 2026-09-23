@@ -1,6 +1,6 @@
 //! Why a program is declined, by name.
 //!
-//! `QUORRA_FUNCTION_PAINT.md` §5.2: "a refusal by name — `UnsupportedPaint` or its
+//! `QUORRA_FUNCTION_PAINT.md` section 5.2: "a refusal by name — `UnsupportedPaint` or its
 //! successor — for any program the device declines, so this tree can fall back to the
 //! raster it builds today rather than draw nothing." This module is that list, and
 //! `main`'s refusal table demonstrates every ground on a program that reaches it: a
@@ -14,7 +14,7 @@ use std::fmt;
 
 /// Why a program cannot be evaluated, by name.
 ///
-/// `QUORRA_FUNCTION_PAINT.md` §5.2 asks for "a refusal by name … for any program the
+/// `QUORRA_FUNCTION_PAINT.md` section 5.2 asks for "a refusal by name … for any program the
 /// device declines"; these are the grounds this spike found it needs. Each names what
 /// exceeded what, per CLAUDE.md principle 6.
 #[derive(Debug, Clone, PartialEq, Eq)]

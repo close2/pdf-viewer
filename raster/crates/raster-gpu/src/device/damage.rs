@@ -7,7 +7,7 @@
 //! a `Surface` texture's previous contents are not guaranteed by the swapchain and a
 //! `Readback` frame starts from a texture that did not exist a moment ago, so both
 //! redraw the whole target — and say so in a [`Report`], because a frame that quietly
-//! ignored the list would be exactly the plausible-looking wrong page §5 forbids.
+//! ignored the list would be exactly the plausible-looking wrong page brief section 5 forbids.
 //!
 //! A malformed rectangle is refused by index rather than repaired. A well-formed one
 //! that falls entirely outside the target is dropped, which is not the same thing: the

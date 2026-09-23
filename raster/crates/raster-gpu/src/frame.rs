@@ -1,7 +1,7 @@
 //! The frame, and the measurements that make it accountable.
 //!
-//! The caller gates performance in CI and attributes regressions by measurement. §8 of
-//! the brief is blunt about what that requires, and §6.1 exists *because* the current
+//! The caller gates performance in CI and attributes regressions by measurement. Section 8 of
+//! the brief is blunt about what that requires, and section 6.1 exists *because* the current
 //! backend could not answer it: the readback could not be separated from the execution,
 //! so a bytes-per-second estimate had to stand in for what a timestamp query would have
 //! told them exactly.
@@ -13,7 +13,7 @@
 //! [`RenderError`]. And a [`Timings`] whose `execute` is a wall clock rather than a
 //! timestamp query says which it is ([`TimingProvenance`]), because a number whose
 //! provenance is ambiguous cannot gate anything — wall clocks lie under load: the mean
-//! of ten frames put one of §6.1's figures at 15 ms where the fastest of ten put it
+//! of ten frames put one of brief section 6.1's figures at 15 ms where the fastest of ten put it
 //! at 12.
 //!
 //! [`RenderError`]: crate::error::RenderError
@@ -24,7 +24,7 @@ use crate::error::RenderError;
 use crate::report::Report;
 
 /// Straight-alpha RGBA8 pixels, row-major, top row first, no padding — the caller's
-/// `Raster` shape and what PNG expects (§3 of the brief).
+/// `Raster` shape and what PNG expects (section 3 of the brief).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Raster {
     width: u32,
@@ -87,7 +87,7 @@ pub enum TimingProvenance {
     WallClock,
 }
 
-/// What this frame cost, phase by phase (§8 of the brief).
+/// What this frame cost, phase by phase (section 8 of the brief).
 ///
 /// # Which clock each number is on, because they are not all the same one
 ///
@@ -101,7 +101,7 @@ pub enum TimingProvenance {
 /// queries it is the *device's* clock over the drawing passes
 /// ([`execute_provenance`](Timings::execute_provenance) says which). Subtracting it from
 /// a host measurement mixes whatever the two clocks disagree by into the remainder —
-/// the caller's feedback §13 found exactly that and downgraded its own "elsewhere" row
+/// the caller's feedback section 13 found exactly that and downgraded its own "elsewhere" row
 /// to a bound. So: **subtract `host_total`, not the sum of all four**, and read what is
 /// left against the `"target acquire"` and `"present"` entries of
 /// [`phases`](Timings::phases), which name the two host-side steps that are not in the
@@ -136,7 +136,7 @@ impl Timings {
     /// This is the number to subtract from a host-side wall clock around
     /// [`Device::render`](crate::device::Device::render); `execute` is deliberately
     /// excluded because it is usually the adapter's clock, and mixing the two makes the
-    /// remainder a quantity with no meaning (the caller's feedback §13). What is left
+    /// remainder a quantity with no meaning (the caller's feedback section 13). What is left
     /// after subtracting it is the device wait plus the two steps `phases` names,
     /// `"target acquire"` and `"present"`.
     #[must_use]
@@ -199,13 +199,13 @@ impl std::fmt::Display for CoverageSheet {
     }
 }
 
-/// Which lane made the coverage for each mark this frame drew (`raster/doc/PLAN.md` §1.1).
+/// Which lane made the coverage for each mark this frame drew (`raster/doc/PLAN.md` section 1.1).
 ///
 /// brief section 1.1's premise — that most of a page is repeated glyph outlines and axis-aligned
 /// rectangles, and that general curve filling is the *rare* case — is the assumption the
 /// whole architecture is arranged around, and until this struct existed there was no
 /// instrument in the tree that could say whether a given page agrees with it. The brief's
-/// §11 question 2 asks for the number over a real corpus; this is what answers it, per
+/// section 11 question 2 asks for the number over a real corpus; this is what answers it, per
 /// frame, for any page a caller cares to ask about.
 ///
 /// **Marks, not commands.** A group is a command that draws none of its own, a culled
@@ -243,7 +243,7 @@ pub struct LaneCounts {
     /// [`atlas_distinct_keys`](Counters::atlas_distinct_keys).
     pub glyph: u32,
     /// Marks drawn as one quad over a tile of the **frame's coverage sheet** — the path
-    /// lane, and the population §11.2's census exists to size.
+    /// lane, and the population brief section 11.2's census exists to size.
     ///
     /// Everything that is neither of the two above: a fill whose device tile the atlas
     /// will not admit, a stroke's expansion, any mark under a non-rectangular clip
@@ -261,7 +261,7 @@ pub struct LaneCounts {
     pub image: u32,
 }
 
-/// What this frame did, in counts (§8 of the brief).
+/// What this frame did, in counts (section 8 of the brief).
 ///
 /// The atlas and tiling counters exist from M1 with honest zeros: the fields are the
 /// contract, and the milestones that build those subsystems start filling them.
@@ -276,7 +276,7 @@ pub struct Counters {
     pub distinct_outlines: u32,
     /// Entries resident in the glyph atlas after this frame (M4; 0 until then).
     pub atlas_entries: u32,
-    /// §6.3 of the brief: the count of **distinct keys** this frame asked the atlas
+    /// Section 6.3 of the brief: the count of **distinct keys** this frame asked the atlas
     /// for — deliberately not a hit rate. A hit rate is a statement about the lookups
     /// you made, never about the ones you should have made: a clip-mask cache once
     /// answered all 303 lookups a page made and built 303 identical page-wide masks,
@@ -314,10 +314,10 @@ pub struct Counters {
     ///
     /// **A named part of [`LaneCounts::path`]**, which is the whole of it and therefore
     /// cannot say why any mark is there: over the corpus at 1× that lane is 81 % strokes
-    /// and 2.8 % this, and at 4× the proportions invert (`raster/doc/notes-census.md` §4). §11.2's
-    /// census needed the breakdown and had to build a throwaway instrument for it; this is
-    /// the one reason-code worth keeping, because it is the only one that is a property of
-    /// the *device's history* rather than of the page.
+    /// and 2.8 % this, and at 4× the proportions invert (`raster/doc/notes-census.md` section 4).
+    /// Brief section 11.2's census needed the breakdown and had to build a throwaway instrument for
+    /// it; this is the one reason-code worth keeping, because it is the only one that is a property
+    /// of the *device's history* rather than of the page.
     ///
     /// **What it is for is telling two states apart that look identical from outside.**
     /// A page whose

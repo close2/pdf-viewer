@@ -10,7 +10,7 @@
 pub struct Point {
     /// Horizontal coordinate.
     pub x: f32,
-    /// Vertical coordinate, y-up in the page's own space (§3 of the brief).
+    /// Vertical coordinate, y-up in the page's own space (section 3 of the brief).
     pub y: f32,
 }
 
@@ -87,7 +87,7 @@ impl Rect {
     /// Whether the rectangle covers no area — zero width or zero height (or both).
     ///
     /// An empty rectangle is a legitimate scene item that draws nothing, in the same
-    /// way that a blank scene is a legitimate scene (§5 of the brief).
+    /// way that a blank scene is a legitimate scene (section 5 of the brief).
     #[must_use]
     pub fn is_empty(self) -> bool {
         self.min.x >= self.max.x || self.min.y >= self.max.y

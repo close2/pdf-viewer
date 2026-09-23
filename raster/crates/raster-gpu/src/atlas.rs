@@ -3,7 +3,7 @@
 //! # The number that decides the design
 //!
 //! One dense page of the caller's corpus is **5 933 fills of 107 distinct outlines**
-//! (§6.3 of the brief). A glyph's sub-pixel phase is an arbitrary float, so an
+//! (section 6.3 of the brief). A glyph's sub-pixel phase is an arbitrary float, so an
 //! exactly-correct cache never hits; quantised to 1/16 of a pixel it hit 5.0× on that
 //! page and left the caller's oracle unmoved, where 1/8 contradicted pages (their
 //! ADR 0131). The quantum is therefore brief section 4.5's fifth decision — the one that is the
@@ -30,8 +30,8 @@
 //! encode keyed on that layout (ADR 0024, ADR 0050).
 //!
 //! `Counters` reports `atlas_distinct_keys` — the count of distinct keys a frame asked
-//! for, deliberately not a hit rate (§6.3's lesson: a hit rate describes the lookups you
-//! made, never the ones you should have made) — `atlas_working_set_bytes` for what
+//! for, deliberately not a hit rate (brief section 6.3's lesson: a hit rate describes the lookups
+//! you made, never the ones you should have made) — `atlas_working_set_bytes` for what
 //! holding all of them would cost, `atlas_overflow_tiles` for the marks that wanted an
 //! entry and were drawn uncached instead, and `atlas_repacked` for the event that moves
 //! them. The first two answer *how large is this page*; the third answers *what did this
@@ -297,7 +297,7 @@ pub(crate) struct DirtyRows {
 /// The CPU-side state of the atlas: the packer, the key table, the sheet — a CPU
 /// mirror of the texture's texels — and the rows the next flush owes the texture. The
 /// `wgpu` texture itself lives on the device, which creates it lazily on the first
-/// frame that needs a glyph (startup rule, §7).
+/// frame that needs a glyph (startup rule, brief section 7).
 ///
 /// **The sheet is the price of a batched flush, and it is one atlas of bytes.** Every
 /// tile ever inserted is written into it, so any row range of it is uploadable at any
@@ -523,7 +523,7 @@ impl AtlasStore {
         };
         self.entries.insert(key, entry);
         // First insert: the mirror the flush reads from. Not in `new`, so the startup
-        // path never pays for it (§7); zeroed, which is what the texture's texels are
+        // path never pays for it (brief section 7); zeroed, which is what the texture's texels are
         // before anything names them.
         if self.sheet.is_empty() {
             self.sheet = vec![0; self.width as usize * self.height as usize];

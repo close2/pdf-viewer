@@ -3,7 +3,7 @@
 //! # Where the question comes from
 //!
 //! hayro #205, #235, #355 and #390, by way of the caller's
-//! `doc/HAYRO_ISSUES_FOR_QUORRA.md` §6: four fuzzer files reaching an assertion inside
+//! `doc/HAYRO_ISSUES_FOR_QUORRA.md` section 6: four fuzzer files reaching an assertion inside
 //! `qcms` and two slice overruns inside `moxcms`. Their sentence is the one that makes it
 //! ours to answer rather than to sympathise with:
 //!
@@ -13,7 +13,7 @@
 //!
 //! Our answer is structural. Colour is not ours (`raster/doc/PLAN.md` integration note 6:
 //! `ColourSpace::to_rgb` upstream is the only place a colour becomes RGB, and adding a
-//! second one is forbidden), device RGB is what arrives, and `RENDER_LIBRARY.md` §9 lists
+//! second one is forbidden), device RGB is what arrives, and `RENDER_LIBRARY.md` section 9 lists
 //! colour management first among the non-goals. A profile therefore reaches no parser
 //! here because there is no parser here to reach.
 //!
@@ -88,10 +88,10 @@ const DIRECT: [(&str, &str); 5] = [
 const KNOWN_ENGINES: [&str; 4] = ["qcms", "moxcms", "lcms2", "lcms2-sys"];
 
 /// What a crate name must not contain if it is to be in the shipping graph, and which
-/// §9 non-goal each pattern stands for.
+/// brief section 9 non-goal each pattern stands for.
 ///
-/// Patterns rather than names, because §9's non-goals outlive any particular crate. Each
-/// is checked against the lowercased name with `-` and `_` folded together, so
+/// Patterns rather than names, because brief section 9's non-goals outlive any particular crate.
+/// Each is checked against the lowercased name with `-` and `_` folded together, so
 /// `owned_ttf_parser` and `ttf-parser` are one case.
 const FORBIDDEN_SUBSTRINGS: [(&str, &str); 12] = [
     (
@@ -307,7 +307,7 @@ fn the_scene_crate_has_no_dependencies_at_all() {
 }
 
 /// **No colour-management engine, no font crate and no second 2D renderer is reachable
-/// from anything we publish** — the shipping graph, walked, against §9's non-goals.
+/// from anything we publish** — the shipping graph, walked, against brief section 9's non-goals.
 #[test]
 fn the_shipping_graph_reaches_no_non_goal() {
     let root = workspace_root();

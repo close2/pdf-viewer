@@ -31,7 +31,7 @@
 //!
 //! [`admit`] is the third unit and the only one with a policy in it: it is what
 //! `Device::upload_function` runs, and it turns "this program is classified `Unbounded`"
-//! into ADR 0053 §3's refusal. Everything downstream of an admitted program is elsewhere,
+//! into ADR 0053 section 3's refusal. Everything downstream of an admitted program is elsewhere,
 //! because none of it is a question about a *program*:
 //!
 //! - `pipeline::function` keys one compiled pipeline per [`GeneratedShader::hash`] and per
@@ -46,8 +46,8 @@
 //!
 //! # The budgets, all three discoverable before the frame
 //!
-//! §5 of the brief: "if a limit must exist, it is discoverable before the frame". ISO 32000-2
-//! states none of these — §7.10.5 bounds neither a program's length nor its operand stack —
+//! Section 5 of the brief: "if a limit must exist, it is discoverable before the frame". ISO
+//! 32000-2 states none of these — §7.10.5 bounds neither a program's length nor its operand stack —
 //! so all three are ours, and each is a public constant a caller can compare a program
 //! against without asking a device anything.
 
@@ -91,9 +91,9 @@ pub const ENTRY_POINT: &str = "raster_function_evaluate";
 ///
 /// The generated shader's length is linear in the program's, and its *compile* is what sits
 /// on the caller's first-frame path — measured at 6.3 ms cold for a 482-instruction witness
-/// (`raster/doc/spike-function-paint.md` §3). This bound keeps the worst case around a megabyte of
-/// WGSL rather than around a gigabyte; ISO 32000-2 states no limit, so it is ours, and the
-/// two witnesses that exist need 482 and 311.
+/// (`raster/doc/spike-function-paint.md` section 3). This bound keeps the worst case around a
+/// megabyte of WGSL rather than around a gigabyte; ISO 32000-2 states no limit, so it is ours, and
+/// the two witnesses that exist need 482 and 311.
 pub const MAX_PROGRAM_LENGTH: usize = 8192;
 
 /// The deepest operand stack admitted, in slots.

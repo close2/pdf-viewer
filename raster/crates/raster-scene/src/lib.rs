@@ -9,8 +9,8 @@
 //!
 //! # Why this is a separate crate
 //!
-//! `raster/doc/RENDER_LIBRARY.md` §2.3 states the property it calls the most important one in
-//! the whole brief, and its corollary: a scene is `Send + Sync`, and **building one
+//! `raster/doc/RENDER_LIBRARY.md` section 2.3 states the property it calls the most important one
+//! in the whole brief, and its corollary: a scene is `Send + Sync`, and **building one
 //! requires no device**. The caller's content-stream interpreter runs on a worker
 //! thread and builds scenes there while the GPU is still initialising.
 //!

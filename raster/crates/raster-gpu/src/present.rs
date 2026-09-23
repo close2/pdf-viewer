@@ -66,7 +66,7 @@ use crate::surface::SurfaceState;
 /// no timestamp-query number in this type on purpose: a query has to be resolved and
 /// mapped to be read, which is a stall on the thread whose freedom from stalls is the
 /// whole point of the split, and a duration reported as if it were a device measurement
-/// is the one thing §8 of the brief forbids outright. What is exact here are the two
+/// is the one thing section 8 of the brief forbids outright. What is exact here are the two
 /// counts — `layers` and `reconfigured` — and they are the numbers to gate on. See
 /// [`TimingProvenance`](crate::frame::TimingProvenance) for the same rule stated on a
 /// frame.

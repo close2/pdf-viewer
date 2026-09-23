@@ -12,13 +12,13 @@
 //!
 //! The first test is the whole argument for ADR 0019. §11.4.4's removal divides by
 //! Table 140's group alpha, which a premultiplied raster does not hold, and NOTE 4
-//! advises keeping a second set of accumulators for it. It is not needed, because the
-//! quantity divided out is multiplied straight back in by the composite that follows —
-//! but only under the **Normal** blend function, and only outside a knockout group.
-//! The test measures all three: the identity where it holds, and the two negative
-//! controls that say what the builder's refusals are for. Neither control is decoration
-//! — an implementation that quietly dropped the conditions would pass every other test
-//! in this file.
+//! advises keeping a second set of accumulators for it. Under the **Normal** blend
+//! function it is not needed, because the quantity divided out is multiplied straight
+//! back in by the composite that follows. The test measures the identity where it holds
+//! and two negative controls: under any other blend it breaks, which is what the second
+//! accumulator in `non_isolated_blended_groups.rs` is for, and seeding an isolated group
+//! is a different picture. Neither control is decoration — an implementation that
+//! quietly interpolated under every blend would pass every other test in this file.
 
 // Test-file lint policy as in m1.rs; the reference math mirrors clause arithmetic.
 #![allow(
@@ -194,8 +194,7 @@ fn worst_deviation(group_mode: BlendMode, isolated: bool) -> f64 {
     worst
 }
 
-/// The identity ADR 0019 rests on, and the two controls that say why the builder
-/// refuses what it refuses.
+/// The identity ADR 0019 rests on, and the two controls that say where it stops.
 #[test]
 fn the_interpolation_is_the_clause_exactly_and_only_under_normal() {
     let held = worst_deviation(BlendMode::Normal, false);
@@ -205,7 +204,7 @@ fn the_interpolation_is_the_clause_exactly_and_only_under_normal() {
     );
 
     // Control 1: the cancellation is the Normal composite. Under any other blend the
-    // group's own alpha is needed, and this raster does not have it.
+    // group's own alpha is needed, and the interpolation alone does not have it.
     for mode in [
         BlendMode::Multiply,
         BlendMode::Screen,
@@ -308,7 +307,7 @@ fn clause_answer(isolated: bool, alpha: f64, backdrop: Color, element: Color) ->
         ar_out = ar;
         let premul = (cr * ar * 255.0).round().clamp(0.0, 255.0) as u32;
         let alpha_byte = (ar * 255.0).round().clamp(0.0, 255.0) as u32;
-        // The readback's premultiplied-to-straight conversion, rounded as §3 hands it
+        // The readback's premultiplied-to-straight conversion, rounded as brief section 3 hands it
         // back; a transparent result has no straight colour to report.
         out[ch] = (premul * 255 + alpha_byte / 2)
             .checked_div(alpha_byte)
@@ -464,18 +463,9 @@ fn non_isolated_error(spec: GroupSpec) -> SceneError {
         .expect_err("this group cannot be drawn and must not be accepted")
 }
 
-/// Each of the three conditions, refused by name before the body is built.
+/// Each of the two conditions, refused by name before the body is built.
 #[test]
-fn the_three_conditions_are_refused_not_approximated() {
-    assert_eq!(
-        non_isolated_error(GroupSpec {
-            blend: BlendMode::Multiply,
-            ..group(false, 1.0)
-        }),
-        SceneError::NonIsolatedGroupUnsupported {
-            reason: NonIsolatedReason::GroupBlendNotNormal
-        }
-    );
+fn the_two_conditions_are_refused_not_approximated() {
     assert_eq!(
         non_isolated_error(GroupSpec {
             knockout: true,

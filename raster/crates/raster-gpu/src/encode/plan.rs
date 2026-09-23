@@ -7,7 +7,7 @@
 //! be sized to what it draws rather than to the target (ADR 0036). A site that appended
 //! without marking would give a plan a texture too small for its own content, and the
 //! mark would come back *clipped* — a plausible-looking wrong page rather than an error,
-//! which is the outcome the brief's §5 exists to forbid.
+//! which is the outcome the brief's section 5 exists to forbid.
 //!
 //! What a plan's ops *mean* is not here. This module is the list and the box.
 

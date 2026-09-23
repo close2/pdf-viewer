@@ -174,6 +174,75 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Records, for the page's separation, the spot colourants a mark in `space` paints that
+    /// have no plane on this run.
+    ///
+    /// Asked per painting operator, for each part it paints — a path's fill and stroke, a
+    /// show-text operator's glyphs, an image mask — which is the condition's own grain: a
+    /// colourant the page names and no mark paints costs nothing, and one a mark paints reverts to
+    /// its alternate colour space there (§11.7.3's second bullet) and is named for it. Once per
+    /// operator rather than per glyph, and inlined, so that every run without spot planes — every
+    /// run a backend draws — pays one discriminant test per operator. ADR 1311 section 5.
+    #[inline]
+    pub(super) fn note_colourants_without_a_plane(&mut self, space: &ColourSpace) {
+        if let Compositing::Subtractive(_, _, spots) = &self.compositing
+            && !spots.is_empty()
+        {
+            self.record_colourants_without_a_plane(space);
+        }
+    }
+
+    /// [`Interpreter::note_colourants_without_a_plane`]'s cold half.
+    #[inline(never)]
+    fn record_colourants_without_a_plane(&mut self, space: &ColourSpace) {
+        let named = self.compositing.spots().without_a_plane(space);
+        self.without_a_plane.extend(named);
+    }
+
+    /// Whether this run carries one of §10.8.3's spot planes (ADR 1311).
+    pub(super) fn on_a_spot_plane(&self) -> bool {
+        matches!(
+            self.compositing,
+            Compositing::Subtractive(crate::colour::Plane::Spot(_), ..)
+        )
+    }
+
+    /// What an isolated group composites in, with the simulated device's spot colourants
+    /// passing through it.
+    ///
+    /// §11.7.3 gives a group two ways to treat a spot colour and this tree takes the first:
+    ///
+    /// > The group shall maintain a separate colour value for each spot colour component,
+    /// > independently of the group's colour space. In effect, the spot colour passes directly
+    /// > through the group hierarchy to the device, with no colour conversions performed.
+    /// > However, it shall still be subject to blending and compositing with other objects that
+    /// > use the same spot colour.
+    ///
+    /// So on a spot plane the group's `/CS` changes nothing — the plane is composited through it
+    /// as it stands, which is `None` here — and on a process plane the group's own space is
+    /// [`Interpreter::group_compositing`]'s answer, carrying the spot colourants with it. Where
+    /// that answer is a space no spot colourant can be carried through, a process plane of the
+    /// group would paint the group's spot marks in their alternate as well as on their own
+    /// planes, so the run records the departure and the page's separation is not made from it.
+    pub(super) fn spot_group_compositing(
+        &mut self,
+        group: &super::transparency::TransparencyGroup,
+        resources: &Dictionary,
+        rendering: Rendering,
+        changed: bool,
+    ) -> Option<Compositing> {
+        if self.on_a_spot_plane() {
+            return None;
+        }
+        let own = self.group_compositing(group, resources, rendering, changed);
+        if !self.compositing.spots().is_empty()
+            && own.as_ref().is_some_and(|own| own.spots().is_empty())
+        {
+            self.nested_space_departed = true;
+        }
+        own
+    }
+
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
     ///
     /// The space itself is kept rather than only its component count, so that `Separation`

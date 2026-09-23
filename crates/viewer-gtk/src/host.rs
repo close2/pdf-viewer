@@ -261,6 +261,12 @@ struct Showing {
     /// window: `viewer_core` already keeps the departures beside the document they are about
     /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
     departures: viewer_core::RestrictionOverride,
+    /// Whether Table 29's `/PageMode` is still to be obeyed, the first time this tab is in front.
+    ///
+    /// A document opened behind the one showing is not displayed, and `/PageMode` is "how the
+    /// document shall be displayed when opened" — so its full screen and its panel wait for the
+    /// pump that first brings it to the front (ADR 1303).
+    catalog_due: bool,
 }
 
 impl Showing {
@@ -278,6 +284,7 @@ impl Showing {
             measuring: viewer_host::Measuring::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
+            catalog_due: false,
         }
     }
 }
@@ -737,7 +744,7 @@ impl Host {
     ) {
         let words = viewer_host::asked(operation, notes);
         self.put_a_question(
-            "Restricted",
+            viewer_host::Subject::Restricted.title(),
             &words,
             Rc::new(move |host: &mut Self, proceed| host.answer(document, operation, proceed)),
         );
@@ -751,7 +758,7 @@ impl Host {
     /// this machine to start a program on (ADR 1155).
     fn ask_whether_to_open(&mut self, uri: String, words: &viewer_host::Question) {
         self.put_a_question(
-            "Open this link?",
+            viewer_host::Subject::Link.title(),
             words,
             Rc::new(move |host: &mut Self, proceed| {
                 host.say(&viewer_host::answered(&uri, proceed));
@@ -808,7 +815,7 @@ impl Host {
             viewer_host::Remote::Ask { path, question } => {
                 let named = name.to_owned();
                 self.put_a_question(
-                    "Open this document?",
+                    viewer_host::Subject::Document.title(),
                     &question,
                     Rc::new(move |host: &mut Self, proceed| {
                         let mut queue = VecDeque::new();
@@ -974,7 +981,7 @@ impl Host {
             viewer_host::Sending::Send => self.send_form(document, submission, None),
             viewer_host::Sending::Warn(note) => self.send_form(document, submission, Some(note)),
             viewer_host::Sending::Ask(words) => self.put_a_question(
-                "Send this form?",
+                viewer_host::Subject::Submission.title(),
                 &words,
                 Rc::new(move |host: &mut Self, proceed| {
                     if proceed {
@@ -1100,6 +1107,11 @@ impl Host {
             }
             self.take_the_thread_back();
             self.take_the_drawn(&mut queue);
+            // A tab opened behind is in front for the first time once `Command::Focus` has run,
+            // which is when the core answers `Query::Opening` for it (ADR 1303).
+            if queue.is_empty() && std::mem::take(&mut self.showing.catalog_due) {
+                self.obey_the_catalog(&mut queue, true);
+            }
             if queue.is_empty() {
                 break;
             }
@@ -1355,7 +1367,8 @@ impl Host {
         // tick the last document's (ADR 1145).
         self.restrictions.opened();
         self.showing.report_due.opened();
-        self.obey_the_catalog(queue);
+        self.obey_the_catalog(queue, behind.is_none());
+        self.showing.catalog_due = behind.is_some();
         // The core has already focused this document, so its panels are built now rather than
         // after the pump — unless a front given back below asks for them again.
         self.build_panels();
@@ -2053,17 +2066,23 @@ impl Host {
     fn page_sink(&self) -> Rc<dyn Fn(usize) -> Option<pages::Row>> {
         let me = self.me.clone();
         let held = Rc::clone(&self.miniatures);
+        let trace = self.trace;
         Rc::new(move |index| {
             let host = me.upgrade()?;
-            // Trap 5 rather than a blank row: GTK binds from its own layout, which is not inside
-            // any call into this host — but a toolkit's scheduling is a claim, and a claim that
-            // failed silently would be a page miniature nobody could account for.
+            // A row bound while the host is held — a tab arriving moves the view between notebook
+            // pages from inside a command — is answered `None`, and `pages::bind` asks for it
+            // again from the idle queue once the command has unwound. Traced rather than printed:
+            // the row is drawn with its `/Thumb` a moment later, so there is nothing to tell a
+            // reader.
             let host = host
                 .try_borrow()
                 .inspect_err(|_| {
-                    eprintln!(
-                        "note: the host was busy, so page {}'s row was drawn without its /Thumb",
-                        index.saturating_add(1)
+                    trace.say(
+                        Topic::Panel,
+                        format_args!(
+                            "the host was busy, so page {}'s row is asked for again once it is free",
+                            index.saturating_add(1)
+                        ),
                     );
                 })
                 .ok()?;
@@ -2573,9 +2592,9 @@ impl Host {
         self.ui
             .documents
             .append_page(&holder, Some(&gtk4::Label::new(Some(&label))));
-        self.ui.documents.set_show_tabs(true);
         self.documents
             .add(id, label.clone(), Showing::new(path, bytes, None));
+        self.show_the_tabs();
         // `Documents::focus` is what swaps this window's fields; the core has moved its own focus
         // already, and `Command::Focus` on a document that is already focused does nothing.
         self.show_document(id, queue);
@@ -2737,7 +2756,7 @@ impl Host {
                 if let Ok(index) = u32::try_from(index) {
                     self.ui.documents.remove_page(Some(index));
                 }
-                self.ui.documents.set_show_tabs(!self.documents.is_alone());
+                self.show_the_tabs();
                 self.hold_the_view(self.documents.focused_index());
                 let label = viewer_host::documents::label(&state.path);
                 drop(state);
@@ -2772,7 +2791,13 @@ impl Host {
     /// moves off what the document asked for rather than back onto it. `/PageMode` is "how the
     /// document shall be displayed when opened", which is a panel for three of its six names,
     /// nothing for `UseNone`, and since ADR 0470 a full-screen window for `FullScreen`.
-    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>) {
+    ///
+    /// `in_front` is false for a document opened behind the one showing. Its layout is its own tab's
+    /// and is taken, but its `/PageMode` is "how the document shall be displayed when opened" and it
+    /// is not displayed: the window's full screen, presentation and panel stay the front
+    /// document's, so a presentation running when a second document arrives keeps its full screen
+    /// (ADR 1303).
+    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
             return;
         };
@@ -2782,6 +2807,9 @@ impl Host {
                 "this document opens in the {:?} page layout (§7.7.2)",
                 opening.layout
             ));
+        }
+        if !in_front {
+            return;
         }
         if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
             self.presenting = viewer_host::Presenting::opening(opening, &preferences);
@@ -2866,6 +2894,7 @@ impl Host {
         } else if self.ui.split.start_child().is_some() {
             self.ui.split.set_start_child(None::<&gtk4::Widget>);
         }
+        self.show_the_tabs();
         if self.presenting.full_screen() {
             self.ui.window.set_decorated(false);
             self.ui.window.fullscreen();
@@ -2873,6 +2902,17 @@ impl Host {
             self.ui.window.unfullscreen();
             self.ui.window.set_decorated(true);
         }
+    }
+
+    /// Shows the strip of document tabs where there is more than one document and Table 29's
+    /// `FullScreen` is not asking for "no menu bar, window controls, or any other window visible".
+    ///
+    /// **A hidden strip also takes no keys**: a `GtkNotebook` whose tab holds the keyboard turns
+    /// Left and Right into a change of document, and in a presentation those are the keys that
+    /// turn the page (ADR 1303).
+    fn show_the_tabs(&self) {
+        let shown = self.presenting.chrome().other_windows && !self.documents.is_alone();
+        self.ui.documents.set_show_tabs(shown);
     }
 
     /// Enters or leaves §12.4.4's presentation, which for this program is the full-screen window.
@@ -3042,7 +3082,13 @@ impl Host {
     /// Two whole-viewport rasterisations happen here and none per frame: the page being left and
     /// the page arriving, each drawn where a frame will place it. A transition that re-rasterised
     /// per frame would pay a page's interpretation sixty times a second for the length of it.
+    ///
+    /// Only the page of the document in front is a face: a document opening behind it draws its
+    /// first page too, and that page is not the one a presented page turn leaves (ADR 1303).
     fn face_arrived(&mut self, request: &viewer_core::RenderRequest) {
+        if request.document != self.documents.focused() {
+            return;
+        }
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
             Answer::Geometry(geometry) => geometry.origin,
             _ => (0.0, 0.0),
@@ -3065,9 +3111,10 @@ impl Host {
             return;
         };
         let began = std::time::Instant::now();
-        let (Some(outgoing), Some(incoming)) =
-            (self.face(&list, target), self.face(&arriving.0, arriving.1))
-        else {
+        let (Some(outgoing), Some(incoming)) = (
+            viewer_host::face(&list, target),
+            viewer_host::face(&arriving.0, arriving.1),
+        ) else {
             self.say(&format!(
                 "transition: {:?} was named but the pages behind it would not rasterise, so the \
                  page is shown at once",
@@ -3089,16 +3136,6 @@ impl Host {
         if let Some(clock) = self.clock.as_mut() {
             clock.begin(transition, outgoing, incoming, std::time::Instant::now());
         }
-    }
-
-    /// One page of a transition, drawn to the viewport's own pixels and ready to be drawn again.
-    fn face(
-        &mut self,
-        list: &pdf_render::DisplayList,
-        target: pdf_render::TargetSpec,
-    ) -> Option<pdf_render::Image> {
-        let raster = self.rasterizer.rasterize(list, target).ok()?;
-        viewer_core::transition::drawable(&raster)
     }
 
     /// The frame of a transition in flight, as one texture filling the viewport.

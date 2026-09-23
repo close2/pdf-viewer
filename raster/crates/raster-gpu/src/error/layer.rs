@@ -26,7 +26,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum LayerProblem {
     /// A layer texture in another format. The contract is `Rgba8Unorm`, which is what a
-    /// [`Target::Texture`](crate::target::Target::Texture) frame renders in (§3).
+    /// [`Target::Texture`](crate::target::Target::Texture) frame renders in (brief section 3).
     #[error("the layer texture is {got:?}; the contract is Rgba8Unorm")]
     Format {
         /// The format the texture actually has.

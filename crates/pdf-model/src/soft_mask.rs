@@ -13,7 +13,7 @@ use std::sync::Arc;
 use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
-use crate::colour::{ColourSpace, Compositing, GreyRoute, InkScale, Plane, Presses};
+use crate::colour::{ColourSpace, Compositing, DeviceSpots, GreyRoute, InkScale, Plane, Presses};
 use crate::function::Function;
 use crate::icc::Rendering;
 
@@ -189,7 +189,7 @@ fn backdrop_half(
 ) -> Color {
     Color {
         a: 1.0,
-        ..Compositing::Subtractive(half, Arc::clone(press)).paint(
+        ..Compositing::Subtractive(half, Arc::clone(press), DeviceSpots::default()).paint(
             space,
             values,
             Rendering::compensating(),
@@ -307,7 +307,9 @@ fn luminosity(
         (None, Some(route), _, _) => Compositing::Calibrated(Arc::clone(route)),
         (None, None, Some((route, _)), _) => Compositing::Additive(Arc::clone(route)),
         (None, None, None, Some((press, _))) => {
-            Compositing::Subtractive(Plane::Chromatic, Arc::clone(press))
+            // No spot plane: §11.7.3's "spot colours shall not be available in a transparency
+            // group XObject that is used to define a soft mask".
+            Compositing::Subtractive(Plane::Chromatic, Arc::clone(press), DeviceSpots::default())
         }
         (None, None, None, None) => Compositing::Device,
     };
@@ -879,7 +881,7 @@ mod tests {
             panic!("the mask is usable");
         };
         match &under_intent.compositing {
-            Compositing::Subtractive(Plane::Chromatic, press) => assert!(
+            Compositing::Subtractive(Plane::Chromatic, press, _) => assert!(
                 press.is_of_profile(identity),
                 "the group composites in the intent's own press"
             ),

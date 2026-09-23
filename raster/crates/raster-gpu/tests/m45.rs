@@ -202,7 +202,7 @@ fn atlas_and_scratch_fallback_are_byte_identical() {
 
 /// brief section 4.5's fifth decision, observable: with the quantum off, every distinct sub-pixel
 /// phase is its own key; with a quantum of 1/4, the same hundred phases collapse to
-/// four keys. The counter is the count of distinct keys, per §6.3 — never a hit rate.
+/// four keys. The counter is the count of distinct keys, per brief section 6.3 — never a hit rate.
 ///
 /// The shape has to be one the atlas is asked about at all, so it is a rectangle with a
 /// redundant vertex (ADR 0047): a recognised one would take the analytic lane and this
@@ -355,7 +355,7 @@ fn stroke_agrees_with_the_rectangle_it_is() {
     assert!(max_diff_premultiplied(&via_stroke, &via_rect) <= 1);
 }
 
-/// §11.4's bound holds for the new lanes too: a scene exercising glyphs, a curved
+/// Brief section 11.4's bound holds for the new lanes too: a scene exercising glyphs, a curved
 /// path, a stroke and a triangular residue clip differs across adapters by at most
 /// the store-conversion bound — the coverage bytes themselves are CPU-made and
 /// identical everywhere (ADR 0008).

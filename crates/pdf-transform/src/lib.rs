@@ -613,8 +613,8 @@ pub enum Refusal {
     /// the clause.
     #[error("{0}")]
     Reconstructed(String),
-    /// `optimize --linearize` was asked for something the Annex F writer does not build, or a
-    /// document it cannot lay out, and it says which by clause.
+    /// `optimize --linearize` was given a document the Annex F writer cannot lay out — a page that
+    /// is not an indirect object its page tree names — and it says which by clause.
     ///
     /// Exit 4 rather than 2, for [`Refusal::Reconstructed`]'s reason: the request is well formed
     /// and the document readable, and it is this program's writer that declines by name rather

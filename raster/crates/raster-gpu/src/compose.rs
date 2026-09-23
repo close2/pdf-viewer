@@ -10,7 +10,7 @@
 //! children and no masks draws straight into the target — the flat fast path M1
 //! measured stays exactly as cheap as it was.
 //!
-//! **Count then allocate** (§5): every layer texture and mask texture is priced
+//! **Count then allocate** (brief section 5): every layer texture and mask texture is priced
 //! against the frame budget before anything is created; the refusal names both
 //! numbers. Knockout batches run their erase/add pair strictly per element
 //! (ADR 0010): interleaving is what makes overlapping knockout elements compose per
@@ -218,10 +218,27 @@ impl Executor<'_> {
                     let seed = (!child_op.isolated).then_some(&view);
                     let child =
                         self.render_plan(recorder, child_op.layer.saturating_add(1), seed)?;
-                    self.composite_child(recorder, &view, region, &child, &child_op)?;
+                    // NOTE 4's second accumulator, where the group's own blend needs
+                    // Table 140's group alpha: the same elements onto transparency.
+                    let group_alpha = match child_op.group_alpha {
+                        Some(layer) => {
+                            Some(self.render_plan(recorder, layer.saturating_add(1), None)?)
+                        }
+                        None => None,
+                    };
+                    self.composite_child(
+                        recorder,
+                        &view,
+                        region,
+                        (&child, group_alpha.as_ref()),
+                        &child_op,
+                    )?;
                     // Every pass that reads the child has been recorded; a sibling may
                     // have its texture now.
                     self.pool.release(child.texture);
+                    if let Some(group_alpha) = group_alpha {
+                        self.pool.release(group_alpha.texture);
+                    }
                 }
             }
         }

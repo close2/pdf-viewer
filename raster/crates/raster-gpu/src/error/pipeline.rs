@@ -21,7 +21,7 @@ use thiserror::Error;
 /// A shader that does not parse is this crate's own defect and not something a scene
 /// can provoke — but the same refusal is how a backend that will not accept one of our
 /// shaders, or a target format it cannot render to, arrives, and neither of those may
-/// be a panic on a thread nobody is listening to (§5 of the brief).
+/// be a panic on a thread nobody is listening to (section 5 of the brief).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PipelineProblem {
     /// A WGSL module in `src/shaders/` was refused: a parse or validation failure that

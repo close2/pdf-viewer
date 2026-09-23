@@ -72,7 +72,7 @@ pub enum PsError {
 ///
 /// **Neither variant is a claim about the standard.** ISO 32000-2 states no precision
 /// and no accuracy requirement for evaluating a function, and PLRM3 defers to the
-/// hardware (`raster/doc/research-function-paint-arithmetic.md` §1.7). What a tolerance says
+/// hardware (`raster/doc/research-function-paint-arithmetic.md` section 1.7). What a tolerance says
 /// is how this corpus's own oracle is compared with its own expectations: exactly where
 /// the clause fixes an integer or a rounding, and to a stated absolute error where the
 /// expected value is a decimal PLRM3 printed to six digits.
@@ -88,8 +88,8 @@ pub enum Tolerance {
 
 /// A ground on which a program is refused before a frame is drawn.
 ///
-/// `raster/doc/spike-function-paint.md` §6 found these on constructed programs, and principle 6
-/// is why they are refusals rather than approximations. Two of that spike's six grounds
+/// `raster/doc/spike-function-paint.md` section 6 found these on constructed programs, and
+/// principle 6 is why they are refusals rather than approximations. Two of that spike's six grounds
 /// are **not** here, because the pinned vocabulary retires them: an operator outside
 /// Table 42 and a procedure that is not an `if`/`ifelse` operand are both unrepresentable
 /// in [`FnOp`], and "a ground nobody can reach is not a ground".

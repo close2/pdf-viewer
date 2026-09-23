@@ -1,7 +1,7 @@
 //! **The proof of ADR 0056**: a page rendered on one thread while the window is
 //! presented from another, and the pixels read back to show where the affine put them.
 //!
-//! This is the surface path's second smoke test and it exists for the reason §10.4 of
+//! This is the surface path's second smoke test and it exists for the reason section 10.4 of
 //! the brief gives for the first one — "no gate we have turns a page and every defect of
 //! three consecutive sessions lived there". A `Presenter` that compiles and is `Send` is
 //! not evidence of anything; a window whose pixels are where a non-identity affine says
@@ -71,7 +71,7 @@
 //! synchronisation which, at this seam, does not exist — `settle`'s module comment says
 //! what was looked for and why none of it is reachable. The wall clock failed once in five
 //! real-display runs by reading step 6 one present behind
-//! (`raster/doc/notes-present-rate.md` §4, `raster/doc/notes-present-settle.md`).
+//! (`raster/doc/notes-present-rate.md` section 4, `raster/doc/notes-present-settle.md`).
 
 // An example's arithmetic is window coordinates, byte offsets inside a file it just
 // read, and small counts — all bounded and all exact in the types they use, where the
@@ -132,7 +132,7 @@ const TOLERANCE: u8 = 2;
 /// the render it is inside as soon as the proof is taken, so the phase costs one render,
 /// which is what it cost before ADR 0071. The value is an order of magnitude above the
 /// slowest present this machine has been observed to complete under deliberate load —
-/// 25.4 ms at load 36.9 (`raster/doc/notes-present-settle.md` §5).
+/// 25.4 ms at load 36.9 (`raster/doc/notes-present-settle.md` section 5).
 const RENDER_HOLD_CEILING: Duration = Duration::from_millis(300);
 
 /// `--check` is accepted and changes nothing: this example is already an assertion
@@ -270,7 +270,7 @@ struct RenderHold {
 /// load 36.9 to 55.8 — twice because the presenting thread could not be scheduled (one
 /// present in 25.4 ms, three refreshes), and once because the render itself took 6.4 ms,
 /// *less than one refresh*, so one present was the arithmetically correct answer and the
-/// assertion was wrong about its own subject (`raster/doc/notes-present-settle.md` §5).
+/// assertion was wrong about its own subject (`raster/doc/notes-present-settle.md` section 5).
 ///
 /// What replaces it is an **ordering**. The render thread renders back-to-back and says so
 /// in [`RenderHold::holding`]; the proof is that a present *returned* while that flag was
@@ -361,7 +361,8 @@ fn render_on_another_thread_while_presenting(
 ///
 /// The capture is handed in rather than taken here, because *when* it was taken is the
 /// whole question: [`settle`] proves it is the window as it is and not as it was, which is
-/// what the 300 ms wall clock this replaces could not (`raster/doc/notes-present-rate.md` §4).
+/// what the 300 ms wall clock this replaces could not (`raster/doc/notes-present-rate.md` section
+/// 4).
 fn check_the_affine_landed(shot: &xwd::Shot) {
     assert_eq!(
         shot.size(),
@@ -376,8 +377,8 @@ fn check_the_affine_landed(shot: &xwd::Shot) {
             (y * SCALE + OFFSET.1) as usize,
         )
     };
-    // Outside the page and outside the chrome: the clear, which is transparent (§3) and
-    // which an opaque X visual shows as black. **This is the assertion that fails at the
+    // Outside the page and outside the chrome: the clear, which is transparent (brief section 3)
+    // and which an opaque X visual shows as black. **This is the assertion that fails at the
     // identity**, where the page would cover the window's top-left corner.
     same(
         shot.at(8, 8),
@@ -558,7 +559,7 @@ fn present_or_retry(presenter: &mut Presenter, layers: &[Layer<'_>]) {
 }
 
 /// A colour as the window should show it: straight 8-bit RGB, which for an opaque
-/// rectangle is what §3's premultiplied storage holds anyway.
+/// rectangle is what brief section 3's premultiplied storage holds anyway.
 fn rgb(color: Color) -> [u8; 3] {
     [
         (color.r * 255.0).round() as u8,

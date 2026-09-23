@@ -4,7 +4,7 @@
 //! its own: **the pane being drawn is the top-left of the texture**, whatever the rest
 //! of it is. The texture is kept between frames and only ever grows, so it is usually
 //! larger than the pane; [`accumulate`]'s viewport is what puts the pane's pixels where
-//! [`resolve`] reads them, and the caller's `QUORRA_FEEDBACK.md` §11 is what happens
+//! [`resolve`] reads them, and the caller's `QUORRA_FEEDBACK.md` section 11 is what happens
 //! when the two are read apart.
 
 use crate::pane::Pane;
@@ -118,7 +118,7 @@ pub(super) fn accumulate(
     // agree without either shader learning the size of a texture that is nobody's
     // business but this module's.
     //
-    // Forgetting it is the caller's `QUORRA_FEEDBACK.md` §11: a page zoomed past 1000%
+    // Forgetting it is the caller's `QUORRA_FEEDBACK.md` section 11: a page zoomed past 1000%
     // and back drew one glyph's coverage under another glyph's quad — the right place,
     // the right size, the wrong letter — because the resolve read the sheet's
     // coordinates out of a texture the winding pass had stretched over a larger one.

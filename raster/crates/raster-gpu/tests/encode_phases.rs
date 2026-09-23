@@ -1,6 +1,6 @@
 //! The subdivision of `encode`, and the two host-side steps beside it.
 //!
-//! ADR 0023, from the caller's feedback §13: `encode` is 45% of their page turn, tracks
+//! ADR 0023, from the caller's feedback section 13: `encode` is 45% of their page turn, tracks
 //! the scene's size at 3.86 µs a command, and was a single number — *"whether those
 //! 3.86 µs a command are path flattening, bind-group churn, buffer writes, sorting, or
 //! `wgpu`'s own command recording is invisible from here"*.
@@ -192,8 +192,8 @@ fn rectangles_are_recording_and_curves_are_geometry() {
     );
 }
 
-/// The other half of §13: the two host-side steps outside the three phases are named,
-/// and `host_total` says which numbers a caller may subtract from its own clock.
+/// The other half of feedback section 13: the two host-side steps outside the three phases are
+/// named, and `host_total` says which numbers a caller may subtract from its own clock.
 #[test]
 fn the_acquire_and_the_present_are_named_and_the_host_phases_sum() {
     let mut device = device(false);

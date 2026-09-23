@@ -89,7 +89,7 @@ impl Executor<'_> {
     /// The root is as big as what the page marks (ADR 0039) and the target is the target,
     /// so this is the one copy whose destination is larger than its source: the shader
     /// reads at `p − root.origin` and writes transparency outside the root's rectangle,
-    /// which is what a page rendered onto transparency (§3) has there.
+    /// which is what a page rendered onto transparency (brief section 3) has there.
     pub(crate) fn blit_to_target(
         &mut self,
         recorder: &mut wgpu::CommandEncoder,

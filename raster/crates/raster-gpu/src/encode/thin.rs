@@ -75,7 +75,7 @@ pub(super) fn sample_column_spacing(samples: u32) -> f32 {
 /// diverted by ADR 0070's condition. It does not vanish there — it crosses many pixels
 /// and catches a sample column in some of them — it **dots**: its coverage is uneven
 /// along its length where the processor lane's would be even. The corpus says the
-/// residual is small (`raster/doc/notes-thin-mark-options.md` §2.4: the corpus's largest
+/// residual is small (`raster/doc/notes-thin-mark-options.md` section 2.4: the corpus's largest
 /// sub-quarter-pixel stroke population is 29 375 marks on one page and exactly one of
 /// them takes the device lane at all).
 ///

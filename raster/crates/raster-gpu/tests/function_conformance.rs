@@ -34,7 +34,7 @@
 //!   magnitude, and inside an absolute 1e-3 below 1. `sin` and `cos` are stated as an
 //!   absolute 2⁻¹¹ ≈ 4.9e-4 over `[-π, π]`; `div` is 2.5 ULP and `sqrt` is inherited from
 //!   `inverseSqrt`, both far tighter. **The bound is this test's instrument and not a claim
-//!   about ISO 32000-2**, which states no precision at all (§7.3.3, and ADR 0053 §2).
+//!   about ISO 32000-2**, which states no precision at all (§7.3.3, and ADR 0053 section 2).
 //!
 //! Neither is a claim about a second adapter. ADR 0053's consequence stands: cross-adapter
 //! identity is not promised for this paint, so every message names the adapter it ran on.
@@ -361,14 +361,14 @@ fn every_refusal_the_device_takes_is_one_of_the_stated_reasons() {
                 | FunctionRefusal::UndecidableOperandType { .. }
                 // PLRM3 makes a negative `copy` count and an `index` past the bottom of the
                 // stack a `rangecheck`, and the count is a literal, so the error is static
-                // and the refusal is §5's "discoverable before the frame".
+                // and the refusal is brief section 5's "discoverable before the frame".
                 | FunctionRefusal::StackCountOutOfRange { .. },
             )
             | FunctionProblem::Structure(
                 raster_scene::SceneError::BackwardFunctionJump { .. }
                 | raster_scene::SceneError::FunctionJumpOutOfRange { .. },
             )
-            // ADR 0053 §3: a transcendental whose value reaches an amplifier has no
+            // ADR 0053 section 3: a transcendental whose value reaches an amplifier has no
             // agreement bound to state, so the program is refused rather than drawn.
             | FunctionProblem::NoAgreementBound { .. } => true,
             _ => false,

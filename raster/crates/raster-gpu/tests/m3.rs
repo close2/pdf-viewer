@@ -324,7 +324,7 @@ fn chains_intersect_through_the_viewport() {
         .expect("valid rect");
     let scene = builder.finish();
 
-    // The y flip lives in the viewport (§3): page y-up, device y-down.
+    // The y flip lives in the viewport (brief section 3): page y-up, device y-down.
     let viewport = Viewport::full(
         16,
         16,
@@ -476,7 +476,7 @@ fn clip_refusals_are_named() {
 /// their coverages does not have it: an antialiased boundary at 0.5 raised to the *n*-th
 /// power is the same clip stated *n* times and answered differently each time, which is
 /// what the caller measured as a ladder halving at every rung
-/// (`QUORRA_FEEDBACK.md` §18).
+/// (`QUORRA_FEEDBACK.md` section 18).
 ///
 /// The diagonal is what makes the test bite: every pixel along it carries a fraction, and
 /// only there do the two rules differ.

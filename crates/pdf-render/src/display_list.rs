@@ -380,10 +380,13 @@ pub enum Command {
         /// so a backend has to retain `B` beside the accumulation and composite each
         /// element against it in a scratch of its own. `pdf-model` emits the combination
         /// only where **every** element is a [`Command::Shaped`] (the per-pixel `fᵢ` has
-        /// to come from somewhere), [`Self::blend`] is [`BlendMode::Normal`] (the
-        /// non-isolated collapse's own condition, above), and no enclosing group is a
-        /// knockout group. A backend that cannot retain the backdrop refuses the
-        /// combination rather than substituting either backdrop for the other.
+        /// to come from somewhere) and no enclosing group is an *isolated* knockout group.
+        /// [`Self::blend`] may be any mode: under Normal the non-isolated collapse above
+        /// applies unchanged, and under another the accumulation is taken through
+        /// §11.4.4's result step with Table 140's group alpha — §11.4.8's knockout stage
+        /// b) run again onto transparency — and composited once under the mode, which is
+        /// what `render-cpu` does (ADR 1305). A backend that cannot retain the backdrop
+        /// refuses the combination rather than substituting either backdrop for the other.
         knockout: bool,
         /// Whether the raster this group accumulates carries Table 139's shape `f` as well as
         /// its alpha `α` (ISO 32000-2 §11.4.4, §11.3.7.1).

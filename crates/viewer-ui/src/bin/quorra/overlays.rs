@@ -484,8 +484,12 @@ impl App {
     ///
     /// Across the whole width including the sidebar's, where the find bar is: a tab names a
     /// *document* rather than anything about the page area. Nothing at all for one document, so a
-    /// window that opened one file is the window it was (ADR 1264).
+    /// window that opened one file is the window it was (ADR 1264). Nothing under Table 29's
+    /// `FullScreen` either — [`App::strip_shown`].
     pub(crate) fn documents_list(&self, width: u32) -> Option<pdf_render::DisplayList> {
+        if !self.strip_shown() {
+            return None;
+        }
         let chrome = self.chrome.as_ref()?;
         let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
         self.strip.draw(chrome, width, scale)

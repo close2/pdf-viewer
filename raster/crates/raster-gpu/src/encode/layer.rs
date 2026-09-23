@@ -54,6 +54,13 @@ pub(crate) struct ChildOp {
     /// (ADR 0019). The implicit one-element groups §11.3.5 needs for a blended
     /// element are isolated: the wrapper is a device trick, not a PDF group.
     pub isolated: bool,
+    /// For a non-isolated group composited under a blend mode other than Normal, the
+    /// index into `Encoded::layers` of NOTE 4's second accumulator: the same elements
+    /// drawn onto transparency, whose alpha is Table 140's group alpha `αg`. The
+    /// composite recovers the group's premultiplied colour from it as
+    /// `αg × C = E(B) − (1 − αg) × B` (`GroupSpec::isolated` carries the derivation).
+    /// `None` everywhere else, where §11.4.4's removal cancels or does not arise.
+    pub group_alpha: Option<usize>,
     /// Whether this layer's alpha **is** §11.6.4.2's group shape, which is what lets the
     /// composite meet it with the clip by §8.5.4's intersection rather than by a product
     /// (ADR 0074). Proved from the group's own commands by [`every_opacity_is_one`], never
@@ -101,6 +108,7 @@ impl ChildOp {
             kept: 0,
             mask,
             isolated: true,
+            group_alpha: None,
             alpha_is_shape: false,
         }
     }
@@ -198,28 +206,29 @@ impl Encoder<'_> {
     ) -> Result<(), RenderError> {
         let mask = self.use_mask(spec.mask)?;
         let resolved = self.resolve_clip(spec.clip)?;
-        let outer_style = self.style;
-        let child = self.plan_child(|encoder| {
-            // §11.4.6 binds inside this group. What the elements draw *onto* is
-            // `spec.isolated`: transparent for §11.4.5's group, a copy of the
-            // backdrop for §11.4.4's — a decision the compositor makes when it
-            // seeds the layer, not one the elements can see.
-            encoder.style = if spec.knockout {
-                DrawStyle::Knockout
-            } else {
-                DrawStyle::Over
-            };
-            for (i, command) in commands.iter().enumerate() {
-                encoder.command(i, command)?;
-            }
-            Ok(())
-        });
-        self.style = outer_style;
-        let child = child?;
+        // Inside §11.4.4's second accumulator only alpha is read, and alpha does not
+        // depend on the blend mode or the initial backdrop (`group_alpha_walk`).
+        let (isolated, blend) = if self.group_alpha_walk {
+            (true, BlendMode::Normal)
+        } else {
+            (spec.isolated, spec.blend)
+        };
+        let child = self.plan_group_elements(spec, commands)?;
+        // A non-isolated group under a blend of its own needs its colour as §11.4.4's
+        // Result step states it, and that needs the group alpha NOTE 4 keeps apart: the
+        // same elements drawn a second time, onto transparency (`ChildOp::group_alpha`).
+        let group_alpha = if !isolated && blend != BlendMode::Normal {
+            let outer = std::mem::replace(&mut self.group_alpha_walk, true);
+            let accumulator = self.plan_group_elements(spec, commands);
+            self.group_alpha_walk = outer;
+            Some(accumulator?)
+        } else {
+            None
+        };
         let (residue_rect, residue_origin) = self.plan_group_residue(&resolved)?;
         self.push_op(Op::Child(ChildOp {
             layer: child,
-            mode: blend_word(spec.blend),
+            mode: blend_word(blend),
             alpha: spec.alpha,
             clip_rect: [
                 resolved.rect.min.x,
@@ -246,12 +255,44 @@ impl Encoder<'_> {
                 Compose::SrcOver | Compose::Src | Compose::DestOut | Compose::Plus => 0,
             },
             mask,
-            isolated: spec.isolated,
+            isolated,
+            group_alpha,
             // §11.4.4 seeds a non-isolated group's buffer with its own backdrop, so its
             // raster's alpha carries the backdrop's as well as the group's and is nobody's
-            // shape however opaque the elements are (ADR 0074).
-            alpha_is_shape: spec.isolated && every_opacity_is_one(commands),
+            // shape however opaque the elements are (ADR 0074). Under a blend of its own
+            // the composite reads the group alpha instead, which is the group's shape
+            // where every opacity is one — and the second accumulator states the same
+            // clip meeting for a nested group that the colour walk does, so the two
+            // walks' alphas cannot part at a clip edge.
+            alpha_is_shape: (spec.isolated || spec.blend != BlendMode::Normal)
+                && every_opacity_is_one(commands),
         }))
+    }
+
+    /// A group's elements, encoded into a plan of their own under the style the group
+    /// sets (§11.4.6 binds inside it). What they draw *onto* is `ChildOp::isolated`:
+    /// transparent for §11.4.5's group, a copy of the backdrop for §11.4.4's — a
+    /// decision the compositor makes when it seeds the layer, not one the elements can
+    /// see.
+    fn plan_group_elements(
+        &mut self,
+        spec: &GroupSpec,
+        commands: &[Command],
+    ) -> Result<usize, RenderError> {
+        let outer_style = self.style;
+        let child = self.plan_child(|encoder| {
+            encoder.style = if spec.knockout {
+                DrawStyle::Knockout
+            } else {
+                DrawStyle::Over
+            };
+            for (i, command) in commands.iter().enumerate() {
+                encoder.command(i, command)?;
+            }
+            Ok(())
+        });
+        self.style = outer_style;
+        child
     }
 
     /// Plan a child layer: run `body` with the current plan switched to a fresh
@@ -261,10 +302,18 @@ impl Encoder<'_> {
     /// current when the walk reached it, and this is the one place `current_plan` moves
     /// (`parallel`). The second drain runs *inside* the child, before the restore, and
     /// only when the body succeeded — a body that failed is a frame that will be refused.
+    ///
+    /// **This is also where a frame leaves the replay road**, for every child layer at
+    /// once: a group, the implicit group §11.3.5 puts a blended mark in, §11.7.4.3's
+    /// layer, a soft mask's plan. A layer is frame-wide state — its plan, its texture, its
+    /// composite — and no record rebuilds one (`replay.rs`). The records a body writes
+    /// are the marks *inside* the layer, so a replay of them would draw those marks
+    /// straight onto the parent without the composite that makes them a group.
     pub(super) fn plan_child(
         &mut self,
         body: impl FnOnce(&mut Self) -> Result<(), RenderError>,
     ) -> Result<usize, RenderError> {
+        self.unreplayable();
         self.drain_queue()?;
         let child = self.layers.len();
         self.layers.push(LayerPlan::default());
@@ -297,7 +346,11 @@ impl Encoder<'_> {
                 .transfer
                 .as_ref()
                 .map_or_else(|| raster_scene::Transfer::identity().0, |t| t.0);
+            // A mask's group is realised once per frame and read for its colour as well
+            // as its alpha (§11.5.3's luminosity), so it is never drawn as a second
+            // accumulator, whichever walk first asked for it.
             let outer_style = self.style;
+            let outer_walk = std::mem::replace(&mut self.group_alpha_walk, false);
             let root = self.plan_child(|encoder| {
                 encoder.style = DrawStyle::Over;
                 for (i, command) in commands.iter().enumerate() {
@@ -306,6 +359,7 @@ impl Encoder<'_> {
                 Ok(())
             });
             self.style = outer_style;
+            self.group_alpha_walk = outer_walk;
             let root = root?;
             self.mask_plans[index] = Some(MaskPlan {
                 root,
@@ -379,7 +433,7 @@ impl Encoder<'_> {
     /// itself. [`Counters::layers_culled`] reports how often that happened, since a
     /// saving nobody counts is a saving nobody can check.
     ///
-    /// **Why dropping it draws the same frame**, for each of the four things
+    /// **Why dropping it draws the same frame**, for each of the five things
     /// `composite.wgsl` can be. Write `b` for the backdrop the pass reads, `s` for the
     /// child's pixel and `w` for the group's constant alpha times its soft mask, its
     /// clip coverage and its clip residue. [`child_contribution`] establishes that at
@@ -403,6 +457,11 @@ impl Encoder<'_> {
     ///   A seeded plan also takes its parent's region rather than its own (ADR 0038), so
     ///   this is the one case the compositor's own `region.meet` can never catch, and
     ///   the only place it can be caught is here.
+    ///
+    /// - §11.4.4 under a blend of the group's own: §11.3.6 again, with the source the
+    ///   group `(E(B) − (1 − αg) × B, αg)` recovers. Wherever the child marked nothing
+    ///   its seeded texel is `b` and its group alpha is zero, so the source is zero and
+    ///   the first bullet's argument lands on `b`; wherever `w` is zero, likewise.
     ///
     /// The staged pair and the non-isolated group cannot combine — `SceneBuilder`
     /// refuses `DestOut`/`Plus` on a group that is not isolated, because §11.4.4's seed

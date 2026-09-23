@@ -40,7 +40,7 @@ use raster_gpu::{Counters, Device, Options, Target, Viewport};
 use raster_pages::{ARTWORK, Archetype, Recorded};
 use raster_scene::{Affine, Scene};
 
-/// The brief's window scale (§6.2), which is what the archetype's counts were taken at.
+/// The brief's window scale (section 6.2), which is what the archetype's counts were taken at.
 const WIDTH: u32 = 1191;
 const HEIGHT: u32 = 1684;
 

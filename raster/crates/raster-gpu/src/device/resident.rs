@@ -7,7 +7,7 @@
 //! these by `Arc::as_ptr` identity, so a zoom re-uploads nothing). The *texture* an
 //! image, ramp or mesh becomes is made on the first frame that draws it and not at
 //! upload, because startup and a page of text must not pay for a picture nothing
-//! placed (§7). And [`Device::release`] drops both, so the budget's word stays true on
+//! placed (brief section 7). And [`Device::release`] drops both, so the budget's word stays true on
 //! the GPU side as well as on ours.
 //!
 //! Nothing here decides what a frame *needs*: `crate::encode` names the ids and this
@@ -87,7 +87,7 @@ impl Device {
     /// # Errors
     ///
     /// [`DeviceError::InvalidFunction`] naming which of the upload's three questions was
-    /// answered no — the structure, the analysing walk, or ADR 0053 §3's agreement
+    /// answered no — the structure, the analysing walk, or ADR 0053 section 3's agreement
     /// classification — and by what. Also [`DeviceError::ResourceBudgetExceeded`] and
     /// [`DeviceError::ResourceIdsExhausted`], as [`Device::upload_outline`].
     ///
@@ -181,7 +181,7 @@ impl Device {
 
     /// Realise the frame's referenced images, ramps and meshes as textures, once
     /// per resident resource — created here rather than at upload so startup and
-    /// pages without them never pay (§7). Returns the bytes written.
+    /// pages without them never pay (brief section 7). Returns the bytes written.
     ///
     /// The ids were validated during encode; a miss here still refuses by name
     /// rather than trusting that invariant silently.

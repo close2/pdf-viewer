@@ -63,7 +63,7 @@ pub(crate) struct Paint {
 
 /// Build a pipeline from a whole WGSL source, timing the two halves separately.
 ///
-/// The split matters for `PLAN.md` §1.8: a naga parse is portable work this library
+/// The split matters for `PLAN.md` section 1.8: a naga parse is portable work this library
 /// controls, and a driver compile is not, so a startup number that adds them cannot
 /// say which regressed.
 pub(crate) fn build(gpu: &Gpu, source: &str, with_program: bool) -> Paint {

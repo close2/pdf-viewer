@@ -1,6 +1,6 @@
 //! Why the builder refused an input: one typed enum, and the three reasons it defers to.
 //!
-//! One responsibility, and `raster/doc/RENDER_LIBRARY.md` §4.7 states it: structured input
+//! One responsibility, and `raster/doc/RENDER_LIBRARY.md` section 4.7 states it: structured input
 //! reaching [`SceneBuilder`](crate::scene::SceneBuilder) from another process's parser
 //! is refused *by name* — never clamped, never repaired, never turned into NaN geometry
 //! for a later stage to discover. [`SceneError`] is that name, and it is the only error
@@ -8,7 +8,7 @@
 //!
 //! Three of the refusals are about a *position* rather than a value: which operator a
 //! group named, where a staged operator was placed, what surrounds a non-isolated
-//! group. Each of those carries its own reason enum, because §5's "an `Err` that names
+//! group. Each of those carries its own reason enum, because brief section 5's "an `Err` that names
 //! what overflowed" is not satisfied by an error a caller cannot attribute — and
 //! because a variant that names nothing makes "how often does this happen?"
 //! unanswerable, which is the rule `raster-gpu`'s [`error`](../../raster_gpu/error/index.html)
@@ -26,20 +26,15 @@ use crate::geom::{Affine, Rect};
 use crate::ids::{ClipId, MaskId};
 use crate::paint::{Color, Stroke};
 
-/// Which of [`GroupSpec::isolated`](crate::scene::GroupSpec::isolated)'s three
+/// Which of [`GroupSpec::isolated`](crate::scene::GroupSpec::isolated)'s two
 /// conditions a non-isolated group broke.
 ///
-/// Each names a case where §11.4.4's backdrop removal no longer cancels against the
-/// composite that follows it, so the group's own alpha — Table 140's group alpha,
-/// which a premultiplied raster does not hold — would be needed to draw it correctly.
-/// A refusal here is §5 of the brief: a hole and a sentence beat a plausible lie.
+/// Each names a case where seeding the group's buffer with its backdrop describes
+/// neither §11.4.4's model nor §11.4.6's, because a knockout group's elements composite
+/// with the initial backdrop rather than with each other. A refusal here is section 5 of the
+/// brief: a hole and a sentence beat a plausible lie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NonIsolatedReason {
-    /// The group's own blend mode is not
-    /// [`BlendMode::Normal`](crate::blend::BlendMode::Normal). The cancellation *is* the
-    /// Normal blend function; under any other the identity is false by up to 0.91 of
-    /// full scale.
-    GroupBlendNotNormal,
     /// The group is itself a knockout group (§11.4.6): its elements composite with the
     /// initial backdrop rather than with each other, so seeding that backdrop into the
     /// accumulating buffer describes neither model.
@@ -89,7 +84,7 @@ impl GroupComposeReason {
 /// [`Compose::DestOverIn`] — cannot be drawn where it was placed.
 ///
 /// Each is a position where the mode would meet a second compositing rule, and the clause
-/// says which of the two wins in none of them. A refusal rather than a guess (§5 of the
+/// says which of the two wins in none of them. A refusal rather than a guess (section 5 of the
 /// brief): the caller's own interpreter already builds §11.7.4.3's implicit group for the
 /// first, and the other two are constructions it does not emit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +129,7 @@ impl OverprintComposeReason {
 ///
 /// [`Compose::DestOut`] and [`Compose::Plus`] are a caller's own expansion of §11.4.6's
 /// second stage, and one position still refuses them because it already *is* that stage
-/// by another route — a refusal rather than a guess (§5 of the brief).
+/// by another route — a refusal rather than a guess (section 5 of the brief).
 ///
 /// **A knockout group is no longer one of them** (ADR 0032). It was, on the reading that
 /// a group whose elements are staged per element cannot also have an element stage
@@ -178,7 +173,7 @@ pub enum SceneError {
     RectTooLarge {
         /// The offending rectangle.
         rect: Rect,
-        /// The limit it exceeded, named per §5 of the brief.
+        /// The limit it exceeded, named per section 5 of the brief.
         limit: f32,
     },
     /// A transform had a NaN or infinite coefficient.
@@ -311,8 +306,8 @@ pub enum SceneError {
         /// Which position refused it.
         reason: OverprintComposeReason,
     },
-    /// A non-isolated group (§11.4.4) in a position where a one-accumulator raster
-    /// cannot draw it. The reason names which of the three conditions failed; see
+    /// A non-isolated group (§11.4.4) in a position where a seeded raster
+    /// cannot draw it. The reason names which of the two conditions failed; see
     /// [`GroupSpec::isolated`](crate::scene::GroupSpec::isolated) for why each is
     /// load-bearing, and ADR 0019 for the derivation.
     NonIsolatedGroupUnsupported {
@@ -336,7 +331,7 @@ pub enum SceneError {
     /// there, so the group would be composited by §11.3.6 instead — byte-identical to the
     /// same group inside an *ordinary* group. Measured over an opaque cover, a half-opaque
     /// isolated group drew `[128, 76, 128, 255]` where the clause requires
-    /// `[26, 102, 229, 128]`. §5 of the brief calls a plausible-looking wrong page the
+    /// `[26, 102, 229, 128]`. Section 5 of the brief calls a plausible-looking wrong page the
     /// worst outcome either project has a name for, so it is an error.
     ///
     /// **The construction is available, by name**: [`Compose::DestOut`] then
@@ -470,10 +465,6 @@ impl fmt::Display for SceneError {
             ),
             Self::NonIsolatedGroupUnsupported { reason } => {
                 let because = match reason {
-                    NonIsolatedReason::GroupBlendNotNormal => {
-                        "its own blend mode is not Normal, and the Normal composite is \
-                         what cancels §11.4.4's backdrop removal"
-                    }
                     NonIsolatedReason::KnockoutGroup => "it is also a knockout group",
                     NonIsolatedReason::InsideKnockoutGroup => {
                         "it is nested inside a knockout group"

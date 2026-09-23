@@ -427,6 +427,7 @@ fn main() {
         dirty: false,
         asking: viewer_host::Asking::new(),
         report_due: viewer_host::report::Due::default(),
+        catalog_due: false,
         password: viewer_ui::chrome::PasswordCard::default(),
         question: viewer_ui::chrome::QuestionCard::default(),
         menu: viewer_ui::chrome::RestrictionsCard::default(),

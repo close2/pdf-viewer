@@ -38,11 +38,32 @@
 //! Part 10, the overflow hint stream, is not written: §F.3.6 makes it optional ("[t]he overflow hint
 //! stream, part 10, is optional") and every table fits in the primary one.
 //!
-//! **No object stream and no cross-reference stream is written.** §F.3.1 and §F.3.4 permit both —
-//! "Cross-reference streams … may be used in place of traditional cross-reference tables" — and
-//! grant them as permissions; §F.3.1's conditions on object streams bind only "[i]n linearized
-//! files containing object streams". This writer's files contain none, so the conditions are met
-//! by not arising, and §7.5.4's classic table is what both sections are.
+//! # Object streams, and the cross-reference streams they need
+//!
+//! Where the caller's [`Options`] generate §7.5.7's object streams, each run of objects a hint
+//! table describes — part 4, the first page's own objects, each later page's, each shared object,
+//! each §F.3.10 category — has its packable objects gathered into carriers of its own, placed where
+//! the first of them stood, so that a hint table's group is still a run of whole objects. §F.3.1
+//! states the rest, and each sentence is one decision here:
+//!
+//! - "These additional objects may not be contained in an object stream: the linearization
+//!   dictionary, the document catalog dictionary, and page objects."
+//! - "Objects stored within object streams shall be given the highest range of object numbers
+//!   within the main and first-page cross-reference sections" — so each group's compressed
+//!   objects are numbered after its whole objects, and the hint stream after the first group's.
+//! - "For PDF files containing object streams, hint data may specify the location and size of the
+//!   object streams only (or uncompressed objects), not the individual compressed objects.
+//!   Similarly, shared object references shall be made to the object stream containing a
+//!   compressed object, not to the compressed object itself." — every hint table counts items, and
+//!   a carrier is one item and one shared object group.
+//! - "Cross-reference streams (7.5.8, "Cross-reference streams") may be used in place of
+//!   traditional cross-reference tables" — and Table 18 makes them necessary, since only a stream
+//!   has a type 2 entry. The first-page stream is the object after the parameter dictionary, with
+//!   `/Index` over §F.3.4's single subsection; the main one closes the second group's whole
+//!   objects, and Table F.1's `/T` is its offset.
+//!
+//! Without object streams, [`Options::form`] decides the two sections' form as it does for
+//! [`crate::serialize::serialize`]. ADR 1309 is the design.
 //!
 //! # Every offset is correct by construction
 //!
@@ -59,7 +80,7 @@
 //!
 //! The cost is memory: the rendered objects are held until the layout is known. A carried
 //! stream's data is the assembly's `Arc<[u8]>` and is not copied; a recompressed one was already
-//! in memory under [`Streams::Recompress`]'s own stated cost.
+//! in memory under [`crate::serialize::Streams::Recompress`]'s own stated cost.
 //!
 //! # Reading one
 //!
@@ -79,7 +100,8 @@ use std::sync::Arc;
 use crate::Document;
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::serialize::{
-    Assembly, FREE_FOREVER, MAX_TABLE_OFFSET, SerializeError, Streams, Written, catalog_of, header,
+    Assembly, Entropy, FREE_FOREVER, Form, MAX_TABLE_OFFSET, Options, Protected, Protection,
+    SerializeError, Written, carrier_level, catalog_of, deflate, header, header_version, row,
 };
 use crate::version::Version;
 use crate::write;
@@ -609,12 +631,12 @@ impl Category {
     }
 }
 
-/// A run of consecutive objects in the file's order: where it starts and how many.
+/// A run of consecutive items in the file's order: where it starts and how many.
 #[derive(Debug, Clone, Copy, Default)]
 struct Span {
-    /// Its first object's position in [`Layout::sequence`].
+    /// Its first item's position in [`Layout::rendered`].
     start: usize,
-    /// How many objects.
+    /// How many items.
     count: usize,
 }
 
@@ -650,16 +672,29 @@ struct PageEntry {
 /// Everything about the file that does not depend on where the variable parts end.
 #[derive(Debug)]
 struct Layout {
-    /// Every object in file order, as assembly indices: parts 4, 6, 7, 8 and 9.
-    sequence: Vec<usize>,
-    /// Each position's rendered object.
+    /// Each position's rendered item, in file order: parts 4, 6, 7, 8 and 9.
     rendered: Vec<Rendered>,
     /// Each position's final object number.
     numbers: Vec<u32>,
-    /// How many objects are in parts 4 and 6, the first group.
+    /// How many items are in parts 4 and 6, the first group.
     first_group: usize,
-    /// How many are in parts 7, 8 and 9, the second group — `k` in §F.3.1's numbering.
+    /// The last number of the second group — `k` in §F.3.1's numbering: its items, a main
+    /// cross-reference stream, and its compressed objects.
     second_group: u32,
+    /// How many of the second group's numbers are items, which run from 1.
+    second_uncompressed: u32,
+    /// §7.5.4's tables or §7.5.8's streams, in both sections.
+    form: Form,
+    /// The first group's compressed objects in number order: each one's carrier and index.
+    first_compressed: Vec<(u32, u16)>,
+    /// The second group's, likewise.
+    second_compressed: Vec<(u32, u16)>,
+    /// The hint stream's number, the file's last.
+    hint_number: u32,
+    /// The encryption dictionary's number, where the file is encrypted.
+    encrypt: Option<u32>,
+    /// The hint stream's initialisation vector, drawn once so that every pass encrypts alike.
+    hint_iv: Option<[u8; crate::crypt::AES_BLOCK]>,
     /// Part 6.
     first_page: Span,
     /// Part 6's leading run of objects no other page uses, the shared object table's entry 0.
@@ -729,9 +764,12 @@ impl Rendered {
 
 /// Writes a finished assembly as an Annex F linearised file.
 ///
-/// The parts are in the order this module's documentation tables, the first page is
-/// `plan.first_page`, and every object is written outside any object stream with §7.5.4's
-/// classic cross-reference tables.
+/// The parts are in the order this module's documentation tables and the first page is
+/// `plan.first_page`. `options` is the serializer's: where [`Options::object_streams`] generates
+/// them, every object §7.5.7 and §F.3.1 permit is packed into an object stream of the part it
+/// belongs to and both sections are §7.5.8 cross-reference streams, which Table 18 requires for
+/// a compressed object; otherwise [`Options::form`] decides the sections' form, as it does for
+/// [`crate::serialize::serialize`].
 ///
 /// # Errors
 ///
@@ -740,8 +778,51 @@ impl Rendered {
 pub fn serialize_linearized<W: Write>(
     assembly: &Assembly<'_>,
     version: Version,
-    streams: Streams,
+    options: Options,
     plan: &Plan,
+    out: &mut W,
+) -> Result<Linearized, LinearizeError> {
+    write_linearized(assembly, version, options, plan, None, out)
+}
+
+/// [`serialize_linearized`], with §7.6.4's standard security handler over the output.
+///
+/// The handler is [`crate::serialize::serialize_encrypted`]'s, `/V` 5 and `/R` 6, and §F.3.5
+/// places its dictionary: part 4 holds "[t]he Encrypt entry in the first-page trailer dictionary.
+/// All values in the encryption dictionary shall also be located here" — every value of this
+/// writer's dictionary is direct, so the one object is all of it.
+///
+/// **Encryption does not disturb the fixed point.** Every object is encrypted once, under its
+/// final number, before the layout is computed, and revision 6's Algorithm 2.A takes nothing
+/// from `/ID` — §7.6.4.3.2's step (e) is revision 4's and earlier — so the identifier can be the
+/// digest of the ciphertext without a circle. The one stream rendered on every pass, the hint
+/// stream, is encrypted with one initialisation vector drawn before the first, and AES's length
+/// is a function of the plaintext's, so its length grows with its plaintext and settles with it.
+///
+/// # Errors
+///
+/// [`serialize_linearized`]'s, plus the handler's own: [`SerializeError::Protection`],
+/// [`SerializeError::Entropy`] and [`SerializeError::Cipher`].
+pub fn serialize_linearized_encrypted<W: Write>(
+    assembly: &Assembly<'_>,
+    version: Version,
+    options: Options,
+    plan: &Plan,
+    protection: &Protection<'_>,
+    entropy: &mut dyn Entropy,
+    out: &mut W,
+) -> Result<Linearized, LinearizeError> {
+    let mut protected = Protected::new(protection, entropy)?;
+    write_linearized(assembly, version, options, plan, Some(&mut protected), out)
+}
+
+/// The body of both entry points, which differ in one argument.
+fn write_linearized<W: Write>(
+    assembly: &Assembly<'_>,
+    version: Version,
+    options: Options,
+    plan: &Plan,
+    mut protected: Option<&mut Protected<'_>>,
     out: &mut W,
 ) -> Result<Linearized, LinearizeError> {
     let root = catalog_of(assembly)?;
@@ -749,7 +830,7 @@ pub fn serialize_linearized<W: Write>(
     let mut objects = Vec::with_capacity(assembly.slots.len());
     for index in 0..assembly.slots.len() {
         let object = assembly
-            .resolved(index, streams, &mut tally)
+            .resolved(index, options.streams, &mut tally)
             .ok_or_else(|| {
                 let number = u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX);
                 SerializeError::Unplaced {
@@ -773,6 +854,7 @@ pub fn serialize_linearized<W: Write>(
     let trailer_roots: Vec<usize> = std::iter::once(root).chain(info).collect();
     let reachable_before = reachable(&objects, &trailer_roots);
     push_down(&mut objects, &pages);
+    thread_beads(&mut objects, root, &pages);
     let reachable_after = reachable(&objects, &trailer_roots);
     // What only a node's attribute reached is no longer reachable once §F.3.10 has pushed it down,
     // and it is not written — the same reachability `optimize` prunes by, so that linearising the
@@ -784,10 +866,28 @@ pub fn serialize_linearized<W: Write>(
         .map(|(before, after)| *before && !*after)
         .collect();
 
+    // Table 18 decides the form where object streams are generated, as it does for the
+    // serializer: a compressed object is named by a type 2 entry, which only a stream has.
+    let form = if options.object_streams.ceilings().is_some() {
+        Form::Stream
+    } else {
+        options.form
+    };
+    let version = header_version(version, form, protected.is_some());
     let graph = graph_of(objects);
     let placement = place(&graph, root, info, &pages, plan.first_page, &dropped);
-    let layout = lay_out(&graph, &placement, root, info, &mut tally)?;
-    write_out(&layout, version, &mut tally, out)
+    let layout = lay_out(
+        assembly,
+        &graph,
+        &placement,
+        root,
+        info,
+        options,
+        form,
+        protected.as_deref_mut(),
+        &mut tally,
+    )?;
+    write_out(&layout, version, protected.as_deref(), &mut tally, out)
 }
 
 /// The plan's pages as indices, checked.
@@ -896,6 +996,109 @@ fn push_down(objects: &mut [Object], pages: &[usize]) {
             for key in INHERITABLE {
                 dict.remove(key);
             }
+        }
+    }
+}
+
+/// §F.3.7 (b)'s two statements about beads, made true of the file where the producer left them
+/// to be derived:
+///
+/// > If any beads exist for this page, the B array shall be present in the page dictionary.
+/// > Additionally, each bead in the thread (not just the first bead) shall contain a T entry
+/// > referring to the associated thread dictionary.
+///
+/// Neither is something a producer owes an ordinary file. Table 163 makes a bead's `/T`
+/// "( Required for the first bead of a thread; optional for all others; shall be an indirect
+/// reference )", and Table 31 makes a page's `/B` "( Optional; PDF 1.1; recommended if the page
+/// contains article beads )" while §12.4.3 says the page "shall contain a B entry" — so a file
+/// that carried its producer's dictionaries unchanged could satisfy §12.4.3 and Table 163 and
+/// still not (b). Both are **derived from §12.4.3's own chain**, which is the definition of which
+/// beads belong to which thread: "[t]he thread dictionary's F entry shall refer to the first bead
+/// in the thread; the beads shall be chained together sequentially in a doubly linked list
+/// through their N (next) and V (previous) entries". Table 31's NOTE 2 says the same of `/B`:
+/// "The information in this entry can be created or recreated from the information obtained from
+/// the Threads key in the catalog dictionary." Structure, not content: no mark changes, and a
+/// bead's `/R` on its page is the producer's.
+///
+/// What the producer stated is kept: a bead's `/T` already present, and a page's `/B` already
+/// present, are carried as written. A synthesised `/B` lists the page's beads thread by thread
+/// in the order of `/Threads`, and along each thread in its chain's order — §12.4.3 asks for
+/// "drawing order" and Table 31 for "natural reading order", and neither is a quantity a writer
+/// that reads no content stream can know, so the order is this writer's documented choice
+/// (ADR 1309). A thread stated directly in the `/Threads` array has no reference a `/T` could
+/// state, since Table 163 requires `/T` to "be an indirect reference", and is left alone.
+fn thread_beads(objects: &mut [Object], root: usize, pages: &[usize]) {
+    let index_of = |value: Option<&Object>| {
+        value
+            .and_then(Object::as_reference)
+            .and_then(|id| usize::try_from(id.number).ok())
+            .and_then(|number| number.checked_sub(1))
+    };
+    let threads: Vec<usize> = {
+        let catalog = objects.get(root).and_then(Object::as_dict);
+        let value = catalog.and_then(|catalog| catalog.get("Threads"));
+        let array = match index_of(value) {
+            Some(index) => objects.get(index),
+            None => value,
+        };
+        array
+            .and_then(Object::as_array)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|thread| index_of(Some(thread)))
+            .filter(|index| matches!(objects.get(*index), Some(Object::Dictionary(_))))
+            .collect()
+    };
+    let mut on_page: Vec<(usize, Vec<Object>)> = Vec::new();
+    let mut visited = BTreeSet::new();
+    for thread in threads {
+        let thread_id = ObjectId::new(
+            u32::try_from(thread.saturating_add(1)).unwrap_or(u32::MAX),
+            0,
+        );
+        let first = index_of(
+            objects
+                .get(thread)
+                .and_then(Object::as_dict)
+                .and_then(|t| t.get("F")),
+        );
+        let mut bead = first;
+        // A chain is at most every object once; a bead met a second time closes the walk, which
+        // is what §12.4.3's "[i]n the last bead, this entry shall refer to the first bead" makes
+        // of a well-formed thread and a bound makes of a malformed one.
+        while let Some(index) = bead {
+            if !visited.insert(index) {
+                break;
+            }
+            let Some(Object::Dictionary(dict)) = objects.get_mut(index) else {
+                break;
+            };
+            if dict.get("T").is_none() {
+                dict.insert(Name::new(&b"T"[..]), Object::Reference(thread_id));
+            }
+            let next = index_of(dict.get("N"));
+            let page = index_of(dict.get("P"));
+            let reference = Object::Reference(ObjectId::new(
+                u32::try_from(index.saturating_add(1)).unwrap_or(u32::MAX),
+                0,
+            ));
+            if let Some(page) = page.filter(|page| pages.contains(page)) {
+                match on_page.iter_mut().find(|(held, _)| *held == page) {
+                    Some((_, beads)) => beads.push(reference),
+                    None => on_page.push((page, vec![reference])),
+                }
+            }
+            if next == first {
+                break;
+            }
+            bead = next;
+        }
+    }
+    for (page, beads) in on_page {
+        if let Some(Object::Dictionary(dict)) = objects.get_mut(page)
+            && dict.get("B").is_none()
+        {
+            dict.insert(Name::new(&b"B"[..]), Object::Array(beads));
         }
     }
 }
@@ -1863,55 +2066,177 @@ fn contents_of(graph: &Graph, page: usize) -> Vec<usize> {
     }
 }
 
+/// One thing written at the outermost level of the file, in the file's order.
+#[derive(Debug, Clone)]
+enum Item {
+    /// An assembly object, as an index.
+    Object(usize),
+    /// A §7.5.7 object stream this module builds, and the assembly objects it holds, in order.
+    Carrier(Vec<usize>),
+    /// §F.3.5's "Encrypt entry in the first-page trailer dictionary", which is part 4's last.
+    Encrypt,
+}
+
+impl Item {
+    /// The assembly objects this item writes.
+    fn members(&self) -> &[usize] {
+        match self {
+            Self::Object(index) => std::slice::from_ref(index),
+            Self::Carrier(members) => members,
+            Self::Encrypt => &[],
+        }
+    }
+}
+
+/// How the parts are cut into the file's items: which objects go into object streams.
+struct Packer<'a> {
+    /// The objects.
+    graph: &'a Graph,
+    /// §7.5.7 NOTE 4's two ceilings, or `None` where no object stream is written.
+    ceilings: Option<(usize, usize)>,
+    /// What §F.3.1 keeps out of every object stream: "the linearization dictionary, the document
+    /// catalog dictionary, and page objects". The first is this module's own and never an
+    /// assembly object; the other two are flagged here.
+    kept_out: Vec<bool>,
+    /// The items so far.
+    sequence: Vec<Item>,
+    /// The carrier this run has open: its position, how many members it holds, and its
+    /// payload's bytes so far.
+    filling: Option<(usize, usize, usize)>,
+}
+
+impl Packer<'_> {
+    /// Whether §7.5.7 and §F.3.1 let an object be stored in an object stream.
+    ///
+    /// §7.5.7's list — "[s]tream objects", generation numbers other than zero (none here), "[a]
+    /// document's encryption dictionary" (never an assembly object), the value of an object
+    /// stream's `/Length` (stated directly) — and its rule on values, "[a]n object in an object
+    /// stream shall not consist solely of an object reference"; then §F.3.1's three, of which the
+    /// catalog and the pages are assembly objects.
+    fn packable(&self, index: usize) -> bool {
+        !self.kept_out.get(index).copied().unwrap_or(true)
+            && !matches!(
+                self.graph.objects.get(index),
+                Some(Object::Stream(_) | Object::Reference(_)) | None
+            )
+    }
+
+    /// Appends one run of objects, answering its span of items.
+    ///
+    /// A packable object joins the carrier the run has open, or opens one where it stands; an
+    /// object that is not packable is its own item. So every carrier sits where its first member
+    /// would have, a member only ever moves earlier, and a run's items stay a run — which is what
+    /// keeps each hint table's group contiguous, and §F.3.7 (d)'s "each resource object shall
+    /// precede the stream in which it is first referenced" true of a resource that moved.
+    fn run(&mut self, objects: &[usize]) -> Span {
+        let start = self.sequence.len();
+        self.filling = None;
+        for index in objects {
+            let Some((max_objects, max_bytes)) = self.ceilings.filter(|_| self.packable(*index))
+            else {
+                self.sequence.push(Item::Object(*index));
+                continue;
+            };
+            // Measured in the assembly's numbering: the file's differs from it only in the digits
+            // of a reference, and §7.5.7 NOTE 4 asks for a limit, not an exact one.
+            let mut text = Vec::new();
+            if let Some(object) = self.graph.objects.get(*index) {
+                write::object(object, &mut text);
+            }
+            let size = text.len().saturating_add(1);
+            match self.filling {
+                Some((position, members, bytes)) if members < max_objects && bytes < max_bytes => {
+                    if let Some(Item::Carrier(held)) = self.sequence.get_mut(position) {
+                        held.push(*index);
+                    }
+                    self.filling = Some((
+                        position,
+                        members.saturating_add(1),
+                        bytes.saturating_add(size),
+                    ));
+                }
+                _ => {
+                    self.filling = Some((self.sequence.len(), 1, size));
+                    self.sequence.push(Item::Carrier(vec![*index]));
+                }
+            }
+        }
+        self.filling = None;
+        Span {
+            start,
+            count: self.sequence.len().saturating_sub(start),
+        }
+    }
+}
+
 /// Numbers every object, renders it, and lays out everything whose position does not move.
 #[expect(
     clippy::too_many_lines,
+    clippy::too_many_arguments,
     reason = "the numbering, the rendering and every hint table's static half come out of one \
-              pass over the placement, and each needs the positions the others fix"
+              pass over the placement, and each needs the positions the others fix; the \
+              arguments are that pass's inputs, and bundling them would be a struct whose only \
+              method is this function"
 )]
 fn lay_out(
+    assembly: &Assembly<'_>,
     graph: &Graph,
     placement: &Placement,
     root: usize,
     info: Option<usize>,
+    options: Options,
+    form: Form,
+    mut protected: Option<&mut Protected<'_>>,
     tally: &mut Written,
 ) -> Result<Layout, LinearizeError> {
     let count = graph.objects.len();
-    let mut sequence: Vec<usize> = Vec::with_capacity(count);
-    sequence.extend(&placement.part4);
-    let first_page_start = sequence.len();
-    sequence.extend(&placement.first_private);
+    let mut kept_out = vec![false; count];
+    for index in std::iter::once(root).chain(placement.pages.iter().copied()) {
+        if let Some(flag) = kept_out.get_mut(index) {
+            *flag = true;
+        }
+    }
+    // A carrier's type 2 entry states its member's index in `/W [1 4 2]`'s two bytes.
+    let ceilings = options
+        .object_streams
+        .ceilings()
+        .map(|(objects, bytes)| (objects.min(usize::from(u16::MAX)), bytes));
+    let mut packer = Packer {
+        graph,
+        ceilings,
+        kept_out,
+        sequence: Vec::with_capacity(count),
+        filling: None,
+    };
+    packer.run(&placement.part4);
+    if protected.is_some() {
+        packer.sequence.push(Item::Encrypt);
+    }
+    let first_page_start = packer.sequence.len();
+    // The outline, where §F.3.7 puts it in part 6, ends the first page's leading run, and it is
+    // cut as its own run so that its generic table's group is a run of items too.
+    let outline_len = placement.outline_in_first_page.as_ref().map_or(0, Vec::len);
+    let (own, outline) = placement
+        .first_private
+        .split_at(placement.first_private.len().saturating_sub(outline_len));
+    packer.run(own);
+    let outline_span = packer.run(outline);
     let first_private = Span {
         start: first_page_start,
-        count: placement.first_private.len(),
+        count: packer.sequence.len().saturating_sub(first_page_start),
     };
-    let first_shared = Span {
-        start: sequence.len(),
-        count: placement.first_shared.len(),
-    };
-    sequence.extend(&placement.first_shared);
+    let first_shared = packer.run(&placement.first_shared);
     let first_page = Span {
         start: first_page_start,
-        count: sequence.len().saturating_sub(first_page_start),
+        count: packer.sequence.len().saturating_sub(first_page_start),
     };
-    let first_group = sequence.len();
+    let first_group = packer.sequence.len();
 
     let mut sections = Vec::new();
     for (at, objects) in &placement.sections {
-        sections.push((
-            *at,
-            Span {
-                start: sequence.len(),
-                count: objects.len(),
-            },
-        ));
-        sequence.extend(objects);
+        sections.push((*at, packer.run(objects)));
     }
-    let shared = Span {
-        start: sequence.len(),
-        count: placement.shared.len(),
-    };
-    sequence.extend(&placement.shared);
+    let shared = packer.run(&placement.shared);
 
     let mut groups = Vec::new();
     let mut thumbnails = None;
@@ -1922,44 +2247,21 @@ fn lay_out(
         {
             let mut spans = Vec::new();
             for (page, objects) in images {
-                spans.push((
-                    *page,
-                    Span {
-                        start: sequence.len(),
-                        count: objects.len(),
-                    },
-                ));
-                sequence.extend(objects);
+                spans.push((*page, packer.run(objects)));
             }
-            let common_span = Span {
-                start: sequence.len(),
-                count: common.len(),
-            };
-            sequence.extend(common);
             thumbnails = Some(Thumbnails {
                 images: spans,
-                shared: common_span,
+                shared: packer.run(common),
             });
         }
         if at == placement.embedded_at {
             for objects in &placement.embedded {
                 if let Some(file) = objects.first() {
-                    embedded.push((
-                        *file,
-                        Span {
-                            start: sequence.len(),
-                            count: objects.len(),
-                        },
-                    ));
+                    embedded.push((*file, packer.run(objects)));
                 }
-                sequence.extend(objects);
             }
         }
-        let span = Span {
-            start: sequence.len(),
-            count: objects.len(),
-        };
-        sequence.extend(objects);
+        let span = packer.run(objects);
         if let Some(category) = category {
             groups.push(Group {
                 category: *category,
@@ -1968,56 +2270,142 @@ fn lay_out(
             });
         }
     }
-    if let Some(outline) = &placement.outline_in_first_page {
-        // The outline is part 6's, inside the first page's leading run: its group is where that
-        // run ends, counted back.
-        let end = first_private.end();
+    if placement.outline_in_first_page.is_some() {
         groups.insert(
             0,
             Group {
                 category: Category::Outline,
-                span: Span {
-                    start: end.saturating_sub(outline.len()),
-                    count: outline.len(),
-                },
+                span: outline_span,
                 shared: Vec::new(),
             },
         );
     }
+    let sequence = packer.sequence;
 
-    // §F.3.1's numbering: the second group from 1, the first group after it, the parameter
-    // dictionary first among them and the hint stream last.
-    // Every number has to fit in `u32` with the two objects this module adds.
-    let second_group = u32::try_from(sequence.len().saturating_sub(first_group))
-        .ok()
-        .filter(|_| u32::try_from(sequence.len().saturating_add(2)).is_ok_and(|n| n < u32::MAX))
-        .ok_or(LinearizeError::TooManyObjects)?;
+    // §F.3.1's numbering. The second group runs from 1 over its items in file order; §F.3.1's
+    // "[o]bjects stored within object streams shall be given the highest range of object numbers
+    // within the main and first-page cross-reference sections" puts its compressed objects after
+    // them, and a main cross-reference stream is the item that closes the uncompressed range. The
+    // first group runs from `k + 1`: the parameter dictionary, a first-page cross-reference
+    // stream, the items, the compressed objects, and last of all the hint stream, which §F.3.6
+    // assigns "the last object numbers in the PDF file — that is, after the object number for the
+    // last object in the first page, including any objects stored within object streams".
+    let too_many = || LinearizeError::TooManyObjects;
+    let number = |value: usize| u32::try_from(value).map_err(|_| too_many());
+    let streams_form = form == Form::Stream;
+    let xref_objects = usize::from(streams_form);
+    let compressed_in = |items: &[Item]| -> usize {
+        items
+            .iter()
+            .map(|item| match item {
+                Item::Carrier(members) => members.len(),
+                _ => 0,
+            })
+            .sum()
+    };
+    let (first_items, second_items) = sequence.split_at(first_group);
+    let second_uncompressed = number(second_items.len())?;
+    let second_compressed = compressed_in(second_items);
+    let second_group = number(
+        second_items
+            .len()
+            .saturating_add(xref_objects)
+            .saturating_add(second_compressed),
+    )?;
+    let first_start = second_group
+        .checked_add(2)
+        .and_then(|n| n.checked_add(number(xref_objects).ok()?))
+        .ok_or_else(too_many)?;
+    let first_compressed_from = first_start
+        .checked_add(number(first_group)?)
+        .ok_or_else(too_many)?;
+    let hint_number = first_compressed_from
+        .checked_add(number(compressed_in(first_items))?)
+        .filter(|n| *n < u32::MAX)
+        .ok_or_else(too_many)?;
+
     let mut numbers = vec![0u32; sequence.len()];
     let mut number_of = vec![0u32; count];
-    for (position, index) in sequence.iter().enumerate() {
-        let number = if position < first_group {
-            // After the parameter dictionary, which is `k + 1`.
-            second_group
-                .saturating_add(2)
-                .saturating_add(u32::try_from(position).unwrap_or(u32::MAX))
+    for (position, item) in sequence.iter().enumerate() {
+        let assigned = if position < first_group {
+            first_start.saturating_add(number(position)?)
         } else {
-            u32::try_from(position.saturating_sub(first_group).saturating_add(1))
-                .unwrap_or(u32::MAX)
+            number(position.saturating_sub(first_group).saturating_add(1))?
         };
         if let Some(slot) = numbers.get_mut(position) {
-            *slot = number;
+            *slot = assigned;
         }
-        if let Some(slot) = number_of.get_mut(*index) {
-            *slot = number;
+        if let Item::Object(index) = item
+            && let Some(slot) = number_of.get_mut(*index)
+        {
+            *slot = assigned;
+        }
+    }
+    let mut first_compressed = Vec::new();
+    let mut second_compressed_entries = Vec::new();
+    let mut next_first = first_compressed_from;
+    let mut next_second = second_uncompressed
+        .saturating_add(number(xref_objects)?)
+        .saturating_add(1);
+    for (position, item) in sequence.iter().enumerate() {
+        let Item::Carrier(members) = item else {
+            continue;
+        };
+        let carrier = numbers.get(position).copied().unwrap_or(0);
+        for (at, member) in members.iter().enumerate() {
+            let (next, entries) = if position < first_group {
+                (&mut next_first, &mut first_compressed)
+            } else {
+                (&mut next_second, &mut second_compressed_entries)
+            };
+            if let Some(slot) = number_of.get_mut(*member) {
+                *slot = *next;
+            }
+            *next = next.saturating_add(1);
+            entries.push((carrier, u16::try_from(at).unwrap_or(u16::MAX)));
         }
     }
 
+    let encrypt_number = sequence
+        .iter()
+        .position(|item| matches!(item, Item::Encrypt))
+        .and_then(|position| numbers.get(position).copied());
+    let hint_iv = match protected.as_deref_mut() {
+        Some(handler) => Some(handler.vector()?),
+        None => None,
+    };
+    let level = carrier_level(options.streams);
     let mut rendered = Vec::with_capacity(sequence.len());
     let mut digest = <md5::Md5 as md5::Digest>::new();
-    for (position, index) in sequence.iter().enumerate() {
-        let object = graph.objects.get(*index).cloned().unwrap_or(Object::Null);
+    for (position, item) in sequence.iter().enumerate() {
         let number = numbers.get(position).copied().unwrap_or(0);
-        let item = render(&object, number, &number_of, tally);
+        let id = ObjectId::new(number, 0);
+        let object = match item {
+            Item::Object(index) => {
+                let object = graph.objects.get(*index).cloned().unwrap_or(Object::Null);
+                // §7.6.2 over the object's own strings and streams, under its final number, and
+                // before the references are renumbered: the handler reads a stream's `/Type` and
+                // `/Filter` through the assembly, whose numbering the object still states.
+                let object = match protected.as_deref_mut() {
+                    Some(handler) => handler.value(assembly, id, &object, 0, tally)?,
+                    None => object,
+                };
+                remap(&object, &number_of, 0, tally)
+            }
+            Item::Carrier(members) => carrier(
+                members,
+                id,
+                graph,
+                &number_of,
+                level,
+                protected.as_deref_mut(),
+                tally,
+            )?,
+            Item::Encrypt => protected.as_deref().map_or(Object::Null, |handler| {
+                Object::Dictionary(handler.dictionary.clone())
+            }),
+        };
+        let item = rendered_of(&object, number, tally);
         <md5::Md5 as md5::Digest>::update(&mut digest, &item.head);
         if let Some(data) = &item.data {
             <md5::Md5 as md5::Digest>::update(&mut digest, data);
@@ -2028,38 +2416,54 @@ fn lay_out(
     let identifier: [u8; 16] = <md5::Md5 as md5::Digest>::finalize(digest).into();
 
     let mut position_of = vec![usize::MAX; count];
-    for (position, index) in sequence.iter().enumerate() {
-        if let Some(slot) = position_of.get_mut(*index) {
-            *slot = position;
+    for (position, item) in sequence.iter().enumerate() {
+        for index in item.members() {
+            if let Some(slot) = position_of.get_mut(*index) {
+                *slot = position;
+            }
         }
     }
 
-    // The shared object hint table's identifiers: entry 0 is the first page's leading run, then
-    // one entry per object of part 6's trailing run, then one per object of part 8.
-    let mut entry_of: Vec<Option<u64>> = vec![None; count];
-    for index in &placement.first_private {
-        if let Some(slot) = entry_of.get_mut(*index) {
+    // The shared object hint table's identifiers, one per item: entry 0 is the first page's
+    // leading run, then one entry per item of part 6's trailing run, then one per item of part 8.
+    // An object in a carrier takes its carrier's: §F.3.1's "shared object references shall be
+    // made to the object stream containing a compressed object, not to the compressed object
+    // itself".
+    let mut entry_at: Vec<Option<u64>> = vec![None; sequence.len()];
+    for position in first_private.start..first_private.end() {
+        if let Some(slot) = entry_at.get_mut(position) {
             *slot = Some(0);
         }
     }
-    for (at, index) in placement
-        .first_shared
-        .iter()
-        .chain(placement.shared.iter())
+    for (at, position) in (first_shared.start..first_shared.end())
+        .chain(shared.start..shared.end())
         .enumerate()
     {
-        if let Some(slot) = entry_of.get_mut(*index) {
+        if let Some(slot) = entry_at.get_mut(position) {
             *slot = Some(u64::try_from(at).unwrap_or(u64::MAX).saturating_add(1));
         }
     }
+    let entry_of = |index: usize| -> Option<u64> {
+        position_of
+            .get(index)
+            .and_then(|position| entry_at.get(*position))
+            .copied()
+            .flatten()
+    };
 
     // Table F.4, per page, in the file's order: the first page, then the rest by page number.
     let mut pages = Vec::new();
     let page_entry = |at: usize, span: Span, own_page: bool| -> PageEntry {
+        // A content stream is a stream, and so never in a carrier; an indirect `/Contents` array
+        // may be, and then it is not where item 6 points.
         let contents = placement.contents.get(at).and_then(|objects| {
             let positions: Vec<usize> = objects
                 .iter()
-                .filter_map(|index| position_of.get(*index).copied())
+                .filter_map(|index| {
+                    let position = position_of.get(*index).copied()?;
+                    matches!(sequence.get(position), Some(Item::Object(held)) if held == index)
+                        .then_some(position)
+                })
                 .collect();
             let inside = !positions.is_empty()
                 && positions
@@ -2071,10 +2475,21 @@ fn lay_out(
                 (low, high)
             })
         });
-        let mut shared = Vec::new();
+        // One reference per shared object group, at the earliest stage any of its objects was
+        // reached: several compressed objects are one group where one carrier holds them.
+        let mut shared: Vec<(u64, u64)> = Vec::new();
+        let mut slot_of: std::collections::BTreeMap<u64, usize> = std::collections::BTreeMap::new();
         if !own_page && let Some(closure) = placement.closures.get(at) {
             for (index, stage) in closure {
-                if let Some(id) = entry_of.get(*index).copied().flatten() {
+                let Some(id) = entry_of(*index) else {
+                    continue;
+                };
+                if let Some((_, numerator)) =
+                    slot_of.get(&id).and_then(|slot| shared.get_mut(*slot))
+                {
+                    *numerator = (*numerator).min(stage.numerator());
+                } else {
+                    slot_of.insert(id, shared.len());
                     shared.push((id, stage.numerator()));
                 }
             }
@@ -2106,13 +2521,13 @@ fn lay_out(
             .get(group.span.start..group.span.end())
             .unwrap_or_default()
             .iter()
-            .copied();
+            .flat_map(|item| item.members().iter().copied());
         for object in roots.chain(members) {
-            if let Some(id) = entry_of.get(object).copied().flatten() {
+            if let Some(id) = entry_of(object) {
                 ids.insert(id);
             }
             for edge in graph.edges.get(object).map_or(&[][..], Vec::as_slice) {
-                if let Some(id) = entry_of.get(edge.to).copied().flatten() {
+                if let Some(id) = entry_of(edge.to) {
                     ids.insert(id);
                 }
             }
@@ -2128,14 +2543,28 @@ fn lay_out(
         .max()
         .unwrap_or(0);
 
+    let carriers = sequence
+        .iter()
+        .filter(|item| matches!(item, Item::Carrier(_)))
+        .count();
+    tally.object_streams = u32::try_from(carriers).unwrap_or(u32::MAX);
+    tally.compressed =
+        u32::try_from(first_compressed.len().saturating_add(second_compressed)).unwrap_or(u32::MAX);
+
     let page_count = placement.pages.len();
     let first_page_object = numbers.get(first_page.start).copied().unwrap_or(0);
     Ok(Layout {
-        sequence,
         rendered,
         numbers,
         first_group,
         second_group,
+        second_uncompressed,
+        form,
+        first_compressed,
+        second_compressed: second_compressed_entries,
+        hint_number,
+        encrypt: encrypt_number,
+        hint_iv,
         first_page,
         first_private,
         pages,
@@ -2154,11 +2583,77 @@ fn lay_out(
     })
 }
 
-/// One object as it will be written: its value with every reference in the final numbering.
-fn render(object: &Object, number: u32, number_of: &[u32], tally: &mut Written) -> Rendered {
+/// One §7.5.7 object stream holding `members`, in the file's numbering, encrypted where the file
+/// is.
+///
+/// Table 16's required entries and nothing else: `/Extends` is optional, and a chain across
+/// carriers would be a reference from one part of the file into another that no walk of §F.3.7
+/// should have to follow. Its members are *not* encrypted one by one — §7.6.2's third exception
+/// is "[a]ny strings that are inside streams such as content streams and compressed object
+/// streams, which themselves are encrypted" — so encrypting the carrier is the whole of it.
+fn carrier(
+    members: &[usize],
+    id: ObjectId,
+    graph: &Graph,
+    number_of: &[u32],
+    level: u32,
+    protected: Option<&mut Protected<'_>>,
+    tally: &mut Written,
+) -> Result<Object, LinearizeError> {
+    // §7.5.7: "N pairs of integers separated by white-space, where the first integer in each pair
+    // shall represent the object number of a compressed object and the second integer shall
+    // represent the byte offset in the decoded stream of that object, relative to the first
+    // object stored in the object stream".
+    let mut head = String::new();
+    let mut payload = Vec::new();
+    for member in members {
+        let object = graph.objects.get(*member).cloned().unwrap_or(Object::Null);
+        let number = number_of.get(*member).copied().unwrap_or(0);
+        let _ = write!(head, "{number} {} ", payload.len());
+        write::object(&remap(&object, number_of, 0, tally), &mut payload);
+        payload.push(b'\n');
+    }
+    head.push('\n');
+    let first = head.len();
+    let mut data = head.into_bytes();
+    data.extend_from_slice(&payload);
+    let encoded = deflate(&data, level).ok_or_else(|| {
+        SerializeError::Write(std::io::Error::other(
+            "an object stream's payload could not be deflated",
+        ))
+    })?;
+    let mut dict = Dictionary::new();
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"ObjStm"[..])),
+    );
+    dict.insert(
+        Name::new(&b"N"[..]),
+        Object::Integer(i64::try_from(members.len()).unwrap_or(i64::MAX)),
+    );
+    dict.insert(
+        Name::new(&b"First"[..]),
+        Object::Integer(i64::try_from(first).unwrap_or(i64::MAX)),
+    );
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    Ok(match protected {
+        Some(handler) => handler.carrier(id, dict, &encoded)?,
+        None => Object::Stream(Arc::new(Stream {
+            dict,
+            data: encoded.into(),
+            decryption_failed: false,
+        })),
+    })
+}
+
+/// One object as it will be written, already in the file's numbering.
+fn rendered_of(object: &Object, number: u32, tally: &mut Written) -> Rendered {
     let mut head = Vec::new();
     let _ = writeln!(Text(&mut head), "{number} 0 obj");
-    match remap(object, number_of, 0, tally) {
+    match object {
         Object::Stream(stream) => {
             let mut dict = stream.dict.clone();
             let actual = i64::try_from(stream.data.len()).unwrap_or(i64::MAX);
@@ -2175,7 +2670,7 @@ fn render(object: &Object, number: u32, number_of: &[u32], tally: &mut Written) 
             }
         }
         other => {
-            write::object(&other, &mut head);
+            write::object(other, &mut head);
             Rendered {
                 head,
                 data: None,
@@ -2260,6 +2755,7 @@ struct Variable {
 fn write_out<W: Write>(
     layout: &Layout,
     version: Version,
+    protected: Option<&Protected<'_>>,
     tally: &mut Written,
     out: &mut W,
 ) -> Result<Linearized, LinearizeError> {
@@ -2268,7 +2764,7 @@ fn write_out<W: Write>(
     let mut lengths = (0u64, 0u64, 0u64);
     let mut settled = None;
     for _ in 0..MAX_LAYOUT_PASSES {
-        let parts = variable_parts(layout, head_len, lengths)?;
+        let parts = variable_parts(layout, head_len, lengths, protected)?;
         let now = (
             u64::try_from(parts.parameters.len()).unwrap_or(u64::MAX),
             u64::try_from(parts.first_xref.len()).unwrap_or(u64::MAX),
@@ -2306,7 +2802,7 @@ fn write_out<W: Write>(
     put(&parts.main_xref, out)?;
 
     tally.bytes = written;
-    tally.objects = u32::try_from(layout.sequence.len().saturating_add(2)).unwrap_or(u32::MAX);
+    tally.objects = layout.hint_number;
     Ok(Linearized {
         written: *tally,
         hint_tables: parts.tables,
@@ -2319,16 +2815,18 @@ fn write_out<W: Write>(
 struct Offsets {
     /// Part 2.
     parameters: u64,
+    /// Part 3.
+    first_xref: u64,
     /// Part 5.
     hints: u64,
     /// Part 5's length.
     hints_len: u64,
-    /// Each object's offset, in the file's order, and one more: where part 11 begins.
+    /// Each item's offset, in the file's order, and one more: where part 11 begins.
     objects: Vec<u64>,
 }
 
 impl Offsets {
-    /// An object's offset, or where part 11 begins past the last.
+    /// An item's offset, or where part 11 begins past the last.
     fn at(&self, position: usize) -> u64 {
         self.objects
             .get(position)
@@ -2354,6 +2852,63 @@ impl Offsets {
     }
 }
 
+/// One cross-reference section's entries, in object number order, in whichever form it is
+/// written.
+#[derive(Debug, Clone, Copy)]
+enum Row {
+    /// Table 18's type 0 head of the free list, object 0.
+    Free,
+    /// An object at a byte offset.
+    At(u64),
+    /// A compressed object: its carrier's number and its index in it.
+    In(u32, u16),
+}
+
+/// A section's rows as §7.5.8.3's binary records under `/W [1 4 2]`.
+fn stream_rows(rows: &[Row]) -> Result<Vec<u8>, SerializeError> {
+    let mut data = Vec::with_capacity(rows.len().saturating_mul(7));
+    for entry in rows {
+        match entry {
+            Row::Free => row(0, 0, FREE_FOREVER, &mut data),
+            Row::At(offset) => {
+                let offset = u32::try_from(*offset)
+                    .map_err(|_| SerializeError::OffsetTooLarge { offset: *offset })?;
+                row(1, offset, 0, &mut data);
+            }
+            Row::In(stream, index) => row(2, *stream, *index, &mut data),
+        }
+    }
+    Ok(data)
+}
+
+/// One §7.5.8 cross-reference stream: its dictionary stated by the caller, `/Type`, `/W` and
+/// `/Length` added, never encrypted — Table 20's `/StmF` excepts "cross-reference streams".
+fn cross_reference_stream(number: u32, mut dict: Dictionary, data: &[u8]) -> Vec<u8> {
+    dict.insert(
+        Name::new(&b"Type"[..]),
+        Object::Name(Name::new(&b"XRef"[..])),
+    );
+    dict.insert(
+        Name::new(&b"W"[..]),
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(4),
+            Object::Integer(2),
+        ]),
+    );
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+    );
+    let mut bytes = Vec::new();
+    let _ = writeln!(Text(&mut bytes), "{number} 0 obj");
+    write::object(&Object::Dictionary(dict), &mut bytes);
+    bytes.extend_from_slice(b"\nstream\n");
+    bytes.extend_from_slice(data);
+    bytes.extend_from_slice(b"\nendstream\nendobj\n");
+    bytes
+}
+
 /// Parts 2, 3, 5 and 11, for one guess at the lengths of 2, 3 and 5.
 #[expect(
     clippy::too_many_lines,
@@ -2364,6 +2919,7 @@ fn variable_parts(
     layout: &Layout,
     head_len: u64,
     (parameters_len, first_xref_len, hints_len): (u64, u64, u64),
+    protected: Option<&Protected<'_>>,
 ) -> Result<Variable, LinearizeError> {
     let parameters = head_len;
     let first_xref = parameters.saturating_add(parameters_len);
@@ -2377,47 +2933,86 @@ fn variable_parts(
     objects.push(at);
     let offsets = Offsets {
         parameters,
+        first_xref,
         hints,
         hints_len,
         objects,
     };
     let main_at = offsets.at(layout.rendered.len());
+    let streams_form = layout.form == Form::Stream;
 
-    // Part 11: §F.3.11's main table. "It consists of a single cross-reference subsection,
+    // Part 11: §F.3.11's main section. "It consists of a single cross-reference subsection,
     // beginning at object number 0. The first entry (for object number 0) shall be a free entry.
     // The remaining entries are for in-use objects, which shall be numbered consecutively,
-    // starting at 1."
+    // starting at 1." In a cross-reference stream the same rows are Table 18's records, "with the
+    // appropriate syntactic changes", and the stream's own entry is among them.
     let size = u64::from(layout.second_group).saturating_add(1);
-    let mut main = String::new();
-    let _ = write!(main, "xref\n0 {size}\n");
-    // Table F.1's `/T`: "the offset of the white-space character preceding the first entry of the
-    // main cross-reference table (the entry for object number 0)" — the end of line above.
-    let main_first_entry = main_at
-        .saturating_add(u64::try_from(main.len()).unwrap_or(u64::MAX))
-        .saturating_sub(1);
-    let _ = writeln!(main, "{:010} {FREE_FOREVER:05} f ", 0);
+    let mut main_rows = vec![Row::Free];
     for position in layout.first_group..layout.rendered.len() {
-        entry(&mut main, offsets.at(position))?;
+        main_rows.push(Row::At(offsets.at(position)));
     }
+    if streams_form {
+        main_rows.push(Row::At(main_at));
+    }
+    main_rows.extend(
+        layout
+            .second_compressed
+            .iter()
+            .map(|(carrier, index)| Row::In(*carrier, *index)),
+    );
     // "The main trailer has no Prev entry and should not contain any entries other than Size."
     // And §F.3.11: "The startxref line shall give the offset of the first-page cross-reference
     // table in the PDF file."
-    let _ = write!(
-        main,
-        "trailer\n<< /Size {size} >>\nstartxref\n{first_xref}\n%%EOF\n"
-    );
-    let main_xref = main.into_bytes();
+    let (main_xref, main_cross_reference) = if streams_form {
+        let mut dict = Dictionary::new();
+        dict.insert(
+            Name::new(&b"Size"[..]),
+            Object::Integer(i64::try_from(size).unwrap_or(i64::MAX)),
+        );
+        let mut bytes = cross_reference_stream(
+            layout.second_uncompressed.saturating_add(1),
+            dict,
+            &stream_rows(&main_rows)?,
+        );
+        let _ = write!(Text(&mut bytes), "startxref\n{first_xref}\n%%EOF\n");
+        // Table F.1's `/T`: "Documents that use cross-reference streams exclusively …, this entry
+        // shall represent the offset of the main cross-reference stream object in the PDF file."
+        (bytes, main_at)
+    } else {
+        let mut main = String::new();
+        let _ = write!(main, "xref\n0 {size}\n");
+        // Table F.1's `/T`: "the offset of the white-space character preceding the first entry of
+        // the main cross-reference table (the entry for object number 0)" — the end of line above.
+        let main_first_entry = main_at
+            .saturating_add(u64::try_from(main.len()).unwrap_or(u64::MAX))
+            .saturating_sub(1);
+        let _ = writeln!(main, "{:010} {FREE_FOREVER:05} f ", 0);
+        for entry in main_rows.iter().skip(1) {
+            if let Row::At(offset) = entry {
+                table_entry(&mut main, *offset)?;
+            }
+        }
+        let _ = write!(
+            main,
+            "trailer\n<< /Size {size} >>\nstartxref\n{first_xref}\n%%EOF\n"
+        );
+        (main.into_bytes(), main_first_entry)
+    };
     let length = main_at.saturating_add(u64::try_from(main_xref.len()).unwrap_or(u64::MAX));
 
-    // Part 5.
+    // Part 5. Encrypted like any other stream where the file is (§7.6.2 excepts none that fits
+    // it), and the positions Table F.2's keys state are "relative to the beginning of the stream
+    // data (after decoding filters, if any, are applied)" — of the plaintext.
     let (data, tables) = hint_data(layout, &offsets);
-    let hint_number = u64::from(layout.second_group)
-        .saturating_add(2)
-        .saturating_add(u64::try_from(layout.first_group).unwrap_or(u64::MAX));
+    let hint_id = ObjectId::new(layout.hint_number, 0);
+    let body = match (protected, layout.hint_iv) {
+        (Some(handler), Some(iv)) => handler.stream_with_iv(hint_id, iv, &data.bytes)?,
+        _ => data.bytes.clone(),
+    };
     let mut stream_dict = Dictionary::new();
     stream_dict.insert(
         Name::new(&b"Length"[..]),
-        Object::Integer(i64::try_from(data.bytes.len()).unwrap_or(i64::MAX)),
+        Object::Integer(i64::try_from(body.len()).unwrap_or(i64::MAX)),
     );
     for (key, offset) in &data.positions {
         stream_dict.insert(
@@ -2426,20 +3021,19 @@ fn variable_parts(
         );
     }
     let mut hint_bytes = Vec::new();
-    let _ = writeln!(Text(&mut hint_bytes), "{hint_number} 0 obj");
+    let _ = writeln!(Text(&mut hint_bytes), "{} 0 obj", layout.hint_number);
     write::object(&Object::Dictionary(stream_dict), &mut hint_bytes);
     hint_bytes.extend_from_slice(b"\nstream\n");
-    hint_bytes.extend_from_slice(&data.bytes);
+    hint_bytes.extend_from_slice(&body);
     hint_bytes.extend_from_slice(b"\nendstream\nendobj\n");
 
     // Part 2: Table F.1, every value direct.
     let end_of_first_page = offsets.at(layout.first_page.end());
+    let parameters_number = layout.second_group.saturating_add(1);
     let mut text = format!(
-        "{} 0 obj\n<< /Linearized 1 /L {length} /H [ {hints} {hints_len} ] /O {} /E \
-         {end_of_first_page} /N {} /T {main_first_entry}",
-        u64::from(layout.second_group).saturating_add(1),
-        layout.first_page_object,
-        layout.page_count,
+        "{parameters_number} 0 obj\n<< /Linearized 1 /L {length} /H [ {hints} {hints_len} ] /O {} \
+         /E {end_of_first_page} /N {} /T {main_cross_reference}",
+        layout.first_page_object, layout.page_count,
     );
     if layout.first_page_number != 0 {
         let _ = write!(text, " /P {}", layout.first_page_number);
@@ -2447,22 +3041,25 @@ fn variable_parts(
     text.push_str(" >>\nendobj\n");
     let parameters_bytes = text.into_bytes();
 
-    // Part 3: §F.3.4's first-page table — "a single cross-reference subsection that has no free
-    // entries", the parameter dictionary at its beginning and the hint stream at its end.
-    let first_count = u64::try_from(layout.first_group)
-        .unwrap_or(u64::MAX)
-        .saturating_add(2);
-    let mut table = String::new();
-    let _ = write!(
-        table,
-        "xref\n{} {first_count}\n",
-        u64::from(layout.second_group).saturating_add(1)
-    );
-    entry(&mut table, offsets.parameters)?;
-    for position in 0..layout.first_group {
-        entry(&mut table, offsets.at(position))?;
+    // Part 3: §F.3.4's first-page section — "a single cross-reference subsection that has no free
+    // entries", the parameter dictionary at its beginning and the hint stream at its end; a
+    // first-page cross-reference stream is the object after the parameter dictionary, and states
+    // its own entry.
+    let first_count = u64::from(layout.hint_number.saturating_sub(layout.second_group));
+    let mut first_rows = vec![Row::At(offsets.parameters)];
+    if streams_form {
+        first_rows.push(Row::At(offsets.first_xref));
     }
-    entry(&mut table, offsets.hints)?;
+    for position in 0..layout.first_group {
+        first_rows.push(Row::At(offsets.at(position)));
+    }
+    first_rows.extend(
+        layout
+            .first_compressed
+            .iter()
+            .map(|(carrier, index)| Row::In(*carrier, *index)),
+    );
+    first_rows.push(Row::At(offsets.hints));
     // "The first-page trailer shall contain valid Size and Root entries, as well as any other
     // entries needed to display the document. The Size value shall be the combined number of
     // entries in both the first-page cross-reference table and the main cross-reference table."
@@ -2486,16 +3083,50 @@ fn variable_parts(
             Object::Reference(ObjectId::new(info, 0)),
         );
     }
+    // §F.3.5's part 4 holds the dictionary; the trailer names it, as Table 15 has every
+    // encrypted file's trailer do.
+    if let Some(encrypt) = layout.encrypt {
+        trailer.insert(
+            Name::new(&b"Encrypt"[..]),
+            Object::Reference(ObjectId::new(encrypt, 0)),
+        );
+    }
     // §14.4: "When a PDF file is first written, both identifiers shall be set to the same value."
+    // Direct and in the clear, which Table 15 requires of an encrypted file: "If there is an
+    // Encrypt entry, this array and the two byte-strings shall be direct objects and shall be
+    // unencrypted."
     let identifier = Object::String(layout.identifier.to_vec().into());
     trailer.insert(
         Name::new(&b"ID"[..]),
         Object::Array(vec![identifier.clone(), identifier]),
     );
-    let mut first_bytes = table.into_bytes();
-    first_bytes.extend_from_slice(b"trailer\n");
-    write::object(&Object::Dictionary(trailer), &mut first_bytes);
-    first_bytes.push(b'\n');
+    let first_bytes = if streams_form {
+        trailer.insert(
+            Name::new(&b"Index"[..]),
+            Object::Array(vec![
+                Object::Integer(i64::from(parameters_number)),
+                Object::Integer(i64::try_from(first_count).unwrap_or(i64::MAX)),
+            ]),
+        );
+        cross_reference_stream(
+            parameters_number.saturating_add(1),
+            trailer,
+            &stream_rows(&first_rows)?,
+        )
+    } else {
+        let mut table = String::new();
+        let _ = write!(table, "xref\n{parameters_number} {first_count}\n");
+        for entry in &first_rows {
+            if let Row::At(offset) = entry {
+                table_entry(&mut table, *offset)?;
+            }
+        }
+        let mut bytes = table.into_bytes();
+        bytes.extend_from_slice(b"trailer\n");
+        write::object(&Object::Dictionary(trailer), &mut bytes);
+        bytes.push(b'\n');
+        bytes
+    };
 
     Ok(Variable {
         parameters: parameters_bytes,
@@ -2507,7 +3138,7 @@ fn variable_parts(
 }
 
 /// One §7.5.4 entry: "exactly 20 bytes long".
-fn entry(text: &mut String, offset: u64) -> Result<(), SerializeError> {
+fn table_entry(text: &mut String, offset: u64) -> Result<(), SerializeError> {
     if offset > MAX_TABLE_OFFSET {
         return Err(SerializeError::OffsetTooLarge { offset });
     }
@@ -2851,8 +3482,8 @@ impl Layout {
     /// position is past the end — an empty group is stated where it would begin.
     fn numbers_at(&self, position: usize) -> u32 {
         self.numbers.get(position).copied().unwrap_or_else(|| {
-            // Past the last object: the next number the second group would have used.
-            self.second_group.saturating_add(1)
+            // Past the last item: the next number the second group's items would have used.
+            self.second_uncompressed.saturating_add(1)
         })
     }
 }

@@ -1,8 +1,8 @@
 //! The one count in this tree that is chunked to a fixed width, asked for at a size that
 //! is deliberately **not** a multiple of it.
 //!
-//! `raster/doc/notes-ceilings-audit.md` §3 is the round this file witnesses, and the reason it
-//! exists is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1 on hayro's
+//! `raster/doc/notes-ceilings-audit.md` section 3 is the round this file witnesses, and the reason
+//! it exists is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` section 1 on hayro's
 //! `#373` — a SIMD flattening path that read past its own scratch buffer:
 //!
 //! > It is the failure mode of a lane-width-rounded buffer whose tail is not padded, and

@@ -704,7 +704,25 @@ pub fn replace(
         None,
     );
     interpreter.restore(replacement.checkpoint.clone());
-    complete(document, page, base_transform(page), interpreter).0
+    let mut interpretation = complete(document, page, base_transform(page), interpreter).0;
+    // The separation `interpreted` makes beside a page drawn on the device's components, made
+    // again: it is a whole interpretation per plane and holds no seam of its own (ADR 1311).
+    if state.separation_simulation()
+        && replacement.checkpoint.compositing == Compositing::Device
+        && let Some(press) = simulated_press(document, page, &replacement.presses)
+    {
+        interpretation.separation = separate(
+            document,
+            page,
+            state,
+            &press,
+            &replacement.presses,
+            fonts,
+            references,
+            None,
+        );
+    }
+    interpretation
 }
 
 /// Whether an interpretation is asked to keep what [`replace`] would need.
@@ -797,7 +815,7 @@ fn interpreted(
             return (grey, replacement);
         }
     }
-    let (interpretation, _, checkpoint) = interpret_into(
+    let (mut interpretation, _, checkpoint) = interpret_into(
         document,
         page,
         state,
@@ -808,6 +826,15 @@ fn interpreted(
         keep,
         ledger,
     );
+    // §10.8.3's separations of a page drawn on the device's components, made on the simulated
+    // device's own press; asked only where a reader asked for the simulation (ADR 1311).
+    if state.separation_simulation()
+        && let Some(press) = simulated_press(document, page, &presses)
+    {
+        interpretation.separation = separate(
+            document, page, state, &press, &presses, fonts, references, ledger,
+        );
+    }
     // A checkpoint the pass then found nothing to use is dropped rather than kept: the seam's
     // condition is Table 167's bit read off the file, and `draw_annotations` may decline to draw
     // the annotation that set it (§12.5.3's Hidden, §8.11.3.3's `/OC`, §12.6.4.11's action,
@@ -852,7 +879,11 @@ fn in_planes(
         document,
         page,
         state,
-        Compositing::Subtractive(first, Arc::clone(press)),
+        Compositing::Subtractive(
+            first,
+            Arc::clone(press),
+            crate::colour::DeviceSpots::default(),
+        ),
         presses,
         fonts,
         references,
@@ -869,7 +900,11 @@ fn in_planes(
             document,
             page,
             state,
-            Compositing::Subtractive(plane, Arc::clone(press)),
+            Compositing::Subtractive(
+                plane,
+                Arc::clone(press),
+                crate::colour::DeviceSpots::default(),
+            ),
             presses,
             fonts,
             references,
@@ -887,7 +922,124 @@ fn in_planes(
     separated
         .display_list
         .set_blending(press.blending_space(), black);
+    separated.separation = separate(
+        document, page, state, press, presses, fonts, references, ledger,
+    );
     Some(separated)
+}
+
+/// ISO 32000-2 §10.8.3 step a)'s separations of `page`, where the reader asked for the simulation
+/// and the page names a spot colourant: one interpretation per plane of the simulated device, or
+/// `None` where there is nothing to separate or the planes cannot be made.
+///
+/// > Process the PDF as if separations were to be created for a simulated device that supports
+/// > subtractive process colourants and possibly spot colours. The PDF processor determines what
+/// > process colours and possible spot colours the simulated device is to have.
+///
+/// The process colourants are `press`'s — the page's own four-component blending space, or the
+/// simulated device's where the page states none ([`simulated_press`]) — and the spot colourants
+/// are [`crate::colourants::spot_colourants`]'s, [`crate::colourants::MAX_SPOT_PLANES`] of them at
+/// most. Every plane is the whole page run once under
+/// [`Compositing::Subtractive`] carrying those spot colourants, so each colour is resolved to that
+/// plane's colourants by §11.7.3's paint (`pdf_colour::colour::DeviceSpots`), and **§11.7.3's
+/// single shape and opacity** — "Only a single shape value and opacity value shall be maintained
+/// at each point in the computed group results; they shall apply to both process and spot colour
+/// components" — is what the geometry digest checks: every plane must have drawn the same
+/// structure as the first, or the separation is given up.
+///
+/// Given up too where a run cannot be drawn in its space, which includes a group inside that
+/// composites in a space no spot colourant can be carried through
+/// (`Interpreter::spot_group_compositing`). The page a backend draws is the caller's and is not
+/// touched. ADR 1311.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the inputs `interpret_into` threads, one parameter each, as `in_planes` takes them"
+)]
+fn separate(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    press: &Arc<crate::colour::Press>,
+    presses: &crate::colour::Presses,
+    fonts: &FontCache,
+    references: &Supply,
+    ledger: Option<&std::cell::RefCell<Ledger>>,
+) -> Option<crate::colourants::Separation> {
+    if !state.separation_simulation() {
+        return None;
+    }
+    let named = crate::colourants::spot_colourants(document, page);
+    if named.is_empty() {
+        return None;
+    }
+    let spots = named.device(press);
+    let planes = crate::colour::Plane::PROCESS
+        .into_iter()
+        .chain((0..spots.planes()).map(crate::colour::Plane::Spot));
+    let mut lists = Vec::with_capacity(named.plane_count());
+    let mut without_a_plane = BTreeSet::new();
+    let mut digest = None;
+    for plane in planes {
+        let (run, drawable, _) = interpret_into(
+            document,
+            page,
+            state,
+            Compositing::Subtractive(plane, Arc::clone(press), spots.clone()),
+            presses,
+            fonts,
+            references,
+            Keep::Nothing,
+            ledger,
+        );
+        let drawn = run.display_list.geometry_digest();
+        if !drawable || *digest.get_or_insert(drawn) != drawn {
+            return None;
+        }
+        if let Some(record) = &run.separation {
+            without_a_plane.extend(record.without_a_plane().iter().cloned());
+        }
+        lists.push(run.display_list);
+    }
+    Some(crate::colourants::Separation::new(
+        spots.names().to_vec(),
+        lists,
+        without_a_plane.into_iter().collect(),
+    ))
+}
+
+/// The process colourants of §10.8.3's simulated device, for a page whose group names no
+/// blending space of its own.
+///
+/// Step a)'s device "supports subtractive process colourants", and the clause says where they
+/// come from: "A default DestOutputProfile , if available for a subtractive device, or
+/// ColorantTable values, if available for a subtractive device, should be consulted to determine
+/// the process colours to use". So the press is §14.11.5's four-component intent where the
+/// document states one, and the assumed inks of ADR 0263 where it does not. A page whose group
+/// states a `/CS` has named the space its process colours composite in, and a space that is not
+/// four components is one no spot colourant is carried through here — that page is not
+/// separated (ADR 1311).
+#[expect(
+    clippy::doc_markdown,
+    reason = "the paragraph quotes §10.8.3 verbatim, and a quotation may not gain backticks"
+)]
+fn simulated_press(
+    document: &Document,
+    page: &Page,
+    presses: &crate::colour::Presses,
+) -> Option<Arc<crate::colour::Press>> {
+    let group = document.get_key(&page.dict, "Group");
+    if group
+        .as_dict()
+        .is_some_and(|group| !document.get_key(group, "CS").is_null())
+    {
+        return None;
+    }
+    match output_intent_space(document, Some(&page.dict)) {
+        Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
+            presses.press_for_profile(&profile, Rendering::compensating())
+        }
+        _ => Some(crate::colour::assumed_press()),
+    }
 }
 
 impl<'a> Interpreter<'a> {
@@ -1009,6 +1161,7 @@ impl<'a> Interpreter<'a> {
             tiling_cell: false,
             tiling_cell_opaque: true,
             nested_space_departed: false,
+            without_a_plane: BTreeSet::new(),
             into_parent: BTreeMap::new(),
             presses,
             blending_beyond: beyond,
@@ -1115,6 +1268,9 @@ impl<'a> Interpreter<'a> {
             tiling_cell: _,
             tiling_cell_opaque: _,
             nested_space_departed,
+            // Filled only on a run carrying spot planes, and such a run keeps no checkpoint:
+            // `separate` interprets its planes with `Keep::Nothing` (ADR 1311).
+            without_a_plane: _,
         } = self;
         Checkpoint {
             list: list.clone(),
@@ -1708,6 +1864,16 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         );
     }
 
+    // A run carrying spot planes hands `separate` what its marks painted without one; the lists
+    // themselves are the runs' own display lists, put together there.
+    let separation = (!interpreter.compositing.spots().is_empty()).then(|| {
+        crate::colourants::Separation::new(
+            interpreter.compositing.spots().names().to_vec(),
+            Vec::new(),
+            interpreter.without_a_plane.into_iter().collect(),
+        )
+    });
+
     Interpretation {
         display_list: list,
         // §12.5.3's `NoZoom` annotations, and §8.7.3.1's lattice: the two things that make this
@@ -1715,6 +1881,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         view_dependent: interpreter.view_dependent || interpreter.magnified_tiling,
         unsupported,
         presses_named: interpreter.presses.named(),
+        separation,
         text: interpreter.text,
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
@@ -2453,6 +2620,13 @@ struct Interpreter<'a> {
     /// ordinary group still reaches the pair enclosing it; a soft mask's run restores it
     /// exactly, since a space inside a mask is the mask's own (ADR 0276).
     nested_space_departed: bool,
+    /// The spot colourants a mark painted on this run that §10.8.3's simulated device has no
+    /// plane for, the page having named more than `colourants::MAX_SPOT_PLANES` carry.
+    ///
+    /// Filled per painting operator by [`Interpreter::note_colourants_without_a_plane`], and only
+    /// on a run carrying spot planes; what the page's [`crate::colourants::Separation`] names.
+    /// ADR 1311.
+    without_a_plane: BTreeSet<pdf_syntax::Name>,
     /// The conversion out of a group's own space composed with the conversion into its
     /// parent's, per pair of spaces and rendering, sampled once per interpretation.
     ///

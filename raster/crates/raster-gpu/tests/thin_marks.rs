@@ -1,6 +1,6 @@
 //! Marks thinner than a device pixel, held against ISO 32000-2 §10.7.4.
 //!
-//! The caller's hayro reading list opens its §2 with hayro's #104 closed as "I'm sure
+//! The caller's hayro reading list opens its section 2 with hayro's #104 closed as "I'm sure
 //! those are just conflation artifacts, so not a lot we can do here", and does not accept
 //! that; `pdf-viewer/doc/QUORRA_HAIRLINE_MARKS.md` is their standing ask on the subject.
 //! This file is our half of it: what a mark thinner than a device pixel does *here*.
@@ -151,11 +151,11 @@ const SUB_PIXEL_WIDTHS: [f32; 6] = [0.75, 0.5, 0.25, 0.125, 0.1, 0.05];
 /// band whose width is a multiple of the pitch contains the same number of sample rows
 /// *wherever it lands*, so the device lane draws its exact area at every position and the
 /// two tests below have been measuring the quantiser's own fixed points since they were
-/// written. That is the aliasing trap `raster/doc/notes-glyph-phase-carry.md` §2 records having
-/// already been paid for once in the glyph phase, standing here in the coverage grid.
+/// written. That is the aliasing trap `raster/doc/notes-glyph-phase-carry.md` section 2 records
+/// having already been paid for once in the glyph phase, standing here in the coverage grid.
 ///
 /// These are the widths that can see it. 0.878 is the caller's own witness —
-/// `QUORRA_FEEDBACK.md` §31.2, `issue16500.pdf`'s table rule, where they measured 0.753 of
+/// `QUORRA_FEEDBACK.md` section 31.2, `issue16500.pdf`'s table rule, where they measured 0.753 of
 /// ink for 0.878 of shape — and the other two are a wide and a narrow one either side of
 /// it. None of the three is a multiple of ¼, ½ or ⅛, so none is a fixed point of any grid
 /// `Options::coverage_samples` admits. ADR 0076 is what they measure.

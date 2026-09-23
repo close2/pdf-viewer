@@ -15,8 +15,8 @@
 //!
 //! Shape (i) of the spike — an interpreter with a run-time operand stack — could read a
 //! computed count and would not care. It is not the shape being built
-//! (`raster/doc/adr/0053` §1: 133 ms against 0.060, and it lost the device at 4×). A generated
-//! shader cannot name a slot it cannot compute, and a walk that cannot resolve the count
+//! (`raster/doc/adr/0053` section 1: 133 ms against 0.060, and it lost the device at 4×). A
+//! generated shader cannot name a slot it cannot compute, and a walk that cannot resolve the count
 //! cannot state the program's own depth either, so *both* halves of the admission fail on
 //! the same instruction. Neither of the caller's two witnesses reaches this.
 

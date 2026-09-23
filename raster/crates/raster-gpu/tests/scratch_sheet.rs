@@ -2,7 +2,7 @@
 //!
 //! ADR 0021. Coverage tiles are packed onto one R8 sheet whose *packing* width is the
 //! device's maximum dimension — narrow it and real pages are refused for capacity
-//! (the caller's feedback §3) — but `finish` used to commit a texture of that width.
+//! (the caller's feedback section 3) — but `finish` used to commit a texture of that width.
 //! On this machine that is 16 384 texels a row, so a page with one 180-pixel tile
 //! allocated and uploaded 2.95 MB to carry 32 KB, and the GPU coverage lane, whose
 //! winding texture takes its extent from the same sheet at eight bytes a texel, paid

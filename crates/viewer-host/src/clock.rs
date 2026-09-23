@@ -77,7 +77,10 @@
 use std::time::{Duration, Instant};
 
 use pdf_model::navigation::Transition;
-use pdf_render::{DisplayList, DisplayListError, Image, Rect, TargetSpec, Transform};
+use pdf_render::{
+    DisplayList, DisplayListError, Image, Medium, Rasterizer, Rect, TargetSpec, Transform,
+};
+use render_cpu::CpuRasterizer;
 use viewer_core::transition::Faces;
 
 /// One transition, mid-flight: what it is, when it began, and the two pages it is between.
@@ -302,6 +305,24 @@ pub fn face_target(page: TargetSpec, origin: (f32, f32), viewport: (u32, u32)) -
             .transform
             .then(Transform::translate(origin.0, origin.1)),
     }
+}
+
+/// One page of a transition, drawn into a [`face_target`] and ready to be drawn again, or `None`
+/// where the page will not rasterise.
+///
+/// **On [`Medium::WINDOW`], because the target is a window and not a page.** A face is the whole
+/// viewport, so most of it lies outside the page, and a rasteriser left at its default takes the
+/// target to *be* the page and paints §11.4.7's white over all of it, so every frame of a
+/// transition would show a white surround where the window shows [`pdf_render::SURROUND`] before
+/// and after. One function for the three hosts, so that none of them can go back to the page's
+/// medium on its own (ADR 1303).
+#[must_use]
+pub fn face(list: &DisplayList, target: TargetSpec) -> Option<Image> {
+    let raster = CpuRasterizer::new()
+        .with_medium(Medium::WINDOW)
+        .rasterize(list, target)
+        .ok()?;
+    viewer_core::transition::drawable(&raster)
 }
 
 #[cfg(test)]
@@ -529,5 +550,34 @@ mod tests {
             Some(1000),
             "the page's display duration starts when the transition ends"
         );
+    }
+
+    /// A face is the page on the window's ground: white inside the page, the surround outside.
+    ///
+    /// A 20 by 10 page placed in the middle of a 200 by 100 viewport, as `face_target` places
+    /// one. The corner is the window's [`pdf_render::SURROUND`] and the centre §11.4.7's white.
+    #[test]
+    fn a_face_keeps_the_windows_surround_outside_the_page() {
+        let list = pdf_render::DisplayList::new(pdf_render::Size::new(20.0, 10.0));
+        let page = pdf_render::TargetSpec {
+            width: 20,
+            height: 10,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        let target = face_target(page, (90.0, 45.0), (200, 100));
+        let Some(image) = super::face(&list, target) else {
+            panic!("an empty page rasterises");
+        };
+        let pixel = |x: usize, y: usize| {
+            let at = (y * 200 + x) * 4;
+            image.data[at..at + 4].to_vec()
+        };
+        // `SURROUND` is a quarter grey, so the corner is one opaque grey far from white.
+        let corner = pixel(0, 0);
+        assert!(
+            corner[0] == corner[1] && corner[1] == corner[2] && corner[0] < 128 && corner[3] == 255,
+            "the corner is {corner:?}"
+        );
+        assert_eq!(pixel(100, 50), vec![255, 255, 255, 255], "the page");
     }
 }

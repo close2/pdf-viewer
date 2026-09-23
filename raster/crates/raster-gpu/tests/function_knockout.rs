@@ -5,8 +5,8 @@
 //! `Style::of` hands the function lane the same erase/add pair every other lane draws a
 //! knockout element with, `function_lane.wgsl`'s `fs_shape` is written for it, and
 //! `pipeline::function` compiles all three styles from one module — and until this file
-//! nothing drew one (`raster/doc/notes-function-wiring.md` §4.5). A pipeline that compiles, is
-//! selected, and is never drawn is a path that works until someone looks.
+//! nothing drew one (`raster/doc/notes-function-wiring.md` section 4.5). A pipeline that compiles,
+//! is selected, and is never drawn is a path that works until someone looks.
 //!
 //! # Where the expected values come from
 //!
@@ -37,7 +37,7 @@
 //! # The three things that are peculiar to *this* paint
 //!
 //! 1. **The paint is opaque where it marks and its colour varies per pixel**, so the wedge
-//!    fixture — two diagonal edges, ADR 0025's own instrument, §4.1 of the brief's reason —
+//!    fixture — two diagonal edges, ADR 0025's own instrument, section 4.1 of the brief's reason —
 //!    measures the clause's line where a partially covered pixel makes the two readings
 //!    disagree.
 //! 2. **§8.7.4.5.2 leaves a point outside the transformed domain unpainted** when the
@@ -111,7 +111,7 @@ fn device() -> (Device, String) {
 }
 
 /// A triangle with two diagonal edges, so partially covered pixels exist: axis-aligned
-/// rectangles would agree while being wrong (§4.1 of the brief). It is also what sends the
+/// rectangles would agree while being wrong (section 4.1 of the brief). It is also what sends the
 /// fill through the **rasterised coverage** lane rather than the rect-hinted one.
 fn wedge(device: &mut Device) -> OutlineId {
     device

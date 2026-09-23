@@ -1,8 +1,8 @@
 //! What a §7.10.5 program's generated shader costs to compile, by the program's length
 //! (ADR 0053).
 //!
-//! `raster/doc/spike-function-paint.md` §3 is the only figure this feature has ever had — 6.3 ms
-//! for the seven-segment witness on RADV with a cold driver cache — and it was measured
+//! `raster/doc/spike-function-paint.md` section 3 is the only figure this feature has ever had —
+//! 6.3 ms for the seven-segment witness on RADV with a cold driver cache — and it was measured
 //! against the *spike's* emitter, not against `src/function/generate.rs`. This binary is
 //! that number taken here.
 //!
@@ -23,7 +23,7 @@
 //! # Three things this gets wrong if they are not deliberate
 //!
 //! - **The driver's on-disk shader cache keys on the compiled SPIR-V** — the spike lost a
-//!   round to it (§3's methodological note). Every sample here is therefore a program no
+//!   round to it (section 3's methodological note). Every sample here is therefore a program no
 //!   process has ever compiled: the literals are seeded from the process's start instant,
 //!   so a second run of this binary cannot read the first run's cache. The shape is
 //!   identical between runs and only the constants move, which is what makes the samples
@@ -42,7 +42,7 @@
 //! # What a length is, here
 //!
 //! The spike's witness is 482 instructions with 23 branches and a maximum stack depth of 8
-//! (§1's table). A program of that *length* is built below at the same branch density,
+//! (section 1's table). A program of that *length* is built below at the same branch density,
 //! because a branch is what a generated shader spends a block on and a straight-line
 //! program of the same length would be an easier shader than any real one. It is still not
 //! the witness — that is a PDF stream in the caller's tree and its compiled form is theirs
@@ -73,8 +73,8 @@ use raster_scene::{
 const SIZE: u32 = 64;
 
 /// `pi_seven_segment.pdf`, the longer of the caller's two witnesses:
-/// `raster/doc/spike-function-paint.md` §1's table gives 482 instructions and 23 branches. Both
-/// numbers are used — the first as a length to measure at, the second as the density that
+/// `raster/doc/spike-function-paint.md` section 1's table gives 482 instructions and 23 branches.
+/// Both numbers are used — the first as a length to measure at, the second as the density that
 /// makes a program of that length shaped like a real one.
 const WITNESS_LENGTH: usize = 482;
 const WITNESS_BRANCHES: usize = 23;
@@ -93,7 +93,7 @@ const LENGTHS: [usize; 4] = [1, 121, WITNESS_LENGTH, 2 * WITNESS_LENGTH];
 /// every unit below leaves the stack exactly as it found it — `[x, y']`, both reals — so
 /// the two paths of a branch agree on their operand types and `analyse` can decide them
 /// (`function/typing.rs`). One trailing `PushReal` makes the three §7.10.1 components
-/// `Analysis::admits` requires, which since `raster/doc/notes-function-wiring.md` §2.1 is an
+/// `Analysis::admits` requires, which since `raster/doc/notes-function-wiring.md` section 2.1 is an
 /// equality rather than a floor.
 ///
 /// - a **straight** unit is `PushReal(c) add`, two instructions, and the sum accumulates
@@ -104,7 +104,7 @@ const LENGTHS: [usize; 4] = [1, 121, WITNESS_LENGTH, 2 * WITNESS_LENGTH];
 ///   are of even length and the tail is odd.
 ///
 /// Every operator is exact, so the program's `Agreement` is `Bounded` and `upload_function`
-/// admits it (ADR 0053 §3) — the classification is not what is being measured here.
+/// admits it (ADR 0053 section 3) — the classification is not what is being measured here.
 fn program_of(length: usize, seed: f32) -> Vec<FnOp> {
     // A literal that varies with the position it is emitted at and with the seed, kept in
     // a narrow band around a half so no constant is degenerate enough for a driver to

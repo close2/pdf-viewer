@@ -1,6 +1,6 @@
 //! What `encode` spent its time on, when a caller asks it to say.
 //!
-//! The caller's feedback §13 measured `Device::render` and found `encode` the largest
+//! The caller's feedback section 13 measured `Device::render` and found `encode` the largest
 //! of its three phases and the only one that tracks the scene's size — 3.86 µs a
 //! command by least squares over 38 page turns — and then said the thing that makes
 //! this module rather than an optimisation: *"whether those 3.86 µs a command are path

@@ -3,8 +3,8 @@
 //!
 //! One responsibility: **the operator vocabulary and its arithmetic classification.** No
 //! walking, no emitting. The classification is a table because it is a table — the
-//! evidence for each row is `raster/doc/research-function-paint-arithmetic.md` §3.2, and the two
-//! predicates below are the only thing `raster/doc/adr/0053` §3's decision reads.
+//! evidence for each row is `raster/doc/research-function-paint-arithmetic.md` section 3.2, and the
+//! two predicates below are the only thing `raster/doc/adr/0053` section 3's decision reads.
 //!
 //! # The two properties, and why neither alone is dangerous
 //!
@@ -16,7 +16,7 @@
 //!   discontinuous, so a difference of one unit in the last place upstream becomes a
 //!   difference of order one downstream.
 //!
-//! `raster/doc/research-function-paint-arithmetic.md` §3.1 states the composition rule this
+//! `raster/doc/research-function-paint-arithmetic.md` section 3.1 states the composition rule this
 //! file exists to serve:
 //!
 //! > No operator is dangerous on its own. `ge` is exact; so is `truncate`. The danger is

@@ -13,8 +13,7 @@
 
 use std::sync::Arc;
 
-use pdf_render::{Image, Point, Raster, Rasterizer as _, Rect, TargetSpec, Transform};
-use render_cpu::CpuRasterizer;
+use pdf_render::{Point, Rect, TargetSpec, Transform};
 use viewer_core::{Answer, Command, PresentationMode, Query, RenderRequest};
 
 use crate::app::App;
@@ -45,15 +44,6 @@ pub(crate) struct Presentation {
 )]
 fn whole(width: u32, height: u32) -> Point {
     Point::new(width as f32, height as f32)
-}
-
-/// One page of a §12.4.4 transition: the display list drawn to pixels, ready to be drawn again.
-///
-/// [`CpuRasterizer`] and not the graphics device, because this asks for *pixels* and a presenter
-/// answers only by presenting. It happens twice per transition rather than per frame.
-fn face(list: &pdf_render::DisplayList, target: TargetSpec) -> Option<Image> {
-    let raster: Raster = CpuRasterizer::new().rasterize(list, target).ok()?;
-    viewer_core::transition::drawable(&raster)
 }
 
 impl App {
@@ -212,8 +202,8 @@ impl App {
     ///
     /// Two rasters are taken per transition and none per frame: the page being left, as it was
     /// last presented, and the page arriving, at the same size. Both are drawn by
-    /// [`CpuRasterizer`] — the one rasteriser this host can ask for *pixels* rather than for a
-    /// present — and each crosses to the graphics device once, because [`pdf_render::Image`]
+    /// `viewer_host::face`'s CPU rasteriser — the one this host can ask for *pixels* rather than
+    /// for a present — and each crosses to the graphics device once, because [`pdf_render::Image`]
     /// holds its samples behind an `Arc` and raster's caches are keyed by that pointer.
     ///
     /// The cost is therefore two page renders at the start of a transition and two image draws
@@ -282,8 +272,10 @@ impl App {
         // that three windows cannot disagree about where a transition leaves the page.
         let arriving =
             viewer_host::face_target(request.target, (origin.0 + edge, origin.1), (width, height));
-        let (Some(outgoing), Some(incoming)) = (face(&list, target), face(&request.list, arriving))
-        else {
+        let (Some(outgoing), Some(incoming)) = (
+            viewer_host::face(&list, target),
+            viewer_host::face(&request.list, arriving),
+        ) else {
             println!(
                 "note: transition: {:?} was named but the pages behind it would not rasterise, \
                  so the page is shown at once",

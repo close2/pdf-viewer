@@ -34,7 +34,7 @@ pub enum FunctionProblem {
     Program(crate::function::FunctionRefusal),
     /// An operator whose two implementations may differ reaches one that turns a small
     /// difference into a large one, so no bound on the disagreement between this device
-    /// and an independent evaluation can be stated (ADR 0053 §3).
+    /// and an independent evaluation can be stated (ADR 0053 section 3).
     ///
     /// Refused at the upload rather than reported on the frame: the caller's answer is to
     /// fall back to the raster it builds today, and that is cheap here and expensive after

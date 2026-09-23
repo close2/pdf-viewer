@@ -7,7 +7,7 @@
 //!
 //! 1. **What the arithmetic costs on the processor**, at the same placement, which is
 //!    what the caller's 1 142 ms is a number for.
-//! 2. **Whether the device agrees**, which is `QUORRA_FUNCTION_PAINT.md` §5.1 — the
+//! 2. **Whether the device agrees**, which is `QUORRA_FUNCTION_PAINT.md` section 5.1 — the
 //!    question they call the sharp one.
 
 use crate::program::Op;
@@ -186,7 +186,7 @@ fn bitwise(stack: &mut Vec<f32>, f: impl Fn(i32, i32) -> i32) {
 }
 
 /// Saturating, for the reason `ops.wgsl` gives: a wrapped integer is a plausible
-/// wrong colour, and §6 of the brief prices that above a refusal.
+/// wrong colour, and section 6 of the brief prices that above a refusal.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "the clamp is what makes the truncation exact"

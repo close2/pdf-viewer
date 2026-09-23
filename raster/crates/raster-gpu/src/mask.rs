@@ -29,8 +29,8 @@
 //! `transparent_value` is a second implementation of `reduce.wgsl`'s own arithmetic for
 //! the transparent case, on the CPU because five uniforms need the number before any pass
 //! runs. Two implementations of one rule is what the reduction already is (that one
-//! against the caller's `SoftMask::value`, §4.2), and it is held the same way: by a test
-//! that renders an empty mask group on the device and compares the texel to this
+//! against the caller's `SoftMask::value`, brief section 4.2), and it is held the same way: by a
+//! test that renders an empty mask group on the device and compares the texel to this
 //! function, over both rules and a spread of backdrops and tables.
 
 use crate::encode::MaskPlan;

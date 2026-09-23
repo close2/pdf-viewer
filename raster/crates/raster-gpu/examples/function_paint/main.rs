@@ -1,13 +1,13 @@
 //! A feasibility spike: is a §7.10.5 function a paint the device should evaluate?
 //!
 //! `/home/cl/projects/pdf-viewer/doc/QUORRA_FUNCTION_PAINT.md` asks for a paint whose
-//! colour is a small program, and says its §3 — "a function-based shading is a
+//! colour is a small program, and says its section 3 — "a function-based shading is a
 //! fragment shader written in another language" — is an intuition rather than a
 //! number. This example is the number. It is **not** a library feature and nothing in
 //! `crates/raster-gpu/src` changed to host it; the write-up is
 //! `raster/doc/spike-function-paint.md`.
 //!
-//! It measures the two shapes their §4 leaves to us, on their two witness programs,
+//! It measures the two shapes their section 4 leaves to us, on their two witness programs,
 //! on both adapters:
 //!
 //! - **(i) an interpreter** — one shader, a switch over the instruction list, the
@@ -17,7 +17,7 @@
 //!
 //! Run: `cargo run --release -p raster-gpu --example function_paint`
 //!
-//! The comparison it exists to serve is §1 of their document: 30.8 ms of device time
+//! The comparison it exists to serve is section 1 of their document: 30.8 ms of device time
 //! and 1 142 ms of scene building for one page of one shading, against `mutool draw
 //! -r 96` at 15–16 ms for the whole page.
 
@@ -59,7 +59,7 @@ type AdapterRasters = (String, Vec<Drawn>);
 /// interpreter's one structural limit, since a WGSL array needs a constant size.
 const SLOTS: usize = 64;
 
-/// §6.2's page, and the 4× the corpus gate runs at.
+/// Brief section 6.2's page, and the 4× the corpus gate runs at.
 const SIZES: [(&str, u32, u32); 2] = [("1191x1684", 1191, 1684), ("4x", 4764, 6736)];
 
 /// Enough rounds to find a minimum; fewer when a round is expensive.
@@ -175,7 +175,7 @@ const COMPILE_ROUNDS: usize = 3;
 ///
 /// The round-robin matters more here than anywhere else in the spike: a compile is
 /// host work on a machine whose load average swings between 2 and 50, and it is the
-/// number `PLAN.md` §1.8 and the caller's section 5.2 both judge shape (ii) by.
+/// number `PLAN.md` section 1.8 and the caller's section 5.2 both judge shape (ii) by.
 fn compile_all(gpu: &Gpu, cases: &[Case]) -> (Paint, Vec<Option<Paint>>) {
     let mut sources = vec![(
         "shape (i)  interpreter".to_string(),
@@ -455,7 +455,7 @@ fn measure_size(
 
 /// Draw each variant once more, read it back, and compare with the processor.
 ///
-/// This is `QUORRA_FUNCTION_PAINT.md` §5.1 — "the sharp one" — as a count rather than
+/// This is `QUORRA_FUNCTION_PAINT.md` section 5.1 — "the sharp one" — as a count rather than
 /// as a worry: how many device pixels does the device disagree about, and by how much.
 fn report_agreement(
     gpu: &Gpu,

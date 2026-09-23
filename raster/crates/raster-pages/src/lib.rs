@@ -23,7 +23,7 @@
 //!
 //! This crate has no adapter and no device: it depends on `raster-scene` and nothing
 //! else, so it links from a target that cannot open one, and `raster-gpu`'s
-//! dev-dependency on it does not close a cycle (ADR 0060 §3). The price is five lines
+//! dev-dependency on it does not close a cycle (ADR 0060 section 3). The price is five lines
 //! at each call site, which are plumbing rather than page content:
 //!
 //! The block below is `ignore`d and is therefore **not compiled by anything** — it needs a

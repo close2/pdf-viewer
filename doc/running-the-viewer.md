@@ -167,8 +167,8 @@ binaries, and a stale executable is a measurement of the past. `doc/todo/02` §5
 the incident it is argued from; this was a second copy of both.
 
 **`p` runs §12.4.4's presentation**: the window drives the clock, a page with a `/Dur` advances by
-itself, and the page arrived at has its `/Trans` **drawn** — seven of Table 164's twelve styles,
-with the other five named in a note rather than cut in silence (ADR 0230). Press it again to stop.
+itself, and the page arrived at has its `/Trans` **drawn** — every one of Table 164's twelve
+styles, `R` being the cut the table defines it as (ADRs 0230, 1299). Press it again to stop.
 
 **And it is a mode rather than only a clock, since ADR 0316.** `p` sends
 `Command::Present(PresentationMode::On)`, which is §12.4.4.2's own condition — NOTE 3 respects a
@@ -217,7 +217,9 @@ after the first opens as a tab behind it once page one is on the screen, and **C
 another beside the one showing — a file dialogue in `quorra-gtk` and `quorra-qt`, and in `quorra` a
 line over the page where the path is typed, Enter to open and Escape to leave it. Ctrl + Tab moves
 between them and Ctrl + W closes one; a tab says the document's own §14.3.3 `/Title` where it
-states one, and otherwise the file's name.
+states one, and otherwise the file's name. A document opened behind obeys its Table 29 `/PageMode`
+the first time it comes to the front, not while it is behind, and a presentation hides the strip
+with the rest of the chrome (ADR 1303).
 
 ```sh
 target/quorra a.pdf b.pdf c.pdf    # a.pdf in front, the other two as tabs behind it

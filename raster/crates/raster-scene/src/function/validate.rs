@@ -4,7 +4,7 @@
 //! list a thing that can be executed at all. It runs at `Device::upload_function`, not at
 //! the scene boundary, and that placement is the point — a program is an uploaded
 //! resource, so a caller learns its program is unsupported *before it has built a scene*,
-//! which is §5's "discoverable before the frame" satisfied properly rather than by
+//! which is brief section 5's "discoverable before the frame" satisfied properly rather than by
 //! accident.
 //!
 //! It lives here, in `raster-scene`, because the checks are about the vocabulary this
@@ -14,7 +14,7 @@
 //! # What is deliberately **not** checked here
 //!
 //! The *semantic* half — stack depth, the static classification of the operators two
-//! adapters do not agree on (ADR 0053 §3), the resolution of `copy`/`index`/`roll`
+//! adapters do not agree on (ADR 0053 section 3), the resolution of `copy`/`index`/`roll`
 //! counts, and a [`FnOp::JumpUnless`] whose condition is not a boolean — is `raster-gpu`'s
 //! analyser. All four need a walk that models the stack and its types; this one needs
 //! only the list. A program that passes here may still be refused there, and that is the
@@ -39,7 +39,7 @@ use crate::error::SceneError;
 /// which is eighteen times the whole 5.9 ms CPU-rasteriser frame principle 2 measures
 /// against. So the bound is a **ceiling that keeps a refusal cheap**, not a target: a
 /// program approaching it will be refused by a device budget long before it is drawn
-/// (ADR 0053 §1 — the interpreter shape lost the device outright at 482 instructions
+/// (ADR 0053 section 1 — the interpreter shape lost the device outright at 482 instructions
 /// times 32 million fragments, and that is a refusal that must happen before the frame).
 ///
 /// It also bounds what one upload can be made to hold: 8 192 × 8 bytes is 64 KiB.
@@ -129,7 +129,7 @@ mod tests {
     }
 
     /// An empty program leaves no output value. The empty-stack rule would turn that into
-    /// a plausible black, which is the outcome §5 refuses by name.
+    /// a plausible black, which is the outcome brief section 5 refuses by name.
     #[test]
     fn an_empty_program_is_refused_at_the_boundary() {
         assert!(matches!(
@@ -139,7 +139,7 @@ mod tests {
     }
 
     /// The bound exists so that a refusal is cheap and an upload's memory is bounded; it
-    /// names itself, per §5's "an `Err` that names what overflowed".
+    /// names itself, per brief section 5's "an `Err` that names what overflowed".
     #[test]
     fn a_program_past_the_stated_bound_is_refused_with_its_limit() {
         let too_long = vec![FnOp::Pop; MAX_PROGRAM_LENGTH + 1];

@@ -88,20 +88,27 @@ impl Device {
     }
 
     /// The composite pass's uniform + bind group for one `ChildOp` (§11.4.5).
+    ///
+    /// `group_alpha` is §11.4.4's second accumulator — the group's elements drawn onto
+    /// transparency, whose alpha is Table 140's group alpha — for a non-isolated group
+    /// composited under a blend mode other than Normal, and a dummy with an empty region
+    /// for every other composite, which never reads it.
     // one pass's inputs, named once at its one call
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn composite_bind(
         &self,
         op: &ChildOp,
         region: Region,
         backdrop: (&wgpu::TextureView, Region),
         child: (&wgpu::TextureView, Region),
+        group_alpha: (&wgpu::TextureView, Region),
         mask: (&wgpu::TextureView, MaskPlacement),
         scratch: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
-        let bytes = composite_params_bytes(op, region, backdrop.1, child.1, mask.1);
+        let bytes = composite_params_bytes(op, region, backdrop.1, child.1, group_alpha.1, mask.1);
         let uniform = self.gpu.create_buffer(&wgpu::BufferDescriptor {
             label: Some("raster composite params"),
-            size: 144,
+            size: 160,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -130,6 +137,10 @@ impl Device {
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::TextureView(scratch),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(group_alpha.0),
                 },
             ],
         })
@@ -224,8 +235,8 @@ fn globals_bytes(region: Region) -> [u8; 16] {
     bytes
 }
 
-/// The 144 bytes `composite.wgsl`'s `Params` reads, in its order (§11.4.5).
-// The offsets are literal layout positions inside a fixed 128-byte array; the index
+/// The 160 bytes `composite.wgsl`'s `Params` reads, in its order (§11.4.5).
+// The offsets are literal layout positions inside a fixed 160-byte array; the index
 // arithmetic cannot leave it.
 #[expect(clippy::arithmetic_side_effects)]
 #[expect(clippy::cast_precision_loss)] // extents inside f32's exact integer range
@@ -234,12 +245,20 @@ fn composite_params_bytes(
     region: Region,
     backdrop: Region,
     child: Region,
+    group_alpha: Region,
     mask: MaskPlacement,
-) -> [u8; 144] {
-    let mut bytes = [0_u8; 144];
+) -> [u8; 160] {
+    let mut bytes = [0_u8; 160];
     bytes[0..4].copy_from_slice(&op.mode.to_le_bytes());
     bytes[4..8].copy_from_slice(&op.alpha.to_le_bytes());
-    let non_isolated = u32::from(!op.isolated);
+    // §11.4.4's two constructions (`GroupSpec::isolated`): 1 interpolates a seeded layer
+    // back onto its backdrop, 2 removes the backdrop by the group alpha a second
+    // accumulator carries; 0 is §11.4.5's isolated group.
+    let non_isolated = match (op.isolated, op.group_alpha) {
+        (true, _) => 0_u32,
+        (false, None) => 1,
+        (false, Some(_)) => 2,
+    };
     bytes[8..12].copy_from_slice(&non_isolated.to_le_bytes());
     // The word `_pad1` used to hold: §11.4.6's stage this group is, if it is one.
     bytes[12..16].copy_from_slice(&op.compose.to_le_bytes());
@@ -279,6 +298,19 @@ fn composite_params_bytes(
     bytes[128..132].copy_from_slice(&u32::from(op.alpha_is_shape).to_le_bytes());
     // §11.7.4.3's kept channels, read only under `compose == 3` (`doc/adr/1295`).
     bytes[132..136].copy_from_slice(&op.kept.to_le_bytes());
+    // Where the group-alpha accumulator sits: its device corner, then its size.
+    for (i, v) in [
+        group_alpha.x as f32,
+        group_alpha.y as f32,
+        group_alpha.width as f32,
+        group_alpha.height as f32,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let at = 144 + i * 4;
+        bytes[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    }
     bytes
 }
 
@@ -359,6 +391,7 @@ mod tests {
             kept: 5,
             mask: None,
             isolated: false,
+            group_alpha: Some(3),
             alpha_is_shape: true,
         };
         let placement = MaskPlacement {
@@ -386,6 +419,12 @@ mod tests {
                 width: 53,
                 height: 54,
             },
+            Region {
+                x: 61,
+                y: 62,
+                width: 63,
+                height: 64,
+            },
             placement,
         );
         check(
@@ -395,8 +434,9 @@ mod tests {
             &[
                 ("mode", Lane::Word(7)),
                 ("alpha", Lane::Float(0.25)),
-                // `isolated: false` is §11.4.4's non-isolated group, which is the 1.
-                ("non_isolated", Lane::Word(1)),
+                // `isolated: false` with a group-alpha accumulator is §11.4.4's
+                // non-isolated group under a blend of its own, which is the 2.
+                ("non_isolated", Lane::Word(2)),
                 ("compose", Lane::Word(2)),
                 ("clip", Lane::Vec4([1.0, 2.0, 3.0, 4.0])),
                 ("residue", Lane::Vec4([0.0, 0.0, 9.0, 10.0])),
@@ -409,6 +449,7 @@ mod tests {
                 ("mask_outside", Lane::Vec4([0.5, 0.0, 0.0, 0.0])),
                 ("alpha_is_shape", Lane::Word(1)),
                 ("kept", Lane::Word(5)),
+                ("group_alpha_rect", Lane::Vec4([61.0, 62.0, 63.0, 64.0])),
             ],
         );
     }

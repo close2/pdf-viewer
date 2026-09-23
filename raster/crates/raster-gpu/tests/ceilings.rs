@@ -2,7 +2,7 @@
 //! never an abort, and never a plausible-looking wrong page.
 //!
 //! `raster/doc/notes-ceilings-audit.md` is the round this file witnesses. The question it answers
-//! is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` §1:
+//! is the caller's, from `pdf-viewer/doc/HAYRO_ISSUES_FOR_QUORRA.md` section 1:
 //!
 //! > If raster has an equivalent ceiling anywhere in strip generation, the thing to check
 //! > is not whether it can be raised but whether crossing it returns rather than aborts.
@@ -89,8 +89,8 @@ fn black() -> Paint {
 ///
 /// **An infinity is not a stopped frame.** `raster::fill_mask`'s prefix sum carries a NaN
 /// to the end of its row, and the non-zero rule's `abs().min(1.0)` returns 1.0 for a NaN
-/// — so the frame that came back was a solid band, drawn, reported as drawn. That is §5's
-/// third state, which is why this bound is a refusal rather than a clamp.
+/// — so the frame that came back was a solid band, drawn, reported as drawn. That is brief section
+/// 5's third state, which is why this bound is a refusal rather than a clamp.
 #[test]
 fn a_viewport_transform_above_the_coordinate_bound_is_refused_by_name() {
     let mut device = device();
@@ -150,7 +150,7 @@ fn a_viewport_transform_at_the_coordinate_bound_still_draws() {
 /// `raster::stroke::direction` computed a length as `(dx*dx + dy*dy).sqrt()`, and `dx * dx`
 /// overflows to infinity above `1.9e19` — eight orders of magnitude below the contract's
 /// own ceiling. The length was then infinite, the normal `(0, 0)`, and the stroke's quad
-/// had no width: a mark asked for and drawn as nothing, which §5 calls worse than a
+/// had no width: a mark asked for and drawn as nothing, which brief section 5 calls worse than a
 /// refusal.
 #[test]
 fn a_stroke_across_the_coordinate_range_still_draws_its_band() {

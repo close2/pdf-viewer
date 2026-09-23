@@ -163,7 +163,7 @@ pub fn outline_side(shape: &Archetype, i: u32) -> f32 {
 /// had a mark that met the clip clipping it. The rows still read 40 and 600 tiles,
 /// because a mark whose chain admits nothing was rasterised anyway and multiplied by a
 /// residue of zero — so the signature looked like it gated the residue lane through
-/// ADR 0049 and ADR 0057, and did not (`raster/doc/notes-tiling-bound.md` §3).
+/// ADR 0049 and ADR 0057, and did not (`raster/doc/notes-tiling-bound.md` section 3).
 #[must_use]
 pub fn clip_of(shape: &Archetype, index: u32) -> usize {
     if shape.clipped == 0 {

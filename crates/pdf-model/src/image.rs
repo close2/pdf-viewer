@@ -5496,7 +5496,8 @@ pub struct ShapeMasks {
 }
 
 impl ShapeMasks {
-    /// Records that the soft mask `id` is a stencil's shape rather than an opacity.
+    /// Records that the soft mask `id` is a shape rather than an opacity: a stencil's, or the
+    /// outline a tiling pattern's stroke is cut to (§11.6.4.2).
     pub(crate) fn record(&mut self, id: pdf_render::SoftMaskId) {
         self.masks.push((id, id));
     }

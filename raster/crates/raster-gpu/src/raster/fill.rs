@@ -31,7 +31,7 @@ impl CoverageMask {
     ///
     /// A legitimate mask rather than the absence of one: an empty clip region admits
     /// nothing *inside* it too, which is a different statement from having no clip, and
-    /// both have tests (`raster/doc/PLAN.md` §1.4).
+    /// both have tests (`raster/doc/PLAN.md` section 1.4).
     pub(crate) fn transparent(left: i32, top: i32, width: u32, height: u32) -> Self {
         Self {
             left,

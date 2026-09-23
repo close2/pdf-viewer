@@ -3,8 +3,8 @@
 //! # Why this file exists
 //!
 //! Every other function test runs the default [`Coverage::Cpu`]
-//! (`raster/doc/notes-function-wiring.md` §4.5), so one of the two settings a caller can put a
-//! device in had never drawn this paint at all.
+//! (`raster/doc/notes-function-wiring.md` section 4.5), so one of the two settings a caller can put
+//! a device in had never drawn this paint at all.
 //!
 //! # What the two settings are allowed to differ by here, and why it is not ADR 0016's
 //! bound

@@ -1,8 +1,8 @@
 //! Timestamp queries: the instrumentation that lets a frame prove what it cost.
 //!
-//! §8 of the brief exists because the old backend could not separate execution from
+//! Section 8 of the brief exists because the old backend could not separate execution from
 //! readback — a bytes-per-second estimate had to stand in for what a timestamp query
-//! would have said exactly, and §6.1 spends two paragraphs on the resulting
+//! would have said exactly, and brief section 6.1 spends two paragraphs on the resulting
 //! uncertainty. This module is the query plumbing; the honesty rule it serves lives
 //! in [`TimingProvenance`](crate::frame::TimingProvenance): a number that had to be a
 //! wall clock says so.

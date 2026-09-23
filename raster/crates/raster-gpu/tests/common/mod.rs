@@ -6,8 +6,9 @@
 //! is what each caller already built** — a fixture generalised on the way in would change
 //! what somebody's assertion means without anybody deciding to.
 //!
-//! Six parts, along what each is about:
+//! Seven parts, along what each is about:
 //!
+//! - [`blend`] — §11.3.5's sixteen blend functions, the reference two files composite by;
 //! - [`headless`] — the device this suite renders through, and the pixels it hands back;
 //! - [`scene`] — the scene pieces more than one file draws;
 //! - [`retained`] — the two pages and the render helper the `retained_*.rs` family shares,
@@ -56,6 +57,7 @@
               module is compiled into binaries that do not all state it themselves"
 )]
 
+pub mod blend;
 pub mod bound;
 pub mod clause;
 pub mod headless;

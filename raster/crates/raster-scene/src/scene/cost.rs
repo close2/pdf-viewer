@@ -14,7 +14,7 @@ use super::{ClipDef, Command, MaskDef, SceneData};
 use crate::ids::FunctionId;
 use crate::paint::Paint;
 
-/// What a scene costs, so that a limit can be discovered *before* a frame (§5's second
+/// What a scene costs, so that a limit can be discovered *before* a frame (brief section 5's second
 /// preference): a caller compares this against `Device::limits` and falls back rather
 /// than discovering a refusal afterwards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

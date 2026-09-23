@@ -689,8 +689,15 @@ impl Interpreter<'_> {
                     // structure also discards any glyph outlines a malformed stream left
                     // unconsumed by an `ET`, which is the only state a second `BT` could
                     // otherwise carry into the text object it starts.
+                    // A `BT` inside a text object that never ended closes that object's record
+                    // of §11.6.4.3's readings before this one opens its own.
+                    if let Some(outer) = text_object.enclosing_reading.take() {
+                        let reading = self.close_reading_scope(outer);
+                        self.fold_reading(reading, text_object.start);
+                    }
                     text_object = TextObject {
                         start: self.list.command_count(),
+                        enclosing_reading: Some(self.open_reading_scope(state.alpha_is_shape)),
                         ..TextObject::default()
                     };
                 }
@@ -1138,6 +1145,10 @@ impl Interpreter<'_> {
             self.note(Unsupported::Operator {
                 operator: "BT without ET".to_owned(),
             });
+        }
+        if let Some(outer) = text_object.enclosing_reading.take() {
+            let reading = self.close_reading_scope(outer);
+            self.fold_reading(reading, text_object.start);
         }
 
         // A `W` the stream ended on modified nothing: §8.5.4 has it "modify the effect of the

@@ -29,14 +29,18 @@ impl Executor<'_> {
     /// rendered it is too late to save anything by discovering that** — the encoder drops
     /// such a child before it becomes an op at all (ADR 0041), which is where the clip
     /// that emptied it is known.
+    ///
+    /// `child.1` is the group-alpha accumulator a non-isolated group composited under a
+    /// blend of its own is drawn with (`ChildOp::group_alpha`), and `None` for every other.
     pub(super) fn composite_child(
         &mut self,
         recorder: &mut wgpu::CommandEncoder,
         accumulator: &wgpu::TextureView,
         region: Region,
-        child: &Rendered,
+        child: (&Rendered, Option<&Rendered>),
         op: &ChildOp,
     ) -> Result<(), RenderError> {
+        let (child, group_alpha) = child;
         let Some(onto) = region.meet(child.region()) else {
             return Ok(());
         };
@@ -54,12 +58,14 @@ impl Executor<'_> {
             (&copy_view, onto),
             from,
         )?;
+        let group_alpha = group_alpha.map(|rendered| (rendered.view(), rendered.region()));
         self.composite_pass(
             recorder,
             accumulator,
             region,
             (&copy_view, onto),
             (&child.view(), child.region()),
+            group_alpha.as_ref().map(|(view, region)| (view, *region)),
             op,
         )?;
         self.pool.release(copy);
@@ -73,6 +79,10 @@ impl Executor<'_> {
     /// of exactly those pixels, made before this pass because a pass cannot read what it
     /// writes. The load op is `Load` for the same reason: everything outside the scissor
     /// is already what this pass would have written there.
+    ///
+    /// A composite that reads no group alpha binds the frame's dummy texture in its place
+    /// with an empty region, which `composite.wgsl` never samples.
+    #[expect(clippy::too_many_arguments)] // one pass's inputs, named once at its one call
     fn composite_pass(
         &mut self,
         recorder: &mut wgpu::CommandEncoder,
@@ -80,13 +90,23 @@ impl Executor<'_> {
         region: Region,
         backdrop: (&wgpu::TextureView, Region),
         child: (&wgpu::TextureView, Region),
+        group_alpha: Option<(&wgpu::TextureView, Region)>,
         op: &ChildOp,
     ) -> Result<(), RenderError> {
         let mask = self.mask_for(op.mask);
         let scratch = self.scratch_view.as_ref().unwrap_or(&self.dummy_view);
-        let bind = self
-            .device
-            .composite_bind(op, region, backdrop, child, mask, scratch);
+        let group_alpha = group_alpha.unwrap_or((
+            &self.dummy_view,
+            Region {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            },
+        ));
+        let bind =
+            self.device
+                .composite_bind(op, region, backdrop, child, group_alpha, mask, scratch);
         let (pipeline, compiled) = self
             .device
             .pipelines()

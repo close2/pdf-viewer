@@ -27,7 +27,7 @@
 //!
 //! # What actually reaches us, and why the last two tests still exist
 //!
-//! `RENDER_LIBRARY.md` §4.5 settles degenerate subpaths upstream — "we pre-split them;
+//! `RENDER_LIBRARY.md` section 4.5 settles degenerate subpaths upstream — "we pre-split them;
 //! draw what you are given" — and the caller's `pdf-render::degenerate::split_degenerate`
 //! is that split: it strips every degenerate subpath out of the stroked path and emits
 //! §8.5.3.2's circle as a **filled** outline under round caps, so what arrives here is a
@@ -116,7 +116,7 @@ fn line() -> Vec<Segment> {
 }
 
 /// The bytes of a target nothing drew on. `Target::Readback` hands back straight-alpha
-/// RGBA (§3 of the brief), and a page renders onto transparency (§11.4.7), so this is
+/// RGBA (section 3 of the brief), and a page renders onto transparency (§11.4.7), so this is
 /// what "no output" looks like.
 fn blank() -> Vec<u8> {
     vec![0_u8; (SIZE * SIZE * 4) as usize]

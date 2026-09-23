@@ -188,7 +188,7 @@ impl ObjectStreams {
     };
 
     /// The two ceilings, or `None` where no object stream is generated.
-    fn ceilings(self) -> Option<(usize, usize)> {
+    pub(crate) fn ceilings(self) -> Option<(usize, usize)> {
         match self {
             Self::Disable => None,
             Self::Generate {
@@ -1009,18 +1009,18 @@ pub struct Written {
 /// It holds three things and they are three different kinds of thing: the handler that turns
 /// plaintext into ciphertext, the dictionary the file has to carry so that a reader can build
 /// the same handler back, and the source of the bytes neither of the other two can derive.
-struct Protected<'e> {
+pub(crate) struct Protected<'e> {
     /// §7.6.3.3's Algorithm 1.A over the file encryption key, as `AESV3`.
     encryption: Encryption,
     /// The `/Encrypt` dictionary, written as its own indirect object and never encrypted.
-    dictionary: Dictionary,
+    pub(crate) dictionary: Dictionary,
     /// §7.6.3.3's "16-byte random number" for every string and stream, from outside.
     entropy: &'e mut dyn Entropy,
 }
 
 impl<'e> Protected<'e> {
     /// Runs §7.6.4.4.7, §7.6.4.4.8 and §7.6.4.4.9 and builds the dictionary they fill.
-    fn new(
+    pub(crate) fn new(
         protection: &Protection<'_>,
         entropy: &'e mut dyn Entropy,
     ) -> Result<Self, SerializeError> {
@@ -1116,7 +1116,7 @@ impl<'e> Protected<'e> {
     ///
     /// A source that refuses stops the write: there is no weaker vector to fall back to, and a
     /// file half written under a predictable one is worse than no file.
-    fn vector(&mut self) -> Result<[u8; crypt::AES_BLOCK], SerializeError> {
+    pub(crate) fn vector(&mut self) -> Result<[u8; crypt::AES_BLOCK], SerializeError> {
         let mut iv = [0u8; crypt::AES_BLOCK];
         if self.entropy.fill(&mut iv) {
             Ok(iv)
@@ -1130,7 +1130,7 @@ impl<'e> Protected<'e> {
     /// `assembly` is here for one reason: [`Self::method`] has to select the crypt filter the
     /// *reader* will select, and a stream's `/Type` or `/Filter` may be stated indirectly, so
     /// deciding it needs the output's other objects.
-    fn value(
+    pub(crate) fn value(
         &mut self,
         assembly: &Assembly<'_>,
         id: ObjectId,
@@ -1237,7 +1237,7 @@ impl<'e> Protected<'e> {
     ///
     /// — so the members written into [`Group::payload`] are *not* encrypted one by one, and
     /// encrypting the carrier is the whole of what the clause asks.
-    fn carrier(
+    pub(crate) fn carrier(
         &mut self,
         id: ObjectId,
         mut dict: Dictionary,
@@ -1258,6 +1258,24 @@ impl<'e> Protected<'e> {
             data: body.into(),
             decryption_failed: false,
         })))
+    }
+
+    /// Encrypts one stream's data under Table 20's `/StmF` with a vector the caller drew.
+    ///
+    /// For a stream this handler's caller renders more than once before writing it:
+    /// `crate::linearize`'s hint stream is laid out to a fixed point, and one vector drawn before
+    /// the first pass keeps every pass's ciphertext the same length for the same plaintext, and
+    /// the file a function of the one vector it states.
+    pub(crate) fn stream_with_iv(
+        &self,
+        id: ObjectId,
+        iv: [u8; crypt::AES_BLOCK],
+        data: &[u8],
+    ) -> Result<Vec<u8>, SerializeError> {
+        let method = self.encryption.stream_method();
+        self.encryption
+            .encrypt_with_iv(method, id, iv, data)
+            .ok_or(SerializeError::Cipher)
     }
 
     /// Which crypt filter one stream's data is encrypted with.
@@ -1570,7 +1588,7 @@ pub(crate) fn catalog_of(assembly: &Assembly<'_>) -> Result<ObjectId, SerializeE
 /// Table 20 marks `/V` 5 and Table 21 `/R` 6 as PDF 2.0. A file whose header disowned its own
 /// cross-reference section or its own encryption dictionary would be one no reader could be
 /// expected to recover.
-fn header_version(version: Version, form: Form, encrypted: bool) -> Version {
+pub(crate) fn header_version(version: Version, form: Form, encrypted: bool) -> Version {
     let version = match form {
         Form::Stream => version.max(Version { major: 1, minor: 5 }),
         Form::Table => version,
@@ -1652,9 +1670,10 @@ fn write_encrypt_dictionary<W: Write>(
 ///   — this writer states `/Length` as a direct integer, so no such object exists.
 /// - **"In linearized files … the document catalog dictionary, the linearization dictionary,
 ///   and page objects"** — conditional on a linearised file, which only
-///   [`crate::linearize::serialize_linearized`] writes, and that writer puts no object in an
-///   object stream at all. So the condition is false for every file this function writes, and
-///   met by construction in every file that one does.
+///   [`crate::linearize::serialize_linearized`] writes. This function is not asked there: that
+///   writer's own test is this one with the catalog and the pages added, and it never places its
+///   parameter dictionary in a carrier. So the condition is false for every file this function
+///   writes.
 ///
 /// And one sentence from further down the clause, which is a rule about the *value* rather
 /// than about the object: "[a]n object in an object stream shall not consist solely of an
@@ -1748,14 +1767,7 @@ fn flush<W: Write>(
     // would have paid the indirection for nothing. Under `Streams::Carry` the level is the
     // default, because there is no source encoding here to carry: these bytes are this
     // writer's own.
-    let level = match streams {
-        Streams::Carry => match Streams::DEFAULT {
-            Streams::Recompress { level } => level,
-            Streams::Carry => 9,
-        },
-        Streams::Recompress { level } => level,
-    };
-    let encoded = deflate(&data, level).ok_or_else(|| {
+    let encoded = deflate(&data, carrier_level(streams)).ok_or_else(|| {
         SerializeError::Write(std::io::Error::other(
             "an object stream's payload could not be deflated",
         ))
@@ -1819,6 +1831,22 @@ fn flush<W: Write>(
     group.offsets.clear();
     group.payload.clear();
     Ok(())
+}
+
+/// The zlib level an object stream this writer builds is deflated at.
+///
+/// The caller's level where it asked for recompression, and [`Streams::DEFAULT`]'s under
+/// [`Streams::Carry`], because there is no source encoding of a carrier to carry: its bytes are
+/// this writer's own. Both whole-file writers ask this, so that one plan compresses a carrier
+/// alike in either.
+pub(crate) fn carrier_level(streams: Streams) -> u32 {
+    match streams {
+        Streams::Carry => match Streams::DEFAULT {
+            Streams::Recompress { level } => level,
+            Streams::Carry => 9,
+        },
+        Streams::Recompress { level } => level,
+    }
 }
 
 /// One stream decoded through the filters this tree reads and re-encoded as one `FlateDecode`,
@@ -2045,7 +2073,7 @@ pub fn flate_encode(data: &[u8], level: u32) -> Option<Vec<u8>> {
 }
 
 /// [`flate_encode`]'s body, which the whole module reaches without the `pub` path.
-fn deflate(data: &[u8], level: u32) -> Option<Vec<u8>> {
+pub(crate) fn deflate(data: &[u8], level: u32) -> Option<Vec<u8>> {
     let mut encoder = flate2::write::ZlibEncoder::new(
         Vec::with_capacity(data.len() / 2),
         flate2::Compression::new(level.min(9)),
@@ -2203,7 +2231,7 @@ fn cross_reference_stream<W: Write>(
 /// One §7.5.8.3 record: the type, then the two fields `/W [1 4 2]` gives four and two bytes.
 ///
 /// "Fields requiring more than one byte are stored with the high-order byte first."
-fn row(kind: u8, second: u32, third: u16, out: &mut Vec<u8>) {
+pub(crate) fn row(kind: u8, second: u32, third: u16, out: &mut Vec<u8>) {
     out.push(kind);
     out.extend_from_slice(&second.to_be_bytes());
     out.extend_from_slice(&third.to_be_bytes());

@@ -586,6 +586,9 @@ pub mod ffi {
         /// are `viewer_host::restriction`'s so that three windows put one question, and only Rust
         /// has them. Asked once, when `QtUpdate::question` says so.
         fn question_prompt(self: &Host) -> String;
+        /// What that dialogue's window is called: `viewer_host::Subject`'s title for what the
+        /// question is about, so that a form's question is not titled as a restriction.
+        fn question_title(self: &Host) -> String;
         /// What the two buttons of that dialogue say.
         ///
         /// From Rust rather than from `QDialogButtonBox`'s standard Ok and Cancel, for
@@ -600,8 +603,8 @@ pub mod ffi {
         /// means everywhere else in this program: going ahead on a question nobody answered would
         /// be the *off* level under another name (`viewer_host::restriction`).
         fn answer_question(self: &mut Host, proceed: bool);
-        /// The two headings the restrictions menu bar carries, in `viewer_host::Scope::ALL`'s
-        /// order.
+        /// The headings the restrictions menu bar carries, one per group of `restriction_menu`'s
+        /// entries at depth 0 — `viewer_host::Restrictions::headings`.
         ///
         /// Separate from `restriction_menu` because a `QMenu` needs its title before it can be
         /// put in a bar, and the entries under it are built when it is opened: what a menu holds

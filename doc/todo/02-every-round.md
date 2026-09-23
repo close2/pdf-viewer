@@ -868,7 +868,12 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    count that can only rise is replaced by a named population (`REFUSED_OPEN` is the shape).
 5. **Commit in the worktree, then fast-forward `main` — from the main checkout,
    `git merge --ff-only <branch>`, never from inside the
-   worktree.** Run inside the worktree, that command merges the branch into itself, exits 0, and
+   worktree.** **The commit, the fast-forward and the close are three commands, run separately,
+   each one's output read before the next is typed** — never chained with `;` or `&&`. The commit
+   is `tools/batch.sh commit <message-file>` (the file under `scratchpad/` or outside the tree): it
+   stages by name every path `git status` reports outside `scratchpad/`, prints the population's
+   count against the index's, and refuses to commit when they differ. `close` refuses a worktree
+   holding anything uncommitted outside `scratchpad/` and has no `--force` (ADR 1313). Run inside the worktree, that command merges the branch into itself, exits 0, and
    prints the branch's own HEAD where a reader expects `main`'s; the merge of sessions 1038–1043
    did exactly that and then closed the batch, deleting the only ref to its commit (recovered from
    the object store because nothing had run `gc`). `tools/batch.sh close` now refuses a branch
@@ -903,6 +908,15 @@ memory of the session the quota ended. `tools/batch.sh` is the command; this is 
    which round owns it. Each resumed round read its predecessor against the clause and found
    real defects in the draft (a decoded-to-empty value, a wrong media type, a struck sentence
    quoted as current), which is why the handover says *read*, not *continue*.
+8. **When a worktree is lost with work in it**, it is rebuilt from the rounds' transcripts, not
+   from memory. The harness keeps every subagent's transcript as JSONL — `tasks/<id>.output` under
+   the orchestrating session's temporary directory links to `subagents/agent-<id>.jsonl` under its
+   project directory. Recreate the worktree at the last commit, extract every `tool_use` input
+   (`Write` contents, `Edit` replacements, `Bash` commands carrying heredocs, python splices or
+   `sed -i`) from all six transcripts, sort them by timestamp, and replay the file-mutating ones in
+   that order; builds, tests and reads are skipped. Then each round, resumed by message, verifies
+   its own files read-only against its report before anything is committed. Batch thirty-five's
+   128 files came back this way (ADR 1313).
 
 Where the closable rows are is a question for the ledger, not this file:
 `cargo run -p conformance --bin ledger` prints the status counts, and `doc/todo/01` is the reading

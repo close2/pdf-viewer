@@ -1,16 +1,16 @@
-//! The §11.1 measurement: how much of a frame's fixed cost is the readback?
+//! The brief section 11.1 measurement: how much of a frame's fixed cost is the readback?
 //!
-//! The brief's §6.1 could not separate execution from readback — a bytes-per-second
+//! The brief's section 6.1 could not separate execution from readback — a bytes-per-second
 //! estimate had to stand in — and ranked the whole design around the resulting
 //! uncertainty. This example takes the measurement it asked for: the same viewport
 //! rendered through `Target::Readback` and `Target::Texture`, phases split by
 //! timestamp queries, fastest of ten after a warm-up, per adapter and per resolution.
 //!
-//! The scenes are the two book-ends of §6.1's table: one small rectangle (the floor —
+//! The scenes are the two book-ends of brief section 6.1's table: one small rectangle (the floor —
 //! what a target costs before the page's content matters) and a dense 5 933-rect page
 //! (a dense text page's command count, rectangles standing in for glyphs until M4).
 //!
-//! Since M4/M5 the sweep also measures the glyph lanes for §11.3: a dense page of
+//! Since M4/M5 the sweep also measures the glyph lanes for brief section 11.3: a dense page of
 //! maximal reuse (107 outlines, integer phases) against a page the atlas cannot help
 //! (every fill at a fresh sub-pixel phase). The cold column is the first frame — the
 //! one that rasterises tiles — and the warm column the fastest of ten after it.
@@ -424,7 +424,7 @@ fn main() {
                 let viewport = Viewport::full(w, h, Affine::IDENTITY);
                 for (kind, readback) in [("read", true), ("tex", false)] {
                     // The discarded first frame is the cold one — for glyph scenes it
-                    // is where tiles rasterise, which is §11.3's cost.
+                    // is where tiles rasterise, which is brief section 11.3's cost.
                     let cold = fastest_of(1, &mut device, scene, &viewport, readback);
                     let best = fastest_of(steady, &mut device, scene, &viewport, readback);
                     println!(
@@ -444,7 +444,7 @@ fn main() {
             }
         }
 
-        // §11.3: the glyph lane at the two book-ends of reuse, at window scale;
+        // The brief's section 11.3: the glyph lane at the two book-ends of reuse, at window scale;
         // M7: the same dense page carrying a realistic figure load.
         let glyph_scenes = [
             ("glyphs (reuse)", glyph_page(&mut device, false)),
@@ -472,7 +472,7 @@ fn main() {
 
         measure_caret_blink(&mut device);
 
-        // §11.5's input: what holding a scene costs, for the dozen-pages verdict.
+        // Brief section 11.5's input: what holding a scene costs, for the dozen-pages verdict.
         println!(
             "scene memory: dense page {} bytes, figure page {} bytes",
             dense_page().cost().retained_bytes,

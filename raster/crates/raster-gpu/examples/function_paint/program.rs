@@ -1,7 +1,7 @@
 //! The §7.10.5 PostScript calculator, compiled to a flat instruction list.
 //!
 //! This is the *spike's* stand-in for the compiled form the caller offers to hand us
-//! (`QUORRA_FUNCTION_PAINT.md` §4: "we would hand you the compiled form, not
+//! (`QUORRA_FUNCTION_PAINT.md` section 4: "we would hand you the compiled form, not
 //! PostScript text"). It exists here only so the spike has something to measure; the
 //! lexical work — comments, tokens, `{}` matching — stays theirs if this is ever
 //! built for real.
@@ -256,7 +256,8 @@ pub(crate) struct Program {
 impl Program {
     /// Every jump target is strictly greater than the jump's own address.
     ///
-    /// This is the caller's load-bearing claim (§4: "a flat instruction list with
+    /// This is the caller's load-bearing claim (`QUORRA_FUNCTION_PAINT.md` section 4: "a flat
+    /// instruction list with
     /// **forward-only jumps**, so its length bounds its own execution") and the reason
     /// the interpreter's WGSL loop can be a `for` over `op_count` iterations.
     pub(crate) fn verify_forward_only(&self) -> bool {

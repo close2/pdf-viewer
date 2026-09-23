@@ -12,8 +12,8 @@
 //! transferred luminosity of the backdrop under §11.5.3's — so a luminosity mask over
 //! white admits everything outside its group and one over the caller's default black
 //! admits nothing. Getting that constant wrong is a plausible-looking wrong page, which
-//! is the outcome §5 calls the worst one, so the expectations below come from the clause
-//! and the tests hold the device to them on both sides of a mask's boundary.
+//! is the outcome brief section 5 calls the worst one, so the expectations below come from the
+//! clause and the tests hold the device to them on both sides of a mask's boundary.
 
 // Test-file lint policy as in m1.rs.
 #![allow(
@@ -217,8 +217,8 @@ fn a_mask_is_its_groups_reduction_inside_the_rectangle_it_marks() {
 ///
 /// Where a mask realised at the whole target adds `64 × 64` = 4 096 instead of 256 and
 /// renders its group into a target-sized texture rather than a 16 × 16 one, for 36 864.
-/// A budget of 17 664 draws this page; one byte less refuses it, naming both numbers (§5).
-/// (It read 35 072 against 68 608 until ADR 0038 gave every plan one texture instead of
+/// A budget of 17 664 draws this page; one byte less refuses it, naming both numbers (brief section
+/// 5). (It read 35 072 against 68 608 until ADR 0038 gave every plan one texture instead of
 /// two; a mask group is never composited onto a parent, so it pays no backdrop copy.)
 ///
 /// The exactness is the point twice over. Before this sizing the two halves disagreed:
@@ -265,7 +265,7 @@ fn a_mask_over_a_corner_is_priced_for_the_corner() {
 ///
 /// A real case rather than a contrived one: a mask group whose content is entirely
 /// clipped away, or off the page, arrives here. Under the alpha rule with no transfer it
-/// admits nothing and the page is blank, which is a legitimate frame (§5) and not the
+/// admits nothing and the page is blank, which is a legitimate frame (brief section 5) and not the
 /// blank one that means a defect.
 #[test]
 fn a_mask_whose_group_marks_nothing_is_transparent_everywhere() {

@@ -318,7 +318,12 @@ pub(crate) struct Read {
 impl Read {
     /// Opens a linearised file, or says which of Table F.1's or §F.3.6's statements fails.
     pub(crate) fn open(bytes: Vec<u8>) -> Result<Self, String> {
-        let document = Document::open_with_limits(bytes.clone(), Limits::DEFAULT)
+        Self::open_with(bytes, "")
+    }
+
+    /// [`Self::open`], for a file §7.6.4's handler encrypted under `password`.
+    pub(crate) fn open_with(bytes: Vec<u8>, password: &str) -> Result<Self, String> {
+        let document = Document::open_with_password(bytes.clone(), Limits::DEFAULT, password)
             .map_err(|error| format!("does not open: {error}"))?;
         let parameters = match state(&document) {
             State::Linearized(parameters) => parameters,
@@ -364,6 +369,38 @@ impl Read {
         }
     }
 
+    /// Where an object can be found: its own offset, or its object stream's.
+    ///
+    /// §F.4.1: "the position specified in a hint table for a compressed object is to be
+    /// interpreted as a byte range in which the object can be found, not as a precise offset" —
+    /// and the range is its carrier's.
+    pub(crate) fn placed(&self, number: u64) -> Option<u64> {
+        let number = u32::try_from(number).ok()?;
+        match self.document.xref().location(number) {
+            Some(Location::Offset(at)) => u64::try_from(at).ok(),
+            Some(Location::InStream { stream, .. }) => self.offset(u64::from(stream)),
+            None => None,
+        }
+    }
+
+    /// Whether an object is stored inside an object stream.
+    pub(crate) fn compressed(&self, number: u64) -> bool {
+        u32::try_from(number).is_ok_and(|number| {
+            matches!(
+                self.document.xref().location(number),
+                Some(Location::InStream { .. })
+            )
+        })
+    }
+
+    /// Whether both sections are §7.5.8 cross-reference streams: the one `startxref` names is an
+    /// object rather than §7.5.4's `xref` keyword.
+    pub(crate) fn streams_form(&self) -> bool {
+        startxref(&self.bytes)
+            .and_then(|at| self.bytes.get(at..at + 4))
+            .is_some_and(|keyword| keyword != b"xref")
+    }
+
     /// §F.4.1: "a position greater than the hint stream offset shall have the hint stream length
     /// added to it to determine the actual offset relative to the beginning of the PDF file."
     pub(crate) fn actual(&self, hinted: u64) -> u64 {
@@ -406,12 +443,42 @@ pub(crate) fn object_at(bytes: &[u8], offset: u64) -> Option<u32> {
     (words.next()? == "obj").then_some(number)
 }
 
+/// The offset the last `startxref` states.
+///
+/// Searched for as bytes: a cross-reference stream's binary rows can end a few bytes before it,
+/// and the tail of such a file is not text.
+pub(crate) fn startxref(bytes: &[u8]) -> Option<usize> {
+    let keyword = b"startxref";
+    let at = bytes.windows(keyword.len()).rposition(|w| w == keyword)? + keyword.len();
+    let digits: Vec<u8> = bytes
+        .get(at..)?
+        .iter()
+        .copied()
+        .skip_while(u8::is_ascii_whitespace)
+        .take_while(u8::is_ascii_digit)
+        .collect();
+    std::str::from_utf8(&digits).ok()?.parse().ok()
+}
+
+/// The offset of the first object in the file: §F.3.3's parameter dictionary, after §7.5.2's
+/// two header lines.
+pub(crate) fn first_object(bytes: &[u8]) -> Option<usize> {
+    let first = bytes.iter().position(|b| *b == b'\n')?;
+    let second = bytes.get(first + 1..)?.iter().position(|b| *b == b'\n')?;
+    Some(first + 1 + second + 1)
+}
+
 /// Every statement Annex F lets a reader check against the file, and each one that is false.
 ///
 /// Empty is a file whose parameter dictionary and hint tables say where every object is, and are
 /// right.
 pub(crate) fn faults(bytes: &[u8]) -> Vec<String> {
-    let read = match Read::open(bytes.to_vec()) {
+    faults_with(bytes, "")
+}
+
+/// [`faults`], for a file encrypted under `password`.
+pub(crate) fn faults_with(bytes: &[u8], password: &str) -> Vec<String> {
+    let read = match Read::open_with(bytes.to_vec(), password) {
         Ok(read) => read,
         Err(fault) => return vec![fault],
     };
@@ -452,21 +519,103 @@ pub(crate) fn faults(bytes: &[u8]) -> Vec<String> {
         ));
     }
     let t = usize::try_from(p.main_cross_reference).unwrap_or(usize::MAX);
-    let entry_zero = bytes.get(t.saturating_add(1)..t.saturating_add(20));
-    if !bytes.get(t).is_some_and(u8::is_ascii_whitespace)
-        || entry_zero != Some(&b"0000000000 65535 f "[..])
-    {
-        fault("/T does not precede the main table's entry 0".to_owned());
-    }
     let prev = read
         .document
         .trailer()
         .get("Prev")
         .and_then(Object::as_integer)
         .and_then(|prev| usize::try_from(prev).ok());
-    match prev {
-        Some(prev) if bytes.get(prev..prev + 4) == Some(&b"xref"[..]) && prev < t => {}
-        _ => fault("F.3.4: the first-page trailer's /Prev is not the main table".to_owned()),
+    if read.streams_form() {
+        // Table F.1's `/T` for "[d]ocuments that use cross-reference streams exclusively": "the
+        // offset of the main cross-reference stream object", which §F.3.4's `/Prev` names too.
+        let main = object_at(bytes, t as u64)
+            .filter(|number| read.offset(u64::from(*number)) == Some(t as u64));
+        let is_xref = main.is_some_and(|number| {
+            read.document
+                .get(ObjectId::new(number, 0))
+                .as_stream()
+                .and_then(|stream| stream.dict.get("Type"))
+                .and_then(Object::as_name)
+                .is_some_and(|name| name.as_bytes() == b"XRef")
+        });
+        if !is_xref {
+            fault("/T is not the main cross-reference stream".to_owned());
+        }
+        if prev != Some(t) {
+            fault("F.3.4: the first-page trailer's /Prev is not the main stream".to_owned());
+        }
+    } else {
+        let entry_zero = bytes.get(t.saturating_add(1)..t.saturating_add(20));
+        if !bytes.get(t).is_some_and(u8::is_ascii_whitespace)
+            || entry_zero != Some(&b"0000000000 65535 f "[..])
+        {
+            fault("/T does not precede the main table's entry 0".to_owned());
+        }
+        match prev {
+            Some(prev) if bytes.get(prev..prev + 4) == Some(&b"xref"[..]) && prev < t => {}
+            _ => fault("F.3.4: the first-page trailer's /Prev is not the main table".to_owned()),
+        }
+    }
+
+    // §F.3.1's conditions on object streams, each asked of the cross-reference chain. "These
+    // additional objects may not be contained in an object stream: the linearization
+    // dictionary, the document catalog dictionary, and page objects."
+    let parameters_number = first_object(bytes)
+        .and_then(|at| object_at(bytes, at as u64))
+        .map_or(0, u64::from);
+    let size = read
+        .document
+        .trailer()
+        .get("Size")
+        .and_then(Object::as_integer)
+        .and_then(|size| u64::try_from(size).ok())
+        .unwrap_or(0);
+    let root = read
+        .document
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference)
+        .map_or(0, |id| u64::from(id.number));
+    for (what, number) in [
+        ("the parameter dictionary", parameters_number),
+        ("the catalog", root),
+    ]
+    .into_iter()
+    .chain(
+        read.page_numbers
+            .iter()
+            .map(|number| ("a page object", *number)),
+    ) {
+        if read.offset(number).is_none() {
+            fault(format!(
+                "F.3.1: {what}, object {number}, is not at an offset of its own"
+            ));
+        }
+    }
+    // "Objects stored within object streams shall be given the highest range of object numbers
+    // within the main and first-page cross-reference sections" — the hint stream excepted,
+    // which §F.3.6 numbers last of all.
+    for (section, numbers) in [
+        ("main", 1..parameters_number),
+        ("first-page", parameters_number..size.saturating_sub(1)),
+    ] {
+        let mut seen_compressed = None;
+        for number in numbers {
+            if read.compressed(number) {
+                seen_compressed.get_or_insert(number);
+            } else if let Some(compressed) = seen_compressed {
+                fault(format!(
+                    "F.3.1: in the {section} section, object {number} is not compressed and \
+                     follows compressed object {compressed}"
+                ));
+                break;
+            }
+        }
+    }
+    if read.compressed(size.saturating_sub(1))
+        || read.offset(size.saturating_sub(1)) != Some(h_offset)
+    {
+        fault("F.3.6: the hint stream is not the last object number".to_owned());
     }
 
     // Table F.3 and Table F.4.

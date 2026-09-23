@@ -281,7 +281,7 @@ fn layered_scenes_patch_too() {
 /// A scissor is stated in the attachment's coordinates and the damage box in device
 /// space, and ADR 0036 made those two differ: a layer is as big as its plan. Passing the
 /// device rectangle straight through is a wgpu validation error — a panic inside a
-/// library, which is worse than the refusal §5 allows — for every patched frame with a
+/// library, which is worse than the refusal brief section 5 allows — for every patched frame with a
 /// group smaller than its damage. This test is the shape of that frame: a 10 × 10 group
 /// under a 20 × 20 damage rectangle.
 #[test]
@@ -353,7 +353,7 @@ fn a_group_smaller_than_the_damage_patches_too() {
 }
 
 /// A `Readback` target has no retained contents to patch: the frame draws fully
-/// and says so — a `Report`, never a silent choice (§5).
+/// and says so — a `Report`, never a silent choice (brief section 5).
 #[test]
 fn targets_without_retained_contents_redraw_fully_and_report() {
     let mut device = device();

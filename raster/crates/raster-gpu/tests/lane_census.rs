@@ -1,4 +1,4 @@
-//! `Counters::lanes`: the instrument §11.2's census is taken with
+//! `Counters::lanes`: the instrument brief section 11.2's census is taken with
 //! (`raster/doc/notes-census.md`), beside ADR 0057's `Counters::coverage`, which is what the
 //! census reads for the work a lane causes.
 //!
@@ -206,7 +206,7 @@ fn an_image_placement_is_the_image_lane() {
     assert_eq!(counters.coverage.texels, 0, "no residue clip over it");
 }
 
-/// The seam §11.2's census exists to size, in one fixture: the *same* fill takes the
+/// The seam brief section 11.2's census exists to size, in one fixture: the *same* fill takes the
 /// glyph lane on a device whose atlas will hold its tile and the path lane on one whose
 /// atlas will not. Which lane a mark takes is a device-space question, not a property of
 /// the scene (brief section 1.1) — and this is the mechanism by which a page's shares move under

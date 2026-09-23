@@ -1,8 +1,8 @@
 //! What the store and its warm-up promise, asked through them rather than of them.
 //!
 //! Two properties, and both are about a refusal rather than a picture: **a pipeline this
-//! adapter cannot build is an `Err` that names it** (§5, ADR 0042), and **a warm-up that
-//! ends always says so**, including by panicking — the defect that used to hang the whole
+//! adapter cannot build is an `Err` that names it** (brief section 5, ADR 0042), and **a warm-up
+//! that ends always says so**, including by panicking — the defect that used to hang the whole
 //! suite on a `Condvar` with no notifier left alive, which is why every wait here is
 //! bounded and runs on a thread of its own.
 //!
@@ -89,7 +89,7 @@ fn a_running_warm_up_is_reported_as_running() {
 }
 
 /// A pipeline this adapter cannot build is an `Err` naming it, not a panic on
-/// whichever thread asked (§5: refused, never survived).
+/// whichever thread asked (brief section 5: refused, never survived).
 ///
 /// `Rgba8Snorm` is the instrument: WebGPU gives it no `RENDER_ATTACHMENT` usage, so
 /// a colour target in that format is a validation error every backend agrees on,

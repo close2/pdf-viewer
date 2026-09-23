@@ -1567,6 +1567,12 @@ composited in a four-component blending colour space (§11.4.7)"* — the §11.4
 standing in front of section 17's, and this page was never section 16's alone. Both sides
 predicted it and neither had to guess, because the refusals name their clause.
 
+**The excluded case is drawn now (ADR 1307)**: a round of this project built §11.4.4's result step
+under a blend mode of the group's own in `raster/` — NOTE 4's second accumulator as the elements
+drawn again onto transparency, and `αg × C = E(B) − (1 − αg) × B` in the composite shader — from
+the clause alone, so `NonIsolatedReason::GroupBlendNotNormal` is gone and this section's fourth
+page agrees with the CPU oracle.
+
 ## 17. Four components need two rasters, and one `Scene` renders one — **closed**: answered at `89d7dd77` (it was already true), taken up here in session 439, with one more mark on its fixture in session 441 (§17.3)
 
 ISO 32000-2 §11.4.7 puts a colour space under the whole page:
@@ -5418,6 +5424,11 @@ so it moves the day the vocabulary does.
 `Compose::DestOverIn` in `raster/` from Table 146 and §11.3.6 alone, without reading `render-cpu`,
 as `doc/questions/A76` asked. `render-raster` draws the mode now, and on the crawl's pages that
 paint it the two readings met within the rasterisers' edge floor.
+
+**And the witness compares (ADR 1307)**: the refusal that stood behind the mode — its implicit
+non-isolated group painted under `/BM /Multiply` — was §11.4.4's result step, built in `raster/`
+from the clause alone, and `issue12798_page1_reduced.pdf` agrees with the CPU oracle at mean
+0.0053, worst tile 0.82.
 
 ## 50. §11.4.6's own backdrop: the one value a `GroupSpec` would need is a backdrop *saved*, not the one under the brush
 

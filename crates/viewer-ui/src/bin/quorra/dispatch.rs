@@ -102,6 +102,11 @@ impl App {
             self.take_the_lists();
             self.retitle();
         }
+        // A tab opened behind is in front for the first time once its `Command::Focus` has run,
+        // which is when the core answers `Query::Opening` for it (ADR 1303).
+        if std::mem::take(&mut self.catalog_due) {
+            self.obey_page_mode(true);
+        }
     }
 
     /// §12.7.6.2's composed request, under the level the menu holds.
@@ -224,7 +229,7 @@ answers in two places"
                 // too — the core's `Open` forgets the departures (ADR 1145).
                 self.restrictions.opened();
                 self.report_due.opened();
-                self.gather();
+                self.gather(behind.is_none());
                 // A document named behind the first gives the front back once it has its tab, and
                 // the next one waiting starts. The first document's own start is its first frame.
                 if let Some(front) = behind {
@@ -685,13 +690,23 @@ impl App {
         self.redraw();
     }
 
+    /// `CLAUDE.md`'s four levels: a press on one of the menu's levels sets it.
+    ///
+    /// The card's own hit test, `viewer_ui::chrome::RestrictionsCard::press`, moves the keyboard to
+    /// the row pressed, and then the choice is Enter's, so a press and a key cannot mean two
+    /// things.
+    pub(crate) fn pressed_the_menu(&mut self, at: (f32, f32)) {
+        let Some((width, height, scale)) = self.window() else {
+            return;
+        };
+        if self.menu.press(at, width, height, scale) {
+            self.chose_restriction();
+        }
+    }
+
     /// `CLAUDE.md`'s four levels: moving through the menu, choosing one, and closing it.
     ///
-    /// The arrows and Enter rather than a click, which is what every other card in this window is
-    /// answered with — there is no window manager behind them and no pointer affordance drawn on
-    /// them. It is a documented choice rather than a limit of the toolkit (trap 17): a click model
-    /// exists here, `viewer_ui::chrome::ChoiceList` has it, and it is there because §12.7.5.4's
-    /// list is a control the *document* placed at a point on a page. A menu is not.
+    /// The arrows and Enter, and a press on a level ([`App::pressed_the_menu`]).
     pub(crate) fn menu_key(&mut self, key: &winit::keyboard::Key<&str>) {
         use winit::keyboard::{Key, NamedKey};
         match key {

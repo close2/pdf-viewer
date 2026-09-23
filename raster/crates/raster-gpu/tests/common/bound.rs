@@ -27,8 +27,8 @@
 //!
 //! ADR 0006 states ±1 unorm step per blend stage in premultiplied space. A stage is one
 //! float→unorm8 conversion, which happens once per command that covers the pixel — so the
-//! number of *stores* is the multiplier. The device hands back straight alpha (§3), and
-//! the conversion `straight = premultiplied · 255 / α` amplifies each of those steps by
+//! number of *stores* is the multiplier. The device hands back straight alpha (brief section 3),
+//! and the conversion `straight = premultiplied · 255 / α` amplifies each of those steps by
 //! `255/α` on the three colour channels. Alpha itself is stored straight and is never
 //! amplified.
 //!
@@ -62,7 +62,7 @@ pub struct Reference {
 ///
 /// **A pixel nothing stored to must agree exactly.** A device that inks where the
 /// reference does not is not a rounding difference — it is a mark drawn outside the region
-/// that admitted it — and §3's "transparent is `[0, 0, 0, 0]`" is what makes that
+/// that admitted it — and brief section 3's "transparent is `[0, 0, 0, 0]`" is what makes that
 /// checkable. This is the clause `m3.rs` leans on hardest: a clip that leaks admits ink at
 /// pixels whose store count is zero, and a fixture-wide tolerance is exactly the slack
 /// that hides it.

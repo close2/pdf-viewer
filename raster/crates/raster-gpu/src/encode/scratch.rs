@@ -14,7 +14,7 @@
 //! module's one defect lived: a row that moves left leaves the wide layout's bytes
 //! behind it, and growing the buffer to the sheet's extent without cutting that tail
 //! first drew 136 410 texels of another shape's coverage across a page (the caller's
-//! `QUORRA_FEEDBACK.md` §20.4.1).
+//! `QUORRA_FEEDBACK.md` section 20.4.1).
 
 use crate::error::RenderError;
 use crate::frame::CoverageSheet;
@@ -195,7 +195,7 @@ impl ScratchPacker {
     ///
     /// **Narrowed to the width the shelves actually reached** (ADR 0021). The packing
     /// width is the device's maximum dimension because a narrow one refuses real pages
-    /// (the caller's feedback §3), but every tile sits left of the widest shelf cursor,
+    /// (the caller's feedback section 3), but every tile sits left of the widest shelf cursor,
     /// so everything to the right of it is a texture nobody wrote and a texture nobody
     /// reads — 16 384 texels of it on this machine. Narrowing moves no tile: the
     /// coordinates the lanes recorded are all inside the kept region.
@@ -281,7 +281,7 @@ mod tests {
     /// The GPU lane reserves rows it fills on the device, so its shelf is exactly the
     /// region that reads back whatever was left there: the caller's
     /// `transparency_group.pdf` drew 136 410 texels of another shape's coverage in
-    /// horizontal streaks under its last CPU tile (`QUORRA_FEEDBACK.md` §20.4.1).
+    /// horizontal streaks under its last CPU tile (`QUORRA_FEEDBACK.md` section 20.4.1).
     #[test]
     fn a_shelf_the_cpu_lane_did_not_write_is_blank() {
         let mut packer = ScratchPacker::new(64, 64);

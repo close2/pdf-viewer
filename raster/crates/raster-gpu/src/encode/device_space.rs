@@ -12,7 +12,7 @@
 //! analytic lane *intersect* with it rather than merely test against it, and
 //! [`CULL_MARGIN`] is the two pixels by which a quantised glyph phase and a `floor`/`ceil`
 //! tile may reach outside a box this file measured. A cull with the wrong margin drops a
-//! mark that would have shown, which is the one failure §5 of the brief calls worse than
+//! mark that would have shown, which is the one failure section 5 of the brief calls worse than
 //! a refusal.
 
 use raster_scene::{Affine, Point, Rect};
@@ -96,7 +96,7 @@ impl Encoder<'_> {
     /// the encoder thousands of commands for a window that displays tens of them, and
     /// flattening the rest cost 9.35 ms of a 14.4 ms frame (ADR 0015).
     ///
-    /// **Not §5's forbidden silence.** The test establishes that the command had no
+    /// **Not brief section 5's forbidden silence.** The test establishes that the command had no
     /// pixel to mark, so the frame is byte-for-byte the one that would have built the
     /// command and thrown it away — nothing is approximated and nothing is dropped
     /// that would have shown. [`Counters::commands_culled`] reports how often it

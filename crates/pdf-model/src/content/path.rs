@@ -77,10 +77,13 @@ impl Interpreter<'_> {
             // pattern's cell takes it too — the cell's own marks are the part the bullet
             // paints at an alpha of 1.0, and the group applies the stated one once.
             let painting = lifted.as_ref().unwrap_or(&*state);
+            // Whether a part painted through a tiling pattern composites by its cell's own
+            // marks, which the state at this operator does not say (`Interpreter::tile`).
+            let mut cells_composite = false;
             if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
                 (fill, state.fill_pattern.clone())
             {
-                self.tile(
+                cells_composite |= self.tile(
                     &shared,
                     state.transform,
                     Tiled::Fill(rule),
@@ -88,6 +91,7 @@ impl Interpreter<'_> {
                     painting,
                 );
             } else if let Some(rule) = fill {
+                self.note_colourants_without_a_plane(&state.fill_space);
                 let transfer = self.mark_transfer(state, Painted::of(state, false));
                 let paint = self.fill_paint(painting);
                 self.draw_mark(
@@ -111,7 +115,7 @@ impl Interpreter<'_> {
             if let (Some(_), Some(PatternPaint::Tiling(tiling))) =
                 (stroke, state.stroke_pattern.clone())
             {
-                self.tile(
+                cells_composite |= self.tile(
                     &shared,
                     state.transform,
                     Tiled::Stroke(&state.stroke),
@@ -119,6 +123,7 @@ impl Interpreter<'_> {
                     painting,
                 );
             } else if stroke.is_some() {
+                self.note_colourants_without_a_plane(&state.stroke_space);
                 let transfer = self.mark_transfer(state, Painted::of(state, true));
                 let paint = self.stroke_paint(painting);
                 self.draw_mark(
@@ -134,27 +139,13 @@ impl Interpreter<'_> {
                     transfer,
                 );
             }
-            match first_bullet {
-                FirstBullet::Group => self.first_bullet_group(state, mark),
-                // The bullet's group is the two commands as they stand, which is what
-                // `combined_overprint` answers where §11.4.4's NOTE 3 makes it so.
-                FirstBullet::AsPainted => {}
-                FirstBullet::No => {
-                    self.combine_parts(state, mark, [fill_blend, stroke_blend], combined);
-                    // The blend-mode test is here rather than inside, because a page that
-                    // states no overprint pays for this line once per path-painting operator
-                    // and this way it pays one enum comparison (`implicit_group_owed` carries
-                    // the measurement).
-                    if !combined && state.blend != pdf_render::BlendMode::Normal {
-                        self.implicit_group_for_path(
-                            state,
-                            mark,
-                            [fill_blend, stroke_blend],
-                            [fill.is_some(), stroke.is_some()],
-                        );
-                    }
-                }
-            }
+            self.settle_parts(
+                state,
+                mark,
+                (first_bullet, [fill_blend, stroke_blend]),
+                [fill.is_some(), stroke.is_some()],
+                (combined, cells_composite),
+            );
             self.close_parts_reading(outer_reading, mark);
         }
 
@@ -246,20 +237,51 @@ impl Interpreter<'_> {
         }
     }
 
+    /// What `end_path` makes of the two commands once they are painted: §11.7.4.4's first
+    /// bullet's group, or its second's and §11.7.4.3's implicit group — `blends` the modes the
+    /// parts were painted under, `painted` which of them the operator paints, and the last pair
+    /// [`Interpreter::combine_parts`]'s two conditions.
+    fn settle_parts(
+        &mut self,
+        state: &GraphicsState,
+        mark: usize,
+        (first_bullet, blends): (FirstBullet, [pdf_render::BlendMode; 2]),
+        painted: [bool; 2],
+        (combined, cells_composite): (bool, bool),
+    ) {
+        match first_bullet {
+            FirstBullet::Group => self.first_bullet_group(state, mark),
+            // The bullet's group is the two commands as they stand, which is what
+            // `combined_overprint` answers where §11.4.4's NOTE 3 makes it so.
+            FirstBullet::AsPainted => {}
+            FirstBullet::No => {
+                self.combine_parts(state, mark, blends, (combined, cells_composite));
+                // The blend-mode test is here rather than inside, because a page that
+                // states no overprint pays for this line once per path-painting operator
+                // and this way it pays one enum comparison (`implicit_group_owed` carries
+                // the measurement).
+                if !combined && state.blend != pdf_render::BlendMode::Normal {
+                    self.implicit_group_for_path(state, mark, blends, painted);
+                }
+            }
+        }
+    }
+
     /// §11.6.2's one object and §11.7.4.4's second bullet for a path that is filled *and*
     /// stroked.
     ///
     /// Split out of [`Interpreter::end_path`] because it is a decision about the two commands
     /// already pushed rather than a step in painting them: `mark` is where they begin, `parts`
-    /// the blend modes they were painted under, and `combined` whether both of them marked the
-    /// page. The first bullet is chosen before the parts are painted, so a pair that reaches
-    /// here is one §11.7.4.4 sends to its second.
+    /// the blend modes they were painted under, `combined` whether both of them marked the
+    /// page, and `cells_composite` whether a tiling cell a part was painted through composites
+    /// by its own marks. The first bullet is chosen before the parts are painted, so a pair
+    /// that reaches here is one §11.7.4.4 sends to its second.
     fn combine_parts(
         &mut self,
         state: &GraphicsState,
         mark: usize,
         parts: [pdf_render::BlendMode; 2],
-        combined: bool,
+        (combined, cells_composite): (bool, bool),
     ) {
         // §11.6.2: the fill and the stroke are two parts of one object, and "[p]ortions
         // of an object shall not be composited with one another". They are two commands
@@ -279,7 +301,12 @@ impl Interpreter<'_> {
         // A part that keeps a component of the backdrop composites with what is under it
         // however opaque it is, so the special mode is one more way for the portions of an
         // object to be composited with one another (§11.6.2).
+        //
+        // And a part painted through a tiling pattern composites by the cell's own marks as
+        // well as by the state's: §11.6.7 makes what the cell evaluates to "the object's source
+        // colour ( 𝐶𝑠 ), object shape ( f j ), and object opacity ( qi )" (ADR 1306).
         let composites = state.paint_composites()
+            || cells_composite
             || parts
                 .iter()
                 .any(|blend| matches!(blend, pdf_render::BlendMode::Overprint(_)));

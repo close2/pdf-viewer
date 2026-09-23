@@ -106,7 +106,7 @@ const OBJECT: Color = Color {
 };
 
 /// A triangle with a diagonal edge, so partially covered pixels exist: a fixture of
-/// axis-aligned rectangles would agree while being wrong (§4.1 of the brief).
+/// axis-aligned rectangles would agree while being wrong (section 4.1 of the brief).
 fn wedge(device: &mut Device) -> OutlineId {
     device
         .upload_outline(&[

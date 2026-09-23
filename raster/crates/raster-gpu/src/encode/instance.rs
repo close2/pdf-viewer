@@ -66,7 +66,7 @@ impl CoverageSource {
 }
 
 /// How a batch composites: ordinary premultiplied over, or the knockout two-pass
-/// (per-element erase by shape, then additive deposit — ADR 0010, §11.4.6/§4.1).
+/// (per-element erase by shape, then additive deposit — ADR 0010, §11.4.6/brief section 4.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DrawStyle {
     Over,

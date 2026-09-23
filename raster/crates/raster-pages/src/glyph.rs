@@ -6,7 +6,7 @@
 //! — and the three copies were **not** identical: `retained.rs`'s drew in the archetypes'
 //! ink (`0.12, 0.13, 0.16`) rather than this page's (`0.1, 0.1, 0.1`). Reconciled here to
 //! the ink two of the three carried, which moves no number any of them reports: a solid
-//! fill's colour enters no counter, no atlas key and no clock (ADR 0060 §5).
+//! fill's colour enters no counter, no atlas key and no clock (ADR 0060 section 5).
 
 #![allow(
     clippy::cast_possible_truncation,

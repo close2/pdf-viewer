@@ -87,7 +87,7 @@ fn collinear_cubic_equals_the_line() {
 
 /// **A circle deposits its own area at every size, including the sub-pixel ones.**
 ///
-/// The caller's `QUORRA_FEEDBACK.md` §21.2: at diameters 0.5, 1.0 and 2.0 device
+/// The caller's `QUORRA_FEEDBACK.md` section 21.2: at diameters 0.5, 1.0 and 2.0 device
 /// pixels this rasteriser deposited 36.1 %, 36.1 % and 10.1 % less ink than
 /// `π·r²` — the inscribed square, the inscribed square, and the inscribed octagon,
 /// which is what a quarter-pixel flatness bound admits when a whole curve is a

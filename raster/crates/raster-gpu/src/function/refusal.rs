@@ -1,6 +1,6 @@
 //! Why a §7.10.5 program is declined, by name.
 //!
-//! `RENDER_LIBRARY.md` §5, and CLAUDE.md principle 6: a backend may refuse, it may not
+//! `RENDER_LIBRARY.md` section 5, and CLAUDE.md principle 6: a backend may refuse, it may not
 //! silently draw nothing — and a limit that exists is discoverable *before* the frame.
 //! Every variant here names the number or the operator that failed, and every one is
 //! reached by a program in `tests/function_refusals.rs`, because **a ground nobody can
@@ -13,8 +13,8 @@
 //! scene boundary already applies to all of them. A second copy here would be a second
 //! definition of a valid rectangle.
 //!
-//! Three of the spike's six grounds (`raster/doc/spike-function-paint.md` §6) are absent, and
-//! their absence is the point: "an operator outside Table 42", "unbalanced braces" and "a
+//! Three of the spike's six grounds (`raster/doc/spike-function-paint.md` section 6) are absent,
+//! and their absence is the point: "an operator outside Table 42", "unbalanced braces" and "a
 //! procedure that is not an `if`/`ifelse` operand" were grounds because the spike compiled
 //! PostScript *text*. We are handed [`FnOp`](raster_scene::FnOp), a closed enum with no
 //! procedure in it, so none of the three is expressible. The caller's compiler owns them.

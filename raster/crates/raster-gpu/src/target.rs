@@ -2,7 +2,7 @@
 //!
 //! # Why three, and why this is the first milestone's work
 //!
-//! §6.1 of the brief measured an offscreen frame and found that **between 55% and 92%
+//! Section 6.1 of the brief measured an offscreen frame and found that **between 55% and 92%
 //! of it is paid before any of the page is drawn** — 3.48 ms of 6.34 at 1×, 26.73 of
 //! 29.13 at 4×. Most of that scales with *bytes*: 26.7 ms for a 32 MB target is about
 //! 1.2 GB/s, which is what a mapped readback and a demultiply cost.
@@ -27,11 +27,11 @@
 pub enum Target<'a> {
     /// Tier 1: the caller wants the pixels. The frame carries a
     /// [`Raster`](crate::frame::Raster) — straight-alpha RGBA8, converted once at this
-    /// boundary (§3 of the brief).
+    /// boundary (section 3 of the brief).
     ///
     /// This is the correctness oracle's path and the expensive one: it pays the
     /// copy-out, the map, and the demultiply, and [`Timings::readback`] prices exactly
-    /// that. §6.1's numbers say this cost dominates an offscreen frame, which is why
+    /// that. Brief section 6.1's numbers say this cost dominates an offscreen frame, which is why
     /// the other two tiers exist.
     ///
     /// [`Timings::readback`]: crate::frame::Timings::readback

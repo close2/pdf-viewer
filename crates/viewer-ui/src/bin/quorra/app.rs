@@ -97,6 +97,8 @@ pub(crate) struct Showing {
     /// window: `viewer_core` already keeps the departures beside the document they are about
     /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
     pub(crate) departures: viewer_core::RestrictionOverride,
+    /// Whether Table 29's `/PageMode` is still to be obeyed, the first time this tab is in front.
+    pub(crate) catalog_due: bool,
     /// The pages of this document the core asked this window to draw, which is what its tab shows
     /// when it comes back to the front.
     ///
@@ -368,6 +370,12 @@ pub(crate) struct App {
     /// off a launch — which is the very figure `crates/viewer-ui/tests/launch_path.rs` measures
     /// on this host's own `open_document`. [`viewer_host::report::Due`] is the rule. ADR 1044.
     pub(crate) report_due: viewer_host::report::Due,
+    /// Whether the document in front still owes Table 29's `/PageMode` its first obeying.
+    ///
+    /// A document opened behind the one showing is not displayed, and `/PageMode` is "how the
+    /// document shall be displayed when opened", so its full screen and its panel wait for the
+    /// pump that first brings it to the front (ADR 1303).
+    pub(crate) catalog_due: bool,
     /// §7.6.4.1's prompt, over the page — this host's own, because it has no toolkit to ask.
     pub(crate) password: viewer_ui::chrome::PasswordCard,
     /// `CLAUDE.md`'s *ask* level, over the page, for the same reason one line up.
@@ -719,6 +727,7 @@ impl App {
             dirty: self.dirty,
             asking: std::mem::replace(&mut self.asking, viewer_host::Asking::new()),
             report_due: std::mem::take(&mut self.report_due),
+            catalog_due: std::mem::take(&mut self.catalog_due),
             layout: self.layout,
             departures: self.restrictions.document(),
             requests: std::mem::take(&mut self.requests),
@@ -739,6 +748,7 @@ impl App {
             dirty,
             asking,
             report_due,
+            catalog_due,
             layout,
             departures,
             requests,
@@ -754,6 +764,7 @@ impl App {
         self.dirty = dirty;
         self.asking = asking;
         self.report_due = report_due;
+        self.catalog_due = catalog_due;
         self.layout = layout;
         self.restrictions.depart(departures);
         self.requests = requests;
@@ -790,11 +801,23 @@ impl App {
         self.redraw();
     }
 
+    /// Whether the strip of tabs may be shown: not under Table 29's `FullScreen`.
+    ///
+    /// The strip is this window's own control over which document is in front, and `FullScreen`
+    /// shows "no menu bar, window controls, or any other window visible" — so a presentation hides
+    /// it with the sidebar and the find bar, and a strip that is not drawn takes no press either.
+    pub(crate) fn strip_shown(&self) -> bool {
+        self.presenting.chrome().other_windows
+    }
+
     /// A press landed on the strip of tabs, where there is one. Answers whether it did.
     pub(crate) fn pressed_the_strip(&mut self, at: (f32, f32)) -> bool {
         let Some((width, _, scale)) = self.window() else {
             return false;
         };
+        if !self.strip_shown() {
+            return false;
+        }
         let Some(index) = self.strip.tab_at(at, width, scale) else {
             return false;
         };
@@ -850,6 +873,7 @@ impl App {
             dirty: false,
             asking: viewer_host::Asking::new(),
             report_due: viewer_host::report::Due::default(),
+            catalog_due: false,
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
             requests: Vec::new(),
@@ -1074,7 +1098,13 @@ impl App {
     /// §12.3.3's outline, §7.11.4's embedded files and §12.4.3's article threads — all three
     /// properties of an immutable document, so what the panel holds is a copy that cannot go
     /// stale. §8.11's layers are *not* here for exactly that reason.
-    pub(crate) fn gather(&mut self) {
+    ///
+    /// `in_front` is false for a document opened behind the one showing: Table 29's `/PageMode` is
+    /// "how the document shall be displayed when opened", and one opened behind is not displayed,
+    /// so its page mode is not obeyed and the window's full screen, presentation and panel stay
+    /// the front document's: a presentation running when a second document arrives keeps its full
+    /// screen rather than taking the newcomer's `UseNone` (ADR 1303).
+    pub(crate) fn gather(&mut self, in_front: bool) {
         self.take_the_lists();
         // §12.2 names XMP's `dc:title` and this program now reads it; see `named`. What is left
         // to say out loud is the case where it *could not* — a document that asks for its title
@@ -1091,7 +1121,8 @@ impl App {
             }
         }
         self.retitle();
-        self.obey_page_mode();
+        self.obey_page_mode(in_front);
+        self.catalog_due = !in_front;
         self.say_what_the_panel_holds();
     }
 
@@ -1164,18 +1195,24 @@ impl App {
     /// arrangement now (ADR 0442), so what is left is the value `l` cycles **from** — the core
     /// read the catalog for itself when the document opened, and a host that started its cycle at
     /// `SinglePage` would move the first press onto what the document already asked for.
-    fn obey_page_mode(&mut self) {
+    ///
+    /// `in_front` false takes the layout, which is the tab's own, and leaves the rest to
+    /// `catalog_due` (ADR 1303).
+    pub(crate) fn obey_page_mode(&mut self, in_front: bool) {
         use pdf_model::viewer_preferences::PageLayout;
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
             return;
         };
+        self.layout = opening.layout;
+        if !in_front {
+            return;
+        }
         let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) else {
             return;
         };
         self.presenting = viewer_host::Presenting::opening(opening, &preferences);
         self.report_unobeyable_chrome();
         self.show_page_mode(opening.mode);
-        self.layout = opening.layout;
         if opening.layout != PageLayout::SinglePage {
             println!(
                 "note: this document opens in the {:?} page layout (§7.7.2) — press l for the \

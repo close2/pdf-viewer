@@ -71,7 +71,7 @@
 //! evaluation of a function of any type: §7.3.3 defers to "the internal representations
 //! used in the computer on which the PDF processor is running", and PLRM3, asked the
 //! same question, defers to the hardware again. That silence is recorded in full in
-//! `raster/doc/research-function-paint-arithmetic.md` §1.7, and it is why ADR 0053 refuses a
+//! `raster/doc/research-function-paint-arithmetic.md` section 1.7, and it is why ADR 0053 refuses a
 //! program that can reach a transcendental on a path into a comparison instead of
 //! promising a tolerance nobody can derive.
 
@@ -180,8 +180,8 @@ pub enum FnOp {
     /// 0. If shift is negative, a right shift by –shift bits is performed."
     ///
     /// PLRM3, as we read it, does not state what a shift past the operand's width does;
-    /// `raster/doc/research-function-paint-arithmetic.md` §5 records that as unverified rather
-    /// than settled.
+    /// `raster/doc/research-function-paint-arithmetic.md` section 5 records that as unverified
+    /// rather than settled.
     Bitshift,
     /// `any1 any2 eq` — equality. PLRM3 defines it on values, with numeric coercion:
     /// "an integer and a real number representing the same mathematical value are

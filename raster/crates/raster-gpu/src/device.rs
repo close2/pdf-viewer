@@ -8,12 +8,12 @@
 //! ([`crate::error`]); and a [`Frame`](crate::frame::Frame) is constructed only after
 //! every fallible step has succeeded, so a failed frame cannot report itself drawn.
 //!
-//! **Startup is a first-class requirement** (section 2.1, §7 of the brief). Construction
+//! **Startup is a first-class requirement** (section 2.1, section 7 of the brief). Construction
 //! blocks on adapter selection and device creation — the two things a device *is* —
 //! and on nothing else: pipelines compile on a background thread
 //! ([`Device::is_warm`]), and [`Device::headless`] is callable from any thread while
 //! requiring none. What construction cost is reported by [`Device::startup`], split
-//! into the three numbers §7 names, because a regression that cannot be attributed can
+//! into the three numbers brief section 7 names, because a regression that cannot be attributed can
 //! only be argued about.
 //!
 //! The neighbours own the rest: [`crate::pipeline`] the shaders and their laziness,
@@ -84,7 +84,7 @@ use crate::surface::SurfaceSlot;
 pub(crate) use crate::timing::PassQuery;
 use crate::timing::TimestampSupport;
 
-/// What this adapter can actually do, discoverable before any frame (§5 of the brief:
+/// What this adapter can actually do, discoverable before any frame (section 5 of the brief:
 /// a limit that must exist is discoverable, through this and `Scene::cost`).
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
@@ -104,8 +104,8 @@ pub struct Limits {
     /// 32 MiB is the ceiling on an adapter allowing 16 384 texels a side, whatever the
     /// caller asked for. Reported because a caller comparing
     /// [`Counters::atlas_working_set_bytes`] against its own request would be comparing
-    /// against the wrong number exactly when the cap bites, and because §5's rule is that
-    /// a limit which must exist is discoverable before the frame rather than inferred
+    /// against the wrong number exactly when the cap bites, and because brief section 5's rule is
+    /// that a limit which must exist is discoverable before the frame rather than inferred
     /// from a page that ran slowly.
     ///
     /// [`Options::atlas_budget`]: crate::startup::Options::atlas_budget
@@ -200,8 +200,8 @@ pub struct Device {
     /// The surface, and who has it: this device, a [`Presenter`](crate::present::Presenter)
     /// it handed out, or nobody because there never was one (ADR 0056).
     surface: SurfaceSlot,
-    /// The blocking startup steps, each measured on its own (§7, and the caller's
-    /// feedback §8.1: one number that measured three could not be attributed).
+    /// The blocking startup steps, each measured on its own (brief section 7, and the caller's
+    /// feedback section 8.1: one number that measured three could not be attributed).
     startup: StartupSteps,
 }
 
@@ -235,7 +235,7 @@ impl Device {
     }
 
     /// What this adapter can actually do, for comparison against `Scene::cost`
-    /// *before* a frame is attempted (§5's second preference).
+    /// *before* a frame is attempted (brief section 5's second preference).
     #[must_use]
     pub fn limits(&self) -> Limits {
         self.limits

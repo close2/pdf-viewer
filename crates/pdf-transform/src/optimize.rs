@@ -62,8 +62,10 @@
 //!   keep-the-original rule would keep every image and the flag would be a switch that does
 //!   nothing while claiming to. It is not implemented, no flag states it, and `doc/todo/57`
 //!   carries it with the dependency it waits on.
-//! - **Encryption on the way out.** The serializer emits no `/Encrypt`, so optimising an
-//!   encrypted document produces an unencrypted one, and that is a warning rather than a silence.
+//! - **Encryption inherited from the source.** A document decrypts on load and §7.6.4's revision
+//!   6 keeps no password an output could reuse, so optimising an encrypted document without
+//!   passwords produces an unencrypted one, and that is a warning rather than a silence; with
+//!   them, [`Protect`] encrypts the output, linearised or not.
 //!
 //! # Linearisation, the fifth pass, off by default
 //!
@@ -76,12 +78,12 @@
 //! [`pdf_model::destination::Destination::open_action`], this tree's one reading of Table 29's
 //! entry.
 //!
-//! **Two combinations are refused by name**, each because the linearised writer does not build
-//! it rather than because the annex forbids it: §7.5.7's object streams, whose linearised form
-//! §F.3.1 conditions ("Objects stored within object streams shall be given the highest range of
-//! object numbers within the main and first-page cross-reference sections") and §F.4.1 restates for
-//! the hints; and §7.6's encryption on the way out, whose dictionary §F.3.5 places in part 4
-//! ("All values in the encryption dictionary shall also be located here"). ADR 1293 prices both.
+//! **Both of the other passes compose with it**, and so does encryption on the way out: §7.5.7's
+//! object streams are packed part by part under §F.3.1's conditions ("Objects stored within object
+//! streams shall be given the highest range of object numbers within the main and first-page
+//! cross-reference sections"), and §7.6's handler runs over every object under its final number,
+//! with the dictionary in part 4 where §F.3.5 puts it ("All values in the encryption dictionary
+//! shall also be located here"). ADR 1309 is the design of both.
 //!
 //! # Idempotence
 //!
@@ -203,11 +205,6 @@ impl Savings {
 /// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the source states its structure
 /// only through §C.4's recovery, [`Refusal::Assembly`] where the document cannot be rewritten at
 /// all, and [`Refusal::Sink`] where the output cannot be written.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one rewrite, from the closure to the report, with the linearised and the ordinary \
-              write as the two arms of one step"
-)]
 pub(crate) fn run(
     plan: &OptimizePlan,
     at: usize,
@@ -257,7 +254,7 @@ pub(crate) fn run(
         .version()
         .unwrap_or(pdf_syntax::Version { major: 1, minor: 7 });
     let linearization = if plan.linearize {
-        Some(linearization_plan(plan, document, &assembly, protect)?)
+        Some(linearization_plan(document, &assembly)?)
     } else {
         None
     };
@@ -274,15 +271,9 @@ pub(crate) fn run(
     })?;
     let written = match &linearization {
         Some(linear) => {
-            pdf_syntax::linearize::serialize_linearized(
-                &assembly,
-                version,
-                plan.streams,
-                linear,
-                &mut writer,
-            )
-            .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?
-            .written
+            write_linearized(protect, &assembly, version, options, linear, &mut writer)
+                .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?
+                .written
         }
         None => Protect::write(protect, &assembly, version, options, &mut writer)
             .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?,
@@ -327,35 +318,48 @@ pub(crate) fn run(
     Ok(())
 }
 
+/// Writes the linearised file, encrypted where the caller supplied passwords.
+///
+/// The same choice [`Protect::write`] makes for the ordinary writer, and for its reason: whether
+/// a derivative is protected is asked, never inherited, so `protect` is the whole of it. The
+/// randomness §7.6.3.3 asks for comes from the platform, as it does there.
+fn write_linearized<W: std::io::Write>(
+    protect: Option<&Protect>,
+    assembly: &Assembly<'_>,
+    version: pdf_syntax::Version,
+    options: Options,
+    plan: &pdf_syntax::linearize::Plan,
+    out: &mut W,
+) -> Result<pdf_syntax::linearize::Linearized, pdf_syntax::linearize::LinearizeError> {
+    let Some(protect) = protect else {
+        return pdf_syntax::linearize::serialize_linearized(assembly, version, options, plan, out);
+    };
+    pdf_syntax::linearize::serialize_linearized_encrypted(
+        assembly,
+        version,
+        options,
+        plan,
+        &pdf_syntax::Protection {
+            user_password: protect.user_password.reveal(),
+            owner_password: protect.owner_password.reveal(),
+            access: protect.access,
+            encrypt_metadata: protect.encrypt_metadata,
+        },
+        &mut pdf_syntax::SystemEntropy,
+        out,
+    )
+}
+
 /// What [`pdf_syntax::linearize`] is told: the pages in the output's numbering, and the first.
 ///
 /// # Errors
 ///
-/// [`Refusal::Linearization`], naming the clause: a combination the linearised writer does not
-/// build, or a page this document states in a way §F.3.1's numbering cannot place.
+/// [`Refusal::Linearization`], naming the clause: a page this document states in a way §F.3.1's
+/// numbering cannot place.
 fn linearization_plan(
-    plan: &OptimizePlan,
     document: &Document,
     assembly: &Assembly<'_>,
-    protect: Option<&Protect>,
 ) -> Result<pdf_syntax::linearize::Plan, Refusal> {
-    if matches!(plan.object_streams, ObjectStreams::Generate { .. }) {
-        return Err(Refusal::Linearization(
-            "--linearize with §7.5.7's object streams: F.3.1 requires that \"[o]bjects stored \
-             within object streams shall be given the highest range of object numbers within the \
-             main and first-page cross-reference sections\", and the linearised writer does not \
-             build that numbering; ask for --object-streams disable (ADR 1293)"
-                .to_owned(),
-        ));
-    }
-    if protect.is_some() {
-        return Err(Refusal::Linearization(
-            "--linearize with encryption: F.3.5 places the encryption dictionary in part 4 — \"All \
-             values in the encryption dictionary shall also be located here\" — and the linearised \
-             writer does not encrypt; write it linearised or encrypted, not both (ADR 1293)"
-                .to_owned(),
-        ));
-    }
     let pages = Pages::new(document);
     let mut ordered: Vec<(usize, ObjectId)> = Vec::with_capacity(pages.len());
     let mut direct = 0usize;

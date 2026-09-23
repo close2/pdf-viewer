@@ -633,17 +633,17 @@ impl<'a> Encoder<'a> {
             // **The conditions are not re-checked here, and that is
             // deliberate.** `pdf-model` emits `isolated: false` only outside
             // every knockout group (`Command::Group`'s `isolated` states the
-            // guarantee); raster draws that set where the group's own blend is
-            // Normal, which is the collapse ADR 0237 derives, and refuses the
-            // rest at `SceneBuilder::group` as
-            // `SceneError::NonIsolatedGroupUnsupported`, which arrives below as
-            // a typed `QuorraRasterError::Scene` naming which condition broke.
-            // §11.4.4's result step performed for itself is `render-cpu`'s
-            // (ADR 1107) and a scene has no lane for it, so a group the file
-            // composites under a mode of its own is a refusal here rather than
-            // a substituted backdrop. A copy of the condition here would be a
-            // second reading of §11.4.4 free to drift from the one that decides
-            // the picture.
+            // guarantee), and raster draws that set under every blend mode:
+            // under Normal by the collapse ADR 0237 derives, under any other by
+            // §11.4.4's result step from the group alpha a second accumulator
+            // carries (ADR 1307), which is how §11.7.4.3's last paragraph — an
+            // object under the special overprinting mode painted with a
+            // non-Normal `/BM` — reaches the device. What raster still refuses
+            // at `SceneBuilder::group` arrives below as a typed
+            // `QuorraRasterError::Scene` naming the condition, as
+            // `SceneError::NonIsolatedGroupUnsupported`. A copy of the condition
+            // here would be a second reading of §11.4.4 free to drift from the
+            // one that decides the picture.
             isolated: parts.isolated,
         };
         let mut walked = Ok(());

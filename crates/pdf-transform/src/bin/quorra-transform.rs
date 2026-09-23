@@ -1233,9 +1233,9 @@ fn output_intent_profile(arguments: &Arguments) -> Result<Option<Arc<[u8]>>, Fai
 
 /// `optimize`: the knobs RFC 0002 section 6.5 names.
 ///
-/// The lossless default is every pass on. `--linearize` writes Annex F's linearised file, and
-/// under it §7.5.7's object streams default to off, because the linearised writer does not build
-/// F.3.1's numbering for them; asking for both is refused by name rather than ignored (ADR 1293).
+/// The lossless default is every pass on, `--linearize` included when it is asked for: Annex F's
+/// linearised file packs §7.5.7's object streams under §F.3.1's conditions, and
+/// `--object-streams disable` writes it with classic tables instead (ADR 1309).
 fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, Failure> {
     let linearize = arguments.switch("--linearize");
     if let Some(word) = arguments.value(&["--images"]) {
@@ -1246,7 +1246,6 @@ fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, 
         )));
     }
     let object_streams = match arguments.value(&["--object-streams"]) {
-        None if linearize => ObjectStreams::Disable,
         None | Some("generate") => ObjectStreams::DEFAULT,
         Some("disable") => ObjectStreams::Disable,
         Some(other) => {
@@ -2000,8 +1999,9 @@ optimize:
   --linearize                write ISO 32000-2 Annex F's linearised file: the first page's
                              objects at the front, every other page's after it in page order,
                              the page offset and shared object hint tables and every other
-                             table Table F.2 requires of this document. Object streams default
-                             to off under it and are refused if asked for; so is encryption
+                             table Table F.2 requires of this document. Object streams and
+                             passwords compose with it; --object-streams disable writes its
+                             two cross-reference sections as classic tables
   lossy image optimisation is deliberately absent: it needs a DCT encoder this tree does not
   have (RFC 0002 section 13's second question), and a downsampler without one would keep every
   image under qpdf's fails-to-shrink rule and do nothing while claiming to. Optimising an

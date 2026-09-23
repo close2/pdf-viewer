@@ -203,6 +203,12 @@ struct Showing {
     /// window: `viewer_core` already keeps the departures beside the document they are about
     /// (ADR 1145), so the menu's ticks travel with the tab and nothing is sent when one changes.
     departures: viewer_core::RestrictionOverride,
+    /// Whether Table 29's `/PageMode` is still to be obeyed, the first time this tab is in front.
+    ///
+    /// A document opened behind the one showing is not displayed, and `/PageMode` is "how the
+    /// document shall be displayed when opened" — so its full screen and its panel wait for the
+    /// pump that first brings it to the front (ADR 1303).
+    catalog_due: bool,
 }
 
 impl Showing {
@@ -220,6 +226,7 @@ impl Showing {
             measuring: viewer_host::Measuring::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             departures: viewer_core::RestrictionOverride::NONE,
+            catalog_due: false,
         }
     }
 }
@@ -933,7 +940,13 @@ impl Host {
     /// cycles from — see `viewer-gtk`, which does the same. `/PageMode` is "how the document shall
     /// be displayed when opened", which since ADR 0470 includes a full-screen window for the one
     /// name that used to get a note saying this program had no such thing.
-    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>) {
+    ///
+    /// `in_front` is false for a document opened behind the one showing. Its layout is its own tab's
+    /// and is taken, but its `/PageMode` is "how the document shall be displayed when opened" and it
+    /// is not displayed: the window's full screen, presentation and panel stay the front
+    /// document's, so a presentation running when a second document arrives keeps its full screen
+    /// (ADR 1303).
+    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>, in_front: bool) {
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
             return;
         };
@@ -943,6 +956,9 @@ impl Host {
                 "this document opens in the {:?} page layout (§7.7.2)",
                 opening.layout
             ));
+        }
+        if !in_front {
+            return;
         }
         if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
             self.presenting = viewer_host::Presenting::opening(opening, &preferences);
@@ -1143,7 +1159,13 @@ impl Host {
     ///
     /// Two whole-viewport rasterisations happen here and none per frame: the page being left and
     /// the page arriving, each drawn where a frame will place it.
+    ///
+    /// Only the page of the document in front is a face: a document opening behind it draws its
+    /// first page too, and that page is not the one a presented page turn leaves (ADR 1303).
     fn face_arrived(&mut self, request: &viewer_core::RenderRequest) {
+        if request.document != self.documents.focused() {
+            return;
+        }
         let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
             Answer::Geometry(geometry) => geometry.origin,
             _ => (0.0, 0.0),
@@ -1166,9 +1188,10 @@ impl Host {
             return;
         };
         let began = std::time::Instant::now();
-        let (Some(outgoing), Some(incoming)) =
-            (self.face(&list, target), self.face(&arriving.0, arriving.1))
-        else {
+        let (Some(outgoing), Some(incoming)) = (
+            viewer_host::face(&list, target),
+            viewer_host::face(&arriving.0, arriving.1),
+        ) else {
             self.say(&format!(
                 "transition: {:?} was named but the pages behind it would not rasterise, so the \
                  page is shown at once",
@@ -1190,16 +1213,6 @@ impl Host {
         if let Some(clock) = self.clock.as_mut() {
             clock.begin(transition, outgoing, incoming, std::time::Instant::now());
         }
-    }
-
-    /// One page of a transition, drawn to the viewport's own pixels and ready to be drawn again.
-    fn face(
-        &mut self,
-        list: &pdf_render::DisplayList,
-        target: pdf_render::TargetSpec,
-    ) -> Option<pdf_render::Image> {
-        let raster = self.rasterizer.rasterize(list, target).ok()?;
-        viewer_core::transition::drawable(&raster)
     }
 
     /// Which pieces of chrome this window may show, and whether it is full screen.
@@ -1620,6 +1633,17 @@ impl Host {
         self.update.question = true;
     }
 
+    /// What the question's window is called, by what the question is about.
+    pub(crate) fn question_title(&self) -> String {
+        let subject = match self.question.as_ref().map(|(about, _)| about) {
+            Some(Pending::Link { .. }) => viewer_host::Subject::Link,
+            Some(Pending::Submit { .. }) => viewer_host::Subject::Submission,
+            Some(Pending::RemoteDocument { .. }) => viewer_host::Subject::Document,
+            Some(Pending::Restricted { .. }) | None => viewer_host::Subject::Restricted,
+        };
+        subject.title().to_owned()
+    }
+
     /// `CLAUDE.md`'s *ask* level: what the question says, worded by [`viewer_host`].
     pub(crate) fn question_prompt(&self) -> String {
         self.question
@@ -1713,19 +1737,13 @@ impl Host {
         viewer_host::restriction::DO_NOT.to_owned()
     }
 
-    /// The two headings of the restrictions menu bar, in `viewer_host::Scope::ALL`'s order.
-    #[expect(clippy::unused_self, reason = "`go_ahead`'s reason, two methods up")]
+    /// The headings of the restrictions menu bar: one per group the menu's rows open, the two
+    /// scopes and then what a document may ask this machine to do.
     pub(crate) fn restriction_scopes(&self) -> Vec<String> {
-        viewer_host::Scope::ALL
+        self.restrictions
+            .headings()
             .into_iter()
-            .map(|scope| {
-                let note = scope.note();
-                if note.is_empty() {
-                    scope.label().to_owned()
-                } else {
-                    format!("{} — {note}", scope.label())
-                }
-            })
+            .map(str::to_owned)
             .collect()
     }
 
@@ -2807,6 +2825,11 @@ impl Host {
             }
             self.take_the_thread_back();
             self.take_the_drawn(&mut queue);
+            // A tab opened behind is in front for the first time once `Command::Focus` has run,
+            // which is when the core answers `Query::Opening` for it (ADR 1303).
+            if queue.is_empty() && std::mem::take(&mut self.showing.catalog_due) {
+                self.obey_the_catalog(&mut queue, true);
+            }
             if queue.is_empty() {
                 break;
             }
@@ -3043,7 +3066,8 @@ impl Host {
         // too — the core's `Open` forgets the departures (ADR 1145).
         self.restrictions.opened();
         self.showing.report_due.opened();
-        self.obey_the_catalog(queue);
+        self.obey_the_catalog(queue, behind.is_none());
+        self.showing.catalog_due = behind.is_some();
         self.build_panels();
         // A document named behind the first gives the front back once it has its tab —
         // this window's swap here and the core's focus on the queue, because this runs

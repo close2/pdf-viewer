@@ -3330,6 +3330,85 @@ impl RestrictionsCard {
         }
     }
 
+    /// A press at `at`, in the window's device pixels: the row under it becomes the one the
+    /// keyboard is on, and the answer is whether that row is one a person can choose.
+    ///
+    /// **The pointer answers the same rows the arrows do**, and choosing still goes through the
+    /// one path Enter takes, so a click and a key cannot mean two things. A press on a heading, on
+    /// the card's last line or beside the card chooses nothing and moves nothing.
+    pub fn press(&mut self, at: (f32, f32), width: u32, height: u32, scale: f32) -> bool {
+        if !self.shown {
+            return false;
+        }
+        let layout = self.layout(width, height, scale);
+        let (x, y) = at;
+        let within = x >= layout.left && x < layout.left + layout.card_wide;
+        let from_top = y - (layout.top + layout.pad);
+        if !within || from_top < 0.0 {
+            return false;
+        }
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a non-negative distance in pixels divided by a line height: a small row count"
+        )]
+        let row = layout
+            .first
+            .saturating_add((from_top / layout.line) as usize);
+        if row >= layout.beyond {
+            return false;
+        }
+        match self.rows.get(row) {
+            Some(viewer_host::Row::Level(_) | viewer_host::Row::Sending(_)) => {
+                self.at = row;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Where the card and its rows are, for a window this size: [`Self::draw`] and
+    /// [`Self::press`] read the one answer, so a row is pressed where it is drawn.
+    fn layout(&self, width: u32, height: u32, scale: f32) -> CardLayout {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's extent in pixels, which is thousands"
+        )]
+        let (wide, tall) = (width as f32, height as f32);
+        let size = TEXT_SIZE * scale;
+        let pad = CARD_PADDING * scale;
+        let line = size * 1.5;
+        let card_wide = RESTRICTION_WIDTH * scale;
+        // As many rows as the window has room for, and the keyboard's row kept inside them: a
+        // menu of 62 entries is taller than most windows and the alternative to scrolling it is
+        // a menu whose last operations cannot be reached.
+        let room = ((tall - pad * 4.0 - line * 2.0) / line).floor().max(1.0);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a row count derived from a window's height, bounded by the line above"
+        )]
+        let room = (room as usize).min(self.rows.len());
+        let first = self.at.saturating_sub(room.saturating_sub(1));
+        let beyond = first.saturating_add(room).min(self.rows.len());
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a row count bounded by the window's own height"
+        )]
+        let card_tall = pad * 2.0 + line * (beyond.saturating_sub(first) as f32 + 1.0);
+        CardLayout {
+            first,
+            beyond,
+            left: (wide - card_wide).max(0.0) / 2.0,
+            top: (tall - card_tall).max(0.0) / 2.0,
+            card_wide,
+            card_tall,
+            line,
+            size,
+            pad,
+        }
+    }
+
     /// The first row at or after `from` in a direction that a person can choose.
     fn next_level(&self, from: usize, by: isize) -> Option<usize> {
         let mut at = from;
@@ -3356,38 +3435,23 @@ impl RestrictionsCard {
         if !self.shown {
             return None;
         }
+        let CardLayout {
+            first,
+            beyond,
+            left,
+            top,
+            card_wide,
+            card_tall,
+            line,
+            size,
+            pad,
+        } = self.layout(width, height, scale);
+        let shown = &self.rows[first..beyond];
         #[expect(
             clippy::cast_precision_loss,
             reason = "a window's extent in pixels, which is thousands"
         )]
-        let (wide, tall) = (width as f32, height as f32);
-        let size = TEXT_SIZE * scale;
-        let pad = CARD_PADDING * scale;
-        let line = size * 1.5;
-        let card_wide = RESTRICTION_WIDTH * scale;
-        // As many rows as the window has room for, and the keyboard's row kept inside them: a
-        // menu of 62 entries is taller than most windows and the alternative to scrolling it is
-        // a menu whose last operations cannot be reached.
-        let room = ((tall - pad * 4.0 - line * 2.0) / line).floor().max(1.0);
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a row count derived from a window's height, bounded by the line above"
-        )]
-        let room = (room as usize).min(self.rows.len());
-        let first = self.at.saturating_sub(room.saturating_sub(1));
-        let beyond = first.saturating_add(room).min(self.rows.len());
-        let shown = &self.rows[first..beyond];
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "a row count bounded by the window's own height"
-        )]
-        let card_tall = pad * 2.0 + line * (shown.len() as f32 + 1.0);
-        let mut list = dimmed(wide, tall);
-        let (left, top) = (
-            (wide - card_wide).max(0.0) / 2.0,
-            (tall - card_tall).max(0.0) / 2.0,
-        );
+        let mut list = dimmed(width as f32, height as f32);
         rectangle(&mut list, (left, top, card_wide, card_tall), CARD_PAPER);
         let mut baseline = top + pad + size;
         for (index, row) in shown.iter().enumerate() {
@@ -3427,7 +3491,7 @@ impl RestrictionsCard {
         }
         chrome.text(
             &mut list,
-            "↑ ↓ to move   ·   Enter to set   ·   Escape to close",
+            "↑ ↓ to move   ·   Enter or a click to set   ·   Escape to close",
             (left + pad, baseline),
             size,
             Style::default(),
@@ -3435,6 +3499,28 @@ impl RestrictionsCard {
         );
         Some(list)
     }
+}
+
+/// Where [`RestrictionsCard`] puts itself and its rows, in the window's device pixels.
+struct CardLayout {
+    /// The first row shown.
+    first: usize,
+    /// One past the last row shown.
+    beyond: usize,
+    /// The card's left edge.
+    left: f32,
+    /// The card's top edge.
+    top: f32,
+    /// The card's width.
+    card_wide: f32,
+    /// The card's height.
+    card_tall: f32,
+    /// One row's height.
+    line: f32,
+    /// The text's size.
+    size: f32,
+    /// The card's padding.
+    pad: f32,
 }
 
 /// A list the size of the window, with the page dimmed under it.
@@ -3656,6 +3742,56 @@ mod tests {
         card.hide();
         assert!(!card.shown);
         assert_eq!(card.chosen(), None);
+    }
+
+    /// A press lands on the row drawn under it, and only a level is taken.
+    ///
+    /// Row by row down the card as `layout` places it: every row the keyboard can reach is
+    /// reachable by a press at its middle and answers what the keyboard answers there, and a press
+    /// on a heading moves nothing. Beside the card, nothing.
+    #[test]
+    fn a_press_takes_the_level_drawn_under_it() {
+        let (width, height, scale) = (800, 4000, 1.0);
+        let standing = viewer_host::Restrictions::new(viewer_core::RestrictionPolicy::default());
+        let mut card = RestrictionsCard::default();
+        card.toggle(standing.rows());
+        let layout = card.layout(width, height, scale);
+        assert_eq!(
+            (layout.first, layout.beyond),
+            (0, standing.rows().len()),
+            "a window this tall shows every row"
+        );
+        let middle = layout.left + layout.card_wide / 2.0;
+        let mut levels = 0;
+        for (index, row) in standing.rows().iter().enumerate() {
+            #[expect(clippy::cast_precision_loss, reason = "a row index, which is dozens")]
+            let y = layout.top + layout.pad + layout.line * (index as f32 + 0.5);
+            let before = (card.chosen(), card.sending());
+            let took = card.press((middle, y), width, height, scale);
+            match row {
+                viewer_host::Row::Level(entry) => {
+                    assert!(took, "row {index}");
+                    assert_eq!(card.chosen(), Some(entry.chose), "row {index}");
+                    levels += 1;
+                }
+                viewer_host::Row::Sending(entry) => {
+                    assert!(took, "row {index}");
+                    assert_eq!(card.sending(), Some(entry.level), "row {index}");
+                    levels += 1;
+                }
+                _ => {
+                    assert!(!took, "row {index} is a heading");
+                    assert_eq!((card.chosen(), card.sending()), before, "row {index}");
+                }
+            }
+        }
+        assert!(levels > 0);
+        assert!(!card.press(
+            (layout.left - 1.0, layout.top + layout.pad),
+            width,
+            height,
+            scale
+        ));
     }
 
     /// A card that is not shown draws nothing at all, which is what keeps it off every frame.

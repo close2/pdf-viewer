@@ -2,7 +2,7 @@
 //!
 //! # Where the question comes from
 //!
-//! hayro #60, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` §6. The reporter
+//! hayro #60, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` section 6. The reporter
 //! asked whether colour is processed above 8 bits per channel and dithered on the way
 //! down; the maintainer answered candidly that speed is the priority. The caller's version
 //! of the question is the one this file answers, and it is sharper: *what an 8-bit raster

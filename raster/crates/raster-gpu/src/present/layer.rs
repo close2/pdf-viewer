@@ -22,7 +22,8 @@ use crate::pipeline::WARM_FORMAT;
 /// is refused by name ([`LayerProblem`]) rather than presented wrongly.
 ///
 /// A layer's pixels are **premultiplied**, which is what a `Target::Texture` frame
-/// leaves behind — §3's straight-alpha conversion happens at readback and nowhere else.
+/// leaves behind — brief section 3's straight-alpha conversion happens at readback and nowhere
+/// else.
 #[derive(Debug, Clone, Copy)]
 pub struct Layer<'a> {
     /// The raster.

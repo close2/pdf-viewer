@@ -1,7 +1,7 @@
 //! The two surface-tier numbers only a person at the real GPU can take.
 //!
 //! Everything this tree measures for itself is headless, and the brief's success
-//! criterion is not: §6.2 defines success as *a third of the CPU backend's 5.9 ms on a
+//! criterion is not: brief section 6.2 defines success as *a third of the CPU backend's 5.9 ms on a
 //! dense text page at window resolution, presenting to a surface* — a number that has
 //! never been taken, because this account cannot open a window on the owner's display.
 //! This example takes it, plus the other owner-only number `HANDOVER.md` names: what a
@@ -29,12 +29,12 @@
 //!   surface path after `wait_until_warm`, the warm set is missing the surface's
 //!   format and the one-line fix in `spawn_warm_up` has its measurement.
 //! - `steady …` — minima and medians over the counted frames. `wall − acquire` is the
-//!   §6.2 comparison figure: the surface is configured `PresentMode::Fifo`, so the
+//!   brief section 6.2 comparison figure: the surface is configured `PresentMode::Fifo`, so the
 //!   acquire blocks on vsync and a raw wall clock measures the display's refresh
 //!   rate, not the renderer. Both are printed; neither is subtracted silently.
 //! - `steady …, instrumented encode` — the same shape rendered with
 //!   `Options::instrument_encode`, so the encode splits into geometry / staging /
-//!   recording (ADR 0023). These rounds answer *where the encode goes*; §6.2's figure
+//!   recording (ADR 0023). These rounds answer *where the encode goes*; brief section 6.2's figure
 //!   comes from the uninstrumented rounds, because the instrument costs a clock read
 //!   per seam and a measurement that moves what it measures is not an instrument.
 //!
@@ -42,7 +42,7 @@
 //!
 //! Two of `raster-pages`' corpus-measured archetypes at the brief's
 //! 1191×1684 — the same definitions `tests/archetypes.rs` gates, not copies of them
-//! (ADR 0060): **dense text** (4 320 commands over 818 outlines — §6.2's page shape at
+//! (ADR 0060): **dense text** (4 320 commands over 818 outlines — brief section 6.2's page shape at
 //! the corpus's p99) and **artwork** (900 commands, 8 groups, 4 of them blended — the
 //! shape that needs the compositor, so its first frame is the one that compiles
 //! `Composite` and `Blit` for the surface's format). Rounds alternate shapes, each on
@@ -73,13 +73,13 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-/// The brief's window scale (§6.2): the size both baselines were measured at.
+/// The brief's window scale (section 6.2): the size both baselines were measured at.
 const WIDTH: u32 = 1191;
 const HEIGHT: u32 = 1684;
 
 /// The two shapes this instrument alternates, from `raster-pages` (ADR 0060).
 ///
-/// **§6.2's page** — dense text at the corpus's p99 — and **the grouped shape**, whose
+/// **Brief section 6.2's page** — dense text at the corpus's p99 — and **the grouped shape**, whose
 /// first frame is the one that needs `Composite` and `Blit` for the surface's format.
 /// Both were private copies of the archetype generator in this file until 2026-08-17;
 /// the numbers `raster/doc/PLAN.md` carries for the real-display row were taken on those copies,
@@ -161,7 +161,7 @@ impl FrameRecord {
         }
     }
 
-    /// The §6.2 comparison figure: the frame's cost with the vsync block removed.
+    /// The brief section 6.2 comparison figure: the frame's cost with the vsync block removed.
     fn cost(&self) -> Duration {
         self.wall.saturating_sub(self.acquire)
     }
@@ -265,7 +265,7 @@ struct Measure {
 impl Measure {
     /// Which shape and whether encode is instrumented, round-robin over all four
     /// configurations so machine drift falls on each equally. The uninstrumented
-    /// rounds carry §6.2's number (the instrument costs a clock read per seam); the
+    /// rounds carry brief section 6.2's number (the instrument costs a clock read per seam); the
     /// instrumented ones say where a steady encode goes.
     fn config_for(round: u32) -> (&'static Archetype, bool) {
         let shape = SHAPES[(round % 2) as usize];
@@ -443,7 +443,7 @@ impl Measure {
                 "  wall             {wall_min:>7.3} / {wall_med:>7.3}   (includes the Fifo acquire block)"
             );
             if instrumented {
-                // The instrument costs a clock read per seam; §6.2's figure is the
+                // The instrument costs a clock read per seam; brief section 6.2's figure is the
                 // uninstrumented block's, and this block says where the encode goes.
                 let (geometry_min, geometry_med) = series(&|r| r.geometry);
                 let (staging_min, staging_med) = series(&|r| r.staging);

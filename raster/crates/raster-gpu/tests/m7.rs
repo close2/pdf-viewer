@@ -557,7 +557,7 @@ fn mesh_samples_at_absolute_device_pixels() {
 }
 
 /// A dangling image, ramp or mesh id is a refusal naming the id — the same contract
-/// as an unknown outline, per family (§5: an `Err`, never a hole).
+/// as an unknown outline, per family (brief section 5: an `Err`, never a hole).
 #[test]
 fn unknown_paint_ids_are_refused_by_name() {
     let mut device = device();

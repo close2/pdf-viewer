@@ -1343,23 +1343,12 @@ fn supplements(prefix: &str, namespace: &str, properties: &[&&Supplement<'_>], o
 /// the clause itself states — the month and the day are 01 and the rest are zero — so the instant
 /// is complete either way; the one field with no default is the zone, where an absent `O HH'mm`
 /// is a producer saying nothing rather than saying UT, and nothing is what this writes.
+///
+/// That spelling is [`pdf_syntax::Date`]'s `Display`, which a viewer shows and this writer
+/// stores: one implementation in the crate that owns the type, named here for the packet.
 #[must_use]
 pub fn spelled_date(date: &pdf_syntax::Date) -> String {
-    use std::fmt::Write as _;
-    let mut out = format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-        date.year, date.month, date.day, date.hour, date.minute, date.second
-    );
-    match date.offset {
-        None => {}
-        Some(0) => out.push('Z'),
-        Some(offset) => {
-            let sign = if offset < 0 { '-' } else { '+' };
-            let minutes = u32::from(offset.unsigned_abs());
-            let _ = write!(out, "{sign}{:02}:{:02}", minutes / 60, minutes % 60);
-        }
-    }
-    out
+    date.to_string()
 }
 
 /// The whole container, in its own description, with the three prefixes it uses declared on it.
@@ -3724,6 +3713,40 @@ mod tests {
         for (pdf, expected) in cases {
             let date = pdf_syntax::Date::parse(pdf).expect("§7.9.4's grammar");
             assert_eq!(spelled_date(&date), expected, "{pdf}");
+        }
+    }
+
+    /// The packet's spelling and the viewer's are one spelling, over every zone §7.9.4 can state
+    /// — `Z`, east, west, none — and a date that stated only its year.
+    #[test]
+    fn the_packet_spells_a_date_exactly_as_the_viewer_shows_it() {
+        let year_only = pdf_syntax::Date::parse("D:2001").expect("§7.9.4's grammar");
+        assert_eq!(spelled_date(&year_only), "2001-01-01T00:00:00");
+        let mut dates = vec![year_only];
+        for offset in [None, Some(0), Some(-330), Some(-1439), Some(60), Some(840)] {
+            for (year, month, day, hour, minute, second) in [
+                (1999, 1, 1, 0, 0, 0),
+                (2014, 3, 14, 12, 42, 11),
+                (2024, 2, 29, 23, 59, 59),
+                (9, 12, 31, 7, 5, 3),
+            ] {
+                dates.push(pdf_syntax::Date {
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                    offset,
+                });
+            }
+        }
+        for date in &dates {
+            assert_eq!(
+                spelled_date(date).as_bytes(),
+                date.to_string().as_bytes(),
+                "{date:?}"
+            );
         }
     }
 

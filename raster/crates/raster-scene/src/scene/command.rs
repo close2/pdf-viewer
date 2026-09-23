@@ -54,7 +54,7 @@ pub const MAX_GROUP_DEPTH: usize = 16;
 ///
 /// [`GroupSpec::isolated`] is Table 145's `/I`, and it is the one entry whose default —
 /// `true` — is the behaviour every rasterising library offers. See its documentation
-/// for what `false` costs a backend and for the three conditions a scene must meet
+/// for what `false` costs a backend and for the two conditions a scene must meet
 /// before the builder will accept it (ADR 0019).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GroupSpec {
@@ -114,17 +114,16 @@ pub struct GroupSpec {
     /// results"). The two differ only where an element **blends**, which §11.4.4's
     /// NOTE 2 gives as the whole reason both kinds exist.
     ///
-    /// # The three conditions, and why the builder enforces them
+    /// # Two constructions, and the two conditions the builder enforces
     ///
     /// §11.4.4's removal divides by Table 140's *group alpha* — the elements' own
     /// accumulated alpha, "excluding the initial backdrop" — which is not the alpha a
-    /// premultiplied raster holds; NOTE 4's advice is to keep a second set of
-    /// accumulators for it. raster keeps one set and does not need the second, because
-    /// the quantity the removal divides out is multiplied straight back in when the
-    /// group's result is composited with that same backdrop under the **Normal** blend
-    /// function. Writing `B` for the backdrop, `E(B)` for the elements composited onto
-    /// it — both premultiplied — and `w` for [`GroupSpec::alpha`] times the group's
-    /// soft mask and clip at the pixel, the two steps together are
+    /// premultiplied raster holds. Under the **Normal** blend function the quantity the
+    /// removal divides out is multiplied straight back in when the group's result is
+    /// composited with that same backdrop. Writing `B` for the backdrop, `E(B)` for the
+    /// elements composited onto it — both premultiplied — and `w` for
+    /// [`GroupSpec::alpha`] times the group's soft mask and clip at the pixel, the two
+    /// steps together are
     ///
     /// ```text
     /// result = (1 − w) × B + w × E(B)
@@ -134,14 +133,29 @@ pub struct GroupSpec {
     /// §11.3.6's composite over 200 000 random inputs: worst deviation 5.6 × 10⁻¹⁶
     /// (`raster-gpu/tests/non_isolated_groups.rs`, which is that transcription).
     ///
-    /// The step that cancels is the composite under **Normal**. Under any other blend
-    /// the group's own colour is needed, and with it the group alpha this raster does
-    /// not have — the same test measures 0.91 of full scale of error. So a
-    /// non-isolated group is accepted only where [`GroupSpec::blend`] is
-    /// [`BlendMode::Normal`], [`GroupSpec::knockout`] is `false`, and no enclosing
-    /// group is a knockout group; anything else is a
+    /// Under **any other** blend function nothing cancels, and the group's own colour
+    /// `C` is needed as the clause states it. It follows from the group alpha `αg`
+    /// alone: the Result step's `C = Cn + (Cn − C0) × (α0/αg − α0)`, multiplied through
+    /// by `αg` with `αn = Union(α0, αg)`, is the premultiplied
+    ///
+    /// ```text
+    /// αg × C = E(B) − (1 − αg) × B
+    /// ```
+    ///
+    /// — NOTE 3's "essentially the reverse of compositing with the Normal blend mode",
+    /// stated exactly. `αg` is what NOTE 4's second set of accumulators holds, and a
+    /// device keeps it by drawing the elements a second time onto transparency: §11.3.7.3
+    /// accumulates alpha by the union whatever the blend mode, so that second raster's
+    /// alpha *is* the group alpha. `raster-gpu/tests/non_isolated_blended_groups.rs`
+    /// holds both halves against the clause.
+    ///
+    /// What neither construction survives is a knockout group, whose elements composite
+    /// with the initial backdrop rather than with each other, so seeding that backdrop
+    /// into the accumulating buffer describes neither model. So a non-isolated group is
+    /// accepted only where [`GroupSpec::knockout`] is `false` and no enclosing group is
+    /// a knockout group; anything else is a
     /// [`SceneError::NonIsolatedGroupUnsupported`](crate::error::SceneError::NonIsolatedGroupUnsupported),
-    /// refused at the builder rather than approximated at the device (§5 of the brief).
+    /// refused at the builder rather than approximated at the device (section 5 of the brief).
     pub isolated: bool,
 }
 
@@ -222,7 +236,7 @@ pub enum Command {
         clip: Option<ClipId>,
         /// How the result combines with the backdrop (§11.3.5).
         blend: BlendMode,
-        /// The compositing behaviour — §4.1's coverage-modulated source is the second
+        /// The compositing behaviour — brief section 4.1's coverage-modulated source is the second
         /// variant and the reason the field exists, and §11.7.4.3's special overprinting
         /// blend mode ([`Compose::DestOver`], [`Compose::DestOverIn`]) the last two.
         compose: Compose,

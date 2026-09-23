@@ -7,7 +7,7 @@
 //! lattice-form Gouraud triangle meshes, Coons patch meshes and tensor-product patch
 //! meshes — and no rasteriser in either tree has the primitive. The caller rasterises them
 //! once, upstream, and shares the result between both of its backends so that a second copy
-//! cannot drift; `raster/doc/PLAN.md` §5's integration note records that we inherit it:
+//! cannot drift; `raster/doc/PLAN.md` section 5's integration note records that we inherit it:
 //!
 //! > Both of the caller's backends share the pre-rasterised mesh because neither rasteriser
 //! > has the primitive and a second copy would drift. We inherit that: we consume the mesh,
@@ -366,7 +366,7 @@ fn no_colour_appears_that_the_upload_did_not_contain() {
 /// So a partly covered sample has to reach the target as a partly covered sample, with its
 /// colour intact — not flattened to opaque, and not multiplied into the colour. The tolerance
 /// is one unorm each way: the frame premultiplies on the way in and the readback divides on
-/// the way out (§3's straight-alpha boundary), which is two roundings and no more.
+/// the way out (brief section 3's straight-alpha boundary), which is two roundings and no more.
 #[test]
 fn a_samples_own_alpha_reaches_the_target_as_shape() {
     let mut device = device();

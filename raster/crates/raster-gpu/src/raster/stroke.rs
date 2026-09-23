@@ -270,7 +270,7 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
 /// two and punches a hole of exactly the area the far cap adds. Both ends of every
 /// round-capped subpath were wrong, and the two errors were equal and opposite: the
 /// caller's ink-total instrument read a round cap as depositing exactly what a butt cap
-/// does (`QUORRA_FEEDBACK.md` §21.1), which is the sum, not the picture.
+/// does (`QUORRA_FEEDBACK.md` section 21.1), which is the sum, not the picture.
 ///
 /// The step count is [`ARC_STEP`]'s, as for any other arc.
 fn cap_fan(end: Point, dir: Point, hw: f32) -> Polyline {

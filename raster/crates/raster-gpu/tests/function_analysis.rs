@@ -1,5 +1,5 @@
 //! What the walk proves about a program: depth, slot types, resolved counts, and
-//! `raster/doc/adr/0053` §3's classification.
+//! `raster/doc/adr/0053` section 3's classification.
 //!
 //! One concern per test, and each names the property rather than the program.
 
@@ -115,8 +115,8 @@ fn the_empty_stack_zero_is_an_integer() {
     assert_eq!(analysis.empty_stack_pops(), 1);
 }
 
-/// `raster/doc/adr/0053` §3: a program that reaches only the exactly-agreeing operators is accepted
-/// with the oracle relationship intact. No inexact operator, no amplification.
+/// `raster/doc/adr/0053` section 3: a program that reaches only the exactly-agreeing operators is
+/// accepted with the oracle relationship intact. No inexact operator, no amplification.
 #[test]
 fn a_program_without_an_inexact_operator_is_exact() {
     for (name, program) in [
@@ -163,7 +163,7 @@ fn an_inexact_operator_reaching_a_comparison_is_approximate() {
 
 /// `truncate`, `cvi`, `round`, `floor` and `ceiling` are step functions, so they amplify for
 /// the same reason a comparison does: a last-bit disagreement at an integer boundary becomes
-/// a whole unit. `raster/doc/adr/0053` §3 named only the comparisons; this is the extension, and the
+/// a whole unit. `raster/doc/adr/0053` section 3 named only the comparisons; this is the extension, and the
 /// reason it is one.
 #[test]
 fn a_rounding_operator_amplifies_like_a_comparison() {

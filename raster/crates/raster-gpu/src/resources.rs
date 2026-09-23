@@ -119,7 +119,7 @@ impl StoredOutline {
     /// The GPU coverage lane's quadratics, converting and charging on the first ask.
     ///
     /// **This is the ask, and it is the only one** (ADR 0075). The caller's
-    /// `QUORRA_FEEDBACK.md` §33 measured 156 ms of a 187.6 ms scene phase inside
+    /// `QUORRA_FEEDBACK.md` section 33 measured 156 ms of a 187.6 ms scene phase inside
     /// `upload_outline` on a 3 011 919-segment drawing, all of it converting a
     /// representation that frame never read: their default is
     /// [`Coverage::Cpu`](crate::startup::Coverage::Cpu) and
@@ -606,10 +606,10 @@ impl ResourceStore {
     /// Admit a §7.10.5 program, price it, and store what a frame will ask of it.
     ///
     /// The admission is [`crate::function::admit`]: the structural check, the analysing
-    /// walk, and ADR 0053 §3's agreement classification, in that order. It runs **here**
+    /// walk, and ADR 0053 section 3's agreement classification, in that order. It runs **here**
     /// rather than at the scene boundary because a program is a resource — so a caller
-    /// learns its program is unsupported before it has built a scene at all, which is §5
-    /// of the brief's "discoverable before the frame" satisfied properly rather than by
+    /// learns its program is unsupported before it has built a scene at all, which is brief section
+    /// 5 of the brief's "discoverable before the frame" satisfied properly rather than by
     /// accident.
     ///
     /// The content hash is computed by the walk, once, and kept with the analysis: it is

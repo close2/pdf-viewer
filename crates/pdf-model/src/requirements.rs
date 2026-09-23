@@ -403,13 +403,15 @@ impl Kind {
                  point into a coordinate needs the EPSG registry"
             }
             Self::SeparationSimulation => {
-                // §10.8.2 is implemented — the alternate space and its tint transform — and
-                // §10.8.3's simulation is what is absent. The reason this arm used to give was
-                // "§10.8 describes a marking device", the phrase ADR 0204 retired: ISO 32000-2
-                // does not contain it, and §10.8.3's own condition is a user's request rather
-                // than a device's nature.
-                "no separation simulation: §10.8.3 is performed when a user asks for it and this \
-                 program offers no such control"
+                // §10.8.3 is performed when a reader asks for it — `ViewState`'s separation
+                // simulation (ADR 1228) — and what the request reaches is steps b) to d) over one
+                // painting operation's colourants (ADR 1229) and step a)'s separations of the
+                // page, a display list per plane of the simulated device, spot colourants
+                // included (`colourants::Separation`, ADR 1311). What is missing is the render
+                // side: those planes are made and no backend draws them, so a page's spot inks
+                // still revert to their alternate colour space as they are painted.
+                "separations are not yet drawn: §10.8.3's planes are made per spot colourant, \
+                 and no backend converts them to flat XYZ and multiplies them (steps b) to d))"
             }
             // Excluded by CLAUDE.md principle 5's closed list.
             Self::EnableJavaScripts => "ECMAScript is excluded by this project's principle 5",

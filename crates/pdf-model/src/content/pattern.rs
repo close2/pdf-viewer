@@ -22,7 +22,10 @@ use crate::icc::Rendering;
 use super::colour::{BlackPoint, Intent, convert};
 use super::report::Unsupported;
 use super::run::narrow;
-use super::transparency::{Painted, any_command, command_blends, group_alpha_is_shape};
+use super::transparency::{
+    AlphaSourcesSeen, Painted, any_command, command_blends, command_composites,
+    group_alpha_is_shape,
+};
 use super::{GraphicsState, Interpreter, KnockoutKind, MAX_OPERATIONS};
 
 mod reach;
@@ -566,13 +569,19 @@ impl Interpreter<'_> {
     ///
     /// Returns the clip Table 74's box produced for it, which is what
     /// [`Interpreter::settle_cell_box`] may take back off the commands afterwards, or `None`
-    /// where the pattern states no usable box.
+    /// where the pattern states no usable box — and the readings of §11.6.4.3's `/AIS` the
+    /// cell's marks were painted under, which are the cell's own: §8.7.3.1 runs it under "the
+    /// graphics state that was in effect at the beginning of the pattern's parent content
+    /// stream", and §11.6.7 adds that "[t]he definition shall not inherit the current values
+    /// of the graphics state parameters at the time it is evaluated". So the record is scoped
+    /// to the cell and seeded from the state it starts in, never from the painting mark's, and
+    /// [`Interpreter::compose_tiling`] decides whether it joins the enclosing one (ADR 1306).
     fn run_cell(
         &mut self,
         tiling: &Tiling,
         to_page: Transform,
         outer: Option<ClipId>,
-    ) -> Option<ClipId> {
+    ) -> (Option<ClipId>, AlphaSourcesSeen) {
         let mut cell = GraphicsState::initial(to_page);
         // Table 74: "These boundaries shall be used to clip the pattern cell." The box is in
         // pattern space, so it travels with the cell's own offset, and it sits *inside* the
@@ -612,11 +621,13 @@ impl Interpreter<'_> {
         // page.
         let outer_base = std::mem::replace(&mut self.base, to_page);
         self.enter_ledger_frame(super::ledger::Route::TilingPattern, tiling.source);
+        let enclosing_reading = self.open_reading_scope(cell.alpha_is_shape);
         self.run(&tiling.content, &tiling.resources, &cell);
+        let reading = self.close_reading_scope(enclosing_reading);
         self.leave_ledger_frame();
         self.base = outer_base;
         self.uncoloured = saved_uncoloured;
-        box_clip
+        (box_clip, reading)
     }
 
     /// What Table 74's box clip is doing to the cell, answered once for the whole tiling.
@@ -1049,6 +1060,10 @@ impl Interpreter<'_> {
     /// irrelevant — "[t]he colours of the constituent objects shall be ignored" — so the
     /// element is painted opaque white and nothing reads it.
     ///
+    /// The mask is recorded as a shape ([`crate::image::ShapeMasks`]), because that is what it
+    /// is: a knockout element's shape keeps it where §11.6.4.3's opacity would be taken off,
+    /// and taking it off left the element the shape of the whole cell (ADR 1306).
+    ///
     /// `None` where the display list can hold no further mask, which the caller reports.
     fn stroke_shape(
         &mut self,
@@ -1074,7 +1089,9 @@ impl Interpreter<'_> {
             luminance: None,
             black: None,
         };
-        self.list.add_soft_mask(mask).ok()
+        let id = self.list.add_soft_mask(mask).ok()?;
+        self.image_masks.shape_masks_mut().record(id);
+        Some(id)
     }
 
     /// Paints a tiling pattern over the area a path's fill or stroke covers.
@@ -1087,6 +1104,11 @@ impl Interpreter<'_> {
     ///
     /// [`Tiled`] says which of §8.7.2's two regions this is and why a stroke's arrives as a
     /// mask rather than as a clip.
+    ///
+    /// Answers whether the cell's own marks composite, which a combined fill and stroke asks:
+    /// §11.6.7 makes what the cell evaluates to the object's own opacity, so a part painted
+    /// through a translucent cell composites with the other part however opaque the painting
+    /// mark's state is (§11.6.2, §11.7.4.4).
     pub(super) fn tile(
         &mut self,
         path: &Arc<Path>,
@@ -1094,14 +1116,14 @@ impl Interpreter<'_> {
         region: Tiled<'_>,
         tiling: &Tiling,
         state: &GraphicsState,
-    ) {
+    ) -> bool {
         // The pattern is anchored to the page, so the question "which cells does this path
         // touch" has to be asked in the pattern's own coordinates.
         let Some(to_pattern) = tiling.to_page.invert() else {
             self.note(Unsupported::Shading {
                 name: "a tiling pattern's matrix is degenerate".to_owned(),
             });
-            return;
+            return false;
         };
         let path_to_pattern = transform.then(to_pattern);
 
@@ -1117,7 +1139,7 @@ impl Interpreter<'_> {
             }),
         };
         let Some(bounds) = bounds else {
-            return;
+            return false;
         };
         // How many sites that is, is not asked here: the span is cut to what the budget affords
         // in [`Interpreter::repeat_cell`], which is the first place the cell's own size is known
@@ -1139,7 +1161,7 @@ impl Interpreter<'_> {
                 };
                 let Ok(clip) = self.list.add_clip(clip) else {
                     self.note(Unsupported::LimitReached { limit: "max_clips" });
-                    return;
+                    return false;
                 };
                 (Some(clip), None)
             }
@@ -1148,7 +1170,7 @@ impl Interpreter<'_> {
                     self.note(Unsupported::LimitReached {
                         limit: "max_soft_masks",
                     });
-                    return;
+                    return false;
                 };
                 (state.clip, Some(shape))
             }
@@ -1211,7 +1233,7 @@ impl Interpreter<'_> {
             state,
             Painted::of(state, matches!(region, Tiled::Stroke(_))),
         );
-        let (box_clip, transfer) =
+        let (box_clip, transfer, reading) =
             self.run_cell_scoped(tiling, offset.then(tiling.to_page), clip, inside, transfer);
         // Table 74's box, and the marks it halves: both are settled on the cell itself, so
         // every site is a copy of the settled figure rather than a repetition of the question.
@@ -1233,6 +1255,8 @@ impl Interpreter<'_> {
         // `clip` is the path's own, which bounds the whole tiling: it is what tells a clip the
         // cell built from one that was already in force. See [`pdf_render::Cell`].
         let cell = pdf_render::Cell::drawn(&self.list, at, clip);
+        // Asked of the one cell before it is copied: the copies are the same marks displaced.
+        let cell_composites = self.marks_composite(mark);
         // Which sites the region reaches at all. A fill's interior is scanned onto the lattice
         // (`reach.rs`), so a site whose cell box the interior never touches is not copied — a
         // hatched wall is a few per cent of its own hull. A stroke's outline is not a region
@@ -1260,8 +1284,17 @@ impl Interpreter<'_> {
 
         // The two groups the finished tiling may want, and which of §11.6.4.1's sources of
         // shape and opacity each one carries.
-        self.compose_tiling(mark, alpha, shape, state);
+        self.compose_tiling(mark, (alpha, shape), state, reading);
         self.record_tiling(mark, transfer);
+        cell_composites
+    }
+
+    /// Whether a mark from `mark` on composites (`transparency::command_composites`).
+    fn marks_composite(&self, mark: usize) -> bool {
+        self.list
+            .commands()
+            .get(mark..)
+            .is_some_and(|marks| any_command(marks, &command_composites))
     }
 
     /// Runs a cell under the two conditions §11.7.5.2 carries into it, and answers the function
@@ -1286,15 +1319,19 @@ impl Interpreter<'_> {
         clip: Option<ClipId>,
         inside: bool,
         transfer: Option<Arc<crate::content::Transfer>>,
-    ) -> (Option<ClipId>, Option<Arc<crate::content::Transfer>>) {
+    ) -> (
+        Option<ClipId>,
+        Option<Arc<crate::content::Transfer>>,
+        AlphaSourcesSeen,
+    ) {
         let ancestry = std::mem::replace(&mut self.opaque_ancestry, inside);
         let outer_cell = std::mem::replace(&mut self.tiling_cell, true);
         let outer_opaque = std::mem::replace(&mut self.tiling_cell_opaque, true);
-        let box_clip = self.run_cell(tiling, to_page, clip);
+        let (box_clip, reading) = self.run_cell(tiling, to_page, clip);
         let cell_opaque = std::mem::replace(&mut self.tiling_cell_opaque, outer_opaque);
         self.tiling_cell = outer_cell;
         self.opaque_ancestry = ancestry;
-        (box_clip, transfer.filter(|_| cell_opaque))
+        (box_clip, transfer.filter(|_| cell_opaque), reading)
     }
 
     /// Records a finished tiling's marks in §11.7.5.2's channel, as one run.
@@ -1330,16 +1367,50 @@ impl Interpreter<'_> {
     /// Wraps a finished tiling in the groups its region and its graphics state ask for.
     ///
     /// `mark` is where the tiles begin, `alpha` is whichever of §11.6.4.4's two constants the
-    /// invoking operator is under, and `shape` is [`Tiled::Stroke`]'s region where there is one.
-    /// Split out of [`Interpreter::tile`] because it is the only part of that function that is
-    /// about compositing rather than about placing cells.
+    /// invoking operator is under, `shape` is [`Tiled::Stroke`]'s region where there is one, and
+    /// `reading` is which of §11.6.4.3's readings the cell's own marks were painted under
+    /// ([`Interpreter::run_cell`]). Split out of [`Interpreter::tile`] because it is the only
+    /// part of that function that is about compositing rather than about placing cells.
+    ///
+    /// # The cell's readings and the enclosing record
+    ///
+    /// §11.6.7 makes what the cell evaluates to "the object's source colour ( 𝐶𝑠 ), object
+    /// shape ( f j ), and object opacity ( qi )", so the cell's reading decides the object's
+    /// shape and the painting mark's decides only its own constant and mask. Where the tiling
+    /// reaches the enclosing content as one group whose raster is its own shape
+    /// (`alpha_is_shape`), that object's shape is stated whatever reading the enclosing content
+    /// asks it under, and the cell's readings stay out of the enclosing record. Otherwise the
+    /// tiles are elements of the enclosing content read under its reading, and the cell's join
+    /// its record — which is where content painted under both readings is refused rather than
+    /// read under one of them. Tiles that would stand inline under a reading other than the
+    /// mark's are given the group, where §11.6.7's NOTE 1 makes an isolated one exact: "in the
+    /// common case in which the pattern consists entirely of objects painted with the Normal
+    /// blend mode … the pattern cell can be evaluated once and then replicated" (ADR 1306).
     fn compose_tiling(
         &mut self,
         mark: usize,
-        alpha: f32,
-        shape: Option<SoftMaskId>,
+        (alpha, shape): (f32, Option<SoftMaskId>),
         state: &GraphicsState,
+        reading: AlphaSourcesSeen,
     ) {
+        let own_shape = self.wrap_tiling(mark, (alpha, shape), state, reading);
+        if !own_shape && self.list.command_count() > mark {
+            // Joined, never replacing: the record already holds the reading the painting mark
+            // is under, and the tiles are painted beside it.
+            self.alpha_sources = self.alpha_sources.with(reading);
+        }
+    }
+
+    /// [`Interpreter::compose_tiling`]'s groups, answering whether the outermost is one whose
+    /// raster is its own shape.
+    fn wrap_tiling(
+        &mut self,
+        mark: usize,
+        (alpha, shape): (f32, Option<SoftMaskId>),
+        state: &GraphicsState,
+        reading: AlphaSourcesSeen,
+    ) -> bool {
+        let mut own_shape = false;
         // A stroke's region, applied once to the finished tiling. §11.6.4.2 makes an object's
         // shape "1.0 inside and 0.0 outside" the mark it makes, and §11.5.2 derives a mask
         // from "the alpha of the group" — so a group holding the stroke alone, taken for its
@@ -1354,10 +1425,10 @@ impl Interpreter<'_> {
         if let Some(shape) = shape {
             let parts = self.list.split_off_commands(mark);
             if parts.is_empty() {
-                return;
+                return false;
             }
-            let alpha_is_shape =
-                group_alpha_is_shape(&parts, self.alpha_sources.settled_over(&parts));
+            let alpha_is_shape = group_alpha_is_shape(&parts, reading.settled_over(&parts));
+            own_shape = alpha_is_shape;
             self.draw(Command::Group {
                 commands: parts,
                 // The state's constant rides the group below; this one only shapes.
@@ -1385,11 +1456,14 @@ impl Interpreter<'_> {
         let composites =
             alpha < 1.0 || state.blend != BlendMode::Normal || state.soft_mask.is_some();
         if !composites {
-            return;
+            if shape.is_none() && reading != AlphaSourcesSeen::of(state.alpha_is_shape) {
+                return self.wrap_inline_tiles(mark, reading);
+            }
+            return own_shape;
         }
         let parts = self.list.split_off_commands(mark);
         if parts.is_empty() {
-            return;
+            return false;
         }
         // §11.6.7 makes the implicit group *non-isolated*, and the display list says so
         // wherever the clause's own NOTE 1 does not make an isolated group exact: "in the common
@@ -1410,11 +1484,11 @@ impl Interpreter<'_> {
         // right backdrop rather than what departs from it. ADR 1265.
         let isolated = self.enclosing_knockout == Some(KnockoutKind::Isolated)
             || !any_command(&parts, &command_blends);
-        // Asked of the cell's own marks under the `/AIS` reading the content ran under, the
-        // way every other group is asked — see `group_alpha_is_shape`. It changes no pixel
-        // today, because this group states no clip of its own, and it is stated truthfully
-        // rather than as `false` so that the field means one thing everywhere it is written.
-        let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled_over(&parts));
+        // Asked of the cell's own marks under the `/AIS` reading the cell ran under, the way
+        // every other group is asked — see `group_alpha_is_shape`. Stated truthfully rather
+        // than as `false` so that the field means one thing everywhere it is written, and it
+        // decides whether the cell's readings join the enclosing record.
+        let alpha_is_shape = group_alpha_is_shape(&parts, reading.settled_over(&parts));
         self.draw(Command::Group {
             commands: parts,
             alpha,
@@ -1430,6 +1504,38 @@ impl Interpreter<'_> {
             // force, so the implicit group introduces no space of its own.
             blending: None,
         });
+        alpha_is_shape
+    }
+
+    /// Gives tiles §11.6.7's implicit group where they would otherwise stand inline under a
+    /// reading other than the painting mark's, and answers whether its raster is its shape.
+    ///
+    /// Only where the group is exact as an isolated one — nothing in the cell blends, or the
+    /// enclosing knockout group's initial backdrop is transparent — because that is the group
+    /// §11.4.4's NOTE 5 makes the same picture as the tiles drawn inline; a cell that blends
+    /// stays inline and its readings join the enclosing record.
+    fn wrap_inline_tiles(&mut self, mark: usize, reading: AlphaSourcesSeen) -> bool {
+        let tiles = self.list.commands().get(mark..).unwrap_or_default();
+        if tiles.is_empty()
+            || (self.enclosing_knockout != Some(KnockoutKind::Isolated)
+                && any_command(tiles, &command_blends))
+        {
+            return false;
+        }
+        let parts = self.list.split_off_commands(mark);
+        let alpha_is_shape = group_alpha_is_shape(&parts, reading.settled_over(&parts));
+        self.draw(Command::Group {
+            commands: parts,
+            alpha: 1.0,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+            isolated: true,
+            knockout: false,
+            alpha_is_shape,
+            blending: None,
+        });
+        alpha_is_shape
     }
 
     /// Paints a shading across the current clip, for the `sh` operator.

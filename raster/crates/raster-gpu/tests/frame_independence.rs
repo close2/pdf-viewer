@@ -9,7 +9,7 @@
 //!
 //! The order that matters is **large then small**, because that is the direction a cache
 //! grows in and the one a viewer walks when a person zooms in and back out. It is also
-//! the direction the caller's `QUORRA_FEEDBACK.md` §11 reported from the window: a page
+//! the direction the caller's `QUORRA_FEEDBACK.md` section 11 reported from the window: a page
 //! magnified past 1000% and brought back drew one letter as another, and kept doing it.
 
 // Test-file lint policy as in m1.rs.
@@ -102,7 +102,7 @@ fn draw(device: &mut Device, side: u32) -> Vec<u8> {
 /// the reuse: allocating and zeroing it per frame cost 10.7 ms of a 15 ms frame). A
 /// frame whose sheet is *shorter* than that texture must still draw its own coverage.
 ///
-/// This is §11 of the caller's feedback, made small: their ladder went wrong at 6400%
+/// This is section 11 of the caller's feedback, made small: their ladder went wrong at 6400%
 /// and stayed wrong at 1600% on the way down, while 3200% — whose sheet was the tallest
 /// the device had seen — stayed right. Two frames on one device is the whole recipe.
 #[test]

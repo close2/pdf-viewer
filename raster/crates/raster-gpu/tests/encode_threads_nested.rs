@@ -3,7 +3,7 @@
 //!
 //! # Where the question comes from
 //!
-//! hayro #1316, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` §7. Their summary
+//! hayro #1316, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` section 7. Their summary
 //! of it names the nesting explicitly:
 //!
 //! > `hayro::render` hardcodes `num_threads: 0` and re-forces it for nested contexts, so

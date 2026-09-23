@@ -18,7 +18,7 @@
 //!   is M5's residue — the R8 mask the brief said a *rectangular* clip must never
 //!   become, applied exactly where it must.
 //!
-//! **Counting precedes allocation** (§5's first preference): instance buffers are
+//! **Counting precedes allocation** (brief section 5's first preference): instance buffers are
 //! sized from the command count and every rasterised mask is charged against the
 //! frame budget before its bytes exist, so there is no fixed-size table for a scene
 //! to overflow.
@@ -204,6 +204,13 @@ struct Encoder<'a> {
     mask_plans: Vec<Option<MaskPlan>>,
     /// The active drawing style, set by the enclosing knockout group.
     style: DrawStyle,
+    /// Whether the walk is drawing §11.4.4's **second accumulator** — Table 140's group
+    /// alpha for an enclosing non-isolated group under a blend mode of its own — whose
+    /// colour nothing reads. §11.3.7.3 accumulates alpha by the union whatever the blend
+    /// mode and whatever the initial backdrop, so a group met inside this walk is drawn
+    /// isolated and under Normal: the same alpha, one layer rather than two, and no
+    /// accumulator of its own however deep the nesting (`layer.rs`).
+    group_alpha_walk: bool,
     /// Which lane made each mark's coverage (brief section 1.1, `Counters::lanes`). Accumulated at
     /// the two seams a mark becomes drawable at — `instance` and `plan`'s `append_op` —
     /// rather than at the arms that *choose* a lane, because a choice can still change
@@ -490,9 +497,9 @@ fn encoder_for<'a>(
         residue: ResidueRegions::of(scene, residue::budget(frame_budget_bytes)),
         // The scratch sheet spans the full device dimension both ways: its *byte*
         // cost is charged tile by tile against the frame budget, so the dimension
-        // is capacity, not commitment (QUORRA_FEEDBACK.md §3).
+        // is capacity, not commitment (QUORRA_FEEDBACK.md section 3).
         scratch: ScratchPacker::new(max_dimension, max_dimension),
-        // Sized from the count the caller just checked (§5: count then allocate).
+        // Sized from the count the caller just checked (brief section 5: count then allocate).
         rect_instances: Vec::with_capacity(instance_reserve(
             scene.commands().len(),
             RECT_INSTANCE_STRIDE,
@@ -510,6 +517,7 @@ fn encoder_for<'a>(
         layers: Vec::new(),
         mask_plans: (0..scene.masks().len()).map(|_| None).collect(),
         style: DrawStyle::Over,
+        group_alpha_walk: false,
         lanes: LaneCounts::default(),
         budget: frame_budget_bytes,
         spent: needed,
@@ -604,12 +612,8 @@ impl Encoder<'_> {
                 self.record_slow();
                 self.encode_image(*image, *transform, *alpha, *filter, *clip, *blend, *mask)
             }
-            Command::Group { spec, commands } => {
-                // A child layer is frame-wide state: its plan, its texture, its
-                // composite. No record rebuilds one.
-                self.unreplayable();
-                self.encode_group(spec, commands)
-            }
+            // A child layer takes the frame off the replay road, at `plan_child`.
+            Command::Group { spec, commands } => self.encode_group(spec, commands),
         }
     }
 

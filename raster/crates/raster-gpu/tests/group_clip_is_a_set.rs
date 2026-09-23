@@ -56,8 +56,8 @@
 //! draws where the encoder cannot prove that a group's alpha is its shape — the square of
 //! the truth in the first row, and 0.2 × 0.6 in the second.
 //!
-//! `× 255` and rounding to nearest is §3's straight-alpha readback: 0.36 × 255 = 91.8 and
-//! 0.12 × 255 = 30.6, so 92 and 31.
+//! `× 255` and rounding to nearest is brief section 3's straight-alpha readback: 0.36 × 255 = 91.8
+//! and 0.12 × 255 = 30.6, so 92 and 31.
 //!
 //! # What decides which arithmetic a group gets, and why two fixtures are drawn wrong
 //!

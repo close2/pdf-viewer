@@ -10,7 +10,7 @@
 //! convert it into the quadratic contours the GPU coverage lane draws** — a conversion
 //! read in exactly one place, behind a setting whose default answers `false` on sight.
 //! The caller measured what that cost on the project owner's own 3 011 919-segment
-//! drawing (`QUORRA_FEEDBACK.md` §33): of a 187.6 ms first-frame scene phase, **156.0 ms
+//! drawing (`QUORRA_FEEDBACK.md` section 33): of a 187.6 ms first-frame scene phase, **156.0 ms
 //! — 83 % — was inside our `upload_*` calls**, and six sevenths of that was
 //! `QuadOutline::from_segments`.
 //!
@@ -19,13 +19,13 @@
 //!
 //! # Four parts, and why each is the kind of statement it is
 //!
-//! - **§A, what an upload costs**, by the shape of the outline uploaded. Two arms
+//! - **Section A, what an upload costs**, by the shape of the outline uploaded. Two arms
 //!   round-robin — an all-cubic corpus and an all-straight one of the same segment count
 //!   — because the cost that moved is *subdivision*, and an arm that does none is the
 //!   control that says so. This is the arm to run against a tree without ADR 0075 in it:
 //!   the binary compiles against both, so the comparison is one instrument and two
 //!   libraries rather than two instruments.
-//! - **§B, where the conversion went.** Three arms round-robin, each on a device of its
+//! - **Section B, where the conversion went.** Three arms round-robin, each on a device of its
 //!   own because an outline converts once and a warm one cannot be re-measured: the first
 //!   frame under `Coverage::Cpu`, the first under `Coverage::Gpu`, and the second under
 //!   `Coverage::Gpu`. The corpus is chosen so that **every mark draws identically in all
@@ -34,21 +34,21 @@
 //!   numbers are printed and their difference is not: a subtraction of wall clocks is a
 //!   claim, and the two arms that convert nothing are what makes it checkable.
 //!
-//!   **The column that carries §B is the byte column, not the clock.** A frame's
+//!   **The column that carries section B is the byte column, not the clock.** A frame's
 //!   conversion is a fraction of a frame that also flattens every one of those segments
 //!   on the processor, and the first frame of a device pays for pipelines and buffer
 //!   growth besides — ADR 0075 measured the same first-against-second gap on a tree that
 //!   converts at upload and has nothing to defer, which is the control that says the gap
 //!   is not the conversion. The bytes have no such problem: the first `Coverage::Gpu`
 //!   frame converts and every other frame in the table converts nothing, on every run.
-//! - **§C, the witness**, which is not a clock at all and is half of `--check`.
+//! - **Section C, the witness**, which is not a clock at all and is half of `--check`.
 //!   `Device::resource_bytes_in_use` counts what is resident, so it *rises when the
-//!   conversion happens* and at no other time. Every claim §A and §B make about *when*
-//!   an outline converts is asserted there, deterministically, on a corpus small enough
-//!   for CI.
-//! - **§D, the page the device lane actually draws**, reduced to a digest. §C's marks are
-//!   declined on triangle count, which is what makes its arms one picture and also means
-//!   it never reads a converted outline's triangles. §D does, and prints a number two
+//!   conversion happens* and at no other time. Every claim section A and section B make
+//!   about *when* an outline converts is asserted there, deterministically, on a corpus small
+//!   enough for CI.
+//! - **Section D, the page the device lane actually draws**, reduced to a digest. Section C's marks
+//!   are declined on triangle count, which is what makes its arms one picture and also means
+//!   it never reads a converted outline's triangles. Section D does, and prints a number two
 //!   builds of this binary can be compared by — which is how ADR 0075's "it moves no
 //!   pixel" was checked between the trees rather than argued from the code.
 //!
@@ -79,19 +79,19 @@ use raster_scene::{
     Segment,
 };
 
-/// A small atlas, so §B's and §C's marks are tiles the cache will not hold and
+/// A small atlas, so section B's and section C's marks are tiles the cache will not hold and
 /// `gpu_lane_admissible` therefore reaches its last test (ADR 0024's eighth of 64 KiB is
 /// 8 KiB, and every tile below is larger). Without it the whole file would measure the
 /// atlas lane and convert nothing, passing while testing nothing.
 const TINY_ATLAS: u64 = 64 * 1024;
 
-/// §A's corpus: outlines, and segments in each. 2 000 × 200 is 400 000 segments, which
+/// Section A's corpus: outlines, and segments in each. 2 000 × 200 is 400 000 segments, which
 /// is an eighth of the caller's document and enough that the arms separate by more than
 /// the round-to-round spread on a loaded desktop.
 const CORPUS_OUTLINES: usize = 2_000;
 const CORPUS_SEGMENTS: usize = 200;
 
-/// §B's corpus. Each outline is a wiggle of [`MARK_SEGMENTS`] cubics inside a
+/// Section B's corpus. Each outline is a wiggle of [`MARK_SEGMENTS`] cubics inside a
 /// [`MARK_SIDE`]-pixel box: large enough that the atlas declines it, and *dense* enough
 /// that the triangle test then declines it too, so all three arms rasterise the same way
 /// on the processor and differ only in whether they converted.
@@ -99,7 +99,7 @@ const MARKS: usize = 48;
 const MARK_SEGMENTS: usize = 120;
 const MARK_SIDE: f32 = 128.0;
 
-/// §C's corpus, and `--check`'s: small enough to run in CI, large enough that a
+/// Section C's corpus, and `--check`'s: small enough to run in CI, large enough that a
 /// conversion's bytes are unmistakable next to the segments'.
 const WITNESS_OUTLINES: usize = 8;
 const WITNESS_SEGMENTS: usize = 32;
@@ -144,7 +144,7 @@ fn chords(path: &[Segment]) -> Vec<Segment> {
         .collect()
 }
 
-/// §A's corpus: `count` distinct outlines of `segments` cubics each, built before any
+/// Section A's corpus: `count` distinct outlines of `segments` cubics each, built before any
 /// clock starts.
 fn corpus(count: usize, segments: usize) -> Vec<Vec<Segment>> {
     (0..count)
@@ -152,7 +152,7 @@ fn corpus(count: usize, segments: usize) -> Vec<Vec<Segment>> {
         .collect()
 }
 
-/// One §A sample: upload every outline of a corpus, timing that and nothing else, then
+/// One section A sample: upload every outline of a corpus, timing that and nothing else, then
 /// release them so the next sample starts from the same resident bytes.
 ///
 /// The release is outside the span deliberately — it is not what the caller's section 33 asked about — and
@@ -190,7 +190,7 @@ fn page(outlines: &[OutlineId]) -> Scene {
     builder.finish()
 }
 
-/// The viewport §B and §C draw through: whole boxes, at 1× so the marks keep the size
+/// The viewport section B and section C draw through: whole boxes, at 1× so the marks keep the size
 /// their outlines state.
 fn viewport(marks: usize) -> Viewport<'static> {
     let columns = 8u32.min(marks as u32).max(1);
@@ -207,7 +207,7 @@ fn viewport(marks: usize) -> Viewport<'static> {
 /// atlas-declined marks rasterise on the processor in every arm. ADR 0090's auto rule
 /// would reroute them to the compute lane on any hardware adapter, and the compute
 /// lane's picture agrees with the scanline's only to one coverage step (ADR 0094) —
-/// which would make §B time two pictures and fail §C's identity for a reason this
+/// which would make section B time two pictures and fail section C's identity for a reason this
 /// file does not measure. The hybrid has its own suite (`tests/compute_assist.rs`).
 fn device_for(adapter: Option<String>, coverage: Coverage) -> Device {
     let device = Device::headless(&Options {
@@ -224,7 +224,7 @@ fn device_for(adapter: Option<String>, coverage: Coverage) -> Device {
     device
 }
 
-/// One §B sample: a fresh device, a corpus uploaded off the clock, and `warm_up` frames
+/// One section B sample: a fresh device, a corpus uploaded off the clock, and `warm_up` frames
 /// drawn off it, so that the span covers exactly the frame under test.
 fn frame_sample(
     adapter: Option<String>,
@@ -274,11 +274,11 @@ fn load_average() -> String {
     )
 }
 
-/// §D: **the page the GPU lane actually draws, reduced to a number two builds can be
+/// Section D: **the page the GPU lane actually draws, reduced to a number two builds can be
 /// compared by.**
 ///
-/// §C's marks are declined on triangle count, which is what makes its three arms one
-/// picture — and it means §C never exercises the code path that reads a converted
+/// Section C's marks are declined on triangle count, which is what makes its three arms one
+/// picture — and it means section C never exercises the code path that reads a converted
 /// outline's triangles. This does: one two-cubic blob over a box the atlas will not
 /// cache, which `triangles_under_coverage` admits because sixteen triangles are cheaper
 /// than a quarter of a million coverage bytes.
@@ -289,7 +289,7 @@ fn load_average() -> String {
 /// it is printed so that this binary built against two trees can be held to the same
 /// pixels, which is how ADR 0075's "it moves no pixel" was checked rather than argued.
 ///
-/// FNV-1a over the straight-alpha RGBA §3 hands back, because the deliverable is a
+/// FNV-1a over the straight-alpha RGBA brief section 3 hands back, because the deliverable is a
 /// comparison between two runs and not a hash anybody stores.
 fn gpu_lane_digest(adapter: Option<String>) -> u64 {
     let mut device = device_for(adapter, Coverage::Cpu);
@@ -333,7 +333,7 @@ fn gpu_lane_digest(adapter: Option<String>) -> u64 {
     })
 }
 
-/// §C: the assertions, which are about *when* an outline converts and not about how
+/// Section C: the assertions, which are about *when* an outline converts and not about how
 /// long it takes. Every one of them is a statement about
 /// [`Device::resource_bytes_in_use`], which counts what is resident and therefore rises
 /// exactly when the conversion happens.
@@ -398,7 +398,7 @@ fn witness(adapter: Option<String>) {
     );
 
     // The corpus is chosen so the lane is *reached* and then declined on triangle count
-    // (ADR 0026), which is what makes §B's three arms comparable: same pixels, and only
+    // (ADR 0026), which is what makes section B's three arms comparable: same pixels, and only
     // the conversion between them.
     assert_eq!(
         cpu, gpu,
@@ -421,12 +421,12 @@ fn witness(adapter: Option<String>) {
     );
 }
 
-/// §A's two arms, in the order printed.
+/// Section A's two arms, in the order printed.
 const SHAPES: [&str; 2] = ["cubic", "chord"];
 
-/// `--check`: §C alone, on the small corpus — the smallest run that executes every
-/// assertion this file makes. §A and §B print statistics and assert nothing, because a
-/// one-round wall clock is not a measurement and must not read like one (ADR 0060).
+/// `--check`: section C alone, on the small corpus — the smallest run that executes every
+/// assertion this file makes. Section A and section B print statistics and assert nothing, because
+/// a one-round wall clock is not a measurement and must not read like one (ADR 0060).
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let check = args.iter().any(|arg| arg == "--check");
@@ -520,9 +520,9 @@ fn main() {
             None => println!("  {name:<12}  no sample"),
         }
     }
-    // Last, not first: §C is what fails on a tree that still converts at upload, and a
-    // run against such a tree is exactly the comparison §A exists to make. Failing after
-    // the numbers are printed is what makes that run useful rather than empty. §D goes
+    // Last, not first: section C is what fails on a tree that still converts at upload, and a
+    // run against such a tree is exactly the comparison section A exists to make. Failing after
+    // the numbers are printed is what makes that run useful rather than empty. Section D goes
     // ahead of it for the same reason — its digest is the thing to compare between the
     // two trees, so it must be printed before the assertion that one of them fails.
     let digest = gpu_lane_digest(adapter.clone());

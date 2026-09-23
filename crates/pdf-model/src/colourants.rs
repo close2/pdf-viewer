@@ -55,7 +55,9 @@
 //!
 //! Trap 38's question has the answer *the standard states none*: §8.6.6.4 allows colourant names
 //! "subject to implementation limits" and §8.6.6.5 lets a `DeviceN` "contain an arbitrary number
-//! of colour components". So nothing here truncates. The walk is finite without a budget —
+//! of colour components". So the walk truncates nothing, and the bound is where planes are made:
+//! [`MAX_SPOT_PLANES`], with a page past it named rather than cut. The walk is finite without a
+//! budget —
 //! every indirect object is entered at most once per role, `Seen` holding which, and it runs
 //! from an explicit stack rather than recursion, so a chain of forms each naming the next costs
 //! heap rather than the thread's stack.
@@ -69,10 +71,29 @@ use std::collections::BTreeSet;
 
 use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId};
 
-use crate::colour::Plane;
+use crate::colour::{DeviceSpots, PROCESS_COLOURANTS, Plane, Press};
 
-/// The four names §8.6.6.4 and §8.6.6.5 reserve to the process colourants of a CMYK device.
-const PROCESS_NAMES: [&[u8]; 4] = [b"Cyan", b"Magenta", b"Yellow", b"Black"];
+/// How many spot planes one page is given: sixteen, forty-eight colourants.
+///
+/// **The standard states no bound**, so the number is this tree's and says so (trap 38): §8.6.6.4
+/// allows colourant names "subject to implementation limits" and §8.6.6.5 lets a `DeviceN`
+/// "contain an arbitrary number of colour components". What a plane costs is what bounds it —
+/// every plane is one more interpretation of the page's content stream, and in the backends one
+/// more raster the size of the page — so the bound is a budget, and it is set against what
+/// documents do. `pdf-model --example spot_depth` over the crawl, the first ten pages of every
+/// document: the distribution falls away geometrically from one colourant, the largest page of an
+/// ordinary document names forty-nine, and the only pages past that are six files of one
+/// interpreter's bug report naming 1090 apiece. Sixteen planes carry every page below that one
+/// document, at eighteen interpretations with the process pair. ADR 1311 has the numbers.
+///
+/// **A page past it is not truncated silently.** Its first [`MAX_SPOT_COLOURANTS`] colourants
+/// have planes; a mark in any other reverts to its alternate colour space as §11.7.3's second
+/// bullet allows, and is named, per mark and by colourant, by
+/// `pdf_colour::colour::DeviceSpots::without_a_plane`.
+pub const MAX_SPOT_PLANES: usize = 16;
+
+/// How many spot colourants [`MAX_SPOT_PLANES`] carry, [`Plane::COLOURANTS`] to a plane.
+pub const MAX_SPOT_COLOURANTS: usize = MAX_SPOT_PLANES * Plane::COLOURANTS;
 
 /// The spot colourants a page names, in the order its resources name them first.
 ///
@@ -105,10 +126,24 @@ impl SpotColourants {
     }
 
     /// How many planes these colourants take beside the process ones: `ceil(S / 3)`, one channel
-    /// of a raster per colourant (§11.3.4's per-component compositing).
+    /// of a raster per colourant (§11.3.4's per-component compositing), and never more than
+    /// [`MAX_SPOT_PLANES`].
     #[must_use]
     pub fn spot_planes(&self) -> usize {
-        self.names.len().div_ceil(Plane::COLOURANTS)
+        self.names
+            .len()
+            .min(MAX_SPOT_COLOURANTS)
+            .div_ceil(Plane::COLOURANTS)
+    }
+
+    /// The simulated device these colourants describe, beside `press`'s process colourants: the
+    /// first [`MAX_SPOT_COLOURANTS`] with a plane each and the rest named as having none.
+    #[must_use]
+    pub fn device(&self, press: &Press) -> DeviceSpots {
+        let (within, beyond) = self
+            .names
+            .split_at(self.names.len().min(MAX_SPOT_COLOURANTS));
+        DeviceSpots::new(within.to_vec(), beyond.to_vec(), press)
     }
 
     /// How many planes a page naming these colourants is separated into: the process planes and
@@ -123,13 +158,83 @@ impl SpotColourants {
         let bytes = name.as_bytes();
         let special = bytes == b"None" || bytes == b"All";
         if special
-            || PROCESS_NAMES.contains(&bytes)
+            || PROCESS_COLOURANTS.contains(&bytes)
             || process.contains(name)
             || self.names.contains(name)
         {
             return;
         }
         self.names.push(name.clone());
+    }
+}
+
+/// ISO 32000-2 §10.8.3 step a)'s separations of one page: the page processed "as if separations
+/// were to be created for a simulated device that supports subtractive process colourants and
+/// possibly spot colours".
+///
+/// One display list per plane of the simulated device, each the whole page interpreted once with
+/// every colour resolved to that plane's colourants (`pdf_colour::colour::DeviceSpots`): the two
+/// process planes, in which a spot colourant with a plane paints §11.7.3's "additive value of
+/// 1.0", and [`SpotColourants::spot_planes`] spot planes, three colourants to a plane.
+///
+/// **Made by the model and drawn by no backend yet.** The page a backend draws is the one it drew
+/// before, every spot colourant reverting to its alternate as it is painted; steps b) to d) — each
+/// separation to flat XYZ, multiplied, converted to the device — are the render side's and ADR
+/// 1311 says what they owe. It is here only where a reader asked for the simulation and the page
+/// names a spot colourant, so no other page carries or pays for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Separation {
+    /// The colourants with a spot plane, in plane order.
+    colourants: Vec<Name>,
+    /// The planes, [`Plane::PROCESS`] first and then the spot planes in order.
+    planes: Vec<pdf_render::DisplayList>,
+    /// The colourants a mark painted past [`MAX_SPOT_COLOURANTS`], each once, by name.
+    without_a_plane: Vec<Name>,
+}
+
+impl Separation {
+    /// A page's separation, from its planes in order.
+    pub(crate) fn new(
+        colourants: Vec<Name>,
+        planes: Vec<pdf_render::DisplayList>,
+        without_a_plane: Vec<Name>,
+    ) -> Self {
+        Self {
+            colourants,
+            planes,
+            without_a_plane,
+        }
+    }
+
+    /// The spot colourants that have a plane: colourant `3 × n + c` is channel `c` of
+    /// `Plane::Spot(n)`.
+    #[must_use]
+    pub fn colourants(&self) -> &[Name] {
+        &self.colourants
+    }
+
+    /// The display list of one plane, or `None` for a plane the simulated device does not have.
+    #[must_use]
+    pub fn plane(&self, plane: Plane) -> Option<&pdf_render::DisplayList> {
+        let index = match plane {
+            Plane::Chromatic => 0,
+            Plane::Black => 1,
+            Plane::Spot(index) => Plane::PROCESS.len().checked_add(index)?,
+        };
+        self.planes.get(index)
+    }
+
+    /// How many planes the page was separated into: the process pair and the spot planes.
+    #[must_use]
+    pub fn plane_count(&self) -> usize {
+        self.planes.len()
+    }
+
+    /// The spot colourants a mark on this page painted that have no plane — the page named more
+    /// than [`MAX_SPOT_COLOURANTS`] — which reverted to their alternate colour space, by name.
+    #[must_use]
+    pub fn without_a_plane(&self) -> &[Name] {
+        &self.without_a_plane
     }
 }
 

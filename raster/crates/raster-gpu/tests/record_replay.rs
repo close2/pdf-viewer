@@ -320,3 +320,78 @@ fn a_frame_with_a_child_layer_re_encodes_instead_of_replaying() {
         .expect("renders");
     assert_eq!(zoomed.encode_source(), EncodeSource::Encoded);
 }
+
+/// Admission, for the implicit group ISO 32000-2 §11.3.5 puts a blended fill in: that
+/// group is a child layer too, so the frame re-walks at a new viewport — and draws the
+/// blend there, which a replay of the fill's two solid records would have drawn as two
+/// Normal fills.
+#[test]
+fn a_frame_with_a_blended_fill_re_encodes_instead_of_replaying() {
+    let mut device = device();
+    let square = device
+        .upload_outline(&[
+            Segment::MoveTo(Point::new(8.0, 8.0)),
+            Segment::LineTo(Point::new(60.0, 8.0)),
+            Segment::LineTo(Point::new(60.0, 60.0)),
+            Segment::LineTo(Point::new(8.0, 60.0)),
+            Segment::Close,
+        ])
+        .unwrap();
+    let triangle = device
+        .upload_outline(&[
+            Segment::MoveTo(Point::new(20.0, 20.0)),
+            Segment::LineTo(Point::new(80.0, 30.0)),
+            Segment::LineTo(Point::new(30.0, 80.0)),
+            Segment::Close,
+        ])
+        .unwrap();
+    let mut builder = SceneBuilder::new();
+    for (outline, color, blend) in [
+        (square, Color::new(0.9, 0.8, 0.2, 1.0), BlendMode::Normal),
+        (
+            triangle,
+            Color::new(0.3, 0.6, 0.9, 1.0),
+            BlendMode::Multiply,
+        ),
+    ] {
+        builder
+            .fill(
+                outline,
+                Affine::IDENTITY,
+                FillRule::NonZero,
+                Paint::Solid(color),
+                None,
+                blend,
+                Compose::SrcOver,
+                None,
+            )
+            .unwrap();
+    }
+    let scene = builder.finish();
+    let mut retained = RetainedScene::new(scene.clone());
+    device
+        .render_retained(
+            &mut retained,
+            &Viewport::full(SIZE, SIZE, Affine::IDENTITY),
+            Target::Readback,
+        )
+        .expect("renders");
+    let viewport = Viewport::full(
+        SIZE,
+        SIZE,
+        Affine {
+            a: 1.3,
+            b: 0.0,
+            c: 0.0,
+            d: 1.3,
+            e: 0.0,
+            f: 0.0,
+        },
+    );
+    let zoomed = device
+        .render_retained(&mut retained, &viewport, Target::Readback)
+        .expect("renders");
+    assert_eq!(zoomed.encode_source(), EncodeSource::Encoded);
+    let zoomed = zoomed.into_raster().unwrap().into_pixels();
+    assert_eq!(zoomed, pixels(&mut device, &scene, &viewport));
+}

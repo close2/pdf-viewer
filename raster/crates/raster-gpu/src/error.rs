@@ -1,6 +1,6 @@
 //! Every way this crate refuses, in two typed enums and the five vocabularies they carry.
 //!
-//! §5 of the brief: a failure is an `Err` that names what overflowed or did not hold,
+//! Section 5 of the brief: a failure is an `Err` that names what overflowed or did not hold,
 //! so the caller can act on it — its window falls back to the CPU backend, and a
 //! person reading a log can attribute the refusal without reproducing it. There is no
 //! catch-all variant in any of the seven, for the same reason `ReportKind` has no

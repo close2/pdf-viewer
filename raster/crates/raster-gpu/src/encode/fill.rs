@@ -133,7 +133,7 @@ fn linear_bits(transform: Affine) -> [u32; 4] {
 impl<'a> Encoder<'a> {
     /// The fill arm of the command walk: pick the glyph or path lane by device size
     /// and residue state; route non-Normal blends through an implicit child layer;
-    /// mark `Compose::Src` for the knockout two-pass (§4.1).
+    /// mark `Compose::Src` for the knockout two-pass (brief section 4.1).
     #[expect(clippy::too_many_arguments)] // one command's fields, destructured once
     pub(super) fn encode_fill(
         &mut self,
@@ -227,7 +227,7 @@ impl<'a> Encoder<'a> {
             // fill itself, whose area rules paint nothing of them at any scale.
             let ink = MarkInk::Solid(color);
             self.encode_collapsed_marks(&stored.marks, &to_device, &resolved, ink, style, mask)?;
-            // A rectangle is not a path (RENDER_LIBRARY.md §6.4) and a fill is the only
+            // A rectangle is not a path (RENDER_LIBRARY.md section 6.4) and a fill is the only
             // way a document says one: the caller's 995-page corpus emits no
             // `Command::Rect` at all, so this is the door real pages take to ADR 0007's
             // lane (ADR 0047). The three conditions are the shaded arm's below, and each

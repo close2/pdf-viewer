@@ -4,7 +4,7 @@
 //! of the library needs one number off a transform and must ask for it the same way
 //! everywhere. [`Affine::max_coefficient`] is what brief section 4.7's coordinate bound is applied to,
 //! [`Affine::preserves_axes`] is what brief section 6.4's rectangle lane turns on,
-//! [`Affine::max_stretch`] is what §6.3's atlas scale bucket is keyed by, and
+//! [`Affine::max_stretch`] is what brief section 6.3's atlas scale bucket is keyed by, and
 //! [`Affine::invert`] refuses rather than substituting an identity.
 
 use super::Point;
@@ -151,7 +151,7 @@ impl Affine {
     /// The largest factor by which this transform stretches any direction — the largest
     /// singular value of the linear part.
     ///
-    /// The atlas's scale bucket (§6.3 of the brief) asks this question: it is the number
+    /// The atlas's scale bucket (section 6.3 of the brief) asks this question: it is the number
     /// that says how big a glyph's device-space image is, whatever the rotation.
     #[must_use]
     pub fn max_stretch(self) -> f32 {

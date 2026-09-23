@@ -13,8 +13,8 @@
 //! The claim that follows is **resolution independence**, and it is not the same claim as
 //! "the paint works". A grid baked at one scale and magnified draws a plausible picture at
 //! every other scale; it is only wrong in the detail, which is exactly the failure mode
-//! §5's "plausible-looking wrong page" names. So the gate has to be an assertion a baked
-//! grid could not pass — a per-device-pixel value at three scales, and a discontinuity
+//! brief section 5's "plausible-looking wrong page" names. So the gate has to be an assertion a
+//! baked grid could not pass — a per-device-pixel value at three scales, and a discontinuity
 //! whose device position is not a multiple of the zoom.
 //!
 //! # Where the expectations come from

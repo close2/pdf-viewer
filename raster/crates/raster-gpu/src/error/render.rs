@@ -25,7 +25,7 @@ use super::surface::SurfaceProblem;
 /// Why a frame was refused — or a present, which is a frame's last step happening
 /// somewhere else (ADR 0056). A refused frame draws nothing and reports nothing as
 /// drawn, and a refused present acquires nothing; each variant names what ran out or
-/// what did not hold (§5 of the brief).
+/// what did not hold (section 5 of the brief).
 #[derive(Debug, Error)]
 pub enum RenderError {
     /// The viewport exceeds what this adapter can render.
@@ -210,7 +210,7 @@ pub enum RenderError {
         /// What the surface reported.
         reason: SurfaceProblem,
     },
-    /// A `Target::Texture` with the wrong format. The contract is `Rgba8Unorm` (§3:
+    /// A `Target::Texture` with the wrong format. The contract is `Rgba8Unorm` (brief section 3:
     /// the boundary format is 8-bit RGBA).
     #[error("target texture is {got:?}; the contract is Rgba8Unorm")]
     TextureFormat {
@@ -302,7 +302,7 @@ pub enum RenderError {
     },
     /// A pipeline this frame needs could not be built. The frame is refused rather
     /// than drawn without the pass that pipeline was for — a page missing its blit is
-    /// exactly the plausible-looking wrong page §5 has a name for.
+    /// exactly the plausible-looking wrong page brief section 5 has a name for.
     #[error("a pipeline this frame needs could not be built: {reason}")]
     PipelineUnavailable {
         /// Which module or pipeline, and what the adapter said.

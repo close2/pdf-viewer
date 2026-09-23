@@ -566,7 +566,7 @@ issue17904.pdf p1	drawn	596x842	780a910ee888c8e9	e9c30d0d0447daf6	4f53cda18c2baa
 issue17929.pdf p1	drawn	596x842	320ebdae3d2b6d94	60e5af94bdfd3bca	4f53cda18c2baa0c
 issue17998.pdf p1	drawn	612x792	649861917e4249ed	e66d08ff9d4e84f8	4f53cda18c2baa0c
 issue18030.pdf p1	drawn	48x71	3fd7dd588fb92a0e	882bd7054f3c6d4e	4f53cda18c2baa0c
-issue18032.pdf p1	drawn	612x792	d842e14c351912e0	c190ad6e60269dc8	4f53cda18c2baa0c
+issue18032.pdf p1	drawn	612x792	d842e14c351912e0	2c48dae22db27eb8	4f53cda18c2baa0c
 issue18036.pdf p1	drawn	612x792	0f07e8ad49908c3f	65d72d23a3d307b6	4f53cda18c2baa0c
 issue18042.pdf p1	drawn	400x400	2e9ffc1cccab8681	55666f92bd8a0e8a	b9e4fa9e9cfbdb11
 issue18059.pdf p1	drawn	596x842	d551dacfc5c7adeb	97df148050d03d7e	4f53cda18c2baa0c
@@ -871,10 +871,10 @@ js-buttons.pdf p1	drawn	612x792	4b779dc7167882bb	878c7664afd3fbe7	4f53cda18c2baa
 js-colors.pdf p1	drawn	612x792	743610f943fc825c	95e95a91ae5fc1ae	4f53cda18c2baa0c
 knockout_blend_multiply.pdf p1	drawn	200x160	24aadcab39d0f87d	3241e69b7763b6a3	4f53cda18c2baa0c
 knockout_groups_test.pdf p1	drawn	640x610	adddc6ce800a9ece	ae74602b68af4fab	4f53cda18c2baa0c
-knockout_inner_backdrop.pdf p1	drawn	200x200	7264fb4ff893ca51	5c1c25b34110f660	4f53cda18c2baa0c
+knockout_inner_backdrop.pdf p1	drawn	200x200	7264fb4ff893ca51	3d429a86fda7f31e	4f53cda18c2baa0c
 knockout_isolated_overlap.pdf p1	drawn	200x160	e30b7c440bdf897b	d1e23fa772e31f18	4f53cda18c2baa0c
 knockout_nested.pdf p1	drawn	200x160	bff2f31540fb57b3	26c43165f89b11c9	4f53cda18c2baa0c
-knockout_nested_group_alpha.pdf p1	drawn	200x120	ad3cb94c0893ed3f	c2a6052cf71ee679	4f53cda18c2baa0c
+knockout_nested_group_alpha.pdf p1	drawn	200x120	ad3cb94c0893ed3f	b6f176f60a11453b	4f53cda18c2baa0c
 knockout_nonisolated_sparse.pdf p1	drawn	220x180	77bf8d45b13db722	c41a0dde1bec8268	4f53cda18c2baa0c
 knockout_smask.pdf p1	drawn	200x160	bff2f31540fb57b3	519a10abd77fd06b	4f53cda18c2baa0c
 labelled_pages.pdf p1	drawn	612x792	5dff3922f8ab64ac	255c29f222ec54f6	4f53cda18c2baa0c

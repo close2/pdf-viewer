@@ -21,7 +21,9 @@ struct Params {
     // The group's constant alpha (§11.4.5).
     alpha: f32,
     // 1 for §11.4.4's non-isolated group, whose layer was seeded with this backdrop
-    // and is interpolated back onto it; 0 for §11.4.5's isolated group.
+    // and is interpolated back onto it; 2 for one composited under a blend mode of its
+    // own, whose backdrop is removed by the group alpha in `group_alpha_tex`; 0 for
+    // §11.4.5's isolated group.
     non_isolated: u32,
     // §11.4.6's stage this group *is*, when it is one (ADR 0033): 0 the ordinary
     // composite below, 1 the erase `P' = (1 − f) × P`, 2 the deposit `P' = P + S`.
@@ -69,6 +71,9 @@ struct Params {
     // Under `compose == 3`, the colour channels that keep the backdrop — red in bit 0,
     // green in bit 1, blue in bit 2. Zero otherwise.
     kept: u32,
+    // Where `group_alpha_tex` sits under `non_isolated == 2`: its device corner in .xy,
+    // its size in texels in .zw. Unread otherwise.
+    group_alpha_rect: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -78,6 +83,9 @@ struct Params {
 @group(0) @binding(3) var soft_mask_tex: texture_2d<f32>;
 // The frame's scratch image, holding the clip-residue mask when present.
 @group(0) @binding(4) var scratch_tex: texture_2d<f32>;
+// ISO 32000-2 §11.4.4 NOTE 4's second accumulator under `non_isolated == 2`: the group's
+// elements drawn onto transparency, whose alpha is Table 140's group alpha.
+@group(0) @binding(5) var group_alpha_tex: texture_2d<f32>;
 
 // The soft mask at a device pixel, given where the mask sits (ADR 0037). Identical in
 // all six shaders that sample a mask; WGSL has no include, so the copies are kept
@@ -344,6 +352,30 @@ fn meet_clip(s: vec4f, c: f32) -> vec4f {
     return vec4f(s.rgb * (c / s.a), c);
 }
 
+// Table 140's group alpha at a device pixel: the second accumulator's alpha, and zero
+// outside the rectangle it was drawn at, where the group's elements marked nothing.
+fn group_alpha_at(p: vec2f) -> f32 {
+    let local = p - params.group_alpha_rect.xy;
+    if any(local < vec2f(0.0)) || any(local >= params.group_alpha_rect.zw) {
+        return 0.0;
+    }
+    return textureLoad(group_alpha_tex, vec2i(local), 0).a;
+}
+
+// §11.4.4's Result step for a non-isolated group, premultiplied: the group's own colour
+// and alpha, out of `e` — its elements composited onto the backdrop `b` it was seeded
+// with — and its group alpha `ag`. The step is
+// `C = Cn + (Cn − C0) × (α0/αg − α0)` with `α = αg`, and multiplied through by `αg`
+// with `αn = Union(α0, αg)` it is `αg × C = αn × Cn − (1 − αg) × α0 × C0`: what NOTE 3
+// calls "essentially the reverse of compositing with the Normal blend mode", stated
+// exactly and with no division. The clamp keeps the premultiplied colour inside its alpha
+// where the two eight-bit rasters' rounding would carry it a level past either bound;
+// exact arithmetic never leaves `[0, αg]`.
+fn group_result(b: vec4f, e: vec4f, ag: f32) -> vec4f {
+    let colour = clamp(e.rgb - (1.0 - ag) * b.rgb, vec3f(0.0), vec3f(ag));
+    return vec4f(colour, ag);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
     // Device space, which is what `clip`, `residue` and the mask are stated in; the
@@ -382,25 +414,33 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
         return b + clipped * q;
     }
 
-    // §11.4.4, the non-isolated group. `s` holds E(B): this group's elements
-    // composited onto the very backdrop `b` holds, because the layer was seeded with
-    // it. The clause's Result step removes that backdrop's contribution by dividing by
-    // Table 140's group alpha — which this raster does not carry — and §11.3.3 then
-    // multiplies it straight back in when the result is composited with the same
-    // backdrop under Normal. The two cancel, leaving one interpolation, exact for
-    // every backdrop alpha and every blend mode *inside* the group (ADR 0019; the
-    // builder refuses the three cases where the cancellation is false).
+    // §11.4.4, the non-isolated group composited under Normal. `s` holds E(B): this
+    // group's elements composited onto the very backdrop `b` holds, because the layer was
+    // seeded with it. The clause's Result step removes that backdrop's contribution by
+    // dividing by Table 140's group alpha, and §11.3.3 then multiplies it straight back
+    // in when the result is composited with the same backdrop under Normal. The two
+    // cancel, leaving one interpolation, exact for every backdrop alpha and every blend
+    // mode *inside* the group (ADR 0019), with no group alpha to carry.
     //
     // **The clip is a weight here and not a set**, and it has to be: `s` is not the
     // group, it is the group over this backdrop, so its alpha is the backdrop's as well
     // and no part of it is the group's shape. `alpha_is_shape` is therefore never set for
     // a non-isolated group, whatever its elements are (ADR 0074) — and this branch takes
     // `s` rather than `clipped` so that the reading is stated here as well as encoded.
-    if params.non_isolated != 0u {
+    if params.non_isolated == 1u {
         return mix(b, s, q * c);
     }
 
-    s = clipped * q;
+    // §11.4.4 under a blend of the group's own, where nothing cancels: the group's
+    // colour is recovered by the Result step and composited with the same backdrop by
+    // §11.3.6 below, `B` being the group's `/BM` — the clause's two steps as they stand.
+    // The recovered group is the group itself, so the clip meets it as it meets an
+    // isolated one.
+    if params.non_isolated == 2u {
+        s = meet_clip(group_result(b, s, group_alpha_at(p)), c) * q;
+    } else {
+        s = clipped * q;
+    }
 
     let ab = b.a;
     let as_ = s.a;

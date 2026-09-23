@@ -563,7 +563,7 @@ fn print_the_slope(best: &BTreeMap<usize, Run>, refresh: Duration) {
     );
 }
 
-/// §6.2's page — dense text at the corpus's p99 — built on this device.
+/// Brief section 6.2's page — dense text at the corpus's p99 — built on this device.
 ///
 /// Built on the render thread rather than handed to it: `upload_outline` needs the
 /// `&mut Device` that the thread now owns, and the whole point of the arrangement is that

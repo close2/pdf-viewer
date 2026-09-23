@@ -335,7 +335,9 @@ pub fn scan(source: &str) -> Scan {
             {
                 cited = Some(last.number.clone());
                 attributed = None;
-            } else if let Some(document) = nearest_document(scan_documents(&scan, line_number)) {
+            } else if let Some(document) = nearest_document(scan_documents(&scan, line_number))
+                .or_else(|| section_in_prose(body))
+            {
                 cited = None;
                 attributed = Some(document);
             }
@@ -371,6 +373,36 @@ fn scan_documents(scan: &Scan, line_number: usize) -> Vec<String> {
         .filter(|section| section.line == line_number)
         .filter_map(|section| section.document.clone());
     foreign.chain(ours).collect()
+}
+
+/// The document of this project's own that a line names in front of the word "section".
+///
+/// A `§` means ISO 32000-2 to every gate here, so a section of one of this project's own
+/// documents is written in words — `` `raster/doc/PLAN.md` section 5 ``, `ADR 0053 section 3` —
+/// and a blockquote below such a line is that document's words exactly as it is below
+/// `` `raster/doc/PLAN.md` §5 ``. Only [`Named::Ours`] attributes: another standard is cited by
+/// section and never quoted, so a blockquote below `ISO 19005-2 section 6.7` stays unattributed
+/// and is reported.
+fn section_in_prose(line: &str) -> Option<String> {
+    line.match_indices("section")
+        .filter(|(position, word)| {
+            let after = line
+                .get(position.saturating_add(word.len())..)
+                .unwrap_or_default();
+            let after = after.strip_prefix('s').unwrap_or(after);
+            after.strip_prefix(' ').is_some_and(|number| {
+                number.starts_with(|character: char| {
+                    character.is_ascii_digit() || character.is_ascii_uppercase()
+                })
+            })
+        })
+        .filter_map(
+            |(position, _)| match another_document(line.get(..position)?) {
+                Some(Named::Ours(document)) => Some(document),
+                _ => None,
+            },
+        )
+        .last()
 }
 
 /// The last document of those named, which is the one nearest the blockquote below.
@@ -946,6 +978,50 @@ mod tests {
         );
         assert_eq!(quotation.clause, Some(number("7.7.3.3")));
         assert_eq!(quotation.line, 3);
+    }
+
+    /// A section of this project's own document, written in words, attributes the blockquote
+    /// below it to that document; another standard's section, written the same way, does not.
+    #[test]
+    fn a_section_named_in_words_attributes_only_to_a_document_of_ours() {
+        let ours = format!(
+            "{DOC} {SECTION}8.4 comes first, then `raster/doc/PLAN.md` section 5 says:\n\
+             {DOC}\n\
+             {DOC} > we inherit it\n\
+             pub fn f() {{}}\n"
+        );
+        let scan_ours = scan(&ours);
+        let quotation = scan_ours.quotations.first().unwrap();
+        assert_eq!(quotation.clause, Some(number("8.4")));
+        assert_eq!(
+            quotation.document, None,
+            "a clause on the line attributes to the standard"
+        );
+
+        let moved = format!(
+            "{DOC} {SECTION}8.4 comes first.\n\
+             {DOC} `raster/doc/PLAN.md` section 5 says:\n\
+             {DOC}\n\
+             {DOC} > we inherit it\n\
+             pub fn f() {{}}\n"
+        );
+        let scan_moved = scan(&moved);
+        let quotation = scan_moved.quotations.first().unwrap();
+        assert_eq!(quotation.clause, None);
+        assert!(quotation.document.is_some(), "{quotation:?}");
+
+        let foreign = format!(
+            "{DOC} ISO 19005-2 section 6.7 says:\n\
+             {DOC}\n\
+             {DOC} > something\n\
+             pub fn f() {{}}\n"
+        );
+        let scan_foreign = scan(&foreign);
+        let quotation = scan_foreign.quotations.first().unwrap();
+        assert_eq!(
+            (quotation.clause.as_ref(), quotation.document.as_ref()),
+            (None, None)
+        );
     }
 
     /// Attribution must not survive the comment it was made in, or a quotation would take

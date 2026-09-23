@@ -80,7 +80,7 @@ impl Tile {
 ///
 /// Both shader stages learn the origin, and that is the delicate part of the design,
 /// because the same agreement in a different form is the caller's `QUORRA_FEEDBACK.md`
-/// §11: `vs_winding` subtracts it before mapping to clip space, `fs_winding` adds it
+/// section 11: `vs_winding` subtracts it before mapping to clip space, `fs_winding` adds it
 /// back to test a fragment against its tile, and `fs_resolve` subtracts it again when it
 /// reads the target. Any one of the three alone draws the right shape in the wrong
 /// place, or discards it entirely.

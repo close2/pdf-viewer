@@ -171,16 +171,27 @@ impl Interpreter<'_> {
     /// This is asked twice per painting operator, so what it costs on a page that states no
     /// overprint is what the whole feature costs there. Measured under callgrind on page 101 of
     /// ISO 32000-2 interpreted fifty times, against the same build with the call planted away:
-    /// as one function, **+3 754 490 instructions, 0.30%**; split so that the caller inlines an
-    /// integer comparison and a discriminant test and everything else is a cold call the page
-    /// never makes, **+396 494, 0.032%**. The whole of the rest of this feature on that page —
+    /// as one function, **+3 754 490 instructions, 0.30%**; split so that the caller inlines one
+    /// test of the state and a discriminant test and everything else is a cold call the page
+    /// never makes, **+396 494, 0.032%**. The test is of the overprint parameter rather than the
+    /// mode, because a run with spot planes owes the special mode under either mode: asking
+    /// both inline on a page with neither cost **+1 244 850, 0.10%**, in `show_text` alone
+    /// (ADR 1311 section 5). The whole of the rest of this feature on that page —
     /// Table 57's three lookups per `gs`, the tints beside every colour, the larger graphics
     /// state a `q` clones — is 38 531 instructions of the first figure, which is why the split
     /// is here and nowhere else. One hop of indirection for a tenfold cut, stated with the
     /// number because `CLAUDE.md` asks for the benchmark beside the technique.
     #[inline]
     pub(super) fn overprint_blend(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
-        if state.overprint_mode != 1 || !matches!(self.compositing, Compositing::Subtractive(..)) {
+        // The overprint parameter first: it is false on almost every page, and it is a condition
+        // under either overprint mode — with a spot plane, §11.7.4.3's second bullet leaves each
+        // unspecified spot component to the backdrop under mode 0 as well (ADR 1311 section 5).
+        let enabled = if stroking {
+            state.overprint_stroking
+        } else {
+            state.overprint_filling
+        };
+        if !enabled || !matches!(self.compositing, Compositing::Subtractive(..)) {
             return state.blend;
         }
         self.special_overprint(state, stroking)
@@ -189,9 +200,16 @@ impl Interpreter<'_> {
     /// [`Interpreter::overprint_blend`]'s cold half: everything past the two tests above.
     #[inline(never)]
     fn special_overprint(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
-        let Compositing::Subtractive(half, _) = self.compositing else {
+        let Compositing::Subtractive(half, _, spots) = &self.compositing else {
             return state.blend;
         };
+        let half = *half;
+        if !spots.is_empty() {
+            return self.spot_overprint(state, stroking);
+        }
+        if state.overprint_mode != 1 {
+            return state.blend;
+        }
         let enabled = if stroking {
             state.overprint_stroking
         } else {
@@ -222,7 +240,42 @@ impl Interpreter<'_> {
         BlendMode::Overprint(Overprint::new(match half {
             Plane::Chromatic => [tints[0] == 0.0, tints[1] == 0.0, tints[2] == 0.0],
             Plane::Black => [tints[3] == 0.0; 3],
+            // A run with no spot colourant has no spot plane to paint (ADR 1311).
+            Plane::Spot(_) => [true; 3],
         }))
+    }
+
+    /// [`Interpreter::special_overprint`] on a run carrying §10.8.3's spot planes, where the mark's
+    /// current colour space decides which components it specifies on every plane —
+    /// `pdf_colour::colour::DeviceSpots::overprint` states the two bullets.
+    fn spot_overprint(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
+        let Compositing::Subtractive(plane, press, spots) = &self.compositing else {
+            return state.blend;
+        };
+        let (enabled, tints, patterned, space) = if stroking {
+            (
+                state.overprint_stroking,
+                state.stroke_tints,
+                state.stroke_pattern.is_some(),
+                &state.stroke_space,
+            )
+        } else {
+            (
+                state.overprint_filling,
+                state.fill_tints,
+                state.fill_pattern.is_some(),
+                &state.fill_space,
+            )
+        };
+        if !enabled || patterned {
+            return state.blend;
+        }
+        let Some(kept) = spots.overprint(*plane, press, space, tints, state.overprint_mode == 1)
+        else {
+            return state.blend;
+        };
+        self.list.note_overprinting();
+        BlendMode::Overprint(Overprint::new(kept))
     }
 
     /// §11.7.4.3's last paragraph, around the commands from `mark` on.

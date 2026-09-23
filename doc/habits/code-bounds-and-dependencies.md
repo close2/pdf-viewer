@@ -353,3 +353,16 @@ only replace a record of one value, never one that already holds both readings.
 implicit group the outer group's transparent backdrop — so a mode refused in that position was a
 clause already answered (ADRs 1295, 1301). Before refusing a blend or compose inside an isolated
 knockout group, read §11.3.6's sentence for that position.
+
+## A structural admission rule is enforced in the one function that builds the thing
+
+`fill_through_blend_group` built a child layer without taking the frame off the replay road, while
+the comment beside it stated the rule that every child layer does (ADR 1308). The rule now lives in
+`plan_child`, the one function every child layer is planned through, and the per-site calls are gone.
+
+## A quantity from a nested content stream is read from that stream's own record
+
+A tiling cell's `/AIS`, a glyph pair's reading and a text object's portions were each judged from the
+enclosing state or the enclosing record, and all three drew wrong with no report (ADR 1306). When the
+enclosing decision concerns something only the nested stream knew, give the nested stream its own
+record and read that.

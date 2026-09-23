@@ -133,7 +133,7 @@ fn the_upload_once_reference_many_round_trip() {
 }
 
 /// The resource budget is discoverable before any upload ([`Device::limits`]), and
-/// hitting it is a refusal naming all three numbers (§5).
+/// hitting it is a refusal naming all three numbers (brief section 5).
 #[test]
 fn resource_budget_is_discoverable_and_loud() {
     // Big enough for exactly one of the test outlines, not two — *measured* rather

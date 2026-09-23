@@ -3,7 +3,7 @@
 //!
 //! # Where the question comes from
 //!
-//! hayro #1310, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` §4: a user found
+//! hayro #1310, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` section 4: a user found
 //! that small chart marks came out worse than Cairo's, and their workaround was to force
 //! image filtering on regardless of what the PDF says. §8.9.5.1's Table 87 entry makes
 //! `/Interpolate` the document's request —

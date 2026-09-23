@@ -12,7 +12,7 @@
 //! these tests pin *the device against the stated definition* — not against another
 //! renderer's output, which principle 5 forbids.
 //!
-//! # What is byte-exact and what is tolerance-bounded (brief section 4.6, §11.4, ADR 0006)
+//! # What is byte-exact and what is tolerance-bounded (brief section 4.6, section 11.4, ADR 0006)
 //!
 //! Same scene, same viewport, same adapter → the same bytes: a promise, tested
 //! byte-exact per adapter. Across adapters, and against the CPU reference, the answer
@@ -164,7 +164,7 @@ fn golden_scene() -> Scene {
 const GOLDEN_W: u32 = 48;
 const GOLDEN_H: u32 = 32;
 
-/// The golden viewport at magnification `scale`: the y-flip §3 of the brief places
+/// The golden viewport at magnification `scale`: the y-flip section 3 of the brief places
 /// there — scene y-up, device y-down — into a target `scale` times the golden.
 ///
 /// The flip is applied in scene units and magnified afterwards, so that one scene
@@ -406,8 +406,8 @@ fn repeated_renders_are_byte_identical() {
     }
 }
 
-/// §11.4, answered by measurement and pinned: adapters are NOT byte-identical through
-/// the fixed-function raster path — the float→unorm8 store conversion is the driver's
+/// The brief's section 11.4, answered by measurement and pinned: adapters are NOT byte-identical
+/// through the fixed-function raster path — the float→unorm8 store conversion is the driver's
 /// (ADR 0006) — so this gate pins the stated bound instead, and fails loudly beyond
 /// it. If this design ever claims byte identity again (a shader-owned quantisation,
 /// weighed at M6), this test tightens back to `assert_eq`.
@@ -593,7 +593,7 @@ fn frames_tell_the_truth_and_textures_are_validated() {
     ));
 }
 
-/// The refusals of §5, through the public API: budget, oblique rectangle, oversized
+/// The refusals of brief section 5, through the public API: budget, oblique rectangle, oversized
 /// target, non-finite viewport.
 #[test]
 fn refusals_name_what_they_refuse() {
@@ -640,7 +640,7 @@ fn refusals_name_what_they_refuse() {
     ));
 }
 
-/// A refused frame costs the target nothing (the viewer's feedback §7: a budget
+/// A refused frame costs the target nothing (the viewer's feedback section 7: a budget
 /// refusal after the swapchain acquire wedged the surface permanently). Provable
 /// headlessly through ordering: on a headless device a `Surface` target refuses as
 /// `NoSurface` *at binding* — so a frame over the internal-texture budget refusing
@@ -746,11 +746,11 @@ fn unhonoured_damage_is_reported_not_silent() {
     );
 }
 
-/// §7's startup contract: every step that can regress on its own is reported on its
+/// Brief section 7's startup contract: every step that can regress on its own is reported on its
 /// own, the device is eventually warm, and the warm duration then appears.
 ///
 /// The split (four blocking numbers where M1 reported two) answers the caller's
-/// feedback §8.1: its `adapter_enumeration` measured instance creation, surface
+/// feedback section 8.1: its `adapter_enumeration` measured instance creation, surface
 /// creation and adapter selection at once — three steps with three causes, so a
 /// regression in any of them was unattributable.
 #[test]
@@ -782,7 +782,7 @@ fn startup_reports_every_step_separately() {
     );
 }
 
-/// The startup lever of feedback §8.2: an instance is made before there is a window,
+/// The startup lever of feedback section 8.2: an instance is made before there is a window,
 /// and the device built on it does not claim to have made it.
 #[test]
 fn a_supplied_instance_is_used_and_not_claimed_as_ours() {

@@ -1,7 +1,7 @@
 //! The scene: an immutable, device-independent description of marks.
 //!
-//! This is the centre of the library's design, and `raster/doc/RENDER_LIBRARY.md` §2.3 states
-//! the property that decides it:
+//! This is the centre of the library's design, and `raster/doc/RENDER_LIBRARY.md` section 2.3
+//! states the property that decides it:
 //!
 //! > The single most important property in this document: a `Scene` must contain no
 //! > reference to a viewport, a resolution, a device transform, or a target size.
@@ -41,13 +41,13 @@
 //! the `mask` parameter comes **last** in each builder method rather than beside
 //! `clip`, so that growing the vocabulary was a mechanical widening for every call
 //! site. A scene may *hold* every command; what a device cannot yet *draw* (M7's
-//! images) is refused loudly at render time, never approximated (§5).
+//! images) is refused loudly at render time, never approximated (brief section 5).
 //!
 //! # What a `Scene` may not become
 //!
-//! Not a scene graph, not a retained widget tree, no animation and no timeline (§9). It
-//! is built by an interpreter and thrown away when the page changes. §11.5 asks what
-//! one costs to hold, against a target of a dozen resident pages out of a 1 023-page
+//! Not a scene graph, not a retained widget tree, no animation and no timeline (brief section 9).
+//! It is built by an interpreter and thrown away when the page changes. The brief's section 11.5
+//! asks what one costs to hold, against a target of a dozen resident pages out of a 1 023-page
 //! document — [`Scene::cost`] is the running answer.
 
 use std::sync::Arc;
@@ -71,7 +71,7 @@ pub use validate::MAX_COORDINATE;
 /// `Send + Sync`, cheap to clone (an `Arc` inside), and containing no reference to a
 /// viewport, a resolution, a device transform or a target size — the brief's section 2.3, held
 /// structurally (`raster/doc/adr/0001`). A blank scene is a legitimate scene and renders to a
-/// legitimate, empty frame (§5).
+/// legitimate, empty frame (brief section 5).
 #[derive(Debug, Clone)]
 pub struct Scene {
     data: Arc<SceneData>,
@@ -132,7 +132,7 @@ mod tests {
         assert_send_sync::<Scene>();
     }
 
-    /// A blank scene is a legitimate scene (§5): zero commands, zero cost, no error.
+    /// A blank scene is a legitimate scene (brief section 5): zero commands, zero cost, no error.
     #[test]
     fn blank_scene_is_legitimate() {
         let scene = SceneBuilder::new().finish();

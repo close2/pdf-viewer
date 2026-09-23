@@ -52,7 +52,7 @@ use raster_scene::{Affine, OutlineId, Scene};
 /// the caller's file at its own 58 009 commands rather than the 1 200-command `DRAWING`
 /// archetype. **Neither is changed here** — ADR 0054's sweep was measured on these pages,
 /// and re-cutting one in the round that moved it is the trap
-/// `raster/doc/notes-clipped-instrument.md` §3.4 names.
+/// `raster/doc/notes-clipped-instrument.md` section 3.4 names.
 ///
 /// # Why the dense-text row stays unclipped — decided 2026-08-23, not deferred again
 ///

@@ -16,7 +16,7 @@ use super::font::Font;
 use super::overprint::{FirstBullet, implicit_group_owed};
 use super::pattern::{PatternPaint, Tiled};
 use super::report::{Placed, Unsupported};
-use super::transparency::{Painted, implicit_knockout_group, outline_bounds};
+use super::transparency::{AlphaSourcesSeen, Painted, implicit_knockout_group, outline_bounds};
 use super::{GraphicsState, Interpreter};
 
 /// What a text object owns, as against what the graphics state does.
@@ -64,13 +64,22 @@ pub(super) struct TextObject {
     /// may turn out to enclose the whole object, and a knockout group inside a knockout group
     /// is not something either backend can state; which of the two is built is therefore one
     /// decision, taken at `ET` in [`Interpreter::end_text_object`].
-    pub(super) combined: Vec<(usize, usize)>,
+    ///
+    /// Each range carries the readings of §11.6.4.3's `/AIS` its two parts were painted under:
+    /// the one in force at the showing operator, and whatever a tiling cell among them ran
+    /// under — the pair's own, as a `B`'s is (ADR 1306).
+    pub(super) combined: Vec<(usize, usize, AlphaSourcesSeen)>,
     /// How many commands the display list held at this object's `BT`.
     ///
     /// §9.3.8 makes a text object with `Tk` true "equivalent to treating the entire text
     /// object as if it were a non-isolated knockout transparency group", so what the group
     /// contains is everything drawn between `BT` and `ET` — which is this mark to the end.
     pub(super) start: usize,
+    /// The enclosing content's record of §11.6.4.3's readings, held while this object keeps
+    /// its own: §9.3.8's group is the object's glyphs, so the readings it asks about are the
+    /// ones they were shown under, from the reading in force at `BT` on
+    /// (`Interpreter::open_reading_scope`, ADR 1306). `None` outside a text object.
+    pub(super) enclosing_reading: Option<(AlphaSourcesSeen, usize)>,
 }
 
 /// What one glyph is to have done to it, decided once per show string rather than per glyph.
@@ -96,6 +105,9 @@ struct GlyphPainting {
     knockout_can_show: bool,
     /// Whether §11.7.4.4's implicit group could change a pixel of this glyph.
     combining: bool,
+    /// Whether it could by a tiling cell's own marks alone, which only painting the glyph
+    /// answers ([`Interpreter::tile`]).
+    tiled_pair: bool,
     /// Which of §11.7.4's implicit groups this glyph's parts are wrapped in once painted.
     implicit: Implicit,
     /// The blend mode the fill is painted under, §11.7.4.3's special one included.
@@ -143,12 +155,19 @@ impl GlyphPainting {
         // composited with one another; and §11.7.4.4's *first* bullet, where it applies, is a
         // group of its own rather than §11.4.6's, so a pair under it is not recorded here.
         // `Interpreter::combined_overprint` decides that.
-        let combining = fills
+        let pair = fills
             && strokes
             && parts.first_bullet == FirstBullet::No
-            && (state.paint_composites() || parts.overprints())
             && state.fill_marks()
             && state.stroke_marks();
+        let combining = pair && (state.paint_composites() || parts.overprints());
+        // §11.6.7 makes what a tiling cell evaluates to the part's own opacity, so a part
+        // painted through one may composite where the state does not (ADR 1306).
+        let tiled_pair = pair
+            && !combining
+            && [&state.fill_pattern, &state.stroke_pattern]
+                .into_iter()
+                .any(|pattern| matches!(pattern, Some(PatternPaint::Tiling(_))));
         Self {
             fill_blend: parts.fill,
             stroke_blend: parts.stroke,
@@ -167,6 +186,7 @@ impl GlyphPainting {
                 && state.text.knockout
                 && state.paint_composites(),
             combining,
+            tiled_pair,
             // §11.7.4.3's last paragraph asks for a group around "the object being painted"
             // wherever the special mode is invoked under a mode other than Normal, and
             // §11.7.4.4's first bullet asks for one around a pair. A pair the second bullet
@@ -429,6 +449,13 @@ impl Interpreter<'_> {
             parts.first_bullet = Interpreter::combined_overprint(state, [parts.fill, parts.stroke]);
         }
         let painting = GlyphPainting::read(state.text.render_mode, self.is_hidden(), state, parts);
+        // Once per show-text operator, for the parts its glyphs paint (ADR 1311).
+        if painting.fills {
+            self.note_colourants_without_a_plane(&state.fill_space);
+        }
+        if painting.strokes {
+            self.note_colourants_without_a_plane(&state.stroke_space);
+        }
         // Inside §11.7.4.4's first-bullet group "the fill and stroke shall be performed with an
         // alpha value of 1.0", so the two constants are lifted off the parts and on to the group
         // `show_program_glyph` wraps them in. Once per show-text operator rather than once per
@@ -979,6 +1006,8 @@ impl Interpreter<'_> {
     /// is a cell replayed across an area — so a glyph filled with one is its outline tiled,
     /// exactly as a path is. The transform is the *glyph's* rather than the text object's,
     /// because the outline is in glyph space.
+    ///
+    /// Answers whether a tiling cell the glyph was filled through composites by its own marks.
     fn fill_glyph(
         &mut self,
         outline: &Arc<Path>,
@@ -986,7 +1015,7 @@ impl Interpreter<'_> {
         painted: (&GraphicsState, &GraphicsState),
         clip: Option<ClipId>,
         blend: BlendMode,
-    ) {
+    ) -> bool {
         // The state the glyph is painted under, and the one its *colour* is built from: the
         // two differ only inside §11.7.4.4's first-bullet group, where the parts paint at an
         // alpha constant of 1.0 (`Interpreter::show_program_glyph`).
@@ -999,14 +1028,13 @@ impl Interpreter<'_> {
             // `paints` rather than `state`, for the same reason the colour is built from it:
             // the cell's own marks are the part §11.7.4.4's first bullet paints at an alpha
             // constant of 1.0, and its group applies the stated one once.
-            self.tile(
+            return self.tile(
                 outline,
                 transform,
                 Tiled::Fill(FillRule::NonZero),
                 &tiling,
                 paints,
             );
-            return;
         }
         let transfer = self.mark_transfer(state, Painted::of(state, false));
         let paint = self.fill_paint(paints);
@@ -1027,6 +1055,7 @@ impl Interpreter<'_> {
             },
             transfer,
         );
+        false
     }
 
     /// Strokes one glyph outline, ISO 32000-2 §9.3.6 rendering modes 1, 2, 5 and 6.
@@ -1055,13 +1084,15 @@ impl Interpreter<'_> {
     /// forbids — and it is drawn from the eight-hundred-and-second, by the same
     /// [`Interpreter::tile`] the fill route takes and over the same outline this function has
     /// already moved into user space. ADR 0735.
+    ///
+    /// Answers whether a tiling cell the glyph was stroked through composites by its own marks.
     fn stroke_glyph(
         &mut self,
         outline: &Arc<Path>,
         glyph_to_user: Transform,
         painted: (&GraphicsState, &GraphicsState),
         blend: BlendMode,
-    ) {
+    ) -> bool {
         // As [`Interpreter::fill_glyph`]: the state painted under, and the one the colour is
         // built from.
         let (state, paints) = painted;
@@ -1071,14 +1102,13 @@ impl Interpreter<'_> {
         if let Some(PatternPaint::Tiling(tiling)) = &state.stroke_pattern {
             let tiling = Rc::clone(tiling);
             // `paints`, as [`Interpreter::fill_glyph`].
-            self.tile(
+            return self.tile(
                 &in_user_space,
                 state.transform,
                 Tiled::Stroke(&state.stroke),
                 &tiling,
                 paints,
             );
-            return;
         }
         let glyph_stroke_clip = self.paint_clip(state, false);
         let transfer = self.mark_transfer(state, Painted::of(state, true));
@@ -1095,6 +1125,7 @@ impl Interpreter<'_> {
             },
             transfer,
         );
+        false
     }
 
     /// Turns the glyph outlines a text object accumulated into a clip, at its `ET`.
@@ -1153,6 +1184,11 @@ impl Interpreter<'_> {
         // the per-glyph groups are built only where there is no whole-object group to be
         // inside — `push_combined_glyphs` builds them on the other branch.
         let knockout_owed = text.knockout_owed;
+        // The readings the object's glyphs were shown under, and the enclosing record back.
+        let reading = text
+            .enclosing_reading
+            .take()
+            .map_or(self.alpha_sources, |outer| self.close_reading_scope(outer));
         if knockout_owed || !text.combined.is_empty() {
             let glyphs = text.composited.len();
             let elements = self.list.split_off_commands(text.start);
@@ -1160,7 +1196,7 @@ impl Interpreter<'_> {
                 .then(|| {
                     implicit_knockout_group(
                         &elements,
-                        self.alpha_sources,
+                        reading,
                         self.enclosing_knockout,
                         self.image_masks.shape_masks(),
                     )
@@ -1192,6 +1228,9 @@ impl Interpreter<'_> {
         text.knockout_owed = false;
         text.combined.clear();
         text.composited.clear();
+        // Whether as §9.3.8's group or glyph by glyph, the glyphs are elements of the
+        // enclosing content, read under its reading, so theirs join its record.
+        self.fold_reading(reading, text.start);
 
         let path = std::mem::take(&mut text.clip);
         if path.is_empty() {
@@ -1235,8 +1274,13 @@ impl Interpreter<'_> {
             self.glyphs = self.glyphs.saturating_add(1);
         }
         let parts_at = self.list.command_count();
+        // §11.7.4.4's pair is read under the readings its own parts are painted under, which
+        // only a glyph that may combine asks about.
+        let enclosing_reading = (painting.combining || painting.tiled_pair)
+            .then(|| self.open_parts_reading(state.alpha_is_shape));
+        let mut cells_composite = false;
         if painting.fills {
-            self.fill_glyph(
+            cells_composite |= self.fill_glyph(
                 outline,
                 transform,
                 (state, paints),
@@ -1245,7 +1289,7 @@ impl Interpreter<'_> {
             );
         }
         if painting.strokes {
-            self.stroke_glyph(
+            cells_composite |= self.stroke_glyph(
                 outline,
                 glyph_to_user,
                 (state, paints),
@@ -1259,8 +1303,15 @@ impl Interpreter<'_> {
         // `ET` decides what to build from it. Fewer than two commands is a glyph that marked
         // the page once — an empty outline, or a fill a tiling pattern drew nothing for — and
         // there is nothing for it to composite with.
-        if painting.combining && self.list.command_count() > parts_at.saturating_add(1) {
-            text.combined.push((parts_at, self.list.command_count()));
+        if let Some(outer) = enclosing_reading {
+            let reading = self.alpha_sources;
+            self.close_parts_reading(outer, parts_at);
+            if (painting.combining || cells_composite)
+                && self.list.command_count() > parts_at.saturating_add(1)
+            {
+                text.combined
+                    .push((parts_at, self.list.command_count(), reading));
+            }
         }
         if painting.clipping {
             // §9.3.6 wants "a single path, treating the individual outlines as subpaths of
@@ -1334,8 +1385,8 @@ impl Interpreter<'_> {
         let mut index = text.start;
         let mut rest = elements.into_iter();
         while let Some(command) = rest.next() {
-            let pair = pairs.next_if(|(from, _)| *from == index).copied();
-            let Some((from, to)) = pair else {
+            let pair = pairs.next_if(|(from, _, _)| *from == index).copied();
+            let Some((from, to, reading)) = pair else {
                 self.draw(command);
                 index = index.saturating_add(1);
                 continue;
@@ -1348,7 +1399,7 @@ impl Interpreter<'_> {
             index = to;
             if let Some(group) = implicit_knockout_group(
                 &parts,
-                self.alpha_sources,
+                reading,
                 self.enclosing_knockout,
                 self.image_masks.shape_masks(),
             ) {

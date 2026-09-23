@@ -40,7 +40,7 @@
 //!   to reason about.
 //! - **`affine`** — ISO 32000-2 §8.3.3's matrix, and the four questions other subsystems
 //!   ask of one: is it inside brief section 4.7's coordinate bound, does it preserve axes (section 6.4), how
-//!   far does it stretch (§6.3's atlas bucket), and does it invert.
+//!   far does it stretch (brief section 6.3's atlas bucket), and does it invert.
 //! - **`segment`** — [`Segment`], the one step an outline is made of, and
 //!   [`axis_aligned_rect`], the one shape a run of them is *recognised* as. That
 //!   recogniser is a decision about lanes rather than a property of a curve, which is why

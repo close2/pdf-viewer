@@ -2,7 +2,7 @@
 //!
 //! # Where the question comes from
 //!
-//! hayro #1343, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` §7: somebody
+//! hayro #1343, by way of the caller's `doc/HAYRO_ISSUES_FOR_QUORRA.md` section 7: somebody
 //! integrating `hayro-syntax` into a commercial CAD application under concurrent page
 //! interpretation found that resolving objects from several threads on one shared document
 //! **silently yields nulls** and occasionally panics — three distinct races, named and
@@ -13,7 +13,7 @@
 //! > layer under an "immutable" document is not itself linearisable.
 //!
 //! The document is not ours. The **scene** is, and it is the object an embedder would
-//! share the same way: `RENDER_LIBRARY.md` §2.3 requires it to be `Send + Sync` and cheap
+//! share the same way: `RENDER_LIBRARY.md` section 2.3 requires it to be `Send + Sync` and cheap
 //! to clone, and `raster/doc/adr/0001` makes that structural — a [`Scene`] is an `Arc` around
 //! immutable data, with no interior mutability and no cache under it to be unlinearisable.
 //!

@@ -1,6 +1,6 @@
 //! §11.4.6's two stages, asked for by name: `Compose::DestOut` then `Compose::Plus`.
 //!
-//! ADR 0025, from the caller's feedback §14. `Compose::Src` reads an element's **shape**
+//! ADR 0025, from the caller's feedback section 14. `Compose::Src` reads an element's **shape**
 //! off the alpha it is drawn with, which is right for the half of §11.4.6 where they are
 //! the same quantity and wrong for the other half — a nested group, or an element under a
 //! soft mask, where §11.6.4.2 gives shape from geometry while §11.6.4.3's mask and

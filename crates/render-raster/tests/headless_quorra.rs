@@ -265,8 +265,8 @@ fn quorra_states_what_it_will_not_stage() {
 /// backend, and this scene is where they meet: the element blends `Multiply` against a green
 /// page, which is the only thing §11.4.4's NOTE 2 says the two kinds of group differ about.
 ///
-/// The refusal it replaces has not gone away — `quorra_refuses_a_non_isolated_group_that_blends`
-/// below holds the set that is still refused.
+/// The same group under a blend mode of its own is
+/// `cpu_and_quorra_agree_on_a_non_isolated_group_that_blends` below.
 ///
 /// # The pixel, not the tolerance
 ///
@@ -303,33 +303,49 @@ fn cpu_and_quorra_agree_on_a_non_isolated_group() {
     );
 }
 
-/// A non-isolated group whose *own* blend is not Normal is still refused **by name**.
+/// A non-isolated group whose *own* blend is not Normal, drawn — and the two backends meet on
+/// it (ADR 1307).
 ///
-/// The cancellation ADR 0237 derives is the composite back under §11.3.3's **Normal** blend
-/// function: the group alpha §11.4.4's Result step divides out is multiplied straight back in,
-/// and nothing else in the pipeline observes it. Under any other blend the group's own colour
-/// is needed, and with it Table 140's group alpha — which a premultiplied raster does not hold
-/// (NOTE 4: "For shape and alpha, backdrop removal can be accomplished by maintaining two sets
-/// of variables to hold the accumulated values."). raster measures the identity 0.91 of full
-/// scale wrong there and refuses at `SceneBuilder::group`.
+/// The cancellation ADR 0237 derives is the composite back under **Normal**; under any other
+/// blend the group's own colour is needed as §11.4.4's Result step states it, and with it
+/// Table 140's group alpha, which raster keeps as NOTE 4's second set of accumulators ("For
+/// shape and alpha, backdrop removal can be accomplished by maintaining two sets of variables
+/// to hold the accumulated values."). `pdf-model` builds this group for §11.7.4.3's last
+/// paragraph; the display list is built here by hand so the arithmetic is the fixture's own.
 ///
-/// `pdf-model` never emits this list — `Command::Group`'s `isolated` states the three
-/// conditions as a guarantee, and `render-cpu` refuses it too — so the display list is built
-/// here by hand. A *test of the refusal*, as
-/// `quorra_refuses_a_knockout_element_that_states_its_shape` is: it fails if the refusal ever
-/// becomes a silently wrong picture.
+/// # The pixel, from the clause
+///
+/// Opaque green page, opaque blue element under `Multiply`, group alpha ½, group blend `Hue`:
+///
+/// - the element composites onto the page, `B(cb, cs) = cb × cs = (0, 0, 0)`, so `Cn` is black
+///   with `αg = 1`, and the Result step's `(α0/αgn − α0)` is zero: the group's colour is black;
+/// - §11.3.5.3's `Hue` is `SetLum(SetSat(Cs, Sat(Cb)), Lum(Cb))`, and `SetSat` of black is
+///   black, so `B = SetLum(0, 0.59) = (0.59, 0.59, 0.59)`;
+/// - §11.3.6 with `αs = ½` and `αb = 1` is `½ × green + ½ × B` = **`(75, 203, 75)`**.
+///
+/// ADR 0237's interpolation would give `(0, 128, 0)` here, and the isolated group — whose
+/// element keeps its blue — about `(69, 196, 128)`, so the pixel names the construction.
 #[test]
-fn quorra_refuses_a_non_isolated_group_that_blends() {
-    let list = a_non_isolated_group_composited_with(pdf_render::BlendMode::Multiply);
-    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
-    let refusal = raster()
-        .rasterize(&list, target)
-        .expect_err("the cancellation is the Normal composite, and this is not one")
-        .to_string();
-    assert!(
-        refusal.contains("non-isolated") && refusal.contains("Normal"),
-        "the refusal names what it cannot do and why: {refusal}"
+fn cpu_and_quorra_agree_on_a_non_isolated_group_that_blends() {
+    let list = a_non_isolated_group_composited_with(pdf_render::BlendMode::Hue);
+    assert_within_tolerance(
+        "non-isolated group under Hue",
+        compare("non-isolated group under Hue", &list),
     );
+
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("target fits the budget");
+    let ours = raster()
+        .rasterize(&list, target)
+        .expect("raster draws a non-isolated group under a blend mode of its own");
+    // (300, 400) is inside the group's rectangle, well away from every edge.
+    let at = ((400 * ours.width + 300) * 4) as usize;
+    let want = [75_u8, 203, 75, 255];
+    for (ch, (&got, &want)) in ours.data[at..at + 4].iter().zip(&want).enumerate() {
+        assert!(
+            got.abs_diff(want) <= 2,
+            "channel {ch}: {got} against §11.4.4 then §11.3.6's {want}"
+        );
+    }
 }
 
 /// §11.4.6's non-isolated knockout group is refused **by name** on this backend.

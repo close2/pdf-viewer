@@ -22,8 +22,10 @@
 //! byte for byte **or recompressed without reinterpretation**" — so the encoded bytes are
 //! *expected* to change and what must not change is what they decode to.
 //!
-//! **And the fifth pass, `--linearize`, is walked as its own arm** over the same population:
-//! every document is written again as ISO 32000-2 Annex F's linearised file, and that file is
+//! **And the fifth pass, `--linearize`, is walked as its own arm** over the same population, in
+//! both of its shapes — classic tables, and §7.5.7's object streams under §F.3.1's conditions with
+//! §7.5.8's cross-reference streams: every document is written again as ISO 32000-2 Annex F's
+//! linearised file, and that file is
 //! asked every statement the annex lets a reader check against it by `support::linearized::faults`
 //! — Table F.1's entries, and every page and shared object group where the hint tables say it is
 //! — then re-read, its decoded content compared, its page 1 drawn against the source's, and
@@ -111,6 +113,10 @@ const LINEAR_HELD: &[(&str, &str)] = &[];
 struct Tally {
     /// Documents written as Annex F's linearised file and read back with their pages.
     linearized: usize,
+    /// Of those, the ones written with §7.5.7's object streams.
+    linear_packed: usize,
+    /// Objects the object-stream shape put inside a carrier, summed.
+    linear_compressed: u64,
     /// Linearised rewrites whose page 1 drew bit-identically to the source's.
     linear_identical: usize,
     /// Documents the linearised arm declined by name, by reason.
@@ -293,14 +299,20 @@ fn default_plan() -> OptimizePlan {
     }
 }
 
-/// The fifth pass: `optimize --linearize`, with object streams off as the flag defaults them.
-fn linear_plan() -> OptimizePlan {
+/// The fifth pass: `optimize --linearize`, with or without §7.5.7's object streams.
+fn linear_plan(object_streams: ObjectStreams) -> OptimizePlan {
     OptimizePlan {
-        object_streams: ObjectStreams::Disable,
+        object_streams,
         linearize: true,
         ..default_plan()
     }
 }
+
+/// The linearised arm's two shapes, each with the word its entries are named by.
+const LINEAR_SHAPES: [(&str, ObjectStreams); 2] = [
+    ("tables", ObjectStreams::Disable),
+    ("object streams", ObjectStreams::DEFAULT),
+];
 
 /// Draws page 1 of these bytes as a PPM, or `None` where nothing was drawn.
 fn draw(name: &str, bytes: &[u8]) -> Option<Vec<u8>> {
@@ -449,29 +461,41 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
 
     attribute(&name, &bytes, &once, tally);
     let source_raster = reread_and_draw(&name, &document, pages, &bytes, &once, tally);
-    linearized(
-        &name,
-        &document,
-        pages,
-        &bytes,
-        source_raster.as_deref(),
-        tally,
-    );
+    for (shape, object_streams) in LINEAR_SHAPES {
+        linearized(
+            &name,
+            (shape, object_streams),
+            &document,
+            pages,
+            &bytes,
+            source_raster.as_deref(),
+            tally,
+        );
+    }
 }
 
 /// The fifth pass's arm: Annex F's file, asked what the annex lets a reader check, re-read,
 /// drawn, and linearised again.
 fn linearized(
     name: &str,
+    (shape, object_streams): (&str, ObjectStreams),
     document: &Document,
     pages: usize,
     bytes: &[u8],
     source_raster: Option<&[u8]>,
     tally: &Mutex<Tally>,
 ) {
-    let name = name.to_owned();
-    let out = match rewrite(&name, bytes, linear_plan()) {
-        Ok(out) => out,
+    let plan = || linear_plan(object_streams);
+    let source_name = name;
+    let name = format!("{name} [{shape}]");
+    let out = match rewrite_reported(source_name, bytes, plan()) {
+        Ok((out, savings)) => {
+            let compressed = savings.map_or(0, |savings| u64::from(savings.compressed));
+            record(tally, |t| {
+                t.linear_compressed = t.linear_compressed.saturating_add(compressed);
+            });
+            out
+        }
         Err(error) => {
             record(tally, |t| {
                 t.linear_refused
@@ -483,7 +507,7 @@ fn linearized(
     for fault in faults(&out) {
         record(tally, |t| t.linear_faults.push((name.clone(), fault)));
     }
-    match rewrite(&name, &out, linear_plan()) {
+    match rewrite(source_name, &out, plan()) {
         Ok(again) if again == out => {}
         Ok(again) => record(tally, |t| {
             t.linear_not_idempotent.push((
@@ -526,8 +550,10 @@ fn linearized(
             ));
         });
     }
+    let packed = matches!(object_streams, ObjectStreams::Generate { .. });
     record(tally, |t| {
         t.linearized = t.linearized.saturating_add(1);
+        t.linear_packed = t.linear_packed.saturating_add(usize::from(packed));
         t.linear_bytes = t.linear_bytes.saturating_add(out.len() as u64);
     });
     match (source_raster, draw(&name, &out)) {
@@ -843,9 +869,13 @@ fn census(tally: &Tally, files: usize, elapsed: std::time::Duration) {
     print_list("two rewrites, two files", &tally.nondeterministic);
     print_list("not idempotent", &tally.not_idempotent);
     println!(
-        "transform-optimize:   --linearize: {} written as Annex F files and read back, {} drawn \
-         bit-identically, {} bytes",
-        tally.linearized, tally.linear_identical, tally.linear_bytes
+        "transform-optimize:   --linearize: {} written as Annex F files and read back ({} of them \
+         with object streams, {} objects compressed), {} drawn bit-identically, {} bytes",
+        tally.linearized,
+        tally.linear_packed,
+        tally.linear_compressed,
+        tally.linear_identical,
+        tally.linear_bytes
     );
     print_list("--linearize refused by name", &tally.linear_refused);
     print_list("--linearize Annex F faults", &tally.linear_faults);
@@ -947,8 +977,8 @@ fn every_corpus_document_is_rewritten_smaller_and_says_the_same_thing() {
         );
     }
     assert!(
-        tally.linearized > 0,
-        "a corpus in which nothing linearises is not this corpus"
+        tally.linearized > 0 && tally.linear_packed > 0,
+        "a corpus in which nothing linearises, in either shape, is not this corpus"
     );
     assert!(
         tally.bytes_after < tally.bytes_before,

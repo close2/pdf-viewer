@@ -16,11 +16,11 @@
 //!    resolved `copy`/`index`/`roll` counts, the branch structure. Everything a generated
 //!    shader has to know statically, computed rather than trusted.
 //! 3. **Can an independent evaluation of it be expected to agree with ours?**
-//!    [`Analysis::agreement`], which is ADR 0053 §3's classification.
+//!    [`Analysis::agreement`], which is ADR 0053 section 3's classification.
 //!
 //! # The third question is the one that is a decision rather than a check
 //!
-//! ADR 0053 §3, on a program whose value from a transcendental reaches a comparison:
+//! ADR 0053 section 3, on a program whose value from a transcendental reaches a comparison:
 //!
 //! > a program that can reach a transcendental on any path into a comparison is refused by
 //! > name, and the caller falls back to the raster they build today.
@@ -93,7 +93,7 @@ mod tests {
 
     /// The analyser's refusal reaches the upload boundary by name rather than as a
     /// summary: a caller reading a log has to be able to attribute it without reproducing
-    /// it (§5 of the brief).
+    /// it (section 5 of the brief).
     #[test]
     fn the_analysers_refusal_arrives_by_name() {
         // `7.5 2 idiv` — PLRM3 requires two integers, and a truncating lowering would
@@ -114,7 +114,7 @@ mod tests {
         ));
     }
 
-    /// ADR 0053 §3's decision: a transcendental whose value reaches a comparison has no
+    /// ADR 0053 section 3's decision: a transcendental whose value reaches a comparison has no
     /// agreement bound to state, so the program is refused at the upload where the caller
     /// can still fall back.
     #[test]

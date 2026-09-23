@@ -23,8 +23,8 @@ impl Encoder<'_> {
     /// without its soft mask, which weighs the finished layer once at the composite —
     /// §11.3.7.2 multiplies the mask into the source opacity either way, and a mask
     /// applied inside the layer and again at the composite would be applied twice. The
-    /// replay road is abandoned here, as at every child layer: a record cannot rebuild the
-    /// layer (`replay.rs`).
+    /// replay road is abandoned at `plan_child`, as at every child layer: a record cannot
+    /// rebuild the layer (`replay.rs`).
     #[expect(clippy::too_many_arguments)] // the fill's own parameters, forwarded once
     pub(super) fn fill_through_overprint_group(
         &mut self,
@@ -36,7 +36,6 @@ impl Encoder<'_> {
         kept: [bool; 3],
         mask: Option<u32>,
     ) -> Result<(), RenderError> {
-        self.unreplayable();
         let child = self.plan_child(|encoder| {
             encoder.encode_fill(
                 outline,

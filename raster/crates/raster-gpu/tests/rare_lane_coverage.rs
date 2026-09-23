@@ -22,7 +22,7 @@
 //! is about every non-solid paint, and `encode_stroke`'s non-solid arm is the door the
 //! measured population actually arrives through: 209 of the corpus's 559 rare-painted
 //! coverage tiles are not under a residue clip, and the pages that carry the largest share
-//! of them are pattern-painted *text* and *strokes* (`raster/doc/notes-rare-lane.md` §4). An
+//! of them are pattern-painted *text* and *strokes* (`raster/doc/notes-rare-lane.md` section 4). An
 //! assertion that covers a quarter of what it claims is the shape `tests/shader_copies.rs`
 //! was found in — it named 8 shaders where the tree had 10, compared five, and passed.
 //!

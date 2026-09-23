@@ -478,8 +478,9 @@ formulas, and the three fixtures.
    by name and the frame goes to the oracle, which is the deliberate cost recorded there.
 2. ~~**A blend mode at the `Do`**~~ — **built, ADR 1107**: NOTE 4's second accumulator is the
    elements run again onto transparency, and `render-cpu`'s `remove_the_backdrop` performs NOTE 3's
-   removal. What it does not yet reach is a *knockout* group under a mode at its own `Do` whose
-   elements blend under modes no construction moves: `knockout_on_backdrop` has no result step.
+   removal; `render-raster` draws it through raster's own reading of the same clause (ADR 1307). A *knockout* group under a mode at its own `Do`
+   takes the same step on the oracle: `knockout_on_backdrop` keeps §11.4.8's group alpha beside
+   its accumulation and hands the caller Table 139's result (ADR 1305).
 3. **`render-gpu` refuses the command**, because a Vello layer begins transparent and cannot be
    seeded from the surface; the frame goes to the CPU backend, which is what `CLAUDE.md` keeps
    that backend for. **`render-raster` draws it since the four-hundred-and-thirty-eighth** (ADR
@@ -546,7 +547,11 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    drawn on the transparent backdrop NOTE 6 gives it, where §11.3.6 leaves a blend mode no effect
    (ADR 1301). The record of which readings content painted under is restored by `Q`, never forgets
    a reading something was painted under, and is kept at paint time for a path's portions
-   (ADR 1301); a text object's portions still read the enclosing content's record.
+   (ADR 1301), for a tiling cell — whose reading is its own, from §8.7.3.1's state — and for a
+   text object and each of its glyph pairs; a group or cell whose raster is its own shape keeps
+   its readings out of the enclosing record (ADR 1306). What is refused is content that paints
+   under both readings with a mask or a constant as direct elements of one scope, and a cell
+   under the other reading whose raster is not its shape.
 3. ~~**`render-raster` refuses a `Shaped` element outright**~~ — **closed in the
    four-hundred-and-fifty-sixth, ADR 0291.** The history is the part worth keeping, because it is
    three rounds long and each one was a different kind of wrong. §14 asked for Destination-Out and
@@ -658,9 +663,9 @@ instead of refusing the position, and `implicit_group_statable` is gone with the
 
 So the row this file gains is a backend one rather than a reading one. `render-raster` draws the
 mode through raster's `Compose::DestOver` and `Compose::DestOverIn`, built in `raster/` from the
-clause alone (ADR 1295); what still keeps a page under it off that backend is the §11.4.4 result
-step under a non-Normal blend that §11.7.4.3's last paragraph asks for, which `raster_scene::GroupSpec`
-draws only under Normal. `render-gpu` refuses every page *and* every group compositing in four components before it reaches
+clause alone (ADR 1295), and the §11.4.4 result step under a non-Normal blend that §11.7.4.3's last
+paragraph asks for through raster's second accumulator (ADR 1307), which is what took
+`issue12798_page1_reduced.pdf` to agreement. `render-gpu` refuses every page *and* every group compositing in four components before it reaches
 the overprint test, so what its own refusal takes off it is the one position left over — a
 §11.6.5.1 soft-mask group with four components on a page whose space is the device's (ADR 1182
 section 2).
@@ -746,48 +751,59 @@ and no pixel moves.
 
 ## A plane per spot ink, which is the other half of §10.8.3's step a)
 
-**Stage one is built; three stages are left** (ADR 1281). §10.8.2's worked example needs a buffer
-per colourant: two spot inks over one area cannot combine while a spot reverts to the group's four
-process components as it is painted (§11.7.3). The shape follows ADR 0262's two rasters for four
-process components — §11.3.4 composites per component and a raster holds three, so `S` spot
+**Stages one and two are built; two are left** (ADRs 1281, 1311). §10.8.2's worked example needs a
+buffer per colourant: two spot inks over one area cannot combine while a spot reverts to the group's
+four process components as it is painted (§11.7.3). The shape follows ADR 0262's two rasters for
+four process components — §11.3.4 composites per component and a raster holds three, so `S` spot
 colourants need `ceil(S / 3)` planes beside the two process ones, and the content stream is
-interpreted once per plane: `2 + ceil(S / 3)` runs where there are two today.
+interpreted once per plane.
 
 **What stage one built.** `pdf_model::colourants::spot_colourants` is step a)'s "[t]he PDF
 processor determines what process colours and possible spot colours the simulated device is to
 have": the page's `Separation` and `DeviceN` colourants, read off its resources, patterns,
 shadings, forms, images, Type 3 fonts and annotation appearances before the first mark, less
 §8.6.6.4's `All` and `None`, the four reserved process names and an `NChannel` space's Table 71
-components, and never through a soft mask's group (§11.7.3). `SpotColourants::plane_count` is
-`2 + ceil(S / 3)`. `pdf_colour::colour::Plane` is what `Half` was, with `Plane::PROCESS` and
-`Plane::COLOURANTS`, and `content::in_planes` interprets the page as a sequence of planes rather
-than a pair. `S` is zero on every path that draws, and nothing moved; the two-plane path's
-instruction count is unchanged in every function of this tree (ADR 1281 section 5).
+components, and never through a soft mask's group (§11.7.3). `pdf_colour::colour::Plane` is what
+`Half` was, and `content::in_planes` interprets the page as a sequence of planes.
 
-**What is left, by stage, priced by what stage one found:**
+**What stage two built — the model.** Under the reader's simulation a page naming a spot colourant
+is separated beside the page a backend draws, which does not move: `content::separate` interprets it
+once per plane under `Compositing::Subtractive(plane, press, DeviceSpots)` and
+`Interpretation::separation` holds the lists (`colourants::Separation`). The press is the page's own
+four-component blending space, or for a page whose group names no `/CS` the one step a) consults,
+§14.11.5's intent or the assumed inks (`content::simulated_press`). `ColourSpace::Separation` and
+`::Simulated` carry their colourant names; `Plane::Spot(n)` carries colourants `3n` to `3n + 2`.
+`DeviceSpots::paint` is §11.7.3's paragraph, one classification (`SpotSet::named`) read by the paint
+and the overprint question alike: a colourant with a plane is painted directly with its tint
+transform ignored (§8.6.6.4), every component a mark does not name is "an additive value of 1.0",
+`All` paints every plane, a process-named `Separation` paints the process plane only in the device's
+own press, and an `NChannel` space is evaluated per component. Groups pass the spot planes through
+(§11.7.3's first bullet, `Interpreter::spot_group_compositing`); soft masks carry none;
+`DeviceSpots::overprint` is §11.7.4.3's two bullets one plane wider, under either overprint mode. The
+bound is `colourants::MAX_SPOT_PLANES`, sixteen, set against `examples/spot_depth` over the crawl, and
+a mark in a colourant past it reverts and is named (`Separation::without_a_plane`). Every run a
+backend draws carries no spot colourant and takes the path it took before; the two-plane path's
+instruction count is ADR 1311 section 5's.
 
-- **Two, the model.** `ColourSpace::Separation` carries its colourant names — it does not today, and
-  `grep -rn 'Separation {' crates --include=*.rs` lists what constructs or matches it.
-  `Plane::Spot(index)`, and the device's spot colourants beside the press in
-  `Compositing::Subtractive`, whose key widens with them. `Compositing::paint`'s arms are §11.7.3's
-  paragraph: a mark paints its colourant's tint on its plane and "an additive value of 1.0"
-  everywhere else, a mark in a colourant the device has paints 1.0 on the process planes, and `All`
-  paints every plane. Groups pass a spot plane through with no conversion and no black run
-  (§11.7.3's first bullet); `content/overprint.rs`'s kept channels become one plane wider
-  (§11.7.4.3). `grep -rnw Plane crates --include=*.rs` lists where the type is matched. Whether a
-  mark reaches the picture differently for want of a plane is known here, which is where a report
-  belongs if one is owed at all (ADR 1281 section 4).
+**What is left, by stage:**
+
 - **Three, the render vocabulary.** `DisplayList`'s and `GroupBlending::FourComponents`' spot lists,
   each with its colourants' tint-to-flat-XYZ curves; `viewer-confined`'s wire; `grep -rn
   'BlendingSpace\|FourComponents' crates --include=*.rs` lists every site that writes "two rasters"
-  into a type. `raster_golden` digests the list's `Debug`, so every row compositing in four
-  components moves list-only when the field arrives (trap 41): count them as the variant's users
-  before reading any as a change.
+  into a type. `raster_golden` digests the list's `Debug`, so the field must appear only when the
+  page has a spot plane — every other row keeps its digest — and the rows that move are counted as
+  the variant's users before any is read as a change (trap 41).
 - **Four, the backends.** `render-cpu` resolves the process planes as it does and multiplies each
   spot separation in — steps b) to d), `colour::simulate` unchanged (ADR 1229); `render-raster` and
-  `render-gpu` refuse a list with spot planes by name. A page not composited in four components
-  needs no process planes for this: its own composite in flat XYZ is its one process separation.
-- **Before stage two's bound**, a census sizing `S` over the crawl. §8.6.6.5 says a `DeviceN` "may
-  contain an arbitrary number of colour components" and no clause bounds how many colourants a page
-  names, so trap 38's question has the answer *the standard states none* and the shape to take is
-  `MAX_PRESSES`'s — a measured population with the refusal reported by name.
+  `render-gpu` refuse a list with spot planes by name. §11.7.4.2's rule that only a separable,
+  white-preserving blend mode applies to a spot colour is the spot-plane compositor's: the list
+  states the mode once for every plane, and the spot plane substitutes Normal.
+  `Separation::without_a_plane` joins the page's report when the separation is what is drawn.
+- **Beside the stages, in the model.** A page whose group composites in one or three components, or
+  holds a group that does, is not separated: `Compositing::Grey`, `Calibrated` and `Additive` carry
+  no spot colourant, and a group of one of them inside a separated page gives the separation up
+  rather than paint its spot marks twice. A group in a press of its own inside a separated page gives
+  it up too, on the geometry digest: the process plane's group carries its conversion out and the
+  spot plane's does not. An image's samples or a shading's ramp in a colourant past the bound revert
+  unnamed; the name is asked per painting operator of a path, a show-text operator and an image
+  mask, for the parts each paints.

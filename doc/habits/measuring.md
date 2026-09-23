@@ -572,3 +572,9 @@ The 2× sharp pass began the moment the thread was idle and could not be stopped
 render queued behind it and the queue time was charged to the next prediction as if it were drawing
 (ADR 1289). Stamp when a job is taken up, not when it was asked; and let uninterruptible idle work
 begin only after the view has been still for as long as that work is predicted to take.
+
+## 47. Reordering an `#[inline]` guard's fast path is re-measured per function on the device page
+
+Swapping one inline test for a discriminant test plus a niche `matches!` cost +0.10%, all inside
+`show_text`, with nothing in the source looking hot (ADR 1311); the fast test went back to the
+overprint parameter and the mode check into the cold half. The per-function diff is what found it.

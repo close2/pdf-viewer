@@ -993,7 +993,7 @@ MainWindow::MainWindow(rust::Box<Host> host)
     status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     statusBar()->addWidget(status_, 1);
 
-    // CLAUDE.md's four restriction levels, in a bar of their own. Only the two headings are asked
+    // CLAUDE.md's four restriction levels, in a bar of their own. Only the headings are asked
     // for here: what is under them is a function of a policy that changes while the window is up,
     // so `buildRestrictionsMenu` fills them in when one is opened (CLAUDE.md section 2's rule, and
     // ADR 1145's).
@@ -1633,7 +1633,10 @@ void MainWindow::syncDocuments()
         documents_->setTabText(index, text(labels[static_cast<std::size_t>(index)]));
     }
     documents_->setCurrentIndex(focused);
-    documents_->tabBar()->setVisible(wanted > 1);
+    // Table 29's FullScreen shows "no menu bar, window controls, or any other window visible",
+    // and a tab bar holding the keyboard would turn the arrows that turn a presented page into a
+    // change of document (ADR 1303).
+    documents_->tabBar()->setVisible(wanted > 1 && !host_->chrome().full_screen);
 }
 
 void MainWindow::applyUpdates()
@@ -1827,6 +1830,7 @@ void MainWindow::applyChrome()
     statusBar()->setVisible(chrome.window_ui);
     // Table 29: "or any other window visible".
     tabs_->setVisible(chrome.other_windows);
+    documents_->tabBar()->setVisible(documents_->count() > 1 && !chrome.full_screen);
     // §12.2's `/HideMenubar` names the only menu this window has, and it is **deliberately not
     // obeyed**: that menu holds the reader's own restriction levels, so a document that could hide
     // it would be taking away the control over what that document is allowed to do. CLAUDE.md: "a
@@ -2355,7 +2359,7 @@ void MainWindow::askAQuestion()
         return;
     }
     QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Restricted"));
+    dialog.setWindowTitle(text(host_->question_title()));
     dialog.setModal(true);
     auto* column = new QVBoxLayout(&dialog);
     const rust::String prompt = host_->question_prompt();
@@ -2408,6 +2412,13 @@ void MainWindow::buildRestrictionsMenu()
             scope = opened < scopes_.size() ? scopes_[opened] : nullptr;
             ++opened;
             operation = nullptr;
+            // The bar carries the group's label alone, so its note — what the scope means — is
+            // the first line inside the menu rather than a sentence-long title
+            // (`viewer_host::Restrictions::headings`).
+            if (scope != nullptr && !entry.note.empty()) {
+                scope->addAction(text(entry.note))->setEnabled(false);
+                scope->addSeparator();
+            }
             break;
         case 1:
             operation = scope == nullptr ? nullptr : scope->addMenu(label);

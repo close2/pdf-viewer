@@ -1,18 +1,18 @@
 //! What a device costs to exist and when it is ready: adapter selection, device
-//! creation, the background warm-up, and the numbers §7 asks all of them be reported
+//! creation, the background warm-up, and the numbers brief section 7 asks all of them be reported
 //! in.
 //!
 //! **Construction blocks on the two things a device *is*** — an adapter and a device —
 //! and on nothing else. The pipelines compile on a thread nobody waits for, which is
 //! why [`Device::headless`] returns before the warm set exists and [`Device::is_warm`]
 //! and [`Device::warm_up`] answer for it afterwards. The second of those exists
-//! because §5's rule reaches startup as well: a caller waiting for a warm set has to
+//! because brief section 5's rule reaches startup as well: a caller waiting for a warm set has to
 //! be able to learn that it is never coming, and a boolean cannot say that.
 //!
 //! Four entry points and one body. Two are headless and two present to a window; the
 //! difference within each pair is only who created the [`wgpu::Instance`], which is the
 //! startup lever the caller measured 20 ms of a 145 ms launch inside (their feedback
-//! §8.2). What cannot be hoisted is stated where it is claimed rather than left to be
+//! section 8.2). What cannot be hoisted is stated where it is claimed rather than left to be
 //! discovered: `request_adapter` takes the surface, so adapter selection is genuinely
 //! downstream of the window.
 //!
@@ -38,7 +38,7 @@ struct Requested {
     gpu: wgpu::Device,
     queue: wgpu::Queue,
     timestamps: Option<TimestampSupport>,
-    /// `request_device` alone, which §7 wants reported apart from adapter selection.
+    /// `request_device` alone, which brief section 7 wants reported apart from adapter selection.
     creation: Duration,
 }
 
@@ -48,7 +48,7 @@ struct Requested {
 /// `adapter` is named rather than borrowed from the caller's `info` because the error
 /// has to say which adapter refused.
 fn request_device(adapter: &wgpu::Adapter, adapter_name: &str) -> Result<Requested, DeviceError> {
-    // Timestamp queries are the difference between measuring §11.1 and inferring
+    // Timestamp queries are the difference between measuring brief section 11.1 and inferring
     // it; taken when the adapter offers them, worked around (and said so) when not.
     let wanted = wgpu::Features::TIMESTAMP_QUERY;
     let required_features = adapter.features() & wanted;
@@ -149,7 +149,7 @@ impl Device {
     /// loop, so [`startup::create_instance`] can run on a thread started at `main`'s
     /// first line while the document is read and the window opened, and this
     /// constructor takes the result. The caller measured about 20 ms of a 145 ms
-    /// launch in that overlap (their feedback §8.2). What cannot be hoisted, and is
+    /// launch in that overlap (their feedback section 8.2). What cannot be hoisted, and is
     /// not claimed: `request_adapter` takes the surface as `compatible_surface`, so
     /// adapter selection is genuinely downstream of the window.
     ///
@@ -188,7 +188,7 @@ impl Device {
 
     /// The names of every adapter wgpu can see on this machine, for choosing an
     /// [`Options::adapter`] filter — and for the cross-adapter byte-equality gate,
-    /// which renders on all of them (brief section 4.6, §11.4).
+    /// which renders on all of them (brief section 4.6, section 11.4).
     ///
     /// Every backend, because the instance is this function's own. A host that
     /// restricted the backend set ([`startup::create_instance_with`]) must ask
@@ -321,7 +321,7 @@ impl Device {
             timestamps,
             // Made here rather than on the frame that first wants it: the driver charges
             // 2.43 ms for a `QuerySet` and its two buffers the first time, and a device is
-            // constructed off the critical path by every host that follows §7's advice
+            // constructed off the critical path by every host that follows brief section 7's advice
             // — where a first frame is on it by definition (ADR 0031).
             pass_query: pass_query_at_startup,
             compute_queries,
@@ -354,7 +354,7 @@ impl Device {
     /// Where the background warm-up has got to, without blocking: still running, warm,
     /// refused by name, or ended without an answer.
     ///
-    /// The whole reason this exists beside [`Device::is_warm`] is §5's rule applied to
+    /// The whole reason this exists beside [`Device::is_warm`] is brief section 5's rule applied to
     /// startup — a caller that waits for the warm set has to be able to learn that it
     /// is never coming, and a boolean cannot say that.
     #[must_use]
@@ -380,7 +380,7 @@ impl Device {
     ///
     /// So call it if you like — it costs a caller nothing and it is what a driver that
     /// commits memory at allocation rather than at first use would want — but do not
-    /// budget a first frame around it. Call it where the device is constructed: §7's
+    /// budget a first frame around it. Call it where the device is constructed: brief section 7's
     /// advice already puts that off the critical path (the caller's `main` spawns a
     /// thread for it at its first line), while a first frame is on that path by
     /// definition. Calling it again with the same size is free; with a different one it
@@ -416,7 +416,7 @@ impl Device {
         drop(self.pipelines.wait_until_warm());
     }
 
-    /// What startup cost, one number per step that can regress on its own (§7).
+    /// What startup cost, one number per step that can regress on its own (brief section 7).
     /// `pipeline_compilation` is `None` until the background warm-up finishes, and
     /// `instance_creation` is `None` when the instance was the caller's.
     #[must_use]

@@ -224,8 +224,8 @@ const CASES: [(&str, Nested); 5] = [
 /// of a knockout group, is refused by name rather than composited by §11.3.6.
 ///
 /// Five constructions, and each was measured drawing the wrong page before the refusal
-/// existed (`raster/doc/notes-nested-knockout.md` §2): a plain isolated group, one carrying a
-/// constant alpha, one carrying a soft mask, one carrying a blend mode, and a knockout
+/// existed (`raster/doc/notes-nested-knockout.md` section 2): a plain isolated group, one carrying
+/// a constant alpha, one carrying a soft mask, one carrying a blend mode, and a knockout
 /// group nested in a knockout group. None of the five is a special case of another — they
 /// reach the wrong answer through different fields — so all five are named here rather
 /// than one standing for the rest.

@@ -643,7 +643,11 @@ fn a_raster_is_not_shared_across_compositing() {
     let resources = resources_naming("DeviceRGB");
     let mut cache = RasterCache::default();
     let press = Conversion::new(
-        Compositing::Subtractive(Plane::Black, pdf_model::colour::assumed_press()),
+        Compositing::Subtractive(
+            Plane::Black,
+            pdf_model::colour::assumed_press(),
+            pdf_model::colour::DeviceSpots::default(),
+        ),
         pdf_model::icc::Rendering::compensating(),
     );
 

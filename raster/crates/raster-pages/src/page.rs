@@ -45,9 +45,9 @@ const fn row(
     }
 }
 
-/// The brief's window scale (§6.2), which is what the archetypes' counts were taken at.
+/// The brief's window scale (section 6.2), which is what the archetypes' counts were taken at.
 const WIDTH: u32 = 1191;
-/// The brief's window scale (§6.2).
+/// The brief's window scale (section 6.2).
 const HEIGHT: u32 = 1684;
 
 /// The fields every archetype shares, so that each page below states only what
@@ -101,7 +101,7 @@ pub const MEDIAN_PAGE: Archetype = Archetype {
 /// rather than failing: the chain's box costs more than the twenty small tiles it would
 /// serve, which is the clause of that ADR written for exactly this shape — a `q W n`
 /// around a line of text. (Before 2026-08-17 this row read 40 tiles and **2 regions** for
-/// a page whose clips met **0 of 40** marks; `raster/doc/notes-clipped-instrument.md` §3.)
+/// a page whose clips met **0 of 40** marks; `raster/doc/notes-clipped-instrument.md` section 3.)
 pub const DENSE_TEXT: Archetype = Archetype {
     name: "dense text",
     commands: 4_320,
@@ -213,7 +213,7 @@ pub const GIANT: Archetype = Archetype {
 /// **The caller's own file, scaled down.** That page is 49.7 MB and one content stream:
 /// **58 009 commands — 58 003 fills, six strokes — over 3 011 879 path segments, 51.9 a
 /// fill**, and at its fit view a mark is about three device pixels across
-/// (`pdf-viewer/doc/QUORRA_ENCODE_THREADS.md` §1). It is a geological cross-section
+/// (`pdf-viewer/doc/QUORRA_ENCODE_THREADS.md` section 1). It is a geological cross-section
 /// exported by Inkscape, and it is every drawing, map, plan and chart in a corpus.
 /// [`CALLERS_DRAWING`] is that page at its own size and count.
 ///
@@ -285,7 +285,7 @@ pub const CALLERS_DRAWING: Archetype = Archetype {
 ///
 /// **Nothing about it is changed here.** ADR 0054's thread sweep was measured on this
 /// page, and re-cutting it would invalidate that measurement in the same round that
-/// moved it — which is the trap `raster/doc/notes-clipped-instrument.md` §3.4 names.
+/// moved it — which is the trap `raster/doc/notes-clipped-instrument.md` section 3.4 names.
 ///
 /// **Whether the sweep should run on the archetype instead was measured on 2026-08-23 and
 /// declined**, and the reason is that the two pages differ by less than the sweep can

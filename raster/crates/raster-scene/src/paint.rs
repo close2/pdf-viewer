@@ -5,7 +5,8 @@
 //! - **Colours reaching us are already device RGB.** Colour management happens upstream:
 //!   ICC profiles, `DeviceCMYK`, `CalRGB`, `Separation`, rendering intents, black point
 //!   compensation. `ColourSpace::to_rgb` in the caller's tree is the only place a colour
-//!   becomes RGB and adding a second one is forbidden. §3 is blunt about the consequence:
+//!   becomes RGB and adding a second one is forbidden. The brief's section 3 is blunt about the
+//!   consequence:
 //!   *if we offer colour management it will not be used, and if it is on by default the
 //!   library cannot be used at all.*
 //! - **Straight alpha at the boundary, premultiplied internally.** Converting once at the
@@ -45,7 +46,7 @@ use crate::scene::MAX_COORDINATE;
 /// nominally in `0..=1`.
 ///
 /// Device RGB because colour management happened upstream and must not happen again
-/// (§3 of the brief); straight alpha because that is the boundary convention — the
+/// (section 3 of the brief); straight alpha because that is the boundary convention — the
 /// device premultiplies once, internally, on its own side of the line.
 ///
 /// The fields are public and unvalidated: a `Color` is a plain value, and the range and
@@ -191,7 +192,7 @@ pub enum Paint {
     ///
     ///    So outside the domain the device emits `background`, or — when it is `None` —
     ///    **nothing at all**: alpha zero, no coverage. Never the nearest edge's colour;
-    ///    that is the plausible wrong page §5 has a name for.
+    ///    that is the plausible wrong page brief section 5 has a name for.
     /// 3. Inside it, run the program and clip each output into its `range` pair. That
     ///    clip is §7.10.1's, and it is not optional:
     ///

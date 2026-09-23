@@ -1401,11 +1401,31 @@ impl CpuRasterizer {
     /// §11.4.4's backdrop removal against §11.3.3's recompositing under the Normal blend
     /// function (ADR 0307's formula; ADR 0237's cancellation, unchanged by knockout).
     ///
+    /// # Under a blend mode of the group's own
+    ///
+    /// Where the `Do` composites under another mode that collapse is not available, and
+    /// §11.4.4 says what the group's result is composited with and under which function:
+    ///
+    /// > In those formulas, the colour, shape, and alpha ( C, 𝑓 , and α ) calculated by the
+    /// > group compositing function shall be used, respectively, as the source colour 𝐶𝑠 ,
+    /// > the object shape 𝑓 j , and the object alpha α j .
+    ///
+    /// So the accumulation is taken through §11.4.4's result step before it leaves — the
+    /// step §11.4.8 states once for every kind of group — and the caller composites the
+    /// result as one object under the group's own mode, exactly as it does for a
+    /// non-knockout group ([`CpuRasterizer::remove_the_backdrop`]). The step needs Table
+    /// 140's group alpha beside the accumulation, and §11.4.8 gives it for a knockout group
+    /// as `αgᵢ = (1 − fsᵢ) × αgᵢ₋₁ + αsᵢ` — the same stage b) with a transparent initial
+    /// backdrop, since the group alpha excludes it. That is a second accumulation of the
+    /// same elements onto transparency, weighted by the same stated shapes, and it is paid
+    /// only here (ADR 1305).
+    ///
     /// # Errors
     ///
     /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::UnsupportedCommand`] where a
     /// guarantee `pdf-model` states for the combination does not hold: every element a
-    /// [`Command::Shaped`], the group's own blend Normal, composited by Over.
+    /// [`Command::Shaped`], the group composited by Over rather than as a stage of an
+    /// enclosing knockout group.
     #[expect(
         clippy::too_many_arguments,
         reason = "one arm of `draw_group`'s buffer construction, carrying what the \
@@ -1421,11 +1441,11 @@ impl CpuRasterizer {
         masks: &mut MaskCache,
         depth: usize,
     ) -> Result<tiny_skia::Pixmap, CpuRasterError> {
-        if group.into != Compose::Over || group.blend != pdf_render::BlendMode::Normal {
+        if group.into != Compose::Over {
             return Err(CpuRasterError::UnsupportedCommand(
-                "a non-isolated knockout group composited by anything but §11.3.3's Normal \
-                 blend function needs Table 140's group alpha kept apart from the composite \
-                 alpha (ISO 32000-2 §11.4.4 NOTE 4, §11.4.6)"
+                "a non-isolated knockout group drawn as a stage of an enclosing knockout \
+                 group has no page for its initial backdrop to be copied from \
+                 (ISO 32000-2 §11.4.6 NOTE 6)"
                     .to_owned(),
             ));
         }
@@ -1456,6 +1476,12 @@ impl CpuRasterizer {
             .ok_or_else(allocation)?
             .copy_from_slice(source);
         let mut accumulated = backdrop.clone();
+        // Table 140's group alpha, kept only where §11.4.4's result step will read it: the
+        // Normal composite at the `Do` is the collapse above and needs no second set.
+        let transparent =
+            tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or_else(allocation)?;
+        let mut group_alpha =
+            (group.blend != pdf_render::BlendMode::Normal).then(|| transparent.clone());
         for element in group.commands {
             let Command::Shaped { object, shape } = element else {
                 return Err(CpuRasterError::UnsupportedCommand(
@@ -1488,6 +1514,28 @@ impl CpuRasterizer {
                 Compose::Over,
             )?;
             blend::knockout_average(&mut accumulated, &backdrop, &composed, &stated);
+            // The same stage b) with a transparent initial backdrop, whose alpha is `αgᵢ`.
+            if let Some(group_alpha) = group_alpha.as_mut() {
+                let mut alone = transparent.clone();
+                self.encode(
+                    &mut alone.as_mut(),
+                    list,
+                    std::slice::from_ref(object),
+                    surface,
+                    masks,
+                    depth,
+                    Compose::Over,
+                )?;
+                blend::knockout_average(group_alpha, &transparent, &alone, &stated);
+            }
+        }
+        if let Some(group_alpha) = group_alpha {
+            blend::remove_backdrop(
+                &mut accumulated,
+                pixmap.as_ref(),
+                &group_alpha,
+                band_pixels(surface, band),
+            );
         }
         Ok(accumulated)
     }

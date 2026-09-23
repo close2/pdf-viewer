@@ -178,7 +178,7 @@ pub(super) fn bind_layers(
 /// what is left is recording and one submission.
 ///
 /// The clear is not an optimisation to skip when a layer covers the window: a page is
-/// rendered onto transparency (§3), the layers are put over that, and a window whose
+/// rendered onto transparency (brief section 3), the layers are put over that, and a window whose
 /// previous contents survived where nothing was drawn would be showing a frame that is
 /// partly two frames old. A present of no layers at all is a legitimate present — it
 /// clears the window, which is what a host with nothing to show asked for.

@@ -42,7 +42,7 @@ pub struct Viewport<'a> {
     pub height: u32,
     /// Maps the scene's coordinate space to target pixels. Carries the scale, **the y
     /// flip** and any tile offset — the page's own space is y-up, and the flip lives
-    /// here rather than in the scene (§3 of the brief).
+    /// here rather than in the scene (section 3 of the brief).
     pub transform: Affine,
     /// Rows or regions known to have changed, in target pixels. Empty means all of it.
     pub damage: &'a [Rect],

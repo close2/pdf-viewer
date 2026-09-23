@@ -66,11 +66,13 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
   planes — so what is missing is a plane for a **spot** ink, which reverts to the group's process
   components as it is painted (§11.7.3). That plane is a staged build in `doc/todo/23`:
   `ceil(S / 3)` planes beside the two process ones, one run of the content stream per plane.
-  Stage one is built (ADR 1281): the page's spot colourants are enumerated before the first mark
-  lands (`pdf_model::colourants`) and the page is interpreted as a sequence of `Plane`s, with no
-  spot plane yet made; the model's plane, the render vocabulary and the backends are the three
-  stages left. Table 275's requirement is still answered by
-  `requirements::unmet` by name. §10.8.3 itself still requires nothing: its verb is a permission and
+  Stages one and two are built (ADRs 1281, 1311): the page's spot colourants are enumerated before
+  the first mark lands (`pdf_model::colourants`), and under the reader's simulation a page naming one
+  is interpreted once per plane of the simulated device, spot planes included, each colour painted
+  by §11.7.3's "additive value of 1.0" rule (`colourants::Separation`), sixteen spot planes at most
+  and a mark past them named. No backend draws the planes: the render vocabulary and the backends
+  are the two stages left, with a page compositing in one or three components. Table 275's
+  requirement is still answered by `requirements::unmet` by name. §10.8.3 itself still requires nothing: its verb is a permission and
   its four steps are a `should` conditional on performing one.
 
 ### 2. External-dependency-blocked — a crate release or an unheld specification
@@ -123,14 +125,14 @@ unblock them:** focused multi-round work on a shape channel, a per-pixel second-
 colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
 pixels.
 
-- §11.4.6, §11.7.4.4 — the knockout constructions' two remainders, each reported by name. A
-  non-isolated knockout group whose elements blend under modes no construction moves *and* whose
-  `Do` composites under a mode of its own wants §11.4.4's result step after `render-cpu`'s
-  `knockout_on_backdrop`, which has it only for a non-knockout group (§11.4.6); and content that
-  painted under both readings of `/AIS` while stating a mask or a constant has no one shape — a
-  path's portions are read at paint time and `Q` restores the reading (ADR 1301), so what is left
-  is a tiling cell run under the other reading and a text object's portions, which still read the
-  enclosing content's record (§11.7.4.4). The product of shape and opacity no longer reaches a
+- §11.4.6, §11.7.4.4 — the knockout constructions' one remainder, reported by name: an element
+  whose shape needs the reading it was painted under carried beside it. The record of
+  §11.6.4.3's readings is one per scope — a path's portions, a tiling cell, a text object and its
+  glyph pairs each have their own, and a group or cell whose raster is its own shape keeps its
+  readings out of the enclosing one (ADR 1306) — so what is left is content painting under both
+  readings of `/AIS` with a mask or a constant as direct elements of one scope (§11.4.6), and a
+  cell under the other reading whose raster is not its shape (§11.7.4.4). A knockout group under a
+  mode at its own `Do` is drawn through §11.4.4's result step (ADR 1305). The product of shape and opacity no longer reaches a
   knockout element on any route: the stencil under its own `/SMask` is stated as an image
   (ADRs 1218, 1279) and through a pattern (ADR 1301), so §11.3.7.2, §11.3.7.3 and §11.4.4 have
   left this bucket.
@@ -190,13 +192,6 @@ a normal round extending the existing code.
   the whole plane onto one line, so the box has no preimage that is a region and the glyph outlines
   enclose no area. Every invertible linear part is laid out, in the chord the box leaves the line
   a given baseline carries (`doc/todo/22`, ADRs 1114, 1130, 1247).
-- §F.3.1, §F.3.5 — `optimize --linearize` writes Annex F without §7.5.7's object streams and
-  without §7.6's encryption, each asked-for combination refused by name at exit 4: F.3.1's
-  numbering for compressed objects is about one round, F.3.5's `/Encrypt` in part 4 under one
-  (ADR 1293 section 5).
-- §F.3.7 — the first page's section is built; (b)'s bead arrays and each bead's `/T` are carried as
-  the producer wrote them rather than synthesised from §12.4.3's thread chain, about a day's work
-  (ADR 1293 section 5).
 - **Beside this bucket and not in it** — §12.7.8.3.2 is `departed`: Table 249's `/APRef`, and it alone. `/AP`, `/A`, `/AA` and `/IF` are applied by one
   rule, a value that lives in the other file crossing as a *value* rather than as a reference
   (ADRs 1186, 1223); `/RV` is XFA rich text on `CLAUDE.md`'s closed exclusion list and is not a
@@ -261,7 +256,7 @@ counts them among `partial`; they flip when the last binding row flips.
 
 §7.6, §8.9.6, §10.7, §11.4, §11.6,
 §11.6.4, §11.7, §11.7.4, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.7, §12.7.4,
-§12.7.5, §12.8, §12.8.3, §12.8.3.4, §F, §F.3.
+§12.7.5, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
