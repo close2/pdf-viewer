@@ -582,3 +582,57 @@ fn a_colourant_without_a_plane_is_in_the_pages_report() {
         unpainted.unsupported
     );
 }
+
+/// A page whose group composites in one or three components is separated into one process plane
+/// in that space and the spot planes beside it, and LogoGreen passes through the page group —
+/// §11.7.3: "A spot colour retains its own identity; it shall not be subject to conversion to or
+/// from the colour space of the enclosing transparency group or page." So at 0.5 it is 0.5 on its
+/// own plane and "an additive value of 1.0", white, on the process plane, in every such space
+/// (ADR 1329).
+#[test]
+fn a_page_in_one_or_three_components_has_one_process_plane() {
+    for page in [
+        "/Group << /S /Transparency /CS /DeviceRGB >>",
+        "/Group << /S /Transparency /CS /DeviceGray >>",
+    ] {
+        let separation = separated(logo_green(page, "/LG cs 0.5 scn 0 0 20 20 re f"));
+        assert_eq!(
+            separation.plane_count(),
+            2,
+            "one process plane and one spot plane: {page}"
+        );
+        assert!(separation.plane(Plane::Black).is_none(), "{page}");
+        assert_colour(plane(&separation, Plane::Chromatic)[0], WHITE, page);
+        assert_colour(plane(&separation, Plane::Spot(0))[0], [0.5, 1.0, 1.0], page);
+    }
+}
+
+/// A `DeviceN` naming a process colourant beside a spot colourant reverts whole on a page whose
+/// group is not the device's four components — §11.7.3: "If any other colour space has been
+/// specified for the group, the Separation or DeviceN colour space shall be converted to its
+/// alternate colour space" — and §8.6.6.5 reverts a `DeviceN` where "at least one colour
+/// component (other than None ) is specified and is not available on the device". So the spot
+/// plane carries no ink and the process plane the alternate's colour, and the two planes agree:
+/// the spot component is not painted twice.
+#[test]
+fn a_devicen_naming_cyan_reverts_on_every_plane_of_an_rgb_page() {
+    let separation = separated(file(
+        "/Group << /S /Transparency /CS /DeviceRGB >>",
+        &format!(
+            "/ColorSpace << /LG {LOGO_GREEN} \
+             /DN [/DeviceN [/Cyan /LogoGreen] /DeviceCMYK 6 0 R] >>"
+        ),
+        "/DN cs 1 1 scn 0 0 20 20 re f",
+        &[LOGO_GREEN_TINT, TINT],
+    ));
+    assert_colour(
+        plane(&separation, Plane::Spot(0))[0],
+        WHITE,
+        "no LogoGreen ink from a space that reverted",
+    );
+    let process = plane(&separation, Plane::Chromatic)[0];
+    assert!(
+        !close(process, WHITE),
+        "the process plane carries the alternate's colour: {process:?}"
+    );
+}

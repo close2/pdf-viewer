@@ -13,11 +13,15 @@
 //!
 //! Step a) is the interpreter's: `pdf-model` interprets the page once per plane of the simulated
 //! device and hands the planes over. The process colourants are the pair a page composited in
-//! four components already travels as ([`crate::blending`]); the spot colourants are
-//! [`SpotSeparation::planes`], three colourants to a plane because a raster holds three channels
-//! and §11.3.4 composites each component on its own. Steps b) to d) are [`resolve`], and every
-//! conversion it applies arrives sampled on the list, so a backend never sees a colour space —
-//! [`crate::Color`]'s argument, and the reason this module holds tables rather than formulas.
+//! four components already travels as ([`crate::blending`]) — or, on a page whose group composites
+//! in one or three components, the list itself in those components, because §11.7.3 passes a spot
+//! colour through the group "with no colour conversions performed" and leaves the group's process
+//! composite to the group's space; the spot colourants are [`SpotSeparation::planes`], three
+//! colourants to a plane because a raster holds three channels and §11.3.4 composites each
+//! component on its own. Steps b) to d) are [`resolve`] for the pair and [`matte`] with
+//! [`resolve_over_device`] for the list alone, and every conversion they apply arrives sampled on
+//! the list, so a backend never sees a colour space — [`crate::Color`]'s argument, and the reason
+//! this module holds tables rather than formulas. ADRs 1317 and 1329.
 //!
 //! # Where the matte goes, and what that does to a pixel's alpha
 //!
@@ -116,9 +120,10 @@ impl SpotColourant {
 /// the two conversions steps b) and d) apply around the multiply.
 ///
 /// Carried by [`DisplayList::set_separated`] beside the process pair — [`DisplayList::blending`]
-/// and [`DisplayList::black`] — which is the process separation, and only on a page that names a
-/// spot colourant under a reader's request for the simulation. See the module documentation for
-/// what a backend does with it.
+/// and [`DisplayList::black`] — which is the process separation, or by
+/// [`DisplayList::set_spot_planes`] beside a list that is its own process separation, and only on
+/// a page that names a spot colourant under a reader's request for the simulation. See the module
+/// documentation for what a backend does with it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpotSeparation {
     /// The spot colourants in plane order: colourant `3 × n + c` is channel `c` of plane `n`.
@@ -126,7 +131,8 @@ pub struct SpotSeparation {
     /// The spot planes, each the whole page drawn in three colourants' additive complements.
     planes: Vec<DisplayList>,
     /// Step b) for the process separation: a device colour — what the process pair's
-    /// [`BlendingSpace`] gives — to its flat XYZ relative to the matte's white.
+    /// [`BlendingSpace`] gives, or what a list compositing in one or three components resolves
+    /// to — to its flat XYZ relative to the matte's white.
     process_to_flat: ColourCube,
     /// Step d): the multiplied flat XYZ, relative to the matte's white, to a device colour.
     flat_to_device: ColourCube,
@@ -218,30 +224,104 @@ pub fn resolve(
             tint(black, 0),
         ];
         let device = space.convert(process[0], process[1], process[2], process[3]);
-        let mut product = separation.process_to_flat.convert(device);
-        for (colourant, spot) in separation.colourants.iter().enumerate() {
-            let plane = spots
-                .get(colourant / COLOURANTS_PER_PLANE)
-                .copied()
-                .unwrap_or_default();
-            let flat = spot.flat_at(tint(plane, colourant % COLOURANTS_PER_PLANE));
-            for (value, factor) in product.iter_mut().zip(flat) {
-                *value *= factor;
-            }
+        multiply_in(pixel, device, at, spots, separation);
+    }
+}
+
+/// Step b)'s matte under the process separation of a page that composites in one or three
+/// components rather than in a press: every painted pixel of `data`, premultiplied RGBA8,
+/// composited over white in the list's own components and made opaque.
+///
+/// The process separation of such a page is the list itself (`DisplayList::set_spot_planes`), in
+/// its group's components, and step b)'s "background matte of all white" goes under it in those
+/// components for the reason the module documentation gives for a press's: the paper is under
+/// every ink. An additive white is 1.0 in each of them, so a stored `v` at alpha `α` becomes
+/// `v + (1 − α)`. This runs **before** the list's own curve or cube, which is where the
+/// components stop being the group's; [`resolve_over_device`] runs after it. A pixel nothing
+/// painted is left for the medium. ADR 1329.
+pub fn matte(data: &mut [u8]) {
+    for pixel in data.chunks_exact_mut(4) {
+        if pixel[3] == 0 {
+            continue;
         }
-        let result = separation.flat_to_device.convert(product);
-        for (channel, value) in pixel.iter_mut().zip(result) {
-            let scaled = value.clamp(0.0, 1.0).mul_add(255.0, 0.5);
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "a value in 0..=1 scaled by 255 is in 0..=255"
-            )]
-            {
-                *channel = scaled as u8;
-            }
+        let uncovered = u8::MAX.saturating_sub(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = channel.saturating_add(uncovered);
         }
         pixel[3] = u8::MAX;
+    }
+}
+
+/// Steps b) to d) over a page whose process separation is already a device colour: the list of
+/// a page compositing in one or three components, put on [`matte`] and through its own curve or
+/// cube, with `spots` the spot planes in [`SpotSeparation::planes`]' order.
+///
+/// Per painted pixel the process separation's device colour goes to flat XYZ through
+/// [`SpotSeparation::process_to_flat`] — the conversion a press's pair takes from the device
+/// colour it resolves to, so the two kinds of page share it (trap 6) — each spot colourant is
+/// multiplied in as [`resolve`] multiplies it, and the product goes out through
+/// [`SpotSeparation::flat_to_device`], opaque. ADR 1329.
+pub fn resolve_over_device(data: &mut [u8], spots: &[&[u8]], separation: &SpotSeparation) {
+    for (index, pixel) in data.chunks_exact_mut(4).enumerate() {
+        if pixel[3] == 0 {
+            continue;
+        }
+        let at = index.saturating_mul(4);
+        let alpha = f32::from(pixel[3]);
+        // Opaque after `matte`, so the division is the identity there; a caller that skipped the
+        // matte still hands over a colour rather than a premultiplied value.
+        let device = [
+            f32::from(pixel[0]) / alpha,
+            f32::from(pixel[1]) / alpha,
+            f32::from(pixel[2]) / alpha,
+        ];
+        multiply_in(pixel, device, at, spots, separation);
+    }
+}
+
+/// Steps b) to d) for one pixel from the process separation's device colour: the flat XYZ of
+/// the process colourants, each spot colourant's multiplied in, and the product written back to
+/// `pixel` as an opaque device colour.
+#[inline]
+fn multiply_in(
+    pixel: &mut [u8],
+    device: [f32; 3],
+    at: usize,
+    spots: &[&[u8]],
+    separation: &SpotSeparation,
+) {
+    // The tint a press prints at this pixel for one channel of one plane: the stored
+    // additive complement `v`, premultiplied by `α`, composited over the matte's 1.0.
+    let tint = |plane: &[u8], channel: usize| -> f32 {
+        let alpha = plane.get(at.saturating_add(3)).copied().unwrap_or(0);
+        let value = plane.get(at.saturating_add(channel)).copied().unwrap_or(0);
+        f32::from(alpha.saturating_sub(value)) / 255.0
+    };
+    let mut product = separation.process_to_flat.convert(device);
+    for (colourant, spot) in separation.colourants.iter().enumerate() {
+        let plane = spots
+            .get(colourant / COLOURANTS_PER_PLANE)
+            .copied()
+            .unwrap_or_default();
+        let flat = spot.flat_at(tint(plane, colourant % COLOURANTS_PER_PLANE));
+        for (value, factor) in product.iter_mut().zip(flat) {
+            *value *= factor;
+        }
+    }
+    let result = separation.flat_to_device.convert(product);
+    for (channel, value) in pixel.iter_mut().zip(result) {
+        let scaled = value.clamp(0.0, 1.0).mul_add(255.0, 0.5);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a value in 0..=1 scaled by 255 is in 0..=255"
+        )]
+        {
+            *channel = scaled as u8;
+        }
+    }
+    if let Some(alpha) = pixel.get_mut(3) {
+        *alpha = u8::MAX;
     }
 }
 
@@ -336,6 +416,26 @@ mod tests {
         let mut chromatic = [0, 0, 0, 0];
         resolve(&mut chromatic, &[0; 4], &[&[0; 4]], &press(), &separated);
         assert_eq!(chromatic, [0, 0, 0, 0]);
+    }
+
+    /// Step b)'s matte under a list that is its own process separation: a painted pixel is
+    /// composited over white in its own components and made opaque; an unpainted one is left.
+    #[test]
+    fn the_matte_goes_under_a_painted_pixel_only() {
+        // Black at half alpha, premultiplied: 0 + (255 − 128) in every channel.
+        let mut data = [0, 0, 0, 128, 0, 0, 0, 0];
+        matte(&mut data);
+        assert_eq!(data, [127, 127, 127, 255, 0, 0, 0, 0]);
+    }
+
+    /// The multiply over a device colour: white process, a full spot, and the spot's ratio out.
+    #[test]
+    fn a_full_spot_multiplies_the_device_colour() {
+        let separated = separation([[1.0; 3], [0.5, 0.25, 0.0]]);
+        let mut data = [255, 255, 255, 255, 0, 0, 0, 0];
+        let spot = [0, 255, 255, 255, 255, 255, 255, 0];
+        resolve_over_device(&mut data, &[&spot], &separated);
+        assert_eq!(data, [128, 64, 0, 255, 0, 0, 0, 0]);
     }
 
     /// A plane count that does not carry the colourants three to a plane is not a separation.

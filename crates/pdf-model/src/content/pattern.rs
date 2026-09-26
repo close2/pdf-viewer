@@ -2236,7 +2236,7 @@ impl Interpreter<'_> {
                     &space,
                     tint,
                     Rendering::default(),
-                    &self.compositing,
+                    (&self.compositing, &self.spots_beside),
                     // And §10.4.2.4's pair for the same reason: §11.7.5.3 names it "in effect in
                     // the graphics state at the time of the painting operation", which for an
                     // uncoloured cell is the state that paints the cell rather than this one.

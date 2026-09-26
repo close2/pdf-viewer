@@ -317,17 +317,7 @@ impl Rasterizer for CpuRasterizer {
                 // before the medium as the pair's own conversion is (`pdf_render::separation`,
                 // ADR 1317). Each plane is a page of its own for `check_group_blit`'s budget.
                 Some(separation) => {
-                    let mut spots = Vec::with_capacity(separation.planes().len());
-                    for plane in separation.planes() {
-                        pdf_render::check_group_blit(plane, target)?;
-                        let mut raster = tiny_skia::Pixmap::new(target.width, target.height)
-                            .ok_or(CpuRasterError::Allocation {
-                                width: target.width,
-                                height: target.height,
-                            })?;
-                        self.encode_in_strips(&mut raster, plane, target)?;
-                        spots.push(raster);
-                    }
+                    let spots = self.spot_planes(separation, target)?;
                     let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
                     pdf_render::resolve_separation(
                         pixmap.data_mut(),
@@ -339,6 +329,14 @@ impl Rasterizer for CpuRasterizer {
                 }
                 None => pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space),
             }
+        }
+        // §10.8.3 on a page whose group composites in one or three components: the list is its
+        // own process separation, so step b)'s matte goes under it in its own components here,
+        // before the curve or the cube below takes it out of them (`pdf_render::separation`,
+        // ADR 1329).
+        let beside = list.separation().filter(|_| list.blending().is_none());
+        if beside.is_some() {
+            pdf_render::separation_matte(pixmap.data_mut());
         }
         // The same clause for a space of one component that reaches the device through a
         // curve (`CalGray`, an `ICCBased` 'GRAY' profile): the page composited its component
@@ -352,6 +350,13 @@ impl Rasterizer for CpuRasterizer {
         // is applied at the same point. See `pdf_render::blending::ColourCube`.
         if let Some(cube) = list.colour_cube() {
             pdf_render::resolve_cube(pixmap.data_mut(), cube);
+        }
+        // And the spot planes multiplied into the device colour the process separation became —
+        // steps b) to d), before the medium as the pair's are.
+        if let Some(separation) = beside {
+            let spots = self.spot_planes(separation, target)?;
+            let spots: Vec<&[u8]> = spots.iter().map(tiny_skia::Pixmap::data).collect();
+            pdf_render::resolve_separation_over_device(pixmap.data_mut(), &spots, separation);
         }
 
         // §11.4.7's page group is isolated, so the medium's colour is composited with the
@@ -470,6 +475,33 @@ const PIXEL_PASS_ROWS: usize = 64;
 const MIN_STRIP_ROWS: u32 = 64;
 
 impl CpuRasterizer {
+    /// ISO 32000-2 §10.8.3's spot planes drawn, one raster each, for steps b) to d) to multiply
+    /// in (`pdf_render::separation`, ADRs 1317 and 1329). Each plane is a page of its own for
+    /// `check_group_blit`'s budget.
+    ///
+    /// # Errors
+    ///
+    /// As [`CpuRasterizer::encode`], and an allocation refused.
+    fn spot_planes(
+        &self,
+        separation: &pdf_render::SpotSeparation,
+        target: TargetSpec,
+    ) -> Result<Vec<tiny_skia::Pixmap>, CpuRasterError> {
+        let mut spots = Vec::with_capacity(separation.planes().len());
+        for plane in separation.planes() {
+            pdf_render::check_group_blit(plane, target)?;
+            let mut raster = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
+                CpuRasterError::Allocation {
+                    width: target.width,
+                    height: target.height,
+                },
+            )?;
+            self.encode_in_strips(&mut raster, plane, target)?;
+            spots.push(raster);
+        }
+        Ok(spots)
+    }
+
     /// Draws the whole list into `pixmap`, in parallel where the page permits it exactly.
     ///
     /// # Why a strip is not simply a band

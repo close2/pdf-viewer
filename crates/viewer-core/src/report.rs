@@ -115,6 +115,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             "the press simulation had no plane for these spot inks, so they were drawn in their \
              alternate colours: {colourants}"
         ),
+        // Drawn, with each painting operation's inks simulated on their own rather than as one
+        // press prints them where two meet (§10.8.3; ADRs 1229, 1329).
+        Unsupported::SeparationGivenUp { reason } => format!(
+            "the press simulation could not separate this page, so each mark's inks were \
+             simulated on their own: {reason}"
+        ),
         // The second report whose subject is the file, and the first about the page as a whole:
         // everything above says a mark is missing or wrong, and this says the *sheet* the marks
         // were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389). The

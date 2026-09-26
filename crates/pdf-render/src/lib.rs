@@ -78,7 +78,10 @@ pub use paint::{
 };
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};
-pub use separation::{SpotColourant, SpotSeparation, resolve as resolve_separation};
+pub use separation::{
+    SpotColourant, SpotSeparation, matte as separation_matte, resolve as resolve_separation,
+    resolve_over_device as resolve_separation_over_device,
+};
 pub use shading::{
     ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MAX_PATCH_TRIANGLES, MeshRaster,
     Patch, PatchCorners, PatchMesh, Radial, RadialRaster, Ramp, Shading, ShadingKind,

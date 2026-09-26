@@ -58,17 +58,6 @@ read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMe
   which asks for fields under names this document has not got. Table 253's `/F` is no longer the
   residue — a template page in another file is asked of a host under `--remote-documents=` and
   copied whole, and no second `pdf_syntax::Document` reaches the interpreter (ADR 1239).
-- §10.8.3 (`partial`) — separation simulation. The control exists (ADR 1228) and all four steps are
-  executed: a page naming a spot colourant is interpreted once per plane of the simulated device
-  (ADRs 1281, 1311) and the CPU and `raster` backends multiply the planes' flat XYZ together and
-  convert the product to the screen, §11.7.4.2's Normal on the spot planes (ADR 1317); the GPU
-  backend refuses by name. What is left is one shape of page: a page whose group composites in one
-  or three components, or holds a group that does, is not separated and takes the four steps per
-  painting operation instead (ADR 1229) — 951 of the crawl's 8 517 spot pages, 875 of them because
-  the page group states `/DeviceRGB` or an `ICCBased` space. It is the model's, in
-  `Compositing::Grey`, `Calibrated` and `Additive`, which carry no spot colourant. Table 275's
-  requirement is met. §10.8.3 itself still requires nothing: its verb is a permission and its four
-  steps are a `should` conditional on performing one.
 
 ### 2. External-dependency-blocked — a crate release or an unheld specification
 

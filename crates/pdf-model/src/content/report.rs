@@ -427,6 +427,18 @@ pub enum Unsupported {
         /// The colourants, by name, as the file wrote them.
         colourants: String,
     },
+    /// §10.8.3's separation of a page naming a spot colourant, given up under a reader's request
+    /// for the simulation: the page is drawn with each painting operation simulated on its own
+    /// (ADR 1229) rather than as the press would print it.
+    ///
+    /// Raised only where a reader asked for the simulation and the page names a spot colourant,
+    /// and never for a page the separation is made for — so it counts the pages the simulation
+    /// is not the press on, each with the plane or the colourant that stopped it (trap 5,
+    /// ADR 1329).
+    SeparationGivenUp {
+        /// Which plane could not be made, or which colourant has no curve, and why.
+        reason: String,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.

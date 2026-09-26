@@ -1011,6 +1011,26 @@ impl DisplayList {
         self.separation = Some(Box::new(separation));
     }
 
+    /// States that this page is ISO 32000-2 §10.8.3's simulation of a press with spot inks whose
+    /// process separation is this list, in the space it already composites in — the device's, or
+    /// one of one or three components leaving by [`DisplayList::set_grey_curve`]'s curve or
+    /// [`DisplayList::set_colour_cube`]'s cube — and `separation` the spot planes beside it.
+    ///
+    /// §11.7.3 passes a spot colour through a group "with no colour conversions performed" and
+    /// leaves the group's process components to the group's space, so a page whose group is not a
+    /// press is separated this way rather than through [`DisplayList::set_separated`]'s pair. A
+    /// backend composites the list as it would any other, puts step b)'s matte under it with
+    /// [`crate::separation::matte`] **before** the curve or the cube, and multiplies each spot
+    /// colourant in with [`crate::separation::resolve_over_device`] after them, before the medium.
+    /// One that cannot refuses the list by [`DisplayList::separation`], for `set_separated`'s
+    /// reason. ADR 1329.
+    pub fn set_spot_planes(&mut self, separation: crate::separation::SpotSeparation) {
+        for plane in separation.planes() {
+            self.overprinting |= plane.overprinting;
+        }
+        self.separation = Some(Box::new(separation));
+    }
+
     /// §10.8.3's spot planes, where this page is a simulated press's.
     #[must_use]
     pub fn separation(&self) -> Option<&crate::separation::SpotSeparation> {
@@ -1142,15 +1162,41 @@ impl DisplayList {
     /// §8.7.3.1 moves 12.8% of the page's pixels with the two digests equal (ADR 1080).
     #[must_use]
     pub fn geometry_digest(&self) -> u64 {
+        self.digest(true)
+    }
+
+    /// [`DisplayList::geometry_digest`] without what a group converts its colours through: the
+    /// structure ISO 32000-2 §11.7.3 requires every plane of a separated page to share.
+    ///
+    /// > Only a single shape value and opacity value shall be maintained at each point in the
+    /// > computed group results; they shall apply to both process and spot colour components.
+    ///
+    /// A group compositing in a space of its own converts its process components out of it and
+    /// its spot components not at all — "the spot colour passes directly through the group
+    /// hierarchy to the device, with no colour conversions performed" — so the process plane's
+    /// command carries a [`GroupBlending`] and the spot plane's the same command without one.
+    /// That is a difference in colour and not in shape, and this is the digest that says so;
+    /// everything [`DisplayList::geometry_digest`] hashes besides is hashed here too (ADR 1329).
+    #[must_use]
+    pub fn shape_digest(&self) -> u64 {
+        self.digest(false)
+    }
+
+    /// The two digests above, with or without each group's conversion.
+    fn digest(&self, conversions: bool) -> u64 {
         let mut hasher = std::hash::DefaultHasher::new();
         self.clips.len().hash(&mut hasher);
         self.soft_masks.len().hash(&mut hasher);
-        Self::hash_commands(&self.commands, &mut hasher);
+        Self::hash_commands(&self.commands, conversions, &mut hasher);
         hasher.finish()
     }
 
     /// [`DisplayList::geometry_digest`] over one level of commands, recursing into groups.
-    fn hash_commands(commands: &[Command], hasher: &mut std::hash::DefaultHasher) {
+    fn hash_commands(
+        commands: &[Command],
+        conversions: bool,
+        hasher: &mut std::hash::DefaultHasher,
+    ) {
         commands.len().hash(hasher);
         for command in commands {
             std::mem::discriminant(command).hash(hasher);
@@ -1164,18 +1210,20 @@ impl DisplayList {
                 Command::Group {
                     commands, blending, ..
                 } => {
-                    Self::hash_commands(commands, hasher);
+                    Self::hash_commands(commands, conversions, hasher);
                     // The pair's second list is part of the geometry too: a group whose
                     // halves diverged structurally would be resolved against a shape that
                     // never drew it, exactly the failure this digest exists to catch.
-                    blending.is_some().hash(hasher);
-                    if let Some(black) = blending.as_deref().and_then(GroupBlending::black) {
-                        Self::hash_commands(black, hasher);
+                    if conversions {
+                        blending.is_some().hash(hasher);
+                        if let Some(black) = blending.as_deref().and_then(GroupBlending::black) {
+                            Self::hash_commands(black, conversions, hasher);
+                        }
                     }
                 }
                 Command::Shaped { object, shape, .. } => {
-                    Self::hash_commands(std::slice::from_ref(object.as_ref()), hasher);
-                    Self::hash_commands(std::slice::from_ref(shape.as_ref()), hasher);
+                    Self::hash_commands(std::slice::from_ref(object.as_ref()), conversions, hasher);
+                    Self::hash_commands(std::slice::from_ref(shape.as_ref()), conversions, hasher);
                 }
                 _ => {}
             }

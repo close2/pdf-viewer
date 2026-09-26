@@ -302,7 +302,9 @@ together by steps b) to d): each plane over the white matte, to flat XYZ through
 colourant's own separation, multiplied, and converted to the screen — so LogoGreen overprinting
 yellow comes out the product of the two inks rather than whichever was painted last. A spot plane
 composites under Normal where §11.7.4.2 forbids the mode, the GPU backend refuses the page by name,
-and an ink past the sixteen planes is named on the page's report (ADR 1317).
+and an ink past the sixteen planes is named on the page's report (ADR 1317). A page whose group composites in one
+or three components is separated the same way, its spot inks passing through the group untouched and
+its process colours composited in the group's own space (ADR 1329).
 
 **§10.5's transfer function reaches the screen, and it is applied where §11.7.5.2 says.** The
 clause chooses the function at a pixel by the topmost object whose shape there is nonzero, so the

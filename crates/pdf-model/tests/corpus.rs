@@ -1012,6 +1012,10 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         Unsupported::LimitReached { .. } | Unsupported::SpotColourantsWithoutAPlane { .. } => {
             (Whose::NeitherOne, "a bound this program set")
         }
+        Unsupported::SeparationGivenUp { .. } => (
+            Whose::ThisReader,
+            "§10.8.3's separation given up, the page simulated per painting operation",
+        ),
         Unsupported::TextKnockout { .. }
         | Unsupported::CompositedInParts { .. }
         | Unsupported::TransparencyGroup { .. }

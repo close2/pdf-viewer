@@ -192,6 +192,31 @@ impl Compositing {
 /// What [`Compositing::spots`] answers for a run that carries no spot plane.
 static NO_SPOTS: DeviceSpots = DeviceSpots(None);
 
+impl Compositing {
+    /// [`Compositing::paint`] on a run whose device carries `spots` beside whatever this
+    /// composites in.
+    ///
+    /// A subtractive run carries its spot colourants itself, and every other run with none is the
+    /// ordinary paint; what is left is a run compositing in one or three components on a page §10.8.3
+    /// separates, whose process components a spot colour does not reach (§11.7.3's first bullet,
+    /// `DeviceSpots::paint_process`). One discriminant test on every run a backend draws.
+    #[inline]
+    #[must_use]
+    pub fn paint_beside(
+        &self,
+        spots: &DeviceSpots,
+        space: &ColourSpace,
+        values: &[f32],
+        rendering: Rendering,
+        generation: Option<&BlackGeneration>,
+    ) -> Color {
+        if spots.is_empty() || matches!(self, Self::Subtractive(..) | Self::Luminosity(_)) {
+            return self.paint(space, values, rendering, generation);
+        }
+        spots.paint_process(self, space, values, rendering, generation)
+    }
+}
+
 impl PartialEq for Compositing {
     fn eq(&self, other: &Self) -> bool {
         self.key() == other.key() && self.spots() == other.spots()
@@ -300,23 +325,54 @@ struct SpotSet {
     beyond: Vec<Name>,
     /// The simulated device's own press, whose process colourants a `Separation` named `Cyan`
     /// may paint directly — §11.7.3 allows it only where "the group inherits the native colour
-    /// space of the output device".
-    device: PressIdentity,
+    /// space of the output device". `None` where the run composites in a space that is not that
+    /// press's: a page or group whose `/CS` is one or three components, where the same clause
+    /// has such a space "converted to its alternate colour space" (ADR 1329).
+    device: Option<PressIdentity>,
 }
 
 impl DeviceSpots {
     /// The spot colourants `names` given planes on a device whose process colourants are
     /// `device`'s, with `beyond` the ones past the bound. No names at all is no spot plane.
+    ///
+    /// `device` is `None` where what is being composited is not the device's native space — a
+    /// page whose group states a `/CS` of one or three components — so that no process name is
+    /// available to a `Separation` or `DeviceN` anywhere on it (§11.7.3, ADR 1329).
     #[must_use]
-    pub fn new(names: Vec<Name>, beyond: Vec<Name>, device: &Press) -> Self {
+    pub fn new(names: Vec<Name>, beyond: Vec<Name>, device: Option<&Press>) -> Self {
         if names.is_empty() && beyond.is_empty() {
             return Self(None);
         }
         Self(Some(Arc::new(SpotSet {
             names,
             beyond,
-            device: device.identity,
+            device: device.map(|press| press.identity),
         })))
+    }
+
+    /// The same colourants inside a group that does not inherit the device's native colour
+    /// space, where no process name is available any longer.
+    ///
+    /// §11.7.3: "within a transparency group, this should be done only if the group inherits
+    /// the native colour space of the output device … If any other colour space has been
+    /// specified for the group, the Separation or DeviceN colour space shall be converted to its
+    /// alternate colour space." A spot plane passes through such a group unconverted, so it is
+    /// drawn in the plane's own compositing — and this is what keeps its answer about a
+    /// `DeviceN` naming `Cyan` beside a spot colourant the process plane's answer (ADR 1329).
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §11.7.3 verbatim, and a quotation may not gain backticks"
+    )]
+    #[must_use]
+    pub fn outside_native(&self) -> Self {
+        match &self.0 {
+            Some(set) if set.device.is_some() => Self(Some(Arc::new(SpotSet {
+                names: set.names.clone(),
+                beyond: set.beyond.clone(),
+                device: None,
+            }))),
+            _ => self.clone(),
+        }
     }
 
     /// Whether the device has no spot colourant at all, which is every run but a simulation's.
@@ -399,6 +455,43 @@ impl DeviceSpots {
         tints: Option<[f32; 4]>,
         nonzero_mode: bool,
     ) -> Option<[bool; 3]> {
+        let native = self.0.as_ref()?.native(press);
+        self.overprint_on(plane, native, space, tints, nonzero_mode)
+    }
+
+    /// [`DeviceSpots::overprint`] on the process components of a run that composites in one or
+    /// three components rather than in a press: which of its three channels keep the backdrop.
+    ///
+    /// The same two bullets. The first is conditioned on "the current colour space and group
+    /// colour space [being] both DeviceCMYK", which such a group's never is, so a component is
+    /// kept exactly where the mark specifies no process component at all — a `Separation` or
+    /// `DeviceN` painting spot colourants alone, Table 146's "Separation or DeviceN" row under
+    /// either overprint mode — and every channel is the mark's otherwise, because a process
+    /// colour converted into the group's space specifies every one of its components. The
+    /// answer's `None`-ness is the spot planes' answer for the same mark, so every plane of the
+    /// page is one structure (ADR 1329).
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §11.7.3 verbatim, and a quotation may not gain backticks"
+    )]
+    #[must_use]
+    pub fn overprint_beside(&self, space: &ColourSpace) -> Option<[bool; 3]> {
+        let chromatic = self.overprint_on(Plane::Chromatic, false, space, None, false)?;
+        let black = self.overprint_on(Plane::Black, false, space, None, false)?;
+        let unspecified = chromatic.iter().all(|kept| *kept) && black.iter().all(|kept| *kept);
+        Some([unspecified; 3])
+    }
+
+    /// [`DeviceSpots::overprint`] with the question of whether the run composites in the device's
+    /// native colour space already answered.
+    fn overprint_on(
+        &self,
+        plane: Plane,
+        native: bool,
+        space: &ColourSpace,
+        tints: Option<[f32; 4]>,
+        nonzero_mode: bool,
+    ) -> Option<[bool; 3]> {
         let set = self.0.as_ref()?;
         let mut space = space;
         for _ in 0..MAX_DEPTH {
@@ -409,7 +502,7 @@ impl DeviceSpots {
                 _ => break,
             }
         }
-        let reached = set.named(space, press);
+        let reached = set.named(space, native);
         let process: [bool; 4] = match &reached {
             Named::All | Named::Nothing => return None,
             Named::Direct(names) => PROCESS_COLOURANTS
@@ -482,6 +575,67 @@ impl DeviceSpots {
         };
         set.reach(plane, press, space, values, rendering, generation, 0)
     }
+
+    /// §11.7.3's paint of one colour on the process components of a run that composites in one
+    /// or three components — a `/DeviceRGB`, `/DeviceGray`, `CalGray`, `CalRGB` or `ICCBased`
+    /// group or page — where the device carries spot colourants beside them.
+    ///
+    /// > A spot colour retains its own identity; it shall not be subject to conversion to or from
+    /// > the colour space of the enclosing transparency group or page.
+    ///
+    /// So a colour whose space paints spot colourants alone paints the group's process components
+    /// with "an additive value of 1.0", which is white in every one of the four spaces this is
+    /// asked for, and its spot colourants reach their planes as they would anywhere; an
+    /// `NChannel` space paints Table 71's process components converted into the group's space;
+    /// and every other colour is `into`'s own paint. No process name is available here —
+    /// "[i]f any other colour space has been specified for the group, the Separation or DeviceN
+    /// colour space shall be converted to its alternate colour space" — so a space naming one
+    /// reverts whole, as it does on the spot planes beside this one (ADR 1329).
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §11.7.3 verbatim, and a quotation may not gain backticks"
+    )]
+    fn paint_process(
+        &self,
+        into: &Compositing,
+        space: &ColourSpace,
+        values: &[f32],
+        rendering: Rendering,
+        generation: Option<&BlackGeneration>,
+    ) -> Color {
+        let Some(set) = &self.0 else {
+            return into.paint(space, values, rendering, generation);
+        };
+        let (stated, stated_values) = (space, values);
+        let mut space = space;
+        let mut values = std::borrow::Cow::Borrowed(values);
+        for _ in 0..=MAX_DEPTH {
+            match space {
+                ColourSpace::Indexed { base, .. } => {
+                    values = std::borrow::Cow::Owned(space.entry_of(&values));
+                    space = base;
+                }
+                ColourSpace::Pattern { base: Some(base) } => space = base,
+                _ => break,
+            }
+        }
+        match set.named(space, false) {
+            Named::Direct(_) | Named::PerComponent { process: None, .. } => Color {
+                a: space.to_rgb_under(&values, rendering).a,
+                ..Color::rgb(1.0, 1.0, 1.0)
+            },
+            Named::PerComponent {
+                process: Some(process),
+                ..
+            } => Color {
+                a: space.to_rgb_under(&values, rendering).a,
+                ..into.paint(process, &values, rendering, generation)
+            },
+            Named::All | Named::Nothing | Named::Process => {
+                into.paint(stated, stated_values, rendering, generation)
+            }
+        }
+    }
 }
 
 #[expect(
@@ -505,13 +659,19 @@ impl SpotSet {
     /// group, this should be done only if the group inherits the native colour space of the
     /// output device … If any other colour space has been specified for the group, the
     /// Separation or DeviceN colour space shall be converted to its alternate colour space."
-    fn available(&self, names: &[Name], press: &Press) -> bool {
+    fn available(&self, names: &[Name], native: bool) -> bool {
         names.iter().all(|name| {
             let bytes = name.as_bytes();
             bytes == b"None"
                 || self.names.contains(name)
-                || (PROCESS_COLOURANTS.contains(&bytes) && press.identity == self.device)
+                || (native && PROCESS_COLOURANTS.contains(&bytes))
         })
+    }
+
+    /// Whether a run compositing in `press` composites in the device's native colour space,
+    /// which is where a process name is available (§11.7.3).
+    fn native(&self, press: &Press) -> bool {
+        self.device == Some(press.identity)
     }
 
     /// What a space's colour paints on this device, by which colourants the space names.
@@ -519,11 +679,11 @@ impl SpotSet {
     /// Asked of a space that is not `Indexed` or a pattern space: those two name their colourants
     /// through their base, and [`SpotSet::reach`] and [`DeviceSpots::overprint`] look through
     /// them first (§8.6.6.3, §8.7.3.3, and §11.7.4.3 NOTE 2 for the overprint question).
-    fn named<'s>(&self, space: &'s ColourSpace, press: &Press) -> Named<'s> {
+    fn named<'s>(&self, space: &'s ColourSpace, native: bool) -> Named<'s> {
         match space {
             ColourSpace::AllColourants => Named::All,
             ColourSpace::NoColourant { .. } => Named::Nothing,
-            ColourSpace::Separation { names, .. } if self.available(names, press) => {
+            ColourSpace::Separation { names, .. } if self.available(names, native) => {
                 Named::Direct(names)
             }
             ColourSpace::Simulated {
@@ -600,7 +760,7 @@ impl SpotSet {
             _ => {}
         }
         let tint = |index: usize| channel(values.get(index).copied().unwrap_or(0.0));
-        match self.named(space, press) {
+        match self.named(space, self.native(press)) {
             Named::All => {
                 let all = channel(values.first().copied().unwrap_or(1.0));
                 self.on_plane(plane, [all; 4], |_| all)
@@ -1584,6 +1744,11 @@ pub struct Conversion {
     /// who asks for the simulation and gets it on fills but not on images has been given two
     /// pages at once. ADR 1229.
     separations: Separations,
+    /// The spot colourants §10.8.3's simulated device carries beside a target that is not a
+    /// press, which an image's samples, a shading's ramp and a mesh's vertices must leave off the
+    /// group's process components as a fill does (§11.7.3, ADR 1329). Empty on every conversion
+    /// a backend draws unseparated.
+    spots: DeviceSpots,
 }
 
 /// What distinguishes one [`Conversion`] from another, for the caches keyed on one.
@@ -1597,6 +1762,7 @@ type ConversionKey<'a> = (
     Option<u128>,
     Option<usize>,
     Separations,
+    &'a DeviceSpots,
 );
 
 impl Conversion {
@@ -1612,6 +1778,7 @@ impl Conversion {
                 .as_ref()
                 .map(BlackGeneration::identity),
             self.separations,
+            &self.spots,
         )
     }
 
@@ -1630,6 +1797,7 @@ impl Conversion {
             output_intent: None,
             black_generation: None,
             separations: Separations::Alternate,
+            spots: DeviceSpots(None),
         }
     }
 
@@ -1688,6 +1856,7 @@ impl Conversion {
             output_intent: self.output_intent.clone(),
             black_generation: self.black_generation.clone(),
             separations: self.separations,
+            spots: self.spots.clone(),
         }
     }
 
@@ -1726,17 +1895,30 @@ impl Conversion {
         self.separations
     }
 
+    /// The same conversion on a run whose simulated device carries `spots` beside its target
+    /// (`Compositing::paint_beside`). `pdf_model::content` is the only caller.
+    #[must_use]
+    pub fn beside(mut self, spots: DeviceSpots) -> Self {
+        self.spots = spots;
+        self
+    }
+
     /// §10.4.2.4's pair this conversion carries, if the state stated one.
     #[must_use]
     pub fn black_generation(&self) -> Option<&BlackGeneration> {
         self.black_generation.as_deref()
     }
 
-    /// The colour `values` become, through [`Compositing::paint`].
+    /// The colour `values` become, through [`Compositing::paint_beside`].
     #[must_use]
     pub fn paint(&self, space: &ColourSpace, values: &[f32]) -> Color {
-        self.into
-            .paint(space, values, self.rendering, self.black_generation())
+        self.into.paint_beside(
+            &self.spots,
+            space,
+            values,
+            self.rendering,
+            self.black_generation(),
+        )
     }
 }
 

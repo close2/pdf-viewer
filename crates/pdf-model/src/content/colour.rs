@@ -123,7 +123,7 @@ impl Interpreter<'_> {
             space,
             values,
             state.rendering(),
-            &self.compositing,
+            (&self.compositing, &self.spots_beside),
             state.black_generation(),
         )
     }
@@ -157,6 +157,7 @@ impl Interpreter<'_> {
         Conversion::new(self.compositing.clone(), rendering)
             .under_output_intent(self.output_intent.as_ref())
             .under_separations(self.separations())
+            .beside(self.spots_beside.clone())
     }
 
     /// §10.8.3's separation simulation as the reader of this interpretation asked for it.
@@ -220,10 +221,17 @@ impl Interpreter<'_> {
     ///
     /// So on a spot plane the group's `/CS` changes nothing — the plane is composited through it
     /// as it stands, which is `None` here — and on a process plane the group's own space is
-    /// [`Interpreter::group_compositing`]'s answer, carrying the spot colourants with it. Where
-    /// that answer is a space no spot colourant can be carried through, a process plane of the
-    /// group would paint the group's spot marks in their alternate as well as on their own
-    /// planes, so the run records the departure and the page's separation is not made from it.
+    /// [`Interpreter::group_compositing`]'s answer, whatever its component count: the device's
+    /// spot colourants ride beside it on [`Interpreter::spots_beside`], so a spot mark inside a
+    /// `/DeviceRGB` group paints the group's process components white and its own plane its tint
+    /// (ADR 1329).
+    ///
+    /// **What the group does change on a spot plane is which names are the device's.** §11.7.3
+    /// has a `Separation` or `DeviceN` naming a process colourant revert "[i]f any other colour
+    /// space has been specified for the group", and the process plane asks that of the group's
+    /// space; the spot plane, drawing the same group in its own compositing, is told the same
+    /// answer through [`crate::colour::DeviceSpots::outside_native`], so a `DeviceN` naming
+    /// `Cyan` beside a spot colourant reverts on every plane or on none.
     pub(super) fn spot_group_compositing(
         &mut self,
         group: &super::transparency::TransparencyGroup,
@@ -232,15 +240,20 @@ impl Interpreter<'_> {
         changed: bool,
     ) -> Option<Compositing> {
         if self.on_a_spot_plane() {
+            if self
+                .group_compositing(group, resources, rendering, changed)
+                .is_some()
+                && let Compositing::Subtractive(plane, press, spots) = &self.compositing
+            {
+                self.compositing = Compositing::Subtractive(
+                    *plane,
+                    std::sync::Arc::clone(press),
+                    spots.outside_native(),
+                );
+            }
             return None;
         }
-        let own = self.group_compositing(group, resources, rendering, changed);
-        if !self.compositing.spots().is_empty()
-            && own.as_ref().is_some_and(|own| own.spots().is_empty())
-        {
-            self.nested_space_departed = true;
-        }
-        own
+        self.group_compositing(group, resources, rendering, changed)
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
@@ -557,15 +570,17 @@ fn reverts_to_cmyk(space: &ColourSpace) -> bool {
 /// - The three weights sum to 1.0, so the grey of a grey is that grey.
 ///
 /// One line, because the decision is `crate::colour`'s: an image's samples and a shading's
-/// ramp take the same route and there is one function for all three (ADR 0220).
+/// ramp take the same route and there is one function for all three (ADR 0220). `into` is what
+/// is composited into and the spot colourants §10.8.3's simulated device carries beside it
+/// (`Compositing::paint_beside`, ADR 1329).
 pub(super) fn convert(
     space: &ColourSpace,
     values: &[f32],
     rendering: Rendering,
-    into: &Compositing,
+    (into, spots): (&Compositing, &crate::colour::DeviceSpots),
     generation: Option<&BlackGeneration>,
 ) -> Color {
-    into.paint(space, values, rendering, generation)
+    into.paint_beside(spots, space, values, rendering, generation)
 }
 
 /// Reads the colour space the output intent in force for this page describes.

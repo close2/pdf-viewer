@@ -754,7 +754,8 @@ and no pixel moves.
 
 ## A plane per spot ink, which is the other half of §10.8.3's step a)
 
-**All four stages are built** (ADRs 1281, 1311, 1317). §10.8.2's worked example needs a
+**All four stages are built, on every page whatever its group composites in** (ADRs 1281, 1311,
+1317, 1329). §10.8.2's worked example needs a
 buffer per colourant: two spot inks over one area cannot combine while a spot reverts to the group's
 four process components as it is painted (§11.7.3). The shape follows ADR 0262's two rasters for
 four process components — §11.3.4 composites per component and a raster holds three, so `S` spot
@@ -808,13 +809,22 @@ with the construction its pair already uses, one more whole render per plane. `r
 separated page by name and the CPU backend draws it. `tests/spot_press.rs` holds the pixels against
 hand-worked values.
 
-**What is left:**
+**What the residue built — a group that is not a press** (ADR 1329). §11.7.3 passes a spot colour
+through "the enclosing transparency group or page" whatever its space, so a page whose group is
+`/DeviceRGB`, `/DeviceGray`, `CalGray`, `CalRGB` or `ICCBased` is separated too: its process
+separation is the page in its own space, where a spot mark paints the components white
+(`Compositing::paint_beside`, the run's `Interpreter::spots_beside`), and the list carries the spot
+planes beside it (`DisplayList::set_spot_planes`); the matte goes under it in its own components
+before its curve or cube and the planes are multiplied in after (`separation::matte`,
+`resolve_over_device`). No process name is the device's on such a page or inside such a group on a
+spot plane (`DeviceSpots::outside_native`). The spot planes are held to the process plane by
+`DisplayList::shape_digest`, so a group drawn in a space of its own no longer gives a page up; a run
+in the simulated press takes its four components as the space in force; a press that cannot hold a
+group inside a device page gives way to the device's components; a colourant whose own space does
+not parse has no plane; and a separation still given up is on the page's report
+(`Unsupported::SeparationGivenUp`). `examples/spot_depth --separate` names each.
 
-- **Beside the stages, in the model.** A page whose group composites in one or three components, or
-  holds a group that does, is not separated: `Compositing::Grey`, `Calibrated` and `Additive` carry
-  no spot colourant, and a group of one of them inside a separated page gives the separation up
-  rather than paint its spot marks twice. A group in a press of its own inside a separated page gives
-  it up too, on the geometry digest: the process plane's group carries its conversion out and the
-  spot plane's does not. An image's samples or a shading's ramp in a colourant past the bound revert
-  unnamed; the name is asked per painting operator of a path, a show-text operator and an image
-  mask, for the parts each paints.
+**What is left:** an image's samples or a shading's ramp in a colourant past the sixteen planes
+revert unnamed — the name is asked per painting operator of a path, a show-text operator and an
+image mask, and an image's or a shading's own space is parsed in `crate::image` and
+`crate::shading`, past the interpreter. Only a page naming more than forty-eight colourants reaches it.

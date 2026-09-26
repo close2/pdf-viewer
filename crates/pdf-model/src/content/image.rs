@@ -51,6 +51,7 @@ impl Interpreter<'_> {
         // gives: Table 87's `/ColorSpace` is parsed in `crate::image`, after this point.
         Conversion::new(self.compositing.clone(), state.rendering_under(intent))
             .under_output_intent(self.output_intent.as_ref())
+            .beside(self.spots_beside.clone())
     }
 
     /// Starts decoding the page's images ahead of the `Do`s that draw them, where there is a

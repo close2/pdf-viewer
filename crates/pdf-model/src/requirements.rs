@@ -314,10 +314,11 @@ impl Kind {
             // `ViewState`'s separation simulation (ADR 1228), and a requirement executed under a
             // control a host supplies is executed (`doc/questions/A100`) — and what the request
             // reaches is all four steps: a page naming a spot colourant is separated into a plane
-            // per ink (ADR 1311) and drawn by multiplying the planes' flat XYZ (ADR 1317), and one
-            // painting operation's colourants take the same steps where a page is not separated
-            // (ADR 1229). The GPU backend refuses a separated page by name and the CPU backend
-            // draws it, which is the job `CLAUDE.md` keeps that backend for.
+            // per ink (ADR 1311), whatever its group composites in (ADR 1329), and drawn by
+            // multiplying the planes' flat XYZ (ADR 1317); where a page's separation is given up
+            // its report says so and one painting operation's colourants take the same steps (ADR
+            // 1229). The GPU backend refuses a separated page by name and the CPU backend draws
+            // it, which is the job `CLAUDE.md` keeps that backend for.
             Self::OcAutoStates
             | Self::Navigation
             | Self::Encryption

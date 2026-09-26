@@ -1448,15 +1448,38 @@ fn simulated_fill(extra: &str, operands: &str) -> (u8, u8, u8) {
     simulated_fill_on(extra, operands, "")
 }
 
-/// [`simulated_fill`] on a page whose group names `DeviceRGB`, which §10.8.3's page-scale
-/// separation does not make (ADR 1311 section 6): the four steps are then run over the colourants
-/// the one painting operation states, which is ADR 1229's route by itself.
+/// The colour one painting operation in `/Sep` takes under the simulation where no page-scale
+/// separation carries it — ADR 1229's route by itself: the space parsed as §10.8.3's simulation
+/// reads it and converted, the four steps run over the colourants that one operation states.
+///
+/// Every page naming a readable spot colourant is separated since ADR 1329, and a page whose
+/// separation is given up says so on its report; this is the route such a page and a soft mask's
+/// group take, asked of the conversion directly rather than of a page contrived to give up.
 fn unseparated_fill(extra: &str, operands: &str) -> (u8, u8, u8) {
-    simulated_fill_on(
+    let bytes = pdf_with(
         extra,
-        operands,
-        "/Group << /S /Transparency /CS /DeviceRGB >>",
+        "/ColorSpace << /Sep 5 0 R >>",
+        &format!("/Sep cs {operands} scn 0 0 20 20 re f"),
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let space = document.resolve(&pdf_syntax::Object::Reference(pdf_syntax::ObjectId::new(
+        5, 0,
+    )));
+    let space = pdf_model::colour::ColourSpace::parse_under(
+        &document,
+        &space,
+        &pdf_syntax::Dictionary::new(),
+        pdf_model::colour::Reading::new(None)
+            .under_separations(pdf_model::colour::Separations::Simulated),
     )
+    .expect("the fixture's space parses");
+    let values: Vec<f32> = operands
+        .split_whitespace()
+        .map(|value| value.parse().expect("a number"))
+        .collect();
+    let colour = space.to_rgb(&values);
+    let level = |channel: f32| (channel.clamp(0.0, 1.0) * 255.0).round() as u8;
+    (level(colour.r), level(colour.g), level(colour.b))
 }
 
 /// A fill in `/Sep` under the simulation, with `page` extra page-dictionary entries.

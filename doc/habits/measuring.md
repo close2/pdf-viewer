@@ -599,3 +599,9 @@ pixel to it: the redacted arc was within one step of §8.4.3.3's semicircle whil
 stroker was eight off, so a byte comparison with the oracle would have called the correct output a
 regression (ADR 1324). And a plant must hit the step that differs — premultiplying a stencil at upload
 changes nothing because its alpha is 0 or 255; only the shader's multiply failed the test.
+
+## 51. A census's residue is fixed by its named causes and checked file by file, not by a second walk
+
+Round 1246's one walk split the 951 unseparated pages into two causes; both were built, and the
+named files were then opened by hand — one walk, not two, on a machine where a walk is the cost
+(ADR 1329).

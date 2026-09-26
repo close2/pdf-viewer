@@ -494,6 +494,28 @@ fn write_list(
             write_blending_space(writer, space);
             write_list(writer, black, false, budget.saturating_sub(writer.len()))?;
         }
+        // §10.8.3's simulated press on a page whose group composites in one or three components:
+        // the list is its own process separation, in the device's components or leaving by a
+        // curve or a cube, and the spot planes ride beside it (`DisplayList::set_spot_planes`,
+        // ADR 1329). One shape per way out, each followed by the separation.
+        (true, None, None, curve, cube) if list.separation().is_some() => {
+            match (curve, cube) {
+                (Some(curve), _) => {
+                    writer.u8(6);
+                    write_grey_curve(writer, curve);
+                }
+                (None, Some(cube)) => {
+                    writer.u8(7);
+                    write_colour_cube(writer, cube);
+                }
+                (None, None) => {
+                    writer.u8(5);
+                }
+            }
+            if let Some(separation) = list.separation() {
+                write_separation(writer, separation, budget)?;
+            }
+        }
         // §11.4.7's one-component form: the curve the composited component leaves by.
         (true, None, None, Some(curve), _) => {
             writer.u8(2);
@@ -1321,12 +1343,23 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
         list.push(command);
     }
 
+    read_blending(reader, &mut list, page)?;
+    Ok(list)
+}
+
+/// The page's blending shape [`write_list`] wrote after its commands — §11.4.7's pair, curve or
+/// cube, and §10.8.3's separation beside the pair or beside the list alone — put on `list`.
+fn read_blending(
+    reader: &mut Reader<'_>,
+    list: &mut DisplayList,
+    page: bool,
+) -> Result<(), ProtocolError> {
     match reader.u8("a page's blending space")? {
         0 => {}
         // The pair, the curve and the cube are three shapes of one statement — §11.4.7's
         // space is the *page's* — so the companion list may carry none of them, nor §10.8.3's
         // separation, which is the pair with spot planes beside it.
-        1..=4 if !page => {
+        1..=7 if !page => {
             return Err(ProtocolError::Unbuildable {
                 what: "a blending space",
                 why: "the companion list carrying the black component states one of its own",
@@ -1345,6 +1378,20 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
         }
         2 => list.set_grey_curve(read_grey_curve(reader)?),
         3 => list.set_colour_cube(read_colour_cube(reader)?),
+        5 => {
+            let separation = read_separation(reader)?;
+            list.set_spot_planes(separation);
+        }
+        6 => {
+            list.set_grey_curve(read_grey_curve(reader)?);
+            let separation = read_separation(reader)?;
+            list.set_spot_planes(separation);
+        }
+        7 => {
+            list.set_colour_cube(read_colour_cube(reader)?);
+            let separation = read_separation(reader)?;
+            list.set_spot_planes(separation);
+        }
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "a page's blending space",
@@ -1352,7 +1399,7 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
             });
         }
     }
-    Ok(list)
+    Ok(())
 }
 
 /// The clip table, rebuilt in the message's own order.
@@ -2634,6 +2681,25 @@ mod tests {
         let back = decode(&bytes).expect("what this encoder wrote");
         assert_eq!(back, list);
         assert_eq!(back.separation(), Some(&separation));
+
+        // And the three shapes of a page whose group composites in one or three components, the
+        // list its own process separation (ADR 1329): on the device's components, leaving by a
+        // curve, and leaving by a cube.
+        let curve = GreyCurve::new(Arc::from(vec![[0.0; 3], [0.5; 3], [1.0; 3]]))
+            .expect("three samples is a curve");
+        for way_out in 0..3 {
+            let mut own = plane(0.5);
+            match way_out {
+                1 => own.set_grey_curve(curve.clone()),
+                2 => own.set_colour_cube(cube(0.75)),
+                _ => {}
+            }
+            own.set_spot_planes(separation.clone());
+            let bytes = encode(&own).expect("a list with no deferred producer");
+            let back = decode(&bytes).expect("what this encoder wrote");
+            assert_eq!(back, own, "way out {way_out}");
+            assert_eq!(back.separation(), Some(&separation));
+        }
 
         // A spot plane that itself states a separation is refused on the way in: `write_list`
         // never writes one, so only a hostile message can.

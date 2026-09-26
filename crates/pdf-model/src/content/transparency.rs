@@ -304,6 +304,18 @@ pub(super) struct Departure {
 }
 
 impl Departure {
+    /// §10.8.3's simulated device's own four components, for a run that composites in its press
+    /// on a page stating no blending space: a group inside naming `/DeviceCMYK` then inherits
+    /// "the native colour space of the output device" (§11.7.3) rather than changing the space
+    /// in force, which is what drawing it in that press already does (ADR 1329).
+    pub(super) fn simulated_press() -> Self {
+        Self {
+            name: "/DeviceCMYK".to_owned(),
+            components: 4,
+            identity: None,
+        }
+    }
+
     /// Whether the space is CIE-based.
     fn calibrated(&self) -> bool {
         self.identity.is_some()
@@ -2840,11 +2852,12 @@ impl Interpreter<'_> {
             }
             // The device's spot colourants go into the group with it: §11.7.3's first bullet
             // has the group "maintain a separate colour value for each spot colour component,
-            // independently of the group's colour space" (ADR 1311).
+            // independently of the group's colour space" — the run's, so that a press inside a
+            // group of one or three components still carries them (ADRs 1311, 1329).
             return Some(Compositing::Subtractive(
                 crate::colour::Plane::Chromatic,
                 press,
-                self.compositing.spots().clone(),
+                self.spots_beside.clone(),
             ));
         }
         if let Some(own) = self.group_own_space(group, resources) {
@@ -2885,7 +2898,7 @@ impl Interpreter<'_> {
             return None;
         }
         let rewind = self.readback_mark();
-        let spots = self.compositing.spots().clone();
+        let spots = self.spots_beside.clone();
         let saved = std::mem::replace(
             &mut self.compositing,
             Compositing::Subtractive(crate::colour::Plane::Black, Arc::clone(press), spots),
@@ -3086,6 +3099,33 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Puts a soft mask's group's compositing in force, with no spot colourant beside it —
+    /// §11.7.3: "spot colours shall not be available in a transparency group XObject that is used
+    /// to define a soft mask; the alternate colour space shall always be substituted in that
+    /// case" — and hands back what was in force, for [`Interpreter::leave_mask_compositing`].
+    #[expect(
+        clippy::doc_markdown,
+        reason = "the paragraph quotes §11.7.3 verbatim, and a quotation may not gain backticks"
+    )]
+    fn enter_mask_compositing(
+        &mut self,
+        compositing: Compositing,
+    ) -> (Compositing, crate::colour::DeviceSpots) {
+        (
+            std::mem::replace(&mut self.compositing, compositing),
+            std::mem::take(&mut self.spots_beside),
+        )
+    }
+
+    /// Restores what [`Interpreter::enter_mask_compositing`] handed back.
+    fn leave_mask_compositing(
+        &mut self,
+        (compositing, spots): (Compositing, crate::colour::DeviceSpots),
+    ) {
+        self.compositing = compositing;
+        self.spots_beside = spots;
+    }
+
     /// Evaluates a soft mask's transparency group and registers it (§11.5, §11.6.5.1).
     ///
     /// Returns `None` when the group draws nothing at all, which §11.5.2's NOTE 2 makes a
@@ -3208,8 +3248,9 @@ impl Interpreter<'_> {
         // this tree's two routes answers that space. A mask group nested inside another one
         // may name a different space, so this is saved and restored like `uncoloured` rather
         // than set once.
-        let saved_compositing =
-            std::mem::replace(&mut self.compositing, request.compositing.clone());
+        // And no spot colourant reaches a mask's group, whatever it composites in (§11.7.3, ADR
+        // 1329): `Interpreter::spots_beside`.
+        let saved_compositing = self.enter_mask_compositing(request.compositing.clone());
         // And §11.6.6's blending space stops being a departure in here, which is ADR 0220's
         // finding rather than a simplification: a mask group whose space is subtractive is
         // painted in the ink §10.4.2.3 weighs, that weighting is linear in the components, and
@@ -3303,7 +3344,7 @@ impl Interpreter<'_> {
         self.enclosing_knockout = saved_backdrop;
         self.blending_changed = saved_change;
         self.blending = saved_blending;
-        self.compositing = saved_compositing;
+        self.leave_mask_compositing(saved_compositing);
         self.uncoloured = saved_uncoloured;
         self.soft_mask_depth = self.soft_mask_depth.saturating_sub(1);
 
@@ -3691,9 +3732,11 @@ impl Interpreter<'_> {
         // time the `Do` operator is applied to the group". §11.6.6 has already reset the
         // group's own parameters on `inner`, so `inner` is the wrong state to ask — and the
         // parameters this names are not among the ones it resets in any case.
+        // Saved first: on a spot plane the question below may narrow what the group's content
+        // resolves colours in without drawing the group in a space of its own (ADR 1329).
+        let saved = self.compositing.clone();
         let own = self.spot_group_compositing(group, resources, outer.rendering(), changed);
         let own_space = own.is_some();
-        let saved = self.compositing.clone();
         // Scoped only where the group is being drawn in a space of its own: everywhere else
         // the record has to propagate *up* to whatever such run this group may be inside.
         let saved_departed = if own_space {

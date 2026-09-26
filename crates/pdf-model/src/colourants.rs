@@ -111,6 +111,9 @@ pub struct SpotColourants {
     names: Vec<Name>,
     /// Where each colourant's appearance is stated, index for index with `names`.
     sources: Vec<Source>,
+    /// The colourants [`SpotColourants::readable`] took out because the space stating their
+    /// appearance does not parse: given no plane, and named where a mark paints one.
+    unreadable: Vec<Name>,
 }
 
 /// The colour space a spot colourant's appearance is read from: ISO 32000-2 §10.8.3 step b)'s
@@ -180,12 +183,50 @@ impl SpotColourants {
 
     /// The simulated device these colourants describe, beside `press`'s process colourants: the
     /// first [`MAX_SPOT_COLOURANTS`] with a plane each and the rest named as having none.
+    ///
+    /// `press` is `None` for a page whose group composites in one or three components, where
+    /// §11.7.3 makes no process colourant of the device available to a `Separation` or `DeviceN`
+    /// (ADR 1329).
+    /// A colourant [`SpotColourants::readable`] took out has no plane either, and is named with
+    /// the ones past the bound.
     #[must_use]
-    pub fn device(&self, press: &Press) -> DeviceSpots {
+    pub fn device(&self, press: Option<&Press>) -> DeviceSpots {
         let (within, beyond) = self
             .names
             .split_at(self.names.len().min(MAX_SPOT_COLOURANTS));
-        DeviceSpots::new(within.to_vec(), beyond.to_vec(), press)
+        let mut beyond = beyond.to_vec();
+        beyond.extend(self.unreadable.iter().cloned());
+        DeviceSpots::new(within.to_vec(), beyond, press)
+    }
+
+    /// The same colourants less every one whose [`Source`] space does not parse under `reading`,
+    /// which step b) cannot convert because the file states no appearance for it — a
+    /// `Separation` whose tint transform is not the function §8.6.6.4 requires, say.
+    ///
+    /// Such a space is no colour space to the interpreter either: a mark set in it is painted in
+    /// the space `set_colour_space` substitutes and reported there, so no mark paints the
+    /// colourant through it. The colourant keeps no plane rather than taking the page's separation
+    /// with it, and a mark reaching it through some other space reverts and is named, as one past
+    /// the bound is (ADR 1329).
+    pub(crate) fn readable(
+        &self,
+        document: &Document,
+        resources: &Dictionary,
+        reading: Reading<'_>,
+    ) -> Self {
+        let mut readable = Self::default();
+        for (name, source) in self.names.iter().zip(&self.sources) {
+            let space = match source {
+                Source::Separation(space) | Source::DeviceN { space, .. } => space,
+            };
+            if ColourSpace::parse_under(document, space, resources, reading).is_some() {
+                readable.names.push(name.clone());
+                readable.sources.push(source.clone());
+            } else {
+                readable.unreadable.push(name.clone());
+            }
+        }
+        readable
     }
 
     /// How many planes a page naming these colourants is separated into: the process planes and

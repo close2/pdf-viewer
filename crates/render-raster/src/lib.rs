@@ -365,9 +365,14 @@ impl Rasterizer for QuorraRasterizer {
         // composited components leave through a cube — the same way
         // (`pdf_render::blending::ColourCube`).
         let three_components = list.colour_cube();
+        // §10.8.3 on a page whose group composites in one or three components: the list is its
+        // own process separation and the spot planes are multiplied into it after the curve or
+        // the cube, as the CPU backend does over its own rasters (ADR 1329).
+        let beside = list.separation().filter(|_| four_components.is_none());
         if four_components.is_some()
             || one_component.is_some()
             || three_components.is_some()
+            || beside.is_some()
             || self.medium.marks_anything()
             || crop.is_some()
         {
@@ -386,26 +391,28 @@ impl Rasterizer for QuorraRasterizer {
                     // The same pass the CPU backend runs over its own rasters, so the two cannot
                     // answer the clause apart (trap 2).
                     Some(separation) => {
-                        let mut spots = Vec::with_capacity(separation.planes().len());
-                        for plane in separation.planes() {
-                            let mut plane_cost = FrameCost::default();
-                            let drawn = self.render(plane, target, &mut plane_cost);
-                            self.last.add(plane_cost);
-                            let mut raster = drawn?;
-                            premultiply(&mut raster);
-                            spots.push(raster);
-                        }
+                        let spots = self.spot_planes(separation, target)?;
                         let spots: Vec<&[u8]> = spots.iter().map(Vec::as_slice).collect();
                         pdf_render::resolve_separation(&mut data, &ink, &spots, space, separation);
                     }
                     None => pdf_render::resolve_blending(&mut data, &ink, space),
                 }
             }
+            // Step b)'s matte under the list in its own components, before the curve or the cube
+            // takes it out of them (`pdf_render::separation::matte`).
+            if beside.is_some() {
+                pdf_render::separation_matte(&mut data);
+            }
             if let Some(curve) = one_component {
                 pdf_render::resolve_grey(&mut data, curve);
             }
             if let Some(cube) = three_components {
                 pdf_render::resolve_cube(&mut data, cube);
+            }
+            if let Some(separation) = beside {
+                let spots = self.spot_planes(separation, target)?;
+                let spots: Vec<&[u8]> = spots.iter().map(Vec::as_slice).collect();
+                pdf_render::resolve_separation_over_device(&mut data, &spots, separation);
             }
             // The page's own ink is cut where §14.11.2.1 says it stops, before anything is put
             // under it: the crop is about what the page may show, and a pass that ran after the
@@ -464,6 +471,31 @@ impl Rasterizer for QuorraRasterizer {
 }
 
 impl QuorraRasterizer {
+    /// ISO 32000-2 §10.8.3's spot planes, each one more whole render against the same device as
+    /// the black plane is, read back premultiplied for steps b) to d) to multiply in
+    /// (`pdf_render::separation`, ADRs 1317 and 1329) — the same pass the CPU backend runs over
+    /// its own rasters, so the two cannot answer the clause apart (trap 2).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::render`].
+    fn spot_planes(
+        &mut self,
+        separation: &pdf_render::SpotSeparation,
+        target: TargetSpec,
+    ) -> Result<Vec<Vec<u8>>, QuorraRasterError> {
+        let mut spots = Vec::with_capacity(separation.planes().len());
+        for plane in separation.planes() {
+            let mut plane_cost = FrameCost::default();
+            let drawn = self.render(plane, target, &mut plane_cost);
+            self.last.add(plane_cost);
+            let mut raster = drawn?;
+            premultiply(&mut raster);
+            spots.push(raster);
+        }
+        Ok(spots)
+    }
+
     /// One display list through the device, as straight-alpha RGBA8 with no medium under it.
     ///
     /// Separate from [`Rasterizer::rasterize`] because §11.4.7's four-component page is two

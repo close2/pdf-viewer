@@ -37,12 +37,12 @@
 //! > colour space, even where the actual or simulated output device is not CMYK.
 //!
 //! Every other cell of Table 146 gives `C_s` in all three of its columns and is therefore the
-//! Normal blend function, which is what this tree composites through. The three spot-colourant
-//! rows are unreachable because the group's components are four process ones and no spot
-//! colourant is maintained beside them; the `Separation` and `DeviceN` rows are unreachable
-//! because §11.7.3 requires such a space to revert inside a group that states its own space —
-//! "[i]f any other colour space has been specified for the group, the Separation or DeviceN
-//! colour space shall be converted to its alternate colour space".
+//! Normal blend function, which is what this tree composites through. On a page no reader asked
+//! §10.8.3's simulation of, the three spot-colourant rows and the `Separation` and `DeviceN` rows
+//! are unreachable because no spot colourant is maintained beside the group's components and a
+//! colour naming one reverts as it is painted. Under the simulation the device has spot planes,
+//! and every row is reached: on a press by `pdf_colour::colour::DeviceSpots::overprint`, and on a
+//! group of one or three components by `DeviceSpots::overprint_beside` (ADRs 1311, 1329).
 //!
 //! **Reverting is what puts such a space in the first row rather than outside the table.**
 //! §11.7.4.3's NOTE 2 makes the current colour space of a space "that revert[s] to [its]
@@ -191,7 +191,10 @@ impl Interpreter<'_> {
         } else {
             state.overprint_filling
         };
-        if !enabled || !matches!(self.compositing, Compositing::Subtractive(..)) {
+        if !enabled
+            || (!matches!(self.compositing, Compositing::Subtractive(..))
+                && self.spots_beside.is_empty())
+        {
             return state.blend;
         }
         self.special_overprint(state, stroking)
@@ -201,7 +204,7 @@ impl Interpreter<'_> {
     #[inline(never)]
     fn special_overprint(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
         let Compositing::Subtractive(half, _, spots) = &self.compositing else {
-            return state.blend;
+            return self.spot_overprint_beside(state, stroking);
         };
         let half = *half;
         if !spots.is_empty() {
@@ -272,6 +275,31 @@ impl Interpreter<'_> {
         }
         let Some(kept) = spots.overprint(*plane, press, space, tints, state.overprint_mode == 1)
         else {
+            return state.blend;
+        };
+        self.list.note_overprinting();
+        BlendMode::Overprint(Overprint::new(kept))
+    }
+
+    /// [`Interpreter::special_overprint`] on a run compositing in one or three components beside
+    /// §10.8.3's spot planes: the process plane of a page or group whose `/CS` is not a press.
+    ///
+    /// §11.7.4.3's second bullet, "𝐶𝑠 for all colour components specified in the current colour
+    /// space, otherwise 𝐶𝑏", read on the group's own components — which Table 146's "Separation or
+    /// DeviceN" row leaves to the backdrop under either overprint mode where the mark paints spot
+    /// colourants alone. `pdf_colour::colour::DeviceSpots::overprint_beside` states it, and its
+    /// `None`-ness is the spot planes' for the same mark, so every plane is one structure
+    /// (ADR 1329).
+    fn spot_overprint_beside(&mut self, state: &GraphicsState, stroking: bool) -> BlendMode {
+        let (patterned, space) = if stroking {
+            (state.stroke_pattern.is_some(), &state.stroke_space)
+        } else {
+            (state.fill_pattern.is_some(), &state.fill_space)
+        };
+        if patterned {
+            return state.blend;
+        }
+        let Some(kept) = self.spots_beside.overprint_beside(space) else {
             return state.blend;
         };
         self.list.note_overprinting();

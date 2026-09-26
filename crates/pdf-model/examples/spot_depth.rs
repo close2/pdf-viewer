@@ -21,8 +21,10 @@
 //!
 //! `--separate` also interprets every page naming a spot colourant under the reader's request for
 //! the simulation and counts the pages §10.8.3's separation is made for against the pages it is
-//! given up on (ADR 1311 section 6), naming each of the second — the population a page falls back
-//! from the press to one painting operation's simulation on (ADR 1317).
+//! given up on, naming each of the second with the reason its report gives
+//! (`Unsupported::SeparationGivenUp`, ADR 1329) — the population a page falls back from the press
+//! to one painting operation's simulation on (ADR 1317). A page given up with no such report is
+//! printed as a defect, because the report is what makes the fallback loud.
 
 #![expect(
     clippy::print_stdout,
@@ -69,7 +71,9 @@ fn main() {
     let mut documents_with_spots = 0_usize;
     let mut largest: Vec<(usize, String, usize)> = Vec::new();
     let mut separated = 0_usize;
-    let mut given_up: Vec<(String, usize)> = Vec::new();
+    let mut given_up: Vec<(String, usize, String)> = Vec::new();
+    // How many pages each reason gave up, for the split the record prints.
+    let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
 
     for path in paths {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -101,18 +105,11 @@ fn main() {
                 if interpretation.separation.is_some() {
                     separated = separated.saturating_add(1);
                 } else {
-                    // Which of the two shapes ADR 1311 section 6 names: a page group stating a
-                    // `/CS` that is not four components, or something inside the page.
-                    let group = document.get_key(&page.dict, "Group");
-                    let space = group
-                        .as_dict()
-                        .map(|group| document.get_key(group, "CS"))
-                        .filter(|space| !space.is_null())
-                        .map_or_else(
-                            || "inside the page".to_owned(),
-                            |space| format!("{space:?}"),
-                        );
-                    given_up.push((format!("{name} ({space})"), index.saturating_add(1)));
+                    let reason = given_up_reason(&interpretation);
+                    let kind = kind_of(&reason);
+                    let counter = reasons.entry(kind).or_default();
+                    *counter = counter.saturating_add(1);
+                    given_up.push((name.clone(), index.saturating_add(1), reason));
                 }
             }
         }
@@ -137,8 +134,39 @@ fn main() {
             "  separated under the simulation: {separated}; given up: {}",
             given_up.len()
         );
-        for (name, page) in &given_up {
-            println!("  given up: page {page} of {name}");
+        for (reason, pages) in &reasons {
+            println!("  {pages} page(s): {reason}");
+        }
+        for (name, page, reason) in &given_up {
+            println!("  given up: page {page} of {name}: {reason}");
         }
     }
+}
+
+/// The sentence the page's report gives for the separation it gave up, or a defect where it gives
+/// none, because the report is what makes the fallback loud (ADR 1329).
+fn given_up_reason(interpretation: &pdf_model::Interpretation) -> String {
+    interpretation
+        .unsupported
+        .iter()
+        .find_map(|report| match report {
+            pdf_model::Unsupported::SeparationGivenUp { reason } => Some(reason.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "DEFECT: given up with no report".to_owned())
+}
+
+/// A reason with the plane's number taken out, so that the split counts kinds rather than planes.
+fn kind_of(reason: &str) -> String {
+    reason
+        .split(' ')
+        .map(|word| {
+            if word.chars().all(|c| c.is_ascii_digit()) {
+                "N"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
