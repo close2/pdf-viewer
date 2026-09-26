@@ -29,13 +29,15 @@
 //!
 //! # The third group, which is not a restriction
 //!
-//! Below the two scopes sits one act a *document* asks this *machine* to do: sending a form
-//! (§12.7.6.2). Its four levels are `crate::policy::Submissions` — `refuse`, `ask`, `warn`, `send`,
-//! the direction ADR 1155 spelled for links — and they are here because the owner put the level on
-//! this menu (`doc/questions/Q98`): it is global, like the window's own levels, and a person who
-//! opens the menu to see what a document may do to them should find what it may do *from* their
-//! machine beside it. It sends no command, because the viewer never decides it: the level is read
-//! by `crate::policy::may_submit` in the host and nowhere else (ADR 1291).
+//! Below the two scopes sit the acts a *document* asks this *machine* to do: sending a form
+//! (§12.7.6.2), whose four levels are `crate::policy::Submissions` — `refuse`, `ask`, `warn`,
+//! `send`, the direction ADR 1155 spelled for links — and opening a file a URI's fragment names
+//! inside the document (§O.2.1's `ef`), whose four are `crate::policy::EmbeddedDocuments`. They
+//! are here because the owner put the first on this menu (`doc/questions/Q98`) and the second is
+//! the same kind of act: global, like the window's own levels, and a person who opens the menu to
+//! see what a document may do to them should find what it may do *with* their machine beside it.
+//! Neither sends a command, because the viewer never decides either: each level is read by one
+//! function in `crate::policy` and nowhere else (ADRs 1291, 1331).
 //!
 //! # What a host still owns
 //!
@@ -45,7 +47,7 @@
 //! `pdf-transform` makes for a pipe with `Refusal::Unanswered` and the one [`crate::unanswerable`]
 //! makes for a face with no dialogue at all.
 
-use crate::policy::Submissions;
+use crate::policy::{EmbeddedDocuments, OPENING_EMBEDDED, Submissions};
 use pdf_model::restriction::{Level, Operation};
 use viewer_core::{
     Command, RestrictionLevel, RestrictionOverride, RestrictionPolicy, RestrictionScope,
@@ -74,6 +76,8 @@ pub enum Subject {
     Document,
     /// §12.7.6.2's submission, which would leave this machine.
     Submission,
+    /// §O.2.1's `ef`, which would open a file carried inside the document.
+    Embedded,
 }
 
 impl Subject {
@@ -85,6 +89,7 @@ impl Subject {
             Self::Link => "Open this link?",
             Self::Document => "Open this document?",
             Self::Submission => "Send this form?",
+            Self::Embedded => "Open this embedded document?",
         }
     }
 }
@@ -140,8 +145,74 @@ pub const MACHINE: &str = "What a document may ask this machine to do";
 /// restrictions — the permissive end last — is said by their words, `refuse` to `send`.
 pub const MACHINE_NOTE: &str = "for every document in this window";
 
-/// The one act under [`MACHINE`], and the name the sentences about its level use.
+/// The first act under [`MACHINE`], and the name the sentences about its level use.
 pub const SUBMITTING: &str = "sending a form";
+
+/// One of the acts under [`MACHINE`].
+///
+/// Closed, and **not** `#[non_exhaustive]`, for [`Scope`]'s reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    /// §12.7.6.2's submission — [`SUBMITTING`].
+    Submitting,
+    /// §O.2.1's `ef` — `crate::policy::OPENING_EMBEDDED`.
+    OpeningEmbedded,
+}
+
+impl Act {
+    /// Both, in the order the menu offers them.
+    pub const ALL: [Self; 2] = [Self::Submitting, Self::OpeningEmbedded];
+
+    /// The act's name, which heads its levels and begins the sentence about each.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Submitting => SUBMITTING,
+            Self::OpeningEmbedded => OPENING_EMBEDDED,
+        }
+    }
+
+    /// The clause, for a person who wants to know what the act is.
+    #[must_use]
+    pub const fn note(self) -> &'static str {
+        match self {
+            Self::Submitting => "ISO 32000-2 §12.7.6.2's submit-form action",
+            Self::OpeningEmbedded => "ISO 32000-2 §O.2.1's ef parameter",
+        }
+    }
+}
+
+/// A level of one act under [`MACHINE`].
+///
+/// Two enumerations rather than one, because the words differ where the acts do — a form is
+/// *sent*, a file is *opened* — and a level of one is never a level of the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActLevel {
+    /// A level of [`Act::Submitting`].
+    Submissions(Submissions),
+    /// A level of [`Act::OpeningEmbedded`].
+    EmbeddedDocuments(EmbeddedDocuments),
+}
+
+impl ActLevel {
+    /// Which act it is a level of.
+    #[must_use]
+    pub const fn act(self) -> Act {
+        match self {
+            Self::Submissions(_) => Act::Submitting,
+            Self::EmbeddedDocuments(_) => Act::OpeningEmbedded,
+        }
+    }
+
+    /// The word a person reads for it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Submissions(level) => level.as_str(),
+            Self::EmbeddedDocuments(level) => level.as_str(),
+        }
+    }
+}
 
 /// Which of a reader's two policies an entry sets.
 ///
@@ -246,29 +317,29 @@ pub enum Row {
         /// [`MACHINE_NOTE`].
         note: &'static str,
     },
-    /// The act under [`Row::Machine`] — [`SUBMITTING`], §12.7.6.2's submission.
+    /// One act under [`Row::Machine`] — [`Act::label`] and [`Act::note`].
     Act {
-        /// [`SUBMITTING`].
+        /// [`Act::label`].
         label: &'static str,
-        /// The clause, for a person who wants to know what the act is.
+        /// [`Act::note`].
         note: &'static str,
     },
-    /// A level of that act a person can choose.
-    Sending(SendingEntry),
+    /// A level of the act above it a person can choose.
+    ActLevel(ActEntry),
 }
 
-/// One of `crate::policy::Submissions`' four levels, with the tick a toolkit draws it from.
+/// One level of an act under [`MACHINE`], with the tick a toolkit draws it from.
 ///
 /// [`Entry`]'s shape, and a type of its own because what choosing it means is not a [`Chose`]: it
-/// sets a value the host reads, and sends the viewer nothing (ADR 1291).
+/// sets a value the host reads, and sends the viewer nothing (ADRs 1291, 1331).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SendingEntry {
-    /// `Submissions::as_str`'s word.
+pub struct ActEntry {
+    /// [`ActLevel::as_str`]'s word.
     pub label: &'static str,
     /// Whether this is the level that stands now.
     pub chosen: bool,
     /// The level choosing it sets.
-    pub level: Submissions,
+    pub level: ActLevel,
 }
 
 /// The words of one [`viewer_core::Event::Asking`], from [`asked`].
@@ -320,12 +391,16 @@ pub fn declined(operation: Operation) -> String {
     )
 }
 
-/// What a window says when a person picks a level of [`SUBMITTING`] out of the menu.
+/// What a window says when a person picks a level of an act under [`MACHINE`] out of the menu.
 ///
 /// [`chosen`]'s sentence, for its reason: the level a person just set has no appearance.
 #[must_use]
-pub fn sending_chosen(level: Submissions) -> String {
-    format!("{SUBMITTING} is now {} in this window", level.as_str())
+pub fn act_chosen(level: ActLevel) -> String {
+    format!(
+        "{} is now {} in this window",
+        level.act().label(),
+        level.as_str()
+    )
 }
 
 /// What a window says when a person picks a level out of the menu.
@@ -361,9 +436,19 @@ pub struct Restrictions {
     /// What §12.7.6.2's submission does on this machine — global, and `ask` until a person picks
     /// another (ADR 1291).
     submissions: Submissions,
+    /// What §O.2.1's `ef` does on this machine — global, and `ask` until a person picks another
+    /// (ADR 1331).
+    embedded: EmbeddedDocuments,
 }
 
 impl Restrictions {
+    /// The same, with one act's level where the command line named one.
+    #[must_use]
+    pub const fn with(mut self, level: ActLevel) -> Self {
+        self.set(level);
+        self
+    }
+
     /// A window at the levels its command line asked for, with no document departing from them.
     #[must_use]
     pub const fn new(window: RestrictionPolicy) -> Self {
@@ -371,6 +456,7 @@ impl Restrictions {
             window,
             document: RestrictionOverride::NONE,
             submissions: Submissions::Ask,
+            embedded: EmbeddedDocuments::Ask,
         }
     }
 
@@ -380,20 +466,38 @@ impl Restrictions {
         self.submissions
     }
 
-    /// Sets that level, which is what a [`Row::Sending`] comes to. Nothing is sent to the viewer:
-    /// the level is the host's to read (ADR 1291).
-    pub const fn send(&mut self, level: Submissions) {
-        self.submissions = level;
+    /// The level `crate::policy::may_open_extracted` is asked at — the one place a window reads
+    /// it.
+    #[must_use]
+    pub const fn embedded_documents(self) -> EmbeddedDocuments {
+        self.embedded
     }
 
-    /// The four levels of [`SUBMITTING`], and which of them stands.
+    /// Sets one act's level, which is what a [`Row::ActLevel`] comes to. Nothing is sent to the
+    /// viewer: the level is the host's to read (ADRs 1291, 1331).
+    pub const fn set(&mut self, level: ActLevel) {
+        match level {
+            ActLevel::Submissions(level) => self.submissions = level,
+            ActLevel::EmbeddedDocuments(level) => self.embedded = level,
+        }
+    }
+
+    /// The four levels of one act, and which of them stands.
     #[must_use]
-    pub fn sending_entries(self) -> Vec<SendingEntry> {
-        Submissions::ALL
+    pub fn act_entries(self, act: Act) -> Vec<ActEntry> {
+        let levels: [ActLevel; 4] = match act {
+            Act::Submitting => Submissions::ALL.map(ActLevel::Submissions),
+            Act::OpeningEmbedded => EmbeddedDocuments::ALL.map(ActLevel::EmbeddedDocuments),
+        };
+        let stands = match act {
+            Act::Submitting => ActLevel::Submissions(self.submissions),
+            Act::OpeningEmbedded => ActLevel::EmbeddedDocuments(self.embedded),
+        };
+        levels
             .into_iter()
-            .map(|level| SendingEntry {
+            .map(|level| ActEntry {
                 label: level.as_str(),
-                chosen: level == self.submissions,
+                chosen: level == stands,
                 level,
             })
             .collect()
@@ -440,7 +544,7 @@ impl Restrictions {
     }
 
     /// The menu, whole: two scopes, every operation in each, four levels each and one way back —
-    /// and then [`MACHINE`]'s one act and its four levels.
+    /// and then [`MACHINE`]'s acts and four levels each.
     ///
     /// Built on demand rather than held, because it is a function of two values a host already
     /// has and because a window that built it at startup would have built it before anything
@@ -468,11 +572,13 @@ impl Restrictions {
             label: MACHINE,
             note: MACHINE_NOTE,
         });
-        rows.push(Row::Act {
-            label: SUBMITTING,
-            note: "ISO 32000-2 §12.7.6.2's submit-form action",
-        });
-        rows.extend(self.sending_entries().into_iter().map(Row::Sending));
+        for act in Act::ALL {
+            rows.push(Row::Act {
+                label: act.label(),
+                note: act.note(),
+            });
+            rows.extend(self.act_entries(act).into_iter().map(Row::ActLevel));
+        }
         rows
     }
 
@@ -491,7 +597,7 @@ impl Restrictions {
             .into_iter()
             .filter_map(|row| match row {
                 Row::Scope { label, .. } | Row::Machine { label, .. } => Some(label),
-                Row::Operation { .. } | Row::Level(_) | Row::Act { .. } | Row::Sending(_) => None,
+                Row::Operation { .. } | Row::Level(_) | Row::Act { .. } | Row::ActLevel(_) => None,
             })
             .collect()
     }

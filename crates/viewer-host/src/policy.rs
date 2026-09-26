@@ -1179,6 +1179,8 @@ pub struct Settings {
     pub links: Links,
     /// What §12.6.4.3's remote go-to does ([`REMOTE_DOCUMENTS`]).
     pub remote_documents: RemoteDocuments,
+    /// What §O.2.1's `ef` does ([`EMBEDDED_DOCUMENTS`]).
+    pub embedded_documents: EmbeddedDocuments,
     /// Whether §10.8.3's separation simulation is asked for ([`SEPARATIONS`]).
     pub separations: bool,
 }
@@ -1433,6 +1435,107 @@ pub fn remote_declined(purpose: Purpose, name: &str) -> String {
     )
 }
 
+/// The word a person types to say what this reader does when a URI's fragment names an embedded
+/// document.
+///
+/// [`REMOTE_DOCUMENTS`]' four words and direction, for the act [`EmbeddedDocuments`] governs. The
+/// menu's third group sets the same value while the window is up; the word is what a window is
+/// started at, as [`LINKS`] and [`REMOTE_DOCUMENTS`] are (ADR 1331).
+pub const EMBEDDED_DOCUMENTS: &str = "--embedded-documents=";
+
+/// Reads [`EMBEDDED_DOCUMENTS`]' word onto a level, or says what is wrong with it.
+///
+/// # Errors
+///
+/// The sentence to print, naming every word this option takes — [`links`]' shape.
+pub fn embedded_documents(word: &str) -> Result<EmbeddedDocuments, String> {
+    EmbeddedDocuments::parse(word).ok_or_else(|| {
+        format!(
+            "{EMBEDDED_DOCUMENTS}{word}: no such level. One of {}",
+            EmbeddedDocuments::ALL
+                .map(EmbeddedDocuments::as_str)
+                .join(", ")
+        )
+    })
+}
+
+/// What this reader does when §O.2.1's `ef` asks it to open an embedded document.
+///
+/// `CLAUDE.md` principle 3's four levels over the one decision [`may_open_extracted`] takes,
+/// spelled `refuse`, `ask`, `warn` and `open` — [`Links`]' words and [`Links`]' direction, because
+/// the subject is again this machine doing something a *document's* bytes asked for, so the
+/// permissive end is the one where the file is opened (ADR 1155).
+///
+/// **A value of its own rather than [`RemoteDocuments`] reused.** That level decides which PDFs
+/// *beside* the reader's own document on this disk are parsed; this one decides whether a file
+/// carried *inside* it is. A reader who let their documents cross-reference each other has said
+/// nothing about what a URI's fragment may unpack, and the annex attaches its caution to this act
+/// alone (ADR 1331).
+///
+/// **Global rather than per document**, [`Submissions`]' reason: what a reader decides here is a
+/// fact about the person, and it is set from the same group of the same menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmbeddedDocuments {
+    /// Open nothing: the fragment is declined and the file it named said out loud.
+    Refuse,
+    /// Put the file to the person first, and open it on a `yes`.
+    ///
+    /// **The default, and the argument is the one the owner ratified twice.** `doc/questions/A67`
+    /// kept [`Links::Ask`] and `doc/questions/A98` chose [`Submissions::Ask`] so that a person is
+    /// the one who decides: a document never reaches this machine by itself, and a reader is not
+    /// refused by their own viewer the act the clause describes. Here the clause is §O.2.1's
+    /// `shall` and its caution is the annex's own — a processor "may choose to prompt the user or
+    /// even prevent opening of the file" — and *ask* is the prompt, which is the one answer that
+    /// keeps both. A face with no dialogue answers it with [`unanswerable`] and opens nothing.
+    /// ADR 1331.
+    #[default]
+    Ask,
+    /// Open it, and say afterwards which file was opened and why nobody was asked.
+    Warn,
+    /// Open it without asking.
+    Open,
+}
+
+impl EmbeddedDocuments {
+    /// All four, in the order a person reads them: least permissive to most.
+    pub const ALL: [Self; 4] = [Self::Refuse, Self::Ask, Self::Warn, Self::Open];
+
+    /// The word a person reads for this level.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Ask => "ask",
+            Self::Warn => "warn",
+            Self::Open => "open",
+        }
+    }
+
+    /// The level a word names, or `None` for a word that names none.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.as_str() == word)
+    }
+}
+
+/// What a host does about one embedded document §O.2.1's `ef` named, under the level the reader
+/// set.
+///
+/// [`Opening`]'s four arms, for its reason: a policy with four levels answers in four ways, and a
+/// host matching three would have a level that silently behaved like another. Closed, and **not**
+/// `#[non_exhaustive]`, for `doc/ui-boundary.md`'s reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unpacking {
+    /// Open it now.
+    Open,
+    /// Open it now, and say this.
+    Warn(String),
+    /// Put this question to the person, and open it on a `yes`.
+    Ask(crate::restriction::Question),
+    /// Open nothing. The sentence says why.
+    Refuse(String),
+}
+
 /// Whether §7.11.4's extracted bytes may be **opened as a document** in this reader.
 ///
 /// **A different question from [`may_write_extracted`], and Annex O asks both of them.** ISO 32000-2
@@ -1443,28 +1546,92 @@ pub fn remote_declined(purpose: Purpose, name: &str) -> String {
 ///
 /// — and the caution second, about the same act: "[s]ecurity should be strongly considered when
 /// opening an embedded file … a PDF processor may choose to prompt the user or even prevent
-/// opening of the file."
+/// opening of the file." [`EmbeddedDocuments`] is that choice given to the reader: *ask* is the
+/// prompt, *refuse* the prevention, and *warn* and *open* the `shall` carried out with and
+/// without a sentence.
 ///
-/// **Both hosts' answers are `Ok` today, and that is a choice with a reason rather than a default.**
-/// Showing a file in this reader and writing it into somebody's directory are different acts with
-/// different costs: the first is what the `shall` above requires and stays inside a process that
-/// `CLAUDE.md`'s principle 3 gives no filesystem and no network, and the second leaves something
-/// behind on the machine after the window is closed. So the narrower policy is taken where it
-/// costs the annex nothing — the write — and the requirement is carried out where the annex states
-/// one.
-///
-/// It is a function rather than an `Ok(())` inlined at the call site for the reason `CLAUDE.md`'s
-/// principle 3 gives: the *policy* is asked once, in a place a host can supply, so that
-/// `doc/todo/38`'s *ask* and *warn* levels are a change here and nowhere else. ADR 0431.
-///
-/// # Errors
-///
-/// The sentence to say to the person, where the file is not to be opened. No level built today
-/// produces one.
-pub fn may_open_extracted(asked: Extraction) -> Result<(), String> {
-    match asked {
-        Extraction::Asked | Extraction::Fragment => Ok(()),
+/// **The one place the level is read**, for [`may_submit`]'s reason and ADR 1062's: the policy is
+/// asked once, in a place a host can supply, so three windows carry out one answer rather than
+/// wording three. A file a *person* asked for from the files panel is not under the level at all —
+/// the caution is about a sentence that is frequently not the reader's — so
+/// [`Extraction::Asked`] is opened at every level. ADR 1331.
+#[must_use]
+pub fn may_open_extracted(asked: Extraction, name: &str, level: EmbeddedDocuments) -> Unpacking {
+    if matches!(asked, Extraction::Asked) {
+        return Unpacking::Open;
     }
+    match level {
+        EmbeddedDocuments::Refuse => Unpacking::Refuse(embedded_note(
+            name,
+            Some(&format!(
+                "this reader is set to open no embedded document a URI names ({OPENING_EMBEDDED}: \
+                 {}); {} puts the file to you first (ISO 32000-2 §O.2.1)",
+                EmbeddedDocuments::Refuse.as_str(),
+                EmbeddedDocuments::Ask.as_str()
+            )),
+        )),
+        EmbeddedDocuments::Ask => Unpacking::Ask(asked_to_open_embedded(name)),
+        EmbeddedDocuments::Warn => Unpacking::Warn(format!(
+            "{} — it was opened without asking you first, because this reader is set to {} \
+             ({OPENING_EMBEDDED})",
+            embedded_note(name, None),
+            EmbeddedDocuments::Warn.as_str()
+        )),
+        EmbeddedDocuments::Open => Unpacking::Open,
+    }
+}
+
+/// The act [`EmbeddedDocuments`] governs, in the words the menu and the sentences use.
+pub const OPENING_EMBEDDED: &str = "opening an embedded document";
+
+/// What a window puts in front of a person at [`EmbeddedDocuments::Ask`].
+///
+/// [`asked_to_open`]'s two-string shape, for its reason. The name is the one the *document* filed
+/// the file under, whole, because it is the only thing a person can judge this by — and the first
+/// string says where the request came from, since §O.2.1's identifiers are "useful primarily when
+/// referring to them from external to the PDF".
+#[must_use]
+pub fn asked_to_open_embedded(name: &str) -> crate::restriction::Question {
+    crate::restriction::Question {
+        reasons: format!(
+            "The fragment of the URI this document was opened with asks to open {name:?}, a file \
+             carried inside it (ISO 32000-2 §O.2.1's ef). It would open in a tab of its own."
+        ),
+        choice: format!(
+            "You have set this reader to ask before {OPENING_EMBEDDED} ({}). \"{}\" opens this one \
+             and leaves the level where it is; \"{}\" leaves it unopened. Setting it to {} in the \
+             restrictions menu stops the question being asked, and {} stops such a file being \
+             opened at all.",
+            EmbeddedDocuments::Ask.as_str(),
+            crate::restriction::GO_AHEAD,
+            crate::restriction::DO_NOT,
+            EmbeddedDocuments::Open.as_str(),
+            EmbeddedDocuments::Refuse.as_str()
+        ),
+    }
+}
+
+/// What a host says about an embedded document §O.2.1's `ef` named, whether it opens or not.
+///
+/// [`uri_note`]'s shape, for its reason: a person is owed *what was named* rather than the word
+/// "declined".
+#[must_use]
+pub fn embedded_note(name: &str, refused: Option<&str>) -> String {
+    match refused {
+        Some(why) => format!("ef: declined — {why}. The fragment asked for {name:?}"),
+        None => format!("ef: {name:?}"),
+    }
+}
+
+/// What a host says when a person answered [`Unpacking::Ask`] with a no.
+///
+/// Said rather than passed over, [`answered`]'s reason one clause over.
+#[must_use]
+pub fn embedded_declined(name: &str) -> String {
+    embedded_note(
+        name,
+        Some(&format!("you answered \"{}\"", crate::restriction::DO_NOT)),
+    )
 }
 
 /// Whether §7.11.4's extracted bytes are a document §O.2.1's `ef` asks this reader to open.
@@ -1496,11 +1663,11 @@ pub fn opening_embedded(name: &str, fragment: Option<&str>) -> String {
 /// > that is not from a trusted source, a PDF processor may choose to prompt the user or even
 /// > prevent opening of the file.
 ///
-/// The annex attaches that to the one parameter whose effect is a *file* and to no other, and §O.1
-/// says why it is different from a click: a fragment identifier is "useful primarily when referring
-/// to them from external to the PDF such as a web page or web API", so the sentence that named the
-/// file is frequently not the reader's. [`Extraction`] is `viewer-core` saying which of the two
-/// happened; this is the one place the three hosts decide what to do about it.
+/// The annex attaches that to the one parameter whose effect is a *file* and to no other, and
+/// §O.2.1 says why it is different from a click: its identifiers are "useful primarily when
+/// referring to them from external to the PDF such as a web page or web API", so the sentence that
+/// named the file is frequently not the reader's. [`Extraction`] is `viewer-core` saying which of
+/// the two happened; this is the one place the three hosts decide what to do about it.
 ///
 /// **`prevent` rather than `prompt`, and it is a choice rather than a reading**: the annex offers
 /// both and none of these three hosts has a dialogue to prompt with, so the narrower of the two is

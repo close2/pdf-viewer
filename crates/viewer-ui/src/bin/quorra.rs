@@ -295,6 +295,7 @@ fn main() {
         restrictions,
         links,
         remote_documents,
+        embedded_documents,
         separations,
         trust_anchors,
         accept_unknown_revocation,
@@ -307,7 +308,8 @@ fn main() {
     // Copied rather than moved: the policy goes to the thread that opens the document *and* stays
     // with the window, which is what the menu edits and what the next document opened inherits
     // (ADR 1145).
-    let standing = viewer_host::Restrictions::new(restrictions);
+    let standing = viewer_host::Restrictions::new(restrictions)
+        .with(viewer_host::ActLevel::EmbeddedDocuments(embedded_documents));
     let policies = Policies {
         restrictions,
         trust_anchors,
@@ -368,7 +370,6 @@ fn main() {
             DOCUMENT,
             viewer_host::documents::label(std::path::Path::new(&path)),
         ),
-        reserved: None,
         // The command line's later documents wait here until page one is on the screen
         // (`CLAUDE.md` section 2): each goes behind the first, which is the one this launch is for.
         arrivals: {

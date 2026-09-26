@@ -793,6 +793,10 @@ pub(crate) struct Pending {
 impl Open {
     /// Opens a document and reads the three things every page turn would otherwise re-read.
     ///
+    /// `limits` are [`pdf_syntax::Limits::DEFAULT`] for a document a host named, and the source's
+    /// for one a §12.6.4.3 action reached and a person then unlocked, which is held to the bounds
+    /// of the document the action was in, as the jump made without a prompt is.
+    ///
     /// # Errors
     ///
     /// Whatever `pdf_syntax` says about the file, including §7.6.4.1's
@@ -801,10 +805,11 @@ impl Open {
     pub(crate) fn new(
         bytes: impl Into<pdf_syntax::FileBytes>,
         password: Option<&crate::Secret>,
+        limits: pdf_syntax::Limits,
     ) -> Result<Self, pdf_syntax::SyntaxError> {
         Ok(Self::around(Document::open_with_password(
             bytes,
-            pdf_syntax::Limits::DEFAULT,
+            limits,
             // The one call in this crate that reads a password, which is what
             // `Secret::reveal` is named to make visible at its call site. §7.6.4.1's default
             // user password is the empty string, so a document opened without one asks with it.

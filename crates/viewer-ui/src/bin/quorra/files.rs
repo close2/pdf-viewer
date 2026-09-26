@@ -54,11 +54,35 @@ impl App {
             self.write_extracted(asked, name, &bytes);
             return;
         }
-        // The other half of §O.2.1's row, asked once and in the place all three hosts ask it.
-        if let Err(refusal) = viewer_host::may_open_extracted(asked) {
-            println!("note: {refusal}");
-            return;
+        // The other half of §O.2.1's row, asked once and in the place all three hosts ask it, at
+        // the level the menu holds (ADR 1331).
+        match viewer_host::may_open_extracted(asked, name, self.restrictions.embedded_documents()) {
+            viewer_host::Unpacking::Open => self.open_embedded(document, name, bytes, fragment),
+            viewer_host::Unpacking::Warn(note) => {
+                println!("note: {note}");
+                self.open_embedded(document, name, bytes, fragment);
+            }
+            viewer_host::Unpacking::Refuse(why) => println!("note: {why}"),
+            viewer_host::Unpacking::Ask(question) => self.put_a_question(
+                crate::app::Pending::Embedded {
+                    document,
+                    name: name.to_owned(),
+                    bytes,
+                    fragment,
+                },
+                &question,
+            ),
         }
+    }
+
+    /// §O.2.1's embedded document, on its way to a tab of its own beside the one holding it.
+    pub(crate) fn open_embedded(
+        &mut self,
+        document: viewer_core::DocumentId,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    ) {
         println!(
             "note: {}",
             viewer_host::opening_embedded(name, fragment.as_deref())

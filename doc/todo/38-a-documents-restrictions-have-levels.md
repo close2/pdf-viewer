@@ -258,13 +258,13 @@ screen still takes the bar — that sentence is the reader asking rather than th
   `Command::Answer` — the one question whose `no` has something to undo, because a document held
   before it was processed was never opened — and `warn` opens it and says so afterwards. `off` is
   still the default. ADR 1167.
-- **Annex O's `ef`, which is the same four levels arriving from `doc/todo/39`.** "[S]ecurity should
-  be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
-  user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
-  operation (`Command::Extract`) that no document restricts today. The level exists now; what is
-  missing is `Operation` reaching that path at all. **The path is reached in all three windows**:
-  each opens the embedded document in a tab of its own through `viewer_host::may_open_extracted`
-  (ADR 1316), so the four levels are a change to that one function and to the menu's third group.
+- **Annex O's `ef` is the third group's second act**, `viewer_host::EmbeddedDocuments`: "[S]ecurity
+  should be strongly considered when opening an embedded file … a PDF processor may choose to
+  prompt the user or even prevent opening of the file", and the prompt is the ask level. It is not a
+  restriction — no document restricts opening its own attachment — but an act a document's bytes
+  ask of this machine, so its words are `refuse|ask|warn|open`, `ask` by default, read once by
+  `viewer_host::may_open_extracted`, global, set from the menu in all three windows and by
+  `--embedded-documents=`, and pinned to `refuse` in `quorra-confined` (ADR 1331).
 - **Every position of Table 22 that has a meaning reaches an operation**, since session 1183. Bit 3
   is `Operation::Print` — `pdf-transform`'s page render, and a window's own `Command::Print` since
   session 1171. Bit 11 is `Operation::Assemble`, consumed where assembling happens: `pdf-transform`'s
@@ -305,4 +305,5 @@ screen still takes the bar — that sentence is the reader asking rather than th
   levels are `viewer_host::Submissions`, `refuse`, `ask` (the default), `warn` and `send`, read once
   by `viewer_host::may_submit`, global, and set from the third group of this same menu in all three
   windows, *What a document may ask this machine to do*. No command-line word sets it. A URL outside
-  `http` and `https` is refused before the level is read (ADR 1291).
+  `http` and `https` is refused before the level is read (ADR 1291). §O.2.1's `ef` is the group's
+  second act, with levels of its own (ADR 1331).

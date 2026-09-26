@@ -158,6 +158,17 @@ enum Pending {
         /// Where `viewer_host::resolve_import` put it, which is what would be read.
         path: PathBuf,
     },
+    /// §O.2.1's embedded document, answered by opening it in a tab of its own (ADR 1331).
+    Embedded {
+        /// The document holding it.
+        document: DocumentId,
+        /// The name the document filed it under.
+        name: String,
+        /// Its bytes, out of the holding document.
+        bytes: Vec<u8>,
+        /// What followed `ef` in the fragment, which applies to it.
+        fragment: Option<String>,
+    },
 }
 
 /// Everything this window holds about the document **in front**, and nothing about the others.
@@ -247,11 +258,6 @@ pub struct Host {
     /// the `QTabBar` is hidden until then, so a window showing one document looks exactly as it
     /// did (ADR 1264).
     documents: viewer_host::Documents<Showing>,
-    /// A name held out to `viewer_core::Command::Beside`, and the file that would arrive under it.
-    ///
-    /// Set when this window offers a name for a document Table 203's `/NewWindow true` might open
-    /// beside the one showing, and taken on the `Event::Opened` that names it (ADR 1263).
-    reserved: Option<(DocumentId, PathBuf)>,
     /// The documents a reader named that are still to open beside this one — the command line's
     /// later paths and the files chosen with Ctrl + O — one at a time (`viewer_host::Arrivals`).
     arrivals: viewer_host::Arrivals,
@@ -504,7 +510,6 @@ impl Host {
             // One document, and the strip is hidden for it — the launch path opens exactly the
             // one document it always has, under exactly the name it always had (ADR 1264).
             documents: viewer_host::Documents::new(DOCUMENT, viewer_host::documents::label(path)),
-            reserved: None,
             arrivals: viewer_host::Arrivals::new(),
             prompting: DOCUMENT,
             arrival_due: false,
@@ -518,7 +523,9 @@ impl Host {
             warned: None,
             trace,
             widget_appearances,
-            restrictions: viewer_host::Restrictions::new(settings.restrictions),
+            restrictions: viewer_host::Restrictions::new(settings.restrictions).with(
+                viewer_host::ActLevel::EmbeddedDocuments(settings.embedded_documents),
+            ),
             links: settings.links,
             remote_documents: settings.remote_documents,
             submitter: viewer_host::submit::Submitter::new(),
@@ -1458,10 +1465,18 @@ impl Host {
     pub(crate) fn supply_password(&mut self, password: &str) {
         let document = self.prompting;
         match viewer_host::password::supplied(password.to_owned().into()) {
+            // The document the prompt was about, from its own bytes: one on its way to a tab —
+            // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
+            // or the first, which is the only other document a prompt is put about (ADR 1332).
             viewer_host::Supplied::Open(secret) if self.arrivals.is(document) => {
                 self.open_arriving(Some(secret));
             }
-            viewer_host::Supplied::Open(secret) => self.open_document(Some(secret)),
+            viewer_host::Supplied::Open(secret) if document == DOCUMENT => {
+                self.open_document(Some(secret));
+            }
+            viewer_host::Supplied::Open(_) => {
+                self.say(&viewer_host::documents::not_asked(document));
+            }
             viewer_host::Supplied::Cancelled => {
                 self.say(viewer_host::password::CANCELLED);
                 self.given_up(document);
@@ -1585,7 +1600,7 @@ impl Host {
                     if let Some(note) = note {
                         self.say(&note);
                     }
-                    self.offer_a_name(&path, queue);
+                    self.offer_a_name(&path, bytes.as_deref().unwrap_or_default(), queue);
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
             }
@@ -1639,6 +1654,7 @@ impl Host {
             Some(Pending::Link { .. }) => viewer_host::Subject::Link,
             Some(Pending::Submit { .. }) => viewer_host::Subject::Submission,
             Some(Pending::RemoteDocument { .. }) => viewer_host::Subject::Document,
+            Some(Pending::Embedded { .. }) => viewer_host::Subject::Embedded,
             Some(Pending::Restricted { .. }) | None => viewer_host::Subject::Restricted,
         };
         subject.title().to_owned()
@@ -1663,6 +1679,20 @@ impl Host {
             return;
         };
         match about {
+            // §O.2.1: the act is this host's own, so the answer decides whether the file opens
+            // at all (ADR 1331).
+            Pending::Embedded {
+                document,
+                name,
+                bytes,
+                fragment,
+            } => {
+                if proceed {
+                    self.open_embedded(document, &name, bytes, fragment);
+                } else {
+                    self.say(&viewer_host::embedded_declined(&name));
+                }
+            }
             Pending::Restricted {
                 document,
                 operation,
@@ -1713,7 +1743,7 @@ impl Host {
                     None
                 };
                 if bytes.is_some() {
-                    self.offer_a_name(&path, &mut queue);
+                    self.offer_a_name(&path, bytes.as_deref().unwrap_or_default(), &mut queue);
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
                 self.pump(queue.into());
@@ -1776,7 +1806,7 @@ impl Host {
                     note: String::new(),
                     chosen: entry.chosen,
                 },
-                viewer_host::Row::Sending(entry) => crate::bridge::ffi::QtMenuEntry {
+                viewer_host::Row::ActLevel(entry) => crate::bridge::ffi::QtMenuEntry {
                     depth: 2,
                     label: entry.label.to_owned(),
                     note: String::new(),
@@ -1794,10 +1824,11 @@ impl Host {
     pub(crate) fn chose_restriction(&mut self, entry: usize) {
         let picked = match self.restrictions.rows().get(entry).copied() {
             Some(viewer_host::Row::Level(picked)) => picked,
-            // §12.7.6.2's row sets a level this host reads and sends the viewer nothing (ADR 1291).
-            Some(viewer_host::Row::Sending(sending)) => {
-                self.restrictions.send(sending.level);
-                self.say(&viewer_host::sending_chosen(sending.level));
+            // An act's row sets a level this host reads and sends the viewer nothing (ADRs 1291,
+            // 1331).
+            Some(viewer_host::Row::ActLevel(act)) => {
+                self.restrictions.set(act.level);
+                self.say(&viewer_host::act_chosen(act.level));
                 return;
             }
             _ => return,
@@ -2413,9 +2444,14 @@ impl Host {
     /// **An offer rather than a request**, which is `viewer_core::Command::Beside`'s own shape:
     /// the name is used only where the action states the entry, and one this window offers and
     /// nothing opens under is simply skipped (ADR 1263).
-    fn offer_a_name(&mut self, path: &Path, queue: &mut VecDeque<Command>) {
-        let name = self.documents.reserve();
-        self.reserved = Some((name, path.to_owned()));
+    ///
+    /// The file waits beside the name in `viewer_host::Arrivals`, so that a document which opens
+    /// under it gets its tab and one that asks for §7.6.4.1's password is asked about as itself
+    /// (ADR 1332).
+    fn offer_a_name(&mut self, path: &Path, read: &[u8], queue: &mut VecDeque<Command>) {
+        let name = self
+            .arrivals
+            .offer(&mut self.documents, path.to_owned(), read);
         queue.push_back(Command::Beside(Some(name)));
     }
 
@@ -2424,18 +2460,12 @@ impl Host {
     /// A document a *reader* named arrives here too, under the name `viewer_host::Arrivals` reserved
     /// for it; what comes back is the tab to put in front again, for one named behind the first.
     fn opened_beside(&mut self, id: DocumentId) -> Option<DocumentId> {
-        let (path, behind, bytes) = if let Some(arriving) = self.arrivals.settle(id) {
-            let bytes = arriving.bytes();
-            (arriving.named.path, arriving.behind, bytes)
-        } else {
-            let (_, path) = self.reserved.take().filter(|(name, _)| *name == id)?;
-            // Read again rather than kept from the supply, because what this field is for is
-            // §7.6.4.1's second attempt with a password — and a document that opened without one
-            // will not need it. Opening on disk is what the launch path does with the first file
-            // (ADR 0809).
-            let bytes = pdf_syntax::FileBytes::on_disk(&path).map_err(|error| error.to_string());
-            (path, None, bytes)
-        };
+        let arriving = self.arrivals.settle(id)?;
+        let (path, behind, bytes) = (
+            arriving.named.path.clone(),
+            arriving.behind,
+            arriving.bytes(),
+        );
         let bytes = match bytes {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -2447,6 +2477,18 @@ impl Host {
             }
         };
         let label = viewer_host::documents::label(&path);
+        // §12.6.4.3's `/NewWindow false`, reached after §7.6.4.1's prompt: the document it was
+        // reached from is replaced in its own tab, so the tab and this window's fields become the
+        // new file's rather than a second tab being added (ADR 1332).
+        if self.documents.index_of(id).is_some() {
+            self.documents.relabel(id, label);
+            if id == self.documents.focused() {
+                self.showing = Showing::new(path, bytes, None);
+            }
+            self.documents_moved = true;
+            self.update.title = true;
+            return None;
+        }
         self.documents
             .add(id, label.clone(), Showing::new(path, bytes, None));
         // `Documents::focus` is what swaps this window's fields; the core has moved its own focus
@@ -3089,6 +3131,10 @@ impl Host {
 
     /// §7.6.4.1's prompt, for the document in front or for one on its way to a tab.
     fn password_required(&mut self, document: DocumentId) {
+        if !viewer_host::documents::may_ask_about(&mut self.arrivals, document, DOCUMENT) {
+            self.say(&viewer_host::documents::not_asked(document));
+            return;
+        }
         let (asked, about) = match self.arrivals.named_mut(document) {
             Some(arriving) => (
                 arriving.asking.required(),
@@ -3441,10 +3487,35 @@ impl Host {
             self.write_extracted(asked, name, &bytes);
             return;
         }
-        if let Err(refusal) = viewer_host::may_open_extracted(asked) {
-            self.say(&refusal);
-            return;
+        // §O.2.1's caution, under the level the menu holds: `viewer_host::may_open_extracted`
+        // decides, and this window carries out the answer and puts the question (ADR 1331).
+        match viewer_host::may_open_extracted(asked, name, self.restrictions.embedded_documents()) {
+            viewer_host::Unpacking::Open => self.open_embedded(document, name, bytes, fragment),
+            viewer_host::Unpacking::Warn(note) => {
+                self.say(&note);
+                self.open_embedded(document, name, bytes, fragment);
+            }
+            viewer_host::Unpacking::Refuse(why) => self.say(&why),
+            viewer_host::Unpacking::Ask(question) => self.put_the_question(
+                Pending::Embedded {
+                    document,
+                    name: name.to_owned(),
+                    bytes,
+                    fragment,
+                },
+                &question,
+            ),
         }
+    }
+
+    /// §O.2.1's embedded document, on its way to a tab of its own beside the one holding it.
+    fn open_embedded(
+        &mut self,
+        document: DocumentId,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    ) {
         self.say(&viewer_host::opening_embedded(name, fragment.as_deref()));
         let named = viewer_host::Named::embedded(self.showing.directory.as_deref(), name, fragment);
         let behind = document != self.documents.focused();
@@ -3937,6 +4008,7 @@ mod tests {
                 restrictions,
                 links: viewer_host::Links::Refuse,
                 remote_documents: viewer_host::RemoteDocuments::Refuse,
+                embedded_documents: viewer_host::EmbeddedDocuments::Refuse,
                 separations: false,
             },
             Trace::off(std::time::Instant::now()),

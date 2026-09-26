@@ -352,3 +352,10 @@ saw the jump and could not trace it.
 
 A whole-file copy back over a shared file carries the sibling's hunks only by luck (round 1243 got
 lucky once). The safe form is the reverse `sed` of the one line planted.
+
+## A defect found by reading is driven to before it is fixed
+
+The wrong-document password retry round 1239 read in the hosts was real, and no GoToR target could
+reach it: the core declined an encrypted remote file before any prompt (ADR 1332). Fixing only the
+host would have left the prompt missing entirely. Drive the path to the reading first; the fix is
+then to what actually happens.

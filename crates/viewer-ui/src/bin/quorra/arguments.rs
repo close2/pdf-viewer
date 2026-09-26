@@ -136,6 +136,9 @@ pub(crate) struct Arguments {
     /// different: one starts another program on a URL, the other opens a PDF beside this one in
     /// this reader. `viewer_host::RemoteDocuments::Ask` unless a person said otherwise (ADR 1227).
     pub(crate) remote_documents: viewer_host::RemoteDocuments,
+    /// §O.2.1's `ef`: what this window does when a URI's fragment names an embedded document, from
+    /// `--embedded-documents=` — `ask` unless a person said otherwise (ADR 1331).
+    pub(crate) embedded_documents: viewer_host::EmbeddedDocuments,
     /// §10.8.3: whether this window asks for the separation simulation, from `--separations=`.
     ///
     /// A preference rather than a level: the clause conditions itself on a request no file makes
@@ -225,6 +228,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut restrictions = RestrictionPolicy::default();
     let mut links = viewer_host::Links::default();
     let mut remote_documents = viewer_host::RemoteDocuments::default();
+    let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
     let mut separations = false;
     let mut trust_anchors = None;
     let mut reference_files = None;
@@ -398,6 +402,19 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
                     std::process::exit(2);
                 }
             }
+        } else if let Some(level) = argument
+            .to_string_lossy()
+            .strip_prefix(viewer_host::EMBEDDED_DOCUMENTS)
+            .map(str::to_owned)
+        {
+            // §O.2.1's act, at four levels of its own (ADR 1331).
+            match viewer_host::embedded_documents(&level) {
+                Ok(chosen) => embedded_documents = chosen,
+                Err(complaint) => {
+                    eprintln!("{complaint}");
+                    std::process::exit(2);
+                }
+            }
         } else if let Some(word) = argument
             .to_string_lossy()
             .strip_prefix(viewer_host::SEPARATIONS)
@@ -468,6 +485,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         restrictions,
         links,
         remote_documents,
+        embedded_documents,
         separations,
         trust_anchors,
         accept_unknown_revocation,
@@ -650,6 +668,10 @@ fn policy_usage() {
     eprintln!("                open. The file a document names is looked for beside the document");
     eprintln!("                and nowhere else, at every level; ask is the default, so nothing");
     eprintln!("                is opened in place of what you are reading without a keypress.");
+    eprintln!("  {}L", viewer_host::EMBEDDED_DOCUMENTS);
+    eprintln!("                what §O.2.1's ef does when a URI's fragment names a file carried");
+    eprintln!("                inside the document: L is refuse, ask, warn or open; ask is the");
+    eprintln!("                default, so nothing is unpacked and opened without a keypress.");
     eprintln!("  {}S", viewer_host::SEPARATIONS);
     eprintln!("                §10.8.3's separation simulation: S is on or off. Off is what a");
     eprintln!("                screen does — §10.8.2's alternate space and tint transform — and");

@@ -51,6 +51,9 @@ struct Arguments {
     /// The same four levels as the entry above and a value of its own: one starts another program
     /// on a URL, the other opens a PDF beside this one in this reader (ADR 1227).
     remote_documents: viewer_host::RemoteDocuments,
+    /// §O.2.1's `ef`: what this window does when a URI's fragment names an embedded document, per
+    /// [`viewer_host::EMBEDDED_DOCUMENTS`] — `ask` unless a person said otherwise (ADR 1331).
+    embedded_documents: viewer_host::EmbeddedDocuments,
     /// §10.8.3: whether this window asks for the separation simulation, per
     /// [`viewer_host::SEPARATIONS`].
     ///
@@ -74,6 +77,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut restrictions = RestrictionPolicy::default();
     let mut links = viewer_host::Links::default();
     let mut remote_documents = viewer_host::RemoteDocuments::default();
+    let mut embedded_documents = viewer_host::EmbeddedDocuments::default();
     let mut separations = false;
     for word in words {
         if word == "--draw-widget-appearances" {
@@ -91,6 +95,9 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         } else if let Some(level) = word.strip_prefix(viewer_host::REMOTE_DOCUMENTS) {
             // §12.6.4.3's act, at four levels of its own (ADR 1227).
             remote_documents = viewer_host::remote_documents(level)?;
+        } else if let Some(level) = word.strip_prefix(viewer_host::EMBEDDED_DOCUMENTS) {
+            // §O.2.1's act, at four levels of its own (ADR 1331).
+            embedded_documents = viewer_host::embedded_documents(level)?;
         } else if let Some(setting) = word.strip_prefix(viewer_host::SEPARATIONS) {
             // §10.8.3's simulation, which is a preference and has two words (ADR 1228).
             separations = viewer_host::separations(setting)?;
@@ -119,7 +126,8 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
             "usage: quorra-qt [--trace[=topics]] [--draw-widget-appearances] \
              [{IGNORE_RESTRICTIONS}] [--restrictions=copy:ask,annotate:on] \
              [--links=refuse|ask|warn|open] [--remote-documents=refuse|ask|warn|open] \
-             [--separations=on|off] [--quit-after=<ms>] <file.pdf>..."
+             [--embedded-documents=refuse|ask|warn|open] [--separations=on|off] \
+             [--quit-after=<ms>] <file.pdf>..."
         )
     })?;
     Ok(Arguments {
@@ -130,6 +138,7 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         restrictions,
         links,
         remote_documents,
+        embedded_documents,
         separations,
         quit_after,
     })
@@ -159,6 +168,7 @@ fn main() -> std::process::ExitCode {
             restrictions: arguments.restrictions,
             links: arguments.links,
             remote_documents: arguments.remote_documents,
+            embedded_documents: arguments.embedded_documents,
             separations: arguments.separations,
         },
         trace,

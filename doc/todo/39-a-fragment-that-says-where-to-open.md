@@ -71,9 +71,12 @@ window verifies it: `quorra 'issue17056.pdf#ef=destination-doc.pdf&page=3'` titl
 *destination-doc.pdf — 3 — page 3 of 30*.
 
 **`viewer_host::may_open_extracted` is the second policy question**, beside `may_write_extracted`:
-showing a file in this reader is the row's `shall` and is answered `Ok`, writing it into somebody's
-directory is what the row's caution is about and is still declined for a URI. `doc/todo/38`'s *ask*
-level is where either becomes a prompt, and neither has to be revisited for it.
+showing a file in this reader is the row's `shall`, and it is asked at one of four levels,
+`viewer_host::EmbeddedDocuments` — `refuse`, `ask`, `warn`, `open`, `ask` by default, set with
+`--embedded-documents=` and from the restriction menu's third group in all three windows, and
+`refuse` in `quorra-confined` (ADR 1331). *Ask* is the annex's "prompt the user", *refuse* its
+"prevent opening". A file a person asked for from the files panel is not under the level. Writing
+the file into somebody's directory is still declined for a URI.
 
 `Event::Extracted` is what says which of the two asked, so the annex's own words — "a PDF processor
 may choose to prompt the user or even prevent opening of the file" — are answered off a value rather
@@ -89,7 +92,8 @@ than guessed at.
 - **Not a second reading of Table 149.** `View::from_keyword` is the one place, with §12.3.2.2's
   array and Annex O's `view` parameter as its two callers.
 - **Not a fourth copy of the extraction policy.** Three hosts, one `viewer_host::policy` function;
-  a fourth host calls it rather than deciding again.
+  a fourth host calls it rather than deciding again. **Nor a second default**: `ask` is ADR 1331's,
+  on the argument the owner ratified for links and forms (`doc/questions/A67`, `A98`).
 - **Not a counter on the chain.** A document may embed a document whose fragment names another
   `ef`, and nothing guards the depth because nothing has to: each open consumes at least `ef=` and
   its argument, so the remainder is strictly shorter every time.

@@ -3148,7 +3148,7 @@ fn row_words(row: &viewer_host::Row) -> (f32, String, &'static str) {
             (1.0, (*label).to_owned(), *note)
         }
         viewer_host::Row::Level(entry) => (2.0, level(entry.chosen, entry.label), ""),
-        viewer_host::Row::Sending(entry) => (2.0, level(entry.chosen, entry.label), ""),
+        viewer_host::Row::ActLevel(entry) => (2.0, level(entry.chosen, entry.label), ""),
     }
 }
 
@@ -3321,11 +3321,12 @@ impl RestrictionsCard {
         }
     }
 
-    /// The level of §12.7.6.2's submission the keyboard is on, where it is on one (ADR 1291).
+    /// The level of an act a document asks this machine to do that the keyboard is on, where it
+    /// is on one — §12.7.6.2's submission or §O.2.1's `ef` (ADRs 1291, 1331).
     #[must_use]
-    pub fn sending(&self) -> Option<viewer_host::Submissions> {
+    pub fn act_level(&self) -> Option<viewer_host::ActLevel> {
         match self.rows.get(self.at) {
-            Some(viewer_host::Row::Sending(entry)) => Some(entry.level),
+            Some(viewer_host::Row::ActLevel(entry)) => Some(entry.level),
             _ => None,
         }
     }
@@ -3359,7 +3360,7 @@ impl RestrictionsCard {
             return false;
         }
         match self.rows.get(row) {
-            Some(viewer_host::Row::Level(_) | viewer_host::Row::Sending(_)) => {
+            Some(viewer_host::Row::Level(_) | viewer_host::Row::ActLevel(_)) => {
                 self.at = row;
                 true
             }
@@ -3415,7 +3416,7 @@ impl RestrictionsCard {
         loop {
             match self.rows.get(at) {
                 None => return None,
-                Some(viewer_host::Row::Level(_) | viewer_host::Row::Sending(_)) => {
+                Some(viewer_host::Row::Level(_) | viewer_host::Row::ActLevel(_)) => {
                     return Some(at);
                 }
                 Some(_) => at = at.checked_add_signed(if by < 0 { -1 } else { 1 })?,
@@ -3713,11 +3714,11 @@ mod tests {
         let mut card = RestrictionsCard::default();
         card.toggle(standing.rows());
         assert!(card.shown);
-        let (mut chosen, mut sending) = (Vec::new(), Vec::new());
+        let (mut chosen, mut acts) = (Vec::new(), Vec::new());
         loop {
-            match (card.chosen(), card.sending()) {
+            match (card.chosen(), card.act_level()) {
                 (Some(chose), None) => chosen.push(chose),
-                (None, Some(level)) => sending.push(level),
+                (None, Some(level)) => acts.push(level),
                 other => panic!("the cursor is on one level and nothing else: {other:?}"),
             }
             if !card.move_by(1) {
@@ -3730,8 +3731,15 @@ mod tests {
         // that grew an entry would otherwise leave this passing over a menu missing nine rows.
         let operations = viewer_core::RestrictionPolicy::OPERATIONS.len();
         assert_eq!(chosen.len(), operations * 4 + operations * 5);
-        // And §12.7.6.2's four, last (ADR 1291).
-        assert_eq!(sending, viewer_host::Submissions::ALL);
+        // And the machine's acts, last: §12.7.6.2's four, then §O.2.1's (ADRs 1291, 1331).
+        let expected: Vec<viewer_host::ActLevel> = viewer_host::Submissions::ALL
+            .map(viewer_host::ActLevel::Submissions)
+            .into_iter()
+            .chain(
+                viewer_host::EmbeddedDocuments::ALL.map(viewer_host::ActLevel::EmbeddedDocuments),
+            )
+            .collect();
+        assert_eq!(acts, expected);
         assert!(
             chosen.iter().any(|chose| chose.level.is_none()),
             "the document's way back to the window's level is reachable"
@@ -3742,6 +3750,74 @@ mod tests {
         card.hide();
         assert!(!card.shown);
         assert_eq!(card.chosen(), None);
+    }
+
+    /// §O.2.1's act is on the card with its four levels, `ask` ticked, and choosing one through the
+    /// card's own path moves the tick there and nowhere else (ADR 1331).
+    #[test]
+    fn the_card_offers_the_embedded_documents_levels_and_ticks_the_chosen_one() {
+        let ticks = |restrictions: viewer_host::Restrictions| -> Vec<String> {
+            restrictions
+                .rows()
+                .iter()
+                .filter(|row| {
+                    matches!(row, viewer_host::Row::ActLevel(entry)
+                        if entry.level.act() == viewer_host::Act::OpeningEmbedded)
+                })
+                .map(|row| crate::chrome::row_words(row).1)
+                .collect()
+        };
+        let mut restrictions =
+            viewer_host::Restrictions::new(viewer_core::RestrictionPolicy::default());
+        let marked = |chosen: bool, word: &str| {
+            format!(
+                "{} {word}",
+                crate::chrome::RESTRICTION_MARKS[usize::from(!chosen)]
+            )
+        };
+        assert_eq!(
+            ticks(restrictions),
+            [
+                marked(false, "refuse"),
+                marked(true, "ask"),
+                marked(false, "warn"),
+                marked(false, "open")
+            ]
+        );
+        let heading = restrictions
+            .rows()
+            .iter()
+            .map(crate::chrome::row_words)
+            .find(|(_, label, _)| label == viewer_host::OPENING_EMBEDDED)
+            .map(|(depth, _, note)| (depth, note));
+        assert_eq!(
+            heading,
+            Some((1.0, "ISO 32000-2 §O.2.1's ef parameter")),
+            "the act heads its levels at the operations' depth, with its clause"
+        );
+        let mut card = RestrictionsCard::default();
+        card.toggle(restrictions.rows());
+        let warn = viewer_host::ActLevel::EmbeddedDocuments(viewer_host::EmbeddedDocuments::Warn);
+        while card.act_level() != Some(warn) {
+            assert!(card.move_by(1), "the level is reachable by the keyboard");
+        }
+        let Some(level) = card.act_level() else {
+            panic!("on a level");
+        };
+        restrictions.set(level);
+        assert_eq!(
+            restrictions.embedded_documents(),
+            viewer_host::EmbeddedDocuments::Warn
+        );
+        assert_eq!(
+            ticks(restrictions),
+            [
+                marked(false, "refuse"),
+                marked(false, "ask"),
+                marked(true, "warn"),
+                marked(false, "open")
+            ]
+        );
     }
 
     /// A press lands on the row drawn under it, and only a level is taken.
@@ -3766,7 +3842,7 @@ mod tests {
         for (index, row) in standing.rows().iter().enumerate() {
             #[expect(clippy::cast_precision_loss, reason = "a row index, which is dozens")]
             let y = layout.top + layout.pad + layout.line * (index as f32 + 0.5);
-            let before = (card.chosen(), card.sending());
+            let before = (card.chosen(), card.act_level());
             let took = card.press((middle, y), width, height, scale);
             match row {
                 viewer_host::Row::Level(entry) => {
@@ -3774,14 +3850,14 @@ mod tests {
                     assert_eq!(card.chosen(), Some(entry.chose), "row {index}");
                     levels += 1;
                 }
-                viewer_host::Row::Sending(entry) => {
+                viewer_host::Row::ActLevel(entry) => {
                     assert!(took, "row {index}");
-                    assert_eq!(card.sending(), Some(entry.level), "row {index}");
+                    assert_eq!(card.act_level(), Some(entry.level), "row {index}");
                     levels += 1;
                 }
                 _ => {
                     assert!(!took, "row {index} is a heading");
-                    assert_eq!((card.chosen(), card.sending()), before, "row {index}");
+                    assert_eq!((card.chosen(), card.act_level()), before, "row {index}");
                 }
             }
         }

@@ -472,6 +472,10 @@ impl App {
     /// The *policy* is [`viewer_host::password`]'s and is shared with those two: how many attempts,
     /// what to say when they are used up, and that an empty entry is a decline.
     fn ask_again(&mut self, document: viewer_core::DocumentId, _queue: &mut VecDeque<Command>) {
+        if !viewer_host::documents::may_ask_about(&mut self.arrivals, document, crate::DOCUMENT) {
+            println!("note: {}", viewer_host::documents::not_asked(document));
+            return;
+        }
         self.locked = Some(document);
         // A document on its way to a tab of its own counts its own prompts, because the count in
         // this window's fields is the one in front's.
@@ -564,6 +568,20 @@ impl App {
             return;
         };
         match about {
+            // §O.2.1: the act is this host's own, so the answer decides whether the file opens
+            // at all (ADR 1331).
+            crate::app::Pending::Embedded {
+                document,
+                name,
+                bytes,
+                fragment,
+            } => {
+                if proceed {
+                    self.open_embedded(document, &name, bytes, fragment);
+                } else {
+                    println!("note: {}", viewer_host::embedded_declined(&name));
+                }
+            }
             crate::app::Pending::Restricted {
                 document,
                 operation,
@@ -643,8 +661,11 @@ impl App {
                     if let Some(note) = note {
                         println!("note: {note}");
                     }
-                    let name = self.documents.reserve();
-                    self.reserved = Some((name, path));
+                    let name = self.arrivals.offer(
+                        &mut self.documents,
+                        path,
+                        bytes.as_deref().unwrap_or_default(),
+                    );
                     queue.push_back(Command::Beside(Some(name)));
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
@@ -675,7 +696,7 @@ impl App {
         if bytes.is_some() {
             // Table 203's `/NewWindow true` opens the destination beside this document rather
             // than in place of it, where this window has a name free for one (ADR 1263).
-            self.offer_a_name(path);
+            self.offer_a_name(path, bytes.as_deref().unwrap_or_default());
         }
         self.dispatch(Command::Supply { purpose, bytes });
     }
@@ -684,7 +705,11 @@ impl App {
     ///
     /// One place rather than two, so that a subject added here cannot arrive without the card
     /// going up or without the repaint that shows it.
-    fn put_a_question(&mut self, about: crate::app::Pending, words: &viewer_host::Question) {
+    pub(crate) fn put_a_question(
+        &mut self,
+        about: crate::app::Pending,
+        words: &viewer_host::Question,
+    ) {
         self.asked = Some(about);
         self.question.ask(words);
         self.redraw();
@@ -735,10 +760,11 @@ impl App {
     /// The menu stays up, which is what a person setting three levels at once needs, and its rows
     /// are taken again so that the tick follows the choice.
     pub(crate) fn chose_restriction(&mut self) {
-        // §12.7.6.2's row sets a level this host reads and sends the viewer nothing (ADR 1291).
-        if let Some(level) = self.menu.sending() {
-            self.restrictions.send(level);
-            println!("note: {}", viewer_host::sending_chosen(level));
+        // An act's row sets a level this host reads and sends the viewer nothing (ADRs 1291,
+        // 1331).
+        if let Some(level) = self.menu.act_level() {
+            self.restrictions.set(level);
+            println!("note: {}", viewer_host::act_chosen(level));
             let rows = self.restrictions.rows();
             self.menu.refill(rows);
             self.redraw();
@@ -775,8 +801,15 @@ impl App {
                 return;
             }
         };
+        // The document the prompt was about, from its own bytes: one on its way to a tab — a
+        // file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached — or the
+        // first, which is the only other document a prompt is put about (ADR 1332).
         if self.arrivals.is(document) {
             self.open_arriving(Some(secret));
+            return;
+        }
+        if document != crate::DOCUMENT {
+            println!("note: {}", viewer_host::documents::not_asked(document));
             return;
         }
         // The file again, off the disk. An embedded file Annex O's `ef` opened is on its way to a

@@ -488,6 +488,26 @@ pub struct Arrivals {
     waiting: std::collections::VecDeque<(Named, bool, Option<pdf_syntax::FileBytes>)>,
     /// The one being opened.
     now: Option<Arriving>,
+    /// §12.6.4.3's file, under the name held out to `viewer_core::Command::Beside` for it.
+    offered: Option<Offered>,
+}
+
+/// A file a document named, supplied to the core under a name held out for it.
+///
+/// Kept until the core says what became of it: `Event::Opened` under the offered name gives it a
+/// tab, and `Event::PasswordRequired` makes it the document being opened, so the prompt and the
+/// second attempt are about *it*. A name offered that nothing opens under is replaced by the next
+/// offer, which is `viewer_core::Command::Beside`'s own rule (ADR 1332).
+#[derive(Debug)]
+struct Offered {
+    /// The name offered.
+    id: DocumentId,
+    /// The file.
+    named: Named,
+    /// Its bytes, for the tab and for §7.6.4.1's attempts.
+    bytes: pdf_syntax::FileBytes,
+    /// The document the action was in — the one a `/NewWindow false` replaces.
+    from: DocumentId,
 }
 
 impl Arrivals {
@@ -515,6 +535,60 @@ impl Arrivals {
     /// named by a document opened behind stays behind with it.
     pub fn wait_held(&mut self, named: Named, bytes: pdf_syntax::FileBytes, behind: bool) {
         self.waiting.push_back((named, behind, Some(bytes)));
+    }
+
+    /// Holds a name out for a file a document named, and keeps the file beside it.
+    ///
+    /// The answer is the name to send as `viewer_core::Command::Beside`, before the file is
+    /// supplied. The bytes are the file opened again where it lies, which reads nothing but its
+    /// length; `read` — what was supplied — is kept instead where that open fails, so the file
+    /// the prompt is about is always the one the core was handed.
+    pub fn offer<T>(
+        &mut self,
+        documents: &mut Documents<T>,
+        path: std::path::PathBuf,
+        read: &[u8],
+    ) -> DocumentId {
+        let id = documents.reserve();
+        let bytes = pdf_syntax::FileBytes::on_disk(&path)
+            .unwrap_or_else(|_| pdf_syntax::FileBytes::from(read));
+        self.offered = Some(Offered {
+            id,
+            named: Named::file(path),
+            bytes,
+            from: documents.focused(),
+        });
+        id
+    }
+
+    /// `Event::PasswordRequired` named a document no arrival was opening: where it is the file
+    /// last offered, that file becomes the document being opened, under the name the core asked
+    /// about and with the bytes the core was supplied.
+    ///
+    /// The name is the offered one where the action asked for a window of its own, and the
+    /// document the action was in where it did not — `/NewWindow false`'s replacement — so the
+    /// second attempt is `viewer_core::Command::Open` under that name either way, from
+    /// [`Arriving::bytes`], exactly as for §O.2.1's `ef` (ADR 1332). Answers whether it did: not
+    /// for a name the offer does not account for, and not while another document is being opened,
+    /// since one prompt stands at a time.
+    pub fn locked(&mut self, id: DocumentId) -> bool {
+        if self.now.is_some() {
+            return false;
+        }
+        let Some(offered) = self
+            .offered
+            .take_if(|offered| offered.id == id || offered.from == id)
+        else {
+            return false;
+        };
+        self.now = Some(Arriving {
+            id,
+            named: offered.named,
+            behind: None,
+            asking: crate::Asking::new(),
+            held: Some(offered.bytes),
+        });
+        true
     }
 
     /// The next document to open, where nothing is being opened and something is waiting.
@@ -553,13 +627,47 @@ impl Arrivals {
         self.now.as_mut().filter(|now| now.id == id)
     }
 
-    /// Takes the document being opened out of the queue, where the name is its name.
+    /// Takes the document being opened out of the queue, where the name is its name — or the
+    /// file offered under it, which opened without a prompt.
     ///
     /// Called when it has opened, when it failed, and when a person declined it; the next one
     /// waiting is then [`Self::start`]'s.
     pub fn settle(&mut self, id: DocumentId) -> Option<Arriving> {
-        if self.is(id) { self.now.take() } else { None }
+        if self.is(id) {
+            return self.now.take();
+        }
+        let offered = self.offered.take_if(|offered| offered.id == id)?;
+        Some(Arriving {
+            id,
+            named: offered.named,
+            behind: None,
+            asking: crate::Asking::new(),
+            held: Some(offered.bytes),
+        })
     }
+}
+
+/// Whether a window puts §7.6.4.1's prompt up for `Event::PasswordRequired` about this name.
+///
+/// **The answer decides which bytes the second attempt opens**, which is why three windows ask it
+/// here rather than each matching the name for itself. A document on its way to a tab is retried
+/// from [`Arriving::bytes`]; a file a document named and this window offered a name for becomes
+/// such a document first ([`Arrivals::locked`]); and the window's first document is retried from
+/// the window's own fields. A name that is none of the three has no bytes this window could
+/// honestly open it from, and reopening the document in front under it would put the wrong file
+/// behind the right name (ADR 1332).
+pub fn may_ask_about(arrivals: &mut Arrivals, document: DocumentId, first: DocumentId) -> bool {
+    arrivals.is(document) || arrivals.locked(document) || document == first
+}
+
+/// What a window says instead of a prompt [`may_ask_about`] declined.
+#[must_use]
+pub fn not_asked(document: DocumentId) -> String {
+    format!(
+        "a password was asked for document {} while another was being opened, so it was not \
+         asked; follow the link again once that one has opened (§7.6.4.1)",
+        document.0
+    )
 }
 
 /// What a window says when a document opens beside the one that was showing.
@@ -860,5 +968,61 @@ mod tests {
             std::path::Path::new("embedded file"),
             "a name with no last component is given one"
         );
+    }
+
+    /// §12.6.4.3's file that asks for §7.6.4.1's password is retried as itself: the same name the
+    /// core asked about, the same file and the same bytes the core was supplied — never the
+    /// document in front, which is the one a window's own second attempt reopens (ADR 1332).
+    #[test]
+    fn a_remote_document_refused_for_a_password_is_retried_as_itself() {
+        let directory = std::env::temp_dir().join(format!("locked-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("scratch directory");
+        let path = directory.join("second.pdf");
+        std::fs::write(&path, b"%PDF-1.7 second").expect("scratch file");
+
+        for beside in [true, false] {
+            let mut documents: Documents<()> =
+                Documents::new(DocumentId(0), "first.pdf".to_owned());
+            let mut arrivals = super::Arrivals::new();
+            let offered = arrivals.offer(&mut documents, path.clone(), b"%PDF-1.7 second");
+            assert_ne!(offered, DocumentId(0), "a name of its own");
+            let asked = if beside { offered } else { DocumentId(0) };
+            assert!(
+                !arrivals.locked(DocumentId(7)),
+                "a name the offer does not account for"
+            );
+            assert!(arrivals.locked(asked), "beside: {beside}");
+            let Some(arriving) = arrivals.current() else {
+                panic!("the offered file is the one being opened");
+            };
+            assert_eq!(arriving.id, asked, "the name the core asked about");
+            assert_eq!(arriving.named, super::Named::file(path.clone()));
+            for attempt in ["first", "second"] {
+                let Ok(bytes) = arriving.bytes() else {
+                    panic!("{attempt}: its own bytes");
+                };
+                assert_eq!(bytes.read(0..15).as_ref(), b"%PDF-1.7 second", "{attempt}");
+            }
+            assert!(
+                !arrivals.locked(asked),
+                "one prompt at a time, and the offer is spent"
+            );
+            assert!(arrivals.settle(asked).is_some());
+        }
+
+        // Opened without a prompt: the offer settles under its own name and no other.
+        let mut documents: Documents<()> = Documents::new(DocumentId(0), "first.pdf".to_owned());
+        let mut arrivals = super::Arrivals::new();
+        let offered = arrivals.offer(&mut documents, path.clone(), b"");
+        assert!(
+            arrivals.settle(DocumentId(0)).is_none(),
+            "the source is not the offer"
+        );
+        let Some(arriving) = arrivals.settle(offered) else {
+            panic!("the offered file opened under its name");
+        };
+        assert_eq!(arriving.named.path, path);
+        assert!(arrivals.settle(offered).is_none(), "and only once");
+        std::fs::remove_dir_all(&directory).expect("scratch removed");
     }
 }

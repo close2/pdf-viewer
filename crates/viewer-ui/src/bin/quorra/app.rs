@@ -55,6 +55,17 @@ pub(crate) enum Pending {
         /// Where `viewer_host::resolve_import` put it, which is what would be read.
         path: PathBuf,
     },
+    /// §O.2.1's embedded document, answered by opening it in a tab of its own (ADR 1331).
+    Embedded {
+        /// The document holding it.
+        document: viewer_core::DocumentId,
+        /// The name the document filed it under.
+        name: String,
+        /// Its bytes, out of the holding document.
+        bytes: Vec<u8>,
+        /// What followed `ef` in the fragment, which applies to it.
+        fragment: Option<String>,
+    },
 }
 
 /// Everything this window holds about the document **in front**, and nothing about the others.
@@ -119,11 +130,6 @@ pub(crate) struct App {
     /// the strip draws nothing at all for one, so a window showing one document looks exactly as
     /// it did (ADR 1264).
     pub(crate) documents: viewer_host::Documents<Showing>,
-    /// A name held out to `viewer_core::Command::Beside`, and the file that would arrive under it.
-    ///
-    /// Set when this window offers a name for a document Table 203's `/NewWindow true` might open
-    /// beside the one showing, and taken on the `Event::Opened` that names it (ADR 1263).
-    pub(crate) reserved: Option<(viewer_core::DocumentId, PathBuf)>,
     /// The documents a reader named that are still to open beside this one — the command line's
     /// later paths and the ones typed after Ctrl + O — one at a time (`viewer_host::Arrivals`).
     pub(crate) arrivals: viewer_host::Arrivals,
@@ -819,9 +825,14 @@ impl App {
     /// **An offer rather than a request**, which is `viewer_core::Command::Beside`'s own shape:
     /// the name is used only where the action states the entry, and one this window offers and
     /// nothing opens under is simply skipped (ADR 1263).
-    pub(crate) fn offer_a_name(&mut self, path: &std::path::Path) {
-        let name = self.documents.reserve();
-        self.reserved = Some((name, path.to_path_buf()));
+    ///
+    /// The file waits beside the name in `viewer_host::Arrivals`, so that a document which opens
+    /// under it gets its tab and one that asks for §7.6.4.1's password is asked about as itself
+    /// (ADR 1332).
+    pub(crate) fn offer_a_name(&mut self, path: &std::path::Path, read: &[u8]) {
+        let name = self
+            .arrivals
+            .offer(&mut self.documents, path.to_path_buf(), read);
         self.dispatch(Command::Beside(Some(name)));
     }
 
@@ -837,17 +848,29 @@ impl App {
         &mut self,
         id: viewer_core::DocumentId,
     ) -> Option<viewer_core::DocumentId> {
-        let (path, fragment, behind) = if let Some(arriving) = self.arrivals.settle(id) {
-            (
-                arriving.named.path,
-                arriving.named.fragment,
-                arriving.behind,
-            )
-        } else {
-            let (_, path) = self.reserved.take().filter(|(name, _)| *name == id)?;
-            (path, None, None)
-        };
+        let arriving = self.arrivals.settle(id)?;
+        let (path, fragment, behind) = (
+            arriving.named.path,
+            arriving.named.fragment,
+            arriving.behind,
+        );
         let label = viewer_host::documents::label(&path);
+        // §12.6.4.3's `/NewWindow false`, reached after §7.6.4.1's prompt: the document it was
+        // reached from is replaced in its own tab, so the tab and this window's fields become the
+        // new file's rather than a second tab being added (ADR 1332).
+        if self.documents.index_of(id).is_some() {
+            self.documents.relabel(id, label);
+            if id == self.documents.focused() {
+                self.title = path.to_string_lossy().into_owned();
+                self.directory = path.parent().map(std::path::Path::to_path_buf);
+                self.path = path;
+                self.fragment = None;
+            }
+            self.restrip();
+            self.retitle();
+            self.redraw();
+            return None;
+        }
         let fresh = Showing {
             title: path.to_string_lossy().into_owned(),
             directory: path.parent().map(std::path::Path::to_path_buf),

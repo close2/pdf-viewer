@@ -60,6 +60,8 @@ pub(crate) struct Outcome {
     /// and is settled one layer up, where the host's reserve is held. So this function says what
     /// the file asked for and says not one word about what the window can do. ADR 1263.
     pub(crate) beside: bool,
+    /// §12.6.4.3's jump whose file asked for §7.6.4.1's password, held for the host's prompt.
+    pub(crate) locked: Option<Box<Locked>>,
     /// Whether what is on the screen has to be drawn again.
     pub(crate) redraw: bool,
 }
@@ -836,8 +838,25 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         return outcome;
     };
     let name = remote.file.name().to_owned();
-    let opened = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+    // Table 203's `/NewWindow`, read and carried. What a window does with it — open the document
+    // beside the one it was reached from, or in place of it and say so — is decided where
+    // `Command::Beside`'s reserve is held, because that is the only place this program knows
+    // whether it has a second view at all (ADR 1263).
+    outcome.beside = remote.new_window == Some(true);
+    let limits = open.document.limits();
+    let opened = match Document::open_with_limits(bytes.to_vec(), limits) {
         Ok(opened) => opened,
+        // §7.6.4.1: "the interactive PDF processor should prompt for a password". The file is a
+        // document this program can read once a person supplies one, so the jump is held rather
+        // than declined, and the prompt is the host's — the same event a document a host named
+        // raises, answered by the same `Command::Open` (ADR 1332).
+        Err(pdf_syntax::SyntaxError::PasswordRequired) => {
+            outcome
+                .notes
+                .push(format!("GoToR: {name} asks for a password (§7.6.4.1)"));
+            outcome.locked = Some(Box::new(Locked { remote, limits }));
+            return outcome;
+        }
         Err(error) => {
             outcome.notes.push(format!(
                 "this link declines — GoToR: cannot read {name}: {error}"
@@ -846,11 +865,40 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         }
     };
     let mut replacement = Open::around(opened);
+    match place_remote(&remote, &mut replacement) {
+        Ok(note) => {
+            outcome.notes.push(note);
+            outcome.replacement = Some(Box::new(replacement));
+        }
+        Err(declined) => outcome.notes.push(declined),
+    }
+    outcome
+}
+
+/// A §12.6.4.3 jump whose file asked for a password, held until the host opens it with one.
+///
+/// The whole action, for `Open::opening`'s reason — `/D` and `/SD` are read in the document that
+/// has not been opened yet — and the source's bounds, for [`resume_remote`]'s.
+#[derive(Debug)]
+pub(crate) struct Locked {
+    /// The action whose `/F` asked.
+    pub(crate) remote: RemoteGoTo,
+    /// The bounds of the document the action was in.
+    pub(crate) limits: pdf_syntax::Limits,
+}
+
+/// Puts a remote document that has been read at the page §12.6.4.3's action names.
+///
+/// One function for the jump made at once and the jump made after §7.6.4.1's prompt, so that the
+/// two cannot come to disagree about which page a destination names.
+///
+/// # Errors
+///
+/// The sentence that declines the jump: a document with no pages, or none the action names.
+pub(crate) fn place_remote(remote: &RemoteGoTo, replacement: &mut Open) -> Result<String, String> {
+    let name = remote.file.name();
     if replacement.page_count == 0 {
-        outcome
-            .notes
-            .push(format!("this link declines — GoToR: {name} has no pages"));
-        return outcome;
+        return Err(format!("this link declines — GoToR: {name} has no pages"));
     }
     // Read in the *remote* document, because that is the only document either entry is about:
     // §12.3.2.2 makes an explicit destination's first element "an integer page number within the
@@ -862,24 +910,16 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         .filter(|index| *index < replacement.page_count);
     drop(pages);
     let Some(page_index) = page_index else {
-        outcome.notes.push(format!(
+        return Err(format!(
             "this link declines — GoToR: {name} holds no page this action names"
         ));
-        return outcome;
     };
     replacement.page_index = page_index;
-    // Table 203's `/NewWindow`, read and carried. What a window does with it — open the document
-    // beside the one it was reached from, or in place of it and say so — is decided where
-    // `Command::Beside`'s reserve is held, because that is the only place this program knows
-    // whether it has a second view at all (ADR 1263).
-    outcome.beside = remote.new_window == Some(true);
-    outcome.notes.push(format!(
+    Ok(format!(
         "opened {name}, {} page(s), at page {}",
         replacement.page_count,
         page_index.saturating_add(1)
-    ));
-    outcome.replacement = Some(Box::new(replacement));
-    outcome
+    ))
 }
 
 /// What is said when a host will not supply Table 203's `/F`.

@@ -158,24 +158,26 @@ pub use panel::{
 };
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
-    ACCEPT_UNKNOWN_REVOCATION, AnchorRefusal, IGNORE_RESTRICTIONS, INTERFACE_LANGUAGE,
-    ImportRefusal, LINK_SCHEMES, LINKS, Link, Links, MACHINE_FONTS, MACHINE_FONTS_VARIABLE,
-    Opening, READER_NAME, READER_ORGANISATION, READER_TITLE, REFERENCE_FILES, REMOTE_DOCUMENTS,
-    RESTRICTIONS, ReferenceRefusal, Remote, RemoteDocuments, SEPARATIONS, SUBMIT_SCHEMES, Sending,
-    Settings, Submissions, TRUST_ANCHORS, URI_HANDLER, answered, asked_for, asked_to_open,
-    asked_to_open_remote, asked_to_submit, audience, link, links, may_choose_file,
-    may_open_extracted, may_open_uri, may_submit, may_write_extracted, offers_machine_fonts,
-    open_chosen, open_uri, opening_embedded, opens_as_document, read_import, reference_files,
-    refused, remote, remote_declined, remote_documents, remote_note, resolve_import, resolve_uri,
-    restrictions, separations, separations_note, supply_note, trust_anchors, unanswerable,
+    ACCEPT_UNKNOWN_REVOCATION, AnchorRefusal, EMBEDDED_DOCUMENTS, EmbeddedDocuments,
+    IGNORE_RESTRICTIONS, INTERFACE_LANGUAGE, ImportRefusal, LINK_SCHEMES, LINKS, Link, Links,
+    MACHINE_FONTS, MACHINE_FONTS_VARIABLE, OPENING_EMBEDDED, Opening, READER_NAME,
+    READER_ORGANISATION, READER_TITLE, REFERENCE_FILES, REMOTE_DOCUMENTS, RESTRICTIONS,
+    ReferenceRefusal, Remote, RemoteDocuments, SEPARATIONS, SUBMIT_SCHEMES, Sending, Settings,
+    Submissions, TRUST_ANCHORS, URI_HANDLER, Unpacking, answered, asked_for, asked_to_open,
+    asked_to_open_embedded, asked_to_open_remote, asked_to_submit, audience, embedded_declined,
+    embedded_documents, embedded_note, link, links, may_choose_file, may_open_extracted,
+    may_open_uri, may_submit, may_write_extracted, offers_machine_fonts, open_chosen, open_uri,
+    opening_embedded, opens_as_document, read_import, reference_files, refused, remote,
+    remote_declined, remote_documents, remote_note, resolve_import, resolve_uri, restrictions,
+    separations, separations_note, supply_note, trust_anchors, unanswerable,
     under_remote_documents, uri_note, warned,
 };
 pub use popup::Window;
 pub use presentation::{Chrome, Presenting};
 pub use printing::Defaults as PrintDefaults;
 pub use restriction::{
-    Chose, Entry, Question, Restrictions, Row, Scope, SendingEntry, Subject, asked, chosen,
-    declined, sending_chosen,
+    Act, ActEntry, ActLevel, Chose, Entry, Question, Restrictions, Row, Scope, Subject, act_chosen,
+    asked, chosen, declined,
 };
 pub use status::{
     cannot_open, drew_after_all, no_pages, on_screen, still_drawing, stopped_drawing,

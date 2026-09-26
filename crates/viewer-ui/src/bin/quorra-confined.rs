@@ -679,6 +679,32 @@ impl Host {
                     bytes: None,
                 });
             }
+            // §O.2.1's `ef` at `EmbeddedDocuments::Refuse`, for `Links::Refuse`'s reason above:
+            // this window has no dialogue to put the *ask* level's question in, and it holds one
+            // document (ADR 1331). It passes no fragment, so the arm is the policy's answer said
+            // out loud should one ever arrive, rather than a window that opens it unasked.
+            Event::Extracted {
+                asked, name, bytes, ..
+            } if viewer_host::opens_as_document(asked, &bytes) => {
+                let why = match viewer_host::may_open_extracted(
+                    asked,
+                    &name,
+                    viewer_host::EmbeddedDocuments::Refuse,
+                ) {
+                    viewer_host::Unpacking::Refuse(why) => why,
+                    // Unreachable at this level and said rather than ignored (trap 5).
+                    viewer_host::Unpacking::Ask(words) => {
+                        viewer_host::unanswerable(&[words.reasons])
+                    }
+                    viewer_host::Unpacking::Open | viewer_host::Unpacking::Warn(_) => {
+                        viewer_host::embedded_note(
+                            &name,
+                            Some("this window holds one document and opens none beside it"),
+                        )
+                    }
+                };
+                eprintln!("note: {why}");
+            }
             Event::Saved { .. } | Event::Extracted { .. } => {
                 eprintln!("note: the confined viewer sent bytes this window never asked for");
             }

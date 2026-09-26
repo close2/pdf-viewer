@@ -28,7 +28,7 @@ use pdf_model::view::ViewState;
 use pdf_syntax::{Document, Object, ObjectId};
 use viewer_core::{Command, DocumentId, Event, Viewer};
 use viewer_host::submit::{Reply, Submitter, TransmitError, UrlRefusal, check_url, transmit};
-use viewer_host::{Restrictions, Row, Sending, Submissions, may_submit};
+use viewer_host::{ActLevel, Restrictions, Row, Sending, Submissions, may_submit};
 
 /// A form of two fields with values and one without, beside §7.5.4's table.
 fn form() -> Vec<u8> {
@@ -271,8 +271,8 @@ fn the_default_level_is_ask() {
     assert!(question.reasons.contains("application/vnd.fdf"));
 }
 
-/// The restriction menu's third group: one act, four levels, `ask` ticked, and a pick moves the
-/// tick without sending the viewer anything.
+/// The restriction menu's third group: sending a form's four levels, `ask` ticked, and a pick moves
+/// the tick without sending the viewer anything.
 #[test]
 fn the_menu_holds_the_level_and_a_pick_moves_the_tick() {
     let mut restrictions = Restrictions::new(viewer_core::RestrictionPolicy::default());
@@ -281,7 +281,9 @@ fn the_menu_holds_the_level_and_a_pick_moves_the_tick() {
             .rows()
             .into_iter()
             .filter_map(|row| match row {
-                Row::Sending(entry) => Some((entry.label, entry.chosen)),
+                Row::ActLevel(entry) if matches!(entry.level, ActLevel::Submissions(_)) => {
+                    Some((entry.label, entry.chosen))
+                }
                 _ => None,
             })
             .collect()
@@ -301,7 +303,7 @@ fn the_menu_holds_the_level_and_a_pick_moves_the_tick() {
             .iter()
             .any(|row| matches!(row, Row::Machine { .. }))
     );
-    restrictions.send(Submissions::Send);
+    restrictions.set(ActLevel::Submissions(Submissions::Send));
     assert_eq!(restrictions.submissions(), Submissions::Send);
     assert_eq!(ticked(&restrictions)[3], ("send", true));
 }

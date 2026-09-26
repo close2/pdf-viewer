@@ -200,6 +200,14 @@ pub struct Viewer {
     /// loud. Taken rather than read when one is opened under it, so a host offers a name per tab.
     /// ADR 1263.
     beside: Option<DocumentId>,
+    /// §12.6.4.3's jump whose file asked for §7.6.4.1's password, and the name it was asked under.
+    ///
+    /// Held here rather than on the source document because the retry is `Command::Open` under
+    /// that name, which is the route every document a host names takes: the host answers the
+    /// prompt with the file's own bytes and a password, and the destination the action named is
+    /// applied to the document that opens. Taken by the next open of any name, so a jump a person
+    /// walked away from never lands on a document opened later (ADR 1332).
+    locked: Option<(DocumentId, Box<interact::Locked>)>,
     /// §8.10.4's target documents, parsed once for every document this viewer holds.
     ///
     /// Handed to each [`Open`] as it is created, so that a document opened after
@@ -238,6 +246,7 @@ impl Viewer {
             clock: None,
             separations: false,
             beside: None,
+            locked: None,
             references: Arc::new(pdf_model::reference::Supply::none()),
             reference_refusals: Vec::new(),
         }
@@ -701,8 +710,31 @@ impl Viewer {
         fragment: Option<&str>,
         events: &mut Vec<Event>,
     ) {
-        match Open::new(bytes, password) {
+        // A §12.6.4.3 jump held for a password is this open's only where the name is the one it
+        // was asked under; any other open ends it, for `locked`'s reason.
+        let locked = self
+            .locked
+            .take()
+            .filter(|(asked, _)| *asked == id)
+            .map(|(_, locked)| locked);
+        let limits = locked
+            .as_ref()
+            .map_or(pdf_syntax::Limits::DEFAULT, |locked| locked.limits);
+        match Open::new(bytes, password, limits) {
             Ok(mut open) => {
+                let mut placed = None;
+                if let Some(locked) = &locked {
+                    match interact::place_remote(&locked.remote, &mut open) {
+                        Ok(note) => placed = Some(note),
+                        Err(reason) => {
+                            events.push(Event::OpenFailed {
+                                document: id,
+                                reason,
+                            });
+                            return;
+                        }
+                    }
+                }
                 // Every answer this reader has given, before anything reads the document — the
                 // same list a document reached through an action is handed, so that a host naming
                 // a file and a link naming one cannot come to hold two different documents.
@@ -750,6 +782,13 @@ impl Viewer {
                 };
                 self.documents.insert(id, open);
                 self.process(id, fragment, events);
+                if let Some(note) = placed {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes: vec![note],
+                    });
+                }
                 if let Some(notes) = warned {
                     events.push(Event::Warned {
                         document: id,
@@ -761,6 +800,8 @@ impl Viewer {
             // §7.6.4.1's prompt, and the reason this is not an `OpenFailed`: a document that
             // wants a password is not a document this program cannot read.
             Err(SyntaxError::PasswordRequired) => {
+                // Held again for the next attempt, which a wrong password is owed.
+                self.locked = locked.map(|locked| (id, locked));
                 events.push(Event::PasswordRequired { document: id });
             }
             Err(error) => events.push(Event::OpenFailed {
@@ -1355,7 +1396,8 @@ impl Viewer {
         // out loud — a person who asked for a second window and got one view is owed the
         // difference, and so is one who got a second tab they did not ask this program for
         // (trap 5, ADR 1263).
-        let into = if outcome.replacement.is_some() && outcome.beside {
+        let into = if (outcome.replacement.is_some() || outcome.locked.is_some()) && outcome.beside
+        {
             let reserved = self.beside.take();
             outcome.notes.push(match reserved {
                 Some(_) => "this link asks for a new window: the destination opens beside the \
@@ -1391,6 +1433,15 @@ impl Viewer {
                 purpose,
                 name,
             });
+        }
+        // §7.6.4.1's prompt for the file a §12.6.4.3 jump reached, under the name the document
+        // would have opened under: the reserve where the action asked for a window of its own and
+        // the host offered one, and the document it was reached from otherwise, which is what
+        // `/NewWindow false` replaces (ADR 1332).
+        if let Some(locked) = outcome.locked {
+            let target = into.unwrap_or(id);
+            self.locked = Some((target, locked));
+            events.push(Event::PasswordRequired { document: target });
         }
         for transition in outcome.transitions {
             if let Some(note) = crate::transition::note(&transition) {

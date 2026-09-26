@@ -328,12 +328,6 @@ pub struct Host {
     /// second file named on the command line — and the notebook hides its own tabs until then, so
     /// a window showing one document looks exactly as it did (ADR 1264).
     documents: viewer_host::Documents<Showing>,
-    /// A name held out to `viewer_core::Command::Beside`, and the file that would arrive under it.
-    ///
-    /// Set when this window offers a name for a document Table 203's `/NewWindow true` might open
-    /// beside the one showing, and taken on the `Event::Opened` that names it. `None` where the
-    /// last offer was not used, which is what an action stating nothing about a new window leaves.
-    reserved: Option<(DocumentId, PathBuf)>,
     /// The documents a reader named that are still to open beside this one — the command line's
     /// later paths and the files chosen with Ctrl + O — one at a time (`viewer_host::Arrivals`).
     arrivals: viewer_host::Arrivals,
@@ -619,7 +613,6 @@ impl Host {
                 warned: None,
                 needle: String::new(),
                 pages_left: 0,
-                reserved: None,
                 arrivals: viewer_host::Arrivals::new(),
                 panels_due: false,
                 rasterizer: CpuRasterizer::new(),
@@ -647,7 +640,9 @@ impl Host {
                 access_interval: None,
                 access_draining: None,
                 widget_appearances,
-                restrictions: viewer_host::Restrictions::new(settings.restrictions),
+                restrictions: viewer_host::Restrictions::new(settings.restrictions).with(
+                    viewer_host::ActLevel::EmbeddedDocuments(settings.embedded_documents),
+                ),
                 links: settings.links,
                 remote_documents: settings.remote_documents,
                 submitter: viewer_host::submit::Submitter::new(),
@@ -808,7 +803,7 @@ impl Host {
                     if let Some(note) = note {
                         self.say(&note);
                     }
-                    self.offer_a_name(&path, queue);
+                    self.offer_a_name(&path, bytes.as_deref().unwrap_or_default(), queue);
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
             }
@@ -826,7 +821,11 @@ impl Host {
                             None
                         };
                         if bytes.is_some() {
-                            host.offer_a_name(&path, &mut queue);
+                            host.offer_a_name(
+                                &path,
+                                bytes.as_deref().unwrap_or_default(),
+                                &mut queue,
+                            );
                         }
                         queue.push_back(Command::Supply { purpose, bytes });
                         host.pump(queue);
@@ -1068,11 +1067,11 @@ impl Host {
         }
     }
 
-    /// A person picked §12.7.6.2's level out of the menu: kept here, and nothing sent to the
-    /// viewer, because the level is this host's to read (ADR 1291).
-    fn chose_sending(&mut self, level: viewer_host::Submissions) {
-        self.restrictions.send(level);
-        self.say(&viewer_host::sending_chosen(level));
+    /// A person picked the level of an act a document asks this machine to do: kept here, and
+    /// nothing sent to the viewer, because the level is this host's to read (ADRs 1291, 1331).
+    fn chose_act(&mut self, level: viewer_host::ActLevel) {
+        self.restrictions.set(level);
+        self.say(&viewer_host::act_chosen(level));
     }
 
     /// A level a person picked out of the menu, sent to the viewer and kept for the next opening.
@@ -1384,6 +1383,31 @@ impl Host {
         }
     }
 
+    /// §7.6.4.1's prompt, about the document the core named and counted against it.
+    ///
+    /// A document on its way to a tab of its own counts its own prompts, because the count in this
+    /// window's fields is the one in front's; `viewer_host::documents::may_ask_about` says which
+    /// documents a prompt may be put about at all (ADR 1332).
+    fn password_required(&mut self, document: DocumentId) {
+        if !viewer_host::documents::may_ask_about(&mut self.arrivals, document, DOCUMENT) {
+            self.say(&viewer_host::documents::not_asked(document));
+            return;
+        }
+        let asked = match self.arrivals.named_mut(document) {
+            Some(arriving) => arriving.asking.required(),
+            None => self.showing.asking.required(),
+        };
+        match asked {
+            viewer_host::Ask::Prompt { attempt, of } => {
+                self.ask_for_a_password(document, attempt, of);
+            }
+            viewer_host::Ask::Exhausted => {
+                self.say(viewer_host::password::EXHAUSTED);
+                self.given_up(document);
+            }
+        }
+    }
+
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
@@ -1410,21 +1434,7 @@ impl Host {
             // Exhaustive over `Ask` on purpose: a case added there fails to compile here.
             // A document on its way to a tab of its own counts its own prompts, because the count in
             // this window's fields is the one in front's.
-            Event::PasswordRequired { document } => {
-                let asked = match self.arrivals.named_mut(document) {
-                    Some(arriving) => arriving.asking.required(),
-                    None => self.showing.asking.required(),
-                };
-                match asked {
-                    viewer_host::Ask::Prompt { attempt, of } => {
-                        self.ask_for_a_password(document, attempt, of);
-                    }
-                    viewer_host::Ask::Exhausted => {
-                        self.say(viewer_host::password::EXHAUSTED);
-                        self.given_up(document);
-                    }
-                }
-            }
+            Event::PasswordRequired { document } => self.password_required(document),
             // Two events with nothing to do here, for two different reasons. A close drops
             // everything derived from the document and this host opens one document and never
             // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the
@@ -2319,10 +2329,18 @@ impl Host {
     /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
     fn supply_password(&mut self, document: DocumentId, password: viewer_core::Secret) {
         match viewer_host::password::supplied(password) {
+            // The document the prompt was about, from its own bytes: one on its way to a tab —
+            // a file named, an embedded file §O.2.1's `ef` opened, a file §12.6.4.3 reached —
+            // or the first, which is the only other document a prompt is put about (ADR 1332).
             viewer_host::Supplied::Open(secret) if self.arrivals.is(document) => {
                 self.open_arriving(Some(secret));
             }
-            viewer_host::Supplied::Open(secret) => self.open_document(Some(secret)),
+            viewer_host::Supplied::Open(secret) if document == DOCUMENT => {
+                self.open_document(Some(secret));
+            }
+            viewer_host::Supplied::Open(_) => {
+                self.say(&viewer_host::documents::not_asked(document));
+            }
             viewer_host::Supplied::Cancelled => {
                 self.say(viewer_host::password::CANCELLED);
                 self.given_up(document);
@@ -2370,10 +2388,46 @@ impl Host {
             self.write_extracted(asked, name, &bytes);
             return;
         }
-        if let Err(refusal) = viewer_host::may_open_extracted(asked) {
-            self.say(&refusal);
-            return;
+        // §O.2.1's caution, under the level the menu holds: `viewer_host::may_open_extracted`
+        // decides, and this window carries out the answer and puts the question (ADR 1331).
+        match viewer_host::may_open_extracted(asked, name, self.restrictions.embedded_documents()) {
+            viewer_host::Unpacking::Open => self.open_embedded(document, name, bytes, fragment),
+            viewer_host::Unpacking::Warn(note) => {
+                self.say(&note);
+                self.open_embedded(document, name, bytes, fragment);
+            }
+            viewer_host::Unpacking::Refuse(why) => self.say(&why),
+            viewer_host::Unpacking::Ask(question) => {
+                let name = name.to_owned();
+                let bytes = Rc::new(bytes);
+                self.put_a_question(
+                    viewer_host::Subject::Embedded.title(),
+                    &question,
+                    Rc::new(move |host: &mut Self, proceed| {
+                        if proceed {
+                            host.open_embedded(
+                                document,
+                                &name,
+                                bytes.as_ref().clone(),
+                                fragment.clone(),
+                            );
+                        } else {
+                            host.say(&viewer_host::embedded_declined(&name));
+                        }
+                    }),
+                );
+            }
         }
+    }
+
+    /// §O.2.1's embedded document, on its way to a tab of its own beside the one holding it.
+    fn open_embedded(
+        &mut self,
+        document: DocumentId,
+        name: &str,
+        bytes: Vec<u8>,
+        fragment: Option<String>,
+    ) {
         self.say(&viewer_host::opening_embedded(name, fragment.as_deref()));
         let named = viewer_host::Named::embedded(self.showing.directory.as_deref(), name, fragment);
         let behind = document != self.documents.focused();
@@ -2587,9 +2641,14 @@ impl Host {
     /// opens under is simply skipped. It is offered per supplied file so that the reserve is never
     /// stale — a name held across two clicks would have the second document open under the first's
     /// identity, which `Command::Open`'s rule makes a *replacement* of a tab somebody is reading.
-    fn offer_a_name(&mut self, path: &Path, queue: &mut VecDeque<Command>) {
-        let name = self.documents.reserve();
-        self.reserved = Some((name, path.to_owned()));
+    ///
+    /// The file waits beside the name in `viewer_host::Arrivals`, so that a document which opens
+    /// under it gets its tab and one that asks for §7.6.4.1's password is asked about as itself
+    /// (ADR 1332).
+    fn offer_a_name(&mut self, path: &Path, read: &[u8], queue: &mut VecDeque<Command>) {
+        let name = self
+            .arrivals
+            .offer(&mut self.documents, path.to_owned(), read);
         queue.push_back(Command::Beside(Some(name)));
     }
 
@@ -2606,18 +2665,12 @@ impl Host {
         id: DocumentId,
         queue: &mut VecDeque<Command>,
     ) -> Option<DocumentId> {
-        let (path, behind, bytes) = if let Some(arriving) = self.arrivals.settle(id) {
-            let bytes = arriving.bytes();
-            (arriving.named.path, arriving.behind, bytes)
-        } else {
-            let (_, path) = self.reserved.take().filter(|(name, _)| *name == id)?;
-            // The bytes are read again rather than kept from the supply, because what this field
-            // is for is §7.6.4.1's second attempt with a password — and a document that opened
-            // without one will not need it. Opening on disk is what the launch path does with the
-            // first file and costs the same here (ADR 0809).
-            let bytes = pdf_syntax::FileBytes::on_disk(&path).map_err(|error| error.to_string());
-            (path, None, bytes)
-        };
+        let arriving = self.arrivals.settle(id)?;
+        let (path, behind, bytes) = (
+            arriving.named.path.clone(),
+            arriving.behind,
+            arriving.bytes(),
+        );
         let bytes = match bytes {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -2629,6 +2682,22 @@ impl Host {
             }
         };
         let label = viewer_host::documents::label(&path);
+        // §12.6.4.3's `/NewWindow false`, reached after §7.6.4.1's prompt: the document it was
+        // reached from is replaced in its own tab, so the tab and this window's fields become the
+        // new file's rather than a second tab being added (ADR 1332).
+        if let Some(index) = self.documents.index_of(id) {
+            self.documents.relabel(id, label.clone());
+            if let Some(page) = u32::try_from(index)
+                .ok()
+                .and_then(|index| self.ui.documents.nth_page(Some(index)))
+            {
+                self.ui.documents.set_tab_label_text(&page, &label);
+            }
+            if id == self.documents.focused() {
+                self.showing = Showing::new(path, bytes, None);
+            }
+            return None;
+        }
         let holder = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         self.ui
             .documents
@@ -4664,36 +4733,47 @@ fn restrictions_menu(
         };
         model.append_submenu(Some(&label), &per_scope);
     }
+    let per_machine = gio::Menu::new();
+    for act in viewer_host::Act::ALL {
+        per_machine.append_submenu(
+            Some(act.label()),
+            &act_menu(me, restrictions, act, &actions),
+        );
+    }
     model.append_submenu(
         Some(&format!(
             "{} — {}",
             viewer_host::restriction::MACHINE,
             viewer_host::restriction::MACHINE_NOTE
         )),
-        &sending_menu(me, restrictions, &actions),
+        &per_machine,
     );
     (model, actions)
 }
 
-/// What a document may ask this machine to do: one act, §12.7.6.2's, whose four levels are a value
-/// this host reads rather than a command the viewer takes (ADR 1291). One stateful action, so the
-/// levels are radio entries as the restrictions' are.
-fn sending_menu(
+/// What a document may ask this machine to do, one act at a time — §12.7.6.2's submission and
+/// §O.2.1's `ef` — whose four levels are a value this host reads rather than a command the viewer
+/// takes (ADRs 1291, 1331). One stateful action per act, so the levels are radio entries as the
+/// restrictions' are.
+fn act_menu(
     me: &Weak<RefCell<Host>>,
     restrictions: viewer_host::Restrictions,
+    act: viewer_host::Act,
     actions: &gio::SimpleActionGroup,
 ) -> gio::Menu {
-    let entries = restrictions.sending_entries();
+    let entries = restrictions.act_entries(act);
     let chosen = entries
         .iter()
         .find(|entry| entry.chosen)
         .map_or("", |entry| entry.label);
-    let action = gio::SimpleAction::new_stateful(
-        "sending",
-        Some(glib::VariantTy::STRING),
-        &chosen.to_variant(),
-    );
-    let picked: Vec<(&'static str, viewer_host::Submissions)> = entries
+    // Positional for `restrictions_menu`'s reason: an action's name may not hold a space.
+    let name = match act {
+        viewer_host::Act::Submitting => "sending",
+        viewer_host::Act::OpeningEmbedded => "embedded",
+    };
+    let action =
+        gio::SimpleAction::new_stateful(name, Some(glib::VariantTy::STRING), &chosen.to_variant());
+    let picked: Vec<(&'static str, viewer_host::ActLevel)> = entries
         .iter()
         .map(|entry| (entry.label, entry.level))
         .collect();
@@ -4707,21 +4787,19 @@ fn sending_menu(
         };
         action.set_state(&target.to_variant());
         let level = *level;
-        with(&listener, |host| host.chose_sending(level));
+        with(&listener, |host| host.chose_act(level));
     });
     actions.add_action(&action);
     let per_act = gio::Menu::new();
     for entry in &entries {
         let item = gio::MenuItem::new(Some(entry.label), None);
         item.set_action_and_target_value(
-            Some(&format!("{MENU_ACTIONS}.sending")),
+            Some(&format!("{MENU_ACTIONS}.{name}")),
             Some(&entry.label.to_variant()),
         );
         per_act.append_item(&item);
     }
-    let per_machine = gio::Menu::new();
-    per_machine.append_submenu(Some(viewer_host::restriction::SUBMITTING), &per_act);
-    per_machine
+    per_act
 }
 
 /// The menu button, empty until somebody opens it.

@@ -243,7 +243,11 @@ number *there*. **A request for a new window opens a second document beside the 
 and Table 204's `/NewWindow true` are read in the core and answered where the host's answer is,
 because whether this program has a second place to put a document is a fact about the window —
 `Command::Beside` carries a name a host has free for one, and a window that offers none gets the
-sentence saying the destination replaced what was open (ADRs 1227, 1263).
+sentence saying the destination replaced what was open (ADRs 1227, 1263). A file the go-to names
+that asks for a password is asked about under the name it would open under, and the second attempt
+opens that file's own bytes, never the document in front (ADR 1332). **§O.2.1's `ef` is a third
+such value**, `--embedded-documents=refuse|ask|warn|open`, `ask` by default, on the restriction
+menu's third group beside sending a form (ADR 1331).
 
 **Three windows hold more than one document, in a strip of tabs apiece.** A `gtk4::Notebook`, a
 `QTabWidget` and a strip `viewer-ui` draws for itself, with `viewer_host::Documents` as the

@@ -400,3 +400,105 @@ fn a_reserved_name_is_spent_by_the_document_that_opens_under_it() {
         "the spent name was not reused, so the destination replaced the source"
     );
 }
+
+/// A file Table 203's `/F` names that asks for §7.6.4.1's password is asked about, under the name
+/// it would open under, and opens at the action's page once `Command::Open` brings the password.
+///
+/// §7.6.4.1: "If this authentication attempt fails, the interactive PDF processor should prompt
+/// for a password." The named wrong answers: a decline where a prompt is owed, a prompt about the
+/// document holding the link, a retry that lands on the source's two pages, and a document that
+/// opened at its own first page rather than at the one the action names (ADR 1332). The file is
+/// pdf.js's `issue6010_1.pdf`, one page under the user password `abc`, so the test is skipped
+/// where that checkout is absent, as `pdf-syntax`'s own encryption tests are.
+#[test]
+fn a_remote_file_that_asks_for_a_password_is_asked_about_under_its_own_name() {
+    const BESIDE: DocumentId = DocumentId(9);
+    let Ok(locked) = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/issue6010_1.pdf"),
+    ) else {
+        return;
+    };
+    let (mut viewer, _) =
+        asked("<< /Type /Action /S /GoToR /D [0 /Fit] /F (locked.pdf) /NewWindow true >>");
+    viewer.handle(Command::Beside(Some(BESIDE))).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::RemoteDocument,
+            bytes: Some(locked.clone()),
+        })
+        .collect();
+    let asked_about: Vec<DocumentId> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PasswordRequired { document } => Some(*document),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked_about,
+        [BESIDE],
+        "the prompt is about the name the remote document opens under: {:?}",
+        notes(&events)
+    );
+    assert!(
+        !notes(&events).iter().any(|note| note.contains("declines")),
+        "a document that wants a password is not one this reader cannot read"
+    );
+
+    // A wrong password is asked about again, under the same name.
+    let wrong: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: BESIDE,
+            bytes: locked.clone().into(),
+            password: Some("wrong".to_owned().into()),
+            fragment: None,
+        })
+        .collect();
+    assert!(
+        wrong.iter().any(
+            |event| matches!(event, Event::PasswordRequired { document } if *document == BESIDE)
+        )
+    );
+
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: BESIDE,
+            bytes: locked.into(),
+            password: Some("abc".to_owned().into()),
+            fragment: None,
+        })
+        .collect();
+    let opened: Vec<(DocumentId, usize)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Opened { document, pages } => Some((*document, *pages)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        opened,
+        [(BESIDE, 1)],
+        "the remote document's one page, not the source's two"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("opened locked.pdf, 1 page(s), at page 1")),
+        "{:?}",
+        notes(&events)
+    );
+    let back: Vec<Event> = viewer.handle(Command::Focus(DOCUMENT)).collect();
+    let of: Vec<usize> = back
+        .iter()
+        .filter_map(|event| match event {
+            Event::PageChanged { of, .. } => Some(*of),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        of.last(),
+        Some(&2),
+        "the document holding the link is untouched"
+    );
+}
