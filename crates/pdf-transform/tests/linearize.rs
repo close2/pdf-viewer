@@ -675,6 +675,105 @@ fn every_page_offset_hint_names_the_page_s_own_objects_where_they_are() {
     }
 }
 
+/// A big-endian field of `width` bytes at `at` in the hint stream: the headers of Tables F.3 and
+/// F.5 are 32- and 16-bit fields only, so each lies at a byte offset of its own.
+fn header_field(data: &[u8], at: usize, width: usize) -> u64 {
+    data[at..at + width]
+        .iter()
+        .fold(0, |value, byte| (value << 8) | u64::from(*byte))
+}
+
+/// Where each item's run of fields begins, in bits, given the header's size in bytes and each
+/// run's length in bits; and where the last one ends, in bytes. Checks, on the way, that the bits
+/// between a run's last field and the next byte are zero.
+fn padded_runs(name: &str, data: &[u8], header: usize, runs: &[u64]) -> (Vec<u64>, usize) {
+    let mut starts = Vec::new();
+    let mut at = u64::try_from(header * 8).expect("bits");
+    for run in runs {
+        starts.push(at);
+        let end = at + run;
+        let next = end.div_ceil(8) * 8;
+        for bit in end..next {
+            let byte = data[usize::try_from(bit / 8).expect("a byte")];
+            assert_eq!(
+                (byte >> (7 - bit % 8)) & 1,
+                0,
+                "{name}: the padding after a run is zero bits"
+            );
+        }
+        at = next;
+    }
+    (starts, usize::try_from(at / 8).expect("a byte"))
+}
+
+/// §F.4.1's second sentence, read as ADR 1328 reads it: "each hint table shall begin at a byte
+/// boundary", where a table's header is one run and each item across every entry is another.
+///
+/// Computed from the headers' own widths rather than by the reader that skips the padding: the
+/// runs laid end to end, each rounded up to a byte, must end exactly where the next table begins
+/// — which a stream packing the runs without regard to byte boundaries does not, wherever a run's
+/// length is not a whole number of bytes. That at least one run in the fixtures is not is asserted,
+/// so the test cannot pass by having nothing to pad.
+#[test]
+fn every_item_run_of_a_hint_table_begins_on_a_byte() {
+    let mut ragged = 0;
+    for (name, shape) in fixtures() {
+        let read = Read::of(linearised(shape));
+        let data = &read.data;
+        let pages = u64::try_from(read.page_numbers.len()).expect("pages");
+        let decoded = page_offsets(data, read.page_numbers.len());
+        let shared_total: u64 = decoded
+            .pages
+            .iter()
+            .map(|hint| u64::try_from(hint.shared.len()).expect("a count"))
+            .sum();
+        // Table F.3: items 3, 5, 7, 9, 10, 11 and 12 are the widths of Table F.4's items 1, 2,
+        // 6, 7, 3, 4 and 5; the header is 36 bytes.
+        let width = |at| header_field(data, at, 2);
+        let runs = [
+            pages * width(8),
+            pages * width(14),
+            pages * width(28),
+            shared_total * width(30),
+            shared_total * width(32),
+            pages * width(20),
+            pages * width(26),
+        ];
+        ragged += runs.iter().filter(|run| **run % 8 != 0).count();
+        let (starts, end) = padded_runs(&name, data, 36, &runs);
+        assert!(starts.iter().all(|start| start % 8 == 0));
+        let s = read.table("S").expect("F.3.6: /S is required");
+        assert_eq!(
+            end, s,
+            "{name}: the page offset table's padded runs end where the shared object table begins"
+        );
+        // Table F.5: item 4 the number of entries, item 5 the width of Table F.6's item 4 and
+        // item 7 the width of its item 1; item 2 is one bit and item 3 is absent where item 2 is
+        // clear, which this writer always leaves it. The header is 24 bytes.
+        let table = &data[s..];
+        let entries = header_field(table, 12, 4);
+        let runs = [
+            entries * header_field(table, 22, 2),
+            entries,
+            entries * header_field(table, 16, 2),
+        ];
+        ragged += runs.iter().filter(|run| **run % 8 != 0).count();
+        let (_, end) = padded_runs(&name, table, 24, &runs);
+        let next = ["T", "O", "A", "E", "V", "I", "C", "L", "R", "B"]
+            .iter()
+            .filter_map(|key| read.table(key))
+            .filter(|at| *at > s)
+            .min()
+            .unwrap_or(data.len());
+        assert_eq!(
+            s + end,
+            next,
+            "{name}: the shared object table's padded runs end where the next table begins"
+        );
+    }
+    assert!(ragged > 0, "some run is not a whole number of bytes");
+}
+
 /// §F.4.3's shared object hint table: every group is where the table says.
 #[test]
 fn every_shared_object_group_is_where_the_table_says() {

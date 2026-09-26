@@ -27,7 +27,7 @@ use pdf_model::submission::{Method, Submission, compose};
 use pdf_model::view::ViewState;
 use pdf_syntax::{Document, Object, ObjectId};
 use viewer_core::{Command, DocumentId, Event, Viewer};
-use viewer_host::submit::{Reply, Submitter, TransmitError, transmit};
+use viewer_host::submit::{Reply, Submitter, TransmitError, UrlRefusal, check_url, transmit};
 use viewer_host::{Restrictions, Row, Sending, Submissions, may_submit};
 
 /// A form of two fields with values and one without, beside §7.5.4's table.
@@ -387,4 +387,90 @@ fn an_fdf_answer_is_imported_into_the_document_that_sent_the_form() {
             .starts_with("submit-form answer: 1 field(s) imported from http://127.0.0.1:")),
         "{notes:?}"
     );
+}
+
+/// A host the document chose is checked before it enters the TLS stack, and each failure is
+/// refused by its own name at every level and by the client on its own (`doc/questions/A130`,
+/// ADR 1327). RFC 1035 section 2.3.4 bounds a name at 253 octets written out and a label at 63.
+#[test]
+fn a_malformed_host_is_refused_by_name_before_the_tls_stack() {
+    let long_label = "a".repeat(64);
+    let long_name = format!("{}.example", ["abcdefghij"; 25].join("."));
+    assert!(long_name.len() > 253);
+    let cases: [(String, UrlRefusal); 9] = [
+        (
+            format!("https://{long_name}/cgi"),
+            UrlRefusal::NameTooLong(long_name.len()),
+        ),
+        (
+            format!("https://{long_label}.example/cgi"),
+            UrlRefusal::LabelTooLong(64),
+        ),
+        (
+            "https://exa mple.test/cgi".to_owned(),
+            UrlRefusal::Character(' '),
+        ),
+        (
+            "https://ex%61mple.test/cgi".to_owned(),
+            UrlRefusal::PercentEncoded,
+        ),
+        (
+            "https://user:secret@example.test/cgi".to_owned(),
+            UrlRefusal::Userinfo,
+        ),
+        (
+            "https://example.test:99999/cgi".to_owned(),
+            UrlRefusal::Port("99999".to_owned()),
+        ),
+        (
+            "https://example.test:+80/cgi".to_owned(),
+            UrlRefusal::Port("+80".to_owned()),
+        ),
+        (
+            "https://example..test/cgi".to_owned(),
+            UrlRefusal::EmptyLabel,
+        ),
+        (
+            "https://[::1:zz]/cgi".to_owned(),
+            UrlRefusal::Ipv6("::1:zz".to_owned()),
+        ),
+    ];
+    for (url, refusal) in cases {
+        let submission = composed(&url, 1 << 2);
+        let named = refusal.to_string();
+        for level in Submissions::ALL {
+            let Sending::Refuse(sentence) = may_submit(&submission, level) else {
+                panic!("{url}: refused at {level:?}");
+            };
+            assert!(sentence.contains(&named), "{url} at {level:?}: {sentence}");
+        }
+        match transmit(&submission) {
+            Err(TransmitError::Url { refusal: got, .. }) => assert_eq!(got, refusal, "{url}"),
+            other => panic!("{url}: refused by the client too: {other:?}"),
+        }
+    }
+    // A well-formed IPv6 literal and a name at the bounds pass the check; whether a server
+    // answers there is the network's business, not the check's.
+    let label = "a".repeat(63);
+    let at_bounds = format!("{label}.{label}.{label}.{}", "b".repeat(61));
+    assert_eq!(at_bounds.len(), 253);
+    for url in [
+        "https://[::1]:8443/cgi".to_owned(),
+        format!("https://{at_bounds}./cgi"),
+        "http://127.0.0.1:80/cgi?name=Ada".to_owned(),
+    ] {
+        assert_eq!(check_url(&url), Ok(()), "{url}");
+    }
+}
+
+/// And a plain host still reaches the loopback listener through the check.
+#[test]
+fn a_plain_host_still_reaches_the_listener() {
+    let (url, server) = serve_once("text/plain", b"received".to_vec());
+    assert_eq!(check_url(&url), Ok(()));
+    let submission = composed(&url, 1 << 2);
+    assert_eq!(may_submit(&submission, Submissions::Send), Sending::Send);
+    let answer = transmit(&submission).expect("the loopback answers");
+    let _ = server.join().expect("the server thread returns");
+    assert_eq!(answer.status, 200);
 }

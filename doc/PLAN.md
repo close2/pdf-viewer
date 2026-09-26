@@ -63,9 +63,10 @@ bytes reach**, which is the claim that matters here: the C and C++ this tree doe
 faces it offers *outward*, `viewer-ffi`'s and `pdf-vfs-ffi`'s headers and example callers,
 `viewer-qt`'s `cxx` bridge and `kio/`'s worker. The one C library a host links for a job of its
 own is `ring`, the provider under `rustls` in `viewer_host::submit`: it carries a form a person let
-leave and the server's answer, and parses nothing a document wrote. Principle 3's letter still asks
-for it to be confined, so it is argued in ADR 1291 section 4 and put to the owner in
-`doc/questions/Q130`.
+leave and the server's answer, and parses nothing a document wrote. It is principle 3's one named
+exception, granted by the owner in `doc/questions/A130` until a pure-Rust provider is stable, and
+the one string a document chose that enters the TLS stack — the URL's host — is checked before it
+does (ADR 1327; ADR 1291 section 4 prices the dependency).
 
 **What the sandbox is for.** Both codecs run inside it, and the reason is panic containment, an
 enforceable memory ceiling and the architecture principle 3 requires — not the containment of C,
@@ -594,7 +595,7 @@ Memory safety is necessary, not sufficient.
 **No C or C++ library reaches a document's bytes**; the confined codecs are pure Rust, and the
 confinement is for panic containment and a memory ceiling rather than for containing C. `ring`,
 under the host's submission client, is the one C library a host process links for a job of its
-own, and section 1 above says what reaches it (ADR 1291, `doc/questions/Q130`). `pdf-sandbox` is
+own, and section 1 above says what reaches it (ADRs 1291 and 1327, `doc/questions/A130`). `pdf-sandbox` is
 `#![forbid(unsafe_code)]` over `landlock`, `seccompiler`, `rustix` and `libc` for the system-call
 numbers — all four expose safe interfaces.
 

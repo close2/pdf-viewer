@@ -216,4 +216,7 @@ reach a real server is where such a comment is finally read.
 qpdf pads every hint-table item to a byte where F.4.1 says the fields run without regard to byte
 boundaries; one scratch build with padding cleared its warnings and turned a suspicion into a
 measurement before the disagreement was recorded and put to the owner (ADR 1293, `doc/questions/Q131`).
-The annex stands; the build is what makes the record a fact rather than a reading.
+The build is what makes the record a fact rather than a reading — and the owner's search then took the
+padding as F.4.1's operative reading (`doc/questions/A131`, ADR 1328): a convention every known reader
+agrees on is evidence about which reading of an ambiguous sentence does any work, and "the clause is
+not unclear" was itself a claim that decayed.

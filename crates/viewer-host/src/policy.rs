@@ -615,7 +615,9 @@ pub enum Sending {
 /// **Two questions are answered before the level is consulted, and the order is the point** —
 /// [`may_open_uri`]'s. A URL that names no scheme names no Web server at any level, and a scheme
 /// outside [`SUBMIT_SCHEMES`] is not one this machine sends a form to however permissive the
-/// reader is — so neither is a thing *send* turns on. ADR 1291.
+/// reader is — so neither is a thing *send* turns on. A third follows them for the same reason: a
+/// URL that fails `crate::submit::check_url` is not handed to the TLS stack at any level (ADRs
+/// 1291 and 1327).
 #[must_use]
 pub fn may_submit(submission: &Submission, level: Submissions) -> Sending {
     let Some(scheme) = scheme_of(&submission.url) else {
@@ -630,6 +632,13 @@ pub fn may_submit(submission: &Submission, level: Submissions) -> Sending {
             "{scheme}: is not one of the schemes this reader sends a form to ({}), and a document \
              does not get to choose where on this machine its fields are written",
             SUBMIT_SCHEMES.join(", ")
+        ));
+    }
+    if let Err(refusal) = crate::submit::check_url(&submission.url) {
+        return Sending::Refuse(format!(
+            "{} is not sent: {refusal}; a host is checked before it reaches the TLS stack \
+             (ADR 1327)",
+            submission.url
         ));
     }
     match level {

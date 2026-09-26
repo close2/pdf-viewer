@@ -104,7 +104,10 @@ it is the easiest thing to lose gradually to unnoticed initialisation. Rules:
 - Fuzzing from the first parser commit. Every crasher found becomes a permanent
   regression test.
 - Any C dependency (notably JBIG2 / JPEG2000, both historically severe attack surfaces)
-  must be isolated in the sandboxed process and justified in writing.
+  must be isolated in the sandboxed process and justified in writing. **One exception is named**:
+  TLS for a transmission a person allowed — `ring`, the provider under `rustls`, runs in the
+  unconfined host, with the URL's host checked before it enters the TLS stack — until a pure-Rust
+  provider is stable, and revisited then (`doc/questions/A130`, ADR 1327).
 
 #### A document's restrictions are the reader's to set, and they have levels
 

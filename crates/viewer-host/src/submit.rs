@@ -43,6 +43,18 @@
 //! choice rather than a number the standard states; redirects are **not** followed, because the
 //! person was asked about one URL and a server that answers "go elsewhere" is saying something
 //! the person should read rather than something this program should do for them.
+//!
+//! # What is checked before the TLS stack sees it
+//!
+//! **A string a document chose enters the TLS stack, so it is checked first.** Table 239's `/F`
+//! is sent exactly as composed, and its host is what `rustls` writes into the handshake's server
+//! name and what `rustls-webpki` matches the server's certificate against. `ring` itself is handed
+//! none of it — its inputs are the keys, signatures and transcript the server's handshake brings —
+//! but the owner's condition on admitting `ring` into this process (`doc/questions/A130`, ADR 1327)
+//! is that only well-formed input is passed onward. [`check_url`] is that check, run by
+//! [`transmit`] and by `crate::policy::may_submit` alike: rudimentary rather than a full URL
+//! grammar, each bound written beside the constant that holds it, and each failure a
+//! [`UrlRefusal`] that names the check.
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -67,6 +79,17 @@ pub const TIMEOUT: Duration = Duration::from_mins(1);
 /// is not a document.
 pub const RESPONSE_LIMIT: u64 = 64 * 1024 * 1024;
 
+/// The longest host name [`check_url`] passes on, in octets.
+///
+/// RFC 1035 section 2.3.4 bounds a domain name at 255 octets in the form it travels in on the
+/// wire, a length octet before each label and a zero after the last; written out with dots and
+/// without the root's trailing one, that is 253 characters.
+pub const NAME_OCTETS: usize = 253;
+
+/// The longest label of a host name [`check_url`] passes on, in octets — RFC 1035 section 2.3.4's
+/// bound on one label.
+pub const LABEL_OCTETS: usize = 63;
+
 /// How often a window asks whether an answer has arrived, while one is outstanding.
 pub const LOOK: Duration = Duration::from_millis(50);
 
@@ -80,12 +103,183 @@ pub enum TransmitError {
     /// so it is the last place the guarantee can be made.
     #[error("{0} names no scheme this reader sends a form to (http, https)")]
     Scheme(String),
+    /// The URL failed one of [`check_url`]'s checks, so nothing of it reached the TLS stack.
+    #[error("{url} was refused before anything was sent: {refusal}")]
+    Url {
+        /// The URL as composed.
+        url: String,
+        /// The check it failed.
+        refusal: UrlRefusal,
+    },
     /// This machine's trust store could not be read, so no server could be believed.
     #[error("this machine's certificate store could not be read: {0}")]
     TrustStore(String),
     /// The request did not complete: no connection, a TLS refusal, a timeout, an answer too large.
     #[error("{0}")]
     Network(String),
+}
+
+/// Which of [`check_url`]'s checks a URL failed, by name.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UrlRefusal {
+    /// No `//` and authority after the scheme, so the URL names no server (RFC 3986 section 3.2).
+    #[error("the URL names no host after its scheme")]
+    NoAuthority,
+    /// User information before the host (`user@host`): a form's address has no use for it, and it
+    /// is where a URL hides a host behind something that looks like one.
+    #[error(
+        "the URL carries user information (`@`) before its host, which this reader does not send"
+    )]
+    Userinfo,
+    /// A `%` in the authority: a host is sent only as it is written, never decoded first.
+    #[error(
+        "the URL's host is percent-encoded (`%`), and this reader sends only a host written out"
+    )]
+    PercentEncoded,
+    /// Nothing between the `//` and the port or path.
+    #[error("the URL's host is empty")]
+    EmptyHost,
+    /// Longer than [`NAME_OCTETS`].
+    #[error(
+        "the host name is {0} octets long, past the {NAME_OCTETS} a domain name may have (RFC 1035 \
+         section 2.3.4)"
+    )]
+    NameTooLong(usize),
+    /// A label longer than [`LABEL_OCTETS`].
+    #[error(
+        "the host name has a label of {0} octets, past the {LABEL_OCTETS} a label may have (RFC \
+         1035 section 2.3.4)"
+    )]
+    LabelTooLong(usize),
+    /// Two dots together, or a dot first.
+    #[error("the host name has an empty label")]
+    EmptyLabel,
+    /// A character that is not an ASCII letter, a digit or a hyphen, inside a label.
+    #[error(
+        "the host name holds {0:?}, which is not a letter, a digit, a hyphen or a dot (RFC 1035 \
+         section 2.3.1)"
+    )]
+    Character(char),
+    /// A bracketed host that does not parse as an IPv6 address.
+    #[error("the bracketed host {0:?} is not an IPv6 address (RFC 3986 section 3.2.2)")]
+    Ipv6(String),
+    /// A port that is not one to five digits naming a number up to 65535.
+    #[error("the port {0:?} is not a number from 0 to 65535 (RFC 3986 section 3.2.3)")]
+    Port(String),
+    /// A control character or white space in the path, query or fragment.
+    #[error("the URL holds a control character or white space after its host")]
+    Control,
+}
+
+/// Checks a submission's URL before any of it is handed to the HTTP client and the TLS stack.
+///
+/// Why this exists is the module's section *What is checked before the TLS stack sees it*: the
+/// host is a string a document chose, and it enters `rustls` for the server name and for the
+/// certificate's name check. What is checked, in this order:
+///
+/// - the authority: a `//` after the scheme, no user information (`@`) and no percent-encoding
+///   (`%`) anywhere in it — which also refuses an IPv6 zone identifier, since RFC 6874 writes one
+///   as `%25`;
+/// - the host: either an IPv6 literal in brackets that `std::net::Ipv6Addr` parses, or a name of
+///   at most [`NAME_OCTETS`] octets whose labels are non-empty, at most [`LABEL_OCTETS`] octets
+///   and made of ASCII letters, digits and hyphens (RFC 1035 section 2.3.1's letters, digits and
+///   hyphens, with a digit admitted first as RFC 1123 section 2.1 allows, so a dotted IPv4 address
+///   passes as a name). One trailing dot, the root's, is admitted;
+/// - the port, where one is written: one to five ASCII digits naming a `u16`;
+/// - the rest: no control character and no white space.
+///
+/// **What is not checked, and why.** A hyphen first or last in a label, an all-digit name that is
+/// not a real IPv4 address, and the path's and query's grammar: none of them is a string the TLS
+/// stack parses — the path and query travel as application data inside the connection, and a host
+/// of the wrong shape but the right characters fails at the resolver or at the certificate's name
+/// check, both of which refuse by name already. An internationalised name is refused rather than
+/// converted: a document that means one writes its ASCII form (RFC 5890), and this reader does
+/// not choose a conversion on its behalf. The owner asked for rudimentary checks rather than a
+/// grammar (`doc/questions/A130`), and a grammar is where a checker's own defects would live.
+///
+/// # Errors
+///
+/// The [`UrlRefusal`] naming the first check the URL failed.
+pub fn check_url(url: &str) -> Result<(), UrlRefusal> {
+    let after_scheme = url
+        .split_once(':')
+        .map_or("", |(_, after_scheme)| after_scheme);
+    let rest = after_scheme
+        .strip_prefix("//")
+        .ok_or(UrlRefusal::NoAuthority)?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let remainder = rest.get(authority.len()..).unwrap_or_default();
+    if authority.contains('@') {
+        return Err(UrlRefusal::Userinfo);
+    }
+    if authority.contains('%') {
+        return Err(UrlRefusal::PercentEncoded);
+    }
+    let port = if let Some(bracketed) = authority.strip_prefix('[') {
+        let (literal, after) = bracketed
+            .split_once(']')
+            .ok_or_else(|| UrlRefusal::Ipv6(bracketed.to_owned()))?;
+        literal
+            .parse::<std::net::Ipv6Addr>()
+            .map_err(|_| UrlRefusal::Ipv6(literal.to_owned()))?;
+        if after.is_empty() {
+            None
+        } else {
+            Some(
+                after
+                    .strip_prefix(':')
+                    .ok_or_else(|| UrlRefusal::Port(after.to_owned()))?,
+            )
+        }
+    } else {
+        let (host, port) = match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        };
+        check_name(host)?;
+        port
+    };
+    if let Some(port) = port {
+        // `u16::from_str` admits a leading `+`, which is no port RFC 3986 section 3.2.3 writes.
+        let digits =
+            !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
+        if !digits || port.parse::<u16>().is_err() {
+            return Err(UrlRefusal::Port(port.to_owned()));
+        }
+    }
+    if remainder
+        .chars()
+        .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return Err(UrlRefusal::Control);
+    }
+    Ok(())
+}
+
+/// [`check_url`]'s checks on a host written as a name.
+fn check_name(host: &str) -> Result<(), UrlRefusal> {
+    if host.is_empty() {
+        return Err(UrlRefusal::EmptyHost);
+    }
+    let name = host.strip_suffix('.').unwrap_or(host);
+    if name.len() > NAME_OCTETS {
+        return Err(UrlRefusal::NameTooLong(name.len()));
+    }
+    for label in name.split('.') {
+        if label.is_empty() {
+            return Err(UrlRefusal::EmptyLabel);
+        }
+        if label.len() > LABEL_OCTETS {
+            return Err(UrlRefusal::LabelTooLong(label.len()));
+        }
+        if let Some(character) = label
+            .chars()
+            .find(|character| !(character.is_ascii_alphanumeric() || *character == '-'))
+        {
+            return Err(UrlRefusal::Character(character));
+        }
+    }
+    Ok(())
 }
 
 /// What a server answered.
@@ -127,6 +321,10 @@ pub fn transmit(submission: &Submission) -> Result<Response, TransmitError> {
         Some("http") => false,
         _ => return Err(TransmitError::Scheme(submission.url.clone())),
     };
+    check_url(&submission.url).map_err(|refusal| TransmitError::Url {
+        url: submission.url.clone(),
+        refusal,
+    })?;
     let agent = agent(secure)?;
     let sent = match submission.method {
         Method::Get => agent.get(&submission.url).call(),

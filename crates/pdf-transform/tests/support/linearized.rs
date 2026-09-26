@@ -1,6 +1,7 @@
 //! A reader of ISO 32000-2 Annex F's parameter dictionary and hint tables, written from the annex.
 //!
-//! Tables F.1 and §F.3 to F.9 are decoded here field by field — widths, item order, and §F.4.1's
+//! Tables F.1 and §F.3 to F.9 are decoded here field by field — widths, item order, each item's
+//! run of fields ending on a byte (§F.4.1 as ADR 1328 reads it), and §F.4.1's
 //! rule that "a position greater than the hint stream offset shall have the hint stream length
 //! added to it" — and [`faults`] asks one linearised file every question the annex lets a reader
 //! check against the file itself: is each object where the parameter dictionary and the hint
@@ -42,6 +43,12 @@ impl Bits<'_> {
             self.at += 1;
         }
         value
+    }
+
+    /// Skips to the next byte boundary, which is where every item's run of fields ends:
+    /// §F.4.1's "each hint table shall begin at a byte boundary", read as ADR 1328 reads it.
+    fn align(&mut self) {
+        self.at = self.at.div_ceil(8) * 8;
     }
 
     /// A width field: Table F.3's "16-bit numbers shall be used", for values 0 through 32.
@@ -129,28 +136,35 @@ pub(crate) fn page_offsets(data: &[u8], pages: usize) -> PageOffsets {
     let identifier_bits = bits.width();
     let numerator_bits = bits.width();
     let denominator = bits.take(16);
-    // The order of Table F.4's items: each item for every page before the next item.
+    // The order of Table F.4's items: each item for every page before the next item, each item's
+    // run ending on a byte.
     let mut out = vec![PageHint::default(); pages];
     for page in &mut out {
         page.objects = least_objects + bits.take(objects_bits);
     }
+    bits.align();
     for page in &mut out {
         page.length = least_length + bits.take(length_bits);
     }
+    bits.align();
     let counts: Vec<u64> = (0..pages).map(|_| bits.take(shared_count_bits)).collect();
+    bits.align();
     for (page, count) in out.iter_mut().zip(&counts) {
         for _ in 0..*count {
             page.shared.push(bits.take(identifier_bits));
         }
     }
+    bits.align();
     for (page, count) in out.iter_mut().zip(&counts) {
         for _ in 0..*count {
             page.numerators.push(bits.take(numerator_bits));
         }
     }
+    bits.align();
     for page in &mut out {
         page.content_offset = least_offset + bits.take(offset_bits);
     }
+    bits.align();
     for page in &mut out {
         page.content_length = least_content + bits.take(content_bits);
     }
@@ -179,7 +193,9 @@ pub(crate) fn shared_objects(data: &[u8], at: usize) -> SharedObjects {
     // A count past what the stream could hold is a fault, not an allocation.
     let total = usize::try_from(total).unwrap_or(0).min(data.len() * 8);
     let lengths: Vec<u64> = (0..total).map(|_| least + bits.take(length_bits)).collect();
+    bits.align();
     let signed: Vec<u64> = (0..total).map(|_| bits.take(1)).collect();
+    bits.align();
     for flag in &signed {
         if *flag == 1 {
             bits.take(128);
@@ -244,9 +260,11 @@ pub(crate) fn thumbnails(data: &[u8], at: usize) -> ThumbnailTable {
     let objects_bits = bits.width();
     let shared = (bits.take(32), bits.take(32), bits.take(32), bits.take(32));
     let gaps: Vec<u64> = (0..count).map(|_| bits.take(gap_bits)).collect();
+    bits.align();
     let objects: Vec<u64> = (0..count)
         .map(|_| least_objects + bits.take(objects_bits))
         .collect();
+    bits.align();
     let lengths: Vec<u64> = (0..count)
         .map(|_| least_length + bits.take(length_bits))
         .collect();
@@ -281,8 +299,11 @@ pub(crate) fn embedded_files(data: &[u8], at: usize) -> (u64, u64, Vec<(u64, u64
     let length_bits = bits.width();
     let shared_bits = bits.width();
     let numbers: Vec<u64> = (0..count).map(|_| bits.take(number_bits)).collect();
+    bits.align();
     let objects: Vec<u64> = (0..count).map(|_| bits.take(objects_bits)).collect();
+    bits.align();
     let lengths: Vec<u64> = (0..count).map(|_| bits.take(length_bits)).collect();
+    bits.align();
     let shared: Vec<u64> = (0..count).map(|_| bits.take(shared_bits)).collect();
     // Item 5's identifiers are Table F.3 item 11 bits wide; this writer states none, and a
     // reader that met some would need that width, which it has not been told here.

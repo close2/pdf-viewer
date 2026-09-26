@@ -148,7 +148,8 @@ an at-bookmarks piece is a different *shape* to show another reader.
 (`doc/questions/A03`). `pdf_syntax::linearize::serialize_linearized` writes the eleven parts in
 F.3's order with part 5 before part 4, the page offset and shared object hint tables and every
 other table Table F.2 requires of the document, and every offset computed to a fixed point before
-a byte is written; `pdf_syntax::linearize::state` is F.1's reader half. Object streams are packed
+a byte is written, each item's run of a hint table padded to a byte (F.4.1's operative reading,
+ADR 1328); `pdf_syntax::linearize::state` is F.1's reader half. Object streams are packed
 part by part under F.3.1's conditions with §7.5.8 cross-reference streams in both sections, passwords
 encrypt it with the dictionary in part 4, and a page's `/B` and each bead's `/T` are derived from
 §12.4.3's thread chain where the producer left them out (ADR 1309). `tests/linearize.rs` reads each
@@ -188,9 +189,6 @@ table back through `support::linearized`, a second reader written from Tables F.
   and downsampling to `FlateDecode`-compressed raw samples makes a photograph larger, so the
   keep-the-original rule would keep every image and the flag would do nothing while claiming to.
   One question, two features, and `doc/stack.md` is where it is answered.
-
-- **Annex F's one open question**: `doc/questions/Q131` asks whether the hint tables should follow
-  Adobe's padding instead of F.4.1's, which qpdf's checker expects.
 
 ## 2. The RFC 0003 hand-off
 

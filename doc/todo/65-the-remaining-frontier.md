@@ -214,9 +214,9 @@ may be chosen where the clause names the kind of mark and withholds only the num
 §12.5.6.12's artwork on its far side, and moved §12.7.5.4 to `implemented` (ADR 1323); A76's
 mode is drawn in `raster/` (ADR 1295); A97's text is held and §12.7.8.3.4 reads it (ADR 1297);
 A100 made §8.6.6.5 `implemented`; A03 ratified Annex F, whose rows are all `implemented` (ADRs 1293,
-1309); A67 names no ledger row. Two stay open and move no row here: `doc/questions/Q130`, what the
-TLS stack's C costs principle 3, and `doc/questions/Q131`, how a linearised file's hint tables are
-padded.
+1309); A67 names no ledger row. A130 wrote TLS into principle 3 as its one named exception, with
+the host checked first (ADR 1327), and A131 read F.4.1 as padding each item's run of a hint table
+(ADR 1328); neither moves a row.
 
 ### 6. Genuinely buildable now — the campaign's next targets
 

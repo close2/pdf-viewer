@@ -82,6 +82,24 @@
 //! stream's data is the assembly's `Arc<[u8]>` and is not copied; a recompressed one was already
 //! in memory under [`crate::serialize::Streams::Recompress`]'s own stated cost.
 //!
+//! # How a hint table's fields are packed
+//!
+//! ISO 32000-2 §F.4.1:
+//!
+//! > In general, this byte stream shall be treated as a bit stream, high-order bit first, which
+//! > shall then be subdivided into fields of arbitrary width without regard to byte boundaries.
+//! > However, each hint table shall begin at a byte boundary.
+//!
+//! **Every item's run of fields is padded to a byte boundary**, with zero bits: a table's header is
+//! one run, and each item of Tables F.4, F.6, F.8 and F.12, taken across every entry, is another.
+//! The first sentence says the fields inside a run need not be aligned; the second's exception is
+//! read as the format's author has implemented it since it was published and as every reader of
+//! the tables this tree knows of expects — the "table" that begins on a byte is each such run —
+//! because the reading that would align only whole tables restates what a stream's byte offsets
+//! already guarantee and does no work. That is `doc/questions/A131`'s reading, taken as §F.4.1's
+//! operative one rather than as a departure, and it is revisited when an edition or a corrigendum
+//! states the packing either way (ADR 1328).
+//!
 //! # Reading one
 //!
 //! [`state`] is the reader's half, and it is §F.1's and Table F.1's rule rather than an
@@ -3186,7 +3204,8 @@ impl BitWriter {
         }
     }
 
-    /// Pads to a byte boundary: §F.4.1's "each hint table shall begin at a byte boundary".
+    /// Pads to a byte boundary with zero bits: after every item's run of fields, and so at every
+    /// table's end — [`hint_data`]'s reading of §F.4.1, ADR 1328.
     fn align(&mut self) {
         if self.filled > 0 {
             let shift = 8u32.saturating_sub(self.filled);
@@ -3267,33 +3286,40 @@ fn hint_data(layout: &Layout, offsets: &Offsets) -> (HintData, Vec<&'static str>
     w.put(u64::from(numerator_bits), 16); // 12
     w.put(DENOMINATOR, 16); // 13
     // "The order of items making up the per-page entries shall be as follows" — item by item
-    // across every page, the bit stream running on "without regard to byte boundaries".
+    // across every page, each item's run of fields padded to a byte before the next begins. The
+    // header's widths are all whole bytes, so the header is a run that ends on one already.
     for page in entries {
         let objects = u64::try_from(page.span.count).unwrap_or(u64::MAX);
         w.put(objects.saturating_sub(least_objects), objects_bits);
     }
+    w.align();
     for page in entries {
         w.put(length(page.span).saturating_sub(least_length), length_bits);
     }
+    w.align();
     for page in entries {
         w.put(
             u64::try_from(page.shared.len()).unwrap_or(u64::MAX),
             shared_bits,
         );
     }
+    w.align();
     for page in entries {
         for (id, _) in &page.shared {
             w.put(*id, width);
         }
     }
+    w.align();
     for page in entries {
         for (_, numerator) in &page.shared {
             w.put(*numerator, numerator_bits);
         }
     }
+    w.align();
     for page in entries {
         w.put(content(page).0.saturating_sub(least_offset), offset_bits);
     }
+    w.align();
     for page in entries {
         w.put(content(page).1.saturating_sub(least_content), content_bits);
     }
@@ -3332,12 +3358,14 @@ fn hint_data(layout: &Layout, offsets: &Offsets) -> (HintData, Vec<&'static str>
     for span in &groups {
         w.put(length(*span).saturating_sub(least_group), group_bits);
     }
+    w.align();
     // Item 2, the signature flag: no signature is written, because item 3 is "a 16-byte MD5 hash
     // that uniquely identifies the resource", and deciding which resources are the same resource
     // is a claim about content.
     for _ in &groups {
         w.put(0, 1);
     }
+    w.align();
     for span in &groups {
         let objects = u64::try_from(span.count).unwrap_or(u64::MAX);
         w.put(objects.saturating_sub(1), count_bits);
@@ -3386,10 +3414,12 @@ fn hint_data(layout: &Layout, offsets: &Offsets) -> (HintData, Vec<&'static str>
         for gap in &gaps {
             w.put(*gap, gap_bits);
         }
+        w.align();
         for (_, span) in images {
             let objects = u64::try_from(span.count).unwrap_or(u64::MAX);
             w.put(objects.saturating_sub(least_count), count_bits);
         }
+        w.align();
         for (_, span) in images {
             w.put(length(*span).saturating_sub(least_len), len_bits);
         }
@@ -3462,9 +3492,11 @@ fn hint_data(layout: &Layout, offsets: &Offsets) -> (HintData, Vec<&'static str>
         for (_, span) in groups {
             w.put(u64::from(layout.numbers_at(span.start)), number_bits);
         }
+        w.align();
         for (_, span) in groups {
             w.put(u64::try_from(span.count).unwrap_or(u64::MAX), objects_bits);
         }
+        w.align();
         for (_, span) in groups {
             w.put(length(*span), length_bits);
         }
@@ -3504,7 +3536,7 @@ mod tests {
 
     /// §F.4.1: "this byte stream shall be treated as a bit stream, high-order bit first".
     #[test]
-    fn a_bit_stream_is_written_high_order_bit_first_and_padded_only_at_a_table_s_end() {
+    fn a_bit_stream_is_written_high_order_bit_first_and_padded_with_zero_bits() {
         let mut w = BitWriter::default();
         w.put(0b101, 3);
         w.put(0b1, 1);
