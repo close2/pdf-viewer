@@ -1252,13 +1252,12 @@ fn object_streams_in_a_linearised_file_meet_every_condition_f_3_1_states() {
             .and_then(|at| object_at(&read.bytes, at as u64))
             .map(u64::from)
             .expect("part 2");
-        // Both sections hold compressed objects: the first page's own dictionaries in the first,
-        // the later pages', the shared objects' and part 9's in the main.
-        let first: Vec<u64> = (parameters..size - 1)
-            .filter(|n| read.compressed(*n))
-            .collect();
+        // The main section holds compressed objects — the later pages', the shared objects' and
+        // part 9's — and the first-page section none: the first group is written whole, so the
+        // hint stream §F.3.6 numbers last never follows a compressed object (ADR 1337).
+        let first: Vec<u64> = (parameters..size).filter(|n| read.compressed(*n)).collect();
         let main: Vec<u64> = (1..parameters).filter(|n| read.compressed(*n)).collect();
-        assert!(!first.is_empty(), "{name}: part 4 and part 6 are packed");
+        assert!(first.is_empty(), "{name}: part 4 and part 6 hold {first:?}");
         assert!(!main.is_empty(), "{name}: parts 7 to 9 are packed");
         // "Objects stored within object streams shall be given the highest range of object
         // numbers within the main and first-page cross-reference sections."
@@ -1269,14 +1268,6 @@ fn object_streams_in_a_linearised_file_meet_every_condition_f_3_1_states() {
         assert!(
             main.iter().all(|n| *n > highest_uncompressed_main),
             "{name}: the main section's compressed objects are numbered last"
-        );
-        let highest_uncompressed_first = (parameters..size - 1)
-            .filter(|n| !read.compressed(*n))
-            .max()
-            .expect("an uncompressed object");
-        assert!(
-            first.iter().all(|n| *n > highest_uncompressed_first),
-            "{name}: the first-page section's compressed objects are numbered last"
         );
         // "These additional objects may not be contained in an object stream: the linearization
         // dictionary, the document catalog dictionary, and page objects."

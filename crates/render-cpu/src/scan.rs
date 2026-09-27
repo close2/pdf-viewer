@@ -120,6 +120,11 @@ pub(crate) enum Exact {
     /// The mark is not a rectangle, or nobody asked.
     #[default]
     Unknown,
+    /// Not rectangles either, and known to overlap itself: the outline a stroker returns, whose
+    /// offset contours cross one another at the joins. `crate::area` measures every row of such a
+    /// mark as the filled set rather than waiting for a row to show an overlap, because a stroke
+    /// thinner than a few pixels shows none — ISO 32000-2 §11.6.2, ADR 1341.
+    Outline,
     /// One rectangle, which is the common case and allocates nothing.
     One(tiny_skia::Rect),
     /// Several, whose device pixel footprints are pairwise disjoint — see the type's comment.
@@ -133,7 +138,7 @@ impl Exact {
     /// The rectangles, in the path's own order. Empty for [`Exact::Unknown`].
     fn iter(&self) -> impl Iterator<Item = tiny_skia::Rect> + '_ {
         let (one, several) = match self {
-            Self::Unknown => (None, [].as_slice()),
+            Self::Unknown | Self::Outline => (None, [].as_slice()),
             Self::One(rect) => (Some(*rect), [].as_slice()),
             Self::Several(rects) | Self::Shared(rects) => (None, rects.as_slice()),
         };
@@ -142,7 +147,7 @@ impl Exact {
 
     /// Whether `pdf_render::edge` answered at all for this mark.
     pub(crate) fn is_some(&self) -> bool {
-        !matches!(self, Self::Unknown)
+        !matches!(self, Self::Unknown | Self::Outline)
     }
 
     /// Whether two portions of this mark fall in one device pixel — ISO 32000-2 §11.6.2.
@@ -295,7 +300,7 @@ pub(crate) struct Scratch {
     coverage: std::cell::RefCell<Vec<tiny_skia::Mask>>,
     /// [`crate::area`]'s accumulator, kept for the same reason and on the same terms: it grows
     /// to the largest mark the band holds and is cleared per mark, never allocated per mark.
-    cells: std::cell::RefCell<Vec<f32>>,
+    cells: std::cell::RefCell<crate::area::Buffers>,
 }
 
 /// [`tiny_skia::PixmapMut::fill_path`], with the range applied to `paint.anti_alias` and
@@ -308,13 +313,47 @@ pub(crate) fn fill(
     at: tiny_skia::Transform,
     clip: Clip<'_>,
 ) {
+    fill_as(pixmap, (path, &Exact::Unknown), paint, fill_rule, at, clip);
+}
+
+/// [`fill`], for a stroker's outline that may cover a point twice — [`Exact::Outline`].
+pub(crate) fn fill_outline(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    outline: &tiny_skia::Path,
+    paint: &tiny_skia::Paint<'_>,
+    at: tiny_skia::Transform,
+    clip: Clip<'_>,
+) {
+    // The non-zero rule, because a stroked outline's inner contours are wound against its outer
+    // ones and the even-odd rule would hollow a self-overlapping stroke out. It is what
+    // `stroke_path` fills the same outline with, and what `draw_stroked_outline` fills every
+    // other outline with.
+    fill_as(
+        pixmap,
+        (outline, &Exact::Outline),
+        paint,
+        tiny_skia::FillRule::Winding,
+        at,
+        clip,
+    );
+}
+
+/// [`fill`] and [`fill_outline`], which differ only in what they know of the mark's shape.
+fn fill_as(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    (path, exact): (&tiny_skia::Path, &Exact),
+    paint: &tiny_skia::Paint<'_>,
+    fill_rule: tiny_skia::FillRule,
+    at: tiny_skia::Transform,
+    clip: Clip<'_>,
+) {
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
     // No guard in front of the call, and that is measured rather than assumed: `composable().is_some()`
     // here is exactly [`intersected`]'s own first two declines for an [`Exact::Unknown`] mark, and
     // adding it costs 13 000 instructions on ISO 32000-2's page 101 rather than saving any. One
     // call frame per fill is below what a page of text can measure.
-    if intersected(pixmap, path, &paint, fill_rule, (at, &Exact::Unknown), clip) {
+    if intersected(pixmap, path, &paint, fill_rule, (at, exact), clip) {
         return;
     }
     pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
@@ -1025,7 +1064,7 @@ pub(crate) fn admits_every_pixel(exact: &Exact, (width, height): (u32, u32)) -> 
 
 pub(crate) fn mask_fill(
     mask: &mut tiny_skia::Mask,
-    cells: &mut Vec<f32>,
+    cells: &mut crate::area::Buffers,
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
@@ -1055,7 +1094,7 @@ pub(crate) fn mask_fill(
             cells,
             mask.data_mut(),
             (extent.0, region),
-            path,
+            (path, matches!(exact, Exact::Outline)),
             fill_rule,
             at,
         )
@@ -1320,7 +1359,7 @@ fn level_of(coverage: f32) -> u8 {
 /// this function's and not whichever of three scan-conversion routes [`mask_fill`] took.
 pub(crate) fn mask_union(
     mask: &mut tiny_skia::Mask,
-    (scratch, cells): (&mut tiny_skia::Mask, &mut Vec<f32>),
+    (scratch, cells): (&mut tiny_skia::Mask, &mut crate::area::Buffers),
     marks: &tiny_skia::Path,
     anti_alias: bool,
     at: tiny_skia::Transform,
@@ -1341,7 +1380,7 @@ pub(crate) fn mask_union(
 
 pub(crate) fn mask_intersect(
     mask: &mut tiny_skia::Mask,
-    (scratch, cells): (&mut tiny_skia::Mask, &mut Vec<f32>),
+    (scratch, cells): (&mut tiny_skia::Mask, &mut crate::area::Buffers),
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
@@ -1384,7 +1423,7 @@ mod tests {
         let mut scratch = tiny_skia::Mask::new(8, 4).expect("a scratch mask");
         super::mask_fill(
             &mut mask,
-            &mut Vec::new(),
+            &mut crate::area::Buffers::default(),
             &half_plane(*root),
             tiny_skia::FillRule::Winding,
             true,
@@ -1393,7 +1432,7 @@ mod tests {
         for edge in nested {
             super::mask_intersect(
                 &mut mask,
-                (&mut scratch, &mut Vec::new()),
+                (&mut scratch, &mut crate::area::Buffers::default()),
                 &half_plane(*edge),
                 tiny_skia::FillRule::Winding,
                 true,
@@ -1417,7 +1456,7 @@ mod tests {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
         super::mask_fill(
             &mut mask,
-            &mut Vec::new(),
+            &mut crate::area::Buffers::default(),
             &shape.0,
             tiny_skia::FillRule::Winding,
             true,
@@ -1461,7 +1500,7 @@ mod tests {
             let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
             super::mask_fill(
                 &mut mask,
-                &mut Vec::new(),
+                &mut crate::area::Buffers::default(),
                 &huge.0,
                 tiny_skia::FillRule::Winding,
                 anti_alias,
@@ -1553,7 +1592,7 @@ mod tests {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
         super::mask_fill(
             &mut mask,
-            &mut Vec::new(),
+            &mut crate::area::Buffers::default(),
             &path,
             tiny_skia::FillRule::Winding,
             true,
@@ -1677,7 +1716,7 @@ mod tests {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
         super::mask_fill(
             &mut mask,
-            &mut Vec::new(),
+            &mut crate::area::Buffers::default(),
             &half_plane(x),
             tiny_skia::FillRule::Winding,
             true,

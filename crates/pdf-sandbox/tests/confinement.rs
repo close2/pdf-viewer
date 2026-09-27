@@ -235,6 +235,35 @@ fn the_worker_reports_full_landlock_enforcement() {
     assert_eq!(confinement.address_space_limit, 1 << 30);
 }
 
+/// A worker started for full-resolution decodes is confined as the ordinary one is, with the
+/// ceiling its budget states and no other (ADR 1333).
+///
+/// The budget is twice the ordinary worker's samples, so the ceiling is twice its gigabyte: the
+/// ordinary ratio of sixteen bytes a sample, carried to the larger budget. Landlock and the
+/// filter are the decoder's own, and a request over the budget is a refusal naming it rather
+/// than a worker killed by its ceiling.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_worker_for_whole_decodes_is_confined_under_the_ceiling_its_budget_states() {
+    let samples = 2 * pdf_sandbox::ORDINARY_SAMPLES;
+    let sandbox = Sandbox::whole(samples);
+    let confinement = sandbox.confinement().unwrap();
+    assert_eq!(
+        confinement.landlock,
+        pdf_sandbox::lockdown::LandlockLevel::Enforced
+    );
+    assert!(confinement.is_enforced(), "{confinement:?}");
+    assert_eq!(confinement.address_space_limit, 2 << 30);
+    let error = sandbox
+        .decode(&Request::JpxWhole {
+            data: b"",
+            indices: false,
+            samples,
+        })
+        .unwrap_err();
+    assert!(matches!(error, SandboxError::Undecodable { .. }), "{error}");
+}
+
 #[test]
 #[cfg(target_os = "linux")]
 fn a_confined_process_cannot_open_a_file() {

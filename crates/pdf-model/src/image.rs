@@ -2457,6 +2457,225 @@ fn decode_jpx(
     })
 }
 
+/// A `JPXDecode` image's samples as the confined decoder delivered them, before any colour is
+/// made of them: what a writer that must carry the image re-encodes (ADR 1333).
+///
+/// [`decode`] turns these into an eight-bit RGBA raster for a page; a writer that clears part of
+/// the image and keeps the rest (§12.5.6.23's redaction) needs the step before that, because
+/// every sample outside the part it clears is to be carried as the file had it. So this stops
+/// where [`decode`]'s own JPEG 2000 route starts to convert: the components at the precision
+/// Table 87 leaves to the processor — "[t]he bit depth is determined by the PDF processor in the
+/// process of decoding the JPEG 2000 image" — the colour space §7.4.9's precedence names, the
+/// `/Decode` pairs a reader maps the samples through, and `/SMaskInData`'s opacity channel apart.
+#[derive(Debug, Clone)]
+pub struct JpxSamples {
+    /// Columns of the raster, which [`jpx_samples`] has held to the dictionary's `/Width`.
+    pub width: u32,
+    /// Rows of the raster, held to the dictionary's `/Height`.
+    pub height: u32,
+    /// Colour components per pixel.
+    pub components: usize,
+    /// Bits per sample, 1 to 16: one byte a sample to eight, two big-endian bytes above.
+    pub precision: u8,
+    /// The colour components, interleaved, at [`Self::precision`].
+    pub colour: Vec<u8>,
+    /// Table 87's opacity channel at [`Self::precision`], where `/SMaskInData` is 1 or 2 and the
+    /// codestream carries one; `None` where a reader applies none.
+    pub opacity: Option<Vec<u8>>,
+    /// Whether the colour components were multiplied by that opacity (`/SMaskInData` 2).
+    pub premultiplied: bool,
+    /// Which colour space the components are in.
+    pub space: JpxSpace,
+    /// The §8.9.5.2 `/Decode` pair a reader maps each component through at [`Self::precision`]:
+    /// the dictionary's where it states a colour space and a pair, Table 88's default otherwise.
+    pub decode: Vec<(f32, f32)>,
+}
+
+/// The samples a caller of [`jpx_samples`] that states no budget of its own asks for: the most
+/// the ordinary confined worker decodes a codestream to at full resolution.
+pub const ORDINARY_JPX_SAMPLES: u64 = pdf_sandbox::ORDINARY_SAMPLES;
+
+/// The colour space a `JPXDecode` image's samples are in, by §7.4.9's precedence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JpxSpace {
+    /// The image dictionary states one, and "any colour space specifications in the JPEG 2000
+    /// data shall be ignored" — so the dictionary's entry describes the samples as it stands.
+    Stated,
+    /// The codestream's, one component.
+    Gray,
+    /// The codestream's, three components.
+    Rgb,
+    /// The codestream's, four components.
+    Cmyk,
+    /// The codestream's own ICC profile, which this crate can read.
+    Icc(Vec<u8>),
+}
+
+/// Decodes a `JPXDecode` image's samples through the confined decoder without converting them.
+///
+/// The steps are [`decode`]'s own up to the colour: §7.4.9's grid check against the data's
+/// statement, the same reading of an opacity channel, and the same fallback where the
+/// codestream's colour specification cannot be used. What differs is the request: [`decode`]
+/// lets a codestream over the decoder's budget come back at a reduced resolution level, which
+/// §7.4.9 NOTE 3 permits a viewer, and a raster on that grid is not the image's own. So this
+/// asks for the full resolution within `samples` — pixels times channels — and a codestream
+/// larger than that is refused by the decoder rather than reduced
+/// (`pdf_sandbox::Request::JpxWhole`, ADR 1333).
+///
+/// # Errors
+///
+/// See [`ImageError`].
+pub fn jpx_samples(
+    document: &Document,
+    dict: &Dictionary,
+    resources: &Dictionary,
+    (data, samples): (&[u8], u64),
+) -> Result<JpxSamples, ImageError> {
+    let width = positive_integer(document, dict, "Width")?;
+    let height = positive_integer(document, dict, "Height")?;
+    let declared = document.get_key(dict, "ColorSpace");
+    let declared_space = if matches!(declared, Object::Null) {
+        None
+    } else {
+        Some(
+            crate::colour::ColourSpace::parse(document, &declared, resources).ok_or_else(|| {
+                ImageError::UnsupportedColourSpace {
+                    space: space_name(&declared),
+                }
+            })?,
+        )
+    };
+    let indices = matches!(
+        declared_space,
+        Some(crate::colour::ColourSpace::Indexed { .. })
+    );
+    let decoded = pdf_sandbox::decode(&Request::JpxWhole {
+        data,
+        indices,
+        samples,
+    })
+    .map_err(|error| ImageError::Sandboxed {
+        detail: error.to_string(),
+    })?;
+    let Decoded::Raster(mut raster) = decoded else {
+        return Err(ImageError::Malformed {
+            detail: "JPEG 2000 did not decode to component samples".to_owned(),
+        });
+    };
+    if (raster.stated_width, raster.stated_height) != (width, height) {
+        return Err(ImageError::Malformed {
+            detail: format!(
+                "JPEG 2000 data states {}x{} but the dictionary says {width}x{height}",
+                raster.stated_width, raster.stated_height
+            ),
+        });
+    }
+    let smask_in_data = document
+        .get_key(dict, "SMaskInData")
+        .as_integer()
+        .unwrap_or(0);
+    let stated = declared_space.is_some();
+    let space = match declared_space {
+        Some(space) => space,
+        None => codestream_colour_space(&raster)?,
+    };
+    read_the_supposed_opacity_channel(&mut raster, &space, stated && smask_in_data == 0)?;
+    let jpx_space = if stated {
+        JpxSpace::Stated
+    } else {
+        match (&space, &raster.colour) {
+            (crate::colour::ColourSpace::Icc { .. }, pdf_sandbox::Colour::Icc(profile)) => {
+                JpxSpace::Icc(profile.clone())
+            }
+            (crate::colour::ColourSpace::Rgb, _) => JpxSpace::Rgb,
+            (crate::colour::ColourSpace::Cmyk, _) => JpxSpace::Cmyk,
+            _ => JpxSpace::Gray,
+        }
+    };
+    let components = usize::from(raster.components);
+    let decode = jpx_decode_pairs(
+        document,
+        stated.then_some(dict),
+        &space,
+        (components, u32::from(raster.precision)),
+    );
+    let opacity = smask_in_data != 0 && raster.has_opacity;
+    let (colour, opacity_channel) = split_opacity(&raster, raster.has_opacity);
+    Ok(JpxSamples {
+        width: raster.width,
+        height: raster.height,
+        components,
+        precision: raster.precision,
+        colour,
+        opacity: opacity.then_some(opacity_channel).flatten(),
+        premultiplied: opacity && smask_in_data == 2,
+        space: jpx_space,
+        decode,
+    })
+}
+
+/// The §8.9.5.2 pair a reader maps each of a `JPXDecode` image's components through: the
+/// dictionary's `/Decode` where `dict` is given — the dictionary states the colour space, so
+/// its entries describe the samples — and Table 88's default for `space` otherwise.
+fn jpx_decode_pairs(
+    document: &Document,
+    dict: Option<&Dictionary>,
+    space: &crate::colour::ColourSpace,
+    (components, precision): (usize, u32),
+) -> Vec<(f32, f32)> {
+    let pairs: Vec<f32> = dict
+        .and_then(|dict| {
+            document
+                .get_key(dict, "Decode")
+                .as_array()
+                .map(<[Object]>::to_vec)
+        })
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| document.resolve(item).as_number())
+                .map(|value| {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "a component value beyond f32 is clamped to its permitted \
+                                  range by every reader either way"
+                    )]
+                    {
+                        value as f32
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    (0..components)
+        .map(|component| {
+            let at = component.saturating_mul(2);
+            match (pairs.get(at), pairs.get(at.saturating_add(1))) {
+                (Some(low), Some(high)) => (*low, *high),
+                _ => space.default_decode(component, precision),
+            }
+        })
+        .collect()
+}
+
+/// A raster's colour components and, where `has_opacity`, its last channel apart.
+fn split_opacity(raster: &pdf_sandbox::Raster, has_opacity: bool) -> (Vec<u8>, Option<Vec<u8>>) {
+    if !has_opacity {
+        return (raster.data.clone(), None);
+    }
+    let width = if raster.precision > 8 { 2 } else { 1 };
+    let colour_bytes = usize::from(raster.components).saturating_mul(width);
+    let pixel_bytes = colour_bytes.saturating_add(width);
+    let mut colour = Vec::with_capacity(raster.data.len());
+    let mut opacity = Vec::with_capacity(raster.data.len().checked_div(pixel_bytes).unwrap_or(0));
+    for pixel in raster.data.chunks_exact(pixel_bytes) {
+        let (components, alpha) = pixel.split_at(colour_bytes);
+        colour.extend_from_slice(components);
+        opacity.extend_from_slice(alpha);
+    }
+    (colour, Some(opacity))
+}
+
 /// A `/Matte`'d mask's samples on the grid a `JPXDecode` parent decoded to, where that is not the
 /// stated one — §7.4.9 NOTE 3's reduced level — or `None` where no carrying is needed.
 fn matte_alpha_on(

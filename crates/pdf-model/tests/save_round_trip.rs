@@ -66,7 +66,7 @@
 //!
 //! `doc/todo/02` §2's gate lines each hand `-- --ignored` to a whole test binary, so an ignored
 //! test placed in `corpus.rs`'s or `text_extraction.rs`'s binary joins that gate's run and its
-//! output *immediately* — and ADR 0323's own rule is that an instrument's numbers enter §2 only
+//! output *immediately* — and ADR 0323's own rule is that an instrument's numbers enter its section 2 only
 //! after they have held across rounds. A binary of its own keeps the instrument invokable by
 //! name and keeps the gate line running exactly this and nothing else:
 //!

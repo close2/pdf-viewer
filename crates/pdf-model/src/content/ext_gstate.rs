@@ -443,22 +443,8 @@ impl Interpreter<'_> {
                 state.intent = Intent::read(intent.as_bytes());
             }
         }
-        match self.document.get_key(dict, "BM") {
-            Object::Name(name) => state.blend = blend_mode(name.as_bytes()),
-            Object::Array(items) => {
-                // §11.6.3, of the deprecated array form: a processor "shall use the first
-                // blend mode in the array that it recognizes (or Normal if it recognizes none
-                // of them)". The first *name* is not the first recognised one — `[/FooBar
-                // /Multiply]` names a mode this reader knows in second place — so the
-                // recognition test has to be inside the search rather than after it.
-                state.blend = items
-                    .iter()
-                    .map(|item| self.document.resolve(item))
-                    .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
-                    .find_map(|name| known_blend_mode(&name))
-                    .unwrap_or(BlendMode::Normal);
-            }
-            _ => {}
+        if let Some(blend) = stated_blend_mode(self.document, &self.document.get_key(dict, "BM")) {
+            state.blend = blend;
         }
 
         // §9.3.8, `/TK`: the ninth text state parameter, and the only one with no operator.
@@ -503,7 +489,7 @@ impl Interpreter<'_> {
         match crate::soft_mask::entry_with_output_intent(
             self.document,
             dict,
-            self.presses,
+            (self.presses, &self.page_resources),
             self.output_intent.as_ref(),
         ) {
             crate::soft_mask::SoftMaskEntry::None => state.soft_mask = None,
@@ -555,6 +541,106 @@ fn clamp_unit(value: f64) -> f32 {
     {
         value.clamp(0.0, 1.0) as f32
     }
+}
+
+/// What a `/BM` entry sets the blend mode to — ISO 32000-2 §11.6.3 — or `None` where the value is
+/// neither of the two forms Table 57 gives it, which leaves the mode in force alone.
+fn stated_blend_mode(document: &Document, entry: &Object) -> Option<BlendMode> {
+    match entry {
+        Object::Name(name) => Some(blend_mode(name.as_bytes())),
+        // §11.6.3, of the deprecated array form: a processor "shall use the first blend mode in
+        // the array that it recognizes (or Normal if it recognizes none of them)". The first
+        // *name* is not the first recognised one — `[/FooBar /Multiply]` names a mode this reader
+        // knows in second place — so the recognition test has to be inside the search rather than
+        // after it.
+        Object::Array(items) => Some(
+            items
+                .iter()
+                .map(|item| document.resolve(item))
+                .filter_map(|item| item.as_name().map(|name| name.as_bytes().to_vec()))
+                .find_map(|name| known_blend_mode(&name))
+                .unwrap_or(BlendMode::Normal),
+        ),
+        _ => None,
+    }
+}
+
+/// How deep [`resources_blend`] follows resources into the forms, patterns and Type 3 glyphs that
+/// state their own. Eight, as for every nesting a document can state without bound here.
+const BLEND_SEARCH_DEPTH: usize = 8;
+
+/// How many resource dictionaries [`resources_blend`] reads for one group before it stops: a cost
+/// guard, and it answers `true` there, because what it decides is whether a mask group needs the
+/// construction that is exact under every blend mode (ADR 1342).
+const BLEND_SEARCH_DICTIONARIES: usize = 256;
+
+/// Whether content drawn under `resources` can reach a blend mode other than `Normal` — ISO
+/// 32000-2 §11.6.3: a `/BM` in an `/ExtGState` of these resources, or of the resources of a form
+/// `XObject`, a tiling pattern or a Type 3 font inside them.
+///
+/// An upper bound, and the safe one for its caller: it does not check that a `gs` names the state
+/// or that a mark follows it, so a group it answers `true` for may blend nowhere, and is then drawn
+/// by a construction that is exact without a blend mode too.
+pub(crate) fn resources_blend(document: &Document, resources: &Dictionary) -> bool {
+    let mut read = 0_usize;
+    blends_under(document, resources, 0, &mut read)
+}
+
+/// [`resources_blend`], carrying the depth and the count.
+fn blends_under(
+    document: &Document,
+    resources: &Dictionary,
+    depth: usize,
+    read: &mut usize,
+) -> bool {
+    *read = read.saturating_add(1);
+    if depth > BLEND_SEARCH_DEPTH || *read > BLEND_SEARCH_DICTIONARIES {
+        return true;
+    }
+    let entries = |category: &str| {
+        document
+            .get_key(resources, category)
+            .as_dict()
+            .map(|dict| {
+                dict.iter()
+                    .map(|(_, value)| document.resolve(value))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let blends = entries("ExtGState").iter().any(|state| {
+        state.as_dict().is_some_and(|state| {
+            stated_blend_mode(document, &document.get_key(state, "BM"))
+                .is_some_and(|blend| blend != BlendMode::Normal)
+        })
+    });
+    if blends {
+        return true;
+    }
+    // A shading pattern states a graphics state of its own (Table 76's `/ExtGState`), and a form,
+    // a tiling pattern and a Type 3 font state resources.
+    let nested = [entries("XObject"), entries("Pattern"), entries("Font")].concat();
+    nested.iter().any(|object| {
+        let dict = match object {
+            Object::Stream(stream) => Some(&stream.dict),
+            Object::Dictionary(dict) => Some(dict),
+            _ => None,
+        };
+        dict.is_some_and(|dict| {
+            let state = document.get_key(dict, "ExtGState");
+            let in_state = state.as_dict().is_some_and(|state| {
+                stated_blend_mode(document, &document.get_key(state, "BM"))
+                    .is_some_and(|blend| blend != BlendMode::Normal)
+            });
+            in_state
+                || document
+                    .get_key(dict, "Resources")
+                    .as_dict()
+                    .is_some_and(|inner| {
+                        blends_under(document, inner, depth.saturating_add(1), read)
+                    })
+        })
+    })
 }
 
 /// Maps a PDF blend mode name, taking `Normal` for anything this reader does not know.

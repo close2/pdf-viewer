@@ -614,11 +614,13 @@ pub(crate) fn faults_with(bytes: &[u8], password: &str) -> Vec<String> {
         }
     }
     // "Objects stored within object streams shall be given the highest range of object numbers
-    // within the main and first-page cross-reference sections" — the hint stream excepted,
-    // which §F.3.6 numbers last of all.
+    // within the main and first-page cross-reference sections", read over each whole section,
+    // the hint stream included: §F.3.6 numbers that stream last and it is never compressed, so
+    // the first-page section holds no compressed object at all, which is the writer's choice
+    // under which this sentence and §F.3.6's hold together (ADR 1337).
     for (section, numbers) in [
         ("main", 1..parameters_number),
-        ("first-page", parameters_number..size.saturating_sub(1)),
+        ("first-page", parameters_number..size),
     ] {
         let mut seen_compressed = None;
         for number in numbers {

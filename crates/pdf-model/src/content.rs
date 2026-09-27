@@ -41,6 +41,8 @@ use run::narrow;
 use text::Coverage;
 use transparency::{PagePress, Readings, page_blending_space, page_press};
 
+pub(crate) use ext_gstate::resources_blend;
+
 mod annotations;
 mod colour;
 mod ext_gstate;
@@ -2751,7 +2753,7 @@ struct Interpreter<'a> {
     /// `Option` rather than a degenerate rectangle.
     ///
     /// **Empty for every untagged page**, which is 885 of the corpus's 974, so what those pay for
-    /// this is one `Vec::is_empty` per command.
+    /// this is one `std::vec::Vec::is_empty` per command.
     ///
     /// A stack rather than one accumulator because §14.7.5.1.1 forbids the nesting — "[a]
     /// marked-content sequence corresponding to a structure content item shall not have another

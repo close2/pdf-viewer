@@ -43,8 +43,8 @@
 //! not a concession: a test file citing the clause it tests is exactly where a `test` entry goes,
 //! and reporting it would be asking the row to name the same file twice. A clause with no row at
 //! all — Annex or front-matter numbering the ledger does not carry — is [`Reach::NoRow`].
-//! The no-row pairs under [`RASTER`] are listed as well as counted, for the reason its own
-//! comment gives.
+//! Every no-row pair is listed as well as counted, each with [`why_no_row`]'s reading of its
+//! number, and the ones under [`RASTER`] are counted apart for the reason its own comment gives.
 //!
 //! # A checker citing the clause it checks
 //!
@@ -483,10 +483,41 @@ pub fn report(found: &Found) -> String {
         "{} of the no-row pair(s) lie under {RASTER}",
         found.no_row_under(RASTER).len(),
     );
-    for citing in found.no_row_under(RASTER) {
-        let _ = writeln!(out, "  §{} {}:{}", citing.clause, citing.path, citing.first);
+    for citing in found.no_row_under("") {
+        let _ = writeln!(
+            out,
+            "  §{} {}:{} cited {} — {}",
+            citing.clause,
+            citing.path,
+            citing.first,
+            citing.citations,
+            why_no_row(&citing.clause),
+        );
     }
     out
+}
+
+/// Why the ledger carries no row for a clause a file cites, as far as the number alone says.
+///
+/// Every no-row pair is listed, because the pairs that are *wrong* — a section of an ADR, an RFC
+/// or a `doc/todo` file whose name sits at the end of the line before, so that the sign reads as
+/// ISO 32000-2's — look exactly like the ones that are right, and only the line tells them apart.
+/// What the number does say is where a right one would come from: an informative annex states
+/// nothing a row could hold, and a whole clause is the container the rows sit under. A pair given
+/// neither reason is a number the ledger should carry and does not, and is read first.
+#[must_use]
+pub fn why_no_row(clause: &ClauseNumber) -> &'static str {
+    if let Some(letter) = clause.annex() {
+        if crate::ledger::NORMATIVE_ANNEXES.contains(&letter) {
+            "a normative annex's number the ledger does not carry: read the line"
+        } else {
+            "an informative annex, which the ledger carries no row for"
+        }
+    } else if clause.depth() == 1 {
+        "a whole clause, the container the ledger's rows sit under"
+    } else {
+        "a number the ledger does not carry: read the line"
+    }
 }
 
 #[cfg(test)]
@@ -513,6 +544,21 @@ mod tests {
             citing(9, Reach::Named, Some(Status::Implemented)).rung(),
             None
         );
+    }
+
+    #[test]
+    fn a_no_row_pair_says_what_its_number_alone_can_say() {
+        let reason = |text: &str| why_no_row(&text.parse().expect("a clause number"));
+        assert_eq!(
+            reason("C.4"),
+            "an informative annex, which the ledger carries no row for"
+        );
+        assert_eq!(
+            reason("11"),
+            "a whole clause, the container the ledger's rows sit under"
+        );
+        assert!(reason("F.9").starts_with("a normative annex's number"));
+        assert!(reason("8.4.99").starts_with("a number the ledger does not carry"));
     }
 
     #[test]

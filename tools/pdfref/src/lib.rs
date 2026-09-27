@@ -1621,7 +1621,7 @@ mod tests {
     /// `ghostscript` both say they could not decode the image, so neither flat sheet is a
     /// reading of the page and one reference is left.
     ///
-    /// **The logs are verbatim** — `bitmap-symbol-context-reuse.pdf` page 1, asked with §2's own
+    /// **The logs are verbatim** — `bitmap-symbol-context-reuse.pdf` page 1, asked with `doc/todo/02` section 2's own
     /// reference command lines — because a condition on another project's prose is a claim about
     /// a vocabulary this tree does not own, and a paraphrased fixture would pass while the rule
     /// stopped working (trap 13: run the sweep against the defect). `poppler`'s line is here too

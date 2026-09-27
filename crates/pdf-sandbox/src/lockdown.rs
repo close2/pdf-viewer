@@ -242,11 +242,35 @@ pub fn apply() -> Result<Confinement, LockdownError> {
 pub fn apply_for(profile: Profile) -> Result<Confinement, LockdownError> {
     #[cfg(target_os = "linux")]
     {
-        crate::lockdown_linux::apply(profile)
+        crate::lockdown_linux::apply(profile, None)
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = profile;
+        Ok(Confinement::NONE)
+    }
+}
+
+/// Confines a decoder whose address-space ceiling is `address_space` bytes rather than the
+/// profile's own, never lower than it.
+///
+/// The one caller is a worker started for a writer's full-resolution decodes
+/// ([`crate::Sandbox::whole`]): the ceiling is sized from the sample budget the operator
+/// stated, so the bound is still explicit and still the kernel's (ADR 1333). The system-call
+/// list is [`Profile::Decoder`]'s unchanged.
+///
+/// # Errors
+///
+/// As [`apply_for`].
+#[must_use = "the confinement reached is what a host has to report"]
+pub(crate) fn apply_for_decoder_within(address_space: u64) -> Result<Confinement, LockdownError> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::lockdown_linux::apply(Profile::Decoder, Some(address_space))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = address_space;
         Ok(Confinement::NONE)
     }
 }

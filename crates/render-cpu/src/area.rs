@@ -61,15 +61,18 @@
 //!
 //! The prefix sum is a *signed* winding integral, so the two rules of §8.5.3.3 are two ways of
 //! reading it: the non-zero rule takes its magnitude, capped at the whole pixel, and the
-//! even-odd rule folds it into `0..=1` with period two. Both are exact wherever a pixel is
-//! crossed by one edge, which is the overwhelming majority of boundary pixels; where two edges
-//! of *different* winding cross one pixel the reading is the integral of the winding number
-//! rather than the area of the filled set, and the two part by at most that pixel's own share.
-//! That is the same conflation every accumulating converter has, and it is bounded by a pixel
-//! where the quantum it replaces was unbounded in the direction the clause forbids.
+//! even-odd rule folds it into `0..=1` with period two. Both are exact wherever the winding stays
+//! inside `0..=1` or `-1..=0`, which is every simple path. A row where it leaves them — portions of
+//! the path overlapping, or wound against one another — is measured a second way: cut at every
+//! height where two edges cross, the edges stand in one order in each piece of the row, and only
+//! those where the rule's answer changes are deposited, at a unit weight. The sum over that
+//! boundary is the area of the filled set itself (ADR 1341).
 //!
 //! # What it declines, and why each
 //!
+//! - **An overlapping row past [`SET_WORK`].** The second measurement is quadratic in the edges
+//!   one row holds where they all overlap in `x`, so a mark that would spend more is left to the
+//!   library's converter, which applies the rule per sample. A cost guard and not a condition.
 //! - **A region past [`CELL_BUDGET`].** The accumulator is one `f32` per pixel of the mark's own
 //!   device extent, so a mark larger than the budget is left to the library's converter rather
 //!   than given a buffer nobody bounded. It is a cost guard and not a condition.
@@ -195,16 +198,17 @@ fn clamped(value: f32, limit: u32) -> u32 {
 /// the accumulator's own residue, of the order of `2^-24` per cell summed along a row, an order
 /// of magnitude below the first level rather than lifted on to it.
 pub(crate) fn fill(
-    cells: &mut Vec<f32>,
+    buffers: &mut Buffers,
     target: &mut [u8],
     (width, region): (u32, Region),
-    path: &Path,
+    (path, overlapping): (&Path, bool),
     fill_rule: FillRule,
     at: Transform,
 ) -> bool {
     let Some(count) = region.cells() else {
         return false;
     };
+    let Buffers { cells, set } = buffers;
     cells.clear();
     cells.resize(count, 0.0);
     let Some(columns) = (region.width as usize).checked_add(1) else {
@@ -216,16 +220,37 @@ pub(crate) fn fill(
         rows: region.height as usize,
         origin: (f32_of(region.left), f32_of(region.top)),
         limit: f32_of(region.width),
-        overlapped: false,
     };
     trace(&mut accumulator, path, at);
-    if accumulator.overlapped {
+    if !accumulator.measure_overlapping_rows((path, overlapping), at, fill_rule, set) {
         // Nothing has been written yet, so there is nothing to put back: the accumulator is this
         // module's own buffer and the target is still the clear region the caller established.
         return false;
     }
     read_off(&accumulator, target, (width, region), fill_rule);
     true
+}
+
+/// What [`fill`] measures in, kept by its caller for the length of a band and cleared per mark,
+/// never allocated per mark: the accumulator, and what [`Accumulator::measure_overlapping_rows`]
+/// walks a suspect mark with.
+#[derive(Debug, Default)]
+pub(crate) struct Buffers {
+    /// The accumulator's cells.
+    cells: Vec<f32>,
+    /// The second measurement's buffers.
+    set: SetBuffers,
+}
+
+/// The buffers the second measurement is made in; see [`Buffers`].
+#[derive(Debug, Default)]
+struct SetBuffers {
+    /// The mark's edges as the walk hands them over.
+    lines: Vec<[Point; 2]>,
+    /// The same, taken downwards and sorted — [`Edge::sort_into`].
+    edges: Vec<Edge>,
+    /// One row's working state.
+    rows: RowScratch,
 }
 
 /// A pixel index as the coordinate of its own lower corner, which is what §10.7.4's `i` and `j`
@@ -259,11 +284,33 @@ fn level_of(coverage: f32) -> u8 {
     (coverage.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// Walks `path` under `at`, handing every edge of every subpath to the accumulator.
+/// What a path's device-space edges are handed to: the accumulator, or the list
+/// [`Accumulator::measure_overlapping_rows`] measures a row's filled set from.
+///
+/// One walk and one flattening for both, so that the two constructions are made of the same
+/// straight lines to the bit.
+trait Edges {
+    /// One straight edge, directed from `from` to `to`, in device space.
+    fn line(&mut self, from: Point, to: Point);
+}
+
+impl Edges for Vec<[Point; 2]> {
+    fn line(&mut self, from: Point, to: Point) {
+        self.push([from, to]);
+    }
+}
+
+impl Edges for Accumulator<'_> {
+    fn line(&mut self, from: Point, to: Point) {
+        self.accumulate(from, to);
+    }
+}
+
+/// Walks `path` under `at`, handing every edge of every subpath to `into`.
 ///
 /// A fill closes each subpath — §8.5.3.3 says an open subpath "shall be closed implicitly" — so
 /// the segment back to the subpath's first point is emitted whether or not `h` was written.
-fn trace(into: &mut Accumulator<'_>, path: &Path, at: Transform) {
+fn trace(into: &mut impl Edges, path: &Path, at: Transform) {
     let mut start = Point::zero();
     let mut current = Point::zero();
     let mut open = false;
@@ -348,7 +395,7 @@ fn fraction(step: u32, steps: u32) -> f32 {
 ///
 /// `B″` is the constant `2(p₀ − 2p₁ + p₂)`, so the numerator [`steps_for`] wants is that second
 /// difference divided by four.
-fn quadratic(into: &mut Accumulator<'_>, from: Point, control: Point, to: Point) {
+fn quadratic(into: &mut impl Edges, from: Point, control: Point, to: Point) {
     let deviation = (from.x - 2.0 * control.x + to.x).hypot(from.y - 2.0 * control.y + to.y);
     let steps = steps_for(deviation * 0.25).min(STEPS_PER_CURVE);
     let mut previous = from;
@@ -369,7 +416,7 @@ fn quadratic(into: &mut Accumulator<'_>, from: Point, control: Point, to: Point)
 /// `B″(t) = 6[(1 − t)(p₀ − 2p₁ + p₂) + t(p₁ − 2p₂ + p₃)]`, whose magnitude is bounded by six
 /// times the larger of the two second differences, so the numerator [`steps_for`] wants is three
 /// quarters of that larger difference.
-fn cubic(into: &mut Accumulator<'_>, from: Point, first: Point, second: Point, to: Point) {
+fn cubic(into: &mut impl Edges, from: Point, first: Point, second: Point, to: Point) {
     let one = (from.x - 2.0 * first.x + second.x).hypot(from.y - 2.0 * first.y + second.y);
     let two = (first.x - 2.0 * second.x + to.x).hypot(first.y - 2.0 * second.y + to.y);
     let steps = steps_for(one.max(two) * 0.75).min(STEPS_PER_CURVE);
@@ -402,9 +449,6 @@ struct Accumulator<'a> {
     origin: (f32, f32),
     /// The region's width, which is the last `x` a deposit may land on.
     limit: f32,
-    /// Whether two portions of the path wound the same way have crossed one pixel — see
-    /// [`Accumulator::add`] and §11.6.2.
-    overlapped: bool,
 }
 
 impl Accumulator<'_> {
@@ -413,7 +457,7 @@ impl Accumulator<'_> {
     /// The edge is taken in increasing `y` with its direction carried in the weight, because the
     /// winding integral's sign is the edge's direction and everything below is then about a
     /// positive height.
-    fn line(&mut self, from: Point, to: Point) {
+    fn accumulate(&mut self, from: Point, to: Point) {
         if !(from.x.is_finite() && from.y.is_finite() && to.x.is_finite() && to.y.is_finite()) {
             return;
         }
@@ -520,15 +564,7 @@ impl Accumulator<'_> {
         }
     }
 
-    /// Adds `value` to one cell, ignoring a cell the region does not hold — and notices where two
-    /// portions of the path wound the same way have crossed the same pixel.
-    ///
-    /// A cell holds the change in §10.7.4's winding integral across one pixel, and **one edge can
-    /// change it by at most one whole winding**: an edge's contribution is its share of the row's
-    /// height times a fraction of the column, and both are inside `0..=1`. So a cell past one in
-    /// magnitude is a pixel two edges of the *same* direction cross, which is where reading the
-    /// integral as the filled set's area stops being the same thing — see [`read_off`], which is
-    /// where the consequence is stated and §11.6.2 quoted.
+    /// Adds `value` to one cell, ignoring a cell the region does not hold.
     fn add(&mut self, row: usize, column: usize, value: f32) {
         if let Some(cell) = row
             .checked_mul(self.columns)
@@ -536,12 +572,432 @@ impl Accumulator<'_> {
             .and_then(|index| self.values.get_mut(index))
         {
             *cell += value;
-            if cell.abs() > OVERLAPPED {
-                self.overlapped = true;
-            }
         }
     }
+
+    /// One row's cells, as the slice [`read_off`] and [`overlaps`] read.
+    fn row_cells(&mut self, row: usize) -> Option<&mut [f32]> {
+        let from = row.checked_mul(self.columns)?;
+        let until = from.checked_add(self.columns)?;
+        self.values.get_mut(from..until)
+    }
+
+    /// Re-measures, as the area of the filled **set**, every row whose winding integral cannot be
+    /// read as that area — ISO 32000-2 §10.7.4, §8.5.3.3, §11.6.2.
+    ///
+    /// Two steps, because the question is cheap to suspect and dear to settle. [`overlaps`] reads
+    /// each row's own sums for a sign that the winding left `0..=1` or `-1..=0` somewhere, and a
+    /// mark with no such row is left exactly as it was accumulated. A mark with one is **suspect as
+    /// a whole** — an overlap confined to pixels its path only partly covers shows no sign in its
+    /// own row, and the rows beside it are what give it away — so every row of it is walked by
+    /// [`Accumulator::measure_row`], which settles the question per row and rewrites only a row
+    /// whose winding did leave those ranges. A row that did not keeps the accumulator's bits.
+    ///
+    /// `false` only where [`SET_WORK`] was spent first, in which case nothing has been written to
+    /// the caller's target and the library's converter draws the mark.
+    ///
+    /// # What it costs, and what it buys
+    ///
+    /// `callgrind_rasterise`, `RAYON_NUM_THREADS=1`, five rasterisations, against the tree that left
+    /// every such mark to `tiny-skia`'s supersampled converter: ISO 32000-2's page 101 **−2.7%**
+    /// (the per-deposit test this replaced was on every glyph), `issue12295.pdf` −0.03% (65 859
+    /// strokes, each one straight segment), `issue20232.pdf` **+9.3%**, and `issue19802.pdf` and
+    /// `issue14415.pdf` **+50%** and **+47%** — the two pages dense with stroked paths whose joins
+    /// overlap, where each row with more than two edges is now walked. What it buys is the page's
+    /// own ink: `render-raster/examples/ink_ladder` reads `issue20232.pdf` at 17 932 at 1× against
+    /// its own 17 866 at 8×, where the supersampled converter read 19 324 and the integral alone
+    /// 23 722, and every page it moved lands on its own 2× figure. ADR 1341.
+    fn measure_overlapping_rows(
+        &mut self,
+        (path, overlapping): (&Path, bool),
+        at: Transform,
+        rule: FillRule,
+        set: &mut SetBuffers,
+    ) -> bool {
+        let suspect = overlapping
+            || (0..self.rows).any(|row| self.row_cells(row).is_some_and(|cells| overlaps(cells)));
+        if !suspect {
+            return true;
+        }
+        let SetBuffers { lines, edges, rows } = set;
+        lines.clear();
+        trace(lines, path, at);
+        Edge::sort_into(lines, edges);
+        rows.start();
+        for row in 0..self.rows {
+            if !self.measure_row(row, edges, rule, rows) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Settles one row of a suspect mark: walks the boundary of the filled set and, where the
+    /// row's winding left `0..=1` or `-1..=0`, writes its cells from that boundary instead of from
+    /// the path's edges. `false` where [`SET_WORK`] is spent.
+    ///
+    /// §10.7.4 applies its rules to a shape whose inside is already decided:
+    ///
+    /// > At this level, curves have been flattened to sequences of straight lines, and all
+    /// > "insideness" computations have been performed.
+    ///
+    /// So the quantity a pixel is covered by is the area of the set §8.5.3.3's rule declares
+    /// inside — not the integral of the winding number that set was decided from. The two part
+    /// only where the winding leaves those ranges, which is portions of one path overlapping or
+    /// wound against one another.
+    ///
+    /// The row is cut into horizontal sub-strips at every height where an edge begins, ends or
+    /// crosses another. Inside one sub-strip no two edges cross, so they stand in one left-to-right
+    /// order, and walking that order with the running winding number finds exactly where the
+    /// rule's answer changes. Each such edge is deposited with a **unit** weight — `+1` where the
+    /// set is entered, `−1` where it is left — and every other edge not at all. The prefix sum
+    /// [`read_off`] runs is then the integral of the set's own indicator, which is its area,
+    /// exactly: the same closed form the whole module is made of, over a boundary that no longer
+    /// overlaps itself.
+    fn measure_row(
+        &mut self,
+        row: usize,
+        edges: &[Edge],
+        rule: FillRule,
+        scratch: &mut RowScratch,
+    ) -> bool {
+        let top = self.origin.1 + index_as_f32(row);
+        scratch.gather(edges, (top, top + 1.0));
+        // A row one edge crosses has a winding of zero and one other value, and a row two edges of
+        // opposite directions cross without meeting has zero and one sign: neither can leave the
+        // ranges, so neither is walked. Most rows of a stroke's outline are the second.
+        match scratch.pieces.as_slice() {
+            [] | [_] => return true,
+            [a, b] if a.direction != b.direction && crossing_height(a, b).is_none() => return true,
+            _ => {}
+        }
+        if !scratch.cut() {
+            return false;
+        }
+        let RowScratch {
+            pieces,
+            heights,
+            order,
+            boundary,
+            work,
+            live,
+            ..
+        } = scratch;
+        boundary.clear();
+        // The sub-strips are taken downwards, so the pieces spanning one are a window over the
+        // pieces in order of where they enter the row — which is the order [`RowScratch::gather`]
+        // collected them in, since its edges are sorted by their upper ends. Every end is a cut,
+        // so a piece that has entered and not yet left spans the whole sub-strip.
+        live.clear();
+        let mut entered = 0_usize;
+        // The one sign a winding may take in this row and still be read exactly, once met.
+        let mut sign = 0_i32;
+        let mut leaves_the_range = false;
+        for pair in heights.windows(2) {
+            let &[above, below] = pair else {
+                continue;
+            };
+            if below <= above {
+                continue;
+            }
+            let middle = 0.5 * (above + below);
+            while let Some(piece) = pieces.get(entered) {
+                if piece.from > above {
+                    break;
+                }
+                live.push(entered);
+                entered = entered.saturating_add(1);
+            }
+            live.retain(|&index| pieces.get(index).is_some_and(|piece| piece.to > above));
+            order.clear();
+            order.extend(
+                live.iter()
+                    .filter_map(|&index| Some((pieces.get(index)?.x_at(middle), index))),
+            );
+            *work = work.saturating_add(order.len());
+            if *work > SET_WORK {
+                return false;
+            }
+            order.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+            let mut winding = 0_i32;
+            let mut inside = false;
+            for &(_, index) in order.iter() {
+                let Some(piece) = pieces.get(index) else {
+                    continue;
+                };
+                winding = winding.saturating_add(piece.direction);
+                if winding != 0 {
+                    if winding.abs() > 1 || (sign != 0 && winding != sign) {
+                        leaves_the_range = true;
+                    }
+                    sign = winding;
+                }
+                let now = match rule {
+                    FillRule::Winding => winding != 0,
+                    FillRule::EvenOdd => winding & 1 == 1,
+                };
+                if now != inside {
+                    let height = if now { below - above } else { above - below };
+                    boundary.push((height, piece.x_at(above), piece.x_at(below)));
+                    inside = now;
+                }
+            }
+        }
+        if leaves_the_range {
+            if let Some(cells) = self.row_cells(row) {
+                cells.fill(0.0);
+            }
+            for &(height, a, b) in boundary.iter() {
+                self.crossing(row, height, a - self.origin.0, b - self.origin.0);
+            }
+        }
+        true
+    }
 }
+
+/// Whether a row's winding integral may not be read as the area of the filled set, which is where
+/// [`Accumulator::measure_row`] measures the set itself.
+///
+/// Three signs, each the arithmetic's own. A **cell** past one whole winding is two edges of one
+/// direction crossing one pixel, since one edge changes the integral by at most one. A **pixel**
+/// whose integral is past one has a winding of two somewhere in it. And a row holding both a
+/// positive and a negative integral has portions wound against one another, which can cancel in a
+/// pixel they share. None of the three is met by a path whose winding stays inside `0..=1` or
+/// `-1..=0`, so nothing that reads exactly is re-measured.
+fn overlaps(cells: &[f32]) -> bool {
+    let mut running = 0.0_f32;
+    let (mut positive, mut negative) = (false, false);
+    for &cell in cells {
+        running += cell;
+        if cell.abs() > OVERLAPPED || running.abs() > OVERLAPPED {
+            return true;
+        }
+        positive |= running > RESIDUE;
+        negative |= running < -RESIDUE;
+    }
+    positive && negative
+}
+
+/// One straight edge of a suspect mark, taken downwards with its direction carried beside it.
+#[derive(Clone, Copy, Debug)]
+struct Edge {
+    /// The upper end, in device space.
+    upper: Point,
+    /// The height of the lower end.
+    lower: f32,
+    /// The change in `x` per unit of `y`.
+    slope: f32,
+    /// `+1` for an edge running down the device, `−1` for one running up: §8.5.3.3.2's count.
+    direction: i32,
+}
+
+impl Edge {
+    /// The edges that enclose anything — every one with a height and finite ends — in order of
+    /// their upper end, which is the order the rows meet them in.
+    fn sort_into(lines: &[[Point; 2]], edges: &mut Vec<Self>) {
+        edges.clear();
+        edges.extend(
+            lines
+                .iter()
+                .filter(|[from, to]| {
+                    from.x.is_finite() && from.y.is_finite() && to.x.is_finite() && to.y.is_finite()
+                })
+                .filter_map(|&[from, to]| {
+                    let (direction, upper, lower) = if from.y < to.y {
+                        (1_i32, from, to)
+                    } else {
+                        (-1_i32, to, from)
+                    };
+                    let rise = lower.y - upper.y;
+                    (rise > 0.0).then(|| Self {
+                        upper,
+                        lower: lower.y,
+                        slope: (lower.x - upper.x) / rise,
+                        direction,
+                    })
+                }),
+        );
+        edges.sort_unstable_by(|a, b| a.upper.y.total_cmp(&b.upper.y));
+    }
+}
+
+/// One edge's part of one pixel row, for [`Accumulator::measure_row`].
+#[derive(Clone, Copy, Debug)]
+struct Piece {
+    /// The edge's upper end, in device space.
+    upper: Point,
+    /// Its change in `x` per unit of `y`.
+    slope: f32,
+    /// `+1` for an edge running down the device, `−1` for one running up: §8.5.3.3.2's count.
+    direction: i32,
+    /// The height at which it enters the row.
+    from: f32,
+    /// The height at which it leaves the row.
+    to: f32,
+    /// The smaller of its two `x` inside the row.
+    left: f32,
+    /// The larger.
+    right: f32,
+}
+
+impl Piece {
+    /// The edge's `x` at height `y`, from its device coordinates — the expression
+    /// [`Accumulator::accumulate`] evaluates, so a strip's answer is the whole page's.
+    fn x_at(&self, y: f32) -> f32 {
+        self.upper.x + (y - self.upper.y) * self.slope
+    }
+
+    /// One edge's part of the row `[enters, leaves)`.
+    fn of(edge: &Edge, (enters, leaves): (f32, f32)) -> Self {
+        let mut piece = Self {
+            upper: edge.upper,
+            slope: edge.slope,
+            direction: edge.direction,
+            from: enters,
+            to: leaves,
+            left: 0.0,
+            right: 0.0,
+        };
+        let (a, b) = (piece.x_at(enters), piece.x_at(leaves));
+        (piece.left, piece.right) = (a.min(b), a.max(b));
+        piece
+    }
+}
+
+/// The height strictly inside both pieces' common span at which they cross, if they do.
+fn crossing_height(a: &Piece, b: &Piece) -> Option<f32> {
+    let (from, to) = (a.from.max(b.from), a.to.min(b.to));
+    if to <= from {
+        return None;
+    }
+    let (first, last) = (a.x_at(from) - b.x_at(from), a.x_at(to) - b.x_at(to));
+    if (first < 0.0 && last > 0.0) || (first > 0.0 && last < 0.0) {
+        let height = from + (to - from) * (first / (first - last));
+        (height > from && height < to).then_some(height)
+    } else {
+        None
+    }
+}
+
+/// [`Accumulator::measure_row`]'s buffers, kept for the length of a band and started afresh per
+/// mark.
+#[derive(Debug, Default)]
+struct RowScratch {
+    /// The edges' parts inside the row.
+    pieces: Vec<Piece>,
+    /// Every height the row is cut at, sorted.
+    heights: Vec<f32>,
+    /// One sub-strip's pieces, by `x` at its middle.
+    order: Vec<(f32, usize)>,
+    /// The filled set's boundary in one row: each edge where the rule's answer changes, as the
+    /// signed height of its sub-strip and its `x` at the sub-strip's top and bottom.
+    boundary: Vec<(f32, f32, f32)>,
+    /// What the mark has spent so far, in pair tests and pieces placed; see [`SET_WORK`].
+    work: usize,
+    /// The edges the current row may meet, as indices into [`Edge::sort_into`]'s order.
+    active: Vec<usize>,
+    /// The row's pieces, as indices, in order of their leftmost `x`.
+    by_left: Vec<usize>,
+    /// The pieces spanning the current sub-strip, as indices.
+    live: Vec<usize>,
+    /// The first edge in that order no row has met yet.
+    next: usize,
+}
+
+impl RowScratch {
+    /// Forgets the last mark: no work spent, no edge met.
+    fn start(&mut self) {
+        self.work = 0;
+        self.active.clear();
+        self.next = 0;
+    }
+
+    /// Collects every edge's part of the device row `[top, bottom)`.
+    ///
+    /// Rows are asked in increasing order, so the edges a row meets are kept as a window over
+    /// [`Edge::sort_into`]'s order: one that begins above the row's bottom joins it, and one that ends
+    /// at or above the row's top leaves it. Each edge is looked at in the rows it spans and not in
+    /// the others.
+    fn gather(&mut self, edges: &[Edge], (top, bottom): (f32, f32)) {
+        self.pieces.clear();
+        self.heights.clear();
+        while let Some(edge) = edges.get(self.next) {
+            if edge.upper.y >= bottom {
+                break;
+            }
+            self.active.push(self.next);
+            self.next = self.next.saturating_add(1);
+        }
+        self.active
+            .retain(|&index| edges.get(index).is_some_and(|edge| edge.lower > top));
+        for &index in &self.active {
+            let Some(edge) = edges.get(index) else {
+                continue;
+            };
+            let (enters, leaves) = (edge.upper.y.max(top), edge.lower.min(bottom));
+            if enters >= leaves {
+                continue;
+            }
+            self.pieces.push(Piece::of(edge, (enters, leaves)));
+            self.heights.push(enters);
+            self.heights.push(leaves);
+        }
+    }
+
+    /// Adds every height at which two pieces cross, and sorts the cuts — `false` where the mark's
+    /// [`SET_WORK`] is spent.
+    ///
+    /// Pieces are taken in order of their leftmost `x`, so that a pair whose reaches do not
+    /// overlap is never tested: two pieces with no `x` in common cannot cross.
+    fn cut(&mut self) -> bool {
+        let pieces = &self.pieces;
+        self.by_left.clear();
+        self.by_left.extend(0..pieces.len());
+        self.by_left.sort_unstable_by(|&a, &b| {
+            let left = |index: usize| pieces.get(index).map_or(f32::INFINITY, |piece| piece.left);
+            left(a).total_cmp(&left(b))
+        });
+        for (rank, &index) in self.by_left.iter().enumerate() {
+            let Some(piece) = pieces.get(index) else {
+                continue;
+            };
+            for &other in self
+                .by_left
+                .get(rank.saturating_add(1)..)
+                .unwrap_or_default()
+            {
+                let Some(other) = pieces.get(other) else {
+                    continue;
+                };
+                if other.left > piece.right {
+                    break;
+                }
+                self.work = self.work.saturating_add(1);
+                if self.work > SET_WORK {
+                    return false;
+                }
+                if let Some(height) = crossing_height(piece, other) {
+                    self.heights.push(height);
+                }
+            }
+        }
+        self.heights.sort_unstable_by(f32::total_cmp);
+        self.heights.dedup();
+        true
+    }
+}
+
+/// The most work [`Accumulator::measure_row`] spends on one mark, in pair tests and pieces placed.
+///
+/// A cost guard rather than a condition: the construction is quadratic in the edges one row holds
+/// where they all overlap in `x`, and a mark past this is drawn by the library's supersampled
+/// converter, which applies the fill rule per sample and so has the right set at a coarser
+/// measure. Sixteen million is of the order of a tenth of a second of this loop.
+const SET_WORK: usize = 1 << 24;
+
+/// A running integral this close to zero is the arithmetic's own residue rather than a winding —
+/// see [`OVERLAPPED`], whose thousandth it is.
+const RESIDUE: f32 = 0.001;
 
 /// A non-negative coordinate as the index of the pixel holding it — §10.7.4's `floor`.
 ///
@@ -603,50 +1059,31 @@ fn shadow(u: f32, low: f32, high: f32) -> f32 {
 ///
 /// §8.5.3.3's two rules are two readings of the same signed integral — see the module comment.
 ///
-/// # It answers `false` for a path whose portions overlap, and §11.6.2 is why
+/// # A row whose portions overlap has been re-measured before this runs, and §11.6.2 is why
 ///
 /// The sum is the integral of the **winding number**, which is the filled set's own indicator only
-/// while that number stays inside `-1..=1`. Where two portions of one path wound the same way
-/// cover one region, the number there is two, and a pixel on the *boundary* of that region then
-/// reads twice the area it covers — which is portions of an object composited with one another,
-/// and §11.6.2 forbids exactly that:
+/// while that number stays inside `0..=1` or `-1..=0`. Where two portions of one path wound the
+/// same way cover one region, the number there is two, and a pixel on the *boundary* of that region
+/// would read twice the area it covers; where two wound against one another share a pixel, their
+/// integrals cancel there. The first is portions of an object composited with one another, and
+/// §11.6.2 forbids exactly that:
 ///
 /// > Portions of an object shall not be composited with one another, even if they are described in
 /// > a way that would seem to cause overlaps (such as a self-intersecting path, combined fill and
 /// > stroke of a path, or a shading pattern containing an overlap or fold-over).
 ///
-/// `tiny-skia`'s supersampled converter applies the fill rule to each sample, so it has never had
-/// this and is the right answer for such a path; it measures the result to a sixteenth, which is
-/// the trade. **The condition is the arithmetic's own and not a heuristic**: a simple path's
-/// winding integral is at most one whole pixel, so a magnitude past one *is* an overlap, and the
-/// rule is exact in the direction that matters — nothing without an overlap is ever declined. What
-/// it does not catch is an overlap region thinner than a pixel everywhere, where no pixel's
-/// integral reaches one; the error there is bounded by that sliver's own area.
+/// So [`overlaps`] names every row where the reading may part from the set, and
+/// [`Accumulator::measure_row`] has already rewritten that row's cells from the set's own boundary:
+/// by the time this runs, every sum it reads is an area. **The condition is the arithmetic's own**:
+/// a row whose winding stays inside one of the two ranges above never meets it, so nothing that
+/// reads exactly is re-measured. What it does not see is an overlap confined to pixels its path
+/// only partly covers, in a row with no whole winding of two and no sign against another, where the
+/// error is bounded by the overlap's own area. ADR 1341.
 ///
-/// `pdf-model/tests/glyph_clip_direction.rs` is the scene that watches it, and it is §9.3.6's:
-/// text rendering mode 7 accumulates a glyph's outline into the clipping path, so a word set twice
-/// in one place is one path stating every outline twice.
-///
-/// # What the decline is worth, measured rather than assumed
-///
-/// It is not a rare path: **3533 marks on 232 of `doc/pdf.js`'s 974 first pages** take it, most of
-/// them a stroke whose expanded outline crosses itself at every join (`issue19802.pdf` 598,
-/// `issue14415.pdf` 546, `issue20232.pdf` 110). And lifting it is not the cheaper answer either.
-/// With the decline off, `render-raster/examples/ink_ladder` reads `issue20232.pdf` at **23 722.36**
-/// of ink at 1× against its own **18 653.77** at 8× — where the boundary is a sixteenth of the share
-/// and the page's own geometry is what is left — so the conflation is **+23%** of the page's ink,
-/// laid where the joins are. That figure lands on raster's 23 703.71 to within a tenth of a per
-/// cent, which is the tell rather than a coincidence: the other backend has no winding clamp and
-/// `doc/QUORRA_FEEDBACK.md` section 45 is the ask about exactly this. So a cell past one whole
-/// winding is declined because taking it would make this backend the page that ask is about.
-///
-/// **What an exact answer needs is the filled set and not its integral**, which is a
-/// conflation-free converter: the pixel split at the outline's own self-intersections, so that each
-/// sub-region can be clamped before it is summed. Decomposing the stroke into pieces that do not
-/// overlap — a quad per segment, a wedge per join — and unioning their coverages is not that: `max`
-/// is *light* along every seam where two pieces cover disjoint parts of one pixel, which is the side
-/// §10.7.4's third sentence forbids, and saturation is the measurement above. Neither is a fix, and
-/// the converter is a different construction from this one.
+/// `pdf-model/tests/glyph_clip_direction.rs` is §9.3.6's scene for it — text rendering mode 7
+/// accumulates a glyph's outline into the clipping path, so a word set twice in one place is one
+/// path stating every outline twice — and `render-cpu/tests/overlapping_portions.rs` states the
+/// closed form: two squares overlapping at a corner, under both rules.
 fn read_off(
     accumulator: &Accumulator<'_>,
     target: &mut [u8],
@@ -694,7 +1131,7 @@ fn read_off(
 ///
 /// One whole winding, plus a thousandth for the arithmetic's own residue — of the order of
 /// `2^-24` per deposit, which a thousandth clears by three orders of magnitude while staying far
-/// below the second whole winding a crossing adds. See [`Accumulator::add`].
+/// below the second whole winding a crossing adds. See [`overlaps`].
 const OVERLAPPED: f32 = 1.001;
 
 #[cfg(test)]
@@ -714,17 +1151,27 @@ mod tests {
     fn levels(
         path: &tiny_skia::Path,
         fill_rule: tiny_skia::FillRule,
+        extent: (u32, u32),
+    ) -> Vec<u8> {
+        levels_of(path, fill_rule, extent, false)
+    }
+
+    /// [`levels`], saying whether the path is known to overlap itself.
+    fn levels_of(
+        path: &tiny_skia::Path,
+        fill_rule: tiny_skia::FillRule,
         (width, height): (u32, u32),
+        overlapping: bool,
     ) -> Vec<u8> {
         let mut target = vec![0_u8; (width as usize) * (height as usize)];
-        let mut cells = Vec::new();
+        let mut cells = super::Buffers::default();
         let region: Region = region(path, tiny_skia::Transform::identity(), (width, height))
             .expect("the path reaches the surface");
         assert!(fill(
             &mut cells,
             &mut target,
             (width, region),
-            path,
+            (path, overlapping),
             fill_rule,
             tiny_skia::Transform::identity(),
         ));
@@ -791,11 +1238,11 @@ mod tests {
         }
     }
 
-    /// Two portions of one path wound the **same** way over one region: §11.6.2 forbids
-    /// compositing them with one another, which is what this converter would do at the boundary,
-    /// so it declines and leaves the region as it found it.
+    /// Two portions of one path wound the **same** way over one region: the non-zero rule's set is
+    /// the one square, and §11.6.2 forbids compositing the two portions with one another — so a
+    /// boundary pixel is covered by the square's own area, not twice it.
     #[test]
-    fn two_same_wound_portions_are_declined_and_leave_nothing_behind() {
+    fn two_same_wound_portions_are_measured_as_the_one_region_they_fill() {
         let mut builder = tiny_skia::PathBuilder::new();
         for _ in 0..2 {
             builder.move_to(1.0, 1.0);
@@ -805,25 +1252,111 @@ mod tests {
             builder.close();
         }
         let path = builder.finish().expect("one square stated twice");
-        let (width, height) = (6_u32, 6_u32);
-        let mut target = vec![0_u8; (width as usize) * (height as usize)];
-        let mut cells = Vec::new();
-        let region: Region = region(&path, tiny_skia::Transform::identity(), (width, height))
-            .expect("the path reaches the surface");
-        assert!(
-            !fill(
-                &mut cells,
-                &mut target,
-                (width, region),
-                &path,
-                tiny_skia::FillRule::Winding,
-                tiny_skia::Transform::identity(),
-            ),
-            "a path whose portions overlap is the supersampled converter's"
-        );
-        assert!(
-            target.iter().all(|&level| level == 0),
-            "a decline restores the clear region its caller gave it: {target:?}"
+        let levels = levels(&path, tiny_skia::FillRule::Winding, (6, 6));
+        assert_eq!(levels[6 + 4], 128, "half of pixel (4, 1), not all of it");
+        assert_eq!(levels[4 * 6 + 4], 64, "a quarter of pixel (4, 4)");
+        assert_eq!(levels[2 * 6 + 2], 255, "the interior is covered once");
+    }
+
+    /// Two squares overlapping at a corner, both wound the same way, measured at pixel `(3, 2)`,
+    /// where the first reaches `a` of the pixel's width and the second `1 − b` of its height.
+    ///
+    /// §8.5.3.3.2's set is their union and §8.5.3.3.3's is the union less the overlap, so the
+    /// clause's areas are `a + (1 − b) − a(1 − b)` and `a + (1 − b) − 2a(1 − b)`. The winding
+    /// integral reads `a + (1 − b)` under both, which is what this separates.
+    #[test]
+    fn a_corner_overlap_is_the_union_under_one_rule_and_the_difference_under_the_other() {
+        for (a, b) in [(0.5_f32, 0.5_f32), (0.3, 0.6), (0.7, 0.15)] {
+            let mut builder = tiny_skia::PathBuilder::new();
+            for (left, top, right, bottom) in
+                [(1.0, 1.0, 3.0 + a, 3.0 + a), (2.0 + b, 2.0 + b, 5.0, 5.0)]
+            {
+                builder.move_to(left, top);
+                builder.line_to(right, top);
+                builder.line_to(right, bottom);
+                builder.line_to(left, bottom);
+                builder.close();
+            }
+            let path = builder.finish().expect("two squares");
+            let overlap = a * (1.0 - b);
+            let union = a + (1.0 - b) - overlap;
+            for (rule, area) in [
+                (tiny_skia::FillRule::Winding, union),
+                (tiny_skia::FillRule::EvenOdd, union - overlap),
+            ] {
+                let levels = levels(&path, rule, (6, 6));
+                assert_eq!(
+                    levels[2 * 6 + 3],
+                    (255.0 * area).round() as u8,
+                    "{rule:?} at a = {a}, b = {b}: pixel (3, 2) is the set's own area"
+                );
+                // Pixel (2, 2) lies wholly inside the first square and the second reaches
+                // (1 − b)² of it: the union covers it all and the difference leaves the rest.
+                let inner = (1.0 - b) * (1.0 - b);
+                let expected = match rule {
+                    tiny_skia::FillRule::Winding => 1.0,
+                    tiny_skia::FillRule::EvenOdd => 1.0 - inner,
+                };
+                assert_eq!(
+                    levels[2 * 6 + 2],
+                    (255.0 * expected).round() as u8,
+                    "{rule:?} at a = {a}, b = {b}: pixel (2, 2)"
+                );
+            }
+        }
+    }
+
+    /// Two portions wound against one another that share a pixel and nothing else: their winding
+    /// integrals cancel there, and the non-zero rule's set covers both.
+    #[test]
+    fn opposed_portions_sharing_a_pixel_do_not_cancel() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        // Clockwise on the device, from x = 1 to 2.4.
+        builder.move_to(1.0, 1.0);
+        builder.line_to(2.4, 1.0);
+        builder.line_to(2.4, 3.0);
+        builder.line_to(1.0, 3.0);
+        builder.close();
+        // Anticlockwise, from x = 2.6 to 4.
+        builder.move_to(2.6, 1.0);
+        builder.line_to(2.6, 3.0);
+        builder.line_to(4.0, 3.0);
+        builder.line_to(4.0, 1.0);
+        builder.close();
+        let path = builder.finish().expect("two opposed rectangles");
+        for rule in [tiny_skia::FillRule::Winding, tiny_skia::FillRule::EvenOdd] {
+            let levels = levels(&path, rule, (5, 5));
+            assert_eq!(
+                levels[5 + 2],
+                (255.0_f32 * 0.8).round() as u8,
+                "{rule:?}: 0.4 of pixel (2, 1) from each, not 0.4 − 0.4"
+            );
+        }
+    }
+
+    /// Two slivers wound the same way that overlap inside one pixel and nowhere else: no row shows
+    /// a sign, because no pixel's integral reaches one, so only a mark known to overlap itself —
+    /// a stroker's outline — is measured as the set. The union covers 0.6 of the pixel and the
+    /// integral 0.8; the second reading is the residue a mark not known to overlap keeps, and it is
+    /// bounded by the overlap's own area.
+    #[test]
+    fn an_overlap_inside_one_pixel_is_the_set_where_the_mark_is_known_to_overlap() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        for (left, right) in [(1.1_f32, 1.5_f32), (1.3, 1.7)] {
+            builder.move_to(left, 1.0);
+            builder.line_to(right, 1.0);
+            builder.line_to(right, 2.0);
+            builder.line_to(left, 2.0);
+            builder.close();
+        }
+        let path = builder.finish().expect("two slivers");
+        let known = levels_of(&path, tiny_skia::FillRule::Winding, (3, 3), true);
+        assert_eq!(known[3 + 1], (255.0_f32 * 0.6).round() as u8, "the union");
+        let unknown = levels_of(&path, tiny_skia::FillRule::Winding, (3, 3), false);
+        assert_eq!(
+            unknown[3 + 1],
+            (255.0_f32 * 0.8).round() as u8,
+            "the integral, which is the residue"
         );
     }
 

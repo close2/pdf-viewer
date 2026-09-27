@@ -706,7 +706,13 @@ int32_t quorra_extract(quorra_viewer *viewer, const char *name, quorra_events **
 /* What the document says about *itself* — §12.8's signatures above all — on a QUORRA_EVENT_REPORTED
  * with no page. Ask once the reader has their page: it digests the signed part of the file. */
 int32_t quorra_document_report(quorra_viewer *viewer, quorra_events **events);
-/* The answer to a QUORRA_EVENT_NEEDS_FILE. A NULL `bytes` is a refusal, which is a fair answer. */
+/* The answer to a QUORRA_EVENT_NEEDS_FILE. A NULL `bytes` is a refusal, which is a fair answer.
+ *
+ * The file supplied may itself want §7.6.4.1's password. A QUORRA_EVENT_PASSWORD_REQUIRED then
+ * follows, and quorra_event_document names the id it is about: the name quorra_beside held out, or
+ * the document the link was in where the file replaces it. Answer with quorra_open under THAT id and
+ * with THAT file's bytes — the ones just supplied, never the document on show. A §12.7.8 named page
+ * opens under no id: once its password is right, a QUORRA_EVENT_CLOSED gives the id back. */
 int32_t quorra_supply(quorra_viewer *viewer, uint32_t purpose, const uint8_t *bytes, size_t len,
                     quorra_events **events);
 

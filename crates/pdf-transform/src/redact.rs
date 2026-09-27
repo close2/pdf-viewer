@@ -53,6 +53,15 @@
 //! raster it becomes is [`RasterKind`]'s: 8-bit `DeviceRGB` for a colour codec (ADR 1133), 1-bit
 //! `DeviceGray` for the bilevel `JBIG2Decode` (ADR 1143), a 1-bit stencil for a §8.9.6.2 image
 //! mask, 8-bit `DeviceGray` for a soft mask — each checked against what the decode delivered.
+//! A **`JPXDecode`** image that is not a stencil is not re-expressed at all: the decoder's own
+//! integers are written back, at 8 or 16 bits, in the colour space §7.4.9 names, so a colour key
+//! and a matte still describe them ([`pdf_model::image::jpx_samples`], ADR 1333). It is decoded
+//! at full resolution within the operator's `--image-samples` budget, never at the reduced level
+//! a viewer may take.
+//!
+//! A colour codec picture's §8.9.6.4 **colour key** becomes the §8.9.6.3 stencil it is equivalent
+//! to, and a picture pre-blended with §11.6.5.2's **matte** is cleared to the matte, which Table
+//! 144's formula gives at the zero opacity the cleared soft mask states (ADR 1333).
 //!
 //! **A mask is image data too** (ADR 1277). A picture's §11.6.5.2 `/SMask` and §8.9.6.3 `/Mask`
 //! streams hold its shape sample by sample, and both lie on the picture's unit square, so each is
@@ -85,13 +94,13 @@
 //! Marks meeting the region stay refused with their own narrower reason, each an owed capability
 //! rather than a silence:
 //!
-//! - a **codec image whose decode is not its own grid** — a `JPXDecode` codestream over the
-//!   decoder's sample budget comes back at a reduced resolution level (§7.4.9 NOTE 3), and
-//!   writing that raster back would resample the image outside the region too — or whose
-//!   codestream states more than eight bits a component, which the 8-bit re-encode would coarsen;
-//! - a **codec picture with a colour-key `/Mask`** (§8.9.6.4's ranges are in the sample domain
-//!   the re-encode leaves) or whose soft mask states §11.6.5.2's `/Matte` (a pre-blending in the
-//!   colour space the re-encode leaves), and a decode whose shape its [`RasterKind`] cannot hold;
+//! - a **codec image whose decode is not its own grid** — a `JPXDecode` codestream larger than
+//!   the operator's budget, which is refused rather than decoded at a reduced resolution level
+//!   (§7.4.9 NOTE 3) that would resample the image outside the region too — or whose decoder
+//!   delivered fewer bits than a component the codestream states;
+//! - a **codec picture pre-blended with a matte** its re-expression cannot keep (a colour space
+//!   reaching `DeviceRGB` by a conversion that is not affine, or a bilevel raster), and a decode
+//!   whose shape its [`RasterKind`] cannot hold;
 //! - an **inline image** behind a filter §8.9.7 forbids inline, or whose colour space holds a
 //!   reference no resource name in force reaches;
 //! - a **painted path** whose marks the cut cannot take exactly: a zero-width stroke, one whose
@@ -170,6 +179,16 @@ pub struct RedactPlan {
     pub source: usize,
     /// How the output is named.
     pub names: Pattern,
+    /// The most samples — pixels times channels — a `JPXDecode` image may be decoded to at full
+    /// resolution, where the operator states more than the viewer's own budget
+    /// (`pdf_model::image::ORDINARY_JPX_SAMPLES`); `None` for that budget.
+    ///
+    /// A viewer may draw a codestream over its budget at a reduced resolution level (§7.4.9
+    /// NOTE 3), and a redaction cannot, because it writes the image back: a reduced grid would
+    /// resample every sample outside the region. So the redaction decodes at full resolution or
+    /// refuses by name, and how much memory and time that may take is a decision about the
+    /// machine the verb runs on, which is its operator's (`--image-samples`, ADR 1333).
+    pub image_samples: Option<u64>,
 }
 
 /// Applies every `/Redact` annotation this document states and writes the redacted document.
@@ -236,7 +255,10 @@ pub(crate) fn run(
         if regions.is_empty() {
             continue;
         }
-        match plan_page(document, &page, &regions, &counts) {
+        let image_samples = plan
+            .image_samples
+            .unwrap_or(pdf_model::image::ORDINARY_JPX_SAMPLES);
+        match plan_page(document, &page, &regions, (&counts, image_samples)) {
             Ok(edit) => {
                 // §12.5.6.23: destroy the image data. Grouped and cleared per page, so a shared
                 // image's destroyed samples belong to this page's copy alone.
@@ -333,6 +355,15 @@ struct ClearedImage {
     /// where a `JPXDecode` image stated a non-zero `/SMaskInData`: Table 87 has the processor
     /// "create a soft-mask image from the information", and this is that image, written.
     opacity: Option<Vec<u8>>,
+    /// The §8.9.6.3 stencil a codec picture's §8.9.6.4 colour key became, cleared under the same
+    /// placements and re-encoded `FlateDecode` (ADR 1333).
+    stencil: Option<Vec<u8>>,
+    /// The `/Matte` a soft mask states once its picture is re-expressed, where that differs from
+    /// the file's: a `DeviceGray` picture written as `DeviceRGB` has its one matte component
+    /// stated three times (ADR 1333).
+    matte: Option<Vec<f32>>,
+    /// How a [`RasterKind::Own`] raster is described.
+    own: Option<Arc<OwnRaster>>,
 }
 
 /// Whether a cleared image is a picture or a mask that belongs to one.
@@ -359,6 +390,38 @@ enum RasterKind {
     /// A 1-bit §8.9.6.2 image mask: a stencil behind a codec, whether drawn itself or named by a
     /// picture's `/Mask`.
     Stencil,
+    /// A `JPXDecode` image's own samples, carried at the precision and in the colour space the
+    /// decoder delivered them in ([`OwnRaster`], ADR 1333).
+    Own,
+}
+
+/// How a `JPXDecode` image's own samples are described once they are written under
+/// `FlateDecode`: what [`RasterKind::Own`] carries beside its samples (ADR 1333).
+///
+/// The samples are the decoder's integers unchanged, so every entry that described them in the
+/// source still does — the colour space the dictionary stated, `/Intent`, a colour-key `/Mask`,
+/// a mask's `/Matte` — and is carried. What is restated is what the codec had decided and a
+/// `FlateDecode` stream must say: the depth, and the colour space where it was the codestream's.
+#[derive(Clone)]
+struct OwnRaster {
+    /// The colour space the samples are in.
+    space: pdf_model::image::JpxSpace,
+    /// The depth the samples are written at: 8 for a decode of eight bits or fewer, 16 above.
+    bits: usize,
+    /// The `/Decode` to state: the pairs the source's samples were read through, with a
+    /// precision widened to [`Self::bits`] keeping its integers and moving each pair's far end so
+    /// that §8.9.5.2's map gives every integer the value it had ([`widened_decode`]).
+    decode: Vec<f32>,
+    /// The same for the opacity channel's soft-mask image, which Table 143 lets state a
+    /// `/Decode` of its own.
+    opacity_decode: Vec<f32>,
+    /// Whether `/SMaskInData` 2 multiplied the colour by the opacity, which the written soft-mask
+    /// image then states as §11.6.5.2's `/Matte` of the space's zero.
+    premultiplied: bool,
+    /// The precision the decoder delivered, which the samples' integers are still in.
+    precision: u8,
+    /// The `/Decode` pair a reader maps each component through at [`Self::precision`].
+    pairs: Vec<(f32, f32)>,
 }
 
 /// Groups **one page's** image clears by object and destroys each image's samples once.
@@ -389,6 +452,8 @@ fn clear_images(
             encoded,
             codec,
             opacity,
+            stencil,
+            own,
         } = cleared_image_samples(document, stream, &placements).map_err(|detail| {
             Refusal::Assembly(format!("§12.5.6.23: image object {}: {detail}", id.number))
         })?;
@@ -398,6 +463,7 @@ fn clear_images(
             .first()
             .map(|clear| clear.masks.clone())
             .unwrap_or_default();
+        let matte = placements.first().and_then(|clear| clear.matte.clone());
         cleared.push(ClearedImage {
             id,
             private,
@@ -406,6 +472,9 @@ fn clear_images(
             codec,
             masks,
             opacity,
+            stencil,
+            matte,
+            own,
         });
     }
     Ok(cleared)
@@ -568,6 +637,14 @@ struct ImageClear {
     /// The `/SMask` and `/Mask` streams the picture names, planned as clears of their own; a
     /// codec picture's fresh dictionary names them again.
     masks: Vec<(Name, ObjectId)>,
+    /// The sample a cleared place takes, one integer per component, where it is not the
+    /// domain's zero: a picture pre-blended with §11.6.5.2's matte colour takes the matte
+    /// itself, which is Table 144's `c′ = m + α × (c − m)` at the zero opacity its cleared
+    /// soft mask states there (ADR 1333).
+    fill: Option<Vec<u32>>,
+    /// The `/Matte` this soft mask states once its picture is re-expressed
+    /// ([`ClearedImage::matte`]).
+    matte: Option<Vec<f32>>,
 }
 
 /// A codec image's samples as this removal re-expresses them, with §7.4.9's opacity channel
@@ -578,8 +655,30 @@ struct Decoded {
     samples: Arc<[u8]>,
     /// Which fresh raster they are.
     kind: RasterKind,
-    /// One 8-bit opacity sample per pixel, on the same grid, where `/SMaskInData` is non-zero.
+    /// One opacity sample per pixel, on the same grid, where `/SMaskInData` is non-zero: eight
+    /// bits a sample, or [`OwnRaster::bits`] for [`RasterKind::Own`].
     opacity: Option<Arc<[u8]>>,
+    /// The §8.9.6.3 stencil a §8.9.6.4 colour key became, one bit a sample on the picture's grid
+    /// under the default `/Decode`: 1 where the key masked the sample, 0 where it painted.
+    stencil: Option<Arc<[u8]>>,
+    /// How [`RasterKind::Own`] samples are described.
+    own: Option<Arc<OwnRaster>>,
+}
+
+/// What [`Walk::matte_fill`] answers: the samples a pre-blended picture's cleared places take,
+/// and the `/Matte` its soft mask states where that is not the file's.
+type MatteFill = (Option<Vec<u32>>, Option<Vec<f32>>);
+
+/// What [`Walk::stated_masks`] found in a picture's dictionary.
+#[derive(Default)]
+struct StatedMasks {
+    /// The mask streams, each to be cleared as an image of its own.
+    stated: Vec<StatedMask>,
+    /// Whether a §8.9.6.4 colour key is to become a §8.9.6.3 stencil, because the picture's
+    /// re-expression leaves the domain its ranges were stated in.
+    colour_key: bool,
+    /// The soft mask's §11.6.5.2 `/Matte`, where it states one.
+    matte: Option<Vec<f32>>,
 }
 
 /// A mask an image dictionary names by reference, to be cleared as an image of its own.
@@ -623,7 +722,7 @@ fn plan_page(
     document: &Document,
     page: &Page,
     regions: &[Redaction],
-    counts: &HashMap<u32, usize>,
+    (counts, image_samples): (&HashMap<u32, usize>, u64),
 ) -> Result<PageEdit, String> {
     let draw = crate::render::page_to_draw(page, None, false);
     let interpretation = interpret(document, &draw);
@@ -635,7 +734,8 @@ fn plan_page(
         .collect();
 
     let content = page.content(document);
-    let walk = Walk::new(document, page, &interpretation, region_boxes, counts);
+    let mut walk = Walk::new(document, page, &interpretation, region_boxes, counts);
+    walk.image_samples = image_samples;
     walk.run(&content)
 }
 
@@ -1259,6 +1359,9 @@ struct Walk<'a> {
     /// page also draws is that page's too, whatever its own reference count says, so nothing
     /// inside one may be replaced in place.
     inside_shared: usize,
+    /// The most samples a `JPXDecode` image is decoded to at full resolution
+    /// ([`RedactPlan::image_samples`]).
+    image_samples: u64,
 }
 
 impl<'a> Walk<'a> {
@@ -1300,6 +1403,7 @@ impl<'a> Walk<'a> {
             form_edits: Vec::new(),
             forms_open: Vec::new(),
             inside_shared: 0,
+            image_samples: pdf_model::image::ORDINARY_JPX_SAMPLES,
         }
     }
 
@@ -2328,25 +2432,138 @@ impl<'a> Walk<'a> {
                 .as_integer()
                 .is_some_and(|code| code != 0);
         let masks = if opacity_in_data {
-            Vec::new()
+            StatedMasks::default()
         } else {
-            self.stated_masks(&shown, stream, codec.is_some())?
+            self.stated_masks(&shown, stream, codec.as_deref())?
         };
         let mut picture = if let Some(codec) = &codec {
-            self.plan_codec_clear(&shown, image_id, stream, codec, &image.data, Role::Picture)?
+            self.plan_codec_clear(
+                &shown,
+                image_id,
+                stream,
+                (codec, &image.data),
+                Role::Picture,
+                masks.colour_key,
+            )?
         } else {
             self.plan_packed_clear(&shown, image_id, stream, &image.data, Role::Picture)?
         };
         picture.private = private;
         picture.masks = masks
+            .stated
             .iter()
             .map(|mask| (mask.key.clone(), mask.id))
             .collect();
+        let restated = match &masks.matte {
+            Some(matte) => {
+                let (fill, restated) = self.matte_fill(&shown, stream, &picture, matte)?;
+                picture.fill = fill;
+                restated
+            }
+            None => None,
+        };
         let mut clears = vec![picture];
-        for mask in masks {
-            clears.push(self.plan_mask_clear(&shown, &mask, private)?);
+        for mask in masks.stated {
+            let mut clear = self.plan_mask_clear(&shown, &mask, private)?;
+            if mask.role == Role::SoftMask {
+                clear.matte.clone_from(&restated);
+            }
+            clears.push(clear);
         }
         Ok(clears)
+    }
+
+    /// The sample a picture pre-blended with §11.6.5.2's matte colour takes where it is cleared,
+    /// and the `/Matte` its soft mask states once the picture is written — or the refusal by
+    /// name where the written picture cannot hold the matte.
+    ///
+    /// Table 144's pre-blending is `c′ = m + α × (c − m)`, and a cleared soft mask states α = 0
+    /// across the region, where the formula gives `c′ = m` whatever `c` was. So the picture's
+    /// cleared samples are the matte, and the destroyed region is data the formula could have
+    /// produced rather than a zero it could not: nothing of `c` survives in either image, and
+    /// the two still describe one pre-blended picture (ADR 1333). The clause adds that the
+    /// computation "shall use actual colour component values, with the effects of the Filter
+    /// and Decode transformations already performed", so the matte is carried into samples by
+    /// §8.9.5.2's map run backwards, in whichever domain the picture is written:
+    ///
+    /// - a codec-free picture, and a `JPXDecode` one written as its own samples, keep the
+    ///   domain and the `/Decode` pairs they had, and the soft mask keeps its `/Matte`;
+    /// - a colour codec re-expressed as eight-bit `DeviceRGB` keeps the matte only where that
+    ///   re-expression is the identity on the space's components — `DeviceRGB` itself, and
+    ///   `DeviceGray`, whose one component becomes three equal ones and whose `/Matte` is
+    ///   restated three times to match. Any other space reaches `DeviceRGB` by a conversion
+    ///   that is not affine, under which Table 144's relation between the two images does not
+    ///   survive, and is refused by name, as is a bilevel re-expression, which has no sample
+    ///   for a matte between black and white;
+    /// - an `Indexed` picture's matte is a colour of the base space, which no index is
+    ///   guaranteed to name, so its cleared indices stay the domain's zero: the region's
+    ///   opacity is zero either way, and §11.6.5.2 lets a reader choose any `c` there.
+    fn matte_fill(
+        &self,
+        shown: &str,
+        stream: &Stream,
+        picture: &ImageClear,
+        matte: &[f32],
+    ) -> Result<MatteFill, String> {
+        let refused = |why: &str| {
+            format!(
+                "§11.6.5.2: the image /{shown} is pre-blended with its soft mask's /Matte, and \
+                 {why}; the page is refused"
+            )
+        };
+        let space_entry = self.document.get_key(&stream.dict, "ColorSpace");
+        let space = ColourSpace::parse(self.document, &space_entry, &self.resources);
+        let indexed = matches!(space, Some(ColourSpace::Indexed { .. }));
+        let Some(decoded) = &picture.decoded else {
+            if indexed {
+                return Ok((None, None));
+            }
+            let space = space.ok_or_else(|| refused("its colour space cannot be read"))?;
+            let pairs = decode_pairs(self.document, &stream.dict, &space, picture.layout.bits);
+            let fill = matte_samples(matte, &pairs, picture.layout.bits)
+                .ok_or_else(|| refused("the matte does not name one value per component"))?;
+            return Ok((Some(fill), None));
+        };
+        match decoded.kind {
+            RasterKind::Own => {
+                let own = decoded
+                    .own
+                    .as_ref()
+                    .ok_or_else(|| refused("its samples are not described"))?;
+                if indexed {
+                    return Ok((None, None));
+                }
+                let fill = matte_samples(matte, &own.pairs, usize::from(own.precision))
+                    .ok_or_else(|| refused("the matte does not name one value per component"))?;
+                Ok((Some(fill), None))
+            }
+            RasterKind::Rgb => {
+                let restated = match space {
+                    Some(ColourSpace::Rgb) if matte.len() == 3 => matte.to_vec(),
+                    Some(ColourSpace::Gray) => match matte {
+                        [grey] => vec![*grey; 3],
+                        _ => {
+                            return Err(refused("the matte does not name one value per component"));
+                        }
+                    },
+                    _ => {
+                        return Err(refused(
+                            "the picture reaches its eight-bit DeviceRGB re-encode by a \
+                             conversion under which Table 144's relation between the two images \
+                             does not survive",
+                        ));
+                    }
+                };
+                let identity = [(0.0, 1.0); 3];
+                let fill = matte_samples(&restated, &identity, 8)
+                    .ok_or_else(|| refused("the matte does not name one value per component"))?;
+                let carried = matches!(space, Some(ColourSpace::Rgb));
+                Ok((Some(fill), (!carried).then_some(restated)))
+            }
+            RasterKind::Bilevel | RasterKind::Grey | RasterKind::Stencil => Err(refused(
+                "its re-encode is a one-bit or mask raster with no sample for the matte colour",
+            )),
+        }
     }
 
     /// The `/SMask` and `/Mask` streams an image names, each to be cleared on its own grid, or a
@@ -2361,20 +2578,21 @@ impl<'a> Walk<'a> {
     /// — so the picture's placement is the mask's, and the mask's own `/Width` and `/Height` are
     /// the grid its samples are cleared on.
     ///
-    /// A §8.9.6.4 colour-key array is not image data: it is a test on the picture's samples,
-    /// which a codec-free clear leaves in the domain it was stated in, so it is carried. Two
-    /// cases are refused by name, each a cost written down: a colour key on a **codec** picture,
-    /// whose ranges are "colour values before decoding with the Decode array" in a sample domain
-    /// the `DeviceRGB` re-encode leaves; and a soft mask stating §11.6.5.2's `/Matte` under a
-    /// codec picture, whose pre-blending is in the picture's own colour space, which the re-encode
-    /// leaves as well.
+    /// A §8.9.6.4 colour-key array is not image data: it is a test on the picture's samples.
+    /// Where the clear leaves the samples in the domain the ranges were stated in — a codec-free
+    /// picture, and a `JPXDecode` one written as its own samples — it is carried. A colour codec
+    /// re-expressed as eight-bit `DeviceRGB` leaves that domain, since its ranges are "colour
+    /// values before decoding with the Decode array", so there the key becomes the §8.9.6.3
+    /// stencil it is equivalent to ([`StatedMasks::colour_key`], ADR 1333). A soft mask's
+    /// §11.6.5.2 `/Matte` is read here and answered by [`Walk::matte_fill`].
     fn stated_masks(
         &self,
         shown: &str,
         stream: &Stream,
-        codec_picture: bool,
-    ) -> Result<Vec<StatedMask>, String> {
-        let mut masks = Vec::new();
+        codec: Option<&[u8]>,
+    ) -> Result<StatedMasks, String> {
+        let mut masks = StatedMasks::default();
+        let re_expressed = codec.is_some_and(|codec| codec != b"JPXDecode");
         for (key, role) in [("SMask", Role::SoftMask), ("Mask", Role::ExplicitMask)] {
             let Some(entry) = stream.dict.get(key) else {
                 continue;
@@ -2382,15 +2600,22 @@ impl<'a> Walk<'a> {
             let target = self.document.resolve(entry);
             match (&target, entry.as_reference()) {
                 (Object::Stream(mask), Some(id)) => {
-                    let matte = !matches!(self.document.get_key(&mask.dict, "Matte"), Object::Null);
-                    if codec_picture && role == Role::SoftMask && matte {
-                        return Err(format!(
-                            "§11.6.5.2: the soft mask of the codec image /{shown} states a /Matte, \
-                             a pre-blending in the image's own colour space that its DeviceRGB \
-                             re-encode leaves; the page is refused"
-                        ));
+                    if role == Role::SoftMask {
+                        let matte = self.document.get_key(&mask.dict, "Matte");
+                        if let Some(items) = matte.as_array() {
+                            let values: Option<Vec<f32>> = items
+                                .iter()
+                                .map(|item| self.document.resolve(item).as_number().map(narrow))
+                                .collect();
+                            masks.matte = Some(values.ok_or_else(|| {
+                                format!(
+                                    "§11.6.5.2: the soft mask of the image /{shown} states a \
+                                     /Matte that is not an array of numbers; the page is refused"
+                                )
+                            })?);
+                        }
                     }
-                    masks.push(StatedMask {
+                    masks.stated.push(StatedMask {
                         key: Name::new(key.as_bytes()),
                         id,
                         role,
@@ -2402,12 +2627,8 @@ impl<'a> Walk<'a> {
                          cannot replace; the page is refused"
                     ));
                 }
-                (Object::Array(_), _) if role == Role::ExplicitMask && codec_picture => {
-                    return Err(format!(
-                        "§8.9.6.4: the codec image /{shown} states a colour-key /Mask, whose \
-                         ranges are in the codec's own sample values and which its DeviceRGB \
-                         re-encode leaves; the page is refused"
-                    ));
+                (Object::Array(_), _) if role == Role::ExplicitMask && re_expressed => {
+                    masks.colour_key = true;
                 }
                 // Anything else names no mask a reader applies: nothing to clear.
                 _ => {}
@@ -2440,7 +2661,14 @@ impl<'a> Walk<'a> {
             format!("the image /{shown} did not decode to samples; the page is refused")
         })?;
         let mut clear = if let Some(codec) = &image.codec {
-            self.plan_codec_clear(&shown, mask.id, stream, codec, &image.data, mask.role)?
+            self.plan_codec_clear(
+                &shown,
+                mask.id,
+                stream,
+                (codec, &image.data),
+                mask.role,
+                false,
+            )?
         } else {
             self.plan_packed_clear(&shown, mask.id, stream, &image.data, mask.role)?
         };
@@ -2479,6 +2707,8 @@ impl<'a> Walk<'a> {
             role,
             decoded: None,
             masks: Vec::new(),
+            fill: None,
+            matte: None,
         })
     }
 
@@ -2500,9 +2730,14 @@ impl<'a> Walk<'a> {
     /// whose alpha has to be exactly painted or unpainted; a soft mask an 8-bit `DeviceGray`
     /// raster, whose three channels have to agree; the bilevel `JBIG2Decode` a 1-bit
     /// `DeviceGray` raster (ADR 1143); any other colour codec an 8-bit `DeviceRGB` raster
-    /// (ADR 1133). The last three have to decode opaque, except that a `JPXDecode` picture's
-    /// §7.4.9 opacity channel is carried beside its samples, to be written as the soft mask
-    /// Table 87 says the processor creates from it.
+    /// (ADR 1133). The last three have to decode opaque.
+    ///
+    /// A `JPXDecode` image that is not a stencil is not re-expressed at all: its own samples are
+    /// carried ([`Walk::plan_jpx_clear`]). A colour codec picture whose §8.9.6.4 colour key its
+    /// re-expression leaves (`keyed`) is decoded a second time with the key applied, and the
+    /// places the key masks become a §8.9.6.3 stencil on the picture's grid — the mask the key is
+    /// equivalent to, since "[s]amples in the image that fall within this range shall not be
+    /// painted" and an explicit mask's 1 is a place that "shall not be" either (ADR 1333).
     ///
     /// Refused, each an owed capability rather than a silence (trap 5, principle 1): an image
     /// that does not decode; one that decodes short of its grid or off it; one whose decode does
@@ -2513,23 +2748,21 @@ impl<'a> Walk<'a> {
         shown: &str,
         image_id: ObjectId,
         stream: &Stream,
-        codec: &[u8],
-        codestream: &[u8],
+        (codec, codestream): (&[u8], &[u8]),
         role: Role,
+        keyed: bool,
     ) -> Result<ImageClear, String> {
         let stencil = matches!(
             self.document.get_key(&stream.dict, "ImageMask"),
             Object::Boolean(true)
         );
-        let mut opacity_in_data = false;
         let kind = match codec {
             _ if stencil => RasterKind::Stencil,
+            b"JPXDecode" => {
+                return self.plan_jpx_clear(shown, image_id, stream, codestream, role);
+            }
             _ if role == Role::SoftMask => RasterKind::Grey,
             b"DCTDecode" | b"DCT" | b"CCITTFaxDecode" | b"CCF" => RasterKind::Rgb,
-            b"JPXDecode" => {
-                opacity_in_data = self.jpx_admits_a_clear(shown, stream, codestream)?;
-                RasterKind::Rgb
-            }
             b"JBIG2Decode" => RasterKind::Bilevel,
             other => {
                 return Err(format!(
@@ -2592,13 +2825,17 @@ impl<'a> Walk<'a> {
                 stated.0, stated.1
             ));
         }
-        let (samples, layout, opacity) =
-            reexpressed(&image.data, width, height, kind, opacity_in_data).map_err(|what| {
-                format!(
-                    "§8.9.5: the codec image /{shown} {what}, which the FlateDecode re-encode \
+        let (samples, layout) = reexpressed(&image.data, width, height, kind).map_err(|what| {
+            format!(
+                "§8.9.5: the codec image /{shown} {what}, which the FlateDecode re-encode \
                      cannot preserve; the page is refused rather than flatten it"
-                )
-            })?;
+            )
+        })?;
+        let stencil = if keyed {
+            Some(self.colour_key_stencil(shown, stream, (width, height))?)
+        } else {
+            None
+        };
         Ok(ImageClear {
             image_id,
             ctm: self.ctm,
@@ -2609,14 +2846,196 @@ impl<'a> Walk<'a> {
             decoded: Some(Decoded {
                 samples: Arc::from(samples.as_slice()),
                 kind,
-                opacity: opacity.map(|alpha| Arc::from(alpha.as_slice())),
+                opacity: None,
+                stencil: stencil.map(|bits| Arc::from(bits.as_slice())),
+                own: None,
             }),
             masks: Vec::new(),
+            fill: None,
+            matte: None,
         })
     }
 
-    /// The conditions a `JPXDecode` image's samples have to meet to be destroyed here, and
-    /// whether the codestream's own opacity channel is to travel beside them.
+    /// The §8.9.6.3 stencil a colour codec picture's §8.9.6.4 colour key is equivalent to, one
+    /// bit a sample on the picture's grid, or the refusal by name.
+    ///
+    /// The picture is decoded again with its `/Mask` array as its only mask, so the key is
+    /// tested where §8.9.6.4 tests it — on the components "before decoding with the Decode
+    /// array", which the decoder alone still has — and the answer read off the decode's
+    /// opacity: a masked sample is transparent and every other one opaque. The picture's
+    /// colours come from the first decode, without the key, so a masked sample keeps the colour
+    /// the file gave it even though no reader paints it.
+    fn colour_key_stencil(
+        &self,
+        shown: &str,
+        stream: &Stream,
+        grid: (usize, usize),
+    ) -> Result<Vec<u8>, String> {
+        let mut keyed = stream.dict.clone();
+        keyed.remove("SMask");
+        let keyed = Stream {
+            dict: keyed,
+            data: Arc::clone(&stream.data),
+            decryption_failed: stream.decryption_failed,
+        };
+        let Flattened { image, shortfall } = pdf_model::image::decode(
+            self.document,
+            &keyed,
+            &self.resources,
+            Color::BLACK,
+            &Conversion::device(),
+        )
+        .map_err(|error| {
+            format!(
+                "§8.9.6.4: the codec image /{shown} did not decode under its colour key \
+                 ({error}); the page is refused"
+            )
+        })?;
+        let decoded = (
+            usize::try_from(image.width).unwrap_or(0),
+            usize::try_from(image.height).unwrap_or(0),
+        );
+        if shortfall.is_some() || decoded != grid {
+            return Err(format!(
+                "§8.9.6.4: the codec image /{shown} decoded under its colour key off its own \
+                 grid, so the stencil the key becomes would not be the picture's; the page is \
+                 refused"
+            ));
+        }
+        let (bits, _) =
+            reexpressed(&image.data, grid.0, grid.1, RasterKind::Stencil).map_err(|_| {
+                format!(
+                    "§8.9.6.4: the codec image /{shown}'s colour key masked part of a sample, \
+                     which a stencil cannot state; the page is refused"
+                )
+            })?;
+        Ok(bits)
+    }
+
+    /// Plans clearing a `JPXDecode` image on its own samples, or refuses by name (ADR 1333).
+    ///
+    /// §12.5.6.23 destroys "that portion of the image data" and says nothing of the rest, which
+    /// is therefore to be carried as the file had it. The decoder delivers the codestream's
+    /// components as integers at a precision Table 87 leaves to the processor —
+    /// "[t]he bit depth is determined by the PDF processor in the process of decoding the JPEG
+    /// 2000 image" — and in the colour space §7.4.9's precedence names, so those integers are
+    /// written back under `FlateDecode` unchanged ([`pdf_model::image::jpx_samples`]): at eight
+    /// bits where the decode was eight or fewer, at sixteen above, in the dictionary's colour
+    /// space or the codestream's own. Nothing outside the region is converted, requantised or
+    /// resampled, so a colour key's ranges and a soft mask's `/Matte` still describe the samples
+    /// they were written against and are carried with them. Table 87's `/SMaskInData` opacity
+    /// becomes the soft-mask image the table has the processor "create", at the same precision.
+    fn plan_jpx_clear(
+        &self,
+        shown: &str,
+        image_id: ObjectId,
+        stream: &Stream,
+        codestream: &[u8],
+        role: Role,
+    ) -> Result<ImageClear, String> {
+        let depths = self.jpx_admits_a_clear(shown, stream, codestream)?;
+        let samples = pdf_model::image::jpx_samples(
+            self.document,
+            &stream.dict,
+            &self.resources,
+            (codestream, self.image_samples),
+        )
+        .map_err(|error| {
+            format!(
+                "§7.4.9: the JPEG 2000 image /{shown} was not decoded to its own samples at \
+                 full resolution ({error}); a reduced resolution level would resample every \
+                 sample outside the region, so the page is refused — an operator whose machine \
+                 can hold a larger decode states it with --image-samples"
+            )
+        })?;
+        let stated = (
+            positive_dim(self.document, &stream.dict, "Width", shown)?,
+            positive_dim(self.document, &stream.dict, "Height", shown)?,
+        );
+        let width = usize::try_from(samples.width).unwrap_or(0);
+        let height = usize::try_from(samples.height).unwrap_or(0);
+        if stated != (width, height) {
+            // §7.4.9 NOTE 3: a codestream over the decoder's sample budget "can select and
+            // decode only the data making up a lower-resolution version", and a raster on that
+            // grid is not the image — written back, it would resample everything outside the
+            // region as well.
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} states a {}×{} grid and the decoder's \
+                 budget delivered a reduced resolution level of {width}×{height}, so the \
+                 samples this removal would write back are not the image's own; the page is \
+                 refused",
+                stated.0, stated.1
+            ));
+        }
+        if let Some(deeper) = depths.iter().find(|bits| **bits > samples.precision) {
+            return Err(format!(
+                "§7.4.9: the JPEG 2000 image /{shown} states a component of {deeper} bits and \
+                 the decoder delivered {} (its components do not agree on one depth sixteen \
+                 bits can hold), so writing them back would coarsen the samples outside the \
+                 region as well; the page is refused",
+                samples.precision
+            ));
+        }
+        if role == Role::SoftMask && samples.components != 1 {
+            return Err(format!(
+                "§11.6.5.2: the soft-mask image /{shown} decoded to {} colour components where \
+                 Table 143 requires DeviceGray; the page is refused",
+                samples.components
+            ));
+        }
+        if samples.premultiplied && samples.space == pdf_model::image::JpxSpace::Stated {
+            let entry = self.document.get_key(&stream.dict, "ColorSpace");
+            if matches!(
+                ColourSpace::parse(self.document, &entry, &self.resources),
+                Some(ColourSpace::Indexed { .. })
+            ) {
+                return Err(format!(
+                    "§8.9.5.1: the JPEG 2000 image /{shown} states /SMaskInData 2 over an \
+                     Indexed space, whose indices no opacity can have multiplied; the page is \
+                     refused"
+                ));
+            }
+        }
+        let bits = if samples.precision > 8 { 16 } else { 8 };
+        let decode = widened_decode(&samples.decode, samples.precision, bits);
+        let opacity_decode = widened_decode(&[(0.0, 1.0)], samples.precision, bits);
+        let layout = ImageLayout {
+            width,
+            height,
+            components: samples.components,
+            bits,
+        };
+        let own = OwnRaster {
+            space: samples.space.clone(),
+            bits,
+            decode,
+            opacity_decode,
+            premultiplied: samples.premultiplied,
+            precision: samples.precision,
+            pairs: samples.decode.clone(),
+        };
+        Ok(ImageClear {
+            image_id,
+            ctm: self.ctm,
+            regions: self.regions.clone(),
+            layout,
+            private: !self.owns(image_id),
+            role,
+            decoded: Some(Decoded {
+                samples: Arc::from(samples.colour.as_slice()),
+                kind: RasterKind::Own,
+                opacity: samples.opacity.map(|alpha| Arc::from(alpha.as_slice())),
+                stencil: None,
+                own: Some(Arc::new(own)),
+            }),
+            masks: Vec::new(),
+            fill: None,
+            matte: None,
+        })
+    }
+
+    /// The conditions a `JPXDecode` image's codestream has to meet before its samples are
+    /// cleared, and the component depths it states.
     ///
     /// §12.5.6.23 asks for one thing of an image — "that portion of the image data shall be
     /// destroyed; clipping or image masks shall not be used to hide that data" — and says nothing
@@ -2625,40 +3044,28 @@ impl<'a> Walk<'a> {
     /// the clause asks for: the removed samples are in the output in no form at all, and the ones
     /// outside the region are the values a reader decoded before, carried losslessly. That the
     /// codestream was lossy does not weaken it — the samples a reader sees are the decoder's
-    /// output, and those are exactly what is re-encoded.
+    /// output, and those are exactly what is re-encoded. What has to hold before that
+    /// (ADRs 1248, 1333):
     ///
-    /// What has to hold is that the grid written back is the image's own and carries everything
-    /// the original did (ADR 1248):
-    ///
-    /// - **The decode is not a reduced resolution level.** §7.4.9 NOTE 3 is the permission a
-    ///   decoder takes to "select and decode only the data making up a lower-resolution version",
-    ///   and this tree's decoder takes it for a codestream over its sample budget. A raster on
-    ///   that grid is not the image, so writing it back would resample everything outside the
-    ///   region as well. The dictionary's `/Width` and `/Height` are what the grid is held to,
-    ///   and they are the codestream's own: §7.4.9 requires them to "match the corresponding
-    ///   width and height values in the JPEG 2000 data", and `pdf_model::image::decode` has
-    ///   already refused the image where they do not.
     /// - **Table 87's `/SMaskInData` is one of the three codes it defines.** Codes 1 and 2 say
     ///   the codestream carries an opacity channel from which "[a] PDF processor shall create a
-    ///   soft-mask image", and the answer `true` asks for exactly that: the decode's alpha is the
-    ///   channel, with code 2's premultiplication already undone, and it is written as that
-    ///   soft-mask image beside the opaque re-encode (ADR 1277).
-    /// - **No component is deeper than eight bits.** The re-encode writes eight-bit samples, so a
-    ///   codestream stating more precision than that would come back coarser outside the region —
+    ///   soft-mask image", and [`Walk::plan_jpx_clear`] writes that image (ADR 1277).
+    /// - **The codestream states its own precision.** The answer is the component depths, which
+    ///   [`Walk::plan_jpx_clear`] holds the decoder's delivered precision to: a decode narrower
+    ///   than a component the codestream states would come back coarser outside the region —
     ///   content the annotation did not identify, changed.
     fn jpx_admits_a_clear(
         &self,
         shown: &str,
         stream: &Stream,
         codestream: &[u8],
-    ) -> Result<bool, String> {
-        let opacity_in_data = match self
+    ) -> Result<Vec<u8>, String> {
+        match self
             .document
             .get_key(&stream.dict, "SMaskInData")
             .as_integer()
         {
-            None | Some(0) => false,
-            Some(1 | 2) => true,
+            None | Some(0..=2) => {}
             Some(other) => {
                 return Err(format!(
                     "§8.9.5.1: the JPEG 2000 image /{shown} states /SMaskInData {other}, a code \
@@ -2666,7 +3073,7 @@ impl<'a> Walk<'a> {
                      samples carry"
                 ));
             }
-        };
+        }
         let headers = pdf_model::jpeg2000::Headers::parse(codestream).map_err(|error| {
             format!(
                 "§7.4.9: the JPEG 2000 image /{shown} does not state its own precision \
@@ -2682,15 +3089,7 @@ impl<'a> Walk<'a> {
                  region; the page is refused"
             ));
         }
-        if let Some(deep) = depths.iter().find(|depth| depth.bits > 8) {
-            return Err(format!(
-                "§7.4.9: the JPEG 2000 image /{shown} states {} bits per component, and this \
-                 removal re-encodes at eight, which would coarsen the samples outside the \
-                 region as well; the page is refused",
-                deep.bits
-            ));
-        }
-        Ok(opacity_in_data)
+        Ok(depths.iter().map(|depth| depth.bits).collect())
     }
 
     /// The image's sample layout (§8.9.5): its grid, colour components and bit depth.
@@ -2938,7 +3337,13 @@ impl<'a> Walk<'a> {
             );
         }
         let mut samples = image.data.to_vec();
-        clear_region(&mut samples, stride, layout, self.ctm, &self.regions);
+        clear_region(
+            &mut samples,
+            stride,
+            layout,
+            (self.ctm, &self.regions),
+            None,
+        );
         let encoded = flate_encode(&samples, 6).ok_or_else(|| {
             "§8.9.7: an inline image's cleared samples could not be re-encoded; the page is refused"
                 .to_owned()
@@ -3012,8 +3417,8 @@ impl<'a> Walk<'a> {
                 stated.0, stated.1
             ));
         }
-        let (mut samples, layout, _) = reexpressed(&image.data, width, height, kind, false)
-            .map_err(|what| {
+        let (mut samples, layout) =
+            reexpressed(&image.data, width, height, kind).map_err(|what| {
                 format!(
                     "§8.9.7: an inline image meeting the region {what}, which the FlateDecode \
                      re-encode cannot preserve; the page is refused"
@@ -3021,7 +3426,13 @@ impl<'a> Walk<'a> {
             })?;
         let stride = row_stride(layout)
             .ok_or("§8.9.7: an inline image's grid overflows; the page is refused")?;
-        clear_region(&mut samples, stride, layout, self.ctm, &self.regions);
+        clear_region(
+            &mut samples,
+            stride,
+            layout,
+            (self.ctm, &self.regions),
+            None,
+        );
         let encoded = flate_encode(&samples, 6).ok_or(
             "§8.9.7: an inline image's cleared samples did not re-encode; the page is refused",
         )?;
@@ -3265,12 +3676,8 @@ fn colour_samples(rgba: &[u8], width: usize, height: usize) -> (Vec<u8>, ImageLa
     (samples, layout)
 }
 
-/// A re-expressed raster: its samples, its grid, and §7.4.9's opacity channel where one travelled.
-type Reexpressed = (Vec<u8>, ImageLayout, Option<Vec<u8>>);
-
-/// A decoded codec image re-expressed as the fresh raster `kind` names, its grid, and §7.4.9's
-/// opacity channel where `opacity_in_data` says the codestream carried one — or what about the
-/// decode that raster cannot hold.
+/// A decoded codec image re-expressed as the fresh raster `kind` names, and its grid — or what
+/// about the decode that raster cannot hold.
 ///
 /// Each kind is checked against the decode's own output rather than assumed from the dictionary,
 /// so a raster is written only where it carries exactly what was decoded: the opaque kinds need
@@ -3281,12 +3688,13 @@ fn reexpressed(
     width: usize,
     height: usize,
     kind: RasterKind,
-    opacity_in_data: bool,
-) -> Result<Reexpressed, &'static str> {
+) -> Result<(Vec<u8>, ImageLayout), &'static str> {
     let opaque = rgba
         .chunks_exact(4)
         .all(|pixel| pixel.get(3) == Some(&0xFF));
     match kind {
+        // An own raster is the decoder's integers, which are never re-expressed from RGBA.
+        RasterKind::Own => Err("is carried as its own samples rather than re-expressed"),
         RasterKind::Stencil => {
             if rgba
                 .chunks_exact(4)
@@ -3294,8 +3702,7 @@ fn reexpressed(
             {
                 return Err("decoded as a stencil with partial coverage");
             }
-            let (samples, layout) = stencil_samples(rgba, width, height);
-            Ok((samples, layout, None))
+            Ok(stencil_samples(rgba, width, height))
         }
         RasterKind::Grey => {
             if !opaque {
@@ -3317,29 +3724,19 @@ fn reexpressed(
                 components: 1,
                 bits: 8,
             };
-            Ok((samples, layout, None))
+            Ok((samples, layout))
         }
         RasterKind::Bilevel => {
             if !opaque {
                 return Err("carries transparency");
             }
-            let (samples, layout) = bilevel_samples(rgba, width, height);
-            Ok((samples, layout, None))
+            Ok(bilevel_samples(rgba, width, height))
         }
         RasterKind::Rgb => {
-            if opacity_in_data {
-                let alpha: Vec<u8> = rgba
-                    .chunks_exact(4)
-                    .filter_map(|pixel| pixel.get(3).copied())
-                    .collect();
-                let (samples, layout) = colour_samples(rgba, width, height);
-                return Ok((samples, layout, Some(alpha)));
-            }
             if !opaque {
                 return Err("carries transparency");
             }
-            let (samples, layout) = colour_samples(rgba, width, height);
-            Ok((samples, layout, None))
+            Ok(colour_samples(rgba, width, height))
         }
     }
 }
@@ -3429,6 +3826,89 @@ fn row_stride(layout: ImageLayout) -> Option<usize> {
     Some(bits.div_ceil(8))
 }
 
+/// `/Decode` pairs read at `precision` restated for samples written at `bits` with the same
+/// integers, flattened as §8.9.5.2's array takes them.
+///
+/// §8.9.5.2 maps a sample `x` to `D min + x × (D max − D min) ÷ (2^n − 1)`, so an integer read
+/// at `n = precision` and written at `n = bits` keeps its value when the pair's far end becomes
+/// `D min + (D max − D min) × (2^bits − 1) ÷ (2^precision − 1)` — which is the pair itself where
+/// the two depths agree.
+fn widened_decode(pairs: &[(f32, f32)], precision: u8, bits: usize) -> Vec<f32> {
+    let highest = |depth: u32| f64::from(1u32.checked_shl(depth).unwrap_or(0).saturating_sub(1));
+    let from = highest(u32::from(precision)).max(1.0);
+    let to = highest(u32::try_from(bits).unwrap_or(8));
+    pairs
+        .iter()
+        .flat_map(|(low, high)| {
+            let (low, high) = (f64::from(*low), f64::from(*high));
+            [narrow(low), narrow((high - low).mul_add(to / from, low))]
+        })
+        .collect()
+}
+
+/// The `/Decode` pair a reader maps each component of a packed image through: the dictionary's
+/// where it states one, Table 88's default for the space otherwise (§8.9.5.2).
+fn decode_pairs(
+    document: &Document,
+    dict: &Dictionary,
+    space: &ColourSpace,
+    bits: usize,
+) -> Vec<(f32, f32)> {
+    let stated: Vec<f32> = document
+        .get_key(dict, "Decode")
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| document.resolve(item).as_number().map(narrow))
+                .collect()
+        })
+        .unwrap_or_default();
+    let bits = u32::try_from(bits).unwrap_or(8);
+    (0..space.components())
+        .map(|component| {
+            let at = component.saturating_mul(2);
+            match (stated.get(at), stated.get(at.saturating_add(1))) {
+                (Some(low), Some(high)) => (*low, *high),
+                _ => space.default_decode(component, bits),
+            }
+        })
+        .collect()
+}
+
+/// §11.6.5.2's matte colour as the samples §8.9.5.2's map takes nearest to it at `bits`, one per
+/// component — the map run backwards — or `None` where the matte does not name one value for
+/// each pair.
+fn matte_samples(matte: &[f32], pairs: &[(f32, f32)], bits: usize) -> Option<Vec<u32>> {
+    if matte.len() != pairs.len() {
+        return None;
+    }
+    let highest = 1u32
+        .checked_shl(u32::try_from(bits).unwrap_or(8))
+        .unwrap_or(0)
+        .saturating_sub(1);
+    Some(
+        matte
+            .iter()
+            .zip(pairs)
+            .map(|(value, (low, high))| {
+                let span = f64::from(*high) - f64::from(*low);
+                if span == 0.0 {
+                    return 0;
+                }
+                let at = (f64::from(*value) - f64::from(*low)) / span * f64::from(highest);
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "clamped into 0..=highest, which a u32 holds, before the cast"
+                )]
+                let sample = at.round().clamp(0.0, f64::from(highest)) as u32;
+                sample
+            })
+            .collect(),
+    )
+}
+
 /// What [`cleared_image_samples`] produced for one image object.
 struct ClearedSamples {
     /// The cleared samples, re-encoded `FlateDecode`.
@@ -3438,6 +3918,10 @@ struct ClearedSamples {
     codec: Option<(ImageLayout, RasterKind)>,
     /// §7.4.9's opacity channel, cleared on the same grid and re-encoded, where one was carried.
     opacity: Option<Vec<u8>>,
+    /// The stencil a colour key became, cleared on the same grid and re-encoded.
+    stencil: Option<Vec<u8>>,
+    /// How a [`RasterKind::Own`] raster is described.
+    own: Option<Arc<OwnRaster>>,
 }
 
 /// The image's decoded samples with every region's samples zeroed, re-encoded with `FlateDecode`,
@@ -3485,9 +3969,20 @@ fn cleared_image_samples(
     if samples.len() < expected {
         return Err("the image sample data is shorter than its declared grid".to_owned());
     }
+    let own = first
+        .decoded
+        .as_ref()
+        .and_then(|decoded| decoded.own.clone());
+    // The opacity channel is one component on the picture's grid, at the picture's own written
+    // depth where the samples are the codestream's and at eight bits where they were re-expressed.
     let opacity_layout = ImageLayout {
         components: 1,
-        bits: 8,
+        bits: own.as_ref().map_or(8, |own| own.bits),
+        ..layout
+    };
+    let stencil_layout = ImageLayout {
+        components: 1,
+        bits: 1,
         ..layout
     };
     let mut opacity = first
@@ -3495,42 +3990,58 @@ fn cleared_image_samples(
         .as_ref()
         .and_then(|decoded| decoded.opacity.as_ref())
         .map(|alpha| alpha.to_vec());
+    let mut stencil = first
+        .decoded
+        .as_ref()
+        .and_then(|decoded| decoded.stencil.as_ref())
+        .map(|bits| bits.to_vec());
     for clear in placements {
         clear_region(
             &mut samples,
             stride,
             clear.layout,
-            clear.ctm,
-            &clear.regions,
+            (clear.ctm, &clear.regions),
+            clear.fill.as_deref(),
         );
-        if let Some(alpha) = opacity.as_mut() {
-            clear_region(
-                alpha,
-                layout.width,
-                opacity_layout,
-                clear.ctm,
-                &clear.regions,
-            );
+        for (channel, channel_layout) in [
+            (opacity.as_mut(), opacity_layout),
+            (stencil.as_mut(), stencil_layout),
+        ] {
+            if let Some(channel) = channel {
+                let stride = row_stride(channel_layout)
+                    .ok_or_else(|| "the image grid overflows".to_owned())?;
+                clear_region(
+                    channel,
+                    stride,
+                    channel_layout,
+                    (clear.ctm, &clear.regions),
+                    None,
+                );
+            }
         }
     }
     let encoded = flate_encode(&samples, 6)
         .ok_or_else(|| "the cleared samples could not be re-encoded".to_owned())?;
-    let opacity = match opacity {
-        Some(alpha) => Some(
-            flate_encode(&alpha, 6)
-                .ok_or_else(|| "the cleared opacity channel could not be re-encoded".to_owned())?,
-        ),
-        None => None,
+    let encode = |channel: Option<Vec<u8>>, what: &str| match channel {
+        Some(channel) => flate_encode(&channel, 6)
+            .map(Some)
+            .ok_or_else(|| format!("the cleared {what} could not be re-encoded")),
+        None => Ok(None),
     };
+    let opacity = encode(opacity, "opacity channel")?;
+    let stencil = encode(stencil, "stencil")?;
     let codec = first.decoded.as_ref().map(|decoded| (layout, decoded.kind));
     Ok(ClearedSamples {
         encoded,
         codec,
         opacity,
+        stencil,
+        own,
     })
 }
 
-/// Zeroes every sample whose centre lies in a region box under one placement.
+/// Clears every sample whose centre lies in a region box under one placement: to the domain's
+/// zero, or to `fill`'s integer per component where a matte decides the cleared value.
 ///
 /// The region is inverse-mapped into image space to bound the work, then each sample centre in
 /// that block is mapped forward and tested exactly — so a rotated placement clears only the
@@ -3539,8 +4050,8 @@ fn clear_region(
     samples: &mut [u8],
     stride: usize,
     layout: ImageLayout,
-    ctm: Transform,
-    regions: &[[f32; 4]],
+    (ctm, regions): (Transform, &[[f32; 4]]),
+    fill: Option<&[u32]>,
 ) {
     let Some(inverse) = ctm.invert() else {
         return;
@@ -3557,6 +4068,9 @@ fn clear_region(
             let point = ctm.apply(Point::new(u, v));
             if regions.iter().any(|region| contains(*region, point)) {
                 zero_sample(samples, stride, layout, row, col);
+                if let Some(fill) = fill {
+                    set_sample(samples, stride, layout, (row, col), fill);
+                }
             }
         }
     }
@@ -3648,6 +4162,39 @@ fn zero_sample(samples: &mut [u8], stride: usize, layout: ImageLayout, row: usiz
             *cell &= !(0x80u8 >> (bit % 8));
         } else {
             break;
+        }
+    }
+}
+
+/// Writes one sample's components as `values`, each `layout.bits` wide, MSB first within the row
+/// (§8.9.5.2), over a sample [`zero_sample`] has already cleared — so only the one bits are set.
+fn set_sample(
+    samples: &mut [u8],
+    stride: usize,
+    layout: ImageLayout,
+    (row, col): (usize, usize),
+    values: &[u32],
+) {
+    let per_sample = layout.components.saturating_mul(layout.bits);
+    let row_base = row.saturating_mul(stride);
+    for (component, value) in values.iter().enumerate().take(layout.components) {
+        let first = col
+            .saturating_mul(per_sample)
+            .saturating_add(component.saturating_mul(layout.bits));
+        for offset in 0..layout.bits {
+            let shift = layout.bits.saturating_sub(1).saturating_sub(offset);
+            if value
+                .checked_shr(u32::try_from(shift).unwrap_or(u32::MAX))
+                .unwrap_or(0)
+                & 1
+                == 0
+            {
+                continue;
+            }
+            let bit = first.saturating_add(offset);
+            if let Some(cell) = samples.get_mut(row_base.saturating_add(bit / 8)) {
+                *cell |= 0x80u8 >> (bit % 8);
+            }
         }
     }
 }
@@ -4216,7 +4763,9 @@ fn build_form(
 /// gets a **fresh** dictionary stating exactly that raster ([`RasterKind`]) and carrying none of
 /// the source's codec `/Filter`, `/DecodeParms`, `/Decode` or colour space, every one of which
 /// would misdescribe the new samples. What it does carry is the masks: the cleared `/SMask` and
-/// `/Mask` streams the source named, and the soft-mask image §7.4.9's opacity channel becomes.
+/// `/Mask` streams the source named, and the stencil a colour key became. A `JPXDecode` image's
+/// own samples ([`RasterKind::Own`]) keep the source dictionary instead, restated where the codec
+/// had decided something ([`own_dictionary`]).
 fn build_cleared_image(
     assembly: &mut Assembly<'_>,
     document: &Document,
@@ -4224,14 +4773,18 @@ fn build_cleared_image(
     private: &HashMap<ObjectId, ObjectId>,
 ) -> Result<Object, Refusal> {
     let mut dict = Dictionary::new();
-    if let Some((layout, kind)) = image.codec {
+    if let Some((layout, RasterKind::Own)) = image.codec {
+        own_dictionary(assembly, document, image, layout, private, &mut dict)?;
+    } else if let Some((layout, kind)) = image.codec {
         raster_dictionary(&mut dict, layout, kind);
         if kind == RasterKind::Grey {
-            // §11.6.5.2's `/Matte` is the pre-blending of the *picture's* samples, which this
-            // clear did not re-express (a codec picture with a matted mask is refused in
-            // [`Walk::stated_masks`]), so it describes them still and is carried.
-            let object = document.get(image.id);
-            if let Some(matte) = object
+            // §11.6.5.2's `/Matte` is the pre-blending of the *picture's* samples: carried as the
+            // file stated it where the picture was written in its own space, and restated where
+            // its re-expression gave it more components ([`Walk::matte_fill`]).
+            if let Some(matte) = &image.matte {
+                dict.insert(Name::new(&b"Matte"[..]), reals(matte));
+            } else if let Some(matte) = document
+                .get(image.id)
                 .as_stream()
                 .and_then(|source| source.dict.get("Matte"))
             {
@@ -4247,36 +4800,21 @@ fn build_cleared_image(
                 privatise(assembly, document, &Object::Reference(*id), private, 0),
             );
         }
-        if let Some(opacity) = &image.opacity {
-            // Table 87: from `/SMaskInData`'s channel "[a] PDF processor shall create a soft-mask
-            // image". Table 143's soft-mask image is `DeviceGray` with a stated depth, on any grid;
-            // this one is on the picture's own, eight bits a sample, as the decode delivered it.
+        if let Some(stencil) = &image.stencil {
+            // §8.9.6.3's explicit mask in place of the §8.9.6.4 key it is equivalent to: an image
+            // mask on the picture's own grid, one bit a sample, 1 where the key masked.
             let mut mask = Dictionary::new();
             raster_dictionary(
                 &mut mask,
                 ImageLayout {
                     components: 1,
-                    bits: 8,
+                    bits: 1,
                     ..layout
                 },
-                RasterKind::Grey,
+                RasterKind::Stencil,
             );
-            mask.insert(
-                Name::new(&b"Filter"[..]),
-                Object::Name(Name::new(&b"FlateDecode"[..])),
-            );
-            mask.insert(
-                Name::new(&b"Length"[..]),
-                Object::Integer(i64::try_from(opacity.len()).unwrap_or(i64::MAX)),
-            );
-            let placed = assembly
-                .add(Object::Stream(Arc::new(Stream {
-                    dict: mask,
-                    data: Arc::from(opacity.as_slice()),
-                    decryption_failed: false,
-                })))
-                .map_err(|error| Refusal::Assembly(error.to_string()))?;
-            dict.insert(Name::new(&b"SMask"[..]), Object::Reference(placed));
+            let placed = add_stream(assembly, mask, stencil)?;
+            dict.insert(Name::new(&b"Mask"[..]), Object::Reference(placed));
         }
     } else {
         let object = document.get(image.id);
@@ -4355,6 +4893,9 @@ fn raster_dictionary(dict: &mut Dictionary, layout: ImageLayout, kind: RasterKin
         RasterKind::Stencil => {
             dict.insert(Name::new(&b"ImageMask"[..]), Object::Boolean(true));
         }
+        // An own raster's colour space is the source's or the codestream's, which
+        // [`own_dictionary`] states; this arm is never asked for one.
+        RasterKind::Own => {}
         RasterKind::Rgb | RasterKind::Bilevel | RasterKind::Grey => {
             let space: &[u8] = if kind == RasterKind::Rgb {
                 b"DeviceRGB"
@@ -4371,6 +4912,165 @@ fn raster_dictionary(dict: &mut Dictionary, layout: ImageLayout, kind: RasterKin
         Name::new(&b"BitsPerComponent"[..]),
         Object::Integer(i64::try_from(layout.bits).unwrap_or(i64::MAX)),
     );
+}
+
+/// A [`RasterKind::Own`] image's dictionary: the source's, with what the codec decided restated
+/// for the `FlateDecode` stream that now carries its samples (ADR 1333).
+///
+/// Every entry that described the samples still does, because they are the same integers in
+/// the same colour space, and is carried: a stated `/ColorSpace`, `/Intent`, `/Interpolate`, a
+/// colour-key `/Mask` whose ranges are in their domain, the `/SMask` and `/Mask` streams (named
+/// again in the output's numbering, the cleared copies where the removal reached them). What
+/// the codec had decided and a `FlateDecode` stream must state is restated: the depth, the
+/// `/Decode` pairs at that depth ([`widened_decode`]), the colour space where it was the
+/// codestream's — an ICC profile carried into an `ICCBased` stream of its own — and Table 87's
+/// opacity channel as the soft-mask image the table has the processor create, whose presence
+/// makes the source's `/SMask` and `/Mask` entries ones §11.6.4.3 has it override, so they are
+/// dropped.
+fn own_dictionary(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    image: &ClearedImage,
+    layout: ImageLayout,
+    private: &HashMap<ObjectId, ObjectId>,
+    dict: &mut Dictionary,
+) -> Result<(), Refusal> {
+    let own = image.own.as_ref().ok_or_else(|| {
+        Refusal::Assembly(format!(
+            "image object {} lost the description of its own samples",
+            image.id.number
+        ))
+    })?;
+    let object = document.get(image.id);
+    let source = object.as_stream().ok_or_else(|| {
+        Refusal::Assembly(format!(
+            "image object {} is not a stream at clearing time",
+            image.id.number
+        ))
+    })?;
+    let stated = own.space == pdf_model::image::JpxSpace::Stated;
+    for (key, value) in source.dict.iter() {
+        let dropped = match key.as_bytes() {
+            b"Filter" | b"DecodeParms" | b"DP" | b"Length" | b"Alternates"
+            | b"BitsPerComponent" | b"Decode" | b"SMaskInData" => true,
+            b"ColorSpace" => !stated,
+            b"SMask" | b"Mask" => image.opacity.is_some(),
+            _ => false,
+        };
+        if !dropped {
+            dict.insert(
+                key.clone(),
+                privatise(assembly, document, value, private, 0),
+            );
+        }
+    }
+    let space = match &own.space {
+        pdf_model::image::JpxSpace::Stated => None,
+        pdf_model::image::JpxSpace::Gray => Some(Object::Name(Name::new(&b"DeviceGray"[..]))),
+        pdf_model::image::JpxSpace::Rgb => Some(Object::Name(Name::new(&b"DeviceRGB"[..]))),
+        pdf_model::image::JpxSpace::Cmyk => Some(Object::Name(Name::new(&b"DeviceCMYK"[..]))),
+        pdf_model::image::JpxSpace::Icc(profile) => {
+            // §8.6.5.5: an `ICCBased` space is an array of the name and a stream whose `/N` is
+            // the component count, holding the profile the codestream carried.
+            let mut header = Dictionary::new();
+            header.insert(
+                Name::new(&b"N"[..]),
+                Object::Integer(i64::try_from(layout.components).unwrap_or(i64::MAX)),
+            );
+            let placed = add_raw_stream(assembly, header, profile)?;
+            Some(Object::Array(vec![
+                Object::Name(Name::new(&b"ICCBased"[..])),
+                Object::Reference(placed),
+            ]))
+        }
+    };
+    if let Some(space) = space {
+        dict.insert(Name::new(&b"ColorSpace"[..]), space);
+    }
+    dict.insert(
+        Name::new(&b"BitsPerComponent"[..]),
+        Object::Integer(i64::try_from(own.bits).unwrap_or(i64::MAX)),
+    );
+    dict.insert(Name::new(&b"Decode"[..]), reals(&own.decode));
+    if let Some(opacity) = &image.opacity {
+        // `/SMaskInData` 2's multiplication is §11.6.5.2's pre-blending with the matte colour of
+        // the space's zero: `c′ = 0 + α × (c − 0)`.
+        let matte = own.premultiplied.then(|| vec![0.0; layout.components]);
+        let placed = add_soft_mask(
+            assembly,
+            ImageLayout {
+                components: 1,
+                bits: own.bits,
+                ..layout
+            },
+            opacity,
+            &own.opacity_decode,
+            matte.as_deref(),
+        )?;
+        dict.insert(Name::new(&b"SMask"[..]), Object::Reference(placed));
+    }
+    Ok(())
+}
+
+/// Numbers as a PDF array of reals.
+fn reals(values: &[f32]) -> Object {
+    Object::Array(
+        values
+            .iter()
+            .map(|value| Object::Real(f64::from(*value)))
+            .collect(),
+    )
+}
+
+/// Adds §7.4.9's opacity channel as the soft-mask image Table 87 names: `DeviceGray` on the
+/// `layout` it was cleared on, under `FlateDecode`, with Table 143's `/Decode` and, where the
+/// colour was multiplied by it, Table 144's `/Matte`.
+fn add_soft_mask(
+    assembly: &mut Assembly<'_>,
+    layout: ImageLayout,
+    encoded: &[u8],
+    decode: &[f32],
+    matte: Option<&[f32]>,
+) -> Result<ObjectId, Refusal> {
+    let mut mask = Dictionary::new();
+    raster_dictionary(&mut mask, layout, RasterKind::Grey);
+    mask.insert(Name::new(&b"Decode"[..]), reals(decode));
+    if let Some(matte) = matte {
+        mask.insert(Name::new(&b"Matte"[..]), reals(matte));
+    }
+    add_stream(assembly, mask, encoded)
+}
+
+/// Adds a `FlateDecode` stream whose data is already encoded, stating its filter and length.
+fn add_stream(
+    assembly: &mut Assembly<'_>,
+    mut dict: Dictionary,
+    encoded: &[u8],
+) -> Result<ObjectId, Refusal> {
+    dict.insert(
+        Name::new(&b"Filter"[..]),
+        Object::Name(Name::new(&b"FlateDecode"[..])),
+    );
+    add_raw_stream(assembly, dict, encoded)
+}
+
+/// Adds a stream holding `data` as it stands, stating its length.
+fn add_raw_stream(
+    assembly: &mut Assembly<'_>,
+    mut dict: Dictionary,
+    data: &[u8],
+) -> Result<ObjectId, Refusal> {
+    dict.insert(
+        Name::new(&b"Length"[..]),
+        Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+    );
+    assembly
+        .add(Object::Stream(Arc::new(Stream {
+            dict,
+            data: Arc::from(data),
+            decryption_failed: false,
+        })))
+        .map_err(|error| Refusal::Assembly(error.to_string()))
 }
 
 /// The page's annotations with every `/Redact` removed, carried into the output — or `None`

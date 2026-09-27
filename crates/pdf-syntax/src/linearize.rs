@@ -41,16 +41,19 @@
 //! # Object streams, and the cross-reference streams they need
 //!
 //! Where the caller's [`Options`] generate §7.5.7's object streams, each run of objects a hint
-//! table describes — part 4, the first page's own objects, each later page's, each shared object,
-//! each §F.3.10 category — has its packable objects gathered into carriers of its own, placed where
-//! the first of them stood, so that a hint table's group is still a run of whole objects. §F.3.1
-//! states the rest, and each sentence is one decision here:
+//! table describes in the second group — each later page's, each shared object, each §F.3.10
+//! category — has its packable objects gathered into carriers of its own, placed where the first
+//! of them stood, so that a hint table's group is still a run of whole objects. The first group,
+//! parts 4 and 6, is written whole (ADR 1337). §F.3.1 states the rest, and each sentence is one
+//! decision here:
 //!
 //! - "These additional objects may not be contained in an object stream: the linearization
 //!   dictionary, the document catalog dictionary, and page objects."
 //! - "Objects stored within object streams shall be given the highest range of object numbers
-//!   within the main and first-page cross-reference sections" — so each group's compressed
-//!   objects are numbered after its whole objects, and the hint stream after the first group's.
+//!   within the main and first-page cross-reference sections" — so the second group's compressed
+//!   objects are numbered after its whole objects, and the first-page section, whose last entry
+//!   §F.3.6 and §F.3.4 give to the hint stream, holds no compressed object for the hint stream to
+//!   follow.
 //! - "For PDF files containing object streams, hint data may specify the location and size of the
 //!   object streams only (or uncompressed objects), not the individual compressed objects.
 //!   Similarly, shared object references shall be made to the object stream containing a
@@ -2219,9 +2222,19 @@ fn lay_out(
         .object_streams
         .ceilings()
         .map(|(objects, bytes)| (objects.min(usize::from(u16::MAX)), bytes));
+    // The first group is written whole, and only the second group's runs are packed. §F.3.1
+    // lets a linearised file hold object streams, it does not require the first group to, and
+    // it is the one choice under which all three of the annex's numbering sentences hold without
+    // leaning on another: §F.3.6 numbers the hint stream last, "after the object number for the
+    // last object in the first page, including any objects stored within object streams", and
+    // §F.3.4 puts its entry "at the end" of the first-page section, so a first group that held
+    // compressed objects would end its section with an uncompressed entry after them, which
+    // §F.3.1's "highest range" admits only through its own exemption, that the hint stream "may
+    // be numbered out of sequence". The cost is the first page's dictionaries left uncompressed;
+    // the gain is a file no known checker warns about. ADR 1337.
     let mut packer = Packer {
         graph,
-        ceilings,
+        ceilings: None,
         kept_out,
         sequence: Vec::with_capacity(count),
         filling: None,
@@ -2250,6 +2263,7 @@ fn lay_out(
     };
     let first_group = packer.sequence.len();
 
+    packer.ceilings = ceilings;
     let mut sections = Vec::new();
     for (at, objects) in &placement.sections {
         sections.push((*at, packer.run(objects)));
@@ -2305,7 +2319,8 @@ fn lay_out(
     // within the main and first-page cross-reference sections" puts its compressed objects after
     // them, and a main cross-reference stream is the item that closes the uncompressed range. The
     // first group runs from `k + 1`: the parameter dictionary, a first-page cross-reference
-    // stream, the items, the compressed objects, and last of all the hint stream, which §F.3.6
+    // stream, the items (none of them compressed, so the compressed range below is empty), and
+    // last of all the hint stream, which §F.3.6
     // assigns "the last object numbers in the PDF file — that is, after the object number for the
     // last object in the first page, including any objects stored within object streams".
     let too_many = || LinearizeError::TooManyObjects;

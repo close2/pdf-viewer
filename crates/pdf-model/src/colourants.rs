@@ -123,9 +123,9 @@ pub struct SpotColourants {
 /// names it**, and a page can name one colourant in several spaces whose alternates disagree. So
 /// which one speaks for it is this tree's choice, and it is made in the order the standard gives
 /// the colourant most directly: a `Separation` space names the colourant alone (§8.6.6.4), as does
-/// the `Separation` space an `NChannel` space's `/Colorants` entry states for it — Table 70:
-/// "Each entry in this dictionary shall be an array defining a Separation colour space for that
-/// colourant" — and between two of those the first the walk meets decides; failing either, a
+/// the `Separation` space a `DeviceN` space's `/Colorants` entry states for it — Table 70: "the
+/// value shall be an array defining a Separation colour space for that colourant" — and between
+/// two of those the first the walk meets decides; failing either, a
 /// `DeviceN` space's tint transform evaluated with that component alone, which is the colour the
 /// space says the colourant paints on its own. ADR 1317.
 #[derive(Debug, Clone, PartialEq)]
@@ -586,23 +586,13 @@ fn colour_space(
                     continue;
                 };
                 // Table 70's `/Colorants` entry is the colourant's own `Separation` space, which
-                // [`Source`] ranks first.
+                // [`Source`] ranks first — where it is one, and one of this colourant.
                 let own = colorants
                     .as_ref()
                     .and_then(Object::as_dict)
                     .and_then(|colorants| colorants.get_by_name(&name))
                     .map(|entry| document.resolve(entry))
-                    .filter(|entry| {
-                        entry
-                            .as_array()
-                            .and_then(|entry| entry.first())
-                            .map(|family| document.resolve(family))
-                            .is_some_and(|family| {
-                                family
-                                    .as_name()
-                                    .is_some_and(|family| family.as_bytes() == b"Separation")
-                            })
-                    });
+                    .filter(|entry| names_its_key(document, entry, &name));
                 let source = own.map_or_else(
                     || Source::DeviceN {
                         space: object.clone(),
@@ -623,6 +613,28 @@ fn colour_space(
         }
         _ => {}
     }
+}
+
+/// Whether a `/Colorants` entry is what Table 70 says it is: the `Separation` space of the
+/// colourant its key names.
+///
+/// Table 70: "For each entry in this dictionary, the key shall be a colourant name and the value
+/// shall be an array defining a Separation colour space for that colourant (see 8.6.6.4,
+/// "Separation colour spaces"). The key shall match the colourant name given in that colour
+/// space." An entry that is some other space, or the `Separation` of another colourant, states
+/// nothing about this one's appearance alone, so it is read as absent and the colourant falls to
+/// the `DeviceN` space's own tint transform (ADR 1338).
+fn names_its_key(document: &Document, entry: &Object, key: &Name) -> bool {
+    let Some(items) = entry.as_array() else {
+        return false;
+    };
+    let named = |at: usize, wanted: &[u8]| {
+        items
+            .get(at)
+            .map(|item| document.resolve(item))
+            .is_some_and(|item| item.as_name().is_some_and(|name| name.as_bytes() == wanted))
+    };
+    named(0, b"Separation") && named(1, key.as_bytes())
 }
 
 /// Table 71's process `/Components` of an `NChannel` space, or nothing for any other `DeviceN`.
@@ -653,4 +665,115 @@ fn nchannel_process(document: &Document, attributes: &Object) -> Vec<Name> {
         .iter()
         .filter_map(|component| document.resolve(component).as_name().cloned())
         .collect()
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::float_cmp,
+    reason = "the curves compared are one space evaluated by one route, so equal means bit-equal"
+)]
+mod tests {
+    use std::fmt::Write as _;
+
+    use pdf_syntax::Document;
+
+    use super::spot_colourants;
+    use crate::colour::Reading;
+
+    /// §8.6.6.5 EXAMPLE 2's `Orange`: the `Separation` its `/Colorants` entry states, `0 0.5 1 0`
+    /// at full tint.
+    const ORANGE_ALONE: &str =
+        "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0.5 1 0] /N 1 >>";
+
+    /// EXAMPLE 2's `tintTransform1`, written out: `Orange` in combination paints black alone, so
+    /// the colour the `DeviceN` states for it differs from the one its own `Separation` states.
+    const IN_COMBINATION: &str = "<< /FunctionType 4 /Domain [0 1 0 1 0 1] \
+         /Range [0 1 0 1 0 1 0 1] /Length 31 >>\nstream\n{pop pop 0 exch 0 exch 0 exch}\nendstream";
+
+    /// A one-page file whose resources name `/CS0 5 0 R`, with `objects` numbered from 5.
+    fn file(objects: &[&str]) -> Vec<u8> {
+        let mut all = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 20 20] \
+             /Resources << /ColorSpace << /CS0 5 0 R >> >> /Contents 4 0 R >>"
+                .to_owned(),
+            "<< /Length 0 >>\nstream\n\nendstream".to_owned(),
+        ];
+        all.extend(objects.iter().map(|object| (*object).to_owned()));
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in all.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let size = offsets.len().saturating_add(1);
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        out.into_bytes()
+    }
+
+    /// Step b)'s flat curve of the page's first spot colourant, at full tint.
+    fn orange_at_full(objects: &[&str]) -> [f32; 3] {
+        let document = Document::open(file(objects)).expect("the fixture is a valid PDF");
+        let page = crate::Pages::new(&document).get(0).expect("page one");
+        let spots = spot_colourants(&document, &page);
+        assert_eq!(spots.names()[0].as_bytes(), b"Orange");
+        let curves = spots
+            .flat_curves(&document, &page.resources, Reading::new(None), 1)
+            .expect("every space parses");
+        *curves[0].flat().last().expect("a curve has samples")
+    }
+
+    /// EXAMPLE 2's `DeviceN`, with `colorants` as object 6.
+    fn example_two(colorants: &str) -> [f32; 3] {
+        orange_at_full(&[
+            &format!(
+                "[/DeviceN [/Orange /Green /None] /DeviceCMYK {IN_COMBINATION} << /Colorants 6 0 R >>]"
+            ),
+            colorants,
+        ])
+    }
+
+    /// §8.6.6.5 EXAMPLE 2 and Table 70: "the alternate colour space and tint transformation
+    /// function of a Separation colour space describe the appearance of that colourant alone,
+    /// whereas those of a DeviceN colour space describe only the appearance of its colourants in
+    /// combination." So `Orange`'s separation is the one its `/Colorants` entry states — the same
+    /// as a page whose only space is that `Separation` — and not what `tintTransform1` makes of it.
+    #[test]
+    fn a_colorants_entry_states_its_colourants_separation() {
+        let stated = example_two(&format!(
+            "<< /Orange [/Separation /Orange /DeviceCMYK {ORANGE_ALONE}] \
+             /Green [/Separation /Green /DeviceCMYK {ORANGE_ALONE}] \
+             /PANTONE#20131 [/Separation /PANTONE#20131 /DeviceCMYK {ORANGE_ALONE}] >>"
+        ));
+        let alone = orange_at_full(&[&format!("[/Separation /Orange /DeviceCMYK {ORANGE_ALONE}]")]);
+        let in_combination = example_two("<< >>");
+        assert_eq!(stated, alone);
+        assert_ne!(
+            stated, in_combination,
+            "the DeviceN's own reading is another colour"
+        );
+    }
+
+    /// Table 70: "The key shall match the colourant name given in that colour space." An entry
+    /// under `/Orange` that is `Green`'s `Separation`, or not a `Separation` at all, says nothing
+    /// about `Orange` alone, and the `DeviceN`'s tint transform speaks for it (ADR 1338).
+    #[test]
+    fn a_colorants_entry_of_another_colourant_is_not_read_as_this_ones() {
+        let in_combination = example_two("<< >>");
+        let misnamed = example_two(&format!(
+            "<< /Orange [/Separation /Green /DeviceCMYK {ORANGE_ALONE}] >>"
+        ));
+        let not_a_separation = example_two("<< /Orange /DeviceCMYK >>");
+        assert_eq!(misnamed, in_combination);
+        assert_eq!(not_a_separation, in_combination);
+    }
 }

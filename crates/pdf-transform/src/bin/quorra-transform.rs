@@ -223,6 +223,7 @@ const VALUED: &[&str] = &[
     "--output-intent-profile",
     "--config",
     "--font",
+    "--image-samples",
 ];
 
 /// The flags whose value is optional and, when given, is written inline with `=`.
@@ -261,6 +262,7 @@ const KNOWN: &[&str] = &[
     "--collate",
     "--no-substitute",
     "--font",
+    "--image-samples",
     "--delete",
     "--rotate",
     "--move",
@@ -773,6 +775,14 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
         "redact" => Ok(Plan::Redact(RedactPlan {
             source: 0,
             names: names("redact")?,
+            image_samples: match arguments.parsed::<u64>(&["--image-samples"])? {
+                Some(0) => {
+                    return Err(Failure::Usage(
+                        "--image-samples 0: a budget must admit at least one sample".to_owned(),
+                    ));
+                }
+                other => other,
+            },
         })),
         "archive" => Ok(Plan::Archive(archive_plan(arguments, names("archive")?)?)),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
@@ -1479,7 +1489,7 @@ fn information_entries(arguments: &Arguments) -> Result<Vec<InfoEntry>, Failure>
 ///
 /// `merge` takes its ranges per input — `a.pdf:1-5` — because one `--pages` cannot say
 /// different things about different files. The split is at the **last** colon and only where
-/// what follows it parses as §4.2's range grammar, so a file whose name contains a colon and no
+/// what follows it parses as RFC 0002 section 4.2's range grammar, so a file whose name contains a colon and no
 /// range is still opened by its own name.
 fn input_spec(spec: &str) -> (PathBuf, Option<Selection>) {
     if let Some((path, range)) = spec.rsplit_once(':')
@@ -1862,6 +1872,10 @@ verbs:
   redact       one document's /Redact annotations applied (ISO 32000-2 §12.5.6.23):
                the marked content removed from the content stream and the annotations
                taken away, written as a new file   -o out.pdf
+               --image-samples <n>   the most samples (pixels times channels) a JPEG 2000
+                                     image is decoded to at full resolution; default
+                                     67108864, the viewer's own. A larger one is refused,
+                                     never reduced, since its grid is written back
   archive      one document converted to ISO 19005 (PDF/A)   --to <target> -o out.pdf
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations

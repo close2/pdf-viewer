@@ -1082,7 +1082,7 @@ mod tests {
     /// The applicability columns this tranche turns on, asserted rather than described.
     ///
     /// ISO 19005-4 section 6.8 states no requirement, so every logical-structure row is part 2's
-    /// and binds Level A alone; ISO 19005-4 Annex A §A.2 is PDF/A-4f's alone; and the row that asks
+    /// and binds Level A alone; ISO 19005-4 section A.2 is PDF/A-4f's alone; and the row that asks
     /// an embedded file to be a PDF/A file is lifted by both annexes, so under part 4 it binds the
     /// plain profile and nothing else.
     #[test]

@@ -1,4 +1,4 @@
-//! `split`: RFC 0002 section 6.1's verb over §10's serializer, held to the clauses it writes against.
+//! `split`: RFC 0002 section 6.1's verb over its section 10's serializer, held to the clauses it writes against.
 //!
 //! The committed documents are the population — every checkout has them once
 //! `doc/specifications.zip` is unpacked — and each test states one property of a piece:

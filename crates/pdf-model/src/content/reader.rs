@@ -251,7 +251,7 @@ impl NestedContent {
     /// interpreted once per site (ADR 0427), and which is why the route is asserted rather than
     /// assumed even now that ADR 0430 has made the cell one read like the others. This is what
     /// `tests/nested_content_window.rs` asks — the same reason `inflate_buffer` exists so that a
-    /// test can read `Vec::capacity` (ADR 0354).
+    /// test can read `std::vec::Vec::capacity` (ADR 0354).
     #[must_use]
     pub fn windowed(&self) -> bool {
         matches!(self.source, Nested::Windowed { .. })

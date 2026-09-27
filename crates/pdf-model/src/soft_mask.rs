@@ -74,10 +74,13 @@ pub(crate) struct SoftMaskRequest {
 /// as it reaches a fill's space: a `/Luminosity` group stating `/CS /DeviceCMYK` on a page
 /// whose intent is a four-component profile is composited in that press, and §11.5.3's `Y`
 /// is the press's, rather than §10.4.2.3's approximation of an assumed one.
+///
+/// `inherited` is the resource dictionary a group with none of its own draws from — the page's,
+/// which is where `crate::content` runs such a group.
 pub(crate) fn entry_with_output_intent(
     document: &Document,
     dict: &Dictionary,
-    presses: &Presses,
+    (presses, inherited): (&Presses, &Dictionary),
     output_intent: Option<&ColourSpace>,
 ) -> SoftMaskEntry {
     match document.get_key(dict, "SMask") {
@@ -88,7 +91,7 @@ pub(crate) fn entry_with_output_intent(
             "/SMask /{}, where Table 57 defines only /None",
             String::from_utf8_lossy(name.as_bytes())
         )),
-        Object::Dictionary(mask) => read(document, &mask, presses, output_intent),
+        Object::Dictionary(mask) => read(document, &mask, (presses, inherited), output_intent),
         other => SoftMaskEntry::Unusable(format!("/SMask is {}", type_of(&other))),
     }
 }
@@ -97,7 +100,7 @@ pub(crate) fn entry_with_output_intent(
 fn read(
     document: &Document,
     mask: &Dictionary,
-    presses: &Presses,
+    (presses, inherited): (&Presses, &Dictionary),
     output_intent: Option<&ColourSpace>,
 ) -> SoftMaskEntry {
     // Table 142's `/G` is required, and is a stream: a form XObject with a `/Group`.
@@ -139,7 +142,7 @@ fn read(
                 document,
                 mask,
                 &space,
-                presses,
+                (presses, inherited),
                 transfer.as_ref(),
                 output_intent,
             ),
@@ -202,7 +205,7 @@ fn luminosity(
     document: &Document,
     mask: &Dictionary,
     space: &Object,
-    presses: &Presses,
+    (presses, inherited): (&Presses, &Dictionary),
     transfer: Option<&Transfer>,
     output_intent: Option<&ColourSpace>,
 ) -> (
@@ -220,7 +223,19 @@ fn luminosity(
     // dictionary is not drawn from one, so a name here can only be a family's.
     let space =
         ColourSpace::parse_with_output_intent(document, space, &Dictionary::new(), output_intent);
-    let scale = space.as_ref().and_then(ink_scale);
+    // A `DeviceCMYK` group whose content blends is composited in its four components rather than
+    // in one weighted channel: §11.3.5.2 applies a separable blend function to "corresponding
+    // components of the colours 𝐶𝑟 , 𝐶𝑏 , and 𝐶𝑠 , expressed in additive form", and a weighted
+    // average of four complements is not four of them. `colour::device_ink_press` is the carrier
+    // and why it changes nothing but the blend (ADR 1342).
+    let blended_ink = (space.as_ref().and_then(ink_scale) == Some(InkScale::Double)
+        && group_blends(document, mask, inherited))
+    .then(crate::colour::device_ink_press)
+    .and_then(|press| press.luminance().map(|luminance| (press, luminance)));
+    let scale = space
+        .as_ref()
+        .and_then(ink_scale)
+        .filter(|_| blended_ink.is_none());
     let route = match (&space, scale) {
         (Some(space), None) => GreyRoute::of(space).map(Arc::new),
         _ => None,
@@ -253,7 +268,7 @@ fn luminosity(
                 .press_for_profile(profile, Rendering::compensating())
                 .and_then(|press| press.luminance().map(|luminance| (press, luminance)))
         }
-        _ => None,
+        _ => blended_ink,
     };
     let weighed = backdrop(document, mask, space.as_ref());
     // The black half's backdrop, where there is one: §11.6.5.1's `/BC` has four
@@ -345,6 +360,22 @@ fn luminosity(
         black_backdrop,
         departures,
     )
+}
+
+/// Whether a mask's group can reach a blend mode other than `Normal`, as far as its resources say
+/// (ISO 32000-2 §11.6.3) — `crate::content`'s `resources_blend`, over Table 142's `/G`.
+///
+/// Asked before the group is interpreted because it decides what the group's elements are painted
+/// in; a group stating no resources draws from `inherited`, as `crate::content` runs it. A blend
+/// mode the walk cannot see is still reported by `crate::content` after the run, as a group
+/// composited on one weighted channel.
+fn group_blends(document: &Document, mask: &Dictionary, inherited: &Dictionary) -> bool {
+    let Some(group) = document.get_key(mask, "G").as_stream().cloned() else {
+        return false;
+    };
+    let own = document.get_key(&group.dict, "Resources");
+    let resources = own.as_dict().unwrap_or(inherited);
+    crate::content::resources_blend(document, resources)
 }
 
 /// Everything left between a scaled mask channel and the value §11.5.3 derives from it.
@@ -875,9 +906,12 @@ mod tests {
         };
         let presses = Presses::default();
 
-        let SoftMaskEntry::Mask(under_intent) =
-            entry_with_output_intent(&document, &gs, &presses, Some(&intent))
-        else {
+        let SoftMaskEntry::Mask(under_intent) = entry_with_output_intent(
+            &document,
+            &gs,
+            (&presses, &pdf_syntax::Dictionary::new()),
+            Some(&intent),
+        ) else {
             panic!("the mask is usable");
         };
         match &under_intent.compositing {
@@ -893,8 +927,12 @@ mod tests {
              backdrop beside it"
         );
 
-        let SoftMaskEntry::Mask(without) = entry_with_output_intent(&document, &gs, &presses, None)
-        else {
+        let SoftMaskEntry::Mask(without) = entry_with_output_intent(
+            &document,
+            &gs,
+            (&presses, &pdf_syntax::Dictionary::new()),
+            None,
+        ) else {
             panic!("the mask is usable");
         };
         assert!(

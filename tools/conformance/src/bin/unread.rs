@@ -11,7 +11,7 @@
 //! tighter grep.
 //!
 //! It prints one block per ledger row claiming an entry unread that some source quotes, each
-//! entry with the files that quote it, and ends with the population it read so that a clean run
+//! entry with the files that quote it, then one line per confirmed claim, and ends with the population it read so that a clean run
 //! says what it was clean over. It exits non-zero only where it cannot read what it needs: a
 //! quoted key is a question for a person, not a build failure.
 
@@ -74,6 +74,10 @@ fn run() -> Result<(), Error> {
                 entry.witnesses.join(", ")
             );
         }
+    }
+
+    for (clause, key) in &report.unquoted {
+        println!("confirmed: §{clause} /{key} — quoted by no source");
     }
 
     println!();

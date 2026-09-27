@@ -5765,3 +5765,71 @@ fn a_non_isolated_group_may_be_an_element_of_a_knockout_group() {
         "away from the stroke the pattern fill is what the group holds"
     );
 }
+
+/// A knockout group `/Fm` holding an opaque red square and then a nested group `/In`, whose
+/// content paints a blue square under its own `ca 0.5`.
+///
+/// `inner` is the nested group's `/Group` entry, written whole so that a test can state it
+/// isolated or not. The nested group is drawn at the `Do` with every input 1.0, so whatever
+/// opacity it carries is its *own* — §11.3.7.2's "[t]he opacity of a group object shall be the
+/// result of the opacity computations for all of the objects it contains".
+fn translucent_member_fixture(inner: &str) -> Vec<u8> {
+    let form = "1 0 0 rg 10 10 50 50 re f /In Do";
+    let content = "/GS gs 0 0 1 rg 30 30 50 50 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 7 >>\nstream\n/Fm Do\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /I true /K true >> \
+         /Resources << /XObject << /In 6 0 R >> >> /Length {} >>\n\
+         stream\n{form}\nendstream\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {inner} \
+         /Resources << /ExtGState << /GS << /ca 0.5 >> >> >> /Length {} >>\n\
+         stream\n{content}\nendstream\nendobj\n",
+        form.len() + 1,
+        content.len() + 1
+    );
+    assemble(&body)
+}
+
+/// §11.4.3's single object carries shape apart from opacity where the standard reads the two
+/// apart, which is a group used as an element of a knockout group.
+///
+/// > These objects shall be composited against a selected initial backdrop and the resulting
+/// > colour, shape, and opacity shall then be treated as if they belonged to a single object.
+///
+/// §11.4.6 names the reader: "[t]he separate shape value shall be computed in any group that is
+/// subsequently used as an element of a knockout group". The nested group here paints one blue
+/// square under `ca 0.5`, so its shape is 1.0 inside the square and its opacity ½ — a product of
+/// ½ that a raster holding only alpha would read as the shape.
+///
+/// The numbers are the clause's. The knockout group is isolated, so at the overlap (page
+/// `(40, 40)`, device row 60) §11.4.6's NOTE 5 gives "the colour and opacity that result from
+/// compositing the object with the initial backdrop": blue at ½ on transparency, the red
+/// knocked out whole, and over the white page `(127, 127, 255)`. Reading the product as the
+/// shape instead keeps half the red under half the blue — `(191, 64, 128)`, a purple where the
+/// clause asks for a pale blue. The non-isolated nested group is the same number: §11.4.6's
+/// NOTE 6 hands it the knockout group's initial backdrop, which is transparent, and §11.3.7.2
+/// makes its shape the union of its elements' whatever it was composited onto.
+#[test]
+fn a_groups_opacity_does_not_become_its_shape_inside_a_knockout_group() {
+    for inner in [
+        "/Group << /S /Transparency /I true >>",
+        "/Group << /S /Transparency >>",
+    ] {
+        let drawn = interpret(translucent_member_fixture(inner));
+        assert!(drawn.is_complete(), "{inner}: {:?}", drawn.unsupported);
+        let overlap = pixel(&drawn, 40, 60);
+        for (channel, expected) in overlap.iter().zip([127_u8, 127, 255, 255]) {
+            assert!(
+                channel.abs_diff(expected) <= 1,
+                "{inner}: the group's shape is 1.0, so it knocks the red out: {overlap:?}"
+            );
+        }
+        // Outside the blue square the red is the only element and stays whole.
+        assert_eq!(pixel(&drawn, 20, 80), [255, 0, 0, 255], "{inner}");
+    }
+}

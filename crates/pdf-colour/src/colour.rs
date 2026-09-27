@@ -2808,9 +2808,27 @@ impl ColourSpace {
                 spots.push(None);
                 continue;
             }
-            let entry = colorants?.get_by_name(&Name::new(name.clone()))?;
-            let space =
-                Self::parse_at(document, entry, resources, reading, depth.saturating_add(1))?;
+            // "The key shall match the colourant name given in that colour space" (Table 70): an
+            // entry that is another space, or another colourant's, states nothing about this
+            // one alone, and the space reverts as it does where the entry is missing (ADR 1338).
+            let entry = document.resolve(colorants?.get_by_name(&Name::new(name.clone()))?);
+            let items = entry.as_array()?;
+            let is_name = |at: usize, wanted: &[u8]| {
+                items
+                    .get(at)
+                    .map(|item| document.resolve(item))
+                    .is_some_and(|item| item.as_name().is_some_and(|n| n.as_bytes() == wanted))
+            };
+            if !(is_name(0, b"Separation") && is_name(1, name)) {
+                return None;
+            }
+            let space = Self::parse_at(
+                document,
+                &entry,
+                resources,
+                reading,
+                depth.saturating_add(1),
+            )?;
             any_spot = true;
             spots.push(Some(space));
         }
@@ -4091,6 +4109,10 @@ pub enum PressIdentity {
     Assumed,
     /// The profile of this [`crate::icc::Profile::identity`], sampled under this rendering.
     Profile(u128, Rendering),
+    /// `DeviceCMYK`'s own four components inside a `/Luminosity` mask group whose content blends
+    /// — [`device_ink_press`]. Its conversion in is §10.4.2.4's with the nominal black generation
+    /// and undercolour removal, and its `Y` is §11.5.3's EXAMPLE 2; it converts nothing out.
+    DeviceInk,
 }
 
 /// How many distinct conversions out of a group the standard defines for **one** profile.
@@ -4198,6 +4220,36 @@ pub fn presses_cached() -> usize {
 /// [`CMYK_CORNERS`] — a compile-time constant — rather than anything a document names. No
 /// budget applies to a press no file asked for.
 static ASSUMED: OnceLock<Arc<Press>> = OnceLock::new();
+
+/// [`PressIdentity::DeviceInk`]'s press, built on first use and outside every budget for
+/// [`ASSUMED`]'s reason: nothing a document names goes into it.
+static DEVICE_INK: OnceLock<Arc<Press>> = OnceLock::new();
+
+/// The four components a `DeviceCMYK` `/Luminosity` mask group is composited in where its content
+/// blends — ISO 32000-2 §11.5.3, §11.3.5, §11.6.6 (ADR 1342).
+///
+/// Such a group is otherwise painted in one channel, `1 − ink ÷ 2`, which §11.3.5's blend
+/// functions cannot be applied through: they act on each component "expressed in additive form",
+/// and a weighted average of four complements is not four. This press carries the four as
+/// §11.4.7's pair of rasters instead, and it is chosen so that nothing but the blend changes:
+///
+/// - **In**, a colour of another space goes through [`rgb_to_cmyk`] — §10.4.2.4 with
+///   `BG(k) = k` and `UCR(k) = k` — whose weighted ink `0.3 c + 0.59 m + 0.11 y + k` is
+///   `1 − (0.3 R + 0.59 G + 0.11 B)`, because the black it adds is the black it removes from
+///   weights summing to one. That is the grey the one-channel route paints the same colour in, so
+///   under `Normal` the two routes composite to one mask value; a grey comes in as black alone,
+///   which is §10.4.2.2's conversion. A `DeviceCMYK` colour keeps its numbers.
+/// - **Out**, §11.5.3's `Y` is EXAMPLE 2's, [`pdf_render::Luminance::device_ink`], read off the
+///   composited four. The grid it carries is the assumed press's, for a caller that asks; a mask
+///   converts nothing to the device.
+#[must_use]
+pub fn device_ink_press() -> Arc<Press> {
+    Arc::clone(DEVICE_INK.get_or_init(|| {
+        let mut press = Press::assumed();
+        press.identity = PressIdentity::DeviceInk;
+        Arc::new(press)
+    }))
+}
 
 /// The press this tree assumes when a document says nothing: [`CMYK_CORNERS`].
 #[must_use]
@@ -4341,6 +4393,9 @@ impl Press {
     pub fn luminance(&self) -> Option<pdf_render::Luminance> {
         self.luminance
             .get_or_init(|| {
+                if self.identity == PressIdentity::DeviceInk {
+                    return Some(pdf_render::Luminance::device_ink());
+                }
                 let profile = self.profile.as_ref()?;
                 let side = PRESS_SIDE;
                 let last = side.saturating_sub(1);
@@ -4855,6 +4910,9 @@ fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
 /// stood in for it, and [`press_for_profile`] says why the search is the fallback and not the
 /// rule.
 fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
+    if press.identity == PressIdentity::DeviceInk {
+        return rgb_to_cmyk(colour);
+    }
     if press.profile.is_some() {
         return xyz_to_ink(press, srgb_to_xyz_d50(colour));
     }

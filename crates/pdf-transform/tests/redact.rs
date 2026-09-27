@@ -84,11 +84,17 @@ fn assemble(objects: &[String]) -> Vec<u8> {
 
 /// Applies a redaction to the bytes, returning the report and the one output file.
 fn redact(bytes: &[u8]) -> (pdf_transform::Report, Vec<u8>) {
+    redact_within(bytes, None)
+}
+
+/// [`redact`] with the operator's `--image-samples` budget stated.
+fn redact_within(bytes: &[u8], image_samples: Option<u64>) -> (pdf_transform::Report, Vec<u8>) {
     let sinks = MemorySinks::new();
     let report = apply(
         &Plan::Redact(RedactPlan {
             source: 0,
             names: "out.pdf".parse().expect("a pattern"),
+            image_samples,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,
@@ -1311,7 +1317,8 @@ fn jpx_page(dictionary_extra: &str, data: &[u8]) -> Vec<u8> {
     ])
 }
 
-/// A `JPXDecode` image on its own grid is decoded, cleared and re-encoded as `FlateDecode`.
+/// A `JPXDecode` image on its own grid is decoded, cleared and re-encoded as `FlateDecode`, its
+/// own samples in its own colour space (ADR 1333).
 ///
 /// §12.5.6.23 asks one thing of an image — "[i]f a portion of an image is contained in a
 /// redaction region, that portion of the image data shall be destroyed; clipping or image masks
@@ -1339,48 +1346,346 @@ fn a_jpx_image_in_the_region_is_decoded_cleared_and_reencoded_as_flate() {
         "the original codestream is not left in the file"
     );
 
-    let (width, height, rgba, flate_rgb) = read_back_codec_image(&out);
+    let (width, height, rgba, _) = read_back_codec_image(&out);
     assert_eq!((width, height), (8, 8), "the grid survives the re-encode");
-    assert!(flate_rgb, "re-encoded as 8-bit DeviceRGB under FlateDecode");
+    assert_eq!(
+        image_entries(&out),
+        ("FlateDecode".to_owned(), "DeviceGray".to_owned(), 8),
+        "the samples are written as themselves: the stated space, eight bits, no codec"
+    );
+    let samples = read_back_samples(&out);
     for row in 0..8usize {
         for col in 0..8usize {
             let red = rgba[(row * 8 + col) * 4];
+            let own = samples[row * 8 + col];
             if col < 4 {
-                assert_eq!(red, 0, "destroyed at row {row}, column {col}");
+                assert_eq!((red, own), (0, 0), "destroyed at row {row}, column {col}");
             } else {
-                assert_eq!(red, JPX_SAMPLE, "intact at row {row}, column {col}");
+                assert_eq!(
+                    (red, own),
+                    (JPX_SAMPLE, JPX_SAMPLE),
+                    "intact at row {row}, column {col}"
+                );
             }
         }
     }
 }
 
-/// A `JPXDecode` image whose codestream states more than eight bits refuses the page by name.
-///
-/// The re-encode writes 8-bit `DeviceRGB`, so a deeper codestream would come back coarser
-/// **outside** the region as well — content the annotation did not identify, changed. §7.4.9
-/// makes the codestream the statement of its own precision, so the refusal is decided from the
-/// data rather than from the dictionary, whose `/BitsPerComponent` Table 87 withdraws for this
-/// filter. A twelve-bit `SIZ` is the fixture, differing from the eight-bit twin above in the one
-/// byte that states the depth.
-#[test]
-fn a_deep_jpx_image_in_the_region_refuses_the_page() {
-    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
-    let mut deep = JPX_ONE_COMPONENT.to_vec();
-    // `Ssiz`₀ in the `SIZ` marker segment: the low seven bits are the depth minus one.
-    deep[42] = 0x0b;
-    let bytes = jpx_page("", &deep);
+/// The filter, the colour space's name and the depth the output's `/Im1` states.
+fn image_entries(bytes: &[u8]) -> (String, String, i64) {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    let name = |key: &str| {
+        let value = document.get_key(&stream.dict, key);
+        match &value {
+            Object::Name(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
+            Object::Array(items) => items
+                .first()
+                .and_then(Object::as_name)
+                .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    };
+    let bits = document
+        .get_key(&stream.dict, "BitsPerComponent")
+        .as_integer()
+        .unwrap_or(0);
+    (name("Filter"), name("ColorSpace"), bits)
+}
 
-    let (report, _out) = redact(&bytes);
+/// The numbers of the output's `/Im1` entry `key`, or `None` where it is not an array of them.
+fn image_numbers(bytes: &[u8], key: &str) -> Option<Vec<f64>> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let entry = document
+        .get_key(&page.resources, "XObject")
+        .as_dict()
+        .and_then(|dict| dict.get("Im1"))
+        .cloned()
+        .expect("/Im1 in the resources");
+    let image = document.resolve(&entry);
+    let stream = image.as_stream().expect("the image is a stream");
+    let value = document.get_key(&stream.dict, key);
+    value.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(|item| document.resolve(item).as_number())
+            .collect()
+    })
+}
+
+/// An 8×8 one-component JPEG 2000 codestream of **sixteen** unsigned bits, sample `(r, c)` equal
+/// to [`sixteen_bit_sample`] — every one distinct, and each differing from its neighbours below
+/// the eighth bit, so a re-encode that narrowed them to a byte could not keep them apart. Lossless
+/// 5/3; the raw samples are big-endian, which is what `opj_compress` reads:
+///
+/// ```sh
+/// python3 -c "import struct; open('g16.raw','wb').write(b''.join(struct.pack('>H', \
+///   0x8000 + 2000*r + 13*c) for r in range(8) for c in range(8)))"
+/// opj_compress -i g16.raw -o g16.j2k -F 8,8,1,16,u -n 1 -r 1
+/// ```
+const JPX_SIXTEEN_BIT_RAMP: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0f, 0x01, 0x01, 0xff, 0x52, 0x00,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
+    0x80, 0xff, 0x64, 0x00, 0x25, 0x00, 0x01, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x20, 0x62,
+    0x79, 0x20, 0x4f, 0x70, 0x65, 0x6e, 0x4a, 0x50, 0x45, 0x47, 0x20, 0x76, 0x65, 0x72, 0x73, 0x69,
+    0x6f, 0x6e, 0x20, 0x32, 0x2e, 0x35, 0x2e, 0x34, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x76, 0x00, 0x01, 0xff, 0x93, 0xc7, 0xfe, 0x0c, 0xc8, 0x3a, 0x62, 0x4b, 0x03, 0xf3, 0x01,
+    0xbc, 0xc5, 0x89, 0xc7, 0x35, 0xbe, 0x4c, 0xdc, 0xb0, 0x20, 0x1d, 0x06, 0xfc, 0xd2, 0xd2, 0x37,
+    0x92, 0xfb, 0xb0, 0xb3, 0xdc, 0x50, 0xfe, 0x4d, 0x93, 0x1c, 0x38, 0xb5, 0x76, 0xf7, 0xee, 0x71,
+    0x5f, 0x0b, 0x8c, 0xa0, 0xee, 0x27, 0x71, 0xbe, 0x3b, 0xbf, 0xa8, 0x92, 0x75, 0x92, 0xd5, 0x1c,
+    0x92, 0x2b, 0x54, 0x8d, 0x53, 0x4a, 0xd1, 0x97, 0xfc, 0xe2, 0xba, 0xed, 0x0b, 0x29, 0xaa, 0x67,
+    0x50, 0x4a, 0x05, 0x60, 0x1b, 0x86, 0xf5, 0x63, 0x6d, 0x7b, 0x8b, 0x5c, 0x27, 0x5b, 0xeb, 0x69,
+    0x75, 0x6d, 0x23, 0x59, 0x7f, 0x37, 0xcd, 0xf3, 0x7c, 0xdf, 0x37, 0xcd, 0xff, 0x7f, 0xff, 0xd9,
+];
+
+/// The sample [`JPX_SIXTEEN_BIT_RAMP`] carries at row `row`, column `col`.
+fn sixteen_bit_sample(row: usize, col: usize) -> u16 {
+    u16::try_from(0x8000 + 2000 * row + 13 * col).expect("under 65536")
+}
+
+/// The same recipe at **twelve** bits, sample `(r, c)` equal to [`twelve_bit_sample`]:
+///
+/// ```sh
+/// python3 -c "import struct; open('g12.raw','wb').write(b''.join(struct.pack('>H', \
+///   1000 + 37*r + 400*c) for r in range(8) for c in range(8)))"
+/// opj_compress -i g12.raw -o g12.j2k -F 8,8,1,12,u -n 1 -r 1
+/// ```
+const JPX_TWELVE_BIT_RAMP: &[u8] = &[
+    0xff, 0x4f, 0xff, 0x51, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x0b, 0x01, 0x01, 0xff, 0x52, 0x00,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x04, 0x04, 0x00, 0x01, 0xff, 0x5c, 0x00, 0x04, 0x40,
+    0x60, 0xff, 0x64, 0x00, 0x25, 0x00, 0x01, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x20, 0x62,
+    0x79, 0x20, 0x4f, 0x70, 0x65, 0x6e, 0x4a, 0x50, 0x45, 0x47, 0x20, 0x76, 0x65, 0x72, 0x73, 0x69,
+    0x6f, 0x6e, 0x20, 0x32, 0x2e, 0x35, 0x2e, 0x34, 0xff, 0x90, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x6a, 0x00, 0x01, 0xff, 0x93, 0xcf, 0xe5, 0x64, 0x12, 0x0a, 0xbe, 0x4f, 0xb1, 0x27, 0x4b,
+    0x45, 0xe1, 0xe7, 0x6f, 0x80, 0xd8, 0xe1, 0xc4, 0x37, 0x47, 0xd1, 0xbe, 0xc2, 0xb3, 0x4f, 0x72,
+    0xcd, 0x90, 0xff, 0x75, 0xc8, 0x05, 0xba, 0xd7, 0xa7, 0x5a, 0x1f, 0x4b, 0x34, 0xd5, 0x5e, 0x50,
+    0x17, 0xef, 0x6c, 0xcb, 0xa1, 0x0e, 0x32, 0xb4, 0x7a, 0x59, 0x0b, 0x6c, 0x2c, 0x7e, 0xed, 0x06,
+    0xb4, 0xf7, 0x29, 0x3c, 0x62, 0x54, 0x41, 0x7d, 0x56, 0xa6, 0x76, 0x6f, 0x34, 0x4a, 0x7d, 0xe9,
+    0x18, 0x08, 0x20, 0x4a, 0x77, 0x80, 0x46, 0x94, 0xcd, 0x53, 0x95, 0x50, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x03, 0xff, 0xd9,
+];
+
+/// The sample [`JPX_TWELVE_BIT_RAMP`] carries at row `row`, column `col`.
+fn twelve_bit_sample(row: usize, col: usize) -> u16 {
+    u16::try_from(1000 + 37 * row + 400 * col).expect("under 4096")
+}
+
+/// The output's `/Im1` samples as sixteen-bit big-endian integers.
+fn read_back_wide_samples(bytes: &[u8]) -> Vec<u16> {
+    read_back_samples(bytes)
+        .chunks_exact(2)
+        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .collect()
+}
+
+/// A sixteen-bit `JPXDecode` image is cleared at its own precision (ADR 1333).
+///
+/// Table 87 leaves the depth to the processor — "[t]he bit depth is determined by the PDF processor
+/// in the process of decoding the JPEG 2000 image" — and the decoder determines the codestream's,
+/// so the samples outside the region are written back as the sixteen-bit integers they are: the
+/// annotation identified the left half, and an eight-bit re-encode would have coarsened the right
+/// half as well. The assertions are the written integers themselves, against the fixture's recipe.
+#[test]
+fn a_sixteen_bit_jpx_image_is_cleared_at_its_own_precision() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("", JPX_SIXTEEN_BIT_RAMP);
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "a sixteen-bit codestream is cleared, not refused: {:?}",
+        report.refused
+    );
+    assert!(
+        !contains(&out, JPX_SIXTEEN_BIT_RAMP),
+        "the codestream is gone"
+    );
+    assert_eq!(
+        image_entries(&out),
+        ("FlateDecode".to_owned(), "DeviceGray".to_owned(), 16)
+    );
+    assert_eq!(
+        image_numbers(&out, "Decode"),
+        Some(vec![0.0, 1.0]),
+        "sixteen bits read and written at sixteen: the pair is the space's default"
+    );
+    let samples = read_back_wide_samples(&out);
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let want = if col < 4 {
+                0
+            } else {
+                sixteen_bit_sample(row, col)
+            };
+            assert_eq!(samples[row * 8 + col], want, "row {row}, column {col}");
+        }
+    }
+}
+
+/// A twelve-bit `JPXDecode` image keeps its integers at sixteen bits, with its `/Decode` restated.
+///
+/// A `FlateDecode` stream takes 1, 2, 4, 8 or 16 bits a component, so twelve-bit integers are
+/// written in sixteen-bit fields unchanged, and §8.9.5.2's map — `D min + x × (D max − D min) ÷
+/// (2^n − 1)` — is kept by moving the pair's far end to `4095 ÷ 4095 × 65535 ÷ 4095`: every
+/// integer then means what it meant at twelve bits. The page drawn from the output is compared
+/// against the page drawn from the source outside the region, which is the claim.
+#[test]
+fn a_twelve_bit_jpx_image_keeps_its_integers_under_a_widened_decode() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("", JPX_TWELVE_BIT_RAMP);
+    let original = decode_fixture_rgba(&bytes);
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert_eq!(
+        image_entries(&out),
+        ("FlateDecode".to_owned(), "DeviceGray".to_owned(), 16)
+    );
+    let decode = image_numbers(&out, "Decode").expect("a /Decode is stated");
+    assert_eq!(decode.len(), 2);
+    assert!(
+        decode[0] == 0.0 && (decode[1] - 65535.0 / 4095.0).abs() < 1e-4,
+        "the far end carries twelve bits' map into sixteen: {decode:?}"
+    );
+    let samples = read_back_wide_samples(&out);
+    let (_, _, rgba, _) = read_back_codec_image(&out);
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let at = row * 8 + col;
+            if col < 4 {
+                assert_eq!(samples[at], 0, "destroyed at row {row}, column {col}");
+            } else {
+                assert_eq!(
+                    samples[at],
+                    twelve_bit_sample(row, col),
+                    "row {row}, column {col}"
+                );
+                assert_eq!(
+                    &rgba[at * 4..at * 4 + 4],
+                    &original[at * 4..at * 4 + 4],
+                    "drawn as before at row {row}, column {col}"
+                );
+            }
+        }
+    }
+}
+
+/// A `JPXDecode` image whose dictionary states no colour space is written in the codestream's.
+///
+/// §7.4.9: where `/ColorSpace` is absent the codestream's own colour specification decides, and a
+/// bare codestream that states none falls back on its channel count — one channel, `DeviceGray`. A
+/// `FlateDecode` image has no codestream to ask, so the space the samples were read in is stated.
+#[test]
+fn a_jpx_image_stating_no_colour_space_is_written_in_the_codestreams_own() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /Filter /JPXDecode /Length {} \
+         >>\nstream\n",
+        JPX_SIXTEEN_BIT_RAMP.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(JPX_SIXTEEN_BIT_RAMP);
+    image.extend_from_slice(b"\nendstream");
+    let bytes = masked_page(image, b"null".to_vec());
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert_eq!(
+        image_entries(&out),
+        ("FlateDecode".to_owned(), "DeviceGray".to_owned(), 16)
+    );
+    assert_eq!(read_back_wide_samples(&out)[7], sixteen_bit_sample(0, 7));
+}
+
+/// A `JPXDecode` image larger than the budget is refused by name rather than reduced (ADR 1333).
+///
+/// §7.4.9 NOTE 3 lets a viewer "select and decode only the data making up a lower-resolution
+/// version" of a codestream too large for it, and this tree's viewer does. A redaction cannot:
+/// it writes the grid back, and a reduced one would resample every sample outside the region. So
+/// the decode is asked for at full resolution within a stated number of samples, and a codestream
+/// over it is refused naming the budget and the flag that raises it — `--image-samples`, the
+/// operator's, since the memory and time a larger decode costs are the machine's. The fixture's
+/// grid is 64 samples: a budget of 63 refuses it and a budget of 64 clears it, which puts the line
+/// exactly at the grid.
+#[test]
+fn a_jpx_image_over_the_operators_budget_is_refused_rather_than_reduced() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let bytes = jpx_page("", JPX_SIXTEEN_BIT_RAMP);
+
+    let (report, out) = redact_within(&bytes, Some(63));
     let refused = report
         .refused
         .iter()
         .find(|declined| declined.page == Some(1))
         .expect("the page is refused");
     assert!(
-        refused.detail.contains("12 bits per component"),
-        "the refusal names the precision it cannot keep: {}",
+        refused.detail.contains("§7.4.9")
+            && refused.detail.contains("beyond the 63")
+            && refused.detail.contains("--image-samples"),
+        "the refusal names the clause, the budget and the flag: {}",
         refused.detail
     );
+    assert!(
+        contains(&out, JPX_SIXTEEN_BIT_RAMP),
+        "the refused page keeps its image"
+    );
+
+    let (report, out) = redact_within(&bytes, Some(64));
+    assert!(
+        report.refused.is_empty(),
+        "within the budget: {:?}",
+        report.refused
+    );
+    assert_eq!(read_back_wide_samples(&out)[0], 0, "and cleared");
+}
+
+/// A colour key on a `JPXDecode` image is carried, because its samples are (ADR 1333).
+///
+/// §8.9.6.4's integers are "colour values before decoding with the Decode array", and the samples
+/// the output carries are the same integers in the same domain — so the ranges still pick out the
+/// samples they were written against. The key names one twelve-bit sample on the right half,
+/// which is masked before and after; a key the re-encode had carried into another domain would
+/// mask something else or nothing.
+#[test]
+fn a_colour_key_on_a_jpx_image_is_carried_with_its_samples() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let keyed = twelve_bit_sample(2, 6);
+    let bytes = jpx_page(&format!("/Mask [{keyed} {keyed}]"), JPX_TWELVE_BIT_RAMP);
+    let original = decode_fixture_rgba(&bytes);
+    let masked = (2 * 8 + 6) * 4 + 3;
+    assert_eq!(original[masked], 0, "the fixture masks the sample it names");
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    assert_eq!(
+        image_numbers(&out, "Mask"),
+        Some(vec![f64::from(keyed), f64::from(keyed)]),
+        "the ranges are carried as the file wrote them"
+    );
+    let (_, _, rgba, _) = read_back_codec_image(&out);
+    for row in 0..8usize {
+        for col in 4..8usize {
+            let at = (row * 8 + col) * 4 + 3;
+            assert_eq!(
+                rgba[at], original[at],
+                "the key's answer at row {row}, column {col}"
+            );
+        }
+    }
 }
 
 /// An 8×8 JP2 file with one grey component of 200 and an opacity channel (a `cdef` box names it)
@@ -1451,9 +1756,13 @@ fn a_jpx_image_whose_samples_carry_opacity_is_cleared_with_its_opacity_channel()
         !contains(&out, JPX_GREY_WITH_OPACITY),
         "the original codestream is not left in the file"
     );
-    let (width, height, rgba, flate_rgb) = read_back_codec_image(&out);
+    let (width, height, rgba, _) = read_back_codec_image(&out);
     assert_eq!((width, height), (8, 8), "the grid survives the re-encode");
-    assert!(flate_rgb, "re-encoded as 8-bit DeviceRGB under FlateDecode");
+    assert_eq!(
+        image_entries(&out),
+        ("FlateDecode".to_owned(), "DeviceGray".to_owned(), 8),
+        "the picture's own grey samples under FlateDecode"
+    );
     let mask = read_back_mask(&out, "SMask").expect("the picture names a soft mask");
     assert_eq!(
         mask.len(),
@@ -2656,6 +2965,7 @@ fn redact_protected(
         &Plan::Redact(RedactPlan {
             source: 0,
             names: "out.pdf".parse().expect("a pattern"),
+            image_samples: None,
         }),
         &[&source],
         &sinks,
@@ -3000,13 +3310,85 @@ fn a_dct_image_carrying_an_explicit_mask_is_cleared_with_its_mask() {
     }
 }
 
-/// A codec picture whose `/Mask` is a colour key refuses the page by name.
+/// A 16×16 baseline JPEG in four flat 8×8 quadrants — red over green on the left, blue over yellow
+/// on the right — so a colour key that names one quadrant's colour masks part of each half and not
+/// the rest. Generated with PIL (quality 95, no chroma subsampling), and every assertion is against
+/// this tree's own decode of it rather than against the colours it was made from:
 ///
-/// §8.9.6.4 states each range as "colour values before decoding with the Decode array" in the
-/// picture's own sample domain, which the `DeviceRGB` re-encode leaves, so the ranges would no
-/// longer describe the samples they were written against. Refused rather than carried wrong.
+/// ```sh
+/// python3 -c "from PIL import Image; im = Image.new('RGB', (16, 16)); px = im.load(); \
+///   [px.__setitem__((x, y), [[(200,30,30),(30,160,40)],[(29,30,200),(220,200,40)]][x//8][y//8]) \
+///    for x in range(16) for y in range(16)]; im.save('q.jpg', quality=95, subsampling=0)"
+/// ```
+const DCT_JPEG_QUADRANTS: &[u8] = &[
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01,
+    0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x02, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02,
+    0x01, 0x01, 0x01, 0x02, 0x02, 0x02, 0x02, 0x02, 0x04, 0x03, 0x02, 0x02, 0x02, 0x02, 0x05, 0x04,
+    0x04, 0x03, 0x04, 0x06, 0x05, 0x06, 0x06, 0x06, 0x05, 0x06, 0x06, 0x06, 0x07, 0x09, 0x08, 0x06,
+    0x07, 0x09, 0x07, 0x06, 0x06, 0x08, 0x0b, 0x08, 0x09, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x06, 0x08,
+    0x0b, 0x0c, 0x0b, 0x0a, 0x0c, 0x09, 0x0a, 0x0a, 0x0a, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x02, 0x02,
+    0x02, 0x02, 0x02, 0x02, 0x05, 0x03, 0x03, 0x05, 0x0a, 0x07, 0x06, 0x07, 0x0a, 0x0a, 0x0a, 0x0a,
+    0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a,
+    0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a,
+    0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0xff, 0xc0,
+    0x00, 0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11,
+    0x01, 0xff, 0xc4, 0x00, 0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+    0x0a, 0x0b, 0xff, 0xc4, 0x00, 0xb5, 0x10, 0x00, 0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05,
+    0x05, 0x04, 0x04, 0x00, 0x00, 0x01, 0x7d, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21,
+    0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xa1, 0x08, 0x23,
+    0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17,
+    0x18, 0x19, 0x1a, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a,
+    0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a,
+    0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a,
+    0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
+    0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,
+    0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5,
+    0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1,
+    0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xff, 0xc4, 0x00, 0x1f, 0x01, 0x00, 0x03,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xc4, 0x00, 0xb5, 0x11, 0x00,
+    0x02, 0x01, 0x02, 0x04, 0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00, 0x01, 0x02, 0x77, 0x00,
+    0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13,
+    0x22, 0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0, 0x15,
+    0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18, 0x19, 0x1a, 0x26, 0x27,
+    0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+    0x4a, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88,
+    0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6,
+    0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4,
+    0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xe2,
+    0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9,
+    0xfa, 0xff, 0xda, 0x00, 0x0c, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00, 0xf9,
+    0x0e, 0xbf, 0x0b, 0x3f, 0xd5, 0x43, 0xe7, 0xfa, 0xff, 0x00, 0x72, 0x0f, 0xf1, 0xcc, 0xfb, 0xa2,
+    0xbf, 0xc1, 0x33, 0xf9, 0x6c, 0xfd, 0x44, 0xaf, 0xe4, 0xb3, 0xfd, 0x38, 0x3f, 0xff, 0xd9,
+];
+
+/// A colour codec picture's colour key becomes the §8.9.6.3 stencil it is equivalent to (ADR 1333).
+///
+/// §8.9.6.4 tests "colour values before decoding with the Decode array", which a `DCTDecode`
+/// picture re-expressed as eight-bit `DeviceRGB` no longer holds, so the ranges cannot be carried.
+/// What they mean can: "[s]amples in the image that fall within this range shall not be painted",
+/// and an explicit mask's places are ones that "shall not be" painted either. So the output names
+/// a one-bit image mask on the picture's grid that masks exactly what the key masked, and is
+/// cleared under the region with the picture. The key is chosen from the decode itself — a range
+/// around one sample of the right half — so the stencil has places of both kinds outside the
+/// region, and the assertion is the drawn alpha against the source's own, sample by sample.
+/// [`DCT_JPEG_QUADRANTS`]'s right half is blue over yellow, and the key is a range around a blue
+/// sample.
 #[test]
-fn a_codec_image_with_a_colour_key_mask_refuses_the_page() {
+fn a_codec_image_with_a_colour_key_is_cleared_with_the_stencil_the_key_becomes() {
+    let plain = masked_page(
+        codec_image_object(16, 16, "DeviceRGB", 8, "DCTDecode", "", DCT_JPEG_QUADRANTS),
+        b"null".to_vec(),
+    );
+    let colours = decode_fixture_rgba(&plain);
+    let at = (3 * 16 + 12) * 4;
+    let range = |channel: usize| {
+        let value = i32::from(colours[at + channel]);
+        format!("{} {}", (value - 6).max(0), (value + 6).min(255))
+    };
+    let key = format!(" /Mask [{} {} {}]", range(0), range(1), range(2));
     let bytes = masked_page(
         codec_image_object(
             16,
@@ -3014,10 +3396,241 @@ fn a_codec_image_with_a_colour_key_mask_refuses_the_page() {
             "DeviceRGB",
             8,
             "DCTDecode",
-            " /Mask [0 10 0 10 0 10]",
-            DCT_JPEG_16X16,
+            &key,
+            DCT_JPEG_QUADRANTS,
         ),
         b"null".to_vec(),
+    );
+    let keyed = decode_fixture_rgba(&bytes);
+    let right = |rgba: &[u8], alpha: u8| {
+        (0..16usize)
+            .flat_map(|row| (8..16usize).map(move |col| (row * 16 + col) * 4 + 3))
+            .filter(|at| rgba[*at] == alpha)
+            .count()
+    };
+    assert!(
+        right(&keyed, 0) > 0 && right(&keyed, 255) > 0,
+        "the key masks some of the right half and paints the rest, so the stencil is discriminating"
+    );
+
+    let (report, out) = redact(&bytes);
+    assert!(
+        report.refused.is_empty(),
+        "the key becomes a stencil, so nothing is refused: {:?}",
+        report.refused
+    );
+    assert!(
+        image_numbers(&out, "Mask").is_none(),
+        "the ranges are not carried into a domain they were not written in"
+    );
+    let stencil = read_back_mask(&out, "Mask").expect("the picture names a stencil");
+    assert_eq!(
+        stencil.len(),
+        32,
+        "one bit a sample on the picture's 16×16 grid"
+    );
+    let (_, _, rgba, flate_rgb) = read_back_codec_image(&out);
+    assert!(
+        flate_rgb,
+        "the picture is re-expressed as FlateDecode DeviceRGB"
+    );
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let at = (row * 16 + col) * 4;
+            if col < 8 {
+                assert_eq!(
+                    &rgba[at..at + 4],
+                    &[0, 0, 0, 255],
+                    "row {row} column {col}: the picture and its stencil are both the zero"
+                );
+            } else {
+                assert_eq!(
+                    rgba[at + 3],
+                    keyed[at + 3],
+                    "row {row} column {col}: masked exactly where the key masked"
+                );
+                if keyed[at + 3] == 255 {
+                    assert_eq!(
+                        &rgba[at..at + 3],
+                        &colours[at..at + 3],
+                        "row {row} column {col}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// A 16×16 `DeviceGray` soft mask for a pre-blended picture: every sample distinct and non-zero.
+fn matte_mask_samples() -> Vec<u8> {
+    (0..=255u8).map(|index| index | 1).collect()
+}
+
+/// A picture pre-blended with its soft mask's `/Matte` is cleared to the matte (ADR 1333).
+///
+/// §11.6.5.2's pre-blending is `c′ = m + α × (c − m)`, and the cleared soft mask states α = 0 over
+/// the region, where the formula gives `c′ = m` — so the picture's cleared samples are the matte
+/// colour, and the region holds pre-blended data the formula could have produced rather than a
+/// zero it could not. Table 143 puts a matted mask on its picture's grid ("[i]f a Matte entry …
+/// is present, shall be the same as the Width value of the parent image"), so the two clears
+/// cover the same samples. The `DCTDecode` picture is `DeviceRGB`, which its eight-bit re-encode
+/// keeps component for component, so the matte `[0.2 0.6 1]` becomes the samples 51, 153, 255
+/// by §8.9.5.2's default map and the mask carries its `/Matte` unchanged.
+#[test]
+fn a_codec_picture_pre_blended_with_a_matte_is_cleared_to_the_matte() {
+    let mask = flate_encode(&matte_mask_samples(), 6).expect("the mask deflates");
+    let bytes = masked_page(
+        codec_image_object(
+            16,
+            16,
+            "DeviceRGB",
+            8,
+            "DCTDecode",
+            " /SMask 7 0 R",
+            DCT_JPEG_16X16,
+        ),
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 16 /Height 16 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /Matte [0.2 0.6 1] /Filter /FlateDecode",
+            &mask,
+        ),
+    );
+    let colours = decode_fixture_rgba(&masked_page(
+        codec_image_object(16, 16, "DeviceRGB", 8, "DCTDecode", "", DCT_JPEG_16X16),
+        b"null".to_vec(),
+    ));
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    let picture = read_back_samples(&out);
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let at = (row * 16 + col) * 3;
+            let want: [u8; 3] = if col < 8 {
+                [51, 153, 255]
+            } else {
+                let from = (row * 16 + col) * 4;
+                [colours[from], colours[from + 1], colours[from + 2]]
+            };
+            assert_eq!(
+                &picture[at..at + 3],
+                &want,
+                "picture row {row} column {col}"
+            );
+        }
+    }
+    let cleared = read_back_mask(&out, "SMask").expect("the soft mask is named");
+    let source = matte_mask_samples();
+    for row in 0..16usize {
+        for col in 0..16usize {
+            let want = if col < 8 { 0 } else { source[row * 16 + col] };
+            assert_eq!(cleared[row * 16 + col], want, "mask row {row} column {col}");
+        }
+    }
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let picture = document.resolve(
+        document
+            .get_key(&page.resources, "XObject")
+            .as_dict()
+            .and_then(|dict| dict.get("Im1"))
+            .expect("/Im1"),
+    );
+    let mask = document.get_key(&picture.as_stream().expect("a stream").dict, "SMask");
+    let matte: Vec<f64> = document
+        .get_key(&mask.as_stream().expect("a stream").dict, "Matte")
+        .as_array()
+        .expect("the matte is carried")
+        .iter()
+        .filter_map(Object::as_number)
+        .collect();
+    assert_eq!(
+        matte,
+        vec![0.2, 0.6, 1.0],
+        "a DeviceRGB picture keeps its matte as stated"
+    );
+}
+
+/// A `JPXDecode` picture pre-blended with a matte is cleared to the matte in its own samples.
+///
+/// The picture is written as its own grey samples ([`jpx_page`]'s `DeviceGray`), so the matte 0.5
+/// is carried into them by §8.9.5.2's default map run backwards — 127.5, the nearest sample 128 —
+/// and the mask's `/Matte` is carried unchanged, both images still in the picture's own space.
+#[test]
+fn a_jpx_picture_pre_blended_with_a_matte_is_cleared_to_the_matte() {
+    pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
+    let mask_samples: Vec<u8> = (1..=64u8).collect();
+    let mask = flate_encode(&mask_samples, 6).expect("the mask deflates");
+    let mut bytes_objects = Vec::new();
+    let mut image = format!(
+        "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+         /Filter /JPXDecode /SMask 7 0 R /Length {} >>\nstream\n",
+        JPX_ONE_COMPONENT.len()
+    )
+    .into_bytes();
+    image.extend_from_slice(JPX_ONE_COMPONENT);
+    image.extend_from_slice(b"\nendstream");
+    bytes_objects.push(image);
+    let bytes = masked_page(
+        bytes_objects.remove(0),
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /Matte [0.5] /Filter /FlateDecode",
+            &mask,
+        ),
+    );
+
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "cleared: {:?}", report.refused);
+    let picture = read_back_samples(&out);
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let want = if col < 4 { 128 } else { JPX_SAMPLE };
+            assert_eq!(
+                picture[row * 8 + col],
+                want,
+                "picture row {row} column {col}"
+            );
+        }
+    }
+    let cleared = read_back_mask(&out, "SMask").expect("the soft mask is named");
+    for row in 0..8usize {
+        for col in 0..8usize {
+            let want = if col < 4 {
+                0
+            } else {
+                mask_samples[row * 8 + col]
+            };
+            assert_eq!(cleared[row * 8 + col], want, "mask row {row} column {col}");
+        }
+    }
+}
+
+/// A matte the re-expression cannot keep refuses the page by name.
+///
+/// A `CalRGB` picture reaches the eight-bit `DeviceRGB` re-encode through §8.6.5.3's conversion,
+/// which is not affine in the picture's components, so Table 144's relation between the picture
+/// and its mask does not survive it: refused rather than written with a matte that no longer
+/// describes the samples.
+#[test]
+fn a_matte_the_re_expression_cannot_keep_refuses_the_page() {
+    let mask = flate_encode(&matte_mask_samples(), 6).expect("the mask deflates");
+    let mut picture = format!(
+        "<< /Type /XObject /Subtype /Image /Width 16 /Height 16 \
+         /ColorSpace [/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [2.2 2.2 2.2] >>] \
+         /BitsPerComponent 8 /Filter /DCTDecode /SMask 7 0 R /Length {} >>\nstream\n",
+        DCT_JPEG_16X16.len()
+    )
+    .into_bytes();
+    picture.extend_from_slice(DCT_JPEG_16X16);
+    picture.extend_from_slice(b"\nendstream");
+    let bytes = masked_page(
+        picture,
+        stream_object(
+            "/Type /XObject /Subtype /Image /Width 16 /Height 16 /ColorSpace /DeviceGray \
+             /BitsPerComponent 8 /Matte [0.2 0.6 1] /Filter /FlateDecode",
+            &mask,
+        ),
     );
 
     let (report, _out) = redact(&bytes);
@@ -3027,8 +3640,8 @@ fn a_codec_image_with_a_colour_key_mask_refuses_the_page() {
         .find(|declined| declined.page == Some(1))
         .expect("the page is refused");
     assert!(
-        refused.detail.contains("§8.9.6.4") && refused.detail.contains("colour-key"),
-        "the refusal names the colour key: {}",
+        refused.detail.contains("§11.6.5.2") && refused.detail.contains("Table 144"),
+        "the refusal names the matte and the relation it cannot keep: {}",
         refused.detail
     );
 }

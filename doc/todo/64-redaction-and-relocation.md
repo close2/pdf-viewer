@@ -8,16 +8,25 @@ design below is what the two aborted drafts established and the builds followed;
 
 **What a redaction still refuses**, each an owed capability with its own sentence: a stroke with a
 zero line width, one this walk has seen no stroking colour
-operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a codec image
-whose decode is not on the grid its dictionary states (a JPEG 2000 codestream over the decoder's
-budget comes back at a reduced resolution level, §7.4.9 NOTE 3 — the region maps onto that grid,
-but writing it back would resample every sample outside the region too, and the budget is the
-decoder's resource bound, ADR 1324), a `JPXDecode` image stating more
-than eight bits per component (ADR 1248), a codec picture whose `/Mask` is a §8.9.6.4 colour key
-or whose soft mask states §11.6.5.2's `/Matte` (both are in the picture's own sample domain or
-colour space, which the re-encode leaves), a codec image whose decode has a shape no fresh raster
-holds; an inline image behind a filter §8.9.7 forbids there; a Type 3 font, a composite font not
-`Identity-H`, `sh`, and a soft-mask group.
+operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a `JPXDecode`
+image larger than the operator's `--image-samples` budget (it is never decoded at the reduced
+resolution level §7.4.9 NOTE 3 permits a viewer, because a reduced grid written back would
+resample every sample outside the region), or one whose decoder delivered fewer bits than a
+component the codestream states (components disagreeing on a depth above eight); a codec picture
+pre-blended with a §11.6.5.2 `/Matte` its re-expression cannot keep (a colour space that reaches
+`DeviceRGB` by a conversion that is not affine, or a bilevel raster); a codec image whose decode
+has a shape no fresh raster holds; an inline image behind a filter §8.9.7 forbids there; a Type 3
+font, a composite font not `Identity-H`, `sh`, and a soft-mask group.
+
+**Four came off that list in ADR 1333.** A `JPXDecode` image that is not a stencil is written back
+as the decoder's own integers — at eight bits, or at sixteen with the `/Decode` pair's far end moved
+so every integer means what it did — in the colour space §7.4.9 names, so nothing outside the region
+is converted or requantised and a colour key is carried with its samples. It is decoded at full
+resolution or not at all, by `pdf_sandbox::Request::JpxWhole`, within a budget the operator states
+on the command line and a worker whose address-space ceiling, answer size and time are derived from
+it (`Sandbox::whole`). A re-expressed colour codec's colour key becomes the §8.9.6.3 stencil it is
+equivalent to, and a picture pre-blended with a matte is cleared to the matte, which Table 144's
+formula gives at the zero opacity the cleared soft mask states.
 
 **One came off that list in ADR 1324.** A round cap, a round join and a stroked curve are cut:
 no path can state a circle (§8.5.2.2), so the outline is fitted as cubics within `ARC_TOLERANCE`,

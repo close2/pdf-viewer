@@ -60,7 +60,8 @@ pub(crate) struct Outcome {
     /// and is settled one layer up, where the host's reserve is held. So this function says what
     /// the file asked for and says not one word about what the window can do. ADR 1263.
     pub(crate) beside: bool,
-    /// §12.6.4.3's jump whose file asked for §7.6.4.1's password, held for the host's prompt.
+    /// A file §12.6.4.3, §12.6.4.7 or §12.7.8 named that asked for §7.6.4.1's password, held for
+    /// the host's prompt.
     pub(crate) locked: Option<Box<Locked>>,
     /// Whether what is on the screen has to be drawn again.
     pub(crate) redraw: bool,
@@ -854,7 +855,10 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
             outcome
                 .notes
                 .push(format!("GoToR: {name} asks for a password (§7.6.4.1)"));
-            outcome.locked = Some(Box::new(Locked { remote, limits }));
+            outcome.locked = Some(Box::new(Locked {
+                held: Held::Remote(remote),
+                limits,
+            }));
             return outcome;
         }
         Err(error) => {
@@ -875,16 +879,56 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
     outcome
 }
 
-/// A §12.6.4.3 jump whose file asked for a password, held until the host opens it with one.
+/// A file a document named that asked for a password, held until the host opens it with one.
 ///
-/// The whole action, for `Open::opening`'s reason — `/D` and `/SD` are read in the document that
-/// has not been opened yet — and the source's bounds, for [`resume_remote`]'s.
+/// The whole request, for `Open::opening`'s reason — Table 203's `/D` and `/SD`, Table 209's `/D`
+/// and `/B` and Table 253's `/Name` are each read in the file that has not been opened yet — and
+/// the source's bounds, for [`resume_remote`]'s. One hold for the three clauses whose `/F` names a
+/// second PDF, so that every such file is asked about and retried the same way (ADR 1335).
 #[derive(Debug)]
 pub(crate) struct Locked {
-    /// The action whose `/F` asked.
-    pub(crate) remote: RemoteGoTo,
-    /// The bounds of the document the action was in.
+    /// What was to be done with the file.
+    pub(crate) held: Held,
+    /// The bounds of the document the request was in.
     pub(crate) limits: pdf_syntax::Limits,
+}
+
+/// What a [`Locked`] file was asked for.
+#[derive(Debug)]
+pub(crate) enum Held {
+    /// §12.6.4.3's jump, whose Table 203 `/F` asked.
+    Remote(RemoteGoTo),
+    /// §12.6.4.7's jump, whose Table 209 `/F` asked.
+    Thread(ThreadJump),
+    /// §12.7.8's named pages, whose Table 253 `/F` — the file named here — asked.
+    NamedPage(String),
+}
+
+impl Locked {
+    /// Whether the file becomes the document shown once it opens.
+    ///
+    /// Two of the three do: §12.6.4.3's and §12.6.4.7's jumps each show the file they name.
+    /// §12.7.8's named page is drawn into the document that asked for it, so its file is read and
+    /// put down again, and never takes a name of its own (ADR 1335).
+    pub(crate) const fn opens_a_document(&self) -> bool {
+        !matches!(self.held, Held::NamedPage(_))
+    }
+
+    /// Puts a file that opened at the place its jump names, or says why it cannot be.
+    ///
+    /// # Errors
+    ///
+    /// [`place_remote`]'s or [`place_threaded`]'s sentence; and, for a named page, the sentence
+    /// that says this is not a document to show.
+    pub(crate) fn place(&self, replacement: &mut Open) -> Result<String, String> {
+        match &self.held {
+            Held::Remote(remote) => place_remote(remote, replacement),
+            Held::Thread(threaded) => place_threaded(threaded, replacement),
+            Held::NamedPage(file) => Err(format!(
+                "named page: {file} is drawn into the document that named it, not shown"
+            )),
+        }
+    }
 }
 
 /// Puts a remote document that has been read at the page §12.6.4.3's action names.
@@ -991,8 +1035,22 @@ pub(crate) fn resume_threaded(open: &mut Open, bytes: &[u8]) -> Outcome {
         .as_ref()
         .map_or("", TargetRoot::name)
         .to_owned();
-    let opened = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+    let limits = open.document.limits();
+    let opened = match Document::open_with_limits(bytes.to_vec(), limits) {
         Ok(opened) => opened,
+        // §7.6.4.1's prompt, on [`resume_remote`]'s argument: Table 209's `/F` names a document
+        // this program can read once a person supplies a password, so the jump is held and the
+        // retry is `Command::Open` (ADR 1335).
+        Err(pdf_syntax::SyntaxError::PasswordRequired) => {
+            outcome
+                .notes
+                .push(format!("Thread: {name} asks for a password (§7.6.4.1)"));
+            outcome.locked = Some(Box::new(Locked {
+                held: Held::Thread(threaded),
+                limits,
+            }));
+            return outcome;
+        }
         Err(error) => {
             outcome.notes.push(format!(
                 "this link declines — Thread: cannot read {name}: {error}"
@@ -1001,11 +1059,31 @@ pub(crate) fn resume_threaded(open: &mut Open, bytes: &[u8]) -> Outcome {
         }
     };
     let mut replacement = Open::around(opened);
+    match place_threaded(&threaded, &mut replacement) {
+        Ok(note) => {
+            outcome.notes.push(note);
+            outcome.replacement = Some(Box::new(replacement));
+        }
+        Err(declined) => outcome.notes.push(declined),
+    }
+    outcome
+}
+
+/// Puts a document Table 209's `/F` named at the bead §12.6.4.7's action names.
+///
+/// One function for the jump made at once and the jump made after §7.6.4.1's prompt, which is
+/// [`place_remote`]'s reason one clause over.
+///
+/// # Errors
+///
+/// The sentence that declines the jump: a document with no pages, or no such thread or bead.
+pub(crate) fn place_threaded(
+    threaded: &ThreadJump,
+    replacement: &mut Open,
+) -> Result<String, String> {
+    let name = threaded.file.as_ref().map_or("", TargetRoot::name);
     if replacement.page_count == 0 {
-        outcome
-            .notes
-            .push(format!("this link declines — Thread: {name} has no pages"));
-        return outcome;
+        return Err(format!("this link declines — Thread: {name} has no pages"));
     }
     let articles = pdf_model::article::Articles::read(&replacement.document);
     let pages = Pages::new(&replacement.document);
@@ -1018,11 +1096,10 @@ pub(crate) fn resume_threaded(open: &mut Open, bytes: &[u8]) -> Outcome {
     let view = bead.and_then(|bead| bead.rect);
     drop(pages);
     let Some(page_index) = page_index else {
-        outcome.notes.push(format!(
+        return Err(format!(
             "this link declines — Thread: {name} has no such thread or bead, or its bead names \
              no page of that file"
         ));
-        return outcome;
     };
     replacement.page_index = page_index;
     // On the *replacement* rather than on the outcome, because a replacement is where the page
@@ -1031,13 +1108,11 @@ pub(crate) fn resume_threaded(open: &mut Open, bytes: &[u8]) -> Outcome {
     if let Some(rect) = view {
         replacement.pending_views = vec![pdf_model::destination::View::FitR { rect }];
     }
-    outcome.notes.push(format!(
+    Ok(format!(
         "opened {name}, {} page(s), at page {}",
         replacement.page_count,
         page_index.saturating_add(1)
-    ));
-    outcome.replacement = Some(Box::new(replacement));
-    outcome
+    ))
 }
 
 /// What is said when a host will not supply Table 209's `/F`.
@@ -1077,22 +1152,50 @@ fn request_named_page(open: &mut Open, outcome: &mut Outcome) {
 /// `ViewState::supply_named_pages`'s, and nothing of the second document outlives this call — the
 /// copy it makes names nothing of it (ADR 1223).
 pub(crate) fn supply_named_page(open: &mut Open, bytes: &[u8]) -> Outcome {
-    let mut outcome = Outcome::default();
     let Some(file) = open.view.file_awaited().map(ToOwned::to_owned) else {
-        return outcome;
+        return Outcome::default();
     };
-    let source = match Document::open_with_limits(bytes.to_vec(), open.document.limits()) {
+    let limits = open.document.limits();
+    match Document::open_with_limits(bytes.to_vec(), limits) {
+        // §7.6.4.1's prompt, on [`resume_remote`]'s argument: Table 253's `/F` names a PDF this
+        // program can read once a person supplies a password. The references into it stay
+        // waiting, so nothing is declined and the next file is not asked for until this one is
+        // settled (ADR 1335).
+        Err(pdf_syntax::SyntaxError::PasswordRequired) => {
+            let mut outcome = Outcome::default();
+            outcome
+                .notes
+                .push(format!("named page: {file} asks for a password (§7.6.4.1)"));
+            outcome.locked = Some(Box::new(Locked {
+                held: Held::NamedPage(file),
+                limits,
+            }));
+            outcome
+        }
+        source => named_pages_from(open, &file, source),
+    }
+}
+
+/// §12.7.8's named pages applied from the second file, once it has been read — at once, or after
+/// §7.6.4.1's prompt, so the two cannot come to disagree about what a file gives.
+pub(crate) fn named_pages_from(
+    open: &mut Open,
+    file: &str,
+    source: Result<Document, pdf_syntax::SyntaxError>,
+) -> Outcome {
+    let mut outcome = Outcome::default();
+    let source = match source {
         Ok(source) => source,
         Err(error) => {
             outcome
                 .notes
                 .push(format!("named page: cannot read {file}: {error}"));
-            say_declined(open, &file, &mut outcome);
+            say_declined(open, file, &mut outcome);
             request_named_page(open, &mut outcome);
             return outcome;
         }
     };
-    let applied = open.view.supply_named_pages(&open.document, &file, &source);
+    let applied = open.view.supply_named_pages(&open.document, file, &source);
     for refusal in &applied.refused {
         outcome
             .notes

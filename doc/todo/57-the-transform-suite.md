@@ -150,7 +150,9 @@ F.3's order with part 5 before part 4, the page offset and shared object hint ta
 other table Table F.2 requires of the document, and every offset computed to a fixed point before
 a byte is written, each item's run of a hint table padded to a byte (F.4.1's operative reading,
 ADR 1328); `pdf_syntax::linearize::state` is F.1's reader half. Object streams are packed
-part by part under F.3.1's conditions with §7.5.8 cross-reference streams in both sections, passwords
+part by part in the second group under F.3.1's conditions, the first group written whole so that
+the hint stream F.3.6 numbers last follows no compressed object (ADR 1337), with §7.5.8
+cross-reference streams in both sections, passwords
 encrypt it with the dictionary in part 4, and a page's `/B` and each bead's `/T` are derived from
 §12.4.3's thread chain where the producer left them out (ADR 1309). `tests/linearize.rs` reads each
 table back through `support::linearized`, a second reader written from Tables F.1 to F.12, and

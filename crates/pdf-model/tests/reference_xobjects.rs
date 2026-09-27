@@ -572,3 +572,227 @@ fn a_target_document_stating_no_identifier_is_refused() {
         refused[0]
     );
 }
+
+/// A containing document whose page runs `page` and whose proxy states `proxy_group`, which is
+/// written whole so that a test can leave it out.
+///
+/// The page's resources hold `/Fm`, the proxy, and three graphics states the tests below name:
+/// `/GS` a constant alpha of ½, `/GB` §11.3.5's Multiply and `/GK` nothing at all. The proxy
+/// itself paints the red a reader with no target document would draw. Object 6 is an isolated
+/// group's attributes dictionary that a proxy may name by reference; the target document has no
+/// object 6 at all.
+fn containing_page(page: &str, proxy_group: &str) -> Vec<u8> {
+    let proxy = "1 0 0 rg 0 0 100 100 re f";
+    let reference = reference(Some(TARGET_ID));
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /XObject << /Fm 5 0 R >> /ExtGState << /GS << /ca 0.5 /CA 0.5 >> \
+         /GB << /BM /Multiply >> /GK << >> >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 50 50] {proxy_group} {reference} \
+         /Length {} >>\nstream\n{proxy}\nendstream\nendobj\n\
+         6 0 obj\n<< /S /Transparency /I true >>\nendobj\n",
+        page.len() + 1,
+        proxy.len() + 1,
+    );
+    assemble(&body, Some(("1111", "2222")))
+}
+
+/// A target document of one page running `content` under the page `/Group` entry `group`,
+/// written whole so that a test can leave it out. `/GB` is Multiply, as in the containing page.
+fn grouped_target(content: &str, group: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {group} \
+         /Resources << /ExtGState << /GB << /BM /Multiply >> >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+        content.len() + 1,
+    );
+    assemble(&body, Some(TARGET_ID))
+}
+
+/// The containing page `page` with its proxy's group, importing a target page drawn by
+/// `content` under `group`.
+fn imported_under(
+    page: &str,
+    proxy_group: &str,
+    content: &str,
+    group: &str,
+) -> pdf_model::Interpretation {
+    let (supply, refused) = Supply::read(
+        [("target.pdf", grouped_target(content, group))],
+        "the test's own",
+    );
+    assert!(refused.is_empty(), "{refused:?}");
+    let document =
+        Document::open(containing_page(page, proxy_group)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the fixture's page");
+    pdf_model::content::interpret_importing(
+        &document,
+        &page,
+        &pdf_model::view::ViewState::of(&document),
+        &pdf_model::FontCache::new(),
+        &supply,
+    )
+}
+
+/// Asserts a pixel within one level per channel, which is what 8-bit rounding of a ½ leaves.
+fn assert_near(drawn: [u8; 4], expected: [u8; 4], why: &str) {
+    for (channel, want) in drawn.iter().zip(expected) {
+        assert!(
+            channel.abs_diff(want) <= 1,
+            "{why}: {drawn:?}, expected {expected:?}"
+        );
+    }
+}
+
+/// §11.4.7's second treatment: an imported page is a transparency group under **its own** page
+/// `/Group`.
+///
+/// > A "page" of a PDF file may be treated as a graphics object to be used as an element of a
+/// > page of some other document, for example, when used as a reference XObject (see 8.10.4,
+/// > "Reference XObjects"). In this situation the PDF 'page' shall not be composited with the
+/// > media colour; instead it shall be treated as a transparency group using the page Group
+/// > attributes dictionary and is composited with its backdrop in the usual way according to the
+/// > page Group attributes dictionary settings.
+///
+/// The containing page is green; the imported page fills red under Multiply. Its `/Group` states
+/// `/I true`, so §11.4.5 composites the red onto a transparent initial backdrop — "the special
+/// effects produced by the blend modes of objects within the group ... shall not be influenced by
+/// the group's backdrop" — and §11.3.6's "[a]n alpha value of αs = 0.0 or αb = 0.0 results in no
+/// blend mode effect" leaves it red, which then covers the green under Normal: `(255, 0, 0)`.
+/// The same page stating no `/Group` is a group under Table 145's defaults, non-isolated, so the
+/// red multiplies the green it is composited onto: `(1 × 0, 0 × 1, 0 × 0)`, black. Before the
+/// page's own dictionary was read the first page drew that black too — the containing page's
+/// compositing, which is the one this clause says the page is *not* drawn in.
+#[test]
+fn an_imported_page_is_composited_under_its_own_page_group() {
+    let multiply = "/GB gs 1 0 0 rg 0 0 100 100 re f";
+    let page = "0 1 0 rg 0 0 100 100 re f /Fm Do";
+
+    let isolated = imported_under(page, "", multiply, "/Group << /S /Transparency /I true >>");
+    assert_eq!(said(&isolated), "", "{:?}", isolated.unsupported);
+    assert_eq!(
+        at(&isolated, 10, 10),
+        [255, 0, 0, 255],
+        "an isolated page group blends with nothing, so the red arrives whole"
+    );
+    assert_eq!(
+        at(&isolated, 70, 70),
+        [0, 255, 0, 255],
+        "outside the proxy's /BBox the containing page's green"
+    );
+
+    let non_isolated = imported_under(page, "", multiply, "");
+    assert_eq!(
+        at(&non_isolated, 10, 10),
+        [0, 0, 0, 255],
+        "a page stating no /Group is a non-isolated group, and the red multiplies the green"
+    );
+}
+
+/// The imported page is **one object**, so a constant alpha at the proxy's `Do` is applied to it
+/// once rather than to each of its marks.
+///
+/// §11.4.7 makes the page "a transparency group ... composited with its backdrop in the usual
+/// way", and §11.4.1 says what a group is: objects "collected together and composited to produce
+/// a single colour, shape, and opacity at each point. The result shall then be treated as if it
+/// were a single object for subsequent compositing operations." The page states no `/Group`, so
+/// the group is Table 145's default one, and §11.4.4's NOTE 5 no longer lets it be drawn inline
+/// because "the shape and opacity inputs" at its `Do` are not 1.0.
+///
+/// The imported page paints an opaque red square and an opaque blue one over part of it; the
+/// containing page draws the proxy under `ca 0.5` over white. As one object the overlap is the
+/// blue at ½ over white, `(127, 127, 255)`. Mark by mark it would be the blue at ½ over the red
+/// at ½ over white, `(127, 63, 191)` — which is what an ordinary form draws, and what this tree
+/// drew before the page was a group.
+#[test]
+fn an_imported_page_takes_the_constant_alpha_at_its_do_as_one_object() {
+    let squares = "1 0 0 rg 0 0 30 30 re f 0 0 1 rg 15 15 30 30 re f";
+    let drawn = imported_under("/GS gs /Fm Do", "", squares, "");
+    assert_eq!(said(&drawn), "", "{:?}", drawn.unsupported);
+    assert_near(
+        at(&drawn, 20, 20),
+        [127, 127, 255, 255],
+        "the overlap is the blue at a half",
+    );
+    assert_near(
+        at(&drawn, 5, 5),
+        [255, 127, 127, 255],
+        "the red alone is red at a half",
+    );
+    assert_near(
+        at(&drawn, 40, 40),
+        [127, 127, 255, 255],
+        "the blue alone is blue at a half",
+    );
+}
+
+/// Two groups are applied to an imported page, the page's own inside the proxy's. The proxy's is
+/// §8.10.4.1's:
+///
+/// > If the proxy object's form dictionary contains a Group entry, the specified group
+/// > attributes shall apply to the imported page as well, which allows the imported page to be
+/// > treated as a group without further modification.
+///
+/// Read with §11.4.7's own sentence above, there are two dictionaries for one page and neither
+/// clause says one replaces the other; nesting obeys both. The proxy here states an isolated
+/// **knockout** group, which is the attribute nesting decides: if the page's marks were the
+/// knockout group's own elements, the blue square — painted under Multiply — would be
+/// composited with the knockout group's transparent initial backdrop and arrive as blue (§11.4.6,
+/// "only the topmost object enclosing the point shall contribute"). Nested, the knockout group
+/// has one element, the page, and inside that non-knockout, non-isolated page group the blue
+/// multiplies the red under it: `(1 × 0, 0 × 0, 0 × 1)`, black, over a white page.
+#[test]
+fn a_proxys_group_holds_the_imported_page_as_one_element() {
+    let squares = "1 0 0 rg 0 0 30 30 re f /GB gs 0 0 1 rg 15 15 30 30 re f";
+    let drawn = imported_under(
+        "/Fm Do",
+        "/Group << /S /Transparency /I true /K true >>",
+        squares,
+        "",
+    );
+    assert_eq!(said(&drawn), "", "{:?}", drawn.unsupported);
+    assert_eq!(
+        at(&drawn, 20, 20),
+        [0, 0, 0, 255],
+        "the page is the knockout group's one element, and its marks composite with each other"
+    );
+    assert_eq!(at(&drawn, 5, 5), [255, 0, 0, 255], "the red alone");
+    assert_eq!(
+        at(&drawn, 40, 40),
+        TARGET_BLUE,
+        "the blue alone multiplies nothing"
+    );
+}
+
+/// The proxy's `/Group` is the containing document's object, and is read in that document.
+///
+/// §8.10.4.1's group is stated in the proxy's form dictionary, and Table 93's `/Group` may be an
+/// indirect reference — which names an object of the file the proxy is in. The proxy here states
+/// `/Group 6 0 R`, an isolated group in the containing document; the target document has no
+/// object 6. Read in the right file the proxy's group is isolated, so the imported page's red
+/// under Multiply — a page group of Table 145's defaults, non-isolated, inside it — meets the
+/// isolated group's transparent initial backdrop and arrives whole: `(255, 0, 0)`. Resolved in
+/// the target document the reference finds nothing, the proxy states no group, and the red
+/// multiplies the containing page's green to black.
+#[test]
+fn a_proxys_group_is_read_in_the_document_the_proxy_is_in() {
+    let drawn = imported_under(
+        "0 1 0 rg 0 0 100 100 re f /Fm Do",
+        "/Group 6 0 R",
+        "/GB gs 1 0 0 rg 0 0 100 100 re f",
+        "",
+    );
+    assert_eq!(said(&drawn), "", "{:?}", drawn.unsupported);
+    assert_eq!(
+        at(&drawn, 10, 10),
+        [255, 0, 0, 255],
+        "the proxy's isolated group, found in the containing document"
+    );
+}

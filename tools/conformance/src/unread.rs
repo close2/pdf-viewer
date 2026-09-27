@@ -122,6 +122,12 @@ pub struct Report {
     pub claimed: usize,
     /// How many claimed keys no source quotes — the claims the run confirms.
     pub confirmed: usize,
+    /// Each confirmed claim as the clause whose row makes it and the key, in ledger order.
+    ///
+    /// A confirmed claim is the one kind this sweep cannot settle by reading a witness, because
+    /// there is none: it is an entry a row says is unread and nothing reads, so what is left to
+    /// ask is the clause's own — whether a reader owes the entry at all.
+    pub unquoted: Vec<(crate::clause::ClauseNumber, String)>,
     /// The rows with at least one claimed entry the tree quotes.
     pub findings: Vec<Finding>,
 }
@@ -161,6 +167,7 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
         population: 0,
         claimed: 0,
         confirmed: 0,
+        unquoted: Vec::new(),
         findings: Vec::new(),
     };
     for row in &ledger.rows {
@@ -178,6 +185,7 @@ pub fn sweep(ledger: &Ledger, sources: &[(PathBuf, String)]) -> Report {
             let claimed = quoted_by(&key, row, sources);
             if claimed.named == Named::Nowhere {
                 report.confirmed = report.confirmed.saturating_add(1);
+                report.unquoted.push((row.clause.clone(), claimed.key));
             } else {
                 entries.push(claimed);
             }
@@ -260,12 +268,16 @@ pub(crate) fn sentences(note: &str) -> Vec<&str> {
 /// A key here is a SOLIDUS followed by an ASCII upper-case letter and alphanumerics — the form
 /// every entry this ledger has claimed unread takes. The upper-case requirement is what keeps a
 /// path out of the list: `crates/pdf-model/src/view.rs` would otherwise contribute `pdf`, `src`
-/// and `view`. Its cost is a lower-case key like Table 166's `/ca`, which no claim so far has
+/// and `view`. A solidus straight after a letter or a digit is inside a word rather than in front
+/// of a key, which keeps out the paths whose segment is capitalised — `doc/questions/Q63` read
+/// as an entry `/Q63` that nothing quotes, and `ISO/TS` as one called `/TS`. Its cost is a lower-case key like Table 166's `/ca`, which no claim so far has
 /// listed and which the by-hand run still covers.
 fn keys_in(sentence: &str) -> Vec<String> {
     let mut keys = Vec::new();
     for (index, character) in sentence.char_indices() {
-        if character != '/' {
+        if character != '/'
+            || sentence[..index].ends_with(|before: char| before.is_ascii_alphanumeric())
+        {
             continue;
         }
         let rest = &sentence[index.saturating_add(1)..];
@@ -359,6 +371,16 @@ mod tests {
              §12.5.6.4 is unrelated.",
         );
         assert_eq!(keys, ["Name", "Usage"]);
+    }
+
+    /// A capitalised path segment is a word, not an entry: the claim's own `/Mask` is a key and
+    /// the question file's `Q63` and the standard's `ISO/TS` are not.
+    #[test]
+    fn a_solidus_inside_a_word_is_not_a_key() {
+        let keys = claimed_keys(
+            "Per doc/questions/Q63 and ISO/TS 32002, /Mask is not read (`/SMask` either).",
+        );
+        assert_eq!(keys, ["Mask", "SMask"]);
     }
 
     /// A full stop inside a clause number is not a sentence boundary, so a claim after one keeps

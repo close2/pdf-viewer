@@ -513,7 +513,7 @@ const REFUSED_BY_THE_DEVICE: [&str; 3] = [
 ///   **`bug1703683_page2_reduced.pdf` was here for the same reason and left in the
 ///   five-hundred-and-seventy-sixth session, by a run.** raster's ADR 0057 sizes a clipped mark's
 ///   coverage tile by its chain's own bounding box instead of by the open clip rectangle, and its
-///   §1 measures this page asking 1 008 561 911 texels where its 141 chains admit 2 297 897. That
+///   section 1 measures this page asking 1 008 561 911 texels where its 141 chains admit 2 297 897. That
 ///   landed on their `cafadeb`, which `cad50156` carries; at 4× on this lane the page now **agrees
 ///   with the CPU oracle**. Two rounds were *told* the name could come off before one could watch
 ///   it come off — the five-hundred-and-sixty-seventh ran the gate against `eada81ec` and left it
@@ -752,9 +752,10 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// shape covers instead of sampling it, and `bug1743245.pdf`, `bug1978317.pdf`,
 /// `copy_paste_ligatures.pdf`, `endchar.pdf`, `issue16316.pdf` and `issue2884_reduced.pdf` all
 /// agree — **the processor moving to the device, which is the direction this list is allowed to
-/// move in**. `issue21068.pdf` left with them and came back when the converter learned to decline
-/// a path whose portions overlap, which §11.6.2 makes it owe: its comb separators are `1 w` rules
-/// whose stroked outlines cross themselves, so they keep `tiny-skia`'s sixteenth.
+/// move in**. `issue21068.pdf` agrees too: its comb separators are `1 w` rules whose stroked
+/// outlines cross themselves, which §11.6.2 forbids reading as two portions, and `render_cpu::area`
+/// measures such a row as the filled set itself (ADR 1341) where it used to leave the mark to
+/// `tiny-skia`'s sixteenth.
 ///
 /// **`issue2177.pdf` arrived on the same change, and it is a second analytic answer rather than a
 /// quantum.** Its page is three clipped circles filled with a tiling pattern of small coloured
@@ -924,12 +925,11 @@ const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
 /// its own box on every side. The oracle draws them solid; raster leaves magenta specks along the
 /// cells' seams, where each copy's box clip meets its neighbour's. Mean 0.089 over the page and
 /// 9.28 at the worst tile, in the seams alone.
-const DIFFERS_IN_SHAPE: [&str; 5] = [
+const DIFFERS_IN_SHAPE: [&str; 4] = [
     "ContentStreamNoCycleType3insideType3.pdf",
     "issue15150.pdf",
     "issue19083.pdf",
     "issue20232.pdf",
-    "issue21068.pdf",
 ];
 
 /// The two groups as one list, sorted as the run produces them.

@@ -8,6 +8,7 @@ use pdf_syntax::{Dictionary, Object};
 
 use super::report::{ContentStream, Unsupported};
 use super::run::{name_at, narrow};
+use super::transparency::GroupBody;
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -285,6 +286,23 @@ impl Interpreter<'_> {
     }
 }
 
+/// ISO 32000-2 §8.10.4's imported page, as the content of the groups it is composited in.
+///
+/// Held whole rather than run at once because a group may run its content more than once (see
+/// [`GroupBody`]), and each run has to find the same page, placed and clipped the same way.
+pub(super) struct ImportedPage<'a> {
+    /// The target document the page is read from.
+    supplied: &'a crate::reference::Supplied,
+    /// The page itself, for its `/Group`, its resources and its annotations.
+    page: crate::page::Page,
+    /// Its `/Contents`, assembled once.
+    content: super::reader::NestedContent,
+    /// §8.10.4.1's placement: the proxy's `/Matrix` concatenated with the CTM at the `Do`.
+    placement: Transform,
+    /// §8.10.4.1's clip to the proxy's `/BBox`, which the page's annotations are drawn inside.
+    clip: Option<pdf_render::ClipId>,
+}
+
 /// What [`Interpreter::enter_imported`] takes out of the interpreter for the span of ISO 32000-2
 /// §8.10.4's imported page, and [`Interpreter::leave_imported`] puts back.
 ///
@@ -420,10 +438,9 @@ impl<'a> Interpreter<'a> {
     /// the three lines below are `draw_xobject`'s own and the clause is why they are repeated
     /// rather than shared: what changes is the *content*, not the placement.
     ///
-    /// §8.10.4.1's last sentence is honoured by construction — "[i]f the proxy object's form
-    /// dictionary contains a Group entry, the specified group attributes shall apply to the
-    /// imported page as well" — because the group is read off the proxy here exactly as
-    /// `draw_xobject` reads it, and the imported page's content is what runs inside it.
+    /// The page is then composited as §11.4.7's group under its own page `/Group`, inside the
+    /// proxy's group where the proxy states one — see the comment at the `match` below, and
+    /// ADR 1339.
     fn draw_imported_page(
         &mut self,
         proxy: &Dictionary,
@@ -471,48 +488,115 @@ impl<'a> Interpreter<'a> {
 
         // Table 31 lets `/Contents` be "an array of streams", so there is no one stream object to
         // window: the parts are assembled by the same reader a page of this document uses, under
-        // the same `max_stream_len`, and what it could not decode is reported as itself.
+        // the same `max_stream_len`, and what it could not decode is reported as itself — once,
+        // here, because the runs below may read the page more than once.
         let (bytes, issues) = page.content_with_report(supplied.document());
-        let content = super::reader::NestedContent::constructed(
-            bytes.into(),
-            format!("the imported page of {} (§8.10.4)", supplied.name()),
-        );
-
-        let frame = self.enter_imported(supplied.document(), &page, inner.clip);
         for issue in issues {
             self.note(Unsupported::Content { issue });
         }
-        let outer_base = std::mem::replace(&mut self.base, inner.transform);
-        let group = self.transparency_group(proxy);
-        let resources = self.page_resources.as_ref().clone();
-        match group {
-            None => self.run(&content, &resources, &inner),
+        let imported = ImportedPage {
+            supplied,
+            content: super::reader::NestedContent::constructed(
+                bytes.into(),
+                format!("the imported page of {} (§8.10.4)", supplied.name()),
+            ),
+            page,
+            placement: inner.transform,
+            clip: inner.clip,
+        };
+
+        // Two groups, one from each clause, and neither replaces the other. §8.10.4.1's last
+        // sentence is about the proxy's: "[i]f the proxy object's form dictionary contains a
+        // Group entry, the specified group attributes shall apply to the imported page as well".
+        // §11.4.7's is about the page's own: it "shall be treated as a transparency group using
+        // the page Group attributes dictionary". Both are satisfied by nesting — the proxy's
+        // group holds exactly one element, the imported page's group — and the proxy's is read
+        // here, before the target document is swapped in, because its dictionary and whatever
+        // `/CS` it names are the containing document's objects (ADR 1339).
+        match self.transparency_group(proxy) {
+            None => self.run_imported_page(&imported, &inner, state),
             Some(group) => {
-                self.run_transparency_group(&group, &content, &resources, &inner, state);
+                let resources = self
+                    .document
+                    .get_key(proxy, "Resources")
+                    .as_dict()
+                    .cloned()
+                    .unwrap_or_else(|| self.page_resources.as_ref().clone());
+                self.run_transparency_group_body(
+                    &group,
+                    &GroupBody::ImportedPage(&imported),
+                    &resources,
+                    &inner,
+                    state,
+                );
             }
         }
-        // §8.10.4.3's first consideration, and the only one of its two that binds a reader:
-        //
-        // > When the page imported by a reference XObject contains annotations (see 12.5,
-        // > "Annotations"), all annotations that contain a printable, unhidden, visible
-        // > appearance stream (12.5.5, "Appearance streams") shall be included in the rendering
-        // > of the imported page.
-        //
-        // The same pass a page of this document gets, against the target page's own annotations
-        // and the target document's own viewer state — which is what `enter_imported` swapped in,
-        // and which is why those three adjectives come out right without being restated here:
-        // Table 167's flags are read off each annotation by `draw_annotation`, as they are for
-        // every page. The base transform is the imported page's default user space, which is
-        // where its `/Rect`s are stated, and that is `inner.transform`.
-        //
-        // The clause's second consideration is a `may` and this reader takes it: "[l]ogical
-        // structure information associated with a page … may be ignored when importing that page
-        // into another document", which `enter_imported` does by handing the span an empty parent
-        // tree. The clause gives the reason — elements on the imported page "are typically part of
-        // a larger structure pertaining to the document as a whole" — and §14.7.5.4's identifiers
-        // would in any case be the *target* document's, filed against the containing document's
-        // tree.
-        self.draw_annotations(&page, inner.transform);
+    }
+
+    /// Runs the content of a transparency group, whichever of [`GroupBody`]'s three it is.
+    ///
+    /// An imported page is two nested scopes, and they are entered in the order their documents
+    /// require: the proxy's group, if any, is the containing document's and runs outside the
+    /// swap; the page's own group is the target document's and runs inside it, with the page's
+    /// content and annotations as its elements.
+    pub(super) fn run_group_body(
+        &mut self,
+        body: &GroupBody<'_, 'a>,
+        resources: &Dictionary,
+        inner: &GraphicsState,
+    ) {
+        match body {
+            GroupBody::Stream(content) => self.run(content, resources, inner),
+            // Inside the proxy's group, whose `Do` §11.6.6 has already reset `inner` for, so the
+            // page's group is composited into it under Normal, 1.0 and no mask.
+            GroupBody::ImportedPage(imported) => self.run_imported_page(imported, inner, inner),
+            GroupBody::ImportedContent(imported) => {
+                self.run(&imported.content, resources, inner);
+                // §8.10.4.3's first consideration, and the only one of its two that binds a
+                // reader:
+                //
+                // > When the page imported by a reference XObject contains annotations (see
+                // > 12.5, "Annotations"), all annotations that contain a printable, unhidden,
+                // > visible appearance stream (12.5.5, "Appearance streams") shall be included in
+                // > the rendering of the imported page.
+                //
+                // So they are elements of the imported page's group, drawn against the target
+                // page's own annotations and the target document's own viewer state — which is
+                // what `enter_imported` swapped in, and why Table 167's flags come out right
+                // without being restated here. The base transform is the imported page's
+                // default user space, where its `/Rect`s are stated.
+                //
+                // The clause's second consideration is a `may` and this reader takes it:
+                // "[l]ogical structure information associated with a page … may be ignored when
+                // importing that page into another document", which `enter_imported` does by
+                // handing the span an empty parent tree.
+                self.draw_annotations(&imported.page, imported.placement);
+            }
+        }
+    }
+
+    /// Runs §8.10.4's imported page as §11.4.7's group, with the target document in force.
+    ///
+    /// `inner` is the state the page's content starts in and `outer` the state its group is
+    /// composited under — the state at the proxy's `Do`, or the proxy group's reset one.
+    fn run_imported_page(
+        &mut self,
+        imported: &ImportedPage<'a>,
+        inner: &GraphicsState,
+        outer: &GraphicsState,
+    ) {
+        let frame =
+            self.enter_imported(imported.supplied.document(), &imported.page, imported.clip);
+        let outer_base = std::mem::replace(&mut self.base, imported.placement);
+        let group = self.imported_page_group(&imported.page.dict);
+        let resources = std::sync::Arc::clone(&self.page_resources);
+        self.run_transparency_group_body(
+            &group,
+            &GroupBody::ImportedContent(imported),
+            &resources,
+            inner,
+            outer,
+        );
         self.base = outer_base;
         self.leave_imported(frame);
     }

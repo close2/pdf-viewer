@@ -261,7 +261,7 @@ impl Interpreter<'_> {
     ///
     /// # What it costs
     ///
-    /// One `Vec::is_empty` per command on an untagged page, which is nearly every page, and that
+    /// One `std::vec::Vec::is_empty` per command on an untagged page, which is nearly every page, and that
     /// is the whole of what 885 of the corpus's 974 documents pay.
     ///
     /// On a tagged one it is a rectangle per command, and the A/B is this function with its body

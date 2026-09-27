@@ -793,7 +793,7 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
     // beside it.** A decode of L bytes ends in a buffer of up to 2L — the loop doubles, and it
     // cannot know where to stop — and `Arc<[u8]>` is a copy rather than a hand-over, so the peak
     // is capacity plus length. Releasing the slack first turns 2L + L into L + L, measured with
-    // `massif` and `ru_maxrss` on §2's Bomb A: **1145 MB → 768 MB**, and on the owner's 50 MB
+    // `massif` and `ru_maxrss` on `doc/todo/10` section 2's Bomb A: **1145 MB → 768 MB**, and on the owner's 50 MB
     // drawing **429 MB → 381 MB**. It is *not* a second copy for the ordinary stream — callgrind
     // over ten opens of ISO 32000-2 and over one interpreted page reads **−0.145%** and
     // **−0.116%**, both slightly cheaper, because the allocator shrinks a large mapping in place
@@ -2573,7 +2573,7 @@ fn inflate_buffer(data: &[u8], zlib_header: bool, limits: Limits) -> (Vec<u8>, S
             // `Vec::reserve` grows *amortised* — it takes `max(2 × capacity, len + additional)` —
             // so the step computed here was a floor rather than a ceiling and the last step
             // before the bound doubled straight past it. A gibibyte bound bought a 1.76 GiB
-            // buffer: §2's Bomb B peaked at 1811 MB of resident memory where the bound promises
+            // buffer: `doc/todo/10` section 2's Bomb B peaked at 1811 MB of resident memory where the bound promises
             // 1024 MiB, and the comment above claiming the buffer never grows past the ceiling
             // was false for the one input it is written for. `reserve_exact` takes the step as
             // stated, which is still a doubling everywhere below the bound — `len == capacity`

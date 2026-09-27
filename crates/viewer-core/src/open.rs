@@ -794,8 +794,8 @@ impl Open {
     /// Opens a document and reads the three things every page turn would otherwise re-read.
     ///
     /// `limits` are [`pdf_syntax::Limits::DEFAULT`] for a document a host named, and the source's
-    /// for one a §12.6.4.3 action reached and a person then unlocked, which is held to the bounds
-    /// of the document the action was in, as the jump made without a prompt is.
+    /// for one a §12.6.4.3 or §12.6.4.7 action reached and a person then unlocked, which is held
+    /// to the bounds of the document the action was in, as the jump made without a prompt is.
     ///
     /// # Errors
     ///
@@ -807,14 +807,30 @@ impl Open {
         password: Option<&crate::Secret>,
         limits: pdf_syntax::Limits,
     ) -> Result<Self, pdf_syntax::SyntaxError> {
-        Ok(Self::around(Document::open_with_password(
+        Ok(Self::around(Self::read(bytes, password, limits)?))
+    }
+
+    /// Reads a file under a password, without deriving anything a page turn needs.
+    ///
+    /// Apart from [`Self::new`] for §12.7.8's named page, whose file is read after §7.6.4.1's
+    /// prompt and drawn into another document rather than shown (ADR 1335).
+    ///
+    /// # Errors
+    ///
+    /// [`Self::new`]'s.
+    pub(crate) fn read(
+        bytes: impl Into<pdf_syntax::FileBytes>,
+        password: Option<&crate::Secret>,
+        limits: pdf_syntax::Limits,
+    ) -> Result<Document, pdf_syntax::SyntaxError> {
+        Document::open_with_password(
             bytes,
             limits,
             // The one call in this crate that reads a password, which is what
             // `Secret::reveal` is named to make visible at its call site. §7.6.4.1's default
             // user password is the empty string, so a document opened without one asks with it.
             password.map_or("", crate::Secret::reveal),
-        )?))
+        )
     }
 
     /// Everything the viewer derives from a document, read once.

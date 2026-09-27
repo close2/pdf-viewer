@@ -127,6 +127,36 @@ fn the_file_an_action_names_is_asked_of_the_host() {
     );
 }
 
+/// Table 203's `/NewWindow` travels with the question, so a host asking a person can say whether
+/// the file would open beside the document or in place of it (ADR 1335).
+///
+/// Table 203: "If this flag is false , the destination document replaces the current document in
+/// the same window." The named wrong answer is a question that says the same thing for both.
+#[test]
+fn the_question_carries_whether_the_file_opens_beside() {
+    for (action, beside) in [
+        (REMOTE, false),
+        (
+            "<< /Type /Action /S /GoToR /D [2 /Fit] /F (chapter2.pdf) /NewWindow true >>",
+            true,
+        ),
+        (
+            "<< /Type /Action /S /GoToR /D [2 /Fit] /F (chapter2.pdf) >>",
+            false,
+        ),
+    ] {
+        let (_, events) = asked(action);
+        let carried: Vec<bool> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::NeedsFile { beside, .. } => Some(*beside),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(carried, [beside], "{action}");
+    }
+}
+
 /// The supplied file is opened, and the destination is read in **it**.
 #[test]
 fn a_supplied_file_is_opened_at_the_page_the_action_names() {

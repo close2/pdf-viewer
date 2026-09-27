@@ -53,7 +53,7 @@ fn fixture() -> PathBuf {
 /// The layout is what the assertions rest on, so it is stated here rather than inferred: every
 /// glyph is half an em wide at 12 units, so a character is 6 units, and each line's baseline is
 /// 20 below the last. Page one shows `1 Alpha` then `alpha body one`; page two shows
-/// `alpha body two`, then the next section's heading `2 Beta`, then `beta body`. So §1's text
+/// `alpha body two`, then the next section's heading `2 Beta`, then `beta body`. So section 1's text
 /// runs from the top of page one to the middle of page two, and the highlight over `beta` is
 /// four words past its end — which is the case the section join exists to get right.
 fn two_sections() -> Vec<u8> {
@@ -187,7 +187,9 @@ fn a_section_runs_from_its_heading_to_the_next() {
 fn asking_for_annotations_changes_what_is_attached_and_not_what_is_read() {
     let path = fixture();
     let retrieval = Retrieval::open(&path).expect("the fixture is a valid PDF");
-    let bare = retrieval.section("1", &Wanted::default()).expect("§1");
+    let bare = retrieval
+        .section("1", &Wanted::default())
+        .expect("section 1");
     let with = retrieval
         .section(
             "1",
@@ -196,7 +198,7 @@ fn asking_for_annotations_changes_what_is_attached_and_not_what_is_read() {
                 ..Wanted::default()
             },
         )
-        .expect("§1");
+        .expect("section 1");
 
     assert!(bare.annotations.is_empty(), "none were asked for");
     assert_eq!(
@@ -234,7 +236,7 @@ fn asking_for_annotations_changes_what_is_attached_and_not_what_is_read() {
                 ..Wanted::default()
             },
         )
-        .expect("§1");
+        .expect("section 1");
     assert_eq!(only.annotations.len(), 1);
     assert_eq!(
         only.annotations.first().map(|note| note.subtype.as_str()),

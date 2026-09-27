@@ -402,7 +402,7 @@ fn chosen(selection: &gtk4::SelectionModel) -> Vec<usize> {
 /// So a clear flag is not the absence of a requirement: only a drop-down list is what a
 /// [`gtk4::DropDown`] is, and that is the control below. A set flag asks for two things at once,
 /// and GTK4 has no single widget that is both — which is what `doc/todo/30` item 7 and ADR 0509
-/// §3 called a toolkit floor for thirty-nine sessions.
+/// section 3 called a toolkit floor for thirty-nine sessions.
 ///
 /// **It is not a floor, and ADR 0508's rule is what found that: call the API before writing that
 /// something is blocked on it.** The floor was read off the *widget list* — `GtkDropDown` has no

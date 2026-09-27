@@ -2,7 +2,9 @@
 
 Status: each reported where it can change a pixel. **§11.5.3's population is closed** — its device
 branch was taken in the three-hundred-and-eightieth session (ADR 0217) and both residues in the
-three-hundred-and-eighty-third (ADR 0220) — **§11.4.6's shape is closed in the
+three-hundred-and-eighty-third (ADR 0220), and a blend mode inside a `DeviceCMYK` mask group is
+composited in the group's four components, with §11.3.4's complement, rather than on one weighted
+channel (ADR 1342) — **§11.4.6's shape is closed in the
 three-hundred-and-ninety-seventh** (ADR 0234), and **§11.4.4's non-isolated group is drawn since
 the four-hundredth** (ADR 0237). The four-hundred-and-fifteenth found the standing population was
 the wrong one and priced what is left of it (ADR 0251); **the four-hundred-and-twenty-sixth built
@@ -513,6 +515,8 @@ Plus: source-over there is 32 of 255 out at a half-covered pixel under a half-op
    two quantities one raster would multiply, in a file Table 87 permits (ADR 1022 section 5) — is
    kept as a pair on every image route (ADRs 1218, 1279) and, painted through a pattern, as two
    masks, the product drawn and the stencil its shape (ADR 1301).
+   A shape channel on *every* command is not owed: §11.4.6 is the one reader of the pair the
+   standard has, and §11.3.7.3's NOTE 2 licenses the product everywhere else (ADR 1340).
 
    **Where the bit lives took two rounds and the second reversed the first.** ADR 1017 put it
    beside the interpreter's own record of what it drew, keyed by the raster's identity, because
@@ -791,8 +795,8 @@ a mark in a colourant past it reverts and is named on the page's report
 interpretation's display list is the chromatic process plane carrying the black one and the spot
 planes (`DisplayList::set_separated`, `pdf_render::SpotSeparation`), each colourant with its name and
 step b)'s flat XYZ over the matte's white at 256 tints, read from the space that states the
-colourant most directly — a `Separation` naming it, or an `NChannel` space's `/Colorants` entry,
-before a `DeviceN`'s tint transform with the component alone (`colourants::SpotColourants::flat_curves`)
+colourant most directly — a `Separation` naming it, or a `DeviceN` space's `/Colorants` entry where
+it is that colourant's `Separation` (Table 70's key rule, ADR 1338), before a `DeviceN`'s tint transform with the component alone (`colourants::SpotColourants::flat_curves`)
 — and the two sampled conversions around the multiply (`colour::separation_conversions`).
 `GroupBlending::FourComponents` gains nothing, because on a spot plane a group passes the spot
 colours through and carries no conversion. `DisplayList`'s `Debug` prints the field only where there

@@ -102,11 +102,14 @@ const DESCRIPTOR_LIMIT: u64 = 8;
 ///
 /// Returns [`LockdownError`] if a limit or the seccomp filter could not be installed. A
 /// caller that gets an error must not continue with the work it intended to confine.
-pub(crate) fn apply(profile: Profile) -> Result<Confinement, LockdownError> {
-    let address_space_limit = match profile {
+/// `wider` is a ceiling a caller sized for a stated budget, which is taken only where it is above
+/// the profile's own (`crate::lockdown::apply_for_decoder_within`).
+pub(crate) fn apply(profile: Profile, wider: Option<u64>) -> Result<Confinement, LockdownError> {
+    let own = match profile {
         Profile::Decoder => ADDRESS_SPACE_LIMIT,
         Profile::Interpreter => INTERPRETER_ADDRESS_SPACE_LIMIT,
     };
+    let address_space_limit = wider.map_or(own, |wider| wider.max(own));
     limit_resources(address_space_limit)?;
     let landlock = deny_filesystem_and_network();
     restrict_system_calls(profile)?;

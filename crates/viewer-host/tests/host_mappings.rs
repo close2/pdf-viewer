@@ -1675,9 +1675,13 @@ fn the_level_decides_three_purposes_and_each_is_asked_about_in_its_own_clauses_w
         (Purpose::ThreadDocument, "§12.6.4.7"),
     ] {
         assert!(under_remote_documents(purpose), "{purpose:?}");
-        let Remote::Ask { question, .. } =
-            remote(Some(directory), "next.pdf", RemoteDocuments::Ask, purpose)
-        else {
+        let Remote::Ask { question, .. } = remote(
+            Some(directory),
+            "next.pdf",
+            RemoteDocuments::Ask,
+            purpose,
+            false,
+        ) else {
             panic!("ask puts the question for every purpose");
         };
         assert!(
@@ -1686,6 +1690,61 @@ fn the_level_decides_three_purposes_and_each_is_asked_about_in_its_own_clauses_w
             question.reasons
         );
     }
+}
+
+/// ISO 32000-2 §12.6.4.3's question says where the file would open, which Table 203's
+/// `/NewWindow` decides.
+///
+/// Table 203: "If this flag is false , the destination document replaces the current document in
+/// the same window." Every window in this tree offers `Command::Beside` a name for the file it
+/// supplies, so `true` opens it in a tab beside the document being read and anything else replaces
+/// that document. The named wrong answer is the one this question gave before it was told the
+/// flag: "in place of the one you are reading" for a link that opens beside it (ADR 1335).
+#[test]
+fn the_remote_documents_question_says_beside_or_in_place() {
+    use viewer_core::Purpose;
+    use viewer_host::{Remote, RemoteDocuments, remote};
+
+    let directory = Path::new("/documents");
+    let asked = |beside| {
+        let Remote::Ask { question, .. } = remote(
+            Some(directory),
+            "next.pdf",
+            RemoteDocuments::Ask,
+            Purpose::RemoteDocument,
+            beside,
+        ) else {
+            panic!("ask puts the question");
+        };
+        question.reasons
+    };
+    let beside = asked(true);
+    assert!(
+        beside.contains("beside the one you are reading") && !beside.contains("in place of"),
+        "a link asking for a new window opens beside: {beside}"
+    );
+    let in_place = asked(false);
+    assert!(
+        in_place.contains("in place of the one you are reading")
+            && !in_place.contains("beside the one you are reading"),
+        "a link that asks for no window replaces: {in_place}"
+    );
+    // §12.6.4.7's Table 209 states no `/NewWindow`, so a thread in another file replaces the
+    // document whatever the flag carried.
+    let Remote::Ask { question, .. } = remote(
+        Some(directory),
+        "next.pdf",
+        RemoteDocuments::Ask,
+        Purpose::ThreadDocument,
+        true,
+    ) else {
+        panic!("ask puts the question");
+    };
+    assert!(
+        question.reasons.contains("in place of"),
+        "{}",
+        question.reasons
+    );
 }
 
 /// ISO 32000-2 §12.6.4.3's file, at each of the four levels a reader may set.
@@ -1715,14 +1774,17 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
             for hostile in ["../secrets.pdf", "/etc/passwd", "sub/next.pdf", ""] {
                 assert!(
                     matches!(
-                        remote(Some(directory), hostile, level, purpose),
+                        remote(Some(directory), hostile, level, purpose, false),
                         Remote::Refuse(_)
                     ),
                     "{hostile} is not a plain file name beside the document, {level:?} or not"
                 );
             }
             assert!(
-                matches!(remote(None, "next.pdf", level, purpose), Remote::Refuse(_)),
+                matches!(
+                    remote(None, "next.pdf", level, purpose, false),
+                    Remote::Refuse(_)
+                ),
                 "a document with no directory has no neighbourhood to resolve against"
             );
         }
@@ -1736,7 +1798,8 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
             Some(directory),
             "next.pdf",
             RemoteDocuments::Open,
-            Purpose::RemoteDocument
+            Purpose::RemoteDocument,
+            false,
         ),
         Remote::Supply {
             path: beside.clone(),
@@ -1748,6 +1811,7 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
         "next.pdf",
         RemoteDocuments::Warn,
         Purpose::RemoteDocument,
+        false,
     ) else {
         panic!("warn opens the file and says so afterwards");
     };
@@ -1761,6 +1825,7 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
         "next.pdf",
         RemoteDocuments::Ask,
         Purpose::RemoteDocument,
+        false,
     ) else {
         panic!("ask is the default and puts the question");
     };
@@ -1776,6 +1841,7 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
         "next.pdf",
         RemoteDocuments::Refuse,
         Purpose::RemoteDocument,
+        false,
     ) else {
         panic!("refuse opens nothing");
     };

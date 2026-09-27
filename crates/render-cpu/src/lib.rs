@@ -2885,18 +2885,36 @@ fn draw_stroked_outline(
         );
         return true;
     }
-    // The non-zero rule, because a stroked outline's inner contours are wound against its outer
-    // ones and the even-odd rule would hollow a self-overlapping stroke out. It is what
-    // `stroke_path` fills the same outline with.
-    scan::fill(
-        pixmap,
-        &outline,
-        brush,
-        tiny_skia::FillRule::Winding,
-        at_device,
-        clip,
-    );
+    // The outline of one straight segment is a rectangle with a cap at each end, which covers no
+    // point twice; every other outline may — at a join, where the inner offsets cross, or where two
+    // subpaths' outlines meet — and a thin one shows no sign of it in its own coverage (ADR 1341).
+    if is_one_straight_segment(path) {
+        scan::fill(
+            pixmap,
+            &outline,
+            brush,
+            tiny_skia::FillRule::Winding,
+            at_device,
+            clip,
+        );
+    } else {
+        scan::fill_outline(pixmap, &outline, brush, at_device, clip);
+    }
     true
+}
+
+/// Whether `path` is a single open subpath of one straight segment, whose stroked outline cannot
+/// overlap itself.
+fn is_one_straight_segment(path: &tiny_skia::Path) -> bool {
+    let mut segments = path.segments();
+    matches!(
+        (segments.next(), segments.next(), segments.next()),
+        (
+            Some(tiny_skia::PathSegment::MoveTo(_)),
+            Some(tiny_skia::PathSegment::LineTo(_)),
+            None
+        )
+    )
 }
 
 /// The mitre-length ratio above which this library's stroker draws a bevel whatever `M` says.
@@ -4780,7 +4798,7 @@ impl MaskCache {
     ) -> Result<(), CpuRasterError> {
         // One accumulator for the whole chain, on [`scan::Scratch`]'s own terms: `crate::area`
         // clears it per mark and grows it to the largest the chain holds.
-        let mut cells: Vec<f32> = Vec::new();
+        let mut cells = area::Buffers::default();
         // One scratch mask for the whole chain, allocated from the same width and height as
         // the mask above so that the two are the same size by construction. `tiny-skia`
         // allocates one per `intersect_path` call; the chain needs only one, and the

@@ -1574,7 +1574,7 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// verdict line names `poppler` and `ghostscript` rather than the usual pair.
 ///
 /// **And six of the seven are worse than a failure: `jbig2dec` says nothing at all.** Asked
-/// with §2's own reference command lines, only `bitmap-symbol-context-reuse.pdf` produces a
+/// with `doc/todo/02` section 2's own reference command lines, only `bitmap-symbol-context-reuse.pdf` produces a
 /// warning from either program. On the other six both are silent and both return a different
 /// picture — so a note that generalised the `NYI` log from one page to seven was describing
 /// one page.

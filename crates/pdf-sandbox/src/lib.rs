@@ -82,13 +82,14 @@ mod worker;
 pub use protocol::{Bilevel, CcittParameters, Colour, Raster, Request};
 pub use worker::serve;
 
+use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use lockdown::Confinement;
@@ -155,9 +156,16 @@ pub fn isolation() -> Isolation {
 /// See [`SandboxError`]. Every variant is reportable as "this image could not be drawn";
 /// none is a reason to stop rendering the page.
 pub fn decode(request: &Request<'_>) -> Result<Decoded, SandboxError> {
-    match isolation() {
-        Isolation::Sandboxed => Sandbox::shared().decode(request),
-        Isolation::InProcess => decode::here(request),
+    match (isolation(), request) {
+        // A full-resolution decode the ordinary worker's ceiling cannot hold goes to a worker
+        // started for it; one that fits is the ordinary worker's to answer (ADR 1333).
+        (Isolation::Sandboxed, Request::JpxWhole { samples, .. })
+            if *samples > decode::MAX_SAMPLES =>
+        {
+            Sandbox::whole(*samples).decode(request)
+        }
+        (Isolation::Sandboxed, _) => Sandbox::shared().decode(request),
+        (Isolation::InProcess, _) => decode::here(request),
     }
 }
 
@@ -189,6 +197,11 @@ pub fn worker_file_name() -> String {
 /// Set it when the executable is not installed alongside its worker — in particular, when
 /// running a test binary that Cargo has put in `target/<profile>/deps/`.
 pub const WORKER_PATH_VARIABLE: &str = "PDF_SANDBOX_WORKER";
+
+/// The most samples the ordinary worker decodes a JPEG 2000 image to at full resolution: the
+/// budget [`Request::Jpx`] steps down to, and the one a [`Request::JpxWhole`] stating no more
+/// than it is answered within, by the ordinary worker (ADR 1333).
+pub const ORDINARY_SAMPLES: u64 = decode::MAX_SAMPLES;
 
 /// How long a single decode may take before the worker is killed.
 ///
@@ -266,8 +279,9 @@ pub enum SandboxError {
         /// How it stopped, as far as the parent can tell.
         detail: String,
     },
-    /// The worker did not answer within [`REQUEST_TIMEOUT`].
-    #[error("the sandbox worker did not answer within {}s", REQUEST_TIMEOUT.as_secs())]
+    /// The worker did not answer within its time: [`REQUEST_TIMEOUT`], or the longer one a
+    /// worker for full-resolution decodes is given ([`Sandbox::whole`]).
+    #[error("the sandbox worker did not answer within the time it was given")]
     TimedOut,
     /// The pipe to or from the worker failed.
     #[error("the sandbox worker connection failed: {0}")]
@@ -316,6 +330,9 @@ pub struct Sandbox {
     /// page costs, and a pool would have to be sized by measurement nobody has taken. When
     /// a profile says otherwise, this is the field that grows.
     connection: Mutex<Option<Connection>>,
+    /// The samples a full-resolution decode may produce, for a worker started for them
+    /// ([`Sandbox::whole`]); `None` for the ordinary worker.
+    whole: Option<u64>,
 }
 
 impl Sandbox {
@@ -328,7 +345,60 @@ impl Sandbox {
         static SHARED: OnceLock<Sandbox> = OnceLock::new();
         SHARED.get_or_init(|| Self {
             connection: Mutex::new(None),
+            whole: None,
         })
+    }
+
+    /// Returns the sandbox whose worker decodes a JPEG 2000 image at full resolution within
+    /// `samples`, without starting anything.
+    ///
+    /// The ordinary worker's bounds are the viewer's: a gigabyte of address space, thirty
+    /// seconds, a quarter-gigabyte answer — sized for [`Request::Jpx`], which steps a codestream
+    /// over its budget down to a reduced resolution level as §7.4.9 NOTE 3 permits. A writer
+    /// that must carry the image's own grid cannot take that step ([`Request::JpxWhole`]), and a
+    /// budget large enough for such a grid is the **operator's** to state, not the reader's. So
+    /// this worker is a separate process started with `samples` as its one argument, and every
+    /// bound is derived from it before a byte is read: an address-space ceiling of sixteen bytes
+    /// a sample (the ordinary worker's own ratio, never below its gigabyte), an answer of two
+    /// bytes a sample, and thirty seconds for each [`decode::MAX_SAMPLES`] of them. The
+    /// confinement is otherwise the ordinary decoder's, system-call list and all (ADR 1333).
+    ///
+    /// One sandbox per distinct budget, kept for the process: a verb states one budget for its
+    /// run, so this is one more worker, not one per image.
+    #[must_use]
+    pub fn whole(samples: u64) -> Arc<Self> {
+        static WHOLE: OnceLock<Mutex<HashMap<u64, Arc<Sandbox>>>> = OnceLock::new();
+        let registry = WHOLE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut sandboxes = match registry.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        Arc::clone(sandboxes.entry(samples).or_insert_with(|| {
+            Arc::new(Self {
+                connection: Mutex::new(None),
+                whole: Some(samples),
+            })
+        }))
+    }
+
+    /// The bounds the parent holds this sandbox's worker to.
+    fn bounds(&self) -> Bounds {
+        match self.whole {
+            None => Bounds {
+                response: MAX_RESPONSE,
+                timeout: REQUEST_TIMEOUT,
+            },
+            Some(samples) => {
+                let response = usize::try_from(samples.saturating_mul(2))
+                    .unwrap_or(usize::MAX)
+                    .max(MAX_RESPONSE);
+                let periods = samples.div_ceil(decode::MAX_SAMPLES).max(1);
+                let timeout = REQUEST_TIMEOUT
+                    .checked_mul(u32::try_from(periods).unwrap_or(u32::MAX))
+                    .unwrap_or(Duration::MAX);
+                Bounds { response, timeout }
+            }
+        }
     }
 
     /// Decodes one image in the worker.
@@ -347,13 +417,13 @@ impl Sandbox {
         };
 
         if guard.is_none() {
-            *guard = Some(Connection::start()?);
+            *guard = Some(Connection::start(self.whole)?);
         }
         let Some(connection) = guard.as_mut() else {
             unreachable!("the connection was just established")
         };
 
-        let outcome = connection.exchange(request);
+        let outcome = connection.exchange(request, self.bounds());
         if outcome.is_err() {
             // Any failure leaves the pipe at an unknown offset, so the worker is not reusable
             // even when it is still alive. Killing it is how the next request gets a clean
@@ -376,7 +446,7 @@ impl Sandbox {
             Err(poisoned) => poisoned.into_inner(),
         };
         if guard.is_none() {
-            *guard = Some(Connection::start()?);
+            *guard = Some(Connection::start(self.whole)?);
         }
         guard
             .as_ref()
@@ -413,10 +483,15 @@ impl Drop for Connection {
 }
 
 impl Connection {
-    /// Starts a worker and reads its handshake.
-    fn start() -> Result<Self, SandboxError> {
+    /// Starts a worker and reads its handshake: the ordinary one, or one for full-resolution
+    /// decodes within `whole` samples ([`Sandbox::whole`]).
+    fn start(whole: Option<u64>) -> Result<Self, SandboxError> {
         let program = worker_program()?;
-        let mut child = Command::new(&program)
+        let mut command = Command::new(&program);
+        if let Some(samples) = whole {
+            command.arg(worker::WHOLE_ARGUMENT).arg(samples.to_string());
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             // Inherited, so that a worker that dies says so where the operator can see it.
@@ -503,7 +578,7 @@ impl Connection {
     /// it was measured on the very binary this arrangement exists to name.
     fn read_handshake(&mut self, program: &Path) -> Result<Confinement, SandboxError> {
         let mut greeting = [0u8; protocol::HANDSHAKE_LEN];
-        let deadline = deadline();
+        let deadline = deadline(REQUEST_TIMEOUT);
         let (magic, rest) = greeting.split_at_mut(protocol::MAGIC_LEN);
         self.read_exactly(magic, deadline)?;
         if !protocol::is_our_magic(magic) {
@@ -524,9 +599,9 @@ impl Connection {
         })
     }
 
-    /// Sends one request and reads its response.
-    fn exchange(&mut self, request: &Request<'_>) -> Result<Decoded, SandboxError> {
-        let deadline = deadline();
+    /// Sends one request and reads its response, within `bounds`.
+    fn exchange(&mut self, request: &Request<'_>, bounds: Bounds) -> Result<Decoded, SandboxError> {
+        let deadline = deadline(bounds.timeout);
 
         let encoded = protocol::encode_request(request);
         self.to_worker
@@ -540,11 +615,11 @@ impl Connection {
             protocol::parse_response_header(header).ok_or_else(|| SandboxError::Malformed {
                 detail: "unrecognised response header".to_owned(),
             })?;
-        if shape.payload_len > MAX_RESPONSE {
+        if shape.payload_len > bounds.response {
             return Err(SandboxError::Malformed {
                 detail: format!(
-                    "a {}-byte response exceeds the {MAX_RESPONSE}-byte limit",
-                    shape.payload_len
+                    "a {}-byte response exceeds the {}-byte limit",
+                    shape.payload_len, bounds.response
                 ),
             });
         }
@@ -695,9 +770,18 @@ impl Connection {
 /// input everywhere else in this tree and the habit is worth keeping. An `Instant` that
 /// cannot represent thirty seconds from now is not reachable on any real clock; if it were,
 /// the safe reading is "already out of time", not "never".
-fn deadline() -> Instant {
+fn deadline(timeout: Duration) -> Instant {
     let now = Instant::now();
-    now.checked_add(REQUEST_TIMEOUT).unwrap_or(now)
+    now.checked_add(timeout).unwrap_or(now)
+}
+
+/// What the parent holds one worker's answers to: how long, and how large.
+#[derive(Debug, Clone, Copy)]
+struct Bounds {
+    /// The largest response accepted, in bytes.
+    response: usize,
+    /// How long one request may take.
+    timeout: Duration,
 }
 
 /// Describes how a worker ended, naming the signal where the platform has one.

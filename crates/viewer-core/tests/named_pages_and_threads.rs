@@ -368,3 +368,241 @@ fn a_thread_whose_file_is_a_forbidden_relative_url_asks_for_nothing() {
         notes(&events)
     );
 }
+
+/// A randomness source that counts, so that an encrypted fixture is a function of its plan.
+///
+/// It stands where the platform's source stands, as in `pdf-syntax`'s own writer tests; nothing
+/// here depends on the bytes being unpredictable, only on the file asking for a password.
+struct Counter(u8);
+
+impl pdf_syntax::serialize::Entropy for Counter {
+    fn fill(&mut self, out: &mut [u8]) -> bool {
+        for byte in out.iter_mut() {
+            *byte = self.0;
+            self.0 = self.0.wrapping_add(1);
+        }
+        true
+    }
+}
+
+/// The user password every locked fixture below is written under.
+const PASSWORD: &str = "abc";
+
+/// `bytes` rewritten under §7.6.4's standard security handler with [`PASSWORD`] as the user
+/// password, so that §7.6.4.1's empty-password attempt fails and a prompt is owed.
+#[expect(
+    clippy::panic,
+    reason = "a fixture that cannot be built must fail the test loudly rather than test nothing"
+)]
+fn locked(bytes: Vec<u8>, objects: u32) -> Vec<u8> {
+    use pdf_syntax::serialize::{Access, Assembly, Form, Options, Protection};
+
+    let Ok(source) = pdf_syntax::Document::open(bytes) else {
+        panic!("the plaintext fixture opens");
+    };
+    let mut assembly = Assembly::new(vec![&source]);
+    for number in 1..=objects {
+        let Ok(_) = assembly.copy(0, pdf_syntax::ObjectId::new(number, 0)) else {
+            panic!("the assembly takes object {number}");
+        };
+    }
+    assembly.set_root(pdf_syntax::ObjectId::new(1, 0));
+    let mut out = Vec::new();
+    let Ok(_) = pdf_syntax::serialize::serialize_encrypted(
+        &assembly,
+        pdf_syntax::Version { major: 2, minor: 0 },
+        Options::new(Form::Table),
+        &Protection {
+            user_password: PASSWORD,
+            owner_password: "owner",
+            access: Access::ALL,
+            encrypt_metadata: true,
+        },
+        &mut Counter(0),
+        &mut out,
+    ) else {
+        panic!("the locked fixture is written");
+    };
+    assert!(
+        matches!(
+            pdf_syntax::Document::open(out.clone()),
+            Err(pdf_syntax::SyntaxError::PasswordRequired)
+        ),
+        "the fixture asks for a password, or the tests below test nothing"
+    );
+    out
+}
+
+/// Every name §7.6.4.1's prompt was raised under, in order.
+fn prompts(events: &[Event]) -> Vec<DocumentId> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PasswordRequired { document } => Some(*document),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `Command::Open` with a password, which is how a host answers §7.6.4.1's prompt.
+fn retry(viewer: &mut Viewer, id: DocumentId, bytes: &[u8], password: &str) -> Vec<Event> {
+    viewer
+        .handle(Command::Open {
+            id,
+            bytes: bytes.to_vec().into(),
+            password: Some(password.to_owned().into()),
+            fragment: None,
+        })
+        .collect()
+}
+
+/// §12.6.4.7's file that asks for §7.6.4.1's password is asked about under the name the thread
+/// replaces — the document the link was in, since Table 209 states no `/NewWindow` — and opens at
+/// its bead once the password is given.
+///
+/// §7.6.4.1: "If this authentication attempt fails, the interactive PDF processor should prompt
+/// for a password." The named wrong answers: a decline where a prompt is owed, a prompt under the
+/// name a host offered for a window of its own, a retry that opens at the file's first page, and
+/// a wrong password that ends the hold (ADR 1335).
+#[test]
+fn a_thread_file_that_asks_for_a_password_is_asked_about_and_opened_at_its_bead() {
+    const OFFERED: DocumentId = DocumentId(9);
+    let bytes = locked(articles(), 7);
+    let (mut viewer, _) = threaded("<< /Type /Action /S /Thread /F (articles.pdf) /D 0 >>");
+    viewer.handle(Command::Beside(Some(OFFERED))).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::ThreadDocument,
+            bytes: Some(bytes.clone()),
+        })
+        .collect();
+    assert_eq!(prompts(&events), [DOCUMENT], "{:?}", notes(&events));
+    assert!(
+        !notes(&events).iter().any(|note| note.contains("declines")),
+        "a file that wants a password is not one this reader cannot read: {:?}",
+        notes(&events)
+    );
+
+    let wrong = retry(&mut viewer, DOCUMENT, &bytes, "wrong");
+    assert_eq!(
+        prompts(&wrong),
+        [DOCUMENT],
+        "asked again, under the same name"
+    );
+
+    let events = retry(&mut viewer, DOCUMENT, &bytes, PASSWORD);
+    let opened: Vec<(DocumentId, usize)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Opened { document, pages } => Some((*document, *pages)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opened, [(DOCUMENT, 3)], "the file's three pages, in place");
+    let turned: Vec<usize> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::PageChanged { index, .. } => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        turned.last(),
+        Some(&2),
+        "the bead's page, the third: {turned:?}"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("opened articles.pdf") && note.contains("at page 3")),
+        "{:?}",
+        notes(&events)
+    );
+}
+
+/// §12.7.8's second file that asks for §7.6.4.1's password is asked about under the name a host
+/// offered for it, and once the password is given it is drawn into the document that asked — which
+/// stays open and stays itself — and the offered name is closed.
+///
+/// The named wrong answers: a decline where a prompt is owed, the next file asked for while this
+/// one is unsettled, the template file opened as a document in place of the form, and a host left
+/// holding a name nothing will ever open under (ADR 1335).
+#[test]
+fn a_named_page_file_that_asks_for_a_password_is_drawn_in_once_it_is_given() {
+    const OFFERED: DocumentId = DocumentId(9);
+    let bytes = locked(library(), 6);
+    let (mut viewer, _) = importing();
+    viewer.handle(Command::Beside(Some(OFFERED))).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::NamedPage,
+            bytes: Some(bytes.clone()),
+        })
+        .collect();
+    assert_eq!(prompts(&events), [OFFERED], "{:?}", notes(&events));
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("library.pdf asks for a password")),
+        "{:?}",
+        notes(&events)
+    );
+    assert!(
+        !notes(&events).iter().any(|note| note.contains("declined")),
+        "nothing is declined while the prompt stands: {:?}",
+        notes(&events)
+    );
+    assert!(asked_for(&events).is_empty(), "one file at a time");
+
+    let wrong = retry(&mut viewer, OFFERED, &bytes, "wrong");
+    assert_eq!(
+        prompts(&wrong),
+        [OFFERED],
+        "asked again, under the same name"
+    );
+
+    let events = retry(&mut viewer, OFFERED, &bytes, PASSWORD);
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Closed(document) if *document == OFFERED)),
+        "the name the prompt was raised under is closed: {events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Opened { .. })),
+        "the template file is not opened as a document"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("library.pdf gave 1 appearance(s) and 0 page(s)")),
+        "{:?}",
+        notes(&events)
+    );
+
+    // A host that offered no name is asked under the form's own, and the form is not replaced.
+    let (mut viewer, _) = importing();
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::NamedPage,
+            bytes: Some(bytes.clone()),
+        })
+        .collect();
+    assert_eq!(prompts(&events), [DOCUMENT]);
+    let events = retry(&mut viewer, DOCUMENT, &bytes, PASSWORD);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Opened { .. } | Event::Closed(_))),
+        "the form stays open and stays itself: {events:?}"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note.contains("library.pdf gave 1 appearance(s)")),
+        "{:?}",
+        notes(&events)
+    );
+}

@@ -200,14 +200,14 @@ pub struct Viewer {
     /// loud. Taken rather than read when one is opened under it, so a host offers a name per tab.
     /// ADR 1263.
     beside: Option<DocumentId>,
-    /// §12.6.4.3's jump whose file asked for §7.6.4.1's password, and the name it was asked under.
+    /// A file a document named that asked for §7.6.4.1's password, and the name it was asked under.
     ///
     /// Held here rather than on the source document because the retry is `Command::Open` under
     /// that name, which is the route every document a host names takes: the host answers the
-    /// prompt with the file's own bytes and a password, and the destination the action named is
-    /// applied to the document that opens. Taken by the next open of any name, so a jump a person
-    /// walked away from never lands on a document opened later (ADR 1332).
-    locked: Option<(DocumentId, Box<interact::Locked>)>,
+    /// prompt with the file's own bytes and a password, and what the request named is applied to
+    /// the file that opens. Taken by the next open of any name, so a jump a person walked away
+    /// from never lands on a document opened later (ADRs 1332, 1335).
+    locked: Option<Hold>,
     /// §8.10.4's target documents, parsed once for every document this viewer holds.
     ///
     /// Handed to each [`Open`] as it is created, so that a document opened after
@@ -220,6 +220,17 @@ pub struct Viewer {
     /// about any document, so the party that sent the command is the party that asks. See
     /// [`Self::reference_refusals`].
     reference_refusals: Vec<pdf_model::reference::Refusal>,
+}
+
+/// A file held for §7.6.4.1's password, with the two names it is about.
+#[derive(Debug)]
+struct Hold {
+    /// The name the prompt was raised under, which the retry's `Command::Open` names.
+    asked: DocumentId,
+    /// The document whose request named the file.
+    source: DocumentId,
+    /// What the file was named for.
+    locked: Box<interact::Locked>,
 }
 
 impl Viewer {
@@ -710,21 +721,25 @@ impl Viewer {
         fragment: Option<&str>,
         events: &mut Vec<Event>,
     ) {
-        // A §12.6.4.3 jump held for a password is this open's only where the name is the one it
-        // was asked under; any other open ends it, for `locked`'s reason.
-        let locked = self
-            .locked
-            .take()
-            .filter(|(asked, _)| *asked == id)
-            .map(|(_, locked)| locked);
-        let limits = locked
+        // A file held for a password is this open's only where the name is the one it was asked
+        // under; any other open ends it, for `locked`'s reason.
+        let hold = match self.locked.take().filter(|hold| hold.asked == id) {
+            // §12.7.8's named page is drawn into the document that named it rather than shown, so
+            // its retry reads the file and opens nothing (ADR 1335).
+            Some(hold) if !hold.locked.opens_a_document() => {
+                self.supply_held(hold, bytes, password, events);
+                return;
+            }
+            hold => hold,
+        };
+        let limits = hold
             .as_ref()
-            .map_or(pdf_syntax::Limits::DEFAULT, |locked| locked.limits);
+            .map_or(pdf_syntax::Limits::DEFAULT, |hold| hold.locked.limits);
         match Open::new(bytes, password, limits) {
             Ok(mut open) => {
                 let mut placed = None;
-                if let Some(locked) = &locked {
-                    match interact::place_remote(&locked.remote, &mut open) {
+                if let Some(hold) = &hold {
+                    match hold.locked.place(&mut open) {
                         Ok(note) => placed = Some(note),
                         Err(reason) => {
                             events.push(Event::OpenFailed {
@@ -801,7 +816,7 @@ impl Viewer {
             // wants a password is not a document this program cannot read.
             Err(SyntaxError::PasswordRequired) => {
                 // Held again for the next attempt, which a wrong password is owed.
-                self.locked = locked.map(|locked| (id, locked));
+                self.locked = hold;
                 events.push(Event::PasswordRequired { document: id });
             }
             Err(error) => events.push(Event::OpenFailed {
@@ -942,6 +957,7 @@ impl Viewer {
                 document: id,
                 purpose: Purpose::ImportData,
                 name,
+                beside: false,
             });
         }
     }
@@ -1364,11 +1380,26 @@ impl Viewer {
             file: source,
             format,
         });
-        let mut outcome = interact::import(open, bytes, interact::Arrival::Answer);
+        let outcome = interact::import(open, bytes, interact::Arrival::Answer);
         if in_front {
             self.apply(document, outcome, events);
             return;
         }
+        Self::apply_behind(document, open, outcome, events);
+    }
+
+    /// What an outcome about a document behind the one in front can still do: its values, its
+    /// sentences, and a redraw when it next comes to the front.
+    ///
+    /// Table 253's second file is declined out loud rather than asked for, because
+    /// [`Command::Supply`] answers the document in front and a question on behalf of a document
+    /// nobody is looking at is one nobody can place.
+    fn apply_behind(
+        document: DocumentId,
+        open: &mut Open,
+        mut outcome: interact::Outcome,
+        events: &mut Vec<Event>,
+    ) {
         if outcome.redraw {
             open.stale();
         }
@@ -1384,6 +1415,51 @@ impl Viewer {
                 page: Some(open.page_index),
                 notes: outcome.notes,
             });
+        }
+    }
+
+    /// §12.7.8's named page whose file asked for §7.6.4.1's password, retried with one.
+    ///
+    /// The file is read under the bounds of the document that named it and drawn into that
+    /// document, which is the only one it was ever for. Nothing opens under the name the prompt was
+    /// raised under, so where that name is not the source's own it is closed, which is how a host
+    /// holding it for the file learns the file has been read (ADR 1335).
+    fn supply_held(
+        &mut self,
+        hold: Hold,
+        bytes: FileBytes,
+        password: Option<&crate::Secret>,
+        events: &mut Vec<Event>,
+    ) {
+        let interact::Held::NamedPage(file) = &hold.locked.held else {
+            return;
+        };
+        let file = file.clone();
+        let read = Open::read(bytes, password, hold.locked.limits);
+        if matches!(read, Err(SyntaxError::PasswordRequired)) {
+            let asked = hold.asked;
+            self.locked = Some(hold);
+            events.push(Event::PasswordRequired { document: asked });
+            return;
+        }
+        if hold.asked != hold.source {
+            events.push(Event::Closed(hold.asked));
+        }
+        let in_front = self.focused == Some(hold.source);
+        // The document that named the file, where it is still waiting for this one: a file whose
+        // references were declined meanwhile has nothing left to give.
+        let Some(open) = self
+            .documents
+            .get_mut(&hold.source)
+            .filter(|open| open.view.file_awaited() == Some(file.as_str()))
+        else {
+            return;
+        };
+        let outcome = interact::named_pages_from(open, &file, read);
+        if in_front {
+            self.apply(hold.source, outcome, events);
+        } else {
+            Self::apply_behind(hold.source, open, outcome, events);
         }
     }
 
@@ -1427,21 +1503,9 @@ impl Viewer {
                 submission: Box::new(submission),
             });
         }
-        for (purpose, name) in outcome.needs_file {
-            events.push(Event::NeedsFile {
-                document: id,
-                purpose,
-                name,
-            });
-        }
-        // §7.6.4.1's prompt for the file a §12.6.4.3 jump reached, under the name the document
-        // would have opened under: the reserve where the action asked for a window of its own and
-        // the host offered one, and the document it was reached from otherwise, which is what
-        // `/NewWindow false` replaces (ADR 1332).
+        self.ask_for_files(id, outcome.needs_file, events);
         if let Some(locked) = outcome.locked {
-            let target = into.unwrap_or(id);
-            self.locked = Some((target, locked));
-            events.push(Event::PasswordRequired { document: target });
+            self.hold(id, into, locked, events);
         }
         for transition in outcome.transitions {
             if let Some(note) = crate::transition::note(&transition) {
@@ -1512,6 +1576,68 @@ impl Viewer {
             // clicking on a link)", which the clause treats as forward.
             self.arrive(id, true, Turn::Requested, events);
         }
+    }
+
+    /// Every file an outcome asked a host for, as `Event::NeedsFile`.
+    ///
+    /// Table 203's and Table 204's `/NewWindow true` travels on the question, so that a host
+    /// asking a person about the file can say where it would open (ADR 1335).
+    fn ask_for_files(
+        &self,
+        id: DocumentId,
+        files: Vec<(Purpose, String)>,
+        events: &mut Vec<Event>,
+    ) {
+        let (remote_beside, root_beside) = self.documents.get(&id).map_or((false, false), |open| {
+            (
+                open.opening
+                    .as_ref()
+                    .is_some_and(|remote| remote.new_window == Some(true)),
+                open.resuming
+                    .as_ref()
+                    .is_some_and(|target| target.new_window == Some(true)),
+            )
+        });
+        for (purpose, name) in files {
+            events.push(Event::NeedsFile {
+                document: id,
+                purpose,
+                name,
+                beside: match purpose {
+                    Purpose::RemoteDocument => remote_beside,
+                    Purpose::TargetRoot => root_beside,
+                    Purpose::ImportData | Purpose::NamedPage | Purpose::ThreadDocument => false,
+                },
+            });
+        }
+    }
+
+    /// Holds a file that asked for §7.6.4.1's password, and raises the prompt about it.
+    ///
+    /// The prompt is under the name the file would open under: for a jump, `into` — the reserve,
+    /// where the action asked for a window of its own and the host offered one — and the document
+    /// it was reached from otherwise, which is what `/NewWindow false` replaces (ADR 1332).
+    /// §12.7.8's named page opens under no name, so it is asked about under the reserve where the
+    /// host offered one — a name no tab has, which the retry then closes — and under the source
+    /// otherwise (ADR 1335).
+    fn hold(
+        &mut self,
+        id: DocumentId,
+        into: Option<DocumentId>,
+        locked: Box<interact::Locked>,
+        events: &mut Vec<Event>,
+    ) {
+        let asked = if locked.opens_a_document() {
+            into.unwrap_or(id)
+        } else {
+            self.beside.take().unwrap_or(id)
+        };
+        self.locked = Some(Hold {
+            asked,
+            source: id,
+            locked,
+        });
+        events.push(Event::PasswordRequired { document: asked });
     }
 
     /// Writes §7.5.6's incremental update, or says why it could not be written.

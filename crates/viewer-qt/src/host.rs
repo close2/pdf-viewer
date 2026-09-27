@@ -1587,12 +1587,19 @@ impl Host {
     /// The policy is `viewer_host::remote`'s and not this window's, so a level a reader sets is a
     /// value there rather than three windows' worth of editing — ADR 1079's shape and ADR 1155's,
     /// one clause along. What is this window's is the dialogue and the status line (ADR 1227).
-    fn remote(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
+    fn remote(
+        &mut self,
+        purpose: Purpose,
+        name: &str,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    ) {
         match viewer_host::remote(
             self.showing.directory.as_deref(),
             name,
             self.remote_documents,
             purpose,
+            beside,
         ) {
             viewer_host::Remote::Supply { path, note } => {
                 let bytes = self.read_remote(purpose, name, &path);
@@ -2903,6 +2910,7 @@ impl Host {
         if viewer_accessibility::republishes(&command) {
             self.spoken = None;
         }
+        let supplied = matches!(command, Command::Supply { .. });
         let events: Vec<Event> = self.viewer.handle(command).collect();
         if let Some(described) = described {
             self.trace.say(
@@ -2912,6 +2920,10 @@ impl Host {
         }
         for event in events {
             self.react(event, queue);
+        }
+        // Every event the supply caused has been seen, so an offer nothing took is spent.
+        if supplied {
+            self.arrivals.supplied();
         }
     }
 
@@ -3192,6 +3204,9 @@ impl Host {
             // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the
             // refresh at the end of every pump has already been scheduled by the time this
             // arrives.
+            // A file held for a §12.7.8 named page's password is read and put down again, and the
+            // name it was asked under is closed so this window stops holding it (ADR 1335).
+            Event::Closed(document) if self.arrivals.is(document) => self.given_up(document),
             Event::Closed(_) | Event::Damage(_) => {}
             Event::PageChanged {
                 index,
@@ -3222,10 +3237,13 @@ impl Host {
             // *values* into the document being read, while a remote go-to, a thread in another
             // file and a named page each make this program parse a second PDF — which is the act
             // a person may want to be asked about (ADRs 1227, 1239).
-            Event::NeedsFile { purpose, name, .. }
-                if viewer_host::under_remote_documents(purpose) =>
-            {
-                self.remote(purpose, &name, queue);
+            Event::NeedsFile {
+                purpose,
+                name,
+                beside,
+                ..
+            } if viewer_host::under_remote_documents(purpose) => {
+                self.remote(purpose, &name, beside, queue);
             }
             Event::NeedsFile { purpose, name, .. } => self.import(purpose, &name, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.

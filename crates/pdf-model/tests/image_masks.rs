@@ -1311,6 +1311,115 @@ fn a_stencil_under_the_graphics_states_soft_mask_is_drawn_through_both() {
     assert!(!marked(&raster, 35, 5), "bottom row, fourth cell, unmarked");
 }
 
+/// A stencil painted through a pattern under the graphics state's soft mask: the stencil is the
+/// mark's shape, the pattern its colour, the state's mask its opacity (ADR 1334).
+///
+/// §8.9.6.2 paints the stencil's places "with the current colour", which §8.7.2 lets be a
+/// pattern; §11.6.4.3 displaces the state's mask only by "[e]ither form of mask in the image
+/// dictionary", which a stencil is not. So both masks act, and §11.3.5's compositing of a mark
+/// of shape 1 and opacity `q` in colour `Cs` over a backdrop `Cb` is `(1 − q)·Cb + q·Cs`.
+///
+/// The page is white, the pattern red, and the state's mask a luminosity group grey 0.5 over the
+/// left half of the page and white over the right. So a cell the stencil marks on the left is
+/// `(1 − 0.5)·(1, 1, 1) + 0.5·(1, 0, 0)` = (255, 127.5, 127.5) by hand, one on the right is the
+/// pattern's red whole, and a cell the stencil leaves alone is the white page on either side.
+/// `pattern` is the pattern object, number 8, as either kind a stencil can be painted with.
+fn stencil_through_a_pattern_under_a_soft_mask(pattern: &[u8]) -> Vec<u8> {
+    let content = "1 g 0 0 40 40 re f /GS gs /Pattern cs /P0 scn 40 0 0 40 0 0 cm /Im Do";
+    let group = "1 g 0 0 40 40 re f 0.5 g 0 0 20 40 re f";
+    assemble(&[
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /XObject << /Im 5 0 R >> /ExtGState << /GS 6 0 R >> \
+          /Pattern << /P0 8 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", content.as_bytes()),
+        stream_object(
+            5,
+            "/Type /XObject /Subtype /Image /Width 4 /Height 2 /ImageMask true",
+            PATTERN,
+        ),
+        b"6 0 obj\n<< /Type /ExtGState /SMask << /S /Luminosity /G 7 0 R >> >>\nendobj\n".to_vec(),
+        stream_object(
+            7,
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+             /Group << /S /Transparency /CS /DeviceGray >>",
+            group.as_bytes(),
+        ),
+        pattern.to_vec(),
+    ])
+}
+
+/// A red shading pattern: an axial shading whose function is the one colour at both ends.
+const RED_SHADING_PATTERN: &[u8] = b"8 0 obj\n<< /PatternType 2 /Shading << /ShadingType 2 \
+    /ColorSpace /DeviceRGB /Coords [0 0 40 0] /Extend [true true] /Function << /FunctionType 2 \
+    /Domain [0 1] /C0 [1 0 0] /C1 [1 0 0] /N 1 >> >> >>\nendobj\n";
+
+/// A red coloured tiling pattern whose one cell fills its whole step.
+fn red_tiling_pattern() -> Vec<u8> {
+    stream_object(
+        8,
+        "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 \
+         /Resources << >>",
+        b"1 0 0 rg 0 0 10 10 re f",
+    )
+}
+
+/// The three cells of [`stencil_through_a_pattern_under_a_soft_mask`] against §11.3.5 by hand.
+fn assert_composed(raster: &pdf_render::Raster, pattern: &str) {
+    let near = |got: [u8; 4], want: [u8; 3]| {
+        got[3] == 255
+            && got
+                .iter()
+                .zip(want)
+                .all(|(got, want)| got.abs_diff(want) <= 2)
+    };
+    // Bottom row `0 0 0 1`: the first cell is marked under the grey half of the mask.
+    let half = pixel(raster, 5, 5);
+    assert!(
+        near(half, [255, 128, 128]),
+        "{pattern}: shape 1 and opacity 0.5 over white is (255, 127.5, 127.5), got {half:?}"
+    );
+    // The third cell is marked under the white half, where the opacity is 1.
+    let whole = pixel(raster, 25, 5);
+    assert!(
+        near(whole, [255, 0, 0]),
+        "{pattern}: shape 1 and opacity 1 is the pattern itself, got {whole:?}"
+    );
+    // The fourth cell the stencil leaves alone: the page shows through whatever the mask says.
+    let clear = pixel(raster, 35, 5);
+    assert!(
+        near(clear, [255, 255, 255]),
+        "{pattern}: shape 0 leaves the white page, got {clear:?}"
+    );
+    // And the top row's second cell, masked by the stencil under the mask's grey half.
+    let top = pixel(raster, 15, 30);
+    assert!(
+        near(top, [255, 255, 255]),
+        "{pattern}: shape 0 under opacity 0.5 is still the page, got {top:?}"
+    );
+}
+
+/// The shading-pattern half of the two-mask composition, drawn completely and to the formula.
+#[test]
+fn a_stencil_painted_with_a_shading_pattern_under_a_soft_mask_is_drawn_through_both() {
+    let raster = render(stencil_through_a_pattern_under_a_soft_mask(
+        RED_SHADING_PATTERN,
+    ));
+    assert_composed(&raster, "shading pattern");
+}
+
+/// The tiling-pattern half: the cells go through the product of the two masks on the group
+/// `Interpreter::tile` builds, which §11.6.7 asks to composite once.
+#[test]
+fn a_stencil_painted_with_a_tiling_pattern_under_a_soft_mask_is_drawn_through_both() {
+    let raster = render(stencil_through_a_pattern_under_a_soft_mask(
+        &red_tiling_pattern(),
+    ));
+    assert_composed(&raster, "tiling pattern");
+}
+
 /// A one-page PDF whose only mark is a knockout group drawing one image twice, overlapping.
 ///
 /// `image` is the image `XObject`'s dictionary beyond its size, `data` its samples, and

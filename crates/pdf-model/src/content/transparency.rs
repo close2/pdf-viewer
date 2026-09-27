@@ -39,6 +39,24 @@ pub(super) struct TransparencyGroup {
     colour_space: Object,
 }
 
+/// What a transparency group's content is, for the runs [`Interpreter::run_transparency_group`]
+/// makes of it.
+///
+/// A group is run more than once where it composites in a space of its own or gives one up, so
+/// its content is held as something that can be run again rather than as operators already
+/// read. Two of the three are ISO 32000-2 §8.10.4's imported page, and the reason there are two
+/// is that §8.10.4.1 and §11.4.7 each hand that page a group of its own — see
+/// [`Interpreter::run_group_body`].
+pub(super) enum GroupBody<'b, 'a> {
+    /// A content stream of the document in force: a form's, an annotation appearance's.
+    Stream(&'b NestedContent),
+    /// §8.10.4's imported page, run as §11.4.7's group under its own page `/Group`, inside the
+    /// proxy's group where the proxy states one.
+    ImportedPage(&'b super::xobject::ImportedPage<'a>),
+    /// That page's content and annotations, which are what its page group holds.
+    ImportedContent(&'b super::xobject::ImportedPage<'a>),
+}
+
 /// Which elementary graphics object is being painted, for §11.7.5.2's conditions.
 ///
 /// The clause's six conditions are not all about the graphics state: the fourth is about the
@@ -2652,7 +2670,7 @@ struct ReadbackMark {
     text_cursor: Option<(f32, f32)>,
 }
 
-impl Interpreter<'_> {
+impl<'a> Interpreter<'a> {
     /// Records where every readback accumulator stands. See [`ReadbackMark`].
     fn readback_mark(&self) -> ReadbackMark {
         ReadbackMark {
@@ -2888,7 +2906,7 @@ impl Interpreter<'_> {
     fn black_half(
         &mut self,
         press: &Arc<Press>,
-        content: &NestedContent,
+        body: &GroupBody<'_, 'a>,
         resources: &Dictionary,
         inner: &GraphicsState,
         mark: usize,
@@ -2904,7 +2922,7 @@ impl Interpreter<'_> {
             Compositing::Subtractive(crate::colour::Plane::Black, Arc::clone(press), spots),
         );
         self.restart_reading_scope(inner.alpha_is_shape, mark);
-        self.run(content, resources, inner);
+        self.run_group_body(body, resources, inner);
         self.compositing = saved;
         self.rewind_readback(rewind);
         let black = self.list.split_off_commands(mark);
@@ -3050,7 +3068,8 @@ impl Interpreter<'_> {
         let on_device = |interpreter: &mut Self, detail: String| {
             interpreter.note(Unsupported::TransparencyGroup { detail });
             let saved = std::mem::replace(&mut interpreter.compositing, Compositing::Device);
-            let redrawn = interpreter.rerun_inheriting(content, resources, inner, mark);
+            let redrawn =
+                interpreter.rerun_inheriting(&GroupBody::Stream(content), resources, inner, mark);
             interpreter.compositing = saved;
             (redrawn, None)
         };
@@ -3414,6 +3433,25 @@ impl Interpreter<'_> {
         inner: &GraphicsState,
         outer: &GraphicsState,
     ) {
+        self.run_transparency_group_body(
+            group,
+            &GroupBody::Stream(content),
+            resources,
+            inner,
+            outer,
+        );
+    }
+
+    /// [`Interpreter::run_transparency_group`] for any of [`GroupBody`]'s three contents, which
+    /// is where §8.10.4's imported page enters (ADR 1339).
+    pub(super) fn run_transparency_group_body(
+        &mut self,
+        group: &TransparencyGroup,
+        body: &GroupBody<'_, 'a>,
+        resources: &Dictionary,
+        inner: &GraphicsState,
+        outer: &GraphicsState,
+    ) {
         let mut inner = inner.clone();
         // §11.6.6, of what `Do` adds for a transparency group XObject:
         //
@@ -3464,7 +3502,7 @@ impl Interpreter<'_> {
             pair,
             alpha_sources,
             in_own_space,
-        } = self.group_commands(group, content, resources, (&inner, outer), changed);
+        } = self.group_commands(group, body, resources, (&inner, outer), changed);
         self.blending = outside;
         self.enclosing_knockout = enclosing;
         // A group that changes the space in force, with something compositing in it, and
@@ -3707,7 +3745,7 @@ impl Interpreter<'_> {
     fn group_commands(
         &mut self,
         group: &TransparencyGroup,
-        content: &NestedContent,
+        body: &GroupBody<'_, 'a>,
         resources: &Dictionary,
         states: (&GraphicsState, &GraphicsState),
         changed: bool,
@@ -3747,7 +3785,7 @@ impl Interpreter<'_> {
         if let Some(own) = &own {
             self.compositing = own.clone();
         }
-        self.run(content, resources, inner);
+        self.run_group_body(body, resources, inner);
         self.compositing = saved.clone();
         let mut commands = self.list.split_off_commands(mark);
         let mut pair = None;
@@ -3763,7 +3801,7 @@ impl Interpreter<'_> {
             // enclosing run reads.
             let drawn = match own {
                 Compositing::Subtractive(_, press, _) => self
-                    .black_half(press, content, resources, inner, mark, &commands)
+                    .black_half(press, body, resources, inner, mark, &commands)
                     .map_or(OwnSpaceRun::GivenUp, |pair| OwnSpaceRun::Drawn(Some(pair))),
                 // A group inside changed the space with something compositing in it and
                 // could not be drawn there, so its `Do` owes a conversion no list here
@@ -3804,7 +3842,7 @@ impl Interpreter<'_> {
                     pair = out;
                 }
                 OwnSpaceRun::GivenUp => {
-                    commands = self.rerun_inheriting(content, resources, inner, mark);
+                    commands = self.rerun_inheriting(body, resources, inner, mark);
                 }
             }
         }
@@ -3829,14 +3867,14 @@ impl Interpreter<'_> {
     /// [`Interpreter::group_commands`] for the cases.
     fn rerun_inheriting(
         &mut self,
-        content: &NestedContent,
+        body: &GroupBody<'_, 'a>,
         resources: &Dictionary,
         inner: &GraphicsState,
         mark: usize,
     ) -> Vec<Command> {
         let rewind = self.readback_mark();
         self.restart_reading_scope(inner.alpha_is_shape, mark);
-        self.run(content, resources, inner);
+        self.run_group_body(body, resources, inner);
         self.rewind_readback(rewind);
         self.list.split_off_commands(mark)
     }
@@ -3863,6 +3901,29 @@ impl Interpreter<'_> {
             isolated: matches!(self.document.get_key(group, "I"), Object::Boolean(true)),
             knockout: matches!(self.document.get_key(group, "K"), Object::Boolean(true)),
             colour_space: self.document.get_key(group, "CS"),
+        })
+    }
+
+    /// The group an imported page is composited as (ISO 32000-2 §11.4.7, §8.10.4).
+    ///
+    /// §11.4.7 treats a page in one of two ways, and the second is the one a reference `XObject`
+    /// reaches:
+    ///
+    /// > In this situation the PDF 'page' shall not be composited with the media colour; instead
+    /// > it shall be treated as a transparency group using the page Group attributes dictionary
+    /// > and is composited with its backdrop in the usual way according to the page Group
+    /// > attributes dictionary settings.
+    ///
+    /// The dictionary is the *imported* page's own, read here while the target document is the
+    /// one in force. The page is a group whether or not it states one: a page with no `/Group`
+    /// is a group under Table 145's defaults — neither isolated nor knockout, and inheriting its
+    /// blending space — which §11.4.4's NOTE 5 then draws inline wherever the `Do` composites
+    /// trivially, and as one object wherever it does not.
+    pub(super) fn imported_page_group(&mut self, page: &Dictionary) -> TransparencyGroup {
+        self.transparency_group(page).unwrap_or(TransparencyGroup {
+            isolated: false,
+            knockout: false,
+            colour_space: Object::Null,
         })
     }
 
@@ -5066,7 +5127,7 @@ mod tests {
 
     /// A form's knockout group carries a constant alpha at its `Do`, and the mode moved
     /// there is still §11.4.6's own-backdrop picture pixel for pixel — the claim ADR 1000
-    /// §7 priced and did not draw.
+    /// section 7 priced and did not draw.
     ///
     /// Over an opaque red page, blue at 1.0 under `Difference` composited with the page is
     /// magenta `(1, 0, 1)`; a part of zero opacity over `[30.5, 30]–[80, 80]` knocks the
@@ -5207,7 +5268,7 @@ mod tests {
 
     /// A form `XObject`'s non-isolated knockout group whose coloured elements share a mode
     /// takes it to its `Do` and is an isolated group to every backend — the caller ADR 1000
-    /// §7 left on §11.4.6's own backdrop. Cyan under Multiply over a yellow page is green,
+    /// section 7 left on §11.4.6's own backdrop. Cyan under Multiply over a yellow page is green,
     /// and a magenta fill at `ca 0` over it is a hole showing the page; `Difference` under
     /// two colours is the control that still takes the own-backdrop construction.
     #[test]

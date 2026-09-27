@@ -495,9 +495,11 @@ pub struct Arrivals {
 /// A file a document named, supplied to the core under a name held out for it.
 ///
 /// Kept until the core says what became of it: `Event::Opened` under the offered name gives it a
-/// tab, and `Event::PasswordRequired` makes it the document being opened, so the prompt and the
-/// second attempt are about *it*. A name offered that nothing opens under is replaced by the next
-/// offer, which is `viewer_core::Command::Beside`'s own rule (ADR 1332).
+/// tab, `Event::Opened` under the document it was named from makes it that tab's document, and
+/// `Event::PasswordRequired` makes it the document being opened, so the prompt and the second
+/// attempt are about *it*. The supply it was made for is answered inside one command, so once that
+/// command's events have been seen an offer nothing took is spent ([`Arrivals::supplied`]), and no
+/// later replacement of the same tab can be mistaken for it (ADRs 1332, 1335).
 #[derive(Debug)]
 struct Offered {
     /// The name offered.
@@ -591,6 +593,16 @@ impl Arrivals {
         true
     }
 
+    /// The command the offer was made for has been answered, and every event it caused seen.
+    ///
+    /// An offer the core took is gone by then — settled, or become the document being opened — so
+    /// what is left is one nothing opened under: a declined jump, a named page drawn into the
+    /// document that asked for it. Kept, it would name the next replacement of the tab it came
+    /// from, which could be a §12.6.4.4 embedded document that is not this file at all.
+    pub fn supplied(&mut self) {
+        self.offered = None;
+    }
+
     /// The next document to open, where nothing is being opened and something is waiting.
     ///
     /// Reserves its name from the window's strip, which is what makes the name one no other tab
@@ -628,7 +640,14 @@ impl Arrivals {
     }
 
     /// Takes the document being opened out of the queue, where the name is its name — or the
-    /// file offered under it, which opened without a prompt.
+    /// file offered for it, which opened without a prompt: beside, under the offered name, or in
+    /// place of the document it was named from, under that document's name.
+    ///
+    /// The second is Table 203's `/NewWindow false` — "the destination document replaces the
+    /// current document in the same window" — and a §12.6.4.7 thread in another file, whose Table
+    /// 209 states no window and which this reader shows in place. The tab and a window's fields
+    /// become the new file's exactly as after §7.6.4.1's prompt, so one route serves both
+    /// (ADR 1335).
     ///
     /// Called when it has opened, when it failed, and when a person declined it; the next one
     /// waiting is then [`Self::start`]'s.
@@ -636,7 +655,9 @@ impl Arrivals {
         if self.is(id) {
             return self.now.take();
         }
-        let offered = self.offered.take_if(|offered| offered.id == id)?;
+        let offered = self
+            .offered
+            .take_if(|offered| offered.id == id || offered.from == id)?;
         Some(Arriving {
             id,
             named: offered.named,
@@ -1010,13 +1031,13 @@ mod tests {
             assert!(arrivals.settle(asked).is_some());
         }
 
-        // Opened without a prompt: the offer settles under its own name and no other.
+        // Opened without a prompt: the offer settles under its own name, once.
         let mut documents: Documents<()> = Documents::new(DocumentId(0), "first.pdf".to_owned());
         let mut arrivals = super::Arrivals::new();
         let offered = arrivals.offer(&mut documents, path.clone(), b"");
         assert!(
-            arrivals.settle(DocumentId(0)).is_none(),
-            "the source is not the offer"
+            arrivals.settle(DocumentId(5)).is_none(),
+            "a name that is neither the offer nor its source"
         );
         let Some(arriving) = arrivals.settle(offered) else {
             panic!("the offered file opened under its name");
@@ -1024,5 +1045,39 @@ mod tests {
         assert_eq!(arriving.named.path, path);
         assert!(arrivals.settle(offered).is_none(), "and only once");
         std::fs::remove_dir_all(&directory).expect("scratch removed");
+    }
+
+    /// Table 203's `/NewWindow false` without a prompt: "the destination document replaces the
+    /// current document in the same window", so `Event::Opened` comes back under the source's
+    /// name and the offer is what says which file that now is — the tab's label and a window's
+    /// path follow it. The named wrong answers: the source keeping its old file's name, and an
+    /// offer nothing took naming a later replacement of the same tab (ADR 1335).
+    #[test]
+    fn a_replacement_without_a_prompt_is_the_offered_file() {
+        let path = std::path::PathBuf::from("/documents/second.pdf");
+        let mut documents: Documents<()> = Documents::new(DocumentId(0), "first.pdf".to_owned());
+        let mut arrivals = super::Arrivals::new();
+        arrivals.offer(&mut documents, path.clone(), b"%PDF-1.7 second");
+        let Some(arriving) = arrivals.settle(DocumentId(0)) else {
+            panic!("the source's own name opened, and it is the offered file");
+        };
+        assert_eq!(arriving.id, DocumentId(0), "the tab it replaces");
+        assert_eq!(arriving.named.path, path, "the file the tab now shows");
+        assert!(
+            arrivals.settle(DocumentId(0)).is_none(),
+            "a second replacement of the tab is not this file"
+        );
+
+        // An offer the supply did not take is spent once its command is answered.
+        arrivals.offer(&mut documents, path, b"%PDF-1.7 second");
+        arrivals.supplied();
+        assert!(
+            arrivals.settle(DocumentId(0)).is_none(),
+            "an embedded document replacing the tab later is not the declined file"
+        );
+        assert!(
+            !arrivals.locked(DocumentId(0)),
+            "nor is a later prompt about it"
+        );
     }
 }

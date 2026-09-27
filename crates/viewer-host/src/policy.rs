@@ -486,7 +486,13 @@ pub const fn asked_for(purpose: Purpose) -> &'static str {
 /// the bytes: two replace the document on the screen and one draws a page of the second file into
 /// the document being read. A person deciding whether to let a file be opened is deciding about
 /// *that*, so the sentence is per purpose rather than per act (trap 5, ADR 1239).
-const fn what_would_happen(purpose: Purpose) -> &'static str {
+///
+/// `beside` is `viewer_core::Event::NeedsFile`'s: Table 203's `/NewWindow true`, which every
+/// window in this tree answers by offering `viewer_core::Command::Beside` a name, so the file opens
+/// in a tab of its own and the document being read stays open. Table 203 says that under `false`
+/// "the destination document replaces the current document in the same window", and leaves the
+/// absent entry to the processor's preference, which here is the same replacement (ADR 1335).
+const fn what_would_happen(purpose: Purpose, beside: bool) -> &'static str {
     match purpose {
         Purpose::NamedPage => {
             "This reader would read that file and draw one of its pages into the document you are \
@@ -503,6 +509,10 @@ const fn what_would_happen(purpose: Purpose) -> &'static str {
         Purpose::TargetRoot => {
             "This reader would open that file in place of the one you are reading (ISO 32000-2 \
              §12.6.4.4)."
+        }
+        Purpose::RemoteDocument if beside => {
+            "This reader would open that file beside the one you are reading, in a tab of its own, \
+             because the link asks for a new window (ISO 32000-2 §12.6.4.3, Table 203)."
         }
         Purpose::RemoteDocument => {
             "This reader would open that file in place of the one you are reading (ISO 32000-2 \
@@ -1342,6 +1352,7 @@ pub fn remote(
     name: &str,
     level: RemoteDocuments,
     purpose: Purpose,
+    beside: bool,
 ) -> Remote {
     let path = match resolve_import(directory, name) {
         Ok(path) => path,
@@ -1361,7 +1372,7 @@ pub fn remote(
             )),
         )),
         RemoteDocuments::Ask => Remote::Ask {
-            question: asked_to_open_remote(purpose, name, &path),
+            question: asked_to_open_remote(purpose, name, &path, beside),
             path,
         },
         RemoteDocuments::Warn => Remote::Supply {
@@ -1382,17 +1393,20 @@ pub fn remote(
 /// program's questions has met the other, and no window may word either for itself. What differs
 /// is the subject — this one names the file the document asked for **and** the path it resolved
 /// to, because the second is the only thing that says which file on this disk would be read.
+/// `beside` is `viewer_core::Event::NeedsFile`'s, and says whether it would open beside the
+/// document being read or in place of it.
 #[must_use]
 pub fn asked_to_open_remote(
     purpose: Purpose,
     name: &str,
     path: &Path,
+    beside: bool,
 ) -> crate::restriction::Question {
     crate::restriction::Question {
         reasons: format!(
             "This document asks to open {name}, which is {} beside the document. {}",
             path.display(),
-            what_would_happen(purpose)
+            what_would_happen(purpose, beside)
         ),
         choice: format!(
             "You have set this reader to ask before opening a file a document names \

@@ -369,3 +369,61 @@ fn a_cycle_through_the_resources_ends() {
     .1;
     assert_eq!(names, ["Once"]);
 }
+
+/// Whether `space`, parsed as §10.8.3's simulation reads it, is separated colourant by colourant
+/// rather than reverting through its one tint transform.
+fn simulated(space: &str) -> bool {
+    let document = Document::open(file("", "", "", &[space])).expect("the fixture is a valid PDF");
+    let space = document.resolve(&pdf_syntax::Object::Reference(pdf_syntax::ObjectId::new(
+        5, 0,
+    )));
+    let parsed = pdf_model::colour::ColourSpace::parse_under(
+        &document,
+        &space,
+        &pdf_syntax::Dictionary::new(),
+        pdf_model::colour::Reading::new(None)
+            .under_separations(pdf_model::colour::Separations::Simulated),
+    )
+    .expect("the fixture's space parses");
+    matches!(parsed, pdf_model::colour::ColourSpace::Simulated { .. })
+}
+
+/// §8.6.6.5 EXAMPLE 5, the mixing hints dictionary, with its elided functions written out.
+/// "PDF processors need not use this information", and it changes nothing about which colourants
+/// the space names or how each is separated: `Spot1` and `Spot2` are the spot colourants, and
+/// each has its own `Separation` in `/Colorants`.
+#[test]
+fn the_mixing_hints_example_names_its_two_spots_and_separates_them() {
+    let space = format!(
+        "[/DeviceN [/Magenta /Spot1 /Yellow /Spot2] /DeviceCMYK {TINT} \
+           << /Subtype /NChannel /Process << /ColorSpace /DeviceCMYK \
+              /Components [/Cyan /Magenta /Yellow /Black] >> \
+              /Colorants << /Spot1 [/Separation /Spot1 /DeviceCMYK {TINT}] \
+                            /Spot2 [/Separation /Spot2 /DeviceCMYK {TINT}] >> \
+              /MixingHints << /Solidities << /Spot1 1.0 /Spot2 0.0 >> \
+                 /DotGain << /Spot1 {TINT} /Spot2 {TINT} /Magenta {TINT} /Yellow {TINT} >> \
+                 /PrintingOrder [/Magenta /Yellow /Spot1 /Spot2] >> >>]"
+    );
+    let names = enumerated(file("", "/ColorSpace << /CS0 5 0 R >>", "", &[&space])).1;
+    assert_eq!(names, ["Spot1", "Spot2"]);
+    assert!(simulated(&space));
+}
+
+/// Table 70: "The key shall match the colourant name given in that colour space." An `NChannel`
+/// whose `/Spot2` entry is `Spot1`'s `Separation` states no appearance of `Spot2` alone, so the
+/// simulation has no separation for it and the space reverts through its tint transform, as it
+/// does where the entry is missing (ADR 1338).
+#[test]
+fn an_nchannel_whose_colorants_entry_names_another_colourant_is_not_separated() {
+    let space = |spot2: &str| {
+        format!(
+            "[/DeviceN [/Magenta /Spot1 /Spot2] /DeviceCMYK {TINT} \
+               << /Subtype /NChannel /Process << /ColorSpace /DeviceCMYK \
+                  /Components [/Cyan /Magenta /Yellow /Black] >> \
+                  /Colorants << /Spot1 [/Separation /Spot1 /DeviceCMYK {TINT}] \
+                                /Spot2 [/Separation /{spot2} /DeviceCMYK {TINT}] >> >>]"
+        )
+    };
+    assert!(simulated(&space("Spot2")));
+    assert!(!simulated(&space("Spot1")));
+}

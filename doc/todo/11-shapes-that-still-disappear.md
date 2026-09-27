@@ -825,12 +825,17 @@ question was which converter, not how many calls.
 
 ### What it still owes
 
-- **Every shape that is not a single axis-aligned rectangle keeps the quantum**, where it is a
+- ~~**Every shape that is not a single axis-aligned rectangle keeps the quantum**, where it is a
   sixteenth rather than a quarter and averages along the edge: a glyph, a curve, a diagonal, a
-  stroke's outline that is not one rectangle. **A butt-capped straight rule along a device axis left
-  that list in the six-hundred-and-ninetieth session** (ADR 0535) and it left sideways: item 4's
-  stroke half draws such a mark as the fill of its own outline, and that outline *is* one
-  axis-aligned rectangle, so `device_rectangle` answers for it exactly as it does for an `re f`.
+  stroke's outline that is not one rectangle.~~ **Paid by `render_cpu::area`** (ADR 1082), which
+  measures the winding integral over each pixel exactly, and **for a path whose portions overlap
+  too** (ADR 1341): a row where the winding leaves `0..=1` is measured as the filled set's own
+  boundary, and a stroker's outline with a join or a second subpath is walked whole because a thin
+  one shows no sign of its overlap. `render-cpu/tests/overlapping_portions.rs` is two squares
+  overlapping at a corner under both rules; `render-raster/examples/ink_ladder` reads
+  `issue20232.pdf`, `issue6081.pdf` and `multiline.pdf` at their own 8× ink from 1× up. What is left
+  is an overlap confined to pixels a path that is not an outline only partly covers, with no whole
+  winding of two in its row — bounded by the overlap's own area, and not measured on this disk.
 - ~~**A path stating *several* rectangles**, which is deliberate and is item 5's subject — two
   rectangles drawn as two marks composite by §11.3.7.3's union, so taking them one at a time would
   trade this defect for a worse one along every seam. A round that wants it needs the seam answered
@@ -882,9 +887,9 @@ question was which converter, not how many calls.
   own cost on the pages that ask for it — and it is written down rather than optimised, because the
   page carrying it is one of twenty-two.
 
-  Overlapping rectangles stay declined on the clause's own grounds — §11.6.2's
-  sentence names that case and the two fill rules answer it differently, so the decomposition would
-  have to carry a winding number per cell.
+  Overlapping rectangles are not decomposed — §11.6.2's sentence names that case and the two fill
+  rules answer it differently — and `render_cpu::area` measures them as the set the rule declares
+  inside instead (ADR 1341).
 - **A rectangle is measured exactly and then still *multiplied* into its clip** for an image's edge
   and for part of a group's raster, which is item 4: what moved is what each surviving factor is
   worth, and a fill's, a stroke's and an opaque group's are no longer among them. `issue21346.pdf`'s edge went

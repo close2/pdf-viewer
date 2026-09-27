@@ -682,6 +682,10 @@ fn write_soft_masks(
                     for sample in samples {
                         writer.f32(*sample);
                     }
+                } else if luminance.is_device_ink() {
+                    // §11.5.3's EXAMPLE 2 for four inks is a formula rather than samples, so the
+                    // tag is the whole of it.
+                    writer.u8(4);
                 } else {
                     return Err(Uncodable::Unknown {
                         what: "a soft mask's luminance in a shape this build cannot write",
@@ -1918,6 +1922,7 @@ fn read_soft_mask(
                 .ok_or_else(bad)?,
             )
         }
+        4 => Some(Luminance::device_ink()),
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "a soft mask's luminance",
@@ -2845,6 +2850,48 @@ mod tests {
                         blend: BlendMode::Normal,
                     }],
                     backdrop: Color::rgb(1.0, 1.0, 1.0),
+                }),
+            })
+            .expect("one soft mask is under the table's bound");
+        list.push(Command::Fill {
+            path: a_path(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::rgb(0.25, 0.5, 0.75)),
+            clip: None,
+            mask: Some(mask),
+            blend: BlendMode::Normal,
+        });
+        let bytes = encode(&list).expect("a list with no deferred producer");
+        let back = decode(&bytes).expect("what this encoder wrote");
+        assert_eq!(back, list);
+    }
+
+    /// §11.5.3's EXAMPLE 2 over four inks, which a `DeviceCMYK` mask group whose content blends is
+    /// read through (ADR 1342), crosses as its tag alone and comes back as itself.
+    #[test]
+    fn a_device_ink_luminance_round_trips_to_an_equal_list() {
+        let mut list = DisplayList::new(Size::new(200.0, 100.0));
+        let fill = |grey: f32| Command::Fill {
+            path: a_path(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::rgb(grey, grey, grey)),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Multiply,
+        };
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: vec![fill(0.2)],
+                kind: SoftMaskKind::Luminosity {
+                    backdrop: Color::rgb(1.0, 1.0, 1.0),
+                },
+                transfer: None,
+                luminance: Some(Luminance::device_ink()),
+                black: Some(BlackHalf {
+                    commands: vec![fill(0.6)],
+                    backdrop: Color::rgb(0.0, 0.0, 0.0),
                 }),
             })
             .expect("one soft mask is under the table's bound");

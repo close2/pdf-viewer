@@ -339,6 +339,21 @@ were cleared to nothing; seven golden pages moved by a few levels at clip edges 
 two stages from an opaque twin (ADR 1319). Any route that draws a mark with a mode through a mask is
 tested with a clip that cuts the mark.
 
+### 53. A dictionary of the containing file is read before an import swaps the document in
+
+The proxy form's `/Group` was read after the referenced document had been swapped in, so a group
+given by indirect reference was looked up in the wrong file (ADR 1339). Trap 1's shape at a new
+place: whenever interpretation crosses into another document, every entry that belongs to the
+containing file — the proxy's `/Group`, its `/CS` — is resolved before the swap.
+
+### 54. A heuristic overlap detector misses the thin overlaps that show most
+
+Overlap between a path's portions was detected by a cell passing one whole winding; a stroker's
+outline with a join overlaps thinly and never trips it, so a dimension line drew doubled black
+(ADR 1341). The first fix measured +12% page ink at 1× on `issue20232` and only the ink ladder
+against the 8× render exposed it. Mark what overlaps by construction and walk it whole; measure
+against a magnified render, not against the previous raster.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

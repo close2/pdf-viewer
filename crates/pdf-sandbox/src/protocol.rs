@@ -75,6 +75,9 @@ const KIND_JBIG2: u8 = 1;
 const KIND_JPX: u8 = 2;
 /// Request kind: the `CCITTFaxDecode` filter.
 const KIND_CCITT: u8 = 3;
+/// Request kind: the `JPXDecode` filter at full resolution only; the auxiliary field is the
+/// sample count allowed, eight big-endian bytes.
+const KIND_JPX_WHOLE: u8 = 4;
 
 /// Request flag: return palette indices rather than colours. `JPXDecode` only.
 const FLAG_INDICES: u8 = 1 << 0;
@@ -117,6 +120,21 @@ pub enum Request<'a> {
         /// Indices also come back unscaled. Every other sample is stretched to eight bits;
         /// an index stretched to eight bits is a different index.
         indices: bool,
+    },
+    /// The `JPXDecode` filter at the codestream's full resolution, or not at all.
+    ///
+    /// [`Request::Jpx`] steps down the resolution progression where a codestream is over the
+    /// worker's budget, which §7.4.9 NOTE 3 permits a viewer. A writer that must carry the
+    /// image's own grid cannot use a reduced one, so it asks for this instead and states how
+    /// many samples — pixels times channels — it allows. A worker holds that number to what its
+    /// own address-space ceiling was sized for ([`crate::Sandbox::whole`], ADR 1333).
+    JpxWhole {
+        /// A JP2 file or a bare JPEG 2000 codestream.
+        data: &'a [u8],
+        /// As [`Request::Jpx`]'s.
+        indices: bool,
+        /// The most samples the decode may produce.
+        samples: u64,
     },
     /// The `CCITTFaxDecode` filter (ISO 32000-2 §7.4.6).
     Ccitt {
@@ -469,8 +487,9 @@ pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Result<Confinem
 
 /// Encodes a request.
 pub(crate) fn encode_request(request: &Request<'_>) -> Vec<u8> {
-    // Outlives the borrow the match arm takes of it, which is why it is declared here.
+    // Outlive the borrow the match arm takes of them, which is why they are declared here.
     let encoded_parameters;
+    let encoded_samples;
     let (kind, flags, primary, auxiliary) = match request {
         Request::Jbig2 { data, globals } => (KIND_JBIG2, 0, *data, *globals),
         Request::Jpx { data, indices } => (
@@ -479,6 +498,19 @@ pub(crate) fn encode_request(request: &Request<'_>) -> Vec<u8> {
             *data,
             [].as_slice(),
         ),
+        Request::JpxWhole {
+            data,
+            indices,
+            samples,
+        } => {
+            encoded_samples = samples.to_be_bytes();
+            (
+                KIND_JPX_WHOLE,
+                if *indices { FLAG_INDICES } else { 0 },
+                *data,
+                encoded_samples.as_slice(),
+            )
+        }
         Request::Ccitt { data, parameters } => {
             encoded_parameters = parameters.encode();
             (KIND_CCITT, 0, *data, encoded_parameters.as_slice())
@@ -539,7 +571,7 @@ pub(crate) fn read_request(input: &mut impl std::io::Read) -> std::io::Result<Op
 /// A request as it arrived, before it is known to name a filter this worker implements.
 #[derive(Debug)]
 pub(crate) struct Wire {
-    /// Which filter, as [`KIND_JBIG2`], [`KIND_JPX`] or [`KIND_CCITT`].
+    /// Which filter, as [`KIND_JBIG2`], [`KIND_JPX`], [`KIND_JPX_WHOLE`] or [`KIND_CCITT`].
     pub(crate) kind: u8,
     /// Per-filter flags, currently only [`FLAG_INDICES`].
     pub(crate) flags: u8,
@@ -569,6 +601,11 @@ pub(crate) fn typed_request(wire: &Wire) -> Option<Request<'_>> {
         KIND_JPX => Some(Request::Jpx {
             data: &wire.primary,
             indices: wire.flags & FLAG_INDICES != 0,
+        }),
+        KIND_JPX_WHOLE => Some(Request::JpxWhole {
+            data: &wire.primary,
+            indices: wire.flags & FLAG_INDICES != 0,
+            samples: u64::from_be_bytes(wire.auxiliary.as_slice().try_into().ok()?),
         }),
         KIND_CCITT => Some(Request::Ccitt {
             data: &wire.primary,
@@ -940,6 +977,28 @@ mod tests {
                 globals: b"globals"
             })
         );
+    }
+
+    /// A full-resolution request carries its sample budget whole, and a budget field of the
+    /// wrong length is no request at all rather than a budget of whatever fits.
+    #[test]
+    fn a_whole_resolution_request_round_trips_with_its_budget() {
+        let request = Request::JpxWhole {
+            data: b"codestream",
+            indices: true,
+            samples: (1 << 40) + 7,
+        };
+        let encoded = encode_request(&request);
+        let mut cursor = std::io::Cursor::new(encoded);
+        let wire = read_request(&mut cursor).unwrap().unwrap();
+        assert_eq!(typed_request(&wire), Some(request));
+        let short = Wire {
+            kind: KIND_JPX_WHOLE,
+            flags: 0,
+            primary: b"codestream".to_vec(),
+            auxiliary: vec![0; 7],
+        };
+        assert_eq!(typed_request(&short), None);
     }
 
     #[test]

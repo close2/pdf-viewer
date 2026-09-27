@@ -1241,7 +1241,7 @@ static THREE_DIMENSIONAL_FORMATS: &[&str] = &["U3D", "PRC"];
 
 /// ISO 19005-4 section B.2.2, the one sentence of Annex B's 3D subclauses that is about a file.
 ///
-/// The rest of §B.2 is addressed to a processor — which artwork it displays, how it colour-manages
+/// The rest of ISO 19005-4 section B.2 is addressed to a processor — which artwork it displays, how it colour-manages
 /// it — and `CLAUDE.md`'s clause-13 exclusion is about building that. Reading a name out of a
 /// dictionary is neither, so this row is implemented while its neighbours are
 /// [`Check::Processor`]: the exclusion is on the media engine, not on the validator.

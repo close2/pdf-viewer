@@ -29,6 +29,11 @@ pub(crate) fn here(request: &Request<'_>) -> Result<Decoded, SandboxError> {
     let decoded = match request {
         Request::Jbig2 { data, globals } => jbig2(data, globals).map(Decoded::Bilevel),
         Request::Jpx { data, indices } => jpx(data, *indices).map(Decoded::Raster),
+        Request::JpxWhole {
+            data,
+            indices,
+            samples,
+        } => jpx_whole(data, *indices, *samples).map(Decoded::Raster),
         Request::Ccitt { data, parameters } => ccitt(data, *parameters).map(Decoded::Bilevel),
     };
     decoded.map_err(|detail| SandboxError::Undecodable { detail })
@@ -76,7 +81,33 @@ const MAX_PIXELS: u64 = 1 << 28;
 /// resolution progression until the sample count fits, so that file decodes at 3152×4202
 /// instead of being refused. Only a codestream that cannot get under the bound at any level
 /// is refused.
-const MAX_SAMPLES: u64 = 1 << 26;
+pub(crate) const MAX_SAMPLES: u64 = 1 << 26;
+
+/// The address space a worker is given for each sample a full-resolution decode may produce.
+///
+/// Derived rather than chosen: [`crate::lockdown`]'s gigabyte is the ceiling [`MAX_SAMPLES`] was
+/// measured inside, so a worker started for a larger budget keeps the same ratio — sixteen bytes
+/// a sample, against the nine to thirteen the measurement above found a decode to use.
+pub(crate) const ADDRESS_SPACE_PER_SAMPLE: u64 = (1 << 30) / MAX_SAMPLES;
+
+/// The address-space ceiling of a worker allowed `samples` at full resolution: the ratio above,
+/// never below the ordinary decoder's gigabyte (ADR 1333).
+pub(crate) fn address_space_for(samples: u64) -> u64 {
+    samples
+        .saturating_mul(ADDRESS_SPACE_PER_SAMPLE)
+        .max(1 << 30)
+}
+
+/// How a JPEG 2000 decode keeps within its sample budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JpxBudget {
+    /// Step down the resolution progression until [`MAX_SAMPLES`] admits the grid: the viewer's
+    /// answer, which §7.4.9 NOTE 3 permits.
+    StepDown,
+    /// The codestream's full resolution or nothing, within the stated number of samples: the
+    /// answer of a writer that must carry the image's own grid (ADR 1333).
+    Whole(u64),
+}
 
 /// Decodes a JBIG2 image, in the embedded organisation PDF requires.
 ///
@@ -612,7 +643,8 @@ impl hayro_ccitt::Decoder for CcittRows {
     }
 }
 
-/// Parses a JPEG 2000 codestream at the finest resolution level [`MAX_SAMPLES`] admits.
+/// Parses a JPEG 2000 codestream at the finest resolution level [`MAX_SAMPLES`] admits — or,
+/// under [`JpxBudget::Whole`], at its full resolution within the stated samples or not at all.
 ///
 /// Returns the parse — no sample is decoded here, each step is a header read — together with
 /// the grid the codestream *states*, taken from the first, unreduced parse: a reduced parse
@@ -633,6 +665,7 @@ impl hayro_ccitt::Decoder for CcittRows {
 fn jpx_within_budget(
     data: &[u8],
     settings: hayro_jpeg2000::DecodeSettings,
+    budget: JpxBudget,
 ) -> Result<(hayro_jpeg2000::Image<'_>, (u32, u32)), String> {
     use hayro_jpeg2000::{DecodeSettings, Image};
 
@@ -649,6 +682,16 @@ fn jpx_within_budget(
             .saturating_mul(declared_channels)
     };
     let mut samples = count(image.width(), image.height());
+    if let JpxBudget::Whole(allowed) = budget {
+        if samples > allowed {
+            return Err(format!(
+                "JPX: {}x{} in {declared_channels} channels is {samples} samples, beyond the \
+                 {allowed} this decode was allowed at full resolution",
+                stated.0, stated.1
+            ));
+        }
+        return Ok((image, stated));
+    }
     while samples > MAX_SAMPLES {
         let target = ((image.width() / 2).max(1), (image.height() / 2).max(1));
         let reduced_settings = DecodeSettings {
@@ -714,6 +757,27 @@ fn jpx_within_budget(
 ///
 /// Returns a description of what the decoder refused.
 pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
+    jpx_under(data, indices, JpxBudget::StepDown)
+}
+
+/// Decodes a JPEG 2000 image at its full resolution, within `samples`, or refuses.
+///
+/// [`jpx`]'s reduction is the viewer's to take — §7.4.9 NOTE 3 lets an application "select and
+/// decode only the data making up a lower-resolution version" — and a writer carrying the image
+/// cannot take it, because a raster on a reduced grid is not the image's own. So this never
+/// steps down: the codestream's grid fits `samples` or the answer is a refusal naming both
+/// numbers. The worker holds `samples` to what its own address-space ceiling was sized for
+/// before calling this (ADR 1333).
+///
+/// # Errors
+///
+/// Returns a description of what the decoder refused.
+pub(crate) fn jpx_whole(data: &[u8], indices: bool, samples: u64) -> Result<Raster, String> {
+    jpx_under(data, indices, JpxBudget::Whole(samples))
+}
+
+/// [`jpx`] and [`jpx_whole`], which differ only in how the budget is kept.
+fn jpx_under(data: &[u8], indices: bool, budget: JpxBudget) -> Result<Raster, String> {
     use hayro_jpeg2000::{ColorSpace, DecodeSettings, DecoderContext};
 
     let settings = DecodeSettings {
@@ -738,7 +802,7 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         target_resolution: None,
     };
 
-    let (image, (stated_width, stated_height)) = jpx_within_budget(data, settings)?;
+    let (image, (stated_width, stated_height)) = jpx_within_budget(data, settings, budget)?;
     let (width, height) = (image.width(), image.height());
 
     let mut context = DecoderContext::default();

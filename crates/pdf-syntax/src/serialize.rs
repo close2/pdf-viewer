@@ -547,7 +547,7 @@ impl Protection<'_> {
 ///
 /// Objects are added in the order they will be written and numbered from 1 in that order, so a
 /// caller that builds the same piece from the same sources twice gets the same file — RFC 0002
-/// §9's byte determinism, with no flag and no clock.
+/// section 9's byte determinism, with no flag and no clock.
 ///
 /// # The two ways in
 ///

@@ -145,7 +145,9 @@ depends on nothing but `thiserror`.
   --bin unread`, seconds, over `ledger.toml` and the source roots — the second sweep as a program
   (ADR 0324). A hit is a key some source quotes as a lookup string while a note says nobody reads
   it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
-  one short key in three clauses, so read the witness path it prints before believing a hit.
+  one short key in three clauses, so read the witness path it prints before believing a hit. A
+  claim no source quotes is printed by name as `confirmed:`, because a witness cannot settle it and
+  only the clause can: whether a reader owes the entry at all.
 - **One asks whether a stated *blocker* has expired**: `cargo run --release -p conformance
   --bin blockers`, seconds, over `ledger.toml` and the source roots — the first sweep as a program
   (ADR 0336). A blocker sentence naming a clause is judged against the ledger's own account of
@@ -579,7 +581,11 @@ depends on nothing but `thiserror`.
   read 24 times by `pdf-colour/src/colour.rs`, §8.9.5 17 times by `pdf-transform/src/redact.rs`,
   §11.3.5.2 14 times by `raster-scene/src/blend.rs`, each under a row naming no file of that crate;
   the two that were not are a validator citing a clause it checks rather than implements, and a
-  crate whose listed site is its C++ half. ADR 1274.
+  crate whose listed site is its C++ half. ADR 1274. A citation of a clause the ledger has **no
+  row** for is listed too, with what its number alone says — an informative annex (A, B or C) or a
+  whole clause is the standard cited where no row could hold it — because the wrong ones look the
+  same: a `§` meaning a section of an ADR, an RFC or a `doc/todo` file named at the end of the line
+  before, which is written "section N".
 - **One asks whether a note's own sentence about the row agrees with the row's `status` field**, and
   it is the only sweep here whose two sides are both inside one row: `cargo run --release -p
   conformance --bin last_sentences`, a fraction of a second, over `ledger.toml` and nothing else —

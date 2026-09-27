@@ -389,6 +389,21 @@ standing reason. **Every window gained a strip of tabs and two keys**: a `gtk4::
 `QTabWidget` and a strip `viewer-ui` draws for itself, with Ctrl + Tab and Ctrl + W, and
 `viewer_host::Documents` as the bookkeeping the three share. ADRs 1263, 1264.
 
+**A password may be asked about a file a host supplied, and the answer goes to that file.** Table
+203's, Table 209's and Table 253's `/F` each name a second PDF, and a file that wants §7.6.4.1's
+password raises `Event::PasswordRequired` under the name the core would use for it: the name
+`Command::Beside` held out, for a `/NewWindow true` jump and for §12.7.8's named page; the document
+the link was in, for a jump that replaces it. **The answer is `Command::Open` under that name with
+that file's bytes** — the ones just supplied, never the document on show — and a named page, which
+opens under no name, is drawn into the document that asked and answered with `Event::Closed` for the
+name it was asked under. `viewer_host::Arrivals` is that bookkeeping for the three windows (`offer`,
+`locked`, `settle`, and `supplied` once the supply's events have been seen), so a replacement made
+with a prompt and one made without relabel the tab by one route. **`Event::NeedsFile` took one
+field, `beside`** — Table 203's and Table 204's `/NewWindow true` — because a host asking a person
+whether to open the file owes them where it would open. `viewer-confined`'s wire carries it as one
+bit after the name; the C ABI does not expose it yet, and `quorra.h` states the retry rule beside
+`quorra_supply`. ADRs 1332, 1335.
+
 **And it added nothing at all for §12.9's rubber band**, which is worth the sentence because ADR
 1191 wrote down that it was owed. The points have been the host's since that round and
 `Query::Measure` answers what they mean, so what three windows were missing was three pictures:

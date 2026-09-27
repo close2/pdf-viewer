@@ -113,9 +113,10 @@ section_names() {
 # at a neighbour rather than implement anything — so the filter keeps the denominators and the top
 # rung; `cargo test -p conformance --test cited` gates the calibration alone. A checker citing the
 # clause it checks has a rung of its own, printed as a count per named crate (`cited::CHECKERS`).
-# The no-row pairs under `raster/` have a line and a listing of their own (`cited::RASTER`): a `§`
-# there that meant one of the library's own documents is written "section N", and the listing is
-# what is left of that.
+# Every no-row pair is listed with what its number alone says (`cited::why_no_row`): an informative
+# annex or a whole clause is a citation of the standard the ledger has no row for, and anything
+# else is read first — a `§` that meant a section of an ADR, an RFC or a `doc/todo` file named at
+# the end of the line before is written "section N". Those under `raster/` are counted apart.
 section_cited() {
     run "a clause a file cites against that clause's own code list" \
         'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|no-row pair\(s\) lie under|^  §' \
@@ -127,7 +128,8 @@ section_cited() {
 # that count their own population and of the history `CLAUDE.md`'s comment rule keeps out of them.
 # `pointers` prints its counts and every absent pointer those four documents hold; `overtaken` and
 # `unread` print the counts over the page-list notes and the ledger, which the four documents point
-# into. `retired` is not run here, because its nouns are the caller's — the string a correction
+# into, and `unread` names each confirmed claim — an entry a note calls unread that no source
+# quotes, which only the clause can settle. `retired` is not run here, because its nouns are the caller's — the string a correction
 # retired — and a list of them written into this script would be the stale copy it exists to find.
 # A hit is a reading list and not a verdict: each sweep's own last line says what its noise is.
 section_navigation() {
@@ -138,7 +140,7 @@ section_navigation() {
         '^[0-9]+ page-list note' \
         cargo run -q --release -p conformance --bin overtaken
     run "ledger entries claimed unread that the tree quotes" \
-        '^[0-9]+ rows claim' \
+        '^[0-9]+ rows claim|^confirmed: ' \
         cargo run -q --release -p conformance --bin unread
     # `grep -c` exits 1 when no file matches, which is the clean answer, so only 2 is a failure.
     run "history the comment rule keeps out of the four documents" \

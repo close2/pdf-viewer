@@ -195,7 +195,7 @@ impl Role {
     /// is the only statement there is for a stream whose own dictionary carries nothing but Table
     /// 5's entries. A page's `/Contents` is the oldest member of that set and the rest were the
     /// five-hundred-and-thirty-first session's, which split `unclassified` because `doc/todo/03`
-    /// §11 said the largest silent bucket was not one thing.
+    /// section 11 said the largest silent bucket was not one thing.
     fn of(document: &Document, stream: &Stream, number: u32, named: &BTreeMap<u32, Self>) -> Self {
         let dict = &stream.dict;
         let name_is = |key: &str, value: &[u8]| {
@@ -481,7 +481,7 @@ fn collect(root: &Path, into: &mut Vec<PathBuf>) {
 
 /// What each stream is, according to the dictionary that names it.
 ///
-/// **The split `doc/todo/03` §11 asked for.** A stream whose own dictionary carries nothing but
+/// **The split `doc/todo/03` section 11 asked for.** A stream whose own dictionary carries nothing but
 /// Table 5's entries — a page's `/Contents`, a Type 3 glyph description, an `Indexed` lookup
 /// table — can only be classified by the entry some other object names it under, and the
 /// standard makes that entry a statement of the role. So this walks every object in the file

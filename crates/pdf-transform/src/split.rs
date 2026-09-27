@@ -70,7 +70,7 @@
 //! Pieces are independent, so they are written across rayon (RFC 0002 section 12: a transform is
 //! throughput-first). The report is assembled in piece order whatever order the threads
 //! finished in, and each piece's bytes are a function of its sources and its plan alone — RFC
-//! 0002 §9's first layer, with no flag and no clock.
+//! 0002 section 9's first layer, with no flag and no clock.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write as _;

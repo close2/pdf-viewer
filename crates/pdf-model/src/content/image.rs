@@ -454,9 +454,15 @@ impl Interpreter<'_> {
     /// handed to it as that mask and the unit square is the path whose cells are drawn — the
     /// same two halves, recomposed at the only other place in this file that can hold them.
     ///
-    /// One case is still refused by name rather than approximated: a stencil under a
-    /// *graphics-state* soft mask would need two masks where a command carries one, which
-    /// §11.6.5 makes a composition rather than a choice.
+    /// **Under a graphics-state soft mask the two masks are one product** (ADR 1334). §11.6.5
+    /// puts the state's mask on every mark and §11.6.4.3 lets only "[e]ither form of mask in the
+    /// image dictionary" displace it, which a stencil is not — so the mark this command paints
+    /// has the stencil as its shape, the pattern as its colour and the state's mask as its
+    /// opacity, and §11.3.5 multiplies shape and opacity into the one alpha a command's mask
+    /// slot carries. That product is itself a §11.5.2 alpha mask: the stencil's raster drawn
+    /// *through* the state's mask, which the display list states as a soft mask whose one
+    /// command names the other. The shape a knockout group asks for is still the stencil alone
+    /// (§11.6.4.2), recorded apart as it is for a stencil's own `/SMask` (ADR 1301).
     fn stencil_through_a_pattern(
         &mut self,
         stream: &Arc<pdf_syntax::Stream>,
@@ -470,15 +476,11 @@ impl Interpreter<'_> {
             });
             return;
         }
-        if state.soft_mask.is_some() {
-            self.note(Unsupported::Image {
-                name: format!(
-                    "{name}: a stencil mask painted with a pattern under a soft mask, \
-                     which would be two masks on one command (§8.9.6.2, §11.6.5)"
-                ),
-            });
-            return;
-        }
+        // §11.6.4.3: a mask in the image dictionary displaces the state's for this image only;
+        // otherwise the state's mask stays in force and is composed into the command's below.
+        let in_force = (!crate::image::overrides_graphics_state_mask(self.document, &stream.dict))
+            .then_some(state.soft_mask)
+            .flatten();
         // The colour handed to the decode is irrelevant and must be opaque: §11.5.2 derives
         // the mask "from the alpha of the group", so only the samples' coverage is read.
         // The stencil carries no colour of its own — §11.5.2 derives the mask "from the
@@ -505,7 +507,7 @@ impl Interpreter<'_> {
                 return;
             }
         };
-        let Some(mask) = self.stencil_mask(image, state.transform) else {
+        let Some(mask) = self.stencil_mask(image.clone(), state.transform, in_force) else {
             return;
         };
         // This mask is §8.9.6.2's stencil wearing §11.5.2's vocabulary, and a stencil is
@@ -516,10 +518,18 @@ impl Interpreter<'_> {
         // A stencil under an `/SMask` of its own is drawn through the product, which is what
         // the page is owed, and its shape is the stencil alone, which is a second mask
         // (ADR 1301).
-        match shape {
-            None => self.image_masks.shape_masks_mut().record(mask),
-            Some(shape) => {
-                let Some(shape) = self.stencil_mask(shape, state.transform) else {
+        // Under the state's mask the drawn mask carries its opacity too, so the stencil alone
+        // is registered beside it as the shape (ADR 1334).
+        match (shape, in_force) {
+            (None, None) => self.image_masks.shape_masks_mut().record(mask),
+            (Some(shape), _) => {
+                let Some(shape) = self.stencil_mask(shape, state.transform, None) else {
+                    return;
+                };
+                self.image_masks.shape_masks_mut().record_apart(mask, shape);
+            }
+            (None, Some(_)) => {
+                let Some(shape) = self.stencil_mask(image, state.transform, None) else {
                     return;
                 };
                 self.image_masks.shape_masks_mut().record_apart(mask, shape);
@@ -573,10 +583,16 @@ impl Interpreter<'_> {
 
     /// §11.5.2's alpha mask made of a stencil's raster placed under `transform`, or `None`
     /// once the list's bound on soft masks is reached, which is noted.
+    ///
+    /// `under` is a soft mask the raster is drawn through, so the mask's alpha is the stencil's
+    /// coverage times that mask's value — §11.3.5's product of shape and opacity, in the one
+    /// slot a command has (ADR 1334). It was registered before this one, which is the order
+    /// every backend evaluates a mask nested in another's group in.
     fn stencil_mask(
         &mut self,
         image: pdf_render::Image,
         transform: Transform,
+        under: Option<SoftMaskId>,
     ) -> Option<SoftMaskId> {
         let mask = pdf_render::SoftMask {
             commands: vec![Command::Image {
@@ -584,7 +600,7 @@ impl Interpreter<'_> {
                 transform,
                 alpha: 1.0,
                 clip: None,
-                mask: None,
+                mask: under,
                 blend: BlendMode::Normal,
             }],
             kind: pdf_render::SoftMaskKind::Alpha,

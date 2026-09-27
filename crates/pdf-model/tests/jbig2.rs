@@ -51,7 +51,7 @@
 //! byte-wise with anyone's, only with each other.)
 //!
 //! `tools/state.sh` does not print this and no gate spends 300 reference renders on it; the
-//! recipe is three invocations of §2's own reference command lines over the family, grouped
+//! recipe is three invocations of `doc/todo/02` section 2's own reference command lines over the family, grouped
 //! by the hash of `magick … -depth 8 -colorspace Gray txt:-`, and ADR 0381 has it.
 //!
 //! # What it does not check

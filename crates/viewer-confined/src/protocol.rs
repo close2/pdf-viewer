@@ -2333,6 +2333,7 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             document,
             purpose,
             name,
+            beside,
         } => {
             writer
                 .u8(k::NEEDS_FILE)
@@ -2344,7 +2345,8 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Purpose::NamedPage => 3,
                     Purpose::ThreadDocument => 4,
                 })
-                .str(name);
+                .str(name)
+                .bool(*beside);
         }
         Event::Transition {
             document,
@@ -2588,6 +2590,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                 }
             },
             name: reader.string("a file specification's name")?,
+            beside: reader.bool("whether the file opens beside")?,
         },
         k::TRANSITION => Event::Transition {
             document: reader.document(what)?,
@@ -3697,7 +3700,7 @@ impl HeldLists {
 /// dimension of zero is a target that cannot exist.
 ///
 /// The transform's six numbers are *not* checked for finiteness, deliberately and for ADR 0626
-/// §7's reason: the three places in this tree that ask that question are in `pdf-render`, where a
+/// section 7's reason: the three places in this tree that ask that question are in `pdf-render`, where a
 /// device decision belongs, and a fourth answer in a codec would be a fourth place the confined
 /// path and the in-process path could differ.
 fn decode_list_payload(
@@ -4631,26 +4634,31 @@ mod tests {
                 document,
                 purpose: Purpose::ImportData,
                 name: "data.fdf".to_owned(),
+                beside: false,
             },
             Event::NeedsFile {
                 document,
                 purpose: Purpose::TargetRoot,
                 name: "target.pdf".to_owned(),
+                beside: false,
             },
             Event::NeedsFile {
                 document,
                 purpose: Purpose::RemoteDocument,
                 name: "chapter2.pdf".to_owned(),
+                beside: true,
             },
             Event::NeedsFile {
                 document,
                 purpose: Purpose::NamedPage,
                 name: "library.pdf".to_owned(),
+                beside: false,
             },
             Event::NeedsFile {
                 document,
                 purpose: Purpose::ThreadDocument,
                 name: "articles.pdf".to_owned(),
+                beside: false,
             },
             Event::Transition {
                 document,

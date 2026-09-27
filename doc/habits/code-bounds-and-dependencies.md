@@ -366,3 +366,15 @@ A tiling cell's `/AIS`, a glyph pair's reading and a text object's portions were
 enclosing state or the enclosing record, and all three drew wrong with no report (ADR 1306). When the
 enclosing decision concerns something only the nested stream knew, give the nested stream its own
 record and read that.
+
+## An offer one command answers is dropped once that command's events are handled
+
+`Arrivals` kept an offer until an event matched its name, so a declined jump's offer could mislabel a
+later, unrelated replacement of the same tab (ADR 1335). `Arrivals::supplied` drops it when the
+command's events have been seen; a reservation lives exactly as long as the command it answers.
+
+## Before building a second mechanism for a refusal, check whether the refusal came from a domain change
+
+Three of redaction's four codec refusals came from forcing every picture into eight-bit `DeviceRGB`;
+keeping the file's own domain — the decoder's integers at their depth, in the space §7.4.9 names —
+removed them together (ADR 1333).

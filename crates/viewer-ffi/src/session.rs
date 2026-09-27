@@ -1437,6 +1437,122 @@ mod tests {
         );
     }
 
+    /// A randomness source that counts, so the locked fixture below is a function of its plan.
+    struct Counter(u8);
+
+    impl pdf_syntax::serialize::Entropy for Counter {
+        fn fill(&mut self, out: &mut [u8]) -> bool {
+            for byte in out.iter_mut() {
+                *byte = self.0;
+                self.0 = self.0.wrapping_add(1);
+            }
+            true
+        }
+    }
+
+    /// A file of `objects` object bodies, object 1 its catalog, with a classic cross-reference.
+    fn assembled(objects: &[&str]) -> Vec<u8> {
+        use std::fmt::Write as _;
+        let mut out = String::from("%PDF-2.0\n");
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            let _ = write!(out, "{} 0 obj\n{body}\nendobj\n", index.saturating_add(1));
+        }
+        let xref_at = out.len();
+        let size = objects.len().saturating_add(1);
+        let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+        for offset in &offsets {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        let _ = write!(
+            out,
+            "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+        );
+        out.into_bytes()
+    }
+
+    /// A one-page file under §7.6.4's standard security handler, user password `abc`.
+    fn locked() -> Vec<u8> {
+        use pdf_syntax::serialize::{Access, Assembly, Form, Options, Protection};
+        let plain = assembled(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        ]);
+        let source = pdf_syntax::Document::open(plain).expect("the plaintext opens");
+        let mut assembly = Assembly::new(vec![&source]);
+        for number in 1..=3 {
+            assembly
+                .copy(0, pdf_syntax::ObjectId::new(number, 0))
+                .expect("the assembly takes the object");
+        }
+        assembly.set_root(pdf_syntax::ObjectId::new(1, 0));
+        let mut out = Vec::new();
+        pdf_syntax::serialize::serialize_encrypted(
+            &assembly,
+            pdf_syntax::Version { major: 2, minor: 0 },
+            Options::new(Form::Table),
+            &Protection {
+                user_password: "abc",
+                owner_password: "owner",
+                access: Access::ALL,
+                encrypt_metadata: true,
+            },
+            &mut Counter(0),
+            &mut out,
+        )
+        .expect("the locked file is written");
+        out
+    }
+
+    /// The answer to a `QUORRA_EVENT_PASSWORD_REQUIRED` that follows `quorra_supply` is
+    /// `quorra_open` under the name **on the event**, with the bytes of the file that was supplied.
+    ///
+    /// ISO 32000-2 §7.6.4.1: "If this authentication attempt fails, the interactive PDF processor
+    /// should prompt for a password." The file a §12.6.4.3 link named is the one asking, so the
+    /// event names the name `quorra_beside` held out for it (Table 203's `/NewWindow true`), and
+    /// the source document is untouched. The named wrong answer is a C host that reopens its own
+    /// document under the password, which is the retry every caller had before a second file could
+    /// ask (ADRs 1332, 1335).
+    #[test]
+    fn a_password_asked_about_a_supplied_file_is_answered_under_the_name_on_the_event() {
+        let source = assembled(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [5 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 50 50] /A << /Type /Action /S /GoToR \
+             /D [0 /Fit] /F (locked.pdf) /NewWindow true >> >>",
+        ]);
+        let mut session = Session::new(400, 400, 1.0);
+        drop(session.open(1, source, None, None));
+        drop(session.beside(Some(9)));
+        drop(session.activate(5, 0));
+        let bytes = locked();
+        let events = session.supply(viewer_core::Purpose::RemoteDocument, Some(bytes.clone()));
+        let asked = (0..events.len())
+            .find(|index| events.kind(*index) == Ok(EventKind::PasswordRequired))
+            .expect("the supplied file asks for a password");
+        assert_eq!(
+            events.document(asked),
+            Ok(9),
+            "the name the file opens under"
+        );
+
+        let events = session.open(9, bytes, Some("abc".to_owned().into()), None);
+        let opened = (0..events.len())
+            .find(|index| events.kind(*index) == Ok(EventKind::Opened))
+            .expect("the retry opens it");
+        assert_eq!(
+            events.opened(opened),
+            Ok((9, 1)),
+            "its one page, beside the source"
+        );
+        drop(session.focus(1));
+        assert_eq!(session.page_count(), Ok(2), "the source is still itself");
+    }
+
     /// A viewer with no document answers `NoAnswer` rather than zero.
     #[test]
     fn nothing_open_is_an_answer_and_not_a_count() {

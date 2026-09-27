@@ -98,36 +98,30 @@ permanent) or an owner decision to acquire a specification.
 ### 3. Hard rendering / architecture — a real build across several rounds
 
 These are genuine model or rasteriser gaps, most of them priced and most unwitnessed on any first
-page — the transparency residues reduce to *one raster carries the product of shape and opacity where
-the clause wants the pair*, costed at a second raster per command (ADR 1022 section 5). **What would
-unblock them:** focused multi-round work on a shape channel, a per-pixel second-rasterisation pass, a
-colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
-pixels.
+page. **What would unblock them:** focused multi-round work on a per-pixel second-rasterisation pass,
+a colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
+pixels. *One raster carries the product of shape and opacity where the clause wants the pair* is not
+among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
+shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
 
-- §11.4.3 — one raster carrying the product where the clause wants the pair: §11.4.3's own
-  sentence asks that a group's "colour, shape, and opacity" be treated as one object's —
-  `Command::Group`'s `alpha_is_shape` states the groups where the two coincide, and everywhere else
-  the single object carries the product. The knockout constructions' last remainder, an element
-  painted under the other reading of §11.6.4.3's `/AIS`, is read under its own (ADR 1319), so
-  §11.4.6, §11.6.4.3 and §11.7.4.4 have left this bucket.
-- §11.4.7, §11.5.3 — each row's own second requirement, and neither is witnessed on this disk.
-  §11.4.7's is a reference XObject's imported page, which the clause composites under the *imported*
-  page's group attributes and this tree under the containing page's — no document here states a
-  reference XObject at all (ADR 1101). §11.5.3's is a blend mode inside a subtractive group of more
-  than one component, which no curated or crawled document that opens paints. Both notes also name
-  `colour::MAX_PRESSES`: a page that has spent it has no press left for its group's space, so its
-  elements are painted in the parent's and `PagePress::Beyond` names why. That bound keeps neither
-  row open — it is twice what the standard says one profile can be, Table 69's four intents against
-  §8.6.5.9's `/UseBlackPtComp` less the pair that clause forbids, and the deepest page
-  `examples/press_depth` finds names one press (ADR 1254) — so §11.6.6 and §11.7.2 record it as a
-  `departed` bound and have left this bucket.
-  **Beside this bucket and not in it**: §11.3.4 is `departed`. Its one departure is the choice of
-  route into a one-component blending space (ADR 0790), which `doc/todo/23` still prices; the
-  precision that stood beside it here is closed, the cube into a parent's components being carried
-  as the device's decoding, a linear grid and the space's own encoding rather than as one sampled
-  grid (ADR 1267).
-- §10.7.4 — the sharing half of a path whose subpaths overlap, which the two fill rules answer
-  differently. `doc/todo/11` prices it. The clip region that is the union of two fills is built:
+**Beside this bucket and not in it**: §11.5.3, §11.6.6 and §11.7.2 are `departed` on one bound,
+`colour::MAX_PRESSES`: a page that has spent it has no press left for its group's space, so its
+elements are painted in the parent's and `PagePress::Beyond` names why. It is twice what the
+standard says one profile can be, Table 69's four intents against §8.6.5.9's `/UseBlackPtComp` less
+the pair that clause forbids, and the deepest page `examples/press_depth` finds names one press (ADR
+1254). §11.5.3's blend mode inside a subtractive group of more than one component is composited in
+the group's four components (ADR 1342). §11.3.4 is `departed` too. Its one departure is the choice of
+route into a one-component blending space (ADR 0790), which `doc/todo/23` still prices; the
+precision that stood beside it here is closed, the cube into a parent's components being carried as
+the device's decoding, a linear grid and the space's own encoding rather than as one sampled grid
+(ADR 1267).
+
+- §10.7.4 — three residues `doc/todo/11` carries: §10.7.4's own mark for a shape its *transform*
+  collapsed (item 8, reported and unwitnessed), the clipping paragraph's product at an image's edge
+  and in a group whose opacity is below 1.0 (item 4), and an overlap confined to pixels a path that
+  is not a stroker's outline only partly covers (item 7). A path whose subpaths overlap is measured
+  as the set the fill rule declares inside, under both rules (ADR 1341). The clip region that is the
+  union of two fills is built:
   `render-cpu` composes it and the other two backends refuse it by name, with
   `doc/QUORRA_FEEDBACK.md` section 51 the ask that would let a scene state it (ADR 1231). The row's
   four
@@ -154,15 +148,14 @@ a normal round extending the existing code.
   `/SMask` and `/Mask` are cleared on their own grids, a `JPXDecode` opacity channel becomes the
   soft mask Table 87 names, and an inline image behind `DCTDecode` or `CCITTFaxDecode` or naming a
   colour-space resource is spliced (ADR 1277). A stroke whose outline holds an arc is cut as cubics
-  within a stated bound of it (ADR 1324). The cases still owed are a codec image whose decode is not
-  on the grid its dictionary states (a reduced `JPXDecode` write-back would resample everything
-  outside the region too), a `JPXDecode` image stating more than eight bits per component, and a
-  codec picture whose `/Mask` is a colour key or whose soft mask states a `/Matte`. The overlay is a
-  decided departure inside the row (`doc/todo/64`, ADRs 1124, 1195, 1196, 1236, 1248, 1277, 1324).
-- §8.9.6.2 — a stencil painted through a pattern under a graphics-state soft mask, which the
-  construction would make two masks on one command, refused by name in `content/image.rs`. The
-  smoothing sentence is met on all three backends since the shipped rasteriser filters
-  premultiplied samples (ADR 1287, `doc/QUORRA_FEEDBACK.md` section 39).
+  within a stated bound of it (ADR 1324). A `JPXDecode` image is written back as its own samples at
+  its own precision, decoded at full resolution within the operator's `--image-samples` budget; a
+  colour key on a re-expressed codec picture becomes the stencil it is equivalent to; a picture
+  pre-blended with a `/Matte` is cleared to the matte (ADR 1333). What is still owed is the
+  refusal list in `doc/todo/64`: a Type 3 font, a composite font not `Identity-H`, `sh`, a
+  soft-mask group, the strokes whose width, colour or alpha the cut cannot restate, and the codec
+  cases named there. The overlay is a decided departure inside the row (ADRs 1124, 1195, 1196,
+  1236, 1248, 1277, 1324, 1333).
 - **Beside this bucket and not in it** — §12.7.4.3 is `departed`: a rich text field's formatting,
   which the clause hands to XFA 3.3, is reported rather than applied (ADRs 1122, 1197). A `/DA`
   whose `Tm` has no inverse is the clause carried out — the translation is the processor's to
@@ -228,7 +221,7 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §8.9.6, §10.7, §11.4, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.8, §12.8.3,
+§7.6, §10.7, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.8, §12.8.3,
 §12.8.3.4.
 
 

@@ -31,7 +31,9 @@ one-component space it states (ADR 1268), a JPEG 2000 parent decoded at a reduce
 included, its mask carried onto that grid (ADR 1324) — whose `/Luminosity` groups in such a space take
 §11.5.3's `Y` as three summed curves where the space decomposes, as a sampled grid where it
 does not (ADR 0851), and — where the space has *four* components — off §11.4.7's pair of rasters
-inside the mask, over a grid of the press's own four axes (ADR 0857), and annotations both from
+inside the mask, over a grid of the press's own four axes (ADR 0857) — as a `DeviceCMYK` group
+whose content blends is, so that §11.3.4's complement meets each component (ADR 1342) — and
+annotations both from
 stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
@@ -40,8 +42,9 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
-lattice, leaving the library beneath it the axis-aligned rectangle and the one case §11.6.2 forbids
-compositing with itself (ADR 1082) — `render-cpu` is also where a **non-isolated group the file
+lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082), and measures a path
+whose portions overlap as the set its fill rule declares inside rather than composite the portions
+with one another, which §11.6.2 forbids (ADR 1341) — `render-cpu` is also where a **non-isolated group the file
 composites under a mode other than Normal is drawn** instead of reported, by performing §11.4.4's
 backdrop removal (ADR 1107) — which `render-raster` now draws too, through raster's own reading of
 the clause (ADR 1307) — and where §10.7.4's substituted width for a mark too thin to measure
@@ -245,7 +248,11 @@ because whether this program has a second place to put a document is a fact abou
 `Command::Beside` carries a name a host has free for one, and a window that offers none gets the
 sentence saying the destination replaced what was open (ADRs 1227, 1263). A file the go-to names
 that asks for a password is asked about under the name it would open under, and the second attempt
-opens that file's own bytes, never the document in front (ADR 1332). **§O.2.1's `ef` is a third
+opens that file's own bytes, never the document in front (ADR 1332); §12.6.4.7's thread in another
+file and §12.7.8's named page in one take the same route, the named page drawn into the document
+that asked for it. The question says where the file would open, beside or in place, and a
+replacement relabels its tab and moves the window's path whether or not a password was asked
+(ADR 1335). **§O.2.1's `ef` is a third
 such value**, `--embedded-documents=refuse|ask|warn|open`, `ask` by default, on the restriction
 menu's third group beside sending a form (ADR 1331).
 
@@ -371,7 +378,9 @@ derives the subdivision from the net's second differences against half a device 
 product, whose two halves are §11.6.4.2's
 shape and §11.6.4.3's opacity (ADR 1218) — including where the mask is behind an image codec,
 which is decoded once per document into a grey plane under the bound that routed it there
-(ADR 1232). **A clipping path that encloses an area and rules a line admits both**: §10.7.4's
+(ADR 1232). A stencil painted through a **pattern** under the graphics state's soft mask is drawn
+through both, on every backend: the command's mask is the stencil drawn through the state's mask,
+and the stencil alone is its shape (ADR 1334). **A clipping path that encloses an area and rules a line admits both**: §10.7.4's
 region is the union of two fills under two rules, which the processor composes into its own mask
 and the two graphics backends refuse by name rather than admitting a smaller set (ADR 1231).
 
@@ -782,19 +791,22 @@ for the redacted page rather than replaced, because the other placement's marks 
 annotation did not identify. A path that is also §8.5.4's **clipping boundary** keeps the
 boundary and loses its marks — the cut marks first, then the producer's own bytes for the path
 closed with `n` — and an image's §8.9.5.4 **`/Alternates`** is dropped from the redacted page's
-copy, so the variants are reached from nothing and never written. A **JPEG 2000** image is cleared
-and re-encoded like the other three codecs where its decode is on the grid its dictionary states
-and no component is deeper than eight bits, its §7.4.9 opacity channel written as the soft-mask
-image Table 87 names. A picture's **masks are image data too**: its `/SMask` and `/Mask` are cleared
+copy, so the variants are reached from nothing and never written. A **JPEG 2000** image is written
+back as the decoder's own integers, at eight bits or at sixteen with its `/Decode` restated, in the
+colour space §7.4.9 names, decoded at full resolution within the operator's `--image-samples`
+budget by a confined worker sized for it — never at the reduced level a viewer may take — its §7.4.9
+opacity channel written as the soft-mask image Table 87 names (ADR 1333). A colour key on a
+re-expressed codec picture becomes the §8.9.6.3 stencil it is equivalent to, and a picture
+pre-blended with a `/Matte` is cleared to the matte. A picture's **masks are image data too**: its `/SMask` and `/Mask` are cleared
 on their own grids under its placement, a codec picture decoded with them set aside and its fresh
 dictionary naming the cleared ones, and an image mask behind a codec written back as a one-bit
 stencil. An inline image behind `DCTDecode` or `CCITTFaxDecode` is decoded and spliced, and one
 naming a colour-space resource keeps the name.
 It refuses rather than cuts wrong — a Type 3 font, a composite font not
-`Identity-H`, `sh`, a soft mask over the region, a zero line width, a codec image whose decode is not on its stated grid, a JPX image
-stating more than eight bits, a codec picture with a colour-key `/Mask` or a matted soft mask —
-each with its sentence, and the overlay text and fill it does not compose (A65's fence), said as a
-departure in the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324).
+`Identity-H`, `sh`, a soft mask over the region, a zero line width, a JPX image beyond the operator's
+budget, a matte a re-expressed codec picture cannot keep — each with its sentence, and the overlay
+text and fill it does not compose (A65's fence), said as a departure in the report (ADRs 1124,
+1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
@@ -839,8 +851,8 @@ as a one-way hash and an opened document yields none to carry: `split`, `merge`,
 objects at the front — page 0's, or the page `/OpenAction` names — every other page's after it in
 page order, the objects two later pages share, then F.3.10's categories; the page offset and
 shared object hint tables and every other table Table F.2 requires of the document at hand; and
-every offset computed to a fixed point before a byte is written. It packs object streams under
-F.3.1's conditions, encrypts where passwords are supplied, and derives a page's `/B` and each bead's
+every offset computed to a fixed point before a byte is written. It packs the pages after the first
+into object streams under F.3.1's conditions and writes the first page's group whole (ADR 1337), encrypts where passwords are supplied, and derives a page's `/B` and each bead's
 `/T` from the thread chain (ADR 1309); `pdf_syntax::linearize::state` says of any file this tree
 opens whether it is still linearised, which after §7.5.6's update it is not (ADR 1293).
 `split` is the first verb on it — one file per page, per group of
@@ -1001,7 +1013,9 @@ identifier does not match is refused by name; one whose *changing* identifier mo
 the clause's own warning that it is "a different version of the correct PDF file"; and a reader who
 names no directory gets every proxy drawn and is told nothing, which is what the clause asks of a
 reader with no target file. The imported page is placed by the proxy's `/Matrix`, clipped to its
-`/BBox`, and rendered with §8.10.4.3's annotation appearances inside that same box. ADR 1101.
+`/BBox`, and rendered with §8.10.4.3's annotation appearances inside that same box. ADR 1101. It is
+composited as §11.4.7's second treatment asks — a transparency group under the imported page's own
+`/Group`, not the medium — and inside the proxy's group where the proxy states one (ADR 1339).
 
 **It can tell a person that a signed document changed after it was signed, whether its signature
 verifies, and — where the person running it names a certification authority — whether the signature

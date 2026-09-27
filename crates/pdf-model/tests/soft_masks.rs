@@ -744,21 +744,19 @@ fn a_cmyk_shading_in_a_grey_mask_group_is_sampled_into_the_groups_own_components
     );
 }
 
-/// A blend mode inside a `DeviceCMYK` mask group is reported, because one channel cannot hold
-/// four separable ones.
+/// A blend mode inside a `DeviceCMYK` mask group is composited in the group's four components and
+/// is not reported (ADR 1342); `tests/blended_cmyk_mask.rs` holds the pixels to the clause.
 ///
-/// The condition `note_blended_luminosity` derives from §11.3.5.2, on the fixture that makes
-/// it fire: two overlapping marks inside the group, the upper one `/Multiply`. **No corpus
-/// document states one** — the whole population was checked when the report was written — so
-/// this is the only thing in the tree that can show the sentence is reachable, which is
-/// exactly why it is here (trap 11's other edge: a report nothing exercises is a report
-/// nobody has read).
+/// `note_blended_luminosity`'s condition derives from §11.3.5.2 — one weighted channel cannot hold
+/// four separable ones — and it now names only a blend `crate::soft_mask`'s walk of the group's
+/// resources did not see before the run. Two overlapping marks inside the group, the upper one
+/// `/Multiply` from the group's own resources: not reported.
 ///
-/// The same group blending in `/DeviceGray` is *not* reported, and that is the load-bearing
-/// half: there the channel is the group's one component in additive form, so a separable
-/// blend function applied to it is the clause's own arithmetic.
+/// The same group blending in `/DeviceGray` is not reported either, and there the reason is the
+/// channel: it is the group's one component in additive form, so a separable blend function
+/// applied to it is the clause's own arithmetic.
 #[test]
-fn a_blend_mode_in_a_four_component_mask_group_is_reported_and_in_a_one_component_one_is_not() {
+fn a_blend_mode_in_a_four_component_mask_group_is_composited_there_and_not_reported() {
     let group = "q 0 0 0 0.2 k 0 0 20 40 re f /GB gs 0 0 0 0.8 k 0 0 20 20 re f Q";
     let grey_group = "q 0.8 g 0 0 20 40 re f /GB gs 0.2 g 0 0 20 20 re f Q";
     let multiply = b"7 0 obj\n<< /Type /ExtGState /BM /Multiply >>\nendobj\n".to_vec();
@@ -772,9 +770,11 @@ fn a_blend_mode_in_a_four_component_mask_group_is_reported_and_in_a_one_componen
         std::slice::from_ref(&multiply),
     ));
     assert!(
-        cmyk.iter()
+        !cmyk
+            .iter()
             .any(|detail| detail.contains("blends in a space of four components")),
-        "a /Multiply inside a /DeviceCMYK mask group is a departure, and got {cmyk:?}"
+        "a /Multiply inside a /DeviceCMYK mask group is composited in its four components, and \
+         got {cmyk:?}"
     );
 
     let grey = reports(page_with_group_resources(

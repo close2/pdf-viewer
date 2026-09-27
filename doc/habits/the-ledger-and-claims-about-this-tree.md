@@ -396,3 +396,10 @@ brief named three rows; `tools/state.sh departures` found the fourth, §12.6.4.1
 four styles (ADR 1299). And where a brief names the file a feature lives in, grep the function's
 callers before building — the transition frames were reached through `viewer_host::Clock`, not the
 presentation module the brief named.
+
+**A note's unread claim is edited, never corrected by a sentence appended after it.** Four notes gave
+a present-tense "unread" and retracted it later in the same note, so anyone stopping at the first
+sentence read a falsehood, and `--bin unread` counted it (round 1253). And a section of an ADR, RFC or
+todo file is written "section N" even when the document's name sits on the previous line: the citation
+scanner resolves a document named on the same line only, so a wrapped "ADR 1000 / §7" reads as ISO
+clause 7 and collects ledger findings.

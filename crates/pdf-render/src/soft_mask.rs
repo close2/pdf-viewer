@@ -201,6 +201,10 @@ enum Shape {
         /// The samples themselves, in the index order above.
         samples: std::sync::Arc<[f32]>,
     },
+    /// §11.5.3's device branch for four subtractive components, stated rather than sampled:
+    /// EXAMPLE 2's `Y = 1 − min(1, 0.3 × C + 0.59 × M + 0.11 × Y + K)` of the composited inks.
+    /// See [`Luminance::device_ink`].
+    DeviceInk,
 }
 
 impl Luminance {
@@ -232,6 +236,32 @@ impl Luminance {
         Self::over(4, side, samples)
     }
 
+    /// The luminosity of a `DeviceCMYK` group composited in its own four components — ISO
+    /// 32000-2 §11.5.3's device branch, with the conversion to grey EXAMPLE 2 gives for
+    /// `DeviceCMYK`:
+    ///
+    /// > For device colour spaces, convert the colour to DeviceGray by implementation-defined
+    /// > means and use the resulting gray value as the luminosity, with no compensation for gamma
+    /// > or other colour calibration.
+    ///
+    /// Not a grid: the formula's `min` puts a fold across the unit hypercube that no grid's cells
+    /// follow, so it is evaluated as stated. `pdf_model` takes this shape only for a group whose
+    /// content blends, where §11.3.5's functions have to see the four components separately;
+    /// every other `DeviceCMYK` group is painted in one weighted channel, which the same formula
+    /// reads exactly (ADR 1342).
+    #[must_use]
+    pub fn device_ink() -> Self {
+        Self {
+            shape: Shape::DeviceInk,
+        }
+    }
+
+    /// Whether this is [`Luminance::device_ink`]'s shape, which carries no samples.
+    #[must_use]
+    pub fn is_device_ink(&self) -> bool {
+        matches!(self.shape, Shape::DeviceInk)
+    }
+
     /// The checked constructor both grid shapes are.
     fn over(axes: usize, side: usize, samples: std::sync::Arc<[f32]>) -> Option<Self> {
         let wanted = side.checked_pow(u32::try_from(axes).ok()?)?;
@@ -249,7 +279,7 @@ impl Luminance {
     pub fn as_curves(&self) -> Option<&[[f32; 3]; 256]> {
         match &self.shape {
             Shape::Curves(curves) => Some(curves),
-            Shape::Grid { .. } => None,
+            Shape::Grid { .. } | Shape::DeviceInk => None,
         }
     }
 
@@ -262,7 +292,7 @@ impl Luminance {
                 side,
                 samples,
             } => Some((*side, samples)),
-            Shape::Curves(_) | Shape::Grid { .. } => None,
+            Shape::Curves(_) | Shape::Grid { .. } | Shape::DeviceInk => None,
         }
     }
 
@@ -275,7 +305,7 @@ impl Luminance {
                 side,
                 samples,
             } => Some((*side, samples)),
-            Shape::Curves(_) | Shape::Grid { .. } => None,
+            Shape::Curves(_) | Shape::Grid { .. } | Shape::DeviceInk => None,
         }
     }
 
@@ -288,6 +318,7 @@ impl Luminance {
         match &self.shape {
             Shape::Curves(_) => 3,
             Shape::Grid { axes, .. } => *axes,
+            Shape::DeviceInk => 4,
         }
     }
 
@@ -328,6 +359,16 @@ impl Luminance {
                 let cells: Vec<(usize, [f32; 2])> =
                     (0..*axes).map(|axis| cell_of(*side, at(axis))).collect();
                 multilinear(*side, samples, &cells)
+            }
+            Shape::DeviceInk => {
+                let ink = 0.3_f32.mul_add(
+                    at(0).clamp(0.0, 1.0),
+                    0.59_f32.mul_add(
+                        at(1).clamp(0.0, 1.0),
+                        0.11_f32.mul_add(at(2).clamp(0.0, 1.0), at(3).clamp(0.0, 1.0)),
+                    ),
+                );
+                1.0 - ink.min(1.0)
             }
         };
         luminosity.clamp(0.0, 1.0)

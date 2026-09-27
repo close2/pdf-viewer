@@ -220,3 +220,18 @@ The build is what makes the record a fact rather than a reading — and the owne
 padding as F.4.1's operative reading (`doc/questions/A131`, ADR 1328): a convention every known reader
 agrees on is evidence about which reading of an ambiguous sentence does any work, and "the clause is
 not unclear" was itself a claim that decayed.
+
+## A brief's premise is checked in the text before anything is built on it
+
+Batch thirty-eight's briefs got three premises wrong and three rounds caught them: a "verbatim"
+quotation that was not the standard's words and an identifier (`ColorantTable`) that named Table 402's
+entry rather than Table 70's (ADR 1338); a clause said to name the containing page's group when its
+own noun names the imported page's (ADR 1339); a residue named as a shape channel when §11.4.3's
+only reader of shape apart from opacity is a knockout group (ADR 1340). Grep the quotation in
+`doc/md/`, grep the identifier in the tree, and re-read the clause's own noun before building.
+
+## A clause that seems silent on a case is read for its ordering sentence first
+
+§10.7.4 says nothing about a pixel two portions share, but it fixes the order of steps — all
+"insideness" computations have been performed before scan conversion — so the pixel is covered by the
+area of the set the fill rule declares inside, and there was nothing else to say (ADR 1341).

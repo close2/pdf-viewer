@@ -109,6 +109,14 @@ pub enum Event {
         purpose: Purpose,
         /// The file specification's name, as the document wrote it.
         name: String,
+        /// Whether the action asked for the file's document in a window of its own.
+        ///
+        /// Table 203's `/NewWindow true` for [`Purpose::RemoteDocument`] and Table 204's for
+        /// [`Purpose::TargetRoot`], and `false` for every other purpose, whose tables state no such
+        /// entry. Carried on the question because a host asking a person whether to open the file
+        /// owes them where it would open: beside the document they are reading, where the host
+        /// offers [`crate::Command::Beside`] a name, or in place of it (ADR 1335).
+        beside: bool,
     },
     /// §12.4.4: show the page using this transition.
     ///

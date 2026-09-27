@@ -1178,7 +1178,7 @@ fn identification_flavour(document: &Document, findings: &mut Findings, flavour:
     }
 }
 
-/// ISO 19005-4 section 6.7.3, which Annex B §B.5 requires a PDF/A-4e file to satisfy.
+/// ISO 19005-4 section 6.7.3, which its section B.5 requires a PDF/A-4e file to satisfy.
 fn identification_declares_flavour_e(exam: &Examination<'_>, findings: &mut Findings) {
     let document = exam.document;
     identification_flavour(document, findings, "E");

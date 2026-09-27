@@ -769,9 +769,15 @@ impl Host {
     /// each make this program parse a second PDF — which is the act a person may want to be
     /// asked about. `viewer_host::under_remote_documents` is the division, written once rather
     /// than in each of three windows (ADRs 1227, 1239).
-    fn needs_file(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
+    fn needs_file(
+        &mut self,
+        purpose: Purpose,
+        name: &str,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    ) {
         if viewer_host::under_remote_documents(purpose) {
-            self.remote(purpose, name, queue);
+            self.remote(purpose, name, beside, queue);
             return;
         }
         let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), name)
@@ -790,12 +796,19 @@ impl Host {
     /// The policy is `viewer_host::remote`'s and not this window's, so a level a reader sets is a
     /// value there rather than three windows' worth of editing — ADR 1079's shape and ADR 1155's,
     /// one clause along. What is this window's is the dialogue and the status line (ADR 1227).
-    fn remote(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
+    fn remote(
+        &mut self,
+        purpose: Purpose,
+        name: &str,
+        beside: bool,
+        queue: &mut VecDeque<Command>,
+    ) {
         match viewer_host::remote(
             self.showing.directory.as_deref(),
             name,
             self.remote_documents,
             purpose,
+            beside,
         ) {
             viewer_host::Remote::Supply { path, note } => {
                 let bytes = self.read_remote(purpose, name, &path);
@@ -1142,6 +1155,7 @@ impl Host {
         if viewer_accessibility::republishes(&command) {
             self.spoken = None;
         }
+        let supplied = matches!(command, Command::Supply { .. });
         let events: Vec<Event> = self.viewer.handle(command).collect();
         if let Some(described) = described {
             self.trace.say(
@@ -1151,6 +1165,10 @@ impl Host {
         }
         for event in events {
             self.react(event, queue);
+        }
+        // Every event the supply caused has been seen, so an offer nothing took is spent.
+        if supplied {
+            self.arrivals.supplied();
         }
     }
 
@@ -1440,6 +1458,9 @@ impl Host {
             // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the
             // repaint at the end of every pump has already been scheduled by the time this
             // arrives.
+            // A file held for a §12.7.8 named page's password is read and put down again, and the
+            // name it was asked under is closed so this window stops holding it (ADR 1335).
+            Event::Closed(document) if self.arrivals.is(document) => self.given_up(document),
             Event::Closed(_) | Event::Damage(_) => {}
             Event::PageChanged {
                 index,
@@ -1471,7 +1492,12 @@ impl Host {
                 document,
                 submission,
             } => self.submit(document, *submission),
-            Event::NeedsFile { purpose, name, .. } => self.needs_file(purpose, &name, queue),
+            Event::NeedsFile {
+                purpose,
+                name,
+                beside,
+                ..
+            } => self.needs_file(purpose, &name, beside, queue),
             // §12.4.4.1: played since this host was given a clock, and named where it is not.
             //
             // A transition outside a presentation is not drawn at all — there is no clock to draw
@@ -2070,7 +2096,7 @@ impl Host {
     /// §12.3.4: one page's label and miniature, asked for when the list is about to draw that row.
     ///
     /// The decode is here rather than in `build_panels` because that is the whole of `CLAUDE.md`
-    /// §2's rule reaching this panel — a loop over the page count would have moved the eager work
+    /// principle 2's rule reaching this panel — a loop over the page count would have moved the eager work
     /// out of the launch path rather than out of the program. [`viewer_host::Miniatures`] bounds
     /// what is kept afterwards.
     ///

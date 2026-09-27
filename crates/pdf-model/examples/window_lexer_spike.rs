@@ -19,7 +19,7 @@
 //! ```
 //!
 //! **This is a spike and not a design.** It lexes; it does not interpret, and an interpreter
-//! fed this way needs the two things §14 of this file's todo names: a `Token::Keyword` that
+//! fed this way needs the two things section 14 of this file's todo names: a `Token::Keyword` that
 //! borrows the window may not outlive a refill, and `inline_image::scan` searches forward for
 //! `EI` over data whose length the dictionary need not state.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
