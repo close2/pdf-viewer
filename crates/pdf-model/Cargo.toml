@@ -34,6 +34,11 @@ zune-jpeg.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+# `examples/ccitt_decoder_census.rs` decodes every corpus fax stream with both decoders and
+# compares them bit for bit — the measurement ADR 1349 rests on. The old decoder is evidence
+# there, and a dev-dependency because nothing this crate ships decodes with it.
+hayro-ccitt.workspace = true
+pdf-ccitt.workspace = true
 # The bounds `tests/corpus.rs`, `tests/dates.rs`, `tests/xmp.rs`, `tests/text_extraction.rs` and
 # `tests/save_round_trip.rs` hold, each printed beside the population it bounds (ADR 1075).
 gate-ratchet.workspace = true

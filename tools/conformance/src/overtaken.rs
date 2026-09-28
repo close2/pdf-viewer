@@ -65,6 +65,12 @@
 //!   them whether or not it disturbs a given note.
 //! - **A note may deliberately not cite a later ADR** that is about a different property of the
 //!   same page. That is the reverse of a defect and only the sentence tells them apart.
+//! - **A note read against its later decisions and found true is named, not re-read.** [`READ`]
+//!   holds each such note with the newest decision the reading reached, so the note leaves the
+//!   list until a decision numbered above that names one of its pages — which is the sweep's own
+//!   discriminator applied to the reading instead of to the note's citations. Keyed by the
+//!   list's name, which does not move when a sibling edits the lines above it; a name the tree
+//!   no longer declares is printed rather than kept silently. ADR 1355.
 //! - **[`Report::uncited`] is a ranking, not a finding.** A note citing no ADR at all has no
 //!   left-hand side to compare, so it is counted rather than listed among the hits — the
 //!   comparison is undefined, not failed.
@@ -81,6 +87,80 @@ use std::path::{Path, PathBuf};
 
 /// The directory holding the decision records, relative to the workspace root.
 pub const DECISIONS: &str = "doc/adr";
+
+/// Page-list notes read against every later decision that names one of their pages, each with
+/// the newest such decision the reading reached, and found true of them.
+///
+/// A note is compared only against decisions numbered above both its own newest citation and
+/// its entry here. The alternative — citing every such decision inside the note — would make a
+/// diagnosis a student reads carry a list of ADRs that are about other properties of the same
+/// page, which is the noise this sweep's rungs already classify. An entry is added by reading
+/// the note against each decision the sweep prints for it, correcting any sentence one of them
+/// made false, and writing the newest number; a decision taken later brings the note back.
+/// ADR 1355.
+pub const READ: [(&str, u32); 61] = [
+    ("AMBIGUOUS_BOUNDARY_PIXELS", 1082),
+    ("AMBIGUOUS_CALRGB_TO_SCREEN", 985),
+    ("AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE", 1321),
+    ("AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE", 1341),
+    ("AMBIGUOUS_DEVICE_CMYK_CONVERSION", 805),
+    ("AMBIGUOUS_DIVIDED_CONSENSUS", 773),
+    ("AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE", 633),
+    ("AMBIGUOUS_GRADIENT_QUANTISATION", 355),
+    ("AMBIGUOUS_ICC_MATRIX_PROFILE", 585),
+    ("AMBIGUOUS_ICON_ARTWORK", 777),
+    ("AMBIGUOUS_IMAGE_REDUCTION", 1321),
+    ("AMBIGUOUS_IRREVERSIBLE_JPEG_2000", 985),
+    ("AMBIGUOUS_LINE_ENDING_SIZE", 1082),
+    ("AMBIGUOUS_LINK_BORDER", 1253),
+    ("AMBIGUOUS_LOCA_OUT_OF_ORDER", 174),
+    ("AMBIGUOUS_NON_ISOLATED_POSTER", 1307),
+    ("AMBIGUOUS_ONE_LADDER", 1321),
+    ("AMBIGUOUS_OUTLINED_TEXT", 791),
+    ("AMBIGUOUS_OVERSIZED_BORDER", 985),
+    ("AMBIGUOUS_PAGE_DRAWN_IN_INK", 1267),
+    ("AMBIGUOUS_RADIAL_CONE", 408),
+    ("AMBIGUOUS_REFERENCE_DREW_NOTHING", 1027),
+    ("AMBIGUOUS_SPACE_DRAWN_AS_A_MARK", 174),
+    ("AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS", 961),
+    ("AMBIGUOUS_STROKE_ADJUSTMENT", 985),
+    ("AMBIGUOUS_SUBTRACTIVE_MASK_GROUP", 1058),
+    ("AMBIGUOUS_SUB_PIXEL_LINE_WORK", 1341),
+    ("AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE", 985),
+    ("AMBIGUOUS_TILING_CELL_CLIP", 1102),
+    ("AMBIGUOUS_ZERO_AREA_FILL", 985),
+    ("CONTRADICTED_ANTIALIASED_EDGES", 773),
+    ("CONTRADICTED_CALIBRATED_COLOUR", 985),
+    ("CONTRADICTED_CALRGB_TO_SCREEN", 985),
+    ("CONTRADICTED_COINCIDENT_CLIP_EDGES", 857),
+    ("CONTRADICTED_DEVICE_CMYK_CONVERSION", 805),
+    ("CONTRADICTED_GLYPH_EDGES", 1321),
+    ("CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE", 962),
+    ("CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK", 857),
+    ("CONTRADICTED_PAGE_ROUNDING", 866),
+    ("CONTRADICTED_REFERENCES_DREW_NOTHING", 985),
+    ("CONTRADICTED_SHARED_JBIG2_DECODER", 805),
+    ("CONTRADICTED_SUBSTITUTED_FONT", 1113),
+    ("CONTRADICTED_SYMBOLIC_FONT_FLAGS", 1341),
+    ("CONTRADICTED_TIGHT_CONSENSUS", 773),
+    ("CONTRADICTED_UNEXPLAINED", 1321),
+    ("CONTRADICTED_VISIBILITY_EXPRESSION", 510),
+    ("DIFFERS_IN_SHAPE", 1341),
+    ("JUDGED_WITHOUT_A_THIRD_READING", 985),
+    ("KNOWN_SLOW", 1267),
+    ("LOCKED", 1102),
+    ("NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE", 1328),
+    ("NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE", 860),
+    ("NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY", 513),
+    ("NOT_COMPARABLE_THE_RENDERERS_SAID_THEY_DREW_NOTHING", 1011),
+    ("NO_RENDER_NEEDS_A_PASSWORD", 1102),
+    ("NO_RENDER_NO_PAGE_IN_THE_TREE", 852),
+    ("REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER", 1151),
+    ("REFUSED_BEFORE_THE_SCENE", 1267),
+    ("REFUSED_BY_THE_DEVICE", 1321),
+    ("SELECTION_BELOW_FLOOR", 1341),
+    ("TEXT_BELOW_FLOOR", 1341),
+];
 
 /// How many decimal digits an ADR's file name begins with.
 const NUMBER_DIGITS: usize = 4;
@@ -225,6 +305,10 @@ pub struct Report {
     pub decisions: usize,
     /// How many distinct documents the page lists name between them.
     pub corpus: usize,
+    /// How many notes a read list's entry kept off the findings.
+    pub read: usize,
+    /// Every name in the read list that no note in the tree carries.
+    pub unknown_read: Vec<String>,
 }
 
 impl Report {
@@ -316,18 +400,25 @@ pub fn decisions(root: &Path) -> std::io::Result<Vec<Decision>> {
 ///
 /// The vocabulary is taken from the notes themselves, so this is the one entry point: a
 /// [`Corpus`] built from a subset of the lists would silently narrow what an ADR can be seen to
-/// name.
+/// name. `read` is [`READ`] in the tree and empty in a test that builds its own notes, so that a
+/// test note sharing a real list's name is compared the way the sweep compares an unread one.
 #[must_use]
-pub fn sweep(notes: &[Note], decisions: &[Decision]) -> Report {
+pub fn sweep(notes: &[Note], decisions: &[Decision], read: &[(&str, u32)]) -> Report {
     let corpus = corpus_of(notes);
     let mut findings = Vec::new();
     let mut uncited = 0usize;
+    let mut kept_off = 0usize;
 
     for note in notes {
         let Some(newest_cited) = note.newest_cited() else {
             uncited = uncited.saturating_add(1);
             continue;
         };
+        let newest_read = read
+            .iter()
+            .find(|(name, _)| *name == note.name)
+            .map(|(_, number)| *number);
+        let horizon = newest_read.map_or(newest_cited, |number| number.max(newest_cited));
         // Both halves of every comparison below run through the vocabulary, so a `.pdf` token
         // this project never sorted a page of cannot make a hit from either side.
         let prose = corpus.narrow(&note.prose);
@@ -336,7 +427,7 @@ pub fn sweep(notes: &[Note], decisions: &[Decision]) -> Report {
             continue;
         }
         let mut overtaking = Vec::new();
-        for decision in decisions.iter().filter(|d| d.number > newest_cited) {
+        for decision in decisions.iter().filter(|d| d.number > horizon) {
             let named = corpus.narrow(&decision.documents);
             let shared: BTreeSet<String> = named.intersection(&about).cloned().collect();
             // A shared page is what every rung rests on, the first one included. The first run
@@ -361,6 +452,9 @@ pub fn sweep(notes: &[Note], decisions: &[Decision]) -> Report {
             });
         }
         if overtaking.is_empty() {
+            if newest_read.is_some() {
+                kept_off = kept_off.saturating_add(1);
+            }
             continue;
         }
         overtaking.sort_by_key(|o| (o.rung, std::cmp::Reverse(o.number)));
@@ -377,6 +471,12 @@ pub fn sweep(notes: &[Note], decisions: &[Decision]) -> Report {
         uncited,
         decisions: decisions.len(),
         corpus: corpus.names.len(),
+        read: kept_off,
+        unknown_read: read
+            .iter()
+            .filter(|(name, _)| !notes.iter().any(|note| note.name == *name))
+            .map(|(name, _)| (*name).to_owned())
+            .collect(),
     }
 }
 
@@ -715,7 +815,7 @@ mod tests {
             "priced in ADR 0474",
             &["colors.pdf"],
         )];
-        let report = sweep(&stale, &decisions);
+        let report = sweep(&stale, &decisions, &[]);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.findings[0].rung(), Rung::Group);
         assert_eq!(report.findings[0].newest(), 489);
@@ -725,7 +825,49 @@ mod tests {
             "ADR 0489 has the argument",
             &["colors.pdf"],
         )];
-        assert!(sweep(&current, &decisions).findings.is_empty());
+        assert!(sweep(&current, &decisions, &[]).findings.is_empty());
+    }
+
+    #[test]
+    fn a_note_read_through_a_decision_returns_only_for_a_later_one() {
+        let decisions = vec![
+            decision(474, "colors.pdf pages 1 and 2, quantised to a quarter"),
+            decision(489, "colors.pdf re-derived"),
+        ];
+        let notes = vec![note(
+            "A_LIST_OF_PAGES",
+            "priced in ADR 0400",
+            &["colors.pdf"],
+        )];
+
+        let read = sweep(&notes, &decisions, &[("A_LIST_OF_PAGES", 489)]);
+        assert!(read.findings.is_empty());
+        assert_eq!(read.read, 1);
+
+        let behind = sweep(&notes, &decisions, &[("A_LIST_OF_PAGES", 474)]);
+        assert_eq!(
+            behind.findings.len(),
+            1,
+            "a decision after the reading brings it back"
+        );
+        assert_eq!(behind.findings[0].overtaking.len(), 1);
+        assert_eq!(behind.findings[0].newest(), 489);
+
+        let stray = sweep(&notes, &decisions, &[("NO_SUCH_LIST", 489)]);
+        assert_eq!(stray.unknown_read, vec!["NO_SUCH_LIST".to_owned()]);
+    }
+
+    #[test]
+    fn every_read_entry_names_one_list_once() {
+        let mut names: Vec<&str> = READ.iter().map(|(name, _)| *name).collect();
+        names.sort_unstable();
+        let before = names.len();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            before,
+            "a list is read through one decision, not two"
+        );
     }
 
     /// The list's own pages and the note's own lines are kept for [`crate::quoted`], which asks
@@ -765,6 +907,7 @@ const A_LIST_OF_PAGES: [&str; 2] = [
         let report = sweep(
             &[note("A_LIST_OF_PAGES", "no citation here", &["colors.pdf"])],
             &decisions,
+            &[],
         );
         assert!(report.findings.is_empty());
         assert_eq!(report.uncited, 1);
@@ -789,7 +932,7 @@ const A_LIST_OF_PAGES: [&str; 2] = [
             decision(400, "issue4436r.pdf"),
         ];
         let listed = vec![note("A_LIST_OF_PAGES", "ADR 0300", &["issue4436r.pdf"])];
-        let report = sweep(&listed, &decisions);
+        let report = sweep(&listed, &decisions, &[]);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.findings[0].rung(), Rung::Member);
     }

@@ -61,12 +61,13 @@
 //!
 //! The prefix sum is a *signed* winding integral, so the two rules of §8.5.3.3 are two ways of
 //! reading it: the non-zero rule takes its magnitude, capped at the whole pixel, and the
-//! even-odd rule folds it into `0..=1` with period two. Both are exact wherever the winding stays
-//! inside `0..=1` or `-1..=0`, which is every simple path. A row where it leaves them — portions of
-//! the path overlapping, or wound against one another — is measured a second way: cut at every
-//! height where two edges cross, the edges stand in one order in each piece of the row, and only
-//! those where the rule's answer changes are deposited, at a unit weight. The sum over that
-//! boundary is the area of the filled set itself (ADR 1341).
+//! even-odd rule folds it into `0..=1` with period two. Both are exact wherever the winding inside
+//! a pixel takes two adjacent values only, which is every simple path. Where it takes more —
+//! portions of the path overlapping, or wound against one another — the pixels are measured a
+//! second way: cut at every height where two edges cross, the edges stand in one order in each
+//! piece of the row, and only those where the rule's answer changes are deposited, at a unit
+//! weight. The sum over that boundary is the area of the filled set itself (ADR 1341), taken one
+//! cluster of a row at a time (ADR 1347).
 //!
 //! # What it declines, and why each
 //!
@@ -247,8 +248,14 @@ pub(crate) struct Buffers {
 struct SetBuffers {
     /// The mark's edges as the walk hands them over.
     lines: Vec<[Point; 2]>,
-    /// The same, taken downwards and sorted — [`Edge::sort_into`].
+    /// The same, taken downwards and in order of the row each begins in — [`Edge::by_row`].
     edges: Vec<Edge>,
+    /// The same before [`Edge::by_row`] orders them.
+    unsorted: Vec<Edge>,
+    /// [`Edge::by_row`]'s count of edges per row.
+    counts: Vec<usize>,
+    /// The horizontal ones, which enclose nothing and bound what the others enclose.
+    flats: Vec<Flat>,
     /// One row's working state.
     rows: RowScratch,
 }
@@ -582,31 +589,42 @@ impl Accumulator<'_> {
         self.values.get_mut(from..until)
     }
 
-    /// Re-measures, as the area of the filled **set**, every row whose winding integral cannot be
-    /// read as that area — ISO 32000-2 §10.7.4, §8.5.3.3, §11.6.2.
+    /// Re-measures, as the area of the filled **set**, every pixel whose winding integral cannot
+    /// be read as that area — ISO 32000-2 §10.7.4, §8.5.3.3, §11.6.2.
     ///
     /// Two steps, because the question is cheap to suspect and dear to settle. [`overlaps`] reads
     /// each row's own sums for a sign that the winding left `0..=1` or `-1..=0` somewhere, and a
     /// mark with no such row is left exactly as it was accumulated. A mark with one is **suspect as
     /// a whole** — an overlap confined to pixels its path only partly covers shows no sign in its
-    /// own row, and the rows beside it are what give it away — so every row of it is walked by
-    /// [`Accumulator::measure_row`], which settles the question per row and rewrites only a row
-    /// whose winding did leave those ranges. A row that did not keeps the accumulator's bits.
+    /// own row, and the rows beside it are what give it away — so every row of it is settled by
+    /// [`Accumulator::measure_row`], which rewrites only the pixels whose winding did leave those
+    /// ranges. Every other pixel keeps the accumulator's bits.
     ///
     /// `false` only where [`SET_WORK`] was spent first, in which case nothing has been written to
     /// the caller's target and the library's converter draws the mark.
     ///
     /// # What it costs, and what it buys
     ///
-    /// `callgrind_rasterise`, `RAYON_NUM_THREADS=1`, five rasterisations, against the tree that left
-    /// every such mark to `tiny-skia`'s supersampled converter: ISO 32000-2's page 101 **−2.7%**
-    /// (the per-deposit test this replaced was on every glyph), `issue12295.pdf` −0.03% (65 859
-    /// strokes, each one straight segment), `issue20232.pdf` **+9.3%**, and `issue19802.pdf` and
-    /// `issue14415.pdf` **+50%** and **+47%** — the two pages dense with stroked paths whose joins
-    /// overlap, where each row with more than two edges is now walked. What it buys is the page's
-    /// own ink: `render-raster/examples/ink_ladder` reads `issue20232.pdf` at 17 932 at 1× against
-    /// its own 17 866 at 8×, where the supersampled converter read 19 324 and the integral alone
-    /// 23 722, and every page it moved lands on its own 2× figure. ADR 1341.
+    /// What it buys is the page's own ink: `render-raster/examples/ink_ladder` reads
+    /// `issue20232.pdf` at 17 932 at 1× against its own 17 866 at 8×, where the supersampled
+    /// converter read 19 324 and the integral alone 23 722, and every page it moved lands on its
+    /// own 2× figure (ADR 1341). What it costs is ADR 1347's table: `callgrind_rasterise`,
+    /// `RAYON_NUM_THREADS=1`, five rasterisations, against the tree that left every such mark to
+    /// `tiny-skia`'s supersampled converter, walking every row of such a mark cost
+    /// `issue14415.pdf` +47% and `issue19802.pdf` +51%, and walking only the clusters that can part
+    /// from the set, strand by strand, costs them +27% and +19% — ADR 1347's table, which also
+    /// carries what ADR 1348's stroke pieces add on the first.
+    ///
+    /// # Why not every mark
+    ///
+    /// Settling every row of every mark this way would close the one residue left — an overlap
+    /// confined to pixels a path that is not an outline only partly covers, with no whole winding
+    /// of two and no sign against another in its row, where the error is bounded by the overlap's
+    /// own area inside the pixel — and it was measured: ISO 32000-2's page 101 +114%, and
+    /// `issue14415.pdf` seventeen times over for one page-wide fill. ADR 1347.
+    // Out of line: a suspect mark is the rare one, and inlined into [`fill`] this walk's code
+    // costs every mark's call (ADR 1347).
+    #[inline(never)]
     fn measure_overlapping_rows(
         &mut self,
         (path, overlapping): (&Path, bool),
@@ -619,22 +637,30 @@ impl Accumulator<'_> {
         if !suspect {
             return true;
         }
-        let SetBuffers { lines, edges, rows } = set;
+        let SetBuffers {
+            lines,
+            edges,
+            unsorted,
+            counts,
+            flats,
+            rows,
+        } = set;
         lines.clear();
         trace(lines, path, at);
-        Edge::sort_into(lines, edges);
+        Edge::sort_into(lines, (edges, unsorted, counts), flats);
+        Edge::by_row((edges, unsorted, counts), (self.origin.1, self.rows));
         rows.start();
         for row in 0..self.rows {
-            if !self.measure_row(row, edges, rule, rows) {
+            if !self.measure_row(row, (edges, flats), rule, rows) {
                 return false;
             }
         }
         true
     }
 
-    /// Settles one row of a suspect mark: walks the boundary of the filled set and, where the
-    /// row's winding left `0..=1` or `-1..=0`, writes its cells from that boundary instead of from
-    /// the path's edges. `false` where [`SET_WORK`] is spent.
+    /// Settles one row of a suspect mark: finds the pixels where its winding integral may part
+    /// from the filled set's area, walks the set's boundary there, and writes those pixels from
+    /// the boundary instead of from the path's edges. `false` where [`SET_WORK`] is spent.
     ///
     /// §10.7.4 applies its rules to a shape whose inside is already decided:
     ///
@@ -643,116 +669,169 @@ impl Accumulator<'_> {
     ///
     /// So the quantity a pixel is covered by is the area of the set §8.5.3.3's rule declares
     /// inside — not the integral of the winding number that set was decided from. The two part
-    /// only where the winding leaves those ranges, which is portions of one path overlapping or
-    /// wound against one another.
+    /// only where the winding inside one pixel leaves a pair of adjacent values, which is portions
+    /// of one path overlapping or wound against one another.
     ///
-    /// The row is cut into horizontal sub-strips at every height where an edge begins, ends or
-    /// crosses another. Inside one sub-strip no two edges cross, so they stand in one left-to-right
-    /// order, and walking that order with the running winding number finds exactly where the
-    /// rule's answer changes. Each such edge is deposited with a **unit** weight — `+1` where the
-    /// set is entered, `−1` where it is left — and every other edge not at all. The prefix sum
-    /// [`read_off`] runs is then the integral of the set's own indicator, which is its area,
-    /// exactly: the same closed form the whole module is made of, over a boundary that no longer
-    /// overlaps itself.
+    /// # Clusters, and why a row is settled one cluster at a time
+    ///
+    /// [`RowScratch::cluster`] groups the row's pieces by the pixel columns they reach: two pieces
+    /// reaching one column, or joined by a horizontal edge strictly inside the row, are one
+    /// cluster. The winding just left of a cluster is then the same at every height of the row —
+    /// a piece that begins or ends inside the row meets the next edge of its path at that point,
+    /// which lies in a column the first reaches, so both are in one cluster and whatever one adds
+    /// to the columns right of them the other takes away. So each cluster is a closed question
+    /// with a known starting winding, and a cluster is walked, and its pixels rewritten, without
+    /// the rest of the row.
+    ///
+    /// A cluster of one piece is never walked: inside its pixels the winding takes the starting
+    /// value and that value plus the piece's direction, which the accumulator reads exactly. Nor
+    /// is a cluster of two that are one polyline continuing through a vertex, or the two sides of
+    /// a thin shape over the same heights without crossing, for the same reason. Everything else
+    /// is walked, and a walk that finds the winding stayed in `0..=1` or `-1..=0` leaves the
+    /// cluster's bits alone.
+    ///
+    /// # The walk
+    ///
+    /// The cluster's part of the row is cut into horizontal sub-strips at every height where one
+    /// of its pieces begins, ends or crosses another. Inside one sub-strip no two cross, so they
+    /// stand in one left-to-right order, and walking that order with the running winding number
+    /// finds exactly where the rule's answer changes. Each such piece is deposited with a **unit**
+    /// weight — `+1` where the set is entered, `−1` where it is left — and every other piece not
+    /// at all. The prefix sum [`read_off`] runs over those pixels is then the integral of the
+    /// set's own indicator, which is its area, exactly: the same closed form the whole module is
+    /// made of, over a boundary that no longer overlaps itself.
     fn measure_row(
         &mut self,
         row: usize,
-        edges: &[Edge],
+        (edges, flats): (&[Edge], &[Flat]),
         rule: FillRule,
         scratch: &mut RowScratch,
     ) -> bool {
         let top = self.origin.1 + index_as_f32(row);
-        scratch.gather(edges, (top, top + 1.0));
-        // A row one edge crosses has a winding of zero and one other value, and a row two edges of
-        // opposite directions cross without meeting has zero and one sign: neither can leave the
-        // ranges, so neither is walked. Most rows of a stroke's outline are the second.
+        scratch.gather((edges, flats), (top, top + 1.0));
+        // A row of fewer than two pieces, or of two the accumulator reads exactly as they stand,
+        // needs no clusters: whether or not the two are one, no cluster of this row is walked.
         match scratch.pieces.as_slice() {
             [] | [_] => return true,
-            [a, b] if a.direction != b.direction && crossing_height(a, b).is_none() => return true,
+            [a, b] if a_pair_reads_exactly(a, b) && !tests::walk_every_row() => return true,
             _ => {}
         }
-        if !scratch.cut() {
-            return false;
+        scratch.cluster();
+        if tests::walk_every_row() {
+            scratch.merge_clusters();
         }
-        let RowScratch {
-            pieces,
-            heights,
-            order,
-            boundary,
-            work,
-            live,
-            ..
-        } = scratch;
-        boundary.clear();
-        // The sub-strips are taken downwards, so the pieces spanning one are a window over the
-        // pieces in order of where they enter the row — which is the order [`RowScratch::gather`]
-        // collected them in, since its edges are sorted by their upper ends. Every end is a cut,
-        // so a piece that has entered and not yet left spans the whole sub-strip.
-        live.clear();
-        let mut entered = 0_usize;
-        // The one sign a winding may take in this row and still be read exactly, once met.
-        let mut sign = 0_i32;
-        let mut leaves_the_range = false;
-        for pair in heights.windows(2) {
-            let &[above, below] = pair else {
+        // Any height strictly inside the row reads the same winding left of a cluster; the middle
+        // is the one no piece ends at unless a vertex lies exactly there, and a vertex is a piece
+        // ending and another beginning, of which this counts the second.
+        let middle = top + 0.5;
+        let mut base = 0_i32;
+        let mut rewritten = Rewritten::default();
+        for index in 0..scratch.clusters.len() {
+            let Some(&cluster) = scratch.clusters.get(index) else {
                 continue;
             };
-            if below <= above {
-                continue;
-            }
-            let middle = 0.5 * (above + below);
-            while let Some(piece) = pieces.get(entered) {
-                if piece.from > above {
-                    break;
-                }
-                live.push(entered);
-                entered = entered.saturating_add(1);
-            }
-            live.retain(|&index| pieces.get(index).is_some_and(|piece| piece.to > above));
-            order.clear();
-            order.extend(
-                live.iter()
-                    .filter_map(|&index| Some((pieces.get(index)?.x_at(middle), index))),
-            );
-            *work = work.saturating_add(order.len());
-            if *work > SET_WORK {
-                return false;
-            }
-            order.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-            let mut winding = 0_i32;
-            let mut inside = false;
-            for &(_, index) in order.iter() {
-                let Some(piece) = pieces.get(index) else {
-                    continue;
-                };
-                winding = winding.saturating_add(piece.direction);
-                if winding != 0 {
-                    if winding.abs() > 1 || (sign != 0 && winding != sign) {
-                        leaves_the_range = true;
-                    }
-                    sign = winding;
-                }
-                let now = match rule {
-                    FillRule::Winding => winding != 0,
-                    FillRule::EvenOdd => winding & 1 == 1,
-                };
-                if now != inside {
-                    let height = if now { below - above } else { above - below };
-                    boundary.push((height, piece.x_at(above), piece.x_at(below)));
-                    inside = now;
+            if scratch.needs_walk(cluster) {
+                match scratch.walk(cluster, base, rule) {
+                    None => return false,
+                    Some(true) => self.rewrite(row, cluster, (base, rule), scratch, &mut rewritten),
+                    Some(false) => {}
                 }
             }
-        }
-        if leaves_the_range {
-            if let Some(cells) = self.row_cells(row) {
-                cells.fill(0.0);
-            }
-            for &(height, a, b) in boundary.iter() {
-                self.crossing(row, height, a - self.origin.0, b - self.origin.0);
-            }
+            base = base.saturating_add(scratch.net(cluster, middle));
         }
         true
     }
+
+    /// Writes one walked cluster's pixels from the set boundary [`RowScratch::walk`] left in
+    /// `scratch.boundary`, keeping every pixel right of it at the value it had.
+    ///
+    /// Written as prefix values rather than as deposits added to what is there, because the
+    /// cells a cluster's pixels hold are the differences of the row's running sum and the cluster
+    /// is replacing that sum over its own columns: the pixel before the cluster keeps what it
+    /// reads, the cluster's pixels read the set's area, and the pixel after it reads what it read
+    /// before, so nothing right of the cluster moves.
+    fn rewrite(
+        &mut self,
+        row: usize,
+        cluster: Cluster,
+        (base, rule): (i32, FillRule),
+        scratch: &RowScratch,
+        rewritten: &mut Rewritten,
+    ) {
+        let Some(columns) = self.row_cells(row).map(|cells| cells.len()) else {
+            return;
+        };
+        let Some(last_pixel) = columns.checked_sub(2) else {
+            return;
+        };
+        // The cluster's pixels in the region's own columns; a cluster wholly outside the region
+        // changes only the winding the region's pixels start from, which the cells already hold.
+        let origin = floored_signed(self.origin.0);
+        let (Ok(first), Ok(last)) = (
+            usize::try_from(cluster.first.saturating_sub(origin).max(0)),
+            usize::try_from(cluster.last.saturating_sub(origin)),
+        ) else {
+            return;
+        };
+        if first > last_pixel {
+            return;
+        }
+        let last = last.min(last_pixel);
+        let Some(cells) = self.row_cells(row) else {
+            return;
+        };
+        // What the running sum reads just before the cluster: the clusters are taken left to
+        // right, so the sum is carried from the last one rather than taken again from the row's
+        // start, and every cell it passes holds what it held before this row was settled or what
+        // keeps that running sum where it was.
+        for cell in cells.get(rewritten.through..first).unwrap_or_default() {
+            rewritten.sum += *cell;
+        }
+        let before = rewritten.sum;
+        let after = before
+            + cells
+                .get(first..=last.saturating_add(1))
+                .unwrap_or_default()
+                .iter()
+                .sum::<f32>();
+        if let Some(span) = cells.get_mut(first..=last.saturating_add(1)) {
+            span.fill(0.0);
+        }
+        let origin_x = self.origin.0;
+        for &(height, a, b) in &scratch.boundary {
+            self.crossing(row, height, a - origin_x, b - origin_x);
+        }
+        let inside = match rule {
+            FillRule::Winding => base != 0,
+            FillRule::EvenOdd => base & 1 == 1,
+        };
+        let Some(cells) = self.row_cells(row) else {
+            return;
+        };
+        let mut running = if inside { 1.0_f32 } else { 0.0 };
+        let mut running_before_last = before;
+        if let Some(span) = cells.get_mut(first..=last) {
+            for cell in span {
+                running += *cell;
+                *cell = running - running_before_last;
+                running_before_last = running;
+            }
+        }
+        if let Some(cell) = cells.get_mut(last.saturating_add(1)) {
+            *cell = after - running_before_last;
+        }
+        rewritten.through = last.saturating_add(1);
+        rewritten.sum = running_before_last;
+    }
+}
+
+/// How far [`Accumulator::rewrite`] has read one row.
+#[derive(Clone, Copy, Debug, Default)]
+struct Rewritten {
+    /// The first cell not yet summed.
+    through: usize,
+    /// The sum of every cell before it, which is the running sum the pixel before it reads.
+    sum: f32,
 }
 
 /// Whether a row's winding integral may not be read as the area of the filled set, which is where
@@ -783,42 +862,205 @@ fn overlaps(cells: &[f32]) -> bool {
 struct Edge {
     /// The upper end, in device space.
     upper: Point,
-    /// The height of the lower end.
-    lower: f32,
+    /// The lower end, in device space.
+    lower: Point,
     /// The change in `x` per unit of `y`.
     slope: f32,
     /// `+1` for an edge running down the device, `−1` for one running up: §8.5.3.3.2's count.
     direction: i32,
+    /// Which chain it belongs to: edges that follow one another along the path through a shared
+    /// vertex, in one direction, share one — see [`RowScratch::walk`].
+    chain: u32,
 }
 
 impl Edge {
-    /// The edges that enclose anything — every one with a height and finite ends — in order of
-    /// their upper end, which is the order the rows meet them in.
-    fn sort_into(lines: &[[Point; 2]], edges: &mut Vec<Self>) {
-        edges.clear();
-        edges.extend(
+    /// The edges that enclose anything — every one with a height and finite ends — each with its
+    /// chain, for [`Edge::by_row`] to order; and the horizontal ones in order of their height,
+    /// which join the pieces at their ends into one cluster.
+    fn sort_into(
+        lines: &[[Point; 2]],
+        (edges, _, _): (&mut Vec<Self>, &mut Vec<Self>, &mut Vec<usize>),
+        flats: &mut Vec<Flat>,
+    ) {
+        let finite = |[from, to]: &&[Point; 2]| from.is_finite() && to.is_finite();
+        flats.clear();
+        flats.extend(
             lines
                 .iter()
+                .filter(finite)
                 .filter(|[from, to]| {
-                    from.x.is_finite() && from.y.is_finite() && to.x.is_finite() && to.y.is_finite()
+                    from.y.to_bits() == to.y.to_bits() && from.x.to_bits() != to.x.to_bits()
                 })
-                .filter_map(|&[from, to]| {
-                    let (direction, upper, lower) = if from.y < to.y {
-                        (1_i32, from, to)
-                    } else {
-                        (-1_i32, to, from)
-                    };
-                    let rise = lower.y - upper.y;
-                    (rise > 0.0).then(|| Self {
-                        upper,
-                        lower: lower.y,
-                        slope: (lower.x - upper.x) / rise,
-                        direction,
-                    })
+                .map(|&[from, to]| Flat {
+                    y: from.y,
+                    left: from.x.min(to.x),
+                    right: from.x.max(to.x),
                 }),
         );
-        edges.sort_unstable_by(|a, b| a.upper.y.total_cmp(&b.upper.y));
+        flats.sort_unstable_by(|a, b| a.y.total_cmp(&b.y));
+        edges.clear();
+        let mut chain = 0_u32;
+        // The last edge taken, as where it ended and which way it ran.
+        let mut previous: Option<(Point, i32)> = None;
+        edges.extend(lines.iter().filter_map(|&[from, to]| {
+            let (direction, upper, lower) = if from.y < to.y {
+                (1_i32, from, to)
+            } else {
+                (-1_i32, to, from)
+            };
+            let rise = lower.y - upper.y;
+            let taken = from.is_finite() && to.is_finite() && rise > 0.0;
+            let continues = previous.is_some_and(|(end, way)| {
+                way == direction
+                    && end.x.to_bits() == from.x.to_bits()
+                    && end.y.to_bits() == from.y.to_bits()
+            });
+            if !(taken && continues) {
+                chain = chain.wrapping_add(1);
+            }
+            previous = taken.then_some((to, direction));
+            taken.then(|| Self {
+                upper,
+                lower,
+                slope: (lower.x - upper.x) / rise,
+                direction,
+                chain,
+            })
+        }));
     }
+
+    /// Puts the edges in order of the row of the region each begins in, which is the order
+    /// [`RowScratch::gather`] meets them in: one that begins above the region counts as beginning
+    /// in its first row, one that begins below it in none.
+    ///
+    /// A counting sort over the region's rows rather than a comparison sort over heights, because
+    /// the walk asks for nothing finer than the row and a suspect mark is sorted once per band it
+    /// reaches: on the two pages ADR 1341 measured dense with joins, the comparison sort was a
+    /// tenth of the walk (ADR 1347).
+    fn by_row(
+        (edges, unsorted, counts): (&mut Vec<Self>, &mut Vec<Self>, &mut Vec<usize>),
+        (first, rows): (f32, usize),
+    ) {
+        // The row gather puts an edge in: the first whose bottom lies below its upper end, with
+        // the bottom computed exactly as gather computes it, so that the two agree to the bit.
+        let bottom = |row: usize| first + index_as_f32(row) + 1.0;
+        let row_of = |edge: &Self| {
+            let mut row = floored(edge.upper.y - first).min(rows);
+            while row > 0 && edge.upper.y < bottom(row.saturating_sub(1)) {
+                row = row.saturating_sub(1);
+            }
+            while row < rows && edge.upper.y >= bottom(row) {
+                row = row.saturating_add(1);
+            }
+            row
+        };
+        std::mem::swap(edges, unsorted);
+        counts.clear();
+        counts.resize(rows.saturating_add(2), 0);
+        for edge in unsorted.iter() {
+            if let Some(count) = counts.get_mut(row_of(edge).saturating_add(1)) {
+                *count = count.saturating_add(1);
+            }
+        }
+        for row in 1..counts.len() {
+            let before = counts.get(row.saturating_sub(1)).copied().unwrap_or(0);
+            if let Some(count) = counts.get_mut(row) {
+                *count = count.saturating_add(before);
+            }
+        }
+        edges.clear();
+        edges.resize(
+            unsorted.len(),
+            Self {
+                upper: Point::zero(),
+                lower: Point::zero(),
+                slope: 0.0,
+                direction: 0,
+                chain: 0,
+            },
+        );
+        for edge in unsorted.iter() {
+            let Some(slot) = counts.get_mut(row_of(edge)) else {
+                continue;
+            };
+            if let Some(place) = edges.get_mut(*slot) {
+                *place = *edge;
+            }
+            *slot = slot.saturating_add(1);
+        }
+    }
+}
+
+/// A piece's stretch of the filled set's boundary inside one row: the heights over which it has
+/// been where the rule's answer changes, on one side, since it last was not.
+#[derive(Clone, Copy, Debug, Default)]
+struct Run {
+    /// Where the stretch began.
+    from: f32,
+    /// Where it has reached.
+    to: f32,
+    /// `+1` where the set is entered across the piece, `−1` where it is left, `0` for no stretch.
+    side: i8,
+}
+
+impl Run {
+    /// Takes the sub-strip `[above, below)` into the stretch, where `side` is what the piece is
+    /// there, closing the stretch into `boundary` where the piece stopped being that.
+    fn extend(
+        &mut self,
+        piece: &Piece,
+        (above, below): (f32, f32),
+        side: i8,
+        boundary: &mut Vec<(f32, f32, f32)>,
+    ) {
+        if side != self.side || self.to.to_bits() != above.to_bits() {
+            self.close(piece, boundary);
+            *self = Self {
+                from: above,
+                to: below,
+                side,
+            };
+        } else {
+            self.to = below;
+        }
+    }
+
+    /// The stretch as one deposit: the signed height, and the piece's `x` at either end.
+    fn close(self, piece: &Piece, boundary: &mut Vec<(f32, f32, f32)>) {
+        if self.side != 0 {
+            boundary.push((
+                f32::from(self.side) * (self.to - self.from),
+                piece.x_at(self.from),
+                piece.x_at(self.to),
+            ));
+        }
+    }
+}
+
+/// One horizontal edge of a suspect mark: it encloses no point, and the winding below it differs
+/// from the winding above it over its own length.
+#[derive(Clone, Copy, Debug)]
+struct Flat {
+    /// Its height, in device space.
+    y: f32,
+    /// Its smaller `x`.
+    left: f32,
+    /// Its larger `x`.
+    right: f32,
+}
+
+/// Pieces of one row that share pixel columns, directly or through one another — see
+/// [`Accumulator::measure_row`].
+#[derive(Clone, Copy, Debug)]
+struct Cluster {
+    /// The first pixel column any of them reaches, in device space.
+    first: i64,
+    /// The last.
+    last: i64,
+    /// Where its pieces' indices begin in `RowScratch::members`.
+    start: usize,
+    /// Where they end.
+    end: usize,
 }
 
 /// One edge's part of one pixel row, for [`Accumulator::measure_row`].
@@ -838,6 +1080,8 @@ struct Piece {
     left: f32,
     /// The larger.
     right: f32,
+    /// The edge's chain.
+    chain: u32,
 }
 
 impl Piece {
@@ -848,6 +1092,10 @@ impl Piece {
     }
 
     /// One edge's part of the row `[enters, leaves)`.
+    ///
+    /// Its reach in `x` is taken from the edge's own end points where it ends inside the row, so
+    /// that two edges meeting at a vertex reach that vertex's column to the bit and fall in one
+    /// [`Cluster`] — which the winding left of a cluster being the same at every height rests on.
     fn of(edge: &Edge, (enters, leaves): (f32, f32)) -> Self {
         let mut piece = Self {
             upper: edge.upper,
@@ -857,10 +1105,34 @@ impl Piece {
             to: leaves,
             left: 0.0,
             right: 0.0,
+            chain: edge.chain,
         };
-        let (a, b) = (piece.x_at(enters), piece.x_at(leaves));
+        let a = if enters.to_bits() == edge.upper.y.to_bits() {
+            edge.upper.x
+        } else {
+            piece.x_at(enters)
+        };
+        let b = if leaves.to_bits() == edge.lower.y.to_bits() {
+            edge.lower.x
+        } else {
+            piece.x_at(leaves)
+        };
         (piece.left, piece.right) = (a.min(b), a.max(b));
         piece
+    }
+}
+
+/// Whether the winding two pieces make in the pixels they share takes two adjacent values only —
+/// one polyline continuing through a vertex, whose two pieces never stand at one height, or the
+/// two sides of a thin shape over the same heights without crossing. See
+/// [`Accumulator::measure_row`].
+fn a_pair_reads_exactly(a: &Piece, b: &Piece) -> bool {
+    if a.direction == b.direction {
+        a.to <= b.from || b.to <= a.from
+    } else {
+        a.from.to_bits() == b.from.to_bits()
+            && a.to.to_bits() == b.to.to_bits()
+            && crossing_height(a, b).is_none()
     }
 }
 
@@ -885,23 +1157,36 @@ fn crossing_height(a: &Piece, b: &Piece) -> Option<f32> {
 struct RowScratch {
     /// The edges' parts inside the row.
     pieces: Vec<Piece>,
-    /// Every height the row is cut at, sorted.
+    /// The horizontal edges strictly inside the row, as the pixel columns they reach.
+    flats: Vec<(i64, i64)>,
+    /// The row's clusters, in order of the columns they reach.
+    clusters: Vec<Cluster>,
+    /// Every cluster's pieces, as indices, each cluster's together.
+    members: Vec<usize>,
+    /// The row's pieces and horizontal edges by the first column they reach, as `(first, last,
+    /// piece)` with `usize::MAX` for a horizontal edge.
+    reach: Vec<(i64, i64, usize)>,
+    /// The cluster being walked, as its own pieces, strand by strand.
+    walked: Vec<Piece>,
+    /// The cluster's strands, in order of where they enter the row.
+    strands: Vec<Strand>,
+    /// Every height the cluster is cut at, sorted.
     heights: Vec<f32>,
-    /// One sub-strip's pieces, by `x` at its middle.
+    /// One sub-strip's strands, by `x` at its middle, carried from one sub-strip to the next.
     order: Vec<(f32, usize)>,
-    /// The filled set's boundary in one row: each edge where the rule's answer changes, as the
-    /// signed height of its sub-strip and its `x` at the sub-strip's top and bottom.
+    /// The filled set's boundary in the cluster: each piece where the rule's answer changes, as
+    /// the signed height of its stretch and its `x` at the stretch's top and bottom.
     boundary: Vec<(f32, f32, f32)>,
+    /// Per piece, the stretch of heights over which it has bounded the set so far.
+    runs: Vec<Run>,
     /// What the mark has spent so far, in pair tests and pieces placed; see [`SET_WORK`].
     work: usize,
-    /// The edges the current row may meet, as indices into [`Edge::sort_into`]'s order.
+    /// The edges the current row may meet, as indices into [`Edge::by_row`]'s order.
     active: Vec<usize>,
-    /// The row's pieces, as indices, in order of their leftmost `x`.
-    by_left: Vec<usize>,
-    /// The pieces spanning the current sub-strip, as indices.
-    live: Vec<usize>,
     /// The first edge in that order no row has met yet.
     next: usize,
+    /// The first horizontal edge no row has passed yet.
+    next_flat: usize,
 }
 
 impl RowScratch {
@@ -910,17 +1195,31 @@ impl RowScratch {
         self.work = 0;
         self.active.clear();
         self.next = 0;
+        self.next_flat = 0;
     }
 
-    /// Collects every edge's part of the device row `[top, bottom)`.
+    /// Collects every edge's part of the device row `[top, bottom)`, and the horizontal edges
+    /// strictly inside it.
     ///
     /// Rows are asked in increasing order, so the edges a row meets are kept as a window over
-    /// [`Edge::sort_into`]'s order: one that begins above the row's bottom joins it, and one that ends
-    /// at or above the row's top leaves it. Each edge is looked at in the rows it spans and not in
-    /// the others.
-    fn gather(&mut self, edges: &[Edge], (top, bottom): (f32, f32)) {
+    /// [`Edge::by_row`]'s order: one that begins above the row's bottom joins it, and one that
+    /// ends at or above the row's top leaves it. Each edge is looked at in the rows it spans and
+    /// not in the others. A horizontal edge on the row's own top changes the winding of no point
+    /// inside the row, since the row is `[top, bottom)`.
+    fn gather(&mut self, (edges, flats): (&[Edge], &[Flat]), (top, bottom): (f32, f32)) {
         self.pieces.clear();
-        self.heights.clear();
+        self.flats.clear();
+        while flats.get(self.next_flat).is_some_and(|flat| flat.y <= top) {
+            self.next_flat = self.next_flat.saturating_add(1);
+        }
+        self.flats.extend(
+            flats
+                .get(self.next_flat..)
+                .unwrap_or_default()
+                .iter()
+                .take_while(|flat| flat.y < bottom)
+                .map(|flat| (floored_signed(flat.left), floored_signed(flat.right))),
+        );
         while let Some(edge) = edges.get(self.next) {
             if edge.upper.y >= bottom {
                 break;
@@ -929,61 +1228,516 @@ impl RowScratch {
             self.next = self.next.saturating_add(1);
         }
         self.active
-            .retain(|&index| edges.get(index).is_some_and(|edge| edge.lower > top));
+            .retain(|&index| edges.get(index).is_some_and(|edge| edge.lower.y > top));
         for &index in &self.active {
             let Some(edge) = edges.get(index) else {
                 continue;
             };
-            let (enters, leaves) = (edge.upper.y.max(top), edge.lower.min(bottom));
+            let (enters, leaves) = (edge.upper.y.max(top), edge.lower.y.min(bottom));
             if enters >= leaves {
                 continue;
             }
             self.pieces.push(Piece::of(edge, (enters, leaves)));
-            self.heights.push(enters);
-            self.heights.push(leaves);
         }
     }
 
-    /// Adds every height at which two pieces cross, and sorts the cuts — `false` where the mark's
-    /// [`SET_WORK`] is spent.
-    ///
-    /// Pieces are taken in order of their leftmost `x`, so that a pair whose reaches do not
-    /// overlap is never tested: two pieces with no `x` in common cannot cross.
-    fn cut(&mut self) -> bool {
-        let pieces = &self.pieces;
-        self.by_left.clear();
-        self.by_left.extend(0..pieces.len());
-        self.by_left.sort_unstable_by(|&a, &b| {
-            let left = |index: usize| pieces.get(index).map_or(f32::INFINITY, |piece| piece.left);
-            left(a).total_cmp(&left(b))
-        });
-        for (rank, &index) in self.by_left.iter().enumerate() {
-            let Some(piece) = pieces.get(index) else {
-                continue;
-            };
-            for &other in self
-                .by_left
-                .get(rank.saturating_add(1)..)
-                .unwrap_or_default()
-            {
-                let Some(other) = pieces.get(other) else {
+    /// Groups the row's pieces into [`Cluster`]s: a sweep over everything that changes the
+    /// winding, in order of the first pixel column it reaches, opening a cluster wherever that
+    /// column lies past every column reached so far.
+    fn cluster(&mut self) {
+        let Self {
+            pieces,
+            flats,
+            clusters,
+            members,
+            reach,
+            ..
+        } = self;
+        reach.clear();
+        reach.extend(pieces.iter().enumerate().map(|(index, piece)| {
+            (
+                floored_signed(piece.left),
+                floored_signed(piece.right),
+                index,
+            )
+        }));
+        reach.extend(flats.iter().map(|&(first, last)| (first, last, usize::MAX)));
+        reach.sort_unstable_by_key(|&(first, _, _)| first);
+        clusters.clear();
+        members.clear();
+        for &(first, last, index) in reach.iter() {
+            let open = clusters.last_mut().filter(|cluster| first <= cluster.last);
+            let cluster = if let Some(cluster) = open {
+                cluster
+            } else {
+                clusters.push(Cluster {
+                    first,
+                    last,
+                    start: members.len(),
+                    end: members.len(),
+                });
+                let Some(cluster) = clusters.last_mut() else {
                     continue;
                 };
-                if other.left > piece.right {
+                cluster
+            };
+            cluster.last = cluster.last.max(last);
+            // A horizontal edge joins what it reaches into one cluster and is no member of it: it
+            // changes the winding of no point, only which pieces' ends the winding is read between.
+            if index != usize::MAX {
+                members.push(index);
+                cluster.end = members.len();
+            }
+        }
+    }
+
+    /// Makes the row one cluster, which is the whole-row walk the clusters are held to in this
+    /// module's tests.
+    #[cfg(test)]
+    fn merge_clusters(&mut self) {
+        let (Some(first), Some(last)) = (self.clusters.first(), self.clusters.last()) else {
+            return;
+        };
+        let merged = Cluster {
+            first: first.first,
+            last: last.last,
+            start: 0,
+            end: self.pieces.len(),
+        };
+        self.members.clear();
+        self.members.extend(0..self.pieces.len());
+        self.clusters.clear();
+        self.clusters.push(merged);
+    }
+
+    /// See the test module's own; nothing outside it merges.
+    #[cfg(not(test))]
+    #[expect(
+        clippy::unused_self,
+        reason = "the test build's twin reads the row; this one exists so that the call site is \
+                  the same in both builds"
+    )]
+    const fn merge_clusters(&self) {}
+
+    /// The pieces of `cluster`.
+    fn members(&self, cluster: Cluster) -> impl Iterator<Item = &Piece> {
+        self.members
+            .get(cluster.start..cluster.end)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|&index| self.pieces.get(index))
+    }
+
+    /// The winding `cluster` adds to every column right of it, read at `height`.
+    fn net(&self, cluster: Cluster, height: f32) -> i32 {
+        self.members(cluster)
+            .filter(|piece| piece.from <= height && height < piece.to)
+            .map(|piece| piece.direction)
+            .sum()
+    }
+
+    /// Whether the winding inside `cluster`'s pixels may take more than two adjacent values —
+    /// see [`Accumulator::measure_row`] for the three arrangements it answers `false` for.
+    fn needs_walk(&self, cluster: Cluster) -> bool {
+        let mut pieces = self.members(cluster);
+        match (pieces.next(), pieces.next(), pieces.next()) {
+            (None | Some(_), None, _) => false,
+            (Some(a), Some(b), None) => !a_pair_reads_exactly(a, b),
+            _ => true,
+        }
+    }
+
+    /// Walks `cluster` from the winding `base` its pixels start at, leaving the filled set's
+    /// boundary across it in `boundary`: `Some(true)` where the winding left `0..=1` or `-1..=0`
+    /// inside it, `Some(false)` where it did not, `None` where [`SET_WORK`] is spent.
+    ///
+    /// # Strands, and why the walk is cut at crossings and not at vertices
+    ///
+    /// A flattened curve is a run of edges each continuing the last through a shared vertex in one
+    /// direction — [`Edge::sort_into`]'s chain — and inside a row such a run is one **strand**: a
+    /// polyline monotone in `y`. Two strands keep their left-to-right order between the heights
+    /// where one begins, ends or crosses the other, whatever vertices either passes through, so
+    /// those are the only cuts, and within a sub-strip each strand is where the rule's answer
+    /// changes or it is not. A stroke's outline is flattened at a two-hundred-and-fifty-sixth of a
+    /// pixel, so a row of it holds several vertices per strand; cutting at each of them is what
+    /// made the walk cost what ADR 1347 measured, and not cutting there changes no answer.
+    ///
+    /// The sub-strips are taken downwards, so the strands spanning one are a window over the
+    /// strands in order of where they enter the row. A piece that bounds the set over several
+    /// sub-strips in a row, on the same side, is deposited once over their union: it is one
+    /// straight line, so the closed form over the union is the sum of the closed forms over the
+    /// parts.
+    fn walk(&mut self, cluster: Cluster, base: i32, rule: FillRule) -> Option<bool> {
+        if let Some(answer) = self.walk_a_pair(cluster, base, rule) {
+            return Some(answer);
+        }
+        self.strands(cluster);
+        if !self.cut() {
+            return None;
+        }
+        // One strand, or two of opposite directions over the same heights that the cut found
+        // meeting nowhere but where they begin and end: the arrangements `needs_walk` answers for
+        // two pieces, met by two polylines, and read exactly for the same reason.
+        match self.strands.as_slice() {
+            [_] => return Some(false),
+            [a, b]
+                if a.direction != b.direction
+                    && a.from.to_bits() == b.from.to_bits()
+                    && a.to.to_bits() == b.to.to_bits()
+                    && self.heights.len() <= 2 =>
+            {
+                return Some(false);
+            }
+            _ => {}
+        }
+        let Self {
+            walked: pieces,
+            strands,
+            heights,
+            order,
+            boundary,
+            work,
+            runs,
+            ..
+        } = self;
+        boundary.clear();
+        order.clear();
+        runs.clear();
+        runs.resize(pieces.len(), Run::default());
+        let reads = |winding: i32| match rule {
+            FillRule::Winding => winding != 0,
+            FillRule::EvenOdd => winding & 1 == 1,
+        };
+        // The one sign a winding may take in this cluster and still be read exactly, once met —
+        // the starting winding included, since the cluster's pixels begin at it.
+        let mut sign = base;
+        let mut leaves_the_range = base.abs() > 1;
+        let mut entered = 0_usize;
+        for pair in heights.windows(2) {
+            let &[above, below] = pair else {
+                continue;
+            };
+            if below <= above {
+                continue;
+            }
+            let middle = 0.5 * (above + below);
+            // The order is carried from the sub-strip above rather than rebuilt: strands keep their
+            // places except where two cross, which is at a cut, so the sort below meets an order
+            // that is already nearly right and an insertion sort is linear on it.
+            order.retain(|&(_, index)| strands.get(index).is_some_and(|strand| strand.to > above));
+            while let Some(strand) = strands.get(entered) {
+                if strand.from > above {
                     break;
                 }
-                self.work = self.work.saturating_add(1);
-                if self.work > SET_WORK {
-                    return false;
+                order.push((0.0, entered));
+                entered = entered.saturating_add(1);
+            }
+            for (x, index) in order.iter_mut() {
+                *x = strands
+                    .get_mut(*index)
+                    .map_or(f32::INFINITY, |strand| strand.x_at(pieces, middle));
+            }
+            *work = work.saturating_add(order.len());
+            if *work > SET_WORK {
+                return None;
+            }
+            order.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+            let mut winding = base;
+            let mut inside = reads(base);
+            for &(_, index) in order.iter() {
+                let Some(strand) = strands.get_mut(index) else {
+                    continue;
+                };
+                winding = winding.saturating_add(strand.direction);
+                if winding != 0 {
+                    if winding.abs() > 1 || (sign != 0 && winding != sign) {
+                        leaves_the_range = true;
+                    }
+                    sign = winding;
                 }
-                if let Some(height) = crossing_height(piece, other) {
-                    self.heights.push(height);
+                let now = reads(winding);
+                let side = match (now == inside, now) {
+                    (true, _) => 0,
+                    (false, true) => 1,
+                    (false, false) => -1,
+                };
+                inside = now;
+                strand.bound(pieces, (runs, boundary), (above, below), side);
+            }
+        }
+        for (run, piece) in runs.iter().zip(pieces.iter()) {
+            run.close(piece, boundary);
+        }
+        Some(leaves_the_range)
+    }
+
+    /// [`RowScratch::walk`] for the cluster most often walked: two pieces over the same heights
+    /// that do not cross — two edges of one direction side by side, which is a path stated twice
+    /// or a stroke's outline doubling back at a join. There is one sub-strip and one order, so the
+    /// boundary is read off directly: the same deposits the walk would leave, without building
+    /// what the walk needs for the general case (ADR 1347). `None` for any other cluster.
+    fn walk_a_pair(&mut self, cluster: Cluster, base: i32, rule: FillRule) -> Option<bool> {
+        let members = self.members.get(cluster.start..cluster.end)?;
+        let &[first, second] = members else {
+            return None;
+        };
+        let (a, b) = (*self.pieces.get(first)?, *self.pieces.get(second)?);
+        if a.from.to_bits() != b.from.to_bits()
+            || a.to.to_bits() != b.to.to_bits()
+            || crossing_height(&a, &b).is_some()
+        {
+            return None;
+        }
+        let middle = 0.5 * (a.from + a.to);
+        let (left, right) = if a.x_at(middle) <= b.x_at(middle) {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let reads = |winding: i32| match rule {
+            FillRule::Winding => winding != 0,
+            FillRule::EvenOdd => winding & 1 == 1,
+        };
+        let windings = [
+            base,
+            base.saturating_add(left.direction),
+            base.saturating_add(left.direction)
+                .saturating_add(right.direction),
+        ];
+        // The walk's own test: past one whole winding, or a second sign once one was met.
+        let mut sign = 0_i32;
+        let mut leaves_the_range = false;
+        for winding in windings {
+            if winding != 0 {
+                leaves_the_range |= winding.abs() > 1 || (sign != 0 && winding != sign);
+                sign = winding;
+            }
+        }
+        self.boundary.clear();
+        for (piece, [was, is]) in [
+            (left, [windings[0], windings[1]]),
+            (right, [windings[1], windings[2]]),
+        ] {
+            if reads(was) != reads(is) {
+                let side = if reads(is) { 1.0 } else { -1.0 };
+                self.boundary.push((
+                    side * (piece.to - piece.from),
+                    piece.x_at(piece.from),
+                    piece.x_at(piece.to),
+                ));
+            }
+        }
+        Some(leaves_the_range)
+    }
+
+    /// Takes `cluster`'s pieces into `walked`, ordered strand by strand and each strand downwards,
+    /// and its strands into `strands` in order of where they enter the row.
+    fn strands(&mut self, cluster: Cluster) {
+        let Self {
+            pieces,
+            members,
+            walked,
+            strands,
+            ..
+        } = self;
+        walked.clear();
+        walked.extend(
+            members
+                .get(cluster.start..cluster.end)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|&index| pieces.get(index)),
+        );
+        walked.sort_unstable_by(|a, b| a.chain.cmp(&b.chain).then(a.from.total_cmp(&b.from)));
+        strands.clear();
+        for (index, piece) in walked.iter().enumerate() {
+            // The reference this module's tests hold the strands to is every piece its own.
+            let continues = strands.last_mut().filter(|strand| {
+                !tests::walk_every_row()
+                    && walked.get(strand.last).is_some_and(|last| {
+                        last.chain == piece.chain && last.to.to_bits() == piece.from.to_bits()
+                    })
+            });
+            if let Some(strand) = continues {
+                strand.last = index;
+                strand.to = piece.to;
+            } else {
+                strands.push(Strand {
+                    first: index,
+                    last: index,
+                    cursor: index,
+                    from: piece.from,
+                    to: piece.to,
+                    direction: piece.direction,
+                    left: piece.left,
+                    right: piece.right,
+                });
+            }
+        }
+        strands.sort_unstable_by(|a, b| a.from.total_cmp(&b.from));
+    }
+
+    /// Cuts the walked cluster at every height where one of its strands begins, ends or crosses
+    /// another, sorted — `false` where the mark's [`SET_WORK`] is spent.
+    ///
+    /// Two strands are compared only where their reaches in `x` overlap, and then piece against
+    /// piece down both at once: each is monotone in `y`, so a piece of one meets only the pieces of
+    /// the other beside it in height, and the comparison is linear in the two strands' pieces
+    /// rather than in their product. Two pieces of one strand meet only at the vertex between them,
+    /// which is not a crossing.
+    fn cut(&mut self) -> bool {
+        let Self {
+            walked: pieces,
+            strands,
+            heights,
+            work,
+            ..
+        } = self;
+        heights.clear();
+        for strand in strands.iter_mut() {
+            heights.push(strand.from);
+            heights.push(strand.to);
+            let reach = pieces
+                .get(strand.first..=strand.last)
+                .unwrap_or_default()
+                .iter()
+                .fold(
+                    (f32::INFINITY, f32::NEG_INFINITY),
+                    |(left, right), piece| (left.min(piece.left), right.max(piece.right)),
+                );
+            (strand.left, strand.right) = reach;
+        }
+        for (rank, one) in strands.iter().enumerate() {
+            for other in strands.get(rank.saturating_add(1)..).unwrap_or_default() {
+                if other.left > one.right
+                    || one.left > other.right
+                    || other.from >= one.to
+                    || one.from >= other.to
+                {
+                    continue;
+                }
+                let (mut a, mut b) = (one.first, other.first);
+                while let (true, true, Some(p), Some(q)) =
+                    (a <= one.last, b <= other.last, pieces.get(a), pieces.get(b))
+                {
+                    *work = work.saturating_add(1);
+                    if *work > SET_WORK {
+                        return false;
+                    }
+                    if p.left <= q.right
+                        && q.left <= p.right
+                        && let Some(height) = meeting_height(p, q)
+                    {
+                        heights.push(height);
+                    }
+                    if p.to <= q.to {
+                        a = a.saturating_add(1);
+                    } else {
+                        b = b.saturating_add(1);
+                    }
                 }
             }
         }
-        self.heights.sort_unstable_by(f32::total_cmp);
-        self.heights.dedup();
+        heights.sort_unstable_by(f32::total_cmp);
+        heights.dedup();
         true
+    }
+}
+
+/// The height inside both pieces' common span at which they cross **or meet**, if they do.
+///
+/// [`crossing_height`] asks for a crossing strictly inside the span, which is all a cut needs when
+/// every vertex is a cut already. A strand is not cut at its vertices, so a strand that crosses
+/// another exactly at one of its own vertices — the piece above it ending on the other strand and
+/// the piece below it leaving from there — has to be cut where the two meet, and a meeting at an
+/// end of the span is that.
+fn meeting_height(a: &Piece, b: &Piece) -> Option<f32> {
+    let (from, to) = (a.from.max(b.from), a.to.min(b.to));
+    if to < from {
+        return None;
+    }
+    let (first, last) = (a.x_at(from) - b.x_at(from), a.x_at(to) - b.x_at(to));
+    if (first < 0.0 && last > 0.0) || (first > 0.0 && last < 0.0) {
+        Some((from + (to - from) * (first / (first - last))).clamp(from, to))
+    } else if first == 0.0 {
+        Some(from)
+    } else if last == 0.0 {
+        Some(to)
+    } else {
+        None
+    }
+}
+
+/// One chain's part of one pixel row: pieces that each continue the last through a vertex, in
+/// one direction — see [`RowScratch::walk`].
+#[derive(Clone, Copy, Debug)]
+struct Strand {
+    /// Its first piece, as an index into `RowScratch::walked`.
+    first: usize,
+    /// Its last.
+    last: usize,
+    /// The first of its pieces the walk has not yet passed.
+    cursor: usize,
+    /// The height at which it enters the row.
+    from: f32,
+    /// The height at which it leaves.
+    to: f32,
+    /// `+1` for a strand running down the device, `−1` for one running up.
+    direction: i32,
+    /// The smallest `x` it reaches inside the row.
+    left: f32,
+    /// The largest.
+    right: f32,
+}
+
+impl Strand {
+    /// The strand's `x` at `height`, which the walk asks at heights that only increase.
+    fn x_at(&mut self, pieces: &[Piece], height: f32) -> f32 {
+        while self.cursor < self.last
+            && pieces
+                .get(self.cursor)
+                .is_some_and(|piece| piece.to <= height)
+        {
+            self.cursor = self.cursor.saturating_add(1);
+        }
+        pieces
+            .get(self.cursor)
+            .map_or(f32::INFINITY, |piece| piece.x_at(height))
+    }
+
+    /// Records that the strand is `side` of the filled set over `[above, below)`, piece by piece.
+    fn bound(
+        &self,
+        pieces: &[Piece],
+        (runs, boundary): (&mut [Run], &mut Vec<(f32, f32, f32)>),
+        (above, below): (f32, f32),
+        side: i8,
+    ) {
+        // The strand's pieces inside the sub-strip begin at or just before the one holding its
+        // middle, which is where the cursor stands.
+        let mut index = self.cursor;
+        while index > self.first
+            && pieces
+                .get(index.saturating_sub(1))
+                .is_some_and(|piece| piece.to > above)
+        {
+            index = index.saturating_sub(1);
+        }
+        while index <= self.last {
+            let (Some(piece), Some(run)) = (pieces.get(index), runs.get_mut(index)) else {
+                break;
+            };
+            if piece.from >= below {
+                break;
+            }
+            run.extend(
+                piece,
+                (piece.from.max(above), piece.to.min(below)),
+                side,
+                boundary,
+            );
+            index = index.saturating_add(1);
+        }
     }
 }
 
@@ -1017,6 +1771,26 @@ fn floored(value: f32) -> usize {
     // Ordered this way round rather than negated, so that a NaN takes the same branch as a
     // negative one: there is no pixel at a coordinate that is not a number.
     if value > 0.0 { value as usize } else { 0 }
+}
+
+/// The pixel column holding a device coordinate that may lie left of the raster — §10.7.4's
+/// `floor`, for [`RowScratch::cluster`], which compares two of them and asks nothing else.
+///
+/// A cast and one comparison rather than `f32::floor`, for [`floored`]'s reason.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "a coordinate a mark reaches this converter with is held inside `scan`'s \
+              SUPERSAMPLED_LIMIT, so the truncated value is far inside i64 and exact in f32; a NaN \
+              casts to zero"
+)]
+fn floored_signed(value: f32) -> i64 {
+    let whole = value as i64;
+    if (whole as f32) > value {
+        whole.saturating_sub(1)
+    } else {
+        whole
+    }
 }
 
 /// The smallest pixel index at or above a non-negative coordinate — `ceil`, by [`floored`]'s
@@ -1072,13 +1846,14 @@ fn shadow(u: f32, low: f32, high: f32) -> f32 {
 /// > a way that would seem to cause overlaps (such as a self-intersecting path, combined fill and
 /// > stroke of a path, or a shading pattern containing an overlap or fold-over).
 ///
-/// So [`overlaps`] names every row where the reading may part from the set, and
-/// [`Accumulator::measure_row`] has already rewritten that row's cells from the set's own boundary:
-/// by the time this runs, every sum it reads is an area. **The condition is the arithmetic's own**:
-/// a row whose winding stays inside one of the two ranges above never meets it, so nothing that
-/// reads exactly is re-measured. What it does not see is an overlap confined to pixels its path
-/// only partly covers, in a row with no whole winding of two and no sign against another, where the
-/// error is bounded by the overlap's own area. ADR 1341.
+/// So [`overlaps`] names every mark whose reading may part from the set, and
+/// [`Accumulator::measure_row`] has already rewritten the pixels of each of its clusters that did
+/// from the set's own boundary: by the time this runs, every sum it reads is an area. **The
+/// condition is the arithmetic's own**: a pixel whose winding takes two adjacent values never
+/// meets it, so nothing that reads exactly is re-measured. What it does not see is an overlap
+/// confined to pixels a path that is not an outline only partly covers, in a mark with no whole
+/// winding of two and no sign against another in any row, where the error is bounded by the
+/// overlap's own area inside the pixel. ADR 1341, ADR 1347.
 ///
 /// `pdf-model/tests/glyph_clip_direction.rs` is §9.3.6's scene for it — text rendering mode 7
 /// accumulates a glyph's outline into the clipping path, so a word set twice in one place is one
@@ -1134,11 +1909,21 @@ fn read_off(
 /// below the second whole winding a crossing adds. See [`overlaps`].
 const OVERLAPPED: f32 = 1.001;
 
+/// The row filter is always consulted outside this module's own tests.
+#[cfg(not(test))]
+mod tests {
+    /// See the test module's own.
+    pub(super) const fn walk_every_row() -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![expect(
         clippy::arithmetic_side_effects,
         clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
         clippy::cast_sign_loss,
         clippy::indexing_slicing,
         reason = "a test module: every expected value below is arithmetic on constants written in \
@@ -1146,6 +1931,17 @@ mod tests {
     )]
 
     use super::{Region, fill, region};
+
+    thread_local! {
+        /// Whether [`super::Accumulator::measure_row`] walks every row of a suspect mark, which is
+        /// the reference [`super::RowScratch::cluster`]'s rows are held to.
+        static WALK_EVERY_ROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// See [`WALK_EVERY_ROW`].
+    pub(super) fn walk_every_row() -> bool {
+        WALK_EVERY_ROW.with(std::cell::Cell::get)
+    }
 
     /// The coverage of a `width` by `height` mask, as levels.
     fn levels(
@@ -1358,6 +2154,87 @@ mod tests {
             (255.0_f32 * 0.8).round() as u8,
             "the integral, which is the residue"
         );
+    }
+
+    /// A row settled one [`super::Cluster`] at a time reads what the whole row walked at once
+    /// reads, on every pixel of every mark —
+    /// held here over polygons drawn from a fixed sequence, several subpaths each, overlapping and
+    /// self-crossing, with vertices on and off the pixel grid, under both rules.
+    #[test]
+    fn a_row_the_filter_leaves_unwalked_reads_what_the_walk_reads() {
+        // A linear congruential sequence: deterministic, and nothing to import.
+        let mut state = 0x2545_f491_u64;
+        let mut next = move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
+            ((state >> 33) as u32 as f32) / (u32::MAX >> 1) as f32
+        };
+        let mut compared = 0_usize;
+        for mark in 0..3000 {
+            let mut builder = tiny_skia::PathBuilder::new();
+            let subpaths = 1 + (next() * 3.0) as usize;
+            for _ in 0..subpaths {
+                // Every other mark is a many-sided loop around a centre — a flattened curve, whose
+                // edges run on in one direction through vertex after vertex inside one row, and
+                // whose two sides come within a pixel of each other where the loop is thin.
+                if mark % 2 == 1 {
+                    let centre = (2.0 + next() * 6.0, 2.0 + next() * 6.0);
+                    let (across, down) = (0.3 + next() * 4.0, 0.3 + next() * 4.0);
+                    let sides = 12 + (next() * 40.0) as usize;
+                    let turn = if next() < 0.5 { 1.0 } else { -1.0 };
+                    for side in 0..sides {
+                        let angle = turn * std::f32::consts::TAU * side as f32 / sides as f32;
+                        let wobble = 1.0 + 0.15 * (next() - 0.5);
+                        let point = (
+                            centre.0 + across * wobble * angle.cos(),
+                            centre.1 + down * wobble * angle.sin(),
+                        );
+                        if side == 0 {
+                            builder.move_to(point.0, point.1);
+                        } else {
+                            builder.line_to(point.0, point.1);
+                        }
+                    }
+                    builder.close();
+                    continue;
+                }
+                let corners = 3 + (next() * 5.0) as usize;
+                for corner in 0..corners {
+                    // Every third mark snaps to quarter pixels, so that vertices, horizontal edges
+                    // and coincident edges land on row and column boundaries.
+                    let mut point = (1.0 + next() * 8.0, 1.0 + next() * 8.0);
+                    if mark % 3 == 0 {
+                        point = ((point.0 * 4.0).round() / 4.0, (point.1 * 4.0).round() / 4.0);
+                    }
+                    if corner == 0 {
+                        builder.move_to(point.0, point.1);
+                    } else {
+                        builder.line_to(point.0, point.1);
+                    }
+                }
+                builder.close();
+            }
+            let Some(path) = builder.finish() else {
+                continue;
+            };
+            for rule in [tiny_skia::FillRule::Winding, tiny_skia::FillRule::EvenOdd] {
+                let filtered = levels_of(&path, rule, (11, 11), true);
+                WALK_EVERY_ROW.with(|walk| walk.set(true));
+                let walked = levels_of(&path, rule, (11, 11), true);
+                WALK_EVERY_ROW.with(|walk| walk.set(false));
+                for (index, (a, b)) in filtered.iter().zip(&walked).enumerate() {
+                    assert!(
+                        a.abs_diff(*b) <= 1,
+                        "mark {mark} {rule:?}: pixel ({}, {}) reads {a} filtered and {b} walked",
+                        index % 11,
+                        index / 11
+                    );
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared > 0);
     }
 
     /// A shape whose whole extent is a fraction of one pixel is painted at that fraction, where

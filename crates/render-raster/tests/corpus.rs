@@ -255,116 +255,31 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// Held to equality in both directions: a page arriving here is a new hole in the backend,
 /// and a page leaving it is a hole closed. The reason each one gives is printed by the run.
 ///
-/// **One page, and its refusal now says what actually ran out.** `bug1721218_reduced.pdf` is
-/// this viewer's most pathological page by some margin, and raster refuses it with "the
-/// frame's rasterised coverage outgrew the 16384x16384 scratch image this adapter allows" —
-/// a texture-capacity limit named as one. The six pages that used to sit here beside it were
-/// casualties of the *old* scratch sheet (2048 texels wide, and a refusal message whose
-/// arithmetic contradicted itself — `QUORRA_FEEDBACK.md` section 3); raster widened the sheet
-/// to the device dimension and all six draw. `issue17848.pdf` left for a different reason:
-/// its mesh shading has no visible raster, pdf.js's issue #17848 traced that to a defective
-/// document, and the backend now draws nothing for it exactly as this viewer's own two
-/// backends always have.
+/// **`bug1721218_reduced.pdf` is a group compositing in four components.** Its whole artwork is
+/// one isolated `/CS /DeviceCMYK` group, which the oracle composites in ink as a pair of element
+/// lists resolved per pixel at its `Do` (§11.6.6, §11.7.2, ADR 0327). The page-level pair is two
+/// whole `Target::Readback` renders put together by `pdf_render::blending`; a scene under
+/// composition cannot be read back, and a `raster_scene::GroupSpec` carries no conversion to run
+/// over a group's composited result, so the group-scoped pair has no lane. The page also meets the
+/// adapter's 16384 × 16384 coverage sheet, a ceiling this refusal preempts rather than fixes.
 ///
-/// **Four joined it in the three-hundred-and-ninety-seventh, and every one of them is a page
-/// this backend used to draw *wrongly*.** ADR 0234 states §11.4.6's shape apart from the alpha
-/// for the elements where the two differ, and `raster_scene::Compose` has source-over and
-/// coverage-modulated source — the second of which *is* the assumption the new element exists
-/// to contradict. So these four pages used to be drawn by reading the shape off the alpha, which
-/// agreed with a CPU backend doing the same thing; now the display list says what the clause
-/// says and the backend says it cannot draw it. A refusal that replaces an agreement about a
-/// wrong picture is a gain, and it is `doc/QUORRA_FEEDBACK.md` section 14's entry: two Porter-Duff
-/// operators, Destination-Out and Plus. **Both arrived at `89d7dd77`** (raster's ADR 0025).
+/// **`issue16742.pdf` and `issue5044.pdf` are a group compositing in three CIE-based
+/// components** (ADR 0797): an isolated group whose `/CS` is a `CalRGB` or an RGB profile, drawn by
+/// the oracle in the space's own components and resolved through a cube — curves, a grid and the
+/// device's transfer function — per pixel at its `Do`. The page-level cube is one pass over a
+/// whole readback and has no group-scoped analogue here, for the reason the pair has none.
 ///
-/// **The four-hundred-and-thirty-ninth session wrote that translation out and found it cannot
-/// be asked for**, which is why they are still here and why the reason each gives has changed
-/// again. `SceneBuilder::fill` refuses a staged operator inside a knockout group, and
-/// `Command::Shaped` occurs nowhere else; `SceneBuilder::group` takes no compositing operator
-/// at all, and three of these four state a `Shaped` whose two halves are *groups*. Section
-/// 14.2 is the ask that follows, and `headless_quorra.rs`'s
-/// `quorra_will_not_take_the_pair_where_this_tree_would_hand_it_over` holds the first half of
-/// it against the vocabulary directly, so this list moves when raster moves rather than when
-/// somebody re-reads a document.
+/// **`issue21346.pdf` is a luminosity mask whose group composites in an sRGB profile's
+/// components**, and §11.5.3's `Y` of that is three curves summed per pixel
+/// (`pdf_render::Luminance`), where `raster_scene::MaskKind::Luminosity` weighs the channels in its
+/// own shader — a different formula, refused rather than drawn to the wrong mask.
 ///
-/// **Four joined in the four-hundredth for §11.4.4's non-isolated group, and three of them left
-/// again in the four-hundred-and-thirty-eighth, which is the first time a name on this list has
-/// left because the request under it was answered.** ADR 0237 draws §11.4.4's non-isolated group
-/// — its elements composite onto the *page's* own colour rather than onto §11.4.5's transparency
-/// — and `raster_scene::GroupSpec` opened its layer transparent, as every rasterising library's
-/// does, so the backend refused and named the clause. `doc/QUORRA_FEEDBACK.md` section 16 asked
-/// for one flag; raster's ADR 0019 is that flag, Table 145's `/I`, together with the composite
-/// back, and this backend now passes it straight through. `bug1755507.pdf`, `issue13520.pdf` and
-/// `issue18032.pdf` **agree with the CPU oracle** — two independent transcriptions of §11.4.4
-/// meeting on Illustrator and `InDesign` artwork, which is not what the agreement they had before
-/// was: that one was two backends substituting the same wrong backdrop.
-///
-/// **The fourth stayed, and what it says now is the finding.** `issue12798_page1_reduced.pdf`
-/// refuses with *"a page composited in a four-component blending colour space (§11.4.7)"* — the
-/// §11.4.4 refusal had been standing in front of a second one, and the page belongs to section 17's
-/// population rather than to section 16's. Which is why a refusal names what it cannot do — a
-/// list that only counted would have reported three closed holes and missed that a fourth
-/// changed its reason. **The ordinals below are the order names *arrived* in and no longer the
-/// order they sit in**: eleven joined this list and eight are on it.
-///
-/// **A tenth in the four-hundred-and-twenty-sixth, and it is the third time this has happened
-/// for the third reason.** ADR 0262 draws §11.4.7's page group in the `DeviceCMYK` blending
-/// space it states, by interpreting the page twice — once per half of the space's four
-/// components — and putting the two rasters together at the end. A `raster_scene::Scene`
-/// renders one, so the backend refuses the list by name; `personwithdog.pdf` is the corpus's
-/// one such page and it used to be *reported* rather than drawn, so this is a refusal replacing
-/// a report rather than an agreement. `doc/QUORRA_FEEDBACK.md` section 17 is the request, and it
-/// is a small one: nothing new in the scene vocabulary, only a way to render one scene into two
-/// targets or to run the pipeline twice and hand back both readbacks. **The second of those was
-/// already true**, and `89d7dd77` added the test that keeps it true: two `Target::Readback` renders
-/// against one device come back whole, share their uploaded resources, and the second pays no
-/// geometry at all because raster's glyph key does not carry colour. So this refusal and the one
-/// below are `render-raster`'s own work now — two `rasterize` calls and `pdf_render::blending`'s
-/// recombination, which `render-cpu` already does — and `doc/todo/23` carries them.
-///
-/// **An eleventh in the four-hundred-and-twenty-seventh, and it is the same request reaching one
-/// more page rather than a new one.** ADR 0263 gives §11.7.2 its conversion *into* the blending
-/// space, so a page whose colours are not already ink is drawn in ink rather than reported — and
-/// `bug1365930.pdf` is the corpus's one page that states `/CS /DeviceCMYK` and reports *nothing*,
-/// because nothing on it composites. It was never a report and never a disagreement: it drew on
-/// the device's three components and raster agreed. It now takes §11.4.7's pair of rasters like
-/// the others, for the clause's own reason — "[a]ll page-level compositing shall be done in the
-/// default blending colour space of the page" is not conditioned on two marks overlapping — and
-/// the backend refuses the list by name. Section 17 answers this page along with the tenth.
-///
-/// **Three left in the four-hundred-and-thirty-ninth, and they are the first names on this list
-/// to leave because the work under them was done here rather than upstream.** Section 17 asked
-/// whether two `Target::Readback` renders against one device were possible; the answer at
-/// `89d7dd77` was that they always had been, and `raster-gpu/tests/two_rasters.rs` holds it.
-/// So `render-raster` draws the page twice with a different three of the four components
-/// loaded and `pdf_render::blending` puts the pair back together, which is what `render-cpu`
-/// already did. `personwithdog.pdf`, `bug1365930.pdf` and `issue12798_page1_reduced.pdf` all
-/// **agree with the CPU oracle** — 0.0288, 0.0093 and 0.0760 mean, page inks 20.3953/20.3659,
-/// 0.8637/0.8634 and 16.9057/16.9117 — and the third is the one worth naming twice: ADR 0274
-/// found its §11.4.4 refusal standing in front of this one, so it is the page whose *second*
-/// reason has now gone too.
-///
-/// **And the four §11.4.6 pages left in the four-hundred-and-fifty-sixth, which is the first
-/// time a whole request left this list at once.** Section 14.2 asked for two things — the
-/// staged pair where the clause puts it, and a compositing operator on a group — and raster's
-/// ADRs 0032 and 0033 are those two. `render-raster` states §11.4.6's two stages now (ADR
-/// 0291), and all four pages **agree with the CPU oracle**: two independent transcriptions of
-/// `P' = (1 − f) × P + S`, one per backend, meeting on artwork that no fixture invented.
-/// What is left here is the one page that was here first, and its refusal is a texture
-/// capacity rather than a clause.
-///
-/// **Two in the four-hundred-and-ninety-second, and both are the oracle gaining a
-/// construction this backend cannot state** (ADR 0327). `bug1721218_reduced.pdf` stays, with
-/// its refusal renamed: its whole artwork is one isolated `/CS /DeviceCMYK` group that now
-/// composites in ink as a pair of element lists resolved per pixel at its `Do` (§11.6.6,
-/// §11.7.2), and a scene under composition cannot be read back — the page-level pair's two
-/// whole `Target::Readback` renders have no group-scoped analogue. The texture-capacity
-/// refusal that used to print for it has not been fixed, only preempted: the pair is refused
-/// before the scene is built. `issue18032.pdf` arrives for §11.4.6's non-isolated knockout
-/// group, whose every element composites with the group's *own* initial backdrop — a backdrop
-/// retained beside the accumulation with a scratch per element, which neither a
-/// `raster_scene::GroupSpec` nor the staged `DestOut`/`Plus` pair (written on §11.4.5's
-/// transparent start) can express. Both frames go to the CPU backend, which draws them;
-/// `headless_quorra.rs` holds both refusals against the cross-backend scenes.
+/// All four are `doc/QUORRA_FEEDBACK.md` section 43's: a `GroupSpec` carrying a conversion to run
+/// over the group's composited result (curves on either side of an N-axis grid), a second body for
+/// the four-component shape, and a curves-or-grid field beside the luminosity mask's backdrop.
+/// raster's vocabulary has grown none of the three, so none of the four can leave. Each frame goes
+/// to the CPU backend, which draws them; `headless_quorra.rs` holds the group refusal against the
+/// cross-backend scene.
 ///
 /// **What a departure from *this* list means, which is why it is no longer mixed with the
 /// device's.** A name arriving is a construction the CPU oracle states and this translation
@@ -375,38 +290,6 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// or a driver. And because the stage is scale-free, this one array is what both scales are held
 /// to — the hazard that the five-hundred-and-twelfth session met, a second copy of these names
 /// living in the 4× list and going stale while nobody ran that lane, cannot recur.
-///
-/// **Three in the eight-hundred-and-seventy-ninth, all the oracle gaining §11.3.4's and
-/// §11.5.3's three-component constructions** (ADR 0797). `issue16742.pdf` and `issue5044.pdf`
-/// hold an isolated group whose `/CS` is a `CalRGB` or an RGB profile, drawn by the oracle in
-/// the space's own components and resolved through a cube — curves, a grid and the device's
-/// transfer function — per pixel at its `Do` (§11.6.6, §11.7.2); the page-level cube is one
-/// pass over a whole readback and has no group-scoped analogue here, exactly as the pair and
-/// the curve have none. `issue21346.pdf` holds a `/Luminosity` mask whose group composites in
-/// an sRGB profile's components, and §11.5.3's `Y` of that is three curves summed per pixel
-/// (`pdf_render::Luminance`), where `raster_scene::MaskKind::Luminosity` weighs the channels in
-/// its own shader — a different formula, refused rather than drawn to the wrong mask.
-/// `doc/QUORRA_FEEDBACK.md` section 43 is the ask for both.
-///
-/// **A fourth in the one-thousand-one-hundred-and-sixty-sixth, and it is a page this backend
-/// used to draw.** `issue12798_page1_reduced.pdf` composites in `DeviceCMYK`, states
-/// `/OP true /op true /OPM 1` and paints a mark whose black tint is the only nonzero one under
-/// `/BM /Multiply`. ISO 32000-2 §11.7.4.3's special overprinting blend mode is not one of Table
-/// 134's sixteen and `raster_scene::BlendMode` has sixteen arms, so the list is refused by name
-/// before the scene (ADR 1158); until ADR 1170 built the clause's last paragraph the mark
-/// carried the document's own mode instead and nothing here had to refuse. The page left this
-/// list in the four-hundred-and-thirty-ninth and is back on it, which is the second time a name
-/// has arrived because the oracle learned to state something this vocabulary cannot.
-/// `doc/QUORRA_FEEDBACK.md` section 49 is the ask, and ADR 1182 is what it turned out to be: the
-/// mode is Porter-Duff destination-over in the channels it keeps and source-over in the rest.
-///
-/// **The mode is drawn now, and the page has left this list and agrees with the CPU oracle**
-/// (ADR 1295, ADR 1307). raster's `Compose::DestOver` and `Compose::DestOverIn` state the mode,
-/// and §11.7.4.3's last paragraph — which puts an object painted under `/BM /Multiply` in "a
-/// non-isolated, non-knockout transparency group" and paints that group under Multiply — is
-/// §11.4.4's result step under a blend of the group's own, which raster draws from the group
-/// alpha NOTE 4's second accumulator carries. At 100% the page is mean 0.0053, worst tile 0.82;
-/// at 200%, 0.0124 and 1.70 (`examples/zoom_ladder`).
 const REFUSED_BEFORE_THE_SCENE: [&str; 4] = [
     "bug1721218_reduced.pdf",
     "issue16742.pdf",
@@ -651,118 +534,18 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 ///
 /// Structural similarity above 0.99 — `raster_compare`'s own vector threshold — is the
 /// statement that the same shapes are in the same places, so what is left is coverage at a
-/// boundary. This group used to be dominated by one document family (`tracemonkey.pdf` and
-/// its variants and relatives, a page of dense text measured against a different glyph
-/// rasteriser), and that family is gone now — see the seventeen below. **This group is the
-/// floor, not a defect list** — what would make it one is a page arriving in it whose
-/// similarity is high because the difference is uniform.
+/// boundary. **This group is the floor, not a defect list** — what would make it one is a page
+/// arriving in it whose similarity is high because the difference is uniform. The pages that have
+/// left it, each by one backend moving onto the geometry the other already drew, are recorded in
+/// `doc/adr/` and `doc/history/`.
 ///
-/// **Seventeen left at once in the five-hundred-and-twelfth session, on raster's
-/// `87898c69`, and every one is the two rasterisers agreeing rather than either moving
-/// toward the other.** Two upstream changes, each derived from the standard's own words
-/// rather than from any renderer's output. Fifteen — the six `tracemonkey*` pages,
-/// `bug1885505.pdf`, `bug1992868.pdf`, `chrome-text-selection-markedContent.pdf`,
-/// `issue14438.pdf`, `issue15012.pdf`, `issue18911.pdf`, `issue19239.pdf`, `issue7014.pdf`
-/// and `issue7492.pdf` — are raster's ADR 0044: a cubic's flattening bound is now the
-/// tighter of the fixed quarter-pixel tolerance and 1/32 of the cubic's own device extent,
-/// which floors a full turn at 16 chords. §10.7.2's own NOTE 2 is the argument — "the
-/// purpose of the flatness tolerance is to control the precision of curve rendering, not to
-/// draw inscribed polygons" — and the population the floor reaches is glyph outlines, whose
-/// bowls at body size are cubics two to five device pixels across, which is why what moved
-/// is prose. The other two, `extgstate.pdf` and `inks_basic.pdf`, are raster's round-cap
-/// fix (its `d594566`): the near cap of an open subpath was the *inward* half-disc wound
-/// against the body it sat inside, punching a Table 53-sized hole that summed ink could not
-/// see; the cap fan is now built from the outward direction the stroker already has.
-///
-/// `issue4260_reduced.pdf` — once the worst page in the run at similarity 0.49, a grid of
-/// zero-height rectangles drawn blank — arrived here from the shape list when the backend
-/// started asking `pdf_render::split_collapsed_fill` the §10.7.4 question, and **left
-/// altogether in the three-hundred-and-sixty-eighth session, when that question started being
-/// answered with whole device pixels.** What kept it here was the last thing two rasterisers
-/// can disagree about: a mark laid down at the shape's own fractional position is an
-/// anti-aliased band, and each backend distributes such a band across two rows in its own way.
-/// A mark that is a whole pixel row has nothing left to distribute — the two backends draw the
-/// same rows, from the same shared geometry, and the page agrees to the byte. ADR 0208.
-///
-/// **`issue21068.pdf` left in the two-hundred-and-seventh session and the reason is worth
-/// keeping**: it is four rows of comb fields whose separators sit exactly on their `/BBox`, and
-/// the anti-aliased clip was costing each of them a fraction of a pixel — differently in the two
-/// rasterisers, which is what put it here. Both draw from the *same* display list, so once the
-/// redundant clip came off (ADR 0165) there was nothing left to differ about. **A page in this
-/// list can be here because of something upstream of both backends**, which is not what its name
-/// suggests.
-///
-/// **Three more left in the three-hundred-and-eighty-ninth, and it is the same shape one clause
-/// along.** `bug1308536.pdf` (mean 1.5709), `issue11913.pdf` (1.5275) and `issue13447.pdf`
-/// (1.5652) agreed when §10.7.4's coverage rule reached a shape thinner than a device pixel on
-/// the processor (ADR 0226). What each of them was is a rectangle under a pixel thick that
-/// `tiny-skia` rounded to a quantum of its own — up to a whole row, or down to nothing — where
-/// raster drew the area. Once the processor draws the area too there is nothing left for two
-/// rasterisers to distribute differently, which is the same sentence `issue4260_reduced.pdf`
-/// left on.
-///
-/// **Two arrived and one left when §10.7.4's quantum boundary became inclusive (ADR 0285).**
-/// `tiny-skia` takes its hairline for every width up to *and including* one device pixel, so a
-/// `1 w` rule — most of the line work in a technical drawing at the page's own scale — was drawn
-/// at `cos θ` of its own area. It is filled as its own outline now, which is what raster always
-/// did, and the two backends therefore differ on more *edges* and on less ink: `bug1743245.pdf`
-/// and `issue2177.pdf` cross a threshold in the third decimal place (mean 1.5070 against a bound
-/// of 1.5; worst tile 7.14 against 7.0), and `issue14415.pdf` left. **Not one page's verdict
-/// moved on the reference oracle** — 905 agree, 68 contradicted, 786 ambiguous before and after
-/// — which is what makes this churn at the bound rather than a change of picture, and it is
-/// written down here so that a later round does not read the arrival as a defect.
-///
-/// **And a fourth left in the four-hundred-and-thirty-second, on the same sentence and the other
-/// half of the shape.** `issue12810.pdf` is a 1728 × 2592 drawing whose page one states **34 787
-/// strokes thinner than a device pixel**, 25 406 of them *not* axis-aligned, and 62.6% of their
-/// 173 316 pixels of length lies within 40° to 50° of an axis — which is where `tiny-skia`'s
-/// hairline was at its worst, laying one pixel down per step along the line's *longer* device axis
-/// and so carrying `cos θ` of the rule's area. Weighted by length that was **19.4% of the page's
-/// stroke ink**, and raster was drawing all of it. Once the processor draws a turned sub-pixel rule
-/// one device pixel wide with the width it gave up in the paint's alpha (ADR 0268), the page's own
-/// ink goes 5.0782 → 5.1550 and the two backends have nothing left to differ about.
-/// **`issue8187.pdf` left in the seven-hundred-and-eleventh, and it is the same sentence as the
-/// three that left in the three-hundred-and-eighty-ninth one clause over** (ADR 0583). Its page is
-/// fourteen fills of which **fourteen are paths stating several axis-aligned rectangles** — eight
-/// whose portions fall in different device pixels and six whose do not — and the processor was
-/// sending all of them to `tiny-skia`'s supersampled path converter, which rounds an axis-aligned
-/// edge to a quarter, where raster tracks the fraction to a level of 255. §11.6.2 is what admits
-/// measuring each portion exactly ("[p]ortions of an object shall not be composited with one
-/// another", so drawing them one at a time is only allowed while no pixel receives two), and once
-/// the processor measures the eight the way raster already did, the page agrees. **The processor
-/// moving to the device, which is the direction this list is allowed to move in** — the same as
-/// ADR 0476's `issue18823.pdf`.
-///
-/// **`issue2177.pdf` left in the five-hundred-and-thirty-second, and the defect was raster's
-/// own.** Its `fill_mask` computes a shape's coverage over a rectangle of device pixels, and
-/// where an edge entered that rectangle from *outside* it clamped the edge piece's two endpoints
-/// to the border and interpolated between them. That preserves the row's total winding — every
-/// column past the crossing reads the right value, which is why neither side's tests saw it for
-/// as long as they did — while handing the columns *at* the border the height the piece spent
-/// outside. It cuts the piece at the border now (raster's ADR 0049, and its own test states the
-/// expected value from the geometry: 0.625 of a pixel of area is 159 of 255, where the tree read
-/// 128). **Only a tile a clip or the page edge cuts in x can move at all**, which is why one page
-/// of 956 does and why the 4× lane does not move at all — and it is a page joining the oracle
-/// rather than a bound being crossed, which is the direction this list is allowed to move in.
-/// **Seven pages left this pair of lists in the thousand-and-sixty-eighth, and they left because
-/// the *oracle* stopped rounding a coverage** (ADR 1082). `tiny-skia`'s supersampled path
-/// converter states a general edge's coverage only on a lattice of sixteenths, where raster
-/// resolves the path analytically; the thousand-and-sixty-fourth calibrated that against chance on
-/// this list's own pages and named it the thing left to fix. `render-cpu` now computes the area a
-/// shape covers instead of sampling it, and `bug1743245.pdf`, `bug1978317.pdf`,
-/// `copy_paste_ligatures.pdf`, `endchar.pdf`, `issue16316.pdf` and `issue2884_reduced.pdf` all
-/// agree — **the processor moving to the device, which is the direction this list is allowed to
-/// move in**. `issue21068.pdf` agrees too: its comb separators are `1 w` rules whose stroked
-/// outlines cross themselves, which §11.6.2 forbids reading as two portions, and `render_cpu::area`
-/// measures such a row as the filled set itself (ADR 1341) where it used to leave the mark to
-/// `tiny-skia`'s sixteenth.
-///
-/// **`issue2177.pdf` arrived on the same change, and it is a second analytic answer rather than a
-/// quantum.** Its page is three clipped circles filled with a tiling pattern of small coloured
-/// ellipses, so almost every inked pixel is somebody's curve boundary; `examples/ink_ladder` puts
-/// the two backends 0.61% apart at 1× and **0.13% apart at 8×**, and the excess halves at every
+/// **`issue2177.pdf` is two analytic answers rather than a quantum** (ADR 1082 on the oracle,
+/// raster's ADR 0049 on the device). Its page is three clipped circles filled with a tiling
+/// pattern of small coloured ellipses, so almost every inked pixel is somebody's curve boundary;
+/// `examples/ink_ladder` puts
+/// the two backends 0.73% apart at 1× and **0.17% apart at 8×**, and the excess shrinks at every
 /// rung, which is that instrument's signature for a per-boundary cost rather than a shape. Both
-/// backends read heavier at the page's own scale than at eight times it — ours by 0.60% and
+/// backends read heavier at the page's own scale than at eight times it — ours by 0.68% and
 /// raster's by 0.12% — which is the side §10.7.4's "[t]he area covered by painted pixels shall
 /// always be at least as large as the area of the original shape" asks for. Flattening is not the
 /// difference and that is measured rather than assumed: at tolerances of 1/16, 1/64, 1/256 and
@@ -774,157 +557,52 @@ const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
 
 /// Pages where the difference is **structural**: similarity at or below 0.99.
 ///
-/// The name is the *classifier's*, and every page here has now been examined; none is an
-/// open question. What left, and why: `issue4260_reduced.pdf` (§10.7.4's degenerate fills)
-/// moved to the edge group; `issue2177.pdf`, `issue6769.pdf`, `issue6769_no_matrix.pdf` and
-/// `bug946506.pdf` agreed when anisotropically-transformed strokes started outlining in path
-/// space; `issue10572.pdf` and `issue14165.pdf` agreed when raster raised its ramp sampling
-/// from 256 to 4096 texels — a banded shading's hard stop boundary snapped to the coarser
-/// grid and sat ~3.5 px off on a page-spanning axis.
+/// The name is the *classifier's*, and every page here has been examined; none is an open
+/// question. Each is below with the clause that says which backend is right and the ask that
+/// would take it off. The pages that left, and why, are the ADRs this list cites and
+/// `doc/history/`; what is written here is only what holds for the four that stay.
 ///
-/// **Three more left in the three-hundred-and-eighty-ninth**, when §10.7.4's coverage rule
-/// reached a sub-pixel shape on the processor (ADR 0226): `160F-2019.pdf` (mean 1.3399, ssim
-/// 0.96854), `issue7454.pdf` (1.8493, 0.97706) and `issue840.pdf` (0.8886, 0.99000). All three
-/// were named in the paragraph below as pages where nothing moved and only a uniform sub-step
-/// coverage difference dragged the score down — which is exactly what a quantised coverage *is*,
-/// and it stopped being one backend's when the two started answering a thin rectangle with its
-/// own area.
+/// **`issue19083.pdf` is a clip taken as a product at a coincident boundary.** It is one widget
+/// appearance whose `/BBox` is `[0 0 125.25 20]` and whose whole content is `0.5 0.5 124.2502 19
+/// re s` at the default `1 w` — a border rule whose outer edge sits 0.0002 *outside* the `/BBox`
+/// §8.10.1 step c) clips it by, so the clip genuinely cuts and ADR 1088's `cuts_nothing` rule
+/// declines it by name. §10.7.4 asks for "the intersection of the set of pixels defined by the
+/// clipping region with the set of pixels for the region to be painted"; `render-cpu` composes the
+/// two with `min` (ADR 0355, ADR 0535) and raster multiplies them inside the graphics library,
+/// which squares a mark's coverage where its own edge and its clip's share a pixel.
+/// `examples/ink_ladder` reads raster 396.96 at 1× against the oracle's 448.52 and level with it by
+/// 4×, the signature of a per-boundary cost. The oracle is the side the clause states, and
+/// `doc/QUORRA_FEEDBACK.md` section 24c is the ask.
 ///
-/// **`issue21068.pdf` and `bug1844583.pdf` arrived, and `knockout_groups_test.pdf` left, with
-/// ADR 0285's inclusive quantum boundary** — see the note on the list above, which holds the
-/// argument for both. `issue21068.pdf` is worth the second mention: it is the comb-field page
-/// that left this list in the two-hundred-and-seventh session when a redundant clip came off,
-/// and its separators are `1 w` rules, so it is exactly the population the change moves. Against
-/// the *references* it improved — mean 10.06 → 9.42, ssim 0.8183 → 0.8413 — while moving away
-/// from raster, which is the shape of a page where the two backends' coverage quanta now show on
-/// more edges rather than one of them drawing the wrong thing.
-///
-/// What stays, measured pixel by pixel: four pages (`copy_paste_ligatures`,
-/// `issue4402_reduced`, `issue18030`, `issue15150`) have **zero**
-/// pixels differing by more than 64 of 255 — miniature or enormous pages where uniform
-/// sub-step coverage differences drag the similarity score below the threshold without any
-/// shape moving. `knockout_groups_test.pdf` differs on 2 pixels. The rest are the
-/// hairline-and-texture family — sub-half-pixel rules
-/// (`issue16038`, `issue12295`, `issue20232`; the first of those went from
-/// mean 6.1643 to **6.5359** in the three-hundred-and-seventy-fourth session, when its pattern's
-/// rule became one 0.53-pixel stroke instead of two clipped 0.27-pixel halves — the same ink for
-/// two rasterisers to distribute differently, in one mark instead of two, and the page moved 4%
-/// toward the geometry's own answer while doing it, ADR 0213 — **and back to 1.8563 in the
-/// three-hundred-and-eighty-ninth**, ssim 0.90046 to 0.97723, when that one 0.53-pixel stroke
-/// stopped being a hairline on the processor and became the fill of its own outline: it is the
-/// largest single movement this list has recorded, and it is the two backends agreeing rather
-/// than either moving toward the other, ADR 0226) and 8-px text
-/// (`issue16316`, `standard_fonts`) — where the two rasterisers put the same ink on different sides
-/// of a pixel boundary. Matching `tiny-skia`'s sub-pixel distribution
-/// byte-for-byte would be curve-fitting to another renderer, which raster's charter forbids;
-/// they stay listed so a *growth* in their numbers is still a finding.
-///
-/// **Four arrived when a clip stopped multiplying into the mark's own coverage (ADR 0355)**, and
-/// they are one population: a widget appearance whose **border sits on its own `/BBox`**.
-/// `bug1844576.pdf`, `issue16473.pdf` and `issue18823.pdf` are text fields and radio groups whose
-/// box rule lands where §8.10.1 step c) clips the form, and `bug1978317.pdf` is a page of dense
-/// small text inside one. §10.7.4 states a clip as a set of pixels, so a clip that *contains* a
-/// mark takes nothing from it; `render-cpu` now composes the two with `min` where `tiny-skia`
-/// multiplied, and raster multiplies inside the graphics library. That is the same divergence ADR
-/// 0280 recorded one step earlier, and `doc/QUORRA_FEEDBACK.md`'s twenty-fourth section is the ask.
-///
-/// **`issue18823.pdf` left that population in the six-hundred-and-forty-sixth session, and it left
-/// by the processor moving to the device rather than the other way about.** A `/BBox` clip is an
-/// axis-aligned rectangle, and `render-cpu` measured its region with `tiny-skia`'s supersampled
-/// path converter, whose answer at an axis-aligned edge is a quarter of a pixel; the graphics
-/// device has never had that quantum and tracks the fraction to a level of 255. ADR 0476 gives
-/// both a rectangular fill and a rectangular clip region the coverage §10.7.4's own definition of
-/// a pixel implies, so on a page whose only disagreement was that quantum the two backends now
-/// answer alike. The other three stay: their disagreement is the clip *product* ADR 0355 narrowed
-/// rather than the coverage this measures, which is why one of four moved and not four.
-///
-/// **This list's own note about `issue21068.pdf` is the same finding two hundred sessions early**:
-/// it left in the two-hundred-and-seventh session because a *redundant* clip came off its comb
-/// separators, and the sentence written then — "the anti-aliased clip was costing each of them a
-/// fraction of a pixel" — is what the general rule now answers for every such page.
-/// `issue16038.pdf` moved the other way, mean 1.3235 → 1.2808, because a tiling cell's clip is
-/// also coincident with the rule it admits.
-///
-/// **A fifth of that population arrived in the six-hundred-and-ninetieth, when the same
-/// composition reached a *stroke* (ADR 0535).** `issue19083.pdf` is one widget appearance whose
-/// `/BBox` is `[0 0 125.25 20]` and whose whole content is `0.5 0.5 124.2502 19 re s` at the
-/// default `1 w` — a border rule whose outer edge is the `/BBox` §8.10.1 step c) clips it by, on
-/// three sides exactly. It was the four above with `f` instead of `s`, and it stayed out of this
-/// list only because a stroke went through `tiny_skia::PixmapMut::stroke_path`, which multiplies
-/// the mask into the mark. `render-cpu` now draws such a stroke as the fill of its own outline and
-/// composes it by `min`; raster multiplies at the mark inside the graphics library, on both
-/// operators. Against the *references* the page improved — mean 7.45 → 7.38, worst tile 16.44 →
-/// 15.32, ssim 0.8333 → 0.8543 — which is the same direction and the same reason the four took,
-/// and `doc/QUORRA_FEEDBACK.md` section 24 is still the ask.
-///
-/// **ADR 0735 reaches neither of the two pattern-shaped names here, which had to be checked
-/// rather than assumed** (ADR 0738). The eight-hundred-and-second session drew a stroke whose
-/// colour is a tiling pattern by cutting the tiles to the alpha of a group holding that stroke
-/// (§11.5.2), and it names `issue12295.pdf` and `issue16038.pdf` once each, in a measurement
-/// line recording that neither moved. Neither can: `issue12295.pdf` states no `/Pattern` and no
-/// `SCN` anywhere, and `issue16038.pdf` installs its cells with `scn` under a `B` whose stroking
-/// colour is a flat `0 G`, so both take the fill arm, which that session left unchanged in every
-/// particular. What this gate prints for `issue16038.pdf` today is mean **1.2328** at ssim
-/// 0.98798 — below the 1.2808 recorded above, so the two rasterisers have come *closer* on it
-/// since, and the figures above are the movements their own sessions measured.
-///
-/// **`bug1844576.pdf` left in the nine-hundred-and-forty-fourth, and it left by the processor
-/// moving onto the geometry** (ADR 0945). Its last line here was mean 2.1265, worst tile 5.02 at
-/// (0, 0), differing 0.0721, ssim 0.98080. `pdf-model/examples/anisotropic_band_census` says the
-/// page states one stroke under the device's quantum whose placement is not a similarity, and
-/// §10.7.4's substitution on the processor was stating such a stroke's band at
-/// `1 / min_stretch` — one device pixel across whichever way the *mark* runs, which is §8.5.3.2's
-/// dot's question and not a band's. raster has never had that defect, because its anisotropic
-/// route outlines a stroke in path space at the width the document stated (`stroke::expanded`),
-/// so the two backends agreeing here is the processor arriving where raster already was rather
-/// than either moving toward the other.
-/// **`issue16473.pdf` and `bug1844583.pdf` left in the thousand-and-seventy-fourth, and
-/// `bug1844576.pdf` and `bug1978317.pdf` arrived on the same change** (ADR 1088). §10.7.4 makes
-/// a clip a *set of pixels* and the painted region "the intersection of the set of pixels
-/// defined by the clipping region with the set of pixels for the region to be painted", so a
-/// region that contains a mark takes nothing from it; raster multiplies the two coverages inside
-/// the graphics library, which squares a mark's coverage where its own edge and its clip's share
-/// a pixel. `render_raster::scene`'s `cuts_nothing` answers the clause on this side by not
-/// stating a clip that cuts nothing, and every clipped command on the two that left lies inside
-/// its own `/BBox`: `examples/ink_ladder` puts them at 416.00 → **501.87** and 429.13 →
-/// **500.93** against the 501.78 the geometry states at 8×.
-///
-/// **The two that arrived left again in the thousand-and-eighty-first, on the oracle** (ADR
-/// 1095), which is what the sentence they arrived with asked for. `examples/clip_cost` draws a
-/// page twice on each backend, once as stated and once with every clip taken off, so what it
-/// prints for a clip that cuts nothing is the composition rather than the document: at 1×,
-/// `bug1844576.pdf` read cpu 849.31 of 933.38 against raster 933.09 of 933.09, and
-/// `bug1978317.pdf` cpu 13 387.41 of 15 165.68 against raster 15 118.43 of 15 118.43 — those
-/// clips costing the device nothing and the oracle 9.0% and 11.7% of the page. Two things were
-/// wrong on that side. A `1 w` rule fell between `pdf_render::thinnest_line` and
-/// `pdf_render::band_substitute_width`, which parted by a unit in the last place, reached no
-/// §10.7.4 substitution at all and was drawn by `tiny-skia`, where a clip multiplies; and where
-/// `render_cpu::area` declines a mark, its boundary pixel comes off that library's quarter
-/// lattice while its clip's comes off the clause's own closed form, so `min` cut the quarter that
-/// rounded up. `render_cpu::MaskCache`'s own `cuts_nothing` now leaves a containing clip off the
-/// mark here too, asked about the shape the *document* states rather than the widened one —
-/// §10.7.4's third sentence, "The area covered by painted pixels shall always be at least as
-/// large as the area of the original shape", is what ranks those two. Both pages now read their
-/// unclipped ink on the oracle: 933.38 and 15 165.68.
-///
-/// **`issue15150.pdf` stays, and the backend it convicts has changed sides** (ADR 1082). Its whole
-/// content stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s`, whose stroked region is the device
-/// rectangle `[0, 0.5] × [0, 0.5]` — a quarter of pixel (0, 0). The oracle drew 0.1875 of that
-/// pixel, because `s` closes the subpath and `tiny-skia`'s stroker returns the outline as two
-/// contours of one rectangle, which `pdf_render::sub_pixel_bands` declined; it now draws
-/// **0.251**, the area itself. raster draws 0.5, twice the area, at this scale only — the two
-/// agree at 2× and above. Erring heavy is the side §10.7.4's third sentence permits, so this is a
-/// difference rather than a defect, and `doc/QUORRA_FEEDBACK.md` section 45 is the ask: the
-/// stroked region is that rectangle traversed *twice*, and clamping the pixel-integrated winding
-/// is what makes a doubled contour heavier than the set §8.5.3.3 defines.
+/// **`issue15150.pdf` and `issue20232.pdf` are paths whose own portions overlap**, and the
+/// paragraph on [`differing_pages`] that begins "Raster long at 1×" reads them against §8.5.3.3 and
+/// §10.7.4: raster clamps the winding *integral* per pixel where the clauses define a set, so a
+/// region wound twice is drawn heavier than the region. Both are `doc/QUORRA_FEEDBACK.md` section
+/// 45. `issue15150.pdf`'s whole content stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s`, whose
+/// stroked region is the device rectangle `[0, 0.5] × [0, 0.5]` — a quarter of pixel (0, 0). The
+/// oracle draws **0.251** of that pixel, the area itself (ADR 1082); raster draws 0.5, twice the
+/// area, at this scale only — the two agree at 2× and above. Erring heavy is the side §10.7.4's
+/// third sentence permits, so this is a difference rather than a defect.
 ///
 /// **`ContentStreamNoCycleType3insideType3.pdf`** is a tiling cell of stroked text, 20 units wide,
 /// inside a Type 3 glyph inside a Type 3 glyph. §8.7.3.1 starts the cell from the graphics state
 /// its parent stream began with, and that stream is the inner glyph's description, which begins in
 /// text rendering mode 2 with a red stroke of that width (ADR 1320) — so the cell's strokes cross
-/// its own box on every side. The oracle draws them solid; raster leaves magenta specks along the
-/// cells' seams, where each copy's box clip meets its neighbour's. Mean 0.089 over the page and
-/// 9.28 at the worst tile, in the seams alone.
+/// its own box on every side. The oracle draws them solid; raster draws fans of radial slivers
+/// across the letters, through which the magenta fill under each stroke shows, and is 4% short of
+/// the oracle's ink at every rung of `examples/ink_ladder` from 1× to 8× — an area missing, not a
+/// boundary cost. Mean 0.089 over the page and 9.27 at the worst tile.
+///
+/// §8.4.3.2 settles which side is right without either backend: "stroking a path shall entail
+/// painting all points whose perpendicular distance from the path in user space is less than or
+/// equal to half the line width", and a stroke far wider than a glyph's counters covers them. The
+/// slivers are raster's joins: a join on a turn of one sign is wound against the quads it joins,
+/// so where half the width exceeds the curve's radius each join cancels the quads it overlaps, and
+/// the same path stated the other way round draws solid. `doc/QUORRA_FEEDBACK.md` section 54 is the
+/// ask, with a fixture measured against the distance set itself. What may remain after it is
+/// answered is §8.7.3.1's own and not a defect: the cell's `/BBox` is 60 × 60 under `/XStep 55
+/// /YStep 32`, so adjacent tiles overlap, and "[t]he order in which individual tiles (instances of
+/// the cell) are painted is unspecified and unpredictable".
 const DIFFERS_IN_SHAPE: [&str; 4] = [
     "ContentStreamNoCycleType3insideType3.pdf",
     "issue15150.pdf",
@@ -950,10 +628,9 @@ const DIFFERS_IN_SHAPE: [&str; 4] = [
 ///
 /// > Its coordinates are mapped into device space but not rounded to device pixel boundaries.
 ///
-/// **Two of the names below are what this and the next two paragraphs read** — `issue2177` and
-/// `pr12564`. Seven more were read here until the thousand-and-eighty-eighth session and left the
-/// list when the two backends took one substitution (ADR 1102); the paragraph after next is what
-/// they left by. The rest part on the ladder and are read from `issue19083` on.
+/// **`issue2177` is what this and the next two paragraphs read**; the pages that left the list when
+/// the two backends took one substitution are ADR 1102's. The rest part on the ladder and are read
+/// from `issue19083` on.
 ///
 /// **Neither backend snaps a path's edges to a lattice, and that is measured rather than assumed.**
 /// `render_cpu::area` computes the coverage this subclause's own definition of a pixel implies
@@ -971,30 +648,10 @@ const DIFFERS_IN_SHAPE: [&str; 4] = [
 /// by a digit (`issue15150`, `issue16038`, `issue21068`, `issue2177`, `issue269_2`), so the knob
 /// reached what it names rather than everything.
 ///
-/// **Both backends now take one substitution, and seven pages left this list when they did**
-/// (ADR 1102). ISO 32000-2 §10.7.4's restatement of a mark too thin to measure is owed only where
-/// the raster cannot state the mark's coverage at all, and after ADR 1082 the oracle's converter
-/// states the winding integral over a pixel exactly, down to the eight bits the raster carries. So
-/// the boundary is `pdf_render::unmeasurable_width` — one *level* of a device pixel — and between
-/// that and one whole pixel a stroke is drawn as the shape the document states: `sub_pixel_bands`'
-/// closed form where the mark is an axis-aligned rectangle, and the stroke's own outline filled
-/// through `render_cpu::area` otherwise, which is the shape `render_raster` builds from the same
-/// stated width (`stroke::resolve_width`, ADR 0701). `examples/ink_ladder` at 1×:
-/// `standard_fonts` cpu 31 937.84 → **29 674.33** against raster 29 627.02, and `issue12295`
-/// 13 450.96 → **12 866.31** against 12 834.50 — 7.8% and 4.8% apart to 0.16% and 0.25%.
-/// `issue11473`, `issue16038`, `issue18030` and `issue4402_reduced` left with them.
-///
-/// **What the widened band was costing is not the ink of one mark but the ink of two.** ADR 0268's
-/// substitution conserves a single mark's area exactly — widening by a factor and dividing the
-/// alpha by it cancel — but a coverage carried in alpha over a band a pixel wide does not compose
-/// the way coverage does: two draws of one rule put `1 − (1 − a)(1 − b)` on each pixel of that band
-/// where the shape's own geometry puts `a` on the sliver it covers. `standard_fonts.pdf` draws
-/// every table rule twice, 0.57 of a device pixel wide, and that was 7.8% of the page.
-///
 /// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
 /// says what it is. A gap that halves at every rung is a cost paid per boundary pixel, and one
 /// page here is still made of that: `issue19083.pdf` reads raster 396.96 at 1× against the
-/// oracle's 448.40 and is level with it by 4×, which is ADR 0355's clip-against-the-mark product
+/// oracle's 448.52 and is level with it by 4×, which is ADR 0355's clip-against-the-mark product
 /// measured in ink instead of in pixels — §10.7.4 asks for "the intersection of the set of pixels
 /// defined by the clipping region with the set of pixels for the region to be painted", and a
 /// product at a coincident boundary takes ink an intersection does not. It is the page that is
@@ -1004,8 +661,9 @@ const DIFFERS_IN_SHAPE: [&str; 4] = [
 /// is written down.
 ///
 /// **Raster long at 1× and halving its excess is the other sign, and it is one defect**:
-/// `issue15150.pdf` (twice the area), `issue20232.pdf` (+22.7%) and `issue21068.pdf` (+3.1%) are
-/// paths whose own portions overlap — a stroke's expanded quads meeting at a join, or the
+/// `issue15150.pdf` (twice the area) and `issue20232.pdf` (+32.2% at 1×, +18.1%, +9.3% and +4.4%
+/// up the ladder to 8×, against an oracle flat at 17 932 to 17 866) are paths whose own portions
+/// overlap — a stroke's expanded quads meeting at a join, or the
 /// out-and-back outline `s` makes of a two-point subpath. §8.5.3.3 defines the painted region as
 /// the points whose winding number is non-zero and §10.7.4 makes a pixel's coverage the area of
 /// that region inside it, so a region wound twice covers what it covers once. raster integrates
@@ -1023,7 +681,6 @@ const DIFFERS_IN_SHAPE: [&str; 4] = [
 /// so the outline is the same rectangle traversed twice the same way round — one region by
 /// §8.5.3.3's winding rule and two by an integral that is clamped after it is accumulated, which
 /// is the `issue20232` defect above on the smallest page that states it.
-/// predicate is shared with `pdf_render::edge`'s exact-rectangle machinery.
 fn differing_pages() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = DIFFERS_AT_THE_EDGES
         .iter()

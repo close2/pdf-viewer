@@ -78,11 +78,6 @@ permanent) or an owner decision to acquire a specification.
   copy of the date. **Trust is not among these rows' debts**: a host supplies RFC 5280 section
   6.1.1's input (d) and `pdf_signature::verdict::Verdict` is where the third question's answer joins
   the other two (ADR 1076).
-- §7.4.6 — CCITTFaxDecode's `/DamagedRowsBeforeError` concealment. `hayro-ccitt` exposes neither a
-  failure's bit position nor a resume — `DecodeError`'s variants carry no position and
-  `BitReader::byte_pos` is crate-private — so the search-and-substitute is a change to the shared
-  decoder. Re-checked at the crate's head, which is also its latest release; no corpus image states
-  the entry above zero.
 - §7.4.9 — thirteen corpus JPEG 2000 codestreams decode one level off the reference software, held by
   name so an upstream release closing it fails the build. The one sentence of this clause addressed
   to a processor asks for *support* of the JPX baseline enumerated colour spaces, and "JPX baseline"
@@ -116,11 +111,13 @@ precision that stood beside it here is closed, the cube into a parent's componen
 the device's decoding, a linear grid and the space's own encoding rather than as one sampled grid
 (ADR 1267).
 
-- §10.7.4 — three residues `doc/todo/11` carries: §10.7.4's own mark for a shape its *transform*
-  collapsed (item 8, reported and unwitnessed), the clipping paragraph's product at an image's edge
-  and in a group whose opacity is below 1.0 (item 4), and an overlap confined to pixels a path that
-  is not a stroker's outline only partly covers (item 7). A path whose subpaths overlap is measured
-  as the set the fill rule declares inside, under both rules (ADR 1341). The clip region that is the
+- §10.7.4 — one residue `doc/todo/11` item 8 carries: §10.7.4's own mark for a *stroke* its matrix
+  collapsed, whose image is the projection of the stroke's own outline; a fill so collapsed onto a
+  page axis is its line (ADR 1348). Item 4's image edge is paid and its group below opacity 1.0 is a
+  documented choice (ADR 1348). An overlap confined to pixels a path that is not a stroker's outline
+  only partly covers stays, bounded by its own area and priced (ADR 1347). A path whose subpaths
+  overlap is measured as the set the fill rule declares inside, under both rules (ADR 1341), one
+  cluster of a row at a time (ADR 1347). The clip region that is the
   union of two fills is built:
   `render-cpu` composes it and the other two backends refuse it by name, with
   `doc/QUORRA_FEEDBACK.md` section 51 the ask that would let a scene state it (ADR 1231). The row's
@@ -151,11 +148,14 @@ a normal round extending the existing code.
   within a stated bound of it (ADR 1324). A `JPXDecode` image is written back as its own samples at
   its own precision, decoded at full resolution within the operator's `--image-samples` budget; a
   colour key on a re-expressed codec picture becomes the stencil it is equivalent to; a picture
-  pre-blended with a `/Matte` is cleared to the matte (ADR 1333). What is still owed is the
-  refusal list in `doc/todo/64`: a Type 3 font, a composite font not `Identity-H`, `sh`, a
-  soft-mask group, the strokes whose width, colour or alpha the cut cannot restate, and the codec
-  cases named there. The overlay is a decided departure inside the row (ADRs 1124, 1195, 1196,
-  1236, 1248, 1277, 1324, 1333).
+  pre-blended with a `/Matte` is cleared to the matte (ADR 1333). A Type 3 code is tested against
+  the box its glyph declares, a composite code takes the bytes its `CMap`'s codespace ranges
+  delimit, `sh` is cut by its clip where the shading is a gradient law, a soft mask's group is
+  entered and cut, and a stroke's survivors keep its colour, alpha and overprint (ADRs 1351,
+  1352). What is still owed is the refusal list in `doc/todo/64`: a Type 3 `d0` glyph whose marks
+  are stated nowhere, a vertical composite font, a shading whose colours are data placed in the
+  plane, a zero-width stroke, and the codec cases named there. The overlay is a decided departure
+  inside the row (ADRs 1124, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351, 1352).
 - **Beside this bucket and not in it** — §12.7.4.3 is `departed`: a rich text field's formatting,
   which the clause hands to XFA 3.3, is reported rather than applied (ADRs 1122, 1197). A `/DA`
   whose `Tm` has no inverse is the clause carried out — the translation is the processor's to

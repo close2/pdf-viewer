@@ -3471,20 +3471,37 @@ fn a_turned_matrixs_wrapped_lines_each_get_the_room_the_box_leaves_them() {
 /// linear part sends the whole plane onto a line — `1 2 2 4` onto one through the origin, `1 0 2 0`
 /// onto the x-axis, and all zeros onto the origin itself — so every translation is as appropriate
 /// as another, and the value is positioned where it would be in the box's own space. The glyphs
-/// written under the producer's four numbers enclose no area, so a fill marks no pixel at all:
-/// the page is blank where the value is, and the report says why (`Owed::SingularTextMatrix`).
+/// written under the producer's four numbers enclose no area, and the report says why
+/// (`Owed::SingularTextMatrix`). What each marks is §10.7.4's: a glyph carried onto a line along
+/// a page axis is that line, a pixel wide — "A zero-width or zero-height rectangle paints a line 1
+/// pixel wide" (ADR 1348) — while one carried onto a line across the axes, or onto a point, is
+/// refused as `pdf_render::collapsed` refuses the same shapes flat in their own space.
 #[test]
 fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
-    for tm in ["1 2 2 4 0 0", "1 0 2 0 0 0", "0 0 0 0 0 0"] {
+    for (tm, a_line) in [
+        ("1 2 2 4 0 0", false),
+        ("1 0 2 0 0 0", true),
+        ("0 0 0 0 0 0", false),
+    ] {
         let (reported, raster) = draw(matrix_field(tm));
         assert!(
             reported.iter().any(|note| note.contains("has no inverse")),
             "{tm} flattens every glyph and says so, got {reported:?}"
         );
-        assert!(
-            inked_columns(&raster).is_empty(),
-            "{tm} maps every glyph onto a line or a point, so its fill marks nothing"
-        );
+        let rows: std::collections::BTreeSet<u32> = (0..raster.height)
+            .filter(|&row| (0..raster.width).any(|x| opacity(&raster, x, row) > 0))
+            .collect();
+        if a_line {
+            assert!(
+                rows.len() == 1,
+                "{tm} carries every glyph onto one horizontal line, which is one row: {rows:?}"
+            );
+        } else {
+            assert!(
+                inked_columns(&raster).is_empty(),
+                "{tm} maps every glyph onto a line across the axes or a point: nothing is drawn"
+            );
+        }
     }
 
     // **And the matrix still reaches the stream**, which is the half a refusal would have cost:

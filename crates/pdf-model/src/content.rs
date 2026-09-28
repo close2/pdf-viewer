@@ -2188,7 +2188,7 @@ fn complete(
 ///
 /// Split out because it is bookkeeping rather than interpretation, and because `interpret_with`
 /// is held to a hundred lines.
-fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation {
+fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpretation {
     let mut unsupported: Vec<Unsupported> = interpreter.unsupported.into_values().collect();
     if interpreter.text_operations > 0 {
         unsupported.push(Unsupported::Text {
@@ -2208,6 +2208,9 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
     // and one walk cannot miss a route. See [`Unsupported::NoninvertibleMatrix`] for why this
     // is a report and not a refusal, and `pdf_render::DisplayList::noninvertible_marks` for
     // what makes such a mark absent whatever any backend does.
+    // §10.7.4's mark for a fill its matrix carried onto a line, restated before the count below so
+    // that what the count names is what no backend draws (`doc/todo/11` item 8, ADR 1348).
+    interpreter.list.restate_collapsed_fills();
     let noninvertible = interpreter.list.noninvertible_marks();
     if noninvertible > 0 {
         unsupported.push(Unsupported::NoninvertibleMatrix {

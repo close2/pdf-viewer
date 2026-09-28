@@ -69,42 +69,24 @@ const MAX_UNOPENABLE: usize = 0;
 
 /// Documents that are encrypted and refuse the default user password.
 ///
-/// Eight, and they are not a defect: ISO 32000-2 §7.6.4.1 says a reader "shall first try to
-/// authenticate the encrypted document using the padding string … (default user password)"
-/// and prompt when that fails, which is what a viewer with a window does and what this gate
-/// cannot do. Seven have passwords the pdf.js manifest records, and
-/// `crates/pdf-syntax/tests/encryption.rs` opens every one of them with it; the eighth,
-/// `print_protection.pdf`, has one nobody has recorded and `poppler` refuses it too.
+/// Not a defect: ISO 32000-2 §7.6.4.1 says a reader "shall first try to authenticate the
+/// encrypted document using the padding string … (default user password)" and prompt when that
+/// fails, which is what a viewer with a window does and what this gate cannot do. Each name below
+/// carries where its password comes from, and `pdf-syntax`'s `encryption.rs` opens every one of
+/// them with it, so what is missing is only the prompt. `print_protection.pdf`'s `1234` comes from
+/// pdf.js's own browser test, the only place that file is used at all.
 ///
-/// This count going *down* would mean a password had started working that should not.
+/// Two members say something about this reader rather than about the file. `issue21579.pdf` is
+/// `/R 5`, which this reader implements (ADR 0820), so it is a document with a password rather
+/// than an encryption declined. `encrypted-attachment.pdf` states no `/AuthEvent`, so Table 25's
+/// default of `DocOpen` requires the key at the open; its twin `auth-event-ef-open.pdf` — the same
+/// bytes plus that one line — is the file that opens without one (ADR 1040).
 ///
-/// **All eight passwords are now known and tested** in `pdf-syntax`'s `encryption.rs`, seven
-/// from the pdf.js issue or pull request each file is named after and the eighth —
-/// `print_protection.pdf`'s `1234` — from pdf.js's own browser test, which is the only place
-/// that file is used at all. So this row is no longer "eight documents we cannot read": it is
-/// eight documents whose decryption is verified elsewhere and which this gate opens with the
-/// empty password §7.6.4.1 requires it to try first. What is missing is still only the prompt.
-///
-/// **Nine since the eight-hundred-and-eighty-seventh session, and the ninth arrived from the
-/// row below.** `issue21579.pdf` is `/R 5`, which that session implemented (ADR 0820), so it
-/// is no longer an encryption this reader declines — it is a document with a password, which
-/// `encryption.rs` opens with `pässwört` and this gate does not. That is a move *up* this
-/// list in the only direction that counts: a file that was refused is now one sentence away.
-///
-/// **Ten since the thousand-and-twenty-third, and the tenth is the one place this count goes the
-/// other way.** `encrypted-attachment.pdf` used to open without a password on the reading that
-/// §7.6.6 binds a failed authorization to the stream rather than to the file; it states no
-/// `/AuthEvent`, so Table 25's default of `DocOpen` requires the key at the open and its twin
-/// `auth-event-ef-open.pdf` — the same bytes plus that one line — is the file the tolerance was
-/// actually for. A locked document is one waiting for a person, which this one now is, and the
-/// entry is load-bearing for the first time. ADR 1040.
-///
-/// **Named rather than counted since the thousand-and-sixty-seventh session**, because a ceiling
-/// of ten cannot tell a document that *started* needing a password from one that *stopped*, and
-/// both are findings — a file this reader stopped decrypting and a file whose password began
-/// working are the same number and opposite news (ADR 1081). The count is still printed beside the
-/// length of this list, so the ratchet table stays whole. Each name carries where its password
-/// comes from; `pdf-syntax`'s `encryption.rs` is what opens all ten with it.
+/// Named rather than counted, because a ceiling cannot tell a document that *started* needing a
+/// password from one that *stopped*, and both are findings — a file this reader stopped
+/// decrypting and a file whose password began working are the same number and opposite news (ADR
+/// 1081). The count is still printed beside the length of this list, so the ratchet table stays
+/// whole.
 const LOCKED: [&str; 10] = [
     // §7.6.4.4's user password, published in the pdf.js issue or pull request each file is named
     // after, and opened with it by `encryption.rs`'s

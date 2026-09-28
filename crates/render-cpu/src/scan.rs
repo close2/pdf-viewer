@@ -125,6 +125,13 @@ pub(crate) enum Exact {
     /// mark as the filled set rather than waiting for a row to show an overlap, because a stroke
     /// thinner than a few pixels shows none — ISO 32000-2 §11.6.2, ADR 1341.
     Outline,
+    /// Not rectangles, and a union of convex pieces that overlap one another almost everywhere:
+    /// the stroke of a curve bending more tightly than its half-width, stated as its chords' bands
+    /// and joins (ADR 1348). `crate::area` would settle nearly every row of it pair by pair, which
+    /// is quadratic in pieces that all overlap; the library's converter applies the non-zero rule
+    /// per sample and is linear in them, and measures the union to a sixteenth of a pixel, which
+    /// is departure (1)'s quantum where ADR 1082 does not reach.
+    Pieces,
     /// One rectangle, which is the common case and allocates nothing.
     One(tiny_skia::Rect),
     /// Several, whose device pixel footprints are pairwise disjoint — see the type's comment.
@@ -138,7 +145,7 @@ impl Exact {
     /// The rectangles, in the path's own order. Empty for [`Exact::Unknown`].
     fn iter(&self) -> impl Iterator<Item = tiny_skia::Rect> + '_ {
         let (one, several) = match self {
-            Self::Unknown | Self::Outline => (None, [].as_slice()),
+            Self::Unknown | Self::Outline | Self::Pieces => (None, [].as_slice()),
             Self::One(rect) => (Some(*rect), [].as_slice()),
             Self::Several(rects) | Self::Shared(rects) => (None, rects.as_slice()),
         };
@@ -147,7 +154,7 @@ impl Exact {
 
     /// Whether `pdf_render::edge` answered at all for this mark.
     pub(crate) fn is_some(&self) -> bool {
-        !matches!(self, Self::Unknown | Self::Outline)
+        !matches!(self, Self::Unknown | Self::Outline | Self::Pieces)
     }
 
     /// Whether two portions of this mark fall in one device pixel — ISO 32000-2 §11.6.2.
@@ -338,7 +345,28 @@ pub(crate) fn fill_outline(
     );
 }
 
-/// [`fill`] and [`fill_outline`], which differ only in what they know of the mark's shape.
+/// [`fill`], for the union of convex pieces a folding curve's stroke is stated as —
+/// [`Exact::Pieces`].
+pub(crate) fn fill_pieces(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    pieces: &tiny_skia::Path,
+    paint: &tiny_skia::Paint<'_>,
+    at: tiny_skia::Transform,
+    clip: Clip<'_>,
+) {
+    // The non-zero rule, because every piece is wound the same way and their union is the set.
+    fill_as(
+        pixmap,
+        (pieces, &Exact::Pieces),
+        paint,
+        tiny_skia::FillRule::Winding,
+        at,
+        clip,
+    );
+}
+
+/// [`fill`], [`fill_outline`] and [`fill_pieces`], which differ only in what they know of the
+/// mark's shape.
 fn fill_as(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     (path, exact): (&tiny_skia::Path, &Exact),
@@ -1089,6 +1117,7 @@ pub(crate) fn mask_fill(
     // anti-aliasing the range rule above has already withdrawn.
     let extent = (mask.width(), mask.height());
     if anti_alias
+        && !matches!(exact, Exact::Pieces)
         && let Some(region) = crate::area::region(path, at, extent)
         && crate::area::fill(
             cells,

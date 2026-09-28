@@ -194,6 +194,51 @@ pub fn split_collapsed_fill(path: &Path, to_device: Transform) -> Option<Collaps
     Some(CollapsedFill { filled, marks })
 }
 
+/// `path` stated in the space `transform` maps it into, where that transform has no inverse and
+/// carries every point of the path onto one line along an axis — ISO 32000-2 §10.7.4; `None`
+/// otherwise.
+///
+/// The restated path is flat in its own space, so [`split_collapsed_fill`] gives it §10.7.4's
+/// mark. The test is exact equality of the mapped coordinates rather than a tolerance, as
+/// [`Extent`]'s is and for its reason, and it is what keeps a matrix whose determinant cancels to
+/// zero only in the arithmetic — a full-rank matrix of enormous entries, which the corpus holds in
+/// a damaged stream — from being restated as the enormous shape it still is: such a matrix maps
+/// the path onto no line at all, so it is refused as before. A matrix carrying the path onto one
+/// point is refused too, since both axes are then flat, and that is §8.5.3.3.1's point rather than
+/// this rule's line.
+///
+/// Curves are restated by their control points, which an affine map carries exactly.
+#[must_use]
+pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<Path> {
+    if transform.invert().is_some() {
+        return None;
+    }
+    let mut restated = Path::new();
+    let mut first: Option<Point> = None;
+    let (mut same_x, mut same_y, mut finite) = (true, true, true);
+    let mut map = |point: Point| {
+        let mapped = transform.apply(point);
+        finite &= mapped.x.is_finite() && mapped.y.is_finite();
+        if let Some(first) = first {
+            same_x &= mapped.x.to_bits() == first.x.to_bits();
+            same_y &= mapped.y.to_bits() == first.y.to_bits();
+        } else {
+            first = Some(mapped);
+        }
+        mapped
+    };
+    for command in path.commands() {
+        restated.push(match *command {
+            PathCommand::MoveTo(point) => PathCommand::MoveTo(map(point)),
+            PathCommand::LineTo(point) => PathCommand::LineTo(map(point)),
+            PathCommand::CurveTo(one, two, to) => PathCommand::CurveTo(map(one), map(two), map(to)),
+            PathCommand::Close => PathCommand::Close,
+        });
+    }
+    first?;
+    (finite && same_x != same_y).then_some(restated)
+}
+
 /// The device pixel grid, in both directions, for a placement transform that has axes to snap to.
 #[derive(Debug, Clone, Copy)]
 struct Grid {

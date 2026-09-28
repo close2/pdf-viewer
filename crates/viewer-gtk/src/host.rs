@@ -816,7 +816,7 @@ impl Host {
                     if let Some(note) = note {
                         self.say(&note);
                     }
-                    self.offer_a_name(&path, bytes.as_deref().unwrap_or_default(), queue);
+                    self.offer_a_name(&path, bytes.as_deref().unwrap_or_default(), purpose, queue);
                 }
                 queue.push_back(Command::Supply { purpose, bytes });
             }
@@ -837,6 +837,7 @@ impl Host {
                             host.offer_a_name(
                                 &path,
                                 bytes.as_deref().unwrap_or_default(),
+                                purpose,
                                 &mut queue,
                             );
                         }
@@ -1421,7 +1422,7 @@ impl Host {
             }
             viewer_host::Ask::Exhausted => {
                 self.say(viewer_host::password::EXHAUSTED);
-                self.given_up(document);
+                self.cancelled(document);
             }
         }
     }
@@ -2326,7 +2327,7 @@ impl Host {
             if !answered.get() {
                 with(&me, |host| {
                     host.say(viewer_host::password::CANCELLED);
-                    host.given_up(document);
+                    host.cancelled(document);
                 });
             }
             glib::Propagation::Proceed
@@ -2369,7 +2370,7 @@ impl Host {
             }
             viewer_host::Supplied::Cancelled => {
                 self.say(viewer_host::password::CANCELLED);
-                self.given_up(document);
+                self.cancelled(document);
             }
         }
     }
@@ -2671,10 +2672,16 @@ impl Host {
     /// The file waits beside the name in `viewer_host::Arrivals`, so that a document which opens
     /// under it gets its tab and one that asks for §7.6.4.1's password is asked about as itself
     /// (ADR 1332).
-    fn offer_a_name(&mut self, path: &Path, read: &[u8], queue: &mut VecDeque<Command>) {
+    fn offer_a_name(
+        &mut self,
+        path: &Path,
+        read: &[u8],
+        purpose: Purpose,
+        queue: &mut VecDeque<Command>,
+    ) {
         let name = self
             .arrivals
-            .offer(&mut self.documents, path.to_owned(), read);
+            .offer(&mut self.documents, path.to_owned(), read, purpose);
         queue.push_back(Command::Beside(Some(name)));
     }
 
@@ -2798,6 +2805,9 @@ impl Host {
     /// hands the document every answer this reader has given exactly as it did the first
     /// (`Viewer::adopt`, ADR 1263); the tab is added when `Event::Opened` names it.
     fn open_the_next(&mut self) {
+        if let Some(declined) = self.arrivals.declined() {
+            self.dispatch(declined);
+        }
         loop {
             let Some(arriving) = self.arrivals.start(&mut self.documents) else {
                 return;
@@ -2851,6 +2861,14 @@ impl Host {
     /// next one waiting, which may now start. Nothing for any other name.
     fn given_up(&mut self, id: DocumentId) {
         if self.arrivals.settle(id).is_some() || id == DOCUMENT {
+            self.later_open_the_next();
+        }
+    }
+
+    /// [`Self::given_up`], for §7.6.4.1's prompt cancelled or out of attempts: a file a document
+    /// named is declined to the core as well, where the next arrival starts (ADR 1345).
+    fn cancelled(&mut self, id: DocumentId) {
+        if self.arrivals.cancel(id) || id == DOCUMENT {
             self.later_open_the_next();
         }
     }

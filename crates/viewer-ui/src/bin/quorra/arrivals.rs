@@ -86,6 +86,9 @@ impl App {
     /// hands the document every answer this reader has given exactly as it did the first
     /// (`Viewer::adopt`, ADR 1263); the tab is added when `Event::Opened` names it.
     pub(crate) fn open_the_next(&mut self) {
+        if let Some(declined) = self.arrivals.declined() {
+            self.dispatch(declined);
+        }
         loop {
             let Some(arriving) = self.arrivals.start(&mut self.documents) else {
                 return;
@@ -141,6 +144,14 @@ impl App {
     /// since no first frame is coming to do it.
     pub(crate) fn given_up(&mut self, id: viewer_core::DocumentId) {
         if self.arrivals.settle(id).is_some() || id == crate::DOCUMENT {
+            self.arrival_due = true;
+        }
+    }
+
+    /// [`Self::given_up`], for §7.6.4.1's prompt cancelled or out of attempts: a file a document
+    /// named is declined to the core as well, where the next arrival starts (ADR 1345).
+    pub(crate) fn cancelled(&mut self, id: viewer_core::DocumentId) {
+        if self.arrivals.cancel(id) || id == crate::DOCUMENT {
             self.arrival_due = true;
         }
     }

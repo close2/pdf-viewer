@@ -1350,6 +1350,60 @@ impl DisplayList {
         &self.commands
     }
 
+    /// Restates every solid fill whose matrix has no inverse and carries it onto a line along a
+    /// page axis as the same line in page space — ISO 32000-2 §10.7.4, `doc/todo/11` item 8.
+    ///
+    /// §10.7.4 applies its rule to a shape whose "coordinates are mapped into device space", and
+    /// the rule is stated for exactly the shape such a matrix leaves: "A shape shall be
+    /// scan-converted by painting any pixel whose half-open square region intersects the shape, no
+    /// matter how small the intersection is", with NOTE 1's "a filling region is considered to
+    /// intersect every pixel through which its boundary passes, even if the interior of the
+    /// filling region is empty". §8.3.4's third NOTE, which says such a matrix "can result in
+    /// unpredictable behaviour", is informative and states no behaviour, so it cannot stand
+    /// against a requirement that states one. [`crate::collapsed`] already builds that mark for a
+    /// path flat in its own space; a path carried flat by its matrix is the same shape once it is
+    /// stated where it lies, so it is restated there — its points through its own matrix, under the
+    /// identity — and every backend draws it by that one construction (trap 2).
+    ///
+    /// What is not restated is left as it was, refused and counted by
+    /// [`DisplayList::noninvertible_marks`]: a paint other than a solid colour, which a space with
+    /// no inverse cannot position; a matrix that carries the path onto a single point, which
+    /// §8.5.3.3.1 governs and [`crate::collapsed`] records as a departure; one that carries it onto
+    /// a line across the axes, which [`crate::collapsed`] states as its own absence; and a stroke,
+    /// whose width is stated in the space the matrix collapsed. See [`collapsed_by_transform`].
+    ///
+    /// Nested groups are walked, because a group's elements are marks of this page.
+    ///
+    /// [`collapsed_by_transform`]: crate::collapsed::collapsed_by_transform
+    pub fn restate_collapsed_fills(&mut self) {
+        fn restate(commands: &mut [Command]) {
+            for command in commands {
+                match command {
+                    Command::Fill {
+                        path,
+                        transform,
+                        paint: Paint::Solid(_),
+                        ..
+                    } => {
+                        if let Some(flat) =
+                            crate::collapsed::collapsed_by_transform(path, *transform)
+                        {
+                            *path = Arc::new(flat);
+                            *transform = Transform::IDENTITY;
+                        }
+                    }
+                    Command::Group { commands, .. } => restate(commands),
+                    Command::Shaped { object, shape } => {
+                        restate(std::slice::from_mut(object.as_mut()));
+                        restate(std::slice::from_mut(shape.as_mut()));
+                    }
+                    Command::Fill { .. } | Command::Stroke { .. } | Command::Image { .. } => {}
+                }
+            }
+        }
+        restate(&mut self.commands);
+    }
+
     /// How many marking commands this list states under a matrix with no inverse, ISO 32000-2
     /// §8.3.4.
     ///

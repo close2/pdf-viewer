@@ -111,6 +111,7 @@ fn scanned_image(name: &str) -> Option<(Vec<u8>, CcittParameters)> {
             encoded_byte_align: false,
             end_of_block: true,
             black_is_1: false,
+            damaged_rows_before_error: 0,
         };
         return Some((image.data.to_vec(), parameters));
     }

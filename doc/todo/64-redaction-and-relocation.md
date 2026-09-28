@@ -6,17 +6,30 @@ afterwards as single clean rounds — redaction application (ADR 1124), then its
 design below is what the two aborted drafts established and the builds followed; it stays here as
 *what is* for the cases still owed.
 
-**What a redaction still refuses**, each an owed capability with its own sentence: a stroke with a
-zero line width, one this walk has seen no stroking colour
-operator for, and one whose ExtGState has made §11.6.4.4's `/CA` differ from `/ca`; a `JPXDecode`
-image larger than the operator's `--image-samples` budget (it is never decoded at the reduced
-resolution level §7.4.9 NOTE 3 permits a viewer, because a reduced grid written back would
-resample every sample outside the region), or one whose decoder delivered fewer bits than a
-component the codestream states (components disagreeing on a depth above eight); a codec picture
-pre-blended with a §11.6.5.2 `/Matte` its re-expression cannot keep (a colour space that reaches
-`DeviceRGB` by a conversion that is not affine, or a bilevel raster); a codec image whose decode
-has a shape no fresh raster holds; an inline image behind a filter §8.9.7 forbids there; a Type 3
-font, a composite font not `Identity-H`, `sh`, and a soft-mask group.
+**What a redaction still refuses**, each an owed capability or a reading with its own sentence: a
+stroke with a zero line width (§8.4.3.2 states it in device pixels); a `JPXDecode` image larger
+than the operator's `--image-samples` budget (it is never decoded at the reduced resolution level
+§7.4.9 NOTE 3 permits a viewer, because a reduced grid written back would resample every sample
+outside the region), or one whose decoder delivered fewer bits than a component the codestream
+states (components disagreeing on a depth above eight); a codec picture pre-blended with a
+§11.6.5.2 `/Matte` its re-expression cannot keep (a colour space that reaches `DeviceRGB` by a
+conversion that is not affine, or a bilevel raster); a codec image whose decode has a shape no
+fresh raster holds; an inline image behind a filter §8.9.7 forbids there; a Type 3 `d0` glyph in
+a font whose `/FontBBox` is all zero, whose marks are stated nowhere; a composite font whose
+`CMap` does not resolve or that writes vertically (the gap restored is `tx`, and mode 1's is
+`ty`); a shading painted by `sh` or as a pattern whose colours are data placed in the plane — a
+function-based shading, a mesh, or a sampled or calculator function — which a clip or a cut would
+hide rather than destroy; and a form drawn twice whose placements the region meets differently.
+
+**Five came off that list in ADRs 1351 and 1352.** A Type 3 code is tested against the box its
+glyph description declares (`d1`'s, or `/FontBBox` for `d0`) and removed whole, its advance
+restored and its description left as the font's. A composite code takes the bytes §9.7.6.2's
+codespace ranges delimit, split by the reader's own `CMap::next_code`. `sh` is painted through its
+clip intersected with the region's complement where the shading is an axial or radial gradient
+law. A soft mask's group is content and is entered at its `gs` and cut. A stroke's survivors are
+filled in the initial black where no colour operator ran, in `DeviceGray` where `SC` ran without
+`CS`, and under a graphics state dictionary restating its `/CA` and overprint where the fill's
+differ.
 
 **Four came off that list in ADR 1333.** A `JPXDecode` image that is not a stencil is written back
 as the decoder's own integers — at eight bits, or at sixteen with the `/Decode` pair's far end moved
@@ -64,14 +77,10 @@ where "within the region" is under-specified the choice is documented as a choic
   `render::page_to_draw(page, None, false)` — because `Interpretation::text_layer` appends the
   §12.5.3 annotation-appearance pass to every accumulator, and the cut walk reads only
   `/Contents`; otherwise the code-count check fires falsely on every page with a drawn annotation.
-- **Refusals the walk owes** (trap 5, refuse the page — never cut it wrong): Type 3 fonts (§9.6.5
-  glyph procedures are content streams the walk does not enter); composite fonts encoded by
-  anything but `Identity-H` (§9.7.5 codespace ranges decide code-byte width); the `sh` operator
-  (§8.7.4.2 paints the whole clip — no byte-range edit removes only the region's share) and a
-  soft-mask group over the region; a path carrying a `W`/`W*` clip, because §8.5.4 sets the clip
-  from the same path after the painting operator, so cutting its geometry would move the boundary
-  every later mark is held to. **The last of those five is lifted in ADR 1248**, on the clause's own
-  separation of the two acts in time.
+- **Refusals the walk owed** (trap 5, refuse the page — never cut it wrong) were five: Type 3
+  fonts, composite fonts not `Identity-H`, the `sh` operator, a soft-mask group, and a path carrying
+  a `W`/`W*` clip. The clip came off in ADR 1248, on the clause's own separation of the two acts in
+  time; the other four in ADRs 1351 and 1352, each on the reading its clause gives.
 - **A painted path is cut, not refused** (ADR 1195): the region's four edge lines divide the plane
   into nine cells, the middle one the region and the other eight a disjoint tiling of its
   complement, so the difference is the union of eight Sutherland–Hodgman clips against convex

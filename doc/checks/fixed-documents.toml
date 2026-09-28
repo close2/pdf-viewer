@@ -363,17 +363,17 @@ why = "a page refused whole — no raster at all, and the 282 commands that did 
 path = "corpus-cache/safedocs/cc-main-2021-31/0546/0546320.pdf"
 page = 1
 session = 653
-reports = ["NoninvertibleMatrix"]
+reports = []
 ink = 22.738 .. 24.738
-why = "the same refusal on a well-formed A4 page of 2582 commands, whose single degenerate mark is a text matrix scaled to nothing: one command's worth of nothing cost the reader the other 2581 (ADR 0482, 8.3.4)"
+why = "the same refusal on a well-formed A4 page of 2582 commands, whose single degenerate mark is a text matrix scaled to nothing: one command's worth of nothing cost the reader the other 2581 (ADR 0482, 8.3.4). The report left in session 1255: that mark is a solid fill its matrix carries onto the horizontal line y = 74.06 from x = 126.38 to 293.12, and §10.7.4's \"A zero-width or zero-height rectangle paints a line 1 pixel wide\" now draws it as that line, so nothing on the page is refused; ink 23.771, inside the band (ADR 1348, 10.7.4)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/1407/1407697.pdf"
 page = 1
 session = 653
-reports = ["NoninvertibleMatrix", "Font"]
+reports = ["Font"]
 ink = 12.600 .. 14.600
-why = "the same refusal on a US Letter page of 2891 commands, one of them under a matrix whose a, b and c are all zero (ADR 0482, 8.3.4)"
+why = "the same refusal on a US Letter page of 2891 commands, one of them under a matrix whose a, b and c are all zero (ADR 0482, 8.3.4). The NoninvertibleMatrix report left in session 1255: with a, b and c zero and d not, that mark is a solid fill carried onto the vertical line x = -39.0, y 700.68 to 701.23, which §10.7.4's \"A zero-width or zero-height rectangle paints a line 1 pixel wide\" now draws as that line; it lies left of the page, so no pixel changes and ink is 13.790, inside the band (ADR 1348, 10.7.4)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/2883/2883540.pdf"

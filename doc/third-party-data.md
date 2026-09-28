@@ -881,3 +881,30 @@ questions `CLAUDE.md` keeps apart, and neither substitutes for the other.
 
 **Nothing was taken and nothing was read.** This entry is the record that the question was asked
 and answered, in the same form as the `cidToUnicode` row above: examined, and not taken.
+
+## ITU-T T.4 and T.6, the fax codings §7.4.6 hands its filter to
+
+ISO 32000-2 §7.4.6 says the `CCITTFaxDecode` coding "is not described in detail in this document"
+and names two ITU-T Recommendations for it. ITU publishes both free of charge, and both were fetched
+on 2026-09-28 — after the ITU server had answered `500` to every request for ten minutes — into a
+round's scratch directory, never under `doc/` (a PDF there joins the oracle's population, trap 43),
+and prepared with `python3 tools/spec-md.py <pdf> --out doc/md/T.4.md` and `--out doc/md/T.6.md`
+into the ignored `doc/md/`. The PDFs themselves were not kept — the hashes below are how a copy
+fetched again is known to be the one read:
+
+| text | fetched from | SHA-256 of the PDF |
+|---|---|---|
+| **ITU-T T.4 (07/2003)**, *Standardization of Group 3 facsimile terminals for document transmission* — the edition in force | `https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.4-200307-I!!PDF-E&type=items` | `84c66fab164990bf48cb127e6f43598197d6260cd4ae533c190cbb14edac74f8` |
+| **ITU-T T.6 (11/1988)**, *Facsimile coding schemes and coding control functions for Group 4 facsimile apparatus* — the Blue Book extract, the only edition | `https://www.itu.int/rec/dologin_pub.asp?lang=e&id=T-REC-T.6-198811-I!!PDF-E&type=items` | `8ccbe2d203e03ee2ac37478d50d2d946bab49dfb45376eb0f773009d183a7767` |
+
+**Free to obtain, not free to quote.** Both carry ITU's copyright notice — T.4's dated 2004, T.6's
+1988 and 1993 — reserving all rights and permitting no reproduction without ITU's prior written
+permission. So they are held the way the ETSI norms above are: sections and figures are cited by
+number and paraphrased, in source and in the ledger alike, and nothing from either appears between
+quotation marks or after a `>`. The one thing `crates/pdf-ccitt` does carry from them is the code
+tables — T.4 Tables 2, 3a, 3b and 4 as strings of binary digits — which are the coding itself
+rather than prose about it: every fax decoder carries them, `hayro-ccitt` among them, and a decoder
+cannot be written without them. All 195 run-length codes were checked against the extracted text
+and, as evidence, against `hayro-ccitt`'s tables, and agree with both; `codes.rs`'s tests hold them
+to being prefix-free. T.4 Figures 10 and 11's coding examples are encoded as fixtures in
+`crates/pdf-ccitt/tests/coding.rs` (ADR 1349).

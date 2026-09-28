@@ -126,3 +126,17 @@ pdf.js, or moves a tolerance. `doc/traps/oracle-and-references.md` is the code h
   implementations disagree is worse still, and ADR 0393 has that one. Neither is a reason not to
   look; both are reasons not to **ratchet**, because a ratchet turns a contradiction into a thing
   to be made to go away.
+
+## A cross-backend difference is settled against the clause's own set, drawn in both directions
+
+Five pages differed between the GPU and the CPU oracle; computing §8.4.3.2's distance set for a
+stroke in a few lines of Python put the oracle right on one page and found a hole in the oracle's own
+closed strokes on another (round 1258, ADR 1348). Draw a stroke fixture in both directions: a defect
+that depends on which way the path turns belongs to the stroker, not to the page.
+
+## A new codec's strictness rules are written after its corpus census, not before
+
+Two rules of the fax decoder, each defensible from the clause — an end-of-line code after every line
+under `/EndOfLine`, a refusal of empty runs — failed on real Ghostscript and PDFium producers, and only
+the census over 190 537 streams showed it; every disagreement was then checked against a third
+decoder's diagnostic (ADR 1349). Census first, then the ADR.

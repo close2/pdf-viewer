@@ -2868,10 +2868,18 @@ fn draw_stroked_outline(
     };
     let mut solid = style.clone();
     solid.dash = None;
+    let at_device = convert::transform(at);
+    // A curve bending more tightly than the half-width is stroked piece by piece (ADR 1348). The
+    // question is not asked of one straight segment, which states no curve and is most strokes:
+    // `issue12295.pdf` draws 65 859 of them.
+    let straight = is_one_straight_segment(path);
+    if !straight && let Some(pieces) = folding_stroke_outline(path, &solid, scale) {
+        scan::fill_pieces(pixmap, &pieces, brush, at_device, clip);
+        return true;
+    }
     let Some(outline) = path.stroke(&solid, scale) else {
         return false;
     };
-    let at_device = convert::transform(at);
     if outline.len() <= RECTANGULAR_OUTLINE_VERBS
         && let Some(rect) = pdf_render::device_rectangle(&convert::from_skia_path(&outline), at)
         && let Some(rect) = convert::to_skia_rect(rect)
@@ -2888,7 +2896,7 @@ fn draw_stroked_outline(
     // The outline of one straight segment is a rectangle with a cap at each end, which covers no
     // point twice; every other outline may — at a join, where the inner offsets cross, or where two
     // subpaths' outlines meet — and a thin one shows no sign of it in its own coverage (ADR 1341).
-    if is_one_straight_segment(path) {
+    if straight {
         scan::fill(
             pixmap,
             &outline,
@@ -2901,6 +2909,724 @@ fn draw_stroked_outline(
         scan::fill_outline(pixmap, &outline, brush, at_device, clip);
     }
     true
+}
+
+/// The outline of `path` stroked under `style`, built as a union of simple pieces where one of its
+/// curves may bend more tightly than the stroke's half-width — ISO 32000-2 §8.4.3.2; `None` where
+/// none can, which is nearly every stroke, and the stroker's own outline is then the stroke.
+///
+/// §8.4.3.2 defines a stroke as a set of points, "all points whose perpendicular distance from the
+/// path in user space is less than or equal to half the line width", so a radius-5 circle at
+/// `30 w` is the disk of radius 20. `tiny-skia`'s stroker offsets a closed curve's inside as a
+/// second contour, reversed, and where the half-width passes the curve's radius of curvature that
+/// offset turns inside out and its winding cancels the outer contour's: the disk came out as a ring
+/// with a hole of radius 10. Handing the stroker the curve's chords instead does not cure it: two
+/// chords meeting nearly straight are joined as one line, with no pivot on the inner side, and the
+/// hole comes back once the chords are fine enough to be faithful to the curve.
+///
+/// So nothing here is offset. The path is flattened — which is what §10.7.4 says a curve is by the
+/// time a pixel is decided, "curves have been flattened to sequences of straight lines" — and the
+/// stroke is stated as the union of pieces each of which is convex and wound one way: every chord's
+/// own band, `h` either side of it; at every vertex the join on its outer side; at every open end
+/// the cap. A point within `h` of a chord's interior is in that chord's band, and a point within
+/// `h` of a vertex but of no band lies in the angle between the two chords' normals on the outer
+/// side, which is the join's. The union, filled under the non-zero rule, is the set; portions of
+/// one mark overlapping are `crate::area`'s to measure as that set (ADR 1341).
+///
+/// The joins are §8.4.3.4's at the path's own vertices — a mitre while §8.4.3.5's ratio
+/// `1 / sin(φ/2)` is within the limit and a bevel past it, the disk's sector for a round join —
+/// and the round join a smooth curve's stroke is at a vertex the flattening made.
+///
+/// # When
+///
+/// A curve can fold only where its radius of curvature `|B′|³ / |B′ × B″|` is under the
+/// half-width, and that radius is at least `|B′|² / |B″|`. So a curve is left alone when the
+/// smallest `|B′|` its hodograph's control polygon allows, squared, is at least the half-width
+/// times the largest `|B″|` — a sufficient test that every stroke whose width is small beside its
+/// curves passes. The chords lie within [`FOLD_FLATNESS`] of a device pixel of their curve, and so
+/// do the arcs of every round join and cap. ADR 1348.
+fn folding_stroke_outline(
+    path: &tiny_skia::Path,
+    style: &tiny_skia::Stroke,
+    scale: f32,
+) -> Option<tiny_skia::Path> {
+    let half = style.width / 2.0;
+    if !(half.is_finite() && half > 0.0 && scale.is_finite() && scale > 0.0) {
+        return None;
+    }
+    if !curves_may_fold(path, half) {
+        return None;
+    }
+    let tolerance = FOLD_FLATNESS / scale;
+    // The turn that holds `hθ²/8` to the flatness, and finer by the half-width in device pixels
+    // once that passes one: a wide stroke's rim lies `h` out from a chord that turns `θ`, so its
+    // shortfall grows with `h` where a thin one's cannot show.
+    let turn = (8.0 * tolerance / half / (half * scale).max(1.0)).sqrt();
+    let pieces = Pieces {
+        half,
+        // A sixteenth of the flatness: far below anything the raster shows, and far above the
+        // arithmetic's own residue at any coordinate a stroke is drawn at.
+        overlap: tolerance / 16.0,
+        // The joins' arcs to the finer flatness `crate::area` holds every fill to: a disk's rim is
+        // nothing but arcs, so their shortfall is what a wide stroke's ink is short by, and a
+        // thin stroke's arcs are a single side at either figure.
+        step: arc_step(half, ARC_FLATNESS / scale),
+        join: style.line_join,
+        limit: style.miter_limit,
+        cap: style.line_cap,
+    };
+    let mut out = tiny_skia::PathBuilder::new();
+    for subpath in flattened_subpaths(path, (tolerance, turn)) {
+        pieces.push_subpath(&mut out, &subpath);
+    }
+    out.finish()
+}
+
+/// What [`folding_stroke_outline`] builds each piece from.
+struct Pieces {
+    /// Half the line width, in the path's own space.
+    half: f32,
+    /// How far each band reaches past its chord's ends, in the path's own space.
+    overlap: f32,
+    /// The largest angle one side of a round join or cap may span, so that it lies within the
+    /// flatness of its circle.
+    step: f32,
+    /// The file's join, at the vertices the file states.
+    join: tiny_skia::LineJoin,
+    /// §8.4.3.5's limit on a mitre.
+    limit: f32,
+    /// The file's cap, at an open subpath's two ends.
+    cap: tiny_skia::LineCap,
+}
+
+impl Pieces {
+    /// Every band, join and cap of one flattened subpath.
+    fn push_subpath(&self, out: &mut tiny_skia::PathBuilder, subpath: &Flattened) {
+        let points = &subpath.points;
+        let Some(&last) = points.last() else {
+            return;
+        };
+        if points.len() < 2 {
+            return;
+        }
+        // The chords, with the one back to the start where the subpath is closed.
+        let closing = subpath.closed.then_some((last, points.first().copied()));
+        for (start, end) in points
+            .windows(2)
+            .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
+            .chain(closing.and_then(|(from, to)| Some((from, to?))))
+        {
+            let normal = scaled(unit_normal(start, end), self.half);
+            // Each band reaches a little past either end, so that it overlaps the band and the
+            // join beside it rather than abutting them: pieces sharing an edge exactly leave a
+            // sample on that edge to neither, and a disk's worth of them left a sixteenth out of
+            // pixels in the middle of the stroke.
+            let along = scaled(
+                tiny_skia::Point::from_xy(normal.y, -normal.x),
+                self.overlap / self.half,
+            );
+            let (start, end) = if along.dot(minus(end, start)) >= 0.0 {
+                (minus(start, along), plus(end, along))
+            } else {
+                (plus(start, along), minus(end, along))
+            };
+            push_convex(
+                out,
+                &[
+                    plus(start, normal),
+                    plus(end, normal),
+                    minus(end, normal),
+                    minus(start, normal),
+                ],
+            );
+        }
+        // Every vertex with a chord on either side: all of them round a closed subpath, the inner
+        // ones of an open one. The file's join where the file states the vertex, and the round
+        // join a smooth curve's stroke has where the flattening made it.
+        let count = points.len();
+        for vertex in 0..count {
+            let before = vertex
+                .checked_sub(1)
+                .or(subpath.closed.then_some(count.saturating_sub(1)));
+            let after = Some(vertex.saturating_add(1))
+                .filter(|&after| after < count)
+                .or(subpath.closed.then_some(0));
+            let (Some(before), Some(after)) = (before, after) else {
+                continue;
+            };
+            let (Some(&from), Some(&at), Some(&to)) =
+                (points.get(before), points.get(vertex), points.get(after))
+            else {
+                continue;
+            };
+            let join = if subpath.stated.get(vertex).copied().unwrap_or(false) {
+                self.join
+            } else {
+                tiny_skia::LineJoin::Round
+            };
+            self.push_join(out, (from, at, to), join);
+        }
+        if !subpath.closed {
+            if let (Some(&first), Some(&second)) = (points.first(), points.get(1)) {
+                self.push_cap(out, (second, first));
+            }
+            if let Some(&before) = points.get(count.saturating_sub(2)) {
+                self.push_cap(out, (before, last));
+            }
+        }
+    }
+
+    /// Adds the join at `at` between the chords from `from` and to `to`, on the outer side of their
+    /// turn — ISO 32000-2 §8.4.3.4, with §8.4.3.5's limit on a mitre.
+    fn push_join(
+        &self,
+        out: &mut tiny_skia::PathBuilder,
+        (from, at, to): (tiny_skia::Point, tiny_skia::Point, tiny_skia::Point),
+        join: tiny_skia::LineJoin,
+    ) {
+        let (first, second) = (unit_normal(from, at), unit_normal(at, to));
+        // The outer side is the one the path turns away from.
+        let outward = if minus(at, from).cross(minus(to, at)) > 0.0 {
+            -self.half
+        } else {
+            self.half
+        };
+        let (near, far) = (scaled(first, outward), scaled(second, outward));
+        let cosine = first.dot(second).clamp(-1.0, 1.0);
+        match join {
+            tiny_skia::LineJoin::Round => {
+                let mut corners = vec![at, plus(at, near)];
+                let turning = near.cross(far);
+                corners.extend(arc(at, (near, turning), cosine.acos(), self.step));
+                corners.push(plus(at, far));
+                push_convex(out, &corners);
+            }
+            tiny_skia::LineJoin::Miter | tiny_skia::LineJoin::MiterClip => {
+                // §8.4.3.5: the mitre's length over the line width is 1 / sin(φ / 2), φ the angle
+                // between the segments, which is 1 / cos(θ / 2) of the turn θ between normals.
+                let half_turn = f32::midpoint(1.0, cosine).sqrt();
+                if half_turn > 0.0 && 1.0 / half_turn <= self.limit {
+                    let tip = scaled(plus(near, far), 1.0 / (1.0 + cosine));
+                    push_convex(out, &[at, plus(at, near), plus(at, tip), plus(at, far)]);
+                } else {
+                    push_convex(out, &[at, plus(at, near), plus(at, far)]);
+                }
+            }
+            tiny_skia::LineJoin::Bevel => {
+                push_convex(out, &[at, plus(at, near), plus(at, far)]);
+            }
+        }
+    }
+
+    /// Adds the cap at the end `end` of the chord from `from` — ISO 32000-2 §8.4.3.3.
+    fn push_cap(
+        &self,
+        out: &mut tiny_skia::PathBuilder,
+        (from, end): (tiny_skia::Point, tiny_skia::Point),
+    ) {
+        let normal = scaled(unit_normal(from, end), self.half);
+        // The chord's own direction at the half-width's length.
+        let beyond = tiny_skia::Point::from_xy(normal.y, -normal.x);
+        let beyond = if beyond.dot(minus(end, from)) >= 0.0 {
+            beyond
+        } else {
+            scaled(beyond, -1.0)
+        };
+        match self.cap {
+            tiny_skia::LineCap::Butt => {}
+            tiny_skia::LineCap::Round => {
+                let back = scaled(normal, -1.0);
+                let mut corners = vec![plus(end, normal)];
+                // A half turn from one side to the other, through the side beyond the end.
+                let turning = normal.cross(beyond);
+                corners.extend(arc(end, (normal, turning), std::f32::consts::PI, self.step));
+                corners.push(plus(end, back));
+                push_convex(out, &corners);
+            }
+            tiny_skia::LineCap::Square => push_convex(
+                out,
+                &[
+                    plus(end, normal),
+                    plus(plus(end, normal), beyond),
+                    plus(minus(end, normal), beyond),
+                    minus(end, normal),
+                ],
+            ),
+        }
+    }
+}
+
+/// The points strictly inside the arc about `centre` that begins at `centre + near` and spans
+/// `angle`, turning the way `turning`'s sign says — positive the way from `x` to `y` — cut into
+/// sides of at most `step`.
+fn arc(
+    centre: tiny_skia::Point,
+    (near, turning): (tiny_skia::Point, f32),
+    angle: f32,
+    step: f32,
+) -> Vec<tiny_skia::Point> {
+    let sides = sides_for(angle, step);
+    // Each side's corners on the radius at which its triangle has its circular sector's own area,
+    // `R² sin φ = r² φ`, so that the polygon is neither short of the round join nor over it on the
+    // whole: inscribed, every arc would come in short by a sixty-fourth of a pixel's worth along
+    // its length, and a disk's rim is nothing but arcs.
+    let side = angle / f32::from(u16::try_from(sides).unwrap_or(FOLD_CHORDS));
+    let equal_area = if side > 0.0 {
+        (side / side.sin()).sqrt()
+    } else {
+        1.0
+    };
+    let radius = near.length() * equal_area;
+    let start = near.y.atan2(near.x);
+    let sweep = if turning >= 0.0 { angle } else { -angle };
+    (1..sides)
+        .map(|side| {
+            let turned = start + sweep * fraction_of(side, sides);
+            tiny_skia::Point::from_xy(
+                centre.x + radius * turned.cos(),
+                centre.y + radius * turned.sin(),
+            )
+        })
+        .collect()
+}
+
+/// The largest angle a side of an arc of `radius` may span and lie within `tolerance` of it.
+fn arc_step(radius: f32, tolerance: f32) -> f32 {
+    2.0 * (1.0 - (tolerance / radius).min(1.0)).acos()
+}
+
+/// How many sides an arc spanning `angle` is cut into for each to span at most `step`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped into 1.0..=FOLD_CHORDS before the cast"
+)]
+fn sides_for(angle: f32, step: f32) -> u32 {
+    let sides = (angle / step).ceil();
+    if sides.is_finite() {
+        sides.clamp(1.0, f32::from(FOLD_CHORDS)) as u32
+    } else {
+        1
+    }
+}
+
+/// `a + b`.
+fn plus(a: tiny_skia::Point, b: tiny_skia::Point) -> tiny_skia::Point {
+    tiny_skia::Point::from_xy(a.x + b.x, a.y + b.y)
+}
+
+/// `a − b`.
+fn minus(a: tiny_skia::Point, b: tiny_skia::Point) -> tiny_skia::Point {
+    tiny_skia::Point::from_xy(a.x - b.x, a.y - b.y)
+}
+
+/// `point` times `factor`.
+fn scaled(point: tiny_skia::Point, factor: f32) -> tiny_skia::Point {
+    tiny_skia::Point::from_xy(point.x * factor, point.y * factor)
+}
+
+/// The unit normal to the chord from `start` to `end`, turned a quarter to one side; zero for a
+/// chord of no length.
+fn unit_normal(start: tiny_skia::Point, end: tiny_skia::Point) -> tiny_skia::Point {
+    let along = minus(end, start);
+    let length = along.length();
+    if length > 0.0 {
+        tiny_skia::Point::from_xy(-along.y / length, along.x / length)
+    } else {
+        tiny_skia::Point::zero()
+    }
+}
+
+/// Adds a convex polygon as a closed subpath wound so that its signed area is positive, which is
+/// what makes every piece of one outline add rather than cancel under the non-zero rule.
+fn push_convex(out: &mut tiny_skia::PathBuilder, corners: &[tiny_skia::Point]) {
+    let twice_area: f32 = corners
+        .iter()
+        .zip(corners.iter().cycle().skip(1))
+        .map(|(one, next)| one.cross(*next))
+        .sum();
+    if !twice_area.is_finite() || twice_area.abs() <= f32::EPSILON {
+        return;
+    }
+    let mut ordered: Vec<tiny_skia::Point> = corners.to_vec();
+    if twice_area < 0.0 {
+        ordered.reverse();
+    }
+    let mut ordered = ordered.into_iter();
+    if let Some(first) = ordered.next() {
+        out.move_to(first.x, first.y);
+        for corner in ordered {
+            out.line_to(corner.x, corner.y);
+        }
+        out.close();
+    }
+}
+
+/// Whether any curve of `path` may have a radius of curvature under `radius` — see
+/// [`folding_stroke_outline`].
+fn curves_may_fold(path: &tiny_skia::Path, radius: f32) -> bool {
+    let mut current = tiny_skia::Point::zero();
+    path.segments().any(|segment| {
+        let folds = match segment {
+            tiny_skia::PathSegment::QuadTo(control, to) => {
+                quadratic_may_fold([current, control, to], radius)
+            }
+            tiny_skia::PathSegment::CubicTo(first, second, to) => {
+                cubic_may_fold([current, first, second, to], radius)
+            }
+            tiny_skia::PathSegment::MoveTo(_)
+            | tiny_skia::PathSegment::LineTo(_)
+            | tiny_skia::PathSegment::Close => false,
+        };
+        if let tiny_skia::PathSegment::MoveTo(to)
+        | tiny_skia::PathSegment::LineTo(to)
+        | tiny_skia::PathSegment::QuadTo(_, to)
+        | tiny_skia::PathSegment::CubicTo(_, _, to) = segment
+        {
+            current = to;
+        }
+        folds
+    })
+}
+
+/// One subpath as the points of its chords.
+struct Flattened {
+    /// The points, a repeated point dropped, since a chord of no length has no direction to join.
+    points: Vec<tiny_skia::Point>,
+    /// Per point, whether the path states it rather than the flattening making it — where the
+    /// file's own join is drawn.
+    stated: Vec<bool>,
+    /// Whether the subpath is closed, its last point joined back to its first.
+    closed: bool,
+}
+
+impl Flattened {
+    /// A subpath beginning at `start`.
+    fn at(start: tiny_skia::Point) -> Self {
+        Self {
+            points: vec![start],
+            stated: vec![true],
+            closed: false,
+        }
+    }
+
+    /// Adds a point, dropping one that repeats the last.
+    fn push(&mut self, point: tiny_skia::Point, stated: bool) {
+        if self.points.last() == Some(&point) {
+            if let Some(last) = self.stated.last_mut() {
+                *last |= stated;
+            }
+        } else {
+            self.points.push(point);
+            self.stated.push(stated);
+        }
+    }
+
+    /// Adds a curve's chords: `steps` points along it, the last its end point.
+    fn push_curve(&mut self, steps: u32, point_at: impl Fn(f32) -> tiny_skia::Point) {
+        for step in 1..=steps {
+            self.push(point_at(fraction_of(step, steps)), step == steps);
+        }
+    }
+
+    /// Closes the subpath: its last point is joined back to its first, and a last point that
+    /// repeats the first is that join already.
+    fn close(&mut self) {
+        if self.points.len() > 1 && self.points.first() == self.points.last() {
+            self.points.pop();
+            self.stated.pop();
+        }
+        self.closed = true;
+    }
+}
+
+/// Every subpath of `path` as the points of its chords, each within `tolerance` of its curve.
+///
+/// A second bound keeps the stroke's own boundary within the same distance: a chord turning by `θ`
+/// is `h` from its band's edge, and that edge lies `hθ²/8` inside the curve's offset, so no chord
+/// turns by more than `turn`. The two bounds meet on a wide stroke of a tight curve, whose rim is
+/// all offset, and a thin stroke's `turn` is loose enough that the first decides.
+fn flattened_subpaths(path: &tiny_skia::Path, (tolerance, turn): (f32, f32)) -> Vec<Flattened> {
+    let mut subpaths: Vec<Flattened> = Vec::new();
+    let mut current = tiny_skia::Point::zero();
+    for segment in path.segments() {
+        match segment {
+            tiny_skia::PathSegment::MoveTo(to) => {
+                subpaths.push(Flattened::at(to));
+                current = to;
+            }
+            tiny_skia::PathSegment::LineTo(to) => {
+                if let Some(subpath) = subpaths.last_mut() {
+                    subpath.push(to, true);
+                }
+                current = to;
+            }
+            tiny_skia::PathSegment::QuadTo(control, to) => {
+                let start = current;
+                let steps = chords(
+                    2.0 * second_difference(start, control, to).length(),
+                    tolerance,
+                )
+                .max(turns(
+                    hodograph_span(&[minus(control, start), minus(to, control)]),
+                    turn,
+                ));
+                if let Some(subpath) = subpaths.last_mut() {
+                    subpath.push_curve(steps, |t| {
+                        let u = 1.0 - t;
+                        tiny_skia::Point::from_xy(
+                            u * u * start.x + 2.0 * u * t * control.x + t * t * to.x,
+                            u * u * start.y + 2.0 * u * t * control.y + t * t * to.y,
+                        )
+                    });
+                }
+                current = to;
+            }
+            tiny_skia::PathSegment::CubicTo(first, second, to) => {
+                let start = current;
+                let bend = 6.0
+                    * second_difference(start, first, second)
+                        .length()
+                        .max(second_difference(first, second, to).length());
+                let steps = chords(bend, tolerance).max(turns(
+                    hodograph_span(&[minus(first, start), minus(second, first), minus(to, second)]),
+                    turn,
+                ));
+                if let Some(subpath) = subpaths.last_mut() {
+                    subpath.push_curve(steps, |t| {
+                        let u = 1.0 - t;
+                        let weights = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                        tiny_skia::Point::from_xy(
+                            weights.0 * start.x
+                                + weights.1 * first.x
+                                + weights.2 * second.x
+                                + weights.3 * to.x,
+                            weights.0 * start.y
+                                + weights.1 * first.y
+                                + weights.2 * second.y
+                                + weights.3 * to.y,
+                        )
+                    });
+                }
+                current = to;
+            }
+            tiny_skia::PathSegment::Close => {
+                if let Some(subpath) = subpaths.last_mut() {
+                    subpath.close();
+                    if let Some(&start) = subpath.points.first() {
+                        current = start;
+                    }
+                }
+            }
+        }
+    }
+    subpaths
+}
+
+/// How far a side of a round join's or cap's arc may lie from it, in device pixels — the figure
+/// `crate::area` flattens every fill to, chosen there against the raster's own depth.
+const ARC_FLATNESS: f32 = 1.0 / 256.0;
+
+/// How far a chord of a folding curve may lie from it, in device pixels.
+///
+/// A quarter of the quantum the pieces are measured to: [`scan::Exact::Pieces`] goes to the
+/// library's converter, which states a boundary pixel's coverage in sixteenths, so a chord within a
+/// sixty-fourth of its curve moves no coverage by as much as that converter's own step. Finer
+/// chords would buy nothing that converter can show and cost it edges: on `issue14415.pdf`, whose
+/// one-point strokes fold at a hundred and seventy-five cusps, each chord is a band and a join.
+const FOLD_FLATNESS: f32 = 1.0 / 64.0;
+
+/// The most chords one folding curve, or sides one arc, is cut into: a cost guard, reached only by
+/// a curve whose bend is millions of times the flatness in device pixels.
+const FOLD_CHORDS: u16 = 4096;
+
+/// `p₀ − 2p₁ + p₂`.
+fn second_difference(
+    start: tiny_skia::Point,
+    middle: tiny_skia::Point,
+    end: tiny_skia::Point,
+) -> tiny_skia::Point {
+    tiny_skia::Point::from_xy(
+        start.x - 2.0 * middle.x + end.x,
+        start.y - 2.0 * middle.y + end.y,
+    )
+}
+
+/// The chords a curve whose second derivative is at most `bend` needs to lie within `tolerance`
+/// of it: the uniform polyline through `n + 1` points of a Bézier lies within `max|B″| / (8n²)`.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped into 1.0..=FOLD_CHORDS before the cast"
+)]
+fn chords(bend: f32, tolerance: f32) -> u32 {
+    let steps = (bend / (8.0 * tolerance)).sqrt().ceil();
+    if steps.is_finite() {
+        steps.clamp(1.0, f32::from(FOLD_CHORDS)) as u32
+    } else {
+        u32::from(FOLD_CHORDS)
+    }
+}
+
+/// The chords a curve whose tangent turns through at most `span` needs, spread evenly over its
+/// parameter, for them to turn by `turn` on average.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped into 1.0..=FOLD_CHORDS before the cast"
+)]
+fn turns(span: f32, turn: f32) -> u32 {
+    let steps = (span / turn).ceil();
+    if steps.is_finite() {
+        steps.clamp(1.0, f32::from(FOLD_CHORDS)) as u32
+    } else {
+        u32::from(FOLD_CHORDS)
+    }
+}
+
+/// How far a curve's tangent can turn, from its hodograph's control points: the widest angle
+/// between two of them where their hull keeps clear of the origin, and a whole turn where it does
+/// not, since the tangent may then point anywhere.
+fn hodograph_span(points: &[tiny_skia::Point]) -> f32 {
+    let clear = match points {
+        [one, two] => distance_to_segment(*one, *two) > 0.0,
+        [one, two, three] => distance_to_triangle([*one, *two, *three]) > 0.0,
+        _ => false,
+    };
+    if !clear {
+        return std::f32::consts::TAU;
+    }
+    let mut widest = 0.0_f32;
+    for (index, one) in points.iter().enumerate() {
+        for two in points.get(index.saturating_add(1)..).unwrap_or_default() {
+            let cosine = one.dot(*two) / (one.length() * two.length());
+            widest = widest.max(cosine.clamp(-1.0, 1.0).acos());
+        }
+    }
+    widest
+}
+
+/// Step `step` of `steps` as a parameter, exactly 1.0 at the last.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "both are at most FOLD_CHORDS, exact in f32"
+)]
+fn fraction_of(step: u32, steps: u32) -> f32 {
+    if step >= steps {
+        1.0
+    } else {
+        step as f32 / steps as f32
+    }
+}
+
+/// Whether a quadratic may have a radius of curvature under `radius` — see
+/// [`folding_stroke_outline`]. `B′` runs along the segment between `2(p₁ − p₀)` and
+/// `2(p₂ − p₁)` and `B″` is the constant `2(p₀ − 2p₁ + p₂)`.
+///
+/// The bound is loosest where the parameter runs slowly, near a control point close to its end
+/// point, so a curve that fails it is halved and each half asked again, down to
+/// [`FOLD_HALVINGS`]: the bound on a half is the curve's own over that half, and it tightens
+/// towards the radius itself as the halves shrink. A half that still fails at the last halving is
+/// taken to fold.
+fn quadratic_may_fold(points: [tiny_skia::Point; 3], radius: f32) -> bool {
+    quadratic_may_fold_within(points, radius, FOLD_HALVINGS)
+}
+
+/// [`quadratic_may_fold`], with `halvings` left.
+fn quadratic_may_fold_within(
+    [start, control, end]: [tiny_skia::Point; 3],
+    radius: f32,
+    halvings: u8,
+) -> bool {
+    let slowest = 2.0 * distance_to_segment(minus(control, start), minus(end, control));
+    let bend = 2.0 * second_difference(start, control, end).length();
+    if slowest * slowest >= radius * bend {
+        return false;
+    }
+    let Some(halvings) = halvings.checked_sub(1) else {
+        return true;
+    };
+    let (one, two) = (midpoint(start, control), midpoint(control, end));
+    let middle = midpoint(one, two);
+    quadratic_may_fold_within([start, one, middle], radius, halvings)
+        || quadratic_may_fold_within([middle, two, end], radius, halvings)
+}
+
+/// Whether a cubic may have a radius of curvature under `radius` — see
+/// [`folding_stroke_outline`]. `B′` lies in the triangle of `3(p₁ − p₀)`, `3(p₂ − p₁)` and
+/// `3(p₃ − p₂)`, and `B″` is linear, so largest at an end: `6(p₀ − 2p₁ + p₂)` or
+/// `6(p₁ − 2p₂ + p₃)`. Halved as [`quadratic_may_fold`] is, for its reason.
+fn cubic_may_fold(points: [tiny_skia::Point; 4], radius: f32) -> bool {
+    cubic_may_fold_within(points, radius, FOLD_HALVINGS)
+}
+
+/// [`cubic_may_fold`], with `halvings` left.
+fn cubic_may_fold_within(
+    [start, first, second, end]: [tiny_skia::Point; 4],
+    radius: f32,
+    halvings: u8,
+) -> bool {
+    let slowest = 3.0
+        * distance_to_triangle([
+            minus(first, start),
+            minus(second, first),
+            minus(end, second),
+        ]);
+    let bend = 6.0
+        * second_difference(start, first, second)
+            .length()
+            .max(second_difference(first, second, end).length());
+    if slowest * slowest >= radius * bend {
+        return false;
+    }
+    let Some(halvings) = halvings.checked_sub(1) else {
+        return true;
+    };
+    // de Casteljau at one half.
+    let (near, across, far) = (
+        midpoint(start, first),
+        midpoint(first, second),
+        midpoint(second, end),
+    );
+    let (before, after) = (midpoint(near, across), midpoint(across, far));
+    let middle = midpoint(before, after);
+    cubic_may_fold_within([start, near, before, middle], radius, halvings)
+        || cubic_may_fold_within([middle, after, far, end], radius, halvings)
+}
+
+/// How many times a curve failing [`quadratic_may_fold`]'s or [`cubic_may_fold`]'s bound is
+/// halved before it is taken to fold: a sixty-fourth of the curve is short enough that the bound
+/// on it is within a few per cent of the radius it bounds.
+const FOLD_HALVINGS: u8 = 6;
+
+/// The point halfway between two.
+fn midpoint(one: tiny_skia::Point, two: tiny_skia::Point) -> tiny_skia::Point {
+    tiny_skia::Point::from_xy(f32::midpoint(one.x, two.x), f32::midpoint(one.y, two.y))
+}
+
+/// The distance from the origin to the segment from `start` to `end`.
+fn distance_to_segment(start: tiny_skia::Point, end: tiny_skia::Point) -> f32 {
+    let along = minus(end, start);
+    let length = along.dot(along);
+    let t = if length > 0.0 {
+        (-start.dot(along) / length).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    plus(start, scaled(along, t)).length()
+}
+
+/// The distance from the origin to the triangle of three points, zero where it holds the origin.
+fn distance_to_triangle([one, two, three]: [tiny_skia::Point; 3]) -> f32 {
+    let sides = (one.cross(two), two.cross(three), three.cross(one));
+    let inside = (sides.0 >= 0.0 && sides.1 >= 0.0 && sides.2 >= 0.0)
+        || (sides.0 <= 0.0 && sides.1 <= 0.0 && sides.2 <= 0.0);
+    if inside {
+        return 0.0;
+    }
+    distance_to_segment(one, two)
+        .min(distance_to_segment(two, three))
+        .min(distance_to_segment(three, one))
 }
 
 /// Whether `path` is a single open subpath of one straight segment, whose stroked outline cannot
@@ -2980,6 +3706,11 @@ fn draw_long_mitres(
     // §10.7.4's substitution and has no joins to draw, and above it the stroker builds the same
     // joins for a sub-pixel stroke as for any other (ADR 1102).
     if pdf_render::unmeasurable_width(at).is_some_and(|floor| style.width <= floor) {
+        return false;
+    }
+    // A curve bending more tightly than the half-width is [`draw_stroked_outline`]'s, whose
+    // pieces state §8.4.3.5's mitre themselves and have no stroker's bevel to make good.
+    if curves_may_fold(geometry.1, style.width / 2.0) {
         return false;
     }
     let Some(wedges) = convert::path(&wedges) else {

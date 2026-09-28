@@ -242,8 +242,10 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // for a document an action would open beside the one showing, which is a fact about the
     // caller — whether it has a second place to put one — and about no file. It takes no struct
     // by value, so `QUORRA_ABI_VERSION` stays where it is for the standing reason (ADR 1263).
-    assert_eq!(no_mangle, 205, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 191, "189 `unsafe` entry points and two helpers");
+    // **And one for the same entry on the question**: `quorra_event_needs_file_beside` is
+    // `Event::NeedsFile`'s `beside`, a getter in the shape of `quorra_event_dirty` (ADR 1335).
+    assert_eq!(no_mangle, 206, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 192, "190 `unsafe` entry points and two helpers");
 }
 
 #[test]

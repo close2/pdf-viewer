@@ -56,6 +56,9 @@ pdf-render = { path = "../crates/pdf-render" }
 # private module, which is why `viewer_confined::wire` is public — see that module.
 viewer-confined = { path = "../crates/viewer-confined" }
 viewer-core = { path = "../crates/viewer-core" }
+# ISO 32000-2 §7.4.6's fax decoder, whose bit reader and damaged-row search read untrusted bytes
+# (ADR 1349).
+pdf-ccitt = { path = "../crates/pdf-ccitt" }
 
 [profile.release]
 debug = true
@@ -176,6 +179,13 @@ bench = false
 [[bin]]
 name = "x509"
 path = "fuzz_targets/x509.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ccitt"
+path = "fuzz_targets/ccitt.rs"
 test = false
 doc = false
 bench = false

@@ -337,10 +337,12 @@ pub fn thinnest_line(to_device: Transform) -> Option<f32> {
 /// *command* transform makes the device transform singular too, and the command's whole path is
 /// carried onto a line or a point — no area, at any scale, on any device. So drawing nothing there
 /// is not a shortfall against §10.7.4's "no shape ever disappears" so much as the case that clause
-/// has no geometry left to be about; what §10.7.4 would still ask for is the run of *whole* device
+/// has no geometry left to be about; what §10.7.4 still asks for is the run of *whole* device
 /// pixels the collapsed image passes through, which [`split_collapsed_fill`] builds for a path
-/// that collapses in its own space and which nothing builds for one collapsed by its transform.
-/// That is unbuilt and unwitnessed, and `doc/todo/11` item 8 carries it.
+/// that collapses in its own space. A solid fill its matrix carries onto a line along a page axis
+/// never reaches this refusal: `DisplayList::restate_collapsed_fills` restates it as that line
+/// first (ADR 1348). What still does is a stroke, a point, a line across the axes and a paint
+/// this refusal is about, and `doc/todo/11` item 8 carries the stroke.
 ///
 /// What the clause does **not** decide is anything about the page the mark is on, and no other
 /// clause makes a neighbouring command's matrix a reason to stop drawing — §6.3.2.2 asks a

@@ -378,3 +378,17 @@ command's events have been seen; a reservation lives exactly as long as the comm
 Three of redaction's four codec refusals came from forcing every picture into eight-bit `DeviceRGB`;
 keeping the file's own domain — the decoder's integers at their depth, in the space §7.4.9 names —
 removed them together (ADR 1333).
+
+## A refusal lifted by a construction that hides is tested against the clause's own prohibition
+
+Redaction lifted `sh` by painting through the clip's intersection with the region's complement, and
+§12.5.6.23 forbids clipping used to HIDE data — so the construction was admitted only for gradient
+laws, whose data lie nowhere, and refused for meshes and sampled functions, whose data lie in the
+region; the same reading then found shading patterns under a path cut carrying the same data past it
+(ADR 1351). Every other path that carries the data is looked for once the first is found.
+
+## A stroker's nearly-straight join path is checked before handing it chords
+
+tiny-skia's `SCALAR_NEARLY_ZERO` removes the inner pivot on a nearly straight join, so flattening a
+curve into 552 chords and stroking them brought the hole back that the chords were meant to close
+(ADR 1348). Read the library's join path before handing it a construction that leans on it.

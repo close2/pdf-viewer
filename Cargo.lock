@@ -3218,6 +3218,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-ccitt"
+version = "0.1.0"
+
+[[package]]
 name = "pdf-colour"
 version = "0.1.0"
 dependencies = [
@@ -3256,8 +3260,10 @@ dependencies = [
  "criterion",
  "flate2",
  "gate-ratchet",
+ "hayro-ccitt 0.3.0 (git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2)",
  "iai-callgrind",
  "md-5",
+ "pdf-ccitt",
  "pdf-colour",
  "pdf-font",
  "pdf-render",
@@ -3301,11 +3307,11 @@ dependencies = [
 name = "pdf-sandbox"
 version = "0.1.0"
 dependencies = [
- "hayro-ccitt 0.3.0 (git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2)",
  "hayro-jbig2 0.3.0 (git+https://github.com/close2/hayro?rev=64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2)",
  "hayro-jpeg2000 0.4.0",
  "landlock",
  "libc",
+ "pdf-ccitt",
  "rustix 1.1.4",
  "seccompiler",
  "thiserror 2.0.19",

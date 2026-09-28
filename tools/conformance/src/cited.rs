@@ -42,9 +42,22 @@
 //! A file named by the row's `code` or by its `test` is [`Reach::Named`], and the `test` half is
 //! not a concession: a test file citing the clause it tests is exactly where a `test` entry goes,
 //! and reporting it would be asking the row to name the same file twice. A clause with no row at
-//! all — Annex or front-matter numbering the ledger does not carry — is [`Reach::NoRow`].
-//! Every no-row pair is listed as well as counted, each with [`why_no_row`]'s reading of its
-//! number, and the ones under [`RASTER`] are counted apart for the reason its own comment gives.
+//! all is one of two things. Where the number is a heading the ledger rows nothing under **by
+//! design** — an informative annex, or a whole clause — it is [`Reach::Unrowed`], and
+//! [`Unrowed`] names the class and its reason; the report prints each class as a count and the
+//! numbers it holds, not as a list. Anything else is [`Reach::NoRow`], listed pair by pair and
+//! read first, and the ones under [`RASTER`] are counted apart for the reason its own comment
+//! gives.
+//!
+//! The split is what makes the last line an instrument. While every row-less pair shared one
+//! count, the count held the standard's own informative annexes and could never reach zero, so a
+//! real gap arriving beside them moved a number nobody expected to move. With the by-design
+//! classes named, the no-row count is zero on a clean tree and rises only for a pair a person has
+//! to read: a front-matter subclause, or a section sign that meant another document. The
+//! conformance gate already refuses a number the standard does not print, so every pair in a
+//! class names a real heading. What a class cannot see is a `§` that meant another document's
+//! section and happens to spell an informative annex's number or a whole clause's; the numbers
+//! each class prints are there so that a new one is visible. ADR 1355.
 //!
 //! # A checker citing the clause it checks
 //!
@@ -117,10 +130,60 @@ pub enum Error {
 pub enum Reach {
     /// The row names the file, in `code` or in `test`.
     Named,
-    /// The ledger carries no row for the clause.
+    /// The ledger carries no row for the clause, because the number is a heading it rows nothing
+    /// under by design.
+    Unrowed(Unrowed),
+    /// The ledger carries no row for the clause and the number belongs to no class that says
+    /// why. Read first.
     NoRow,
     /// The row does not name the file. The finding.
     Unnamed,
+}
+
+/// A heading the ledger rows nothing under by design, as far as the number alone says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Unrowed {
+    /// A number of one of [`crate::ledger::INFORMATIVE_ANNEXES`], which state nothing a row
+    /// could hold.
+    InformativeAnnex,
+    /// A top-level clause of the body, `§11` or `§2`: the container a covered clause's rows sit
+    /// under, or a front-matter clause the ledger does not cover
+    /// ([`crate::ledger::NORMATIVE_CLAUSES`]).
+    WholeClause,
+}
+
+impl Unrowed {
+    /// Every class, in report order.
+    pub const ALL: [Self; 2] = [Self::InformativeAnnex, Self::WholeClause];
+
+    /// The class a row-less number belongs to, or `None` where the number alone gives no reason
+    /// for the ledger to carry no row.
+    ///
+    /// A normative annex's number is never in a class: [`crate::ledger::NORMATIVE_ANNEXES`] are
+    /// rowed to the leaf, so a row-less one is a gap. Nor is a subclause of the front matter
+    /// (clauses 1 to 5), which is where a section sign that meant an ADR's or an RFC's section
+    /// most often lands.
+    #[must_use]
+    pub fn of(clause: &ClauseNumber) -> Option<Self> {
+        match clause.annex() {
+            Some(letter) => crate::ledger::INFORMATIVE_ANNEXES
+                .contains(&letter)
+                .then_some(Self::InformativeAnnex),
+            None => (clause.depth() == 1).then_some(Self::WholeClause),
+        }
+    }
+
+    /// Why a number of this class carries no row.
+    #[must_use]
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::InformativeAnnex => "an informative annex, which states nothing a row could hold",
+            Self::WholeClause => {
+                "a whole clause, the heading the ledger's rows sit under or front matter it does \
+                 not cover"
+            }
+        }
+    }
 }
 
 /// Where a finding sits in the reading order.
@@ -264,6 +327,15 @@ impl Found {
             .collect()
     }
 
+    /// The pairs citing a heading of one [`Unrowed`] class.
+    #[must_use]
+    pub fn unrowed(&self, class: Unrowed) -> Vec<&Citing> {
+        self.citing
+            .iter()
+            .filter(|citing| citing.reach == Reach::Unrowed(class))
+            .collect()
+    }
+
     /// How many pairs reached the row the way they should.
     #[must_use]
     pub fn counted(&self, reach: Reach) -> usize {
@@ -317,7 +389,7 @@ pub fn judge(
         for (clause, (citations, first)) in per_clause {
             let row = ledger.row(&clause);
             let reach = match row {
-                None => Reach::NoRow,
+                None => Unrowed::of(&clause).map_or(Reach::NoRow, Reach::Unrowed),
                 Some(row) => {
                     let listed = row.code.iter().chain(row.test.iter()).any(|site| {
                         let site = site
@@ -474,8 +546,30 @@ pub fn report(found: &Found) -> String {
     }
     let _ = writeln!(
         out,
-        "\n{} pair(s) the row already names, {} with no row at all",
+        "\n{} pair(s) the row already names",
         found.counted(Reach::Named),
+    );
+    for class in Unrowed::ALL {
+        let pairs = found.unrowed(class);
+        let mut numbers: Vec<&ClauseNumber> = pairs.iter().map(|citing| &citing.clause).collect();
+        numbers.sort();
+        numbers.dedup();
+        let numbers: Vec<String> = numbers.iter().map(|number| format!("§{number}")).collect();
+        let _ = writeln!(
+            out,
+            "{} pair(s) cite {} — not listed; numbers: {}",
+            pairs.len(),
+            class.reason(),
+            if numbers.is_empty() {
+                "none".to_owned()
+            } else {
+                numbers.join(" ")
+            },
+        );
+    }
+    let _ = writeln!(
+        out,
+        "{} pair(s) with no row at all and no class that says why",
         found.counted(Reach::NoRow),
     );
     let _ = writeln!(
@@ -497,26 +591,21 @@ pub fn report(found: &Found) -> String {
     out
 }
 
-/// Why the ledger carries no row for a clause a file cites, as far as the number alone says.
+/// What a row-less number outside every [`Unrowed`] class most likely is, for the line that lists
+/// it.
 ///
-/// Every no-row pair is listed, because the pairs that are *wrong* — a section of an ADR, an RFC
-/// or a `doc/todo` file whose name sits at the end of the line before, so that the sign reads as
-/// ISO 32000-2's — look exactly like the ones that are right, and only the line tells them apart.
-/// What the number does say is where a right one would come from: an informative annex states
-/// nothing a row could hold, and a whole clause is the container the rows sit under. A pair given
-/// neither reason is a number the ledger should carry and does not, and is read first.
+/// The pairs that are *wrong* — a section of an ADR, an RFC or a `doc/todo` file whose name sits
+/// at the end of the line before, so that the sign reads as ISO 32000-2's — look exactly like a
+/// citation of the standard, and only the line tells them apart, so the reading is a pointer and
+/// not a verdict.
 #[must_use]
 pub fn why_no_row(clause: &ClauseNumber) -> &'static str {
-    if let Some(letter) = clause.annex() {
-        if crate::ledger::NORMATIVE_ANNEXES.contains(&letter) {
-            "a normative annex's number the ledger does not carry: read the line"
-        } else {
-            "an informative annex, which the ledger carries no row for"
+    match (clause.annex(), clause.clause()) {
+        (Some(_), _) => "a normative annex's number the ledger does not carry: read the line",
+        (None, Some(top)) if !crate::ledger::NORMATIVE_CLAUSES.contains(&top) => {
+            "a subclause of the front matter the ledger does not cover: read the line"
         }
-    } else if clause.depth() == 1 {
-        "a whole clause, the container the ledger's rows sit under"
-    } else {
-        "a number the ledger does not carry: read the line"
+        _ => "a number the ledger does not carry: read the line",
     }
 }
 
@@ -547,18 +636,44 @@ mod tests {
     }
 
     #[test]
-    fn a_no_row_pair_says_what_its_number_alone_can_say() {
+    fn a_heading_the_ledger_does_not_row_by_design_has_a_class_and_nothing_else_does() {
+        let class = |text: &str| Unrowed::of(&text.parse().expect("a clause number"));
+        assert_eq!(class("C.4"), Some(Unrowed::InformativeAnnex));
+        assert_eq!(class("B.2"), Some(Unrowed::InformativeAnnex));
+        assert_eq!(class("11"), Some(Unrowed::WholeClause));
+        assert_eq!(class("2"), Some(Unrowed::WholeClause));
+        assert_eq!(class("F.9"), None, "a normative annex is rowed to the leaf");
+        assert_eq!(class("5.3"), None, "a front-matter subclause is read");
+        assert_eq!(class("8.4.99"), None);
         let reason = |text: &str| why_no_row(&text.parse().expect("a clause number"));
-        assert_eq!(
-            reason("C.4"),
-            "an informative annex, which the ledger carries no row for"
-        );
-        assert_eq!(
-            reason("11"),
-            "a whole clause, the container the ledger's rows sit under"
-        );
         assert!(reason("F.9").starts_with("a normative annex's number"));
+        assert!(reason("5.3").starts_with("a subclause of the front matter"));
         assert!(reason("8.4.99").starts_with("a number the ledger does not carry"));
+    }
+
+    #[test]
+    fn a_classed_pair_is_counted_by_class_and_not_as_a_pair_with_no_row() {
+        let annex = Citing {
+            clause: "C.4".parse().expect("a clause number"),
+            ..citing(1, Reach::Unrowed(Unrowed::InformativeAnnex), None)
+        };
+        let gap = Citing {
+            clause: "5.3".parse().expect("a clause number"),
+            ..citing(1, Reach::NoRow, None)
+        };
+        let found = Found {
+            citing: vec![annex, gap],
+            ..Found::default()
+        };
+        let report = report(&found);
+        assert!(report.contains(
+            "1 pair(s) cite an informative annex, which states nothing a row could hold — not \
+             listed; numbers: §C.4"
+        ));
+        assert!(report.contains("0 pair(s) cite a whole clause"));
+        assert!(report.contains("1 pair(s) with no row at all and no class that says why"));
+        assert!(report.contains("  §5.3 crates/a/src/b.rs:1"));
+        assert!(!report.contains("  §C.4 "));
     }
 
     #[test]

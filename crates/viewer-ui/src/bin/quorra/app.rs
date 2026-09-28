@@ -829,10 +829,15 @@ impl App {
     /// The file waits beside the name in `viewer_host::Arrivals`, so that a document which opens
     /// under it gets its tab and one that asks for §7.6.4.1's password is asked about as itself
     /// (ADR 1332).
-    pub(crate) fn offer_a_name(&mut self, path: &std::path::Path, read: &[u8]) {
+    pub(crate) fn offer_a_name(
+        &mut self,
+        path: &std::path::Path,
+        read: &[u8],
+        purpose: viewer_core::Purpose,
+    ) {
         let name = self
             .arrivals
-            .offer(&mut self.documents, path.to_path_buf(), read);
+            .offer(&mut self.documents, path.to_path_buf(), read, purpose);
         self.dispatch(Command::Beside(Some(name)));
     }
 

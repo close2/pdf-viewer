@@ -324,28 +324,6 @@ impl Decode {
             .unwrap_or(0)
     }
 
-    /// The sample of `component` whose value is nearest `value`: the map run backwards.
-    ///
-    /// The map is a table rather than a formula, so its inverse is a search over that table;
-    /// it is asked once per image — for §11.6.5.2's matte colour, which Table 144 states in
-    /// the image's own components while the `DCTDecode` route holds its raster in samples —
-    /// rather than once per pixel, so the linear search is the shape to write.
-    fn raw_of(&self, component: usize, value: f32) -> usize {
-        let Some(table) = self.values.get(component) else {
-            return 0;
-        };
-        let mut nearest = 0;
-        let mut distance = f32::INFINITY;
-        for (raw, stated) in table.iter().enumerate() {
-            let apart = (stated - value).abs();
-            if apart < distance {
-                distance = apart;
-                nearest = raw;
-            }
-        }
-        nearest
-    }
-
     /// Whether the map is the identity on eight-bit device channels.
     ///
     /// The one question the `DCTDecode` route asks, because that route has already turned
@@ -893,50 +871,67 @@ fn samples_of(
     }
 }
 
-/// Undoes §11.6.5.2's pre-blending on a `DCTDecode` raster's own samples, or says why not.
+/// Undoes §11.6.5.2's pre-blending on a `DCTDecode` raster, through the route every other
+/// filter's samples take.
 ///
-/// The clause puts the inversion before the colour conversion, and this route holds its raster in
-/// the frame's components until [`convert_channels`] reads them — so it happens here, in samples
-/// rather than in component values. §8.9.5.2's map is affine, so carrying Table 144's colour into
-/// the same units with [`Decode::raw_of`] makes the two domains one answer.
+/// The clause states one inversion, `c = m + (c′ - m) ÷ α` in the parent image's own components,
+/// and puts it before the colour conversion — "inversion of the pre-blending shall precede the
+/// colour conversion". This route holds the frame's components as eight-bit samples until
+/// [`convert_channels`] reads them, which is exactly the input [`unpack`] takes; so the samples
+/// are repacked into rows and handed to it, and [`Prematte::restore`] is the one place Table
+/// 144's formula is computed for both routes. A matte undone from a `DCTDecode` frame and from
+/// the same samples behind `FlateDecode` is therefore the same bytes by construction. ADR 1268.
 ///
-/// `Some` is the sentence for [`SamplesOnGrid::shortfall`] where the inversion could not be done:
-/// §7.4.8 puts a JPEG's dimensions in the data and Table 143 pairs a `/Matte`'d mask with the
-/// dictionary's, so where the two disagree there is no pairing to invert by. Said rather than
-/// guessed at. ADR 1268.
-fn matte_on_channels(
+/// The outer `Err` is the colour space's own refusal, in the words [`convert_channels`] gives it.
+/// The inner `Err` is the sentence for [`SamplesOnGrid::shortfall`] where the inversion could not
+/// be done: §7.4.8 puts a JPEG's dimensions in the data and Table 143 pairs a `/Matte`'d mask with
+/// the dictionary's, so where the two disagree there is no pairing to invert by. Said rather
+/// than guessed at. ADR 1268.
+fn matte_through_unpack(
     at: Dictionaries,
-    matte: &Prematte,
-    rgba: &mut [u8],
-    components: usize,
+    painting: &Painting,
+    frame: (&[u8], usize),
     grid: (u32, u32),
     stated: (u32, u32),
-    into: &Conversion,
-) -> Option<String> {
+) -> Result<Result<Vec<u8>, String>, ImageError> {
     if grid != stated {
-        return Some(format!(
+        return Ok(Err(format!(
             "the /Matte could not be undone: the codestream is {}x{} where the dictionary says \
              {}x{}",
             grid.0, grid.1, stated.0, stated.1
-        ));
+        )));
     }
-    let Dictionaries {
-        document,
-        dict,
-        resources,
-    } = at;
-    // The space [`convert_channels`] is about to read the samples through, so that
-    // [`Decode::raw_of`] inverts the same map that route applies.
-    let space = colour_space(document, dict, resources, into).unwrap_or(ColourSpace::Rgb);
-    let decode = Decode::read(document, dict, &space, 8);
-    let raw: Vec<u8> = matte
-        .matte
-        .iter()
-        .enumerate()
-        .map(|(component, value)| u8::try_from(decode.raw_of(component, *value)).unwrap_or(u8::MAX))
+    let (rgba, components) = frame;
+    let space = colour_space(at.document, at.dict, at.resources, painting.into)?;
+    let wanted = space.components();
+    // A greyscale frame is delivered as three equal channels, so a one-component space reads the
+    // first; three or four components against a frame of the other number is the dictionary and
+    // the codestream contradicting each other, which [`convert_channels`] refuses in the same words.
+    if wanted > 1 && wanted != components {
+        return Err(ImageError::UnsupportedColourSpace {
+            space: format!("a {wanted}-component space on a JPEG of {components} components"),
+        });
+    }
+    let raw: Vec<u8> = rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| pixel.iter().take(wanted).copied())
         .collect();
-    Prematte::restore_samples(rgba, components, &raw, matte.alpha);
-    None
+    let decode = Decode::read(at.document, at.dict, &space, 8);
+    unpack(
+        &raw,
+        grid.0,
+        grid.1,
+        &Samples {
+            bits: 8,
+            space: &space,
+            decode: &decode,
+            colour_key: None,
+            fill: painting.fill,
+            into: painting.into,
+            matte: painting.matte,
+        },
+    )
+    .map(Ok)
 }
 
 /// Decodes a `DCTDecode` image: §7.4.8's frame, converted from the space its dictionary names.
@@ -977,23 +972,25 @@ fn decode_dct(
     let masked = painting
         .colour_key
         .map(|ranges| jpeg_colour_key(&rgba, ranges));
-    // §11.6.5.2's inversion, in the samples this route holds and before
-    // [`convert_channels`] reads them as components — which is the clause's own
-    // ordering, "inversion of the pre-blending shall precede the colour conversion".
-    // The matte is carried into the same units by [`Decode::raw_of`], and §8.9.5.2's
-    // map is affine, so the two domains give the same answer.
-    let shortfall = painting.matte.and_then(|matte| {
-        matte_on_channels(
-            at,
-            matte,
-            &mut rgba,
-            components,
-            grid,
-            (width, height),
-            painting.into,
-        )
-    });
-    convert_channels(at, painting.is_mask, components, &mut rgba, painting.into)?;
+    // §11.6.5.2's inversion, before the colour conversion as the clause orders it, and
+    // computed where every other route computes it (`matte_through_unpack`).
+    let mut shortfall = None;
+    let matted = match painting.matte {
+        Some(_) if !painting.is_mask => {
+            match matte_through_unpack(at, &painting, (&rgba, components), grid, (width, height))? {
+                Ok(restored) => Some(restored),
+                Err(sentence) => {
+                    shortfall = Some(sentence);
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    match matted {
+        Some(restored) => rgba = restored,
+        None => convert_channels(at, painting.is_mask, components, &mut rgba, painting.into)?,
+    }
     if let Some(masked) = masked {
         // The same answer [`unpack`] gives a masked sample: its position, and no
         // opacity at all.
@@ -1227,23 +1224,6 @@ impl Prematte<'_> {
                 (*value - matte).mul_add(1.0 / opacity, matte)
             }
             .clamp(low.min(high), low.max(high));
-        }
-    }
-
-    /// The same, on a raster of eight-bit samples that has not been decoded yet.
-    ///
-    /// The `DCTDecode` route holds its raster in the frame's own samples until
-    /// [`convert_channels`] reads them, and §8.9.5.2's map from a sample to a component value
-    /// is affine — so undoing the pre-blending in samples, with the matte carried into the same
-    /// units by [`Decode::raw_of`], is the same arithmetic on the same domain. `matte` is
-    /// Table 144's colour as samples, one per component.
-    fn restore_samples(rgba: &mut [u8], components: usize, matte: &[u8], alpha: &[u8]) {
-        for (at, pixel) in rgba.chunks_exact_mut(4).enumerate() {
-            let opacity = alpha.get(at).copied().unwrap_or(0);
-            for (component, value) in pixel.iter_mut().take(components.min(4)).enumerate() {
-                let matte = matte.get(component).copied().unwrap_or(0);
-                *value = unblend(*value, matte, opacity);
-            }
         }
     }
 }
@@ -2060,31 +2040,6 @@ fn decode_jbig2(
     Ok((rgba, bilevel.stopped_by))
 }
 
-/// Decodes a CCITT fax-encoded image through the sandbox.
-///
-/// ISO 32000-2 §7.4.6. Everything the decoder needs is in the stream's `/DecodeParms` (Table
-/// 5), whose CCITT entries Table 11 defines, and
-/// every entry there has a default, so this function's whole job is to turn a dictionary that
-/// may be absent into a complete description — and to refuse the two cases where the
-/// dictionary says something this cannot honour rather than quietly doing something else.
-///
-/// # The two refusals, and why they are refusals
-///
-/// **`/DamagedRowsBeforeError` above zero, where the entry applies.** Table 11 defines it as the
-/// number of damaged rows tolerated before an error, where tolerating one means "locating its end
-/// in the encoded data by searching for an `EndOfLine` pattern and then substituting decoded data
-/// from the previous row". That is error *concealment*, and it has a precondition the same row
-/// states — "[t]his entry shall apply only if `EndOfLine` is true and K is non-negative" — because
-/// the concealment resynchronises on the end-of-line patterns and only Group 3 carries them. So a
-/// positive value with `/EndOfLine false` or `/K` negative is inert and the image decodes as
-/// though the entry were absent; a positive value that *does* apply is refused, because the
-/// decoder underneath has no concealment and answering a request for it with the ordinary
-/// truncated draw would drop the request silently.
-///
-/// **`/Columns` disagreeing with `/Width`.** The filter delivers rows of `/Columns` samples
-/// padded to a byte boundary; §8.9.5.1 says the image is `/Width` samples wide. Where the two
-/// differ the row stride the unpacker assumes is not the stride the filter produced, and
-/// nothing in ISO 32000-2 says which of the two statements wins. Reported rather than guessed.
 /// How many scan lines the filter is asked for, from Table 11's `/Rows` and `/EndOfBlock` and
 /// the image dictionary's `/Height`.
 ///
@@ -2130,21 +2085,66 @@ fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
     }
 }
 
-/// Decodes a CCITT image through the sandbox: the samples, and beside them the filter's
-/// sentence where it stopped on damaged data short of the grid.
+/// What a CCITT decode says beside its drawing: the damaged rows it concealed, and where it
+/// stopped short of the grid.
 ///
-/// ISO 32000-2 §7.4.6: "The filter shall not perform any error correction or
-/// resynchronization" beyond what `/DamagedRowsBeforeError` asks for, and its default of zero
-/// makes the first damaged row the one where "an error occurs". So the scan lines before it
-/// are the filter's output and are drawn; what the rest show is stated nowhere, and they are
-/// left **unpainted** — no sample, no colour — which is what ADR 0356 chose for §7.3.8.2's
-/// short image, the same clause's error met in a byte count rather than in a codec. (The
-/// worker pads them for the wire, in the filter's own white; that colour is not painted here,
-/// because under `/BlackIs1 true` with no `/Decode` it is the page's black, and a colour the
-/// file never stated is not this reader's to choose.) The pair is reported beside the drawing
-/// through [`Parts::shortfall`] (ADR 0794). Until the
-/// eight-hundred-and-seventy-sixth session the whole picture was refused for the rows after
-/// the damage — two thirds of a scanned page thrown away for the third that was not there.
+/// Worded here, where both numbers are known, so that the report names the scan lines the file
+/// carried and the grid it stated rather than the decoder's error alone.
+fn ccitt_shortfall(
+    bilevel: &pdf_sandbox::Bilevel,
+    height: u32,
+    damaged_rows: u32,
+) -> Option<String> {
+    let concealed = (bilevel.concealed > 0).then(|| {
+        format!(
+            "CCITTFaxDecode concealed {} damaged scan line(s) as Table 11's \
+             /DamagedRowsBeforeError {damaged_rows} asks: each is drawn as the line above it, or \
+             white where that line was concealed too",
+            bilevel.concealed
+        )
+    });
+    let stopped = bilevel.stopped_by.as_ref().map(|reason| {
+        format!(
+            "{reason}: the filter delivered {} of the {height} scan lines the image states \
+             before the damage, which are drawn; the rest are left unpainted (§7.4.6 forbids \
+             the filter any error correction or resynchronization beyond the {damaged_rows} \
+             damaged row(s) Table 11's /DamagedRowsBeforeError tolerates)",
+            bilevel.delivered
+        )
+    });
+    match (concealed, stopped) {
+        (Some(concealed), Some(stopped)) => Some(format!("{concealed}; {stopped}")),
+        (one, other) => one.or(other),
+    }
+}
+
+/// Decodes a CCITT image through the sandbox: the samples, and beside them the filter's
+/// sentence where it stopped on damaged data short of the grid or concealed damaged rows.
+///
+/// ISO 32000-2 §7.4.6. Everything the decoder needs is in the stream's `/DecodeParms` (Table 5),
+/// whose CCITT entries Table 11 defines, and every entry there has a default, so this function's
+/// job is to turn a dictionary that may be absent into a complete description — and to refuse
+/// the one case where the dictionary says something that cannot be honoured: a `/Columns`
+/// disagreeing with `/Width` by more than Table 11's byte padding (below).
+///
+/// **`/DamagedRowsBeforeError`** travels as the dictionary states it, and `pdf_ccitt` applies it:
+/// Table 11 defines it as "[t]he number of damaged rows of data that shall be tolerated before an
+/// error occurs", where tolerating one means "locating its end in the encoded data by searching
+/// for an `EndOfLine` pattern and then substituting decoded data from the previous row if the
+/// previous row was not damaged, or a white scan line if the previous row was also damaged", and
+/// the entry "shall apply only if `EndOfLine` is true and K is non-negative". A concealed row is
+/// drawn — it is what the filter delivers — and the count is said beside the drawing, because
+/// the samples in it are the row above's or white rather than the file's (ADR 1349).
+///
+/// §7.4.6: "The filter shall not perform any error correction or resynchronization" beyond that,
+/// so the first damaged row past the tolerated number — the first of all at the default of zero —
+/// is the one where "an error occurs". The scan lines before it are the filter's output and are
+/// drawn; what the rest show is stated nowhere, and they are left **unpainted** — no sample, no
+/// colour — which is what ADR 0356 chose for §7.3.8.2's short image, the same clause's error met
+/// in a byte count rather than in a codec. (The worker pads them for the wire, in the filter's
+/// own white; that colour is not painted here, because under `/BlackIs1 true` with no `/Decode`
+/// it is the page's black, and a colour the file never stated is not this reader's to choose.)
+/// The pair is reported beside the drawing through [`Parts::shortfall`] (ADR 0794).
 fn decode_ccitt(
     at: Dictionaries,
     source: &ImageStream,
@@ -2170,33 +2170,10 @@ fn decode_ccitt(
         }
     };
 
-    // §7.4.6 Table 11 gives `/DamagedRowsBeforeError` a precondition, and it is load-bearing:
-    //
-    // > This entry shall apply only if EndOfLine is true and K is non-negative.
-    //
-    // So a positive value is only a request for error concealment when the encoding carries the
-    // end-of-line patterns the concealment resynchronises on (`/EndOfLine true`) and the scheme
-    // is Group 3 (`/K` non-negative). Where either is not so the entry *does not apply* — it is
-    // inert, decoded as though absent — and refusing such an image threw away a picture over a
-    // parameter the standard itself says has no effect on it. Only the case where the entry
-    // applies is refused, because the tolerance it asks for is unbuilt (below).
-    let damaged_rows = integer("DamagedRowsBeforeError", 0);
+    let damaged_rows =
+        u32::try_from(integer("DamagedRowsBeforeError", 0).max(0)).unwrap_or(u32::MAX);
     let k = integer("K", 0);
     let end_of_line = flag("EndOfLine", false);
-    if damaged_rows > 0 && end_of_line && k >= 0 {
-        // The applicable case, and it is a refusal rather than a truncated draw for trap 5's
-        // reason: the producer asked in advance for damage to be tolerated, so drawing only the
-        // rows before the first damaged one — what the ordinary short-decode path would do —
-        // would answer a request for concealment with a truncation and no sign the request was
-        // dropped. `hayro-ccitt` exposes neither the bit position of a failure nor a way to
-        // resume past it (its context and reader are private), so §7.4.6's "locating its end
-        // in the encoded data by searching for an EndOfLine pattern and then substituting
-        // decoded data from the previous row" cannot be built above it; that is a change to the
-        // shared decoder, not to this filter, and stays a loud refusal until it is made.
-        return Err(ImageError::UnsupportedFilter {
-            filter: format!("CCITTFaxDecode with /DamagedRowsBeforeError {damaged_rows}"),
-        });
-    }
 
     // §7.4.6 Table 11 defines `/Columns` and then says what the filter does with it:
     //
@@ -2233,6 +2210,7 @@ fn decode_ccitt(
         encoded_byte_align: flag("EncodedByteAlign", false),
         end_of_block,
         black_is_1: flag("BlackIs1", false),
+        damaged_rows_before_error: damaged_rows,
     };
 
     let decoded = pdf_sandbox::decode(&Request::Ccitt {
@@ -2259,17 +2237,7 @@ fn decode_ccitt(
         });
     }
 
-    // Worded here, where both numbers are known, so that the report names the scan lines the
-    // file carried and the grid it stated rather than the decoder's error alone.
-    let shortfall = bilevel.stopped_by.as_ref().map(|reason| {
-        format!(
-            "{reason}: the filter delivered {} of the {height} scan lines the image states \
-             before the damage, which are drawn; the rest are left unpainted (§7.4.6 forbids \
-             the filter any error correction or resynchronization, and Table 11's \
-             /DamagedRowsBeforeError is 0)",
-            bilevel.delivered
-        )
-    });
+    let shortfall = ccitt_shortfall(&bilevel, height, damaged_rows);
 
     let space = if painting.is_mask {
         ColourSpace::Mask
@@ -5314,27 +5282,6 @@ fn alpha_on_grid(alpha: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
         }
     }
     out
-}
-
-/// Undoes §11.6.5.2's pre-blending for one component: `c = m + (c′ - m) / α`.
-///
-/// Integer arithmetic: the numerator is at most 255 × 255, the divisor is the mask sample, and
-/// the quotient truncates toward zero — under one part in 255 of the restored component, and
-/// exact at both ends of the range, which is where a mistake would show. Where α is 0 the clause's NOTE says the inverse divides by zero and "an arbitrary value for
-/// c can be chosen", because a fully transparent sample cannot affect the output — the matte
-/// colour is the value that costs nothing to justify. The clamp is the clause's too: "[t]he
-/// resulting c value shall lie within the range of colour component values for the image
-/// colour space".
-fn unblend(value: u8, matte: u8, alpha: u8) -> u8 {
-    if alpha == 0 {
-        return matte;
-    }
-    let scaled = i32::from(value)
-        .saturating_sub(i32::from(matte))
-        .saturating_mul(255)
-        .checked_div(i32::from(alpha))
-        .unwrap_or(0);
-    u8::try_from(scaled.saturating_add(i32::from(matte)).clamp(0, 255)).unwrap_or(u8::MAX)
 }
 
 /// Names what §11.6.5.2 asks of an `/SMask` and this crate does not do, for the caller to

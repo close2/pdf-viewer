@@ -98,7 +98,17 @@ impl CidToGlyph {
 /// page, where before that it came out as one overlapping line across the top, reporting
 /// nothing. What is refused here is a *predefined* `CMap`, horizontal or vertical alike, and
 /// the only reason a name ending in `V` is refused is the data the paragraph above names.
-pub(crate) fn composite_cmap(
+///
+/// Public because a caller that edits a show string has to split it into codes exactly as a
+/// reader does — §9.7.6.2's codespace ranges decide how many bytes each code takes — and this is
+/// the one place the `CMap` those ranges come from is resolved (ADR 1351).
+///
+/// # Errors
+///
+/// [`FontError::UnsupportedEncoding`] for an `/Encoding` that names no `CMap` this binary
+/// resolves, and [`FontError::MalformedDictionary`] for an embedded `CMap` stream that does not
+/// decode.
+pub fn composite_cmap(
     document: &Document,
     dict: &Dictionary,
     name: &str,

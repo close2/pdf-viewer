@@ -332,11 +332,11 @@ pub enum Unsupported {
     /// **whole page**. 293 commands of `4605705.pdf`'s went that way for one `cm` in a damaged
     /// stream.
     ///
-    /// What this does *not* claim is that §10.7.4 is satisfied. That subclause's "no shape ever
-    /// disappears" would give such a mark the run of whole device pixels its collapsed image
-    /// passes through, exactly as `pdf_render::split_collapsed_fill` does for a path that
-    /// collapses in its *own* space; a path collapsed by its transform instead is unbuilt and
-    /// unwitnessed, and `doc/todo/11` item 8 carries it.
+    /// What it counts is what is still refused. A solid fill its matrix carries onto a line along
+    /// a page axis is §10.7.4's line and is drawn — `pdf_render::DisplayList::restate_collapsed_fills`
+    /// restates it in page space before this count, ADR 1348 — so the count is a stroke, a point,
+    /// a line across the axes and a paint no space positions, and `doc/todo/11` item 8 carries the
+    /// stroke.
     NoninvertibleMatrix {
         /// How many marking commands the page states under one.
         commands: usize,

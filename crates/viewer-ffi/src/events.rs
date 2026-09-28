@@ -405,6 +405,21 @@ impl Events {
         }
     }
 
+    /// [`Event::NeedsFile`]: whether the file opens beside the document that asked for it.
+    ///
+    /// Table 203's and Table 204's `/NewWindow true`, and `false` for every other purpose, so a
+    /// caller asking a person whether to open the file can say where it would open (ADR 1335).
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] or [`Status::WrongKind`].
+    pub fn needs_file_beside(&self, index: usize) -> Result<bool, Status> {
+        match self.events.get(index).ok_or(Status::OutOfRange)? {
+            Event::NeedsFile { beside, .. } => Ok(*beside),
+            _ => Err(Status::WrongKind),
+        }
+    }
+
     /// [`Event::Damage`]: the part of the viewport that no longer shows what it should.
     ///
     /// `[x0, y0, x1, y1]` in device pixels. A bound on what changed rather than a promise that

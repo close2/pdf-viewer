@@ -3813,6 +3813,32 @@ pub unsafe extern "C" fn quorra_event_needs_file(
     }
 }
 
+/// A `QUORRA_EVENT_NEEDS_FILE`'s `beside`: whether the file opens beside the document that asked.
+///
+/// Table 203's and Table 204's `/NewWindow true`, `false` for every other purpose — the words a
+/// caller owes a person it asks about the file (ADR 1335).
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn quorra_event_needs_file_beside(
+    events: *const Events,
+    index: usize,
+    beside: *mut bool,
+) -> c_int {
+    let (Some(events), Some(beside)) = (events.as_ref(), beside.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match events.needs_file_beside(index) {
+        Ok(found) => {
+            *beside = found;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// A `QUORRA_EVENT_DAMAGE`'s rectangle, `[x0, y0, x1, y1]` in device pixels.
 ///
 /// A bound on what changed rather than a promise that everything inside it did.

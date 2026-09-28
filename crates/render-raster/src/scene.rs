@@ -1732,23 +1732,34 @@ impl<'a> Encoder<'a> {
             .list
             .soft_mask(id)
             .ok_or(QuorraRasterError::UnknownSoftMask(id))?;
-        // §11.5.3's `Y` of a group composited in a CIE-based space is read off the space's own
-        // arithmetic per pixel (`pdf_render::Luminance`: three curves summed, or a grid
-        // interpolated over three components or four), and raster's luminosity mask computes
+        // §11.5.3's `Y` of a group composited in a CIE-based space, or in `DeviceCMYK`'s four
+        // components, is read off that space's own arithmetic per pixel (`pdf_render::Luminance`:
+        // three curves summed, a grid interpolated over three components or four, or EXAMPLE 2's
+        // formula of four inks), and raster's luminosity mask computes
         // §10.4.2.2's weights of the channels in its own shader — a different formula, so the
         // mask is refused by name and the frame goes to the CPU backend rather than being
         // drawn to the wrong luminosity in silence.
         //
-        // The four-component shape is refused twice over: the group is §11.4.7's *pair* of
-        // rasters (`pdf_render::BlackHalf`) and `raster_scene::MaskKind::Luminosity` names one
-        // body. `QUORRA_FEEDBACK.md` section 43 asks for both — the curves-or-grid vocabulary
-        // beside the backdrop, and a second body for the black component.
-        if def.luminance.is_some() || def.black.is_some() {
+        // The four-component shape — an `ICCBased` space of four, or `DeviceCMYK` whose group
+        // blends (ADR 1342) — is refused twice over: the group is §11.4.7's *pair* of rasters
+        // (`pdf_render::BlackHalf`) and `raster_scene::MaskKind::Luminosity` names one body.
+        // `QUORRA_FEEDBACK.md` section 43 asks for both — the curves-or-grid vocabulary beside
+        // the backdrop, and a second body for the black component.
+        if def.black.is_some() {
             return Err(QuorraRasterError::Unsupported(
-                "a luminosity soft mask whose group composites in a CIE-based space: its \
-                 luminosity is the space's own `Y` per pixel — over four components, and so \
-                 over a pair of rasters, where the space has four — while the scene's mask \
-                 weighs the channels of one (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7)"
+                "a luminosity soft mask whose group composites in four components — an \
+                 ICCBased space of four, or DeviceCMYK where the group blends — is a pair of \
+                 rasters, chromatic and black, that a scene's mask cannot state: the mask names \
+                 one body, and its luminosity is §11.5.3's `Y` of all four components where the \
+                 scene weighs the channels of one (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7)"
+                    .to_owned(),
+            ));
+        }
+        if def.luminance.is_some() {
+            return Err(QuorraRasterError::Unsupported(
+                "a luminosity soft mask whose group composites in a CIE-based space of three \
+                 components: its luminosity is the space's own `Y` per pixel, while the scene's \
+                 mask weighs the channels it holds (ISO 32000-2 §11.5.3, §11.3.4)"
                     .to_owned(),
             ));
         }

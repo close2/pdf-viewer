@@ -455,6 +455,9 @@ pub struct Arriving {
     /// The bytes, where the document is held in memory rather than named on disk — an embedded
     /// file §O.2.1's `ef` opened, whose [`Named::path`] is a name and not a file.
     held: Option<pdf_syntax::FileBytes>,
+    /// What the file was supplied to the core for, where it is a file a document named that asked
+    /// for §7.6.4.1's password — the purpose [`Arrivals::cancel`] declines it under.
+    supplied_for: Option<viewer_core::Purpose>,
 }
 
 impl Arriving {
@@ -490,6 +493,8 @@ pub struct Arrivals {
     now: Option<Arriving>,
     /// §12.6.4.3's file, under the name held out to `viewer_core::Command::Beside` for it.
     offered: Option<Offered>,
+    /// The purpose of a file whose password prompt was cancelled, not yet declined to the core.
+    declining: Option<viewer_core::Purpose>,
 }
 
 /// A file a document named, supplied to the core under a name held out for it.
@@ -510,6 +515,8 @@ struct Offered {
     bytes: pdf_syntax::FileBytes,
     /// The document the action was in — the one a `/NewWindow false` replaces.
     from: DocumentId,
+    /// What the file was supplied for.
+    purpose: viewer_core::Purpose,
 }
 
 impl Arrivals {
@@ -544,12 +551,14 @@ impl Arrivals {
     /// The answer is the name to send as `viewer_core::Command::Beside`, before the file is
     /// supplied. The bytes are the file opened again where it lies, which reads nothing but its
     /// length; `read` — what was supplied — is kept instead where that open fails, so the file
-    /// the prompt is about is always the one the core was handed.
+    /// the prompt is about is always the one the core was handed. `purpose` is what it is being
+    /// supplied for, which is what a cancelled prompt about it declines ([`Self::cancel`]).
     pub fn offer<T>(
         &mut self,
         documents: &mut Documents<T>,
         path: std::path::PathBuf,
         read: &[u8],
+        purpose: viewer_core::Purpose,
     ) -> DocumentId {
         let id = documents.reserve();
         let bytes = pdf_syntax::FileBytes::on_disk(&path)
@@ -559,6 +568,7 @@ impl Arrivals {
             named: Named::file(path),
             bytes,
             from: documents.focused(),
+            purpose,
         });
         id
     }
@@ -589,8 +599,39 @@ impl Arrivals {
             behind: None,
             asking: crate::Asking::new(),
             held: Some(offered.bytes),
+            supplied_for: Some(offered.purpose),
         });
         true
+    }
+
+    /// A person cancelled §7.6.4.1's prompt about this name, or ran out of attempts: it settles,
+    /// and answers whether anything did.
+    ///
+    /// Where the name is a file a document named, the core is still holding that file for the
+    /// password, and the references a §12.7.8 import made into it are still waiting. What ends
+    /// both is `viewer_core::Command::Supply` with no bytes under the purpose the file was supplied
+    /// for — the file not given after all — which [`Self::declined`] hands a window to send once
+    /// it is out of the pump that raised the prompt (ADR 1345).
+    pub fn cancel(&mut self, id: DocumentId) -> bool {
+        let Some(arriving) = self.settle(id) else {
+            return false;
+        };
+        self.declining = arriving.supplied_for;
+        true
+    }
+
+    /// The decline a cancelled prompt owes the core, taken so that it is sent once.
+    ///
+    /// A window calls it where it starts the next arrival, which each already defers out of the
+    /// command loop that is answering events — so the decline is never a command sent from inside
+    /// another's events.
+    pub fn declined(&mut self) -> Option<viewer_core::Command> {
+        self.declining
+            .take()
+            .map(|purpose| viewer_core::Command::Supply {
+                purpose,
+                bytes: None,
+            })
     }
 
     /// The command the offer was made for has been answered, and every event it caused seen.
@@ -618,6 +659,7 @@ impl Arrivals {
             behind: behind.then(|| documents.focused()),
             asking: crate::Asking::new(),
             held,
+            supplied_for: None,
         };
         Some(self.now.insert(arriving))
     }
@@ -664,6 +706,7 @@ impl Arrivals {
             behind: None,
             asking: crate::Asking::new(),
             held: Some(offered.bytes),
+            supplied_for: None,
         })
     }
 }
@@ -1005,7 +1048,12 @@ mod tests {
             let mut documents: Documents<()> =
                 Documents::new(DocumentId(0), "first.pdf".to_owned());
             let mut arrivals = super::Arrivals::new();
-            let offered = arrivals.offer(&mut documents, path.clone(), b"%PDF-1.7 second");
+            let offered = arrivals.offer(
+                &mut documents,
+                path.clone(),
+                b"%PDF-1.7 second",
+                viewer_core::Purpose::RemoteDocument,
+            );
             assert_ne!(offered, DocumentId(0), "a name of its own");
             let asked = if beside { offered } else { DocumentId(0) };
             assert!(
@@ -1034,7 +1082,12 @@ mod tests {
         // Opened without a prompt: the offer settles under its own name, once.
         let mut documents: Documents<()> = Documents::new(DocumentId(0), "first.pdf".to_owned());
         let mut arrivals = super::Arrivals::new();
-        let offered = arrivals.offer(&mut documents, path.clone(), b"");
+        let offered = arrivals.offer(
+            &mut documents,
+            path.clone(),
+            b"",
+            viewer_core::Purpose::RemoteDocument,
+        );
         assert!(
             arrivals.settle(DocumentId(5)).is_none(),
             "a name that is neither the offer nor its source"
@@ -1057,7 +1110,12 @@ mod tests {
         let path = std::path::PathBuf::from("/documents/second.pdf");
         let mut documents: Documents<()> = Documents::new(DocumentId(0), "first.pdf".to_owned());
         let mut arrivals = super::Arrivals::new();
-        arrivals.offer(&mut documents, path.clone(), b"%PDF-1.7 second");
+        arrivals.offer(
+            &mut documents,
+            path.clone(),
+            b"%PDF-1.7 second",
+            viewer_core::Purpose::RemoteDocument,
+        );
         let Some(arriving) = arrivals.settle(DocumentId(0)) else {
             panic!("the source's own name opened, and it is the offered file");
         };
@@ -1069,7 +1127,12 @@ mod tests {
         );
 
         // An offer the supply did not take is spent once its command is answered.
-        arrivals.offer(&mut documents, path, b"%PDF-1.7 second");
+        arrivals.offer(
+            &mut documents,
+            path,
+            b"%PDF-1.7 second",
+            viewer_core::Purpose::RemoteDocument,
+        );
         arrivals.supplied();
         assert!(
             arrivals.settle(DocumentId(0)).is_none(),
@@ -1079,5 +1142,48 @@ mod tests {
             !arrivals.locked(DocumentId(0)),
             "nor is a later prompt about it"
         );
+    }
+
+    /// A prompt a person cancels about a file a document named owes the core a decline under the
+    /// purpose the file was supplied for, once; a prompt about a document a reader named owes
+    /// nothing, because the core holds nothing for it. The named wrong answers: the core's hold and
+    /// a named page's references left waiting, a decline under the wrong purpose, and one sent
+    /// twice (ADR 1345).
+    #[test]
+    fn a_cancelled_prompt_about_a_named_file_declines_it_under_its_purpose() {
+        let path = std::path::PathBuf::from("/documents/library.pdf");
+        let mut documents: Documents<()> = Documents::new(DocumentId(0), "form.pdf".to_owned());
+        let mut arrivals = super::Arrivals::new();
+        let offered = arrivals.offer(
+            &mut documents,
+            path,
+            b"%PDF-1.7 library",
+            viewer_core::Purpose::NamedPage,
+        );
+        assert!(arrivals.locked(offered), "the prompt is about the offer");
+        assert!(
+            arrivals.declined().is_none(),
+            "nothing is owed before the cancel"
+        );
+        assert!(arrivals.cancel(offered), "the arrival settles");
+        assert!(
+            matches!(
+                arrivals.declined(),
+                Some(viewer_core::Command::Supply {
+                    purpose: viewer_core::Purpose::NamedPage,
+                    bytes: None,
+                })
+            ),
+            "the file is declined under the purpose it was supplied for"
+        );
+        assert!(arrivals.declined().is_none(), "and only once");
+
+        // A document a reader named is settled and nothing is declined.
+        arrivals.wait(super::Named::file("/documents/other.pdf".into()), false);
+        let Some(id) = arrivals.start(&mut documents).map(|arriving| arriving.id) else {
+            panic!("the named document is the one being opened");
+        };
+        assert!(arrivals.cancel(id));
+        assert!(arrivals.declined().is_none());
     }
 }

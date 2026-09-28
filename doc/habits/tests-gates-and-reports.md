@@ -359,3 +359,10 @@ The wrong-document password retry round 1239 read in the hosts was real, and no 
 reach it: the core declined an encrypted remote file before any prompt (ADR 1332). Fixing only the
 host would have left the prompt missing entirely. Drive the path to the reading first; the fix is
 then to what actually happens.
+
+## A read-list entry is a claim that someone read the note against every decision the sweep prints
+
+`overtaken::READ` names 61 notes as read; each may only be added by reading the note against every
+later decision the sweep lists for it, and a note whose correction is a NUMBER goes into a named
+re-measure population instead (ADR 1355). Under Xvfb, `windowfocus --sync` the viewer's window before
+every key: a click on the tab strip does not give keyboard focus (round 1254).

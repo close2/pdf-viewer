@@ -120,9 +120,11 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// carries the same sentence where the file is written.
 ///
 /// Both pages were then diagnosed by what they actually differ by, one clause apart:
-/// `issue21346.pdf` went to [`CONTRADICTED_COINCIDENT_CLIP_EDGES`] — which it has since left
-/// altogether, agreeing since ADR 0476 measured a rectangular clip's edge at its own coverage —
-/// and `colorkeymask.pdf` to [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]. That is the tenth
+/// `issue21346.pdf` by its coincident clip edges ([`CONTRADICTED_COINCIDENT_CLIP_EDGES`], empty
+/// since ADR 0476) and now held in [`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`] for §11.5.3's
+/// reading (ADR 0797), and `colorkeymask.pdf` by where an image sample falls
+/// ([`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]), now held in [`AMBIGUOUS_DIVIDED_CONSENSUS`]
+/// (ADR 0617). That is the tenth
 /// and eleventh time a group's name in this file has named a hypothesis rather than a diagnosis,
 /// and the first time the hypothesis was contradicted by the harness's own output.
 ///
@@ -204,10 +206,12 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 ///
 /// 1 page, moved out of [`CONTRADICTED_PAGE_ROUNDING`] in the four-hundred-and-forty-third
 /// session. `issue21346.pdf` is 178.34645 points square and holds one mark: a 150 × 150 square
-/// of `(0.227, 0.498, 0.690)` painted at a mask value of 0.25 over white. The interior is not in
-/// dispute — the closed form is `0.25 c + 0.75` per channel, which is **(206, 223, 235)**, and
-/// ours, `poppler`'s, `ghostscript`'s and `hayro`'s centre pixel is that byte for byte while
-/// `mupdf` is one level up on each. What differs is the square's one-pixel border.
+/// of `(0.227, 0.498, 0.690)` painted through a `/Luminosity` mask whose group paints white at
+/// `/ca 0.25`. Every reference draws the interior at the device branch's 0.25, `0.25 c + 0.75` per
+/// channel, which is **(206, 223, 235)** (`mupdf` one level up on each); this tree takes §11.5.3's
+/// colorimetric `Y` of the group's sRGB profile, 0.0508, so the square is nearly white and the
+/// page is in [`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`] (ADR 0797). This note is about the
+/// square's one-pixel border, and its levels below are the ones measured against that interior.
 ///
 /// # The boundaries, counted
 ///
@@ -292,13 +296,14 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 /// included by a fill operation", so the two are one rule — and the mark's edge went
 /// **0.306 → 0.469** of the mark on both axes, level 240 to level 232 against an interior of 206.
 /// Both numbers are `examples/render_at` at scale 1, either side of the change in one sitting.
-/// That crossed the bound and the page agrees.
+/// That crossed the bound on the edge; the page is contradicted on its interior, for §11.5.3's
+/// reading, in [`CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK`] (ADR 0797).
 ///
-/// **It does not mean item 4 is paid**, and the arithmetic says so rather than a hope: departure
-/// (1)'s answer for a single anti-aliased boundary is 0.827 and the clause's is 1.000, and the two
-/// edges stand in the ratio `(0.75/0.827)^4.4` — so between four and five of the seven statements
-/// are still *multiplied* where §10.7.4 intersects sets. What this changed is what each surviving
-/// factor is worth, not how many there are.
+/// **Item 4 is half paid** (ADR 0492): a group whose opacity is one carries its shape and meets a
+/// coincident clip as a set, and the edge is **0.694** of the mark where departure (1)'s answer for
+/// a single
+/// anti-aliased boundary is 0.827 and the clause's is 1.000 — the ratio `0.827^1.9`, so about two
+/// of the page's remaining factors are still *multiplied* where §10.7.4 intersects sets.
 const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 0] = [];
 
 /// Contradicted, and **we are the ones who are right**: an image sample at the pixel's centre.
@@ -439,7 +444,8 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["T-REC-X.690-2
 /// softness with `poppler` at one end, and the pair the gate votes with is the pair nearest that
 /// end … it is the departure being visible". Two claims, and the measurement disproves the first
 /// and re-attributes the second. The pages are [`CONTRADICTED_TIGHT_CONSENSUS`]'s mechanism and
-/// have moved there. **Twelfth for twelve on a group's name naming a hypothesis rather than a
+/// are held in [`AMBIGUOUS_DIVIDED_CONSENSUS`], because two maximal consensuses disagree about
+/// them (ADR 0617). **Twelfth for twelve on a group's name naming a hypothesis rather than a
 /// diagnosis.**
 ///
 /// # The instrument is the page's own arithmetic, and no renderer is in it
@@ -483,12 +489,13 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["T-REC-X.690-2
 /// region at it. Our raster of these two pages **is** the exact closed form now, and both backends
 /// read the ladder to a level of 255.
 ///
-/// # Why the pages still moved to a *bound* group rather than to a defect
+/// # Why the pages are in a *bound* group rather than a defect
 ///
-/// Because the exact form is contradicted here too, which is the one thing this note could not
-/// have assumed. The bound the gate applies is twice the consensus pair's own distance, and the
-/// pair is `poppler` and `ghostscript`: page 1's bound is ssim 0.98862 and page 2's 0.98402. A
-/// rasteriser painting precisely the area each rectangle covers is contradicted on both, so the
+/// Because the exact form is judged by a consensus too, which is the one thing this note could
+/// not have assumed. The bound the gate applies is twice the consensus pair's own distance. Under
+/// `poppler` and `ghostscript` — page 1's bound ssim 0.98862 and page 2's 0.98402 — a rasteriser
+/// painting precisely the area each rectangle covers is contradicted on both; the tighter pair,
+/// `mupdf` and `ghostscript`, accepts it, so the pages are ambiguous by ADR 0617's rule and the
 /// verdict is trap 12's rather than a report about our marks.
 ///
 /// **The paragraph above said until the six-hundred-and-sixty-fifth session that it was
@@ -2390,13 +2397,10 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 
 /// Contradicted, with a font on the page that carries no embedded program.
 ///
-/// 8 pages, and it held 17 until the four-hundred-and-thirty-first session measured the five
-/// that had never been opened and found them to be `CONTRADICTED_GLYPH_EDGES` (below), and 12
-/// until the four-hundred-and-sixty-first measured `calrgb.pdf`'s four and found them to be
-/// [`CONTRADICTED_CALRGB_TO_SCREEN`]. The header
-/// said 19 while the list held 18 before that, which is what a count written beside a list rather
-/// than counted off it does. The weakest entries here, because the difference
-/// need not be anyone's defect:
+/// The pages the list below names, and no count written here: five that were once members are
+/// `CONTRADICTED_GLYPH_EDGES` (below) and four of `calrgb.pdf`'s are
+/// [`CONTRADICTED_CALRGB_TO_SCREEN`], each measured rather than assumed. The weakest entries
+/// here, because the difference need not be anyone's defect:
 /// every renderer substitutes, and where two references happen to choose the same system
 /// font and we choose another, the consensus is about their font rather than about the page.
 ///
@@ -3573,10 +3577,11 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 10] = [
 
 /// Contradicted with nothing on the page to explain it. **This is the interesting list.**
 ///
-/// 42 pages carrying no undrawn annotation, no hidden optional content and no substituted
-/// font — so the difference is in something we believe we implement. Three causes are
-/// identified; the rest are unexamined, and working through them is the highest-value use of
-/// this gate. **Four pages left in the thirty-ninth session and none of them was a defect**:
+/// Empty: every contradicted page carrying no undrawn annotation, no hidden optional content and
+/// no substituted font — so that the difference is in something we believe we implement — has
+/// been read and is held by a group that names its mechanism (ADR 0985). This list stays the
+/// highest-value use of this gate the moment a page arrives on it, and the paragraphs below are
+/// how each one left. **Four pages left in the thirty-ninth session and none of them was a defect**:
 /// `type4psfunc.pdf`, `postscript_type4_many_outputs.pdf` and both pages of
 /// `function_based_shading_cmyk.pdf` are `DeviceCMYK` conversion, and the way that was
 /// settled is worth as much as the pages —
@@ -3830,7 +3835,7 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 10] = [
 /// ours* and its content sitting one row higher. A one-pixel offset reads as a rounding
 /// difference until you notice that the renderer which rounded the same way disagrees anyway.
 ///
-/// `issue3694_reduced.pdf` stays on this list at 0.60 instead of 1.81 — mean 2.51 against a
+/// `issue3694_reduced.pdf` fell to 0.60 from 1.81 and is in [`CONTRADICTED_GLYPH_EDGES`] — mean 2.51 against a
 /// bound of 5.00, 9.39% of pixels differing against a bound of 6.26% — which is a page of
 /// hairline-outlined display type at seventeen pixels against two references that share
 /// `FreeType`.
@@ -3843,8 +3848,8 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 10] = [
 /// font rasteriser is not what makes two references agree**; sharing its settings is, and trap 9
 /// is the more careful statement of that than "they share code".
 ///
-/// `issue7891_bc1.pdf` is now the top of the list at 1.78, and it was measured in the same
-/// session without being fixed. Its difference is one word inside a luminosity soft mask whose
+/// `issue7891_bc1.pdf` was measured at 1.78 in the same session without being fixed, and is in
+/// [`CONTRADICTED_TIGHT_CONSENSUS`]. Its difference is one word inside a luminosity soft mask whose
 /// group draws a 676x436 greyscale image reduced 2.8-fold; the column centroids of the five
 /// renderers span 0.76 of a pixel, the pair the gate votes with are 0.25 apart, and switching
 /// our own reduction between area averaging and point sampling moves the raster without moving
@@ -3949,24 +3954,22 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// and `mupdf` and `ghostscript` drop it to black. The two that vote depart from the sentence they
 /// are agreeing under, one column away from where they agree under it.
 ///
-/// # And one line of the seven is a defect of ours with a number to four digits
+/// # And one line of the seven was a defect of ours with a number to four digits
 ///
 /// Object 16 is a form XObject whose `/BBox` is exactly the rectangle its content fills, and it
 /// carries `/Group`. Device row 213 is covered 0.504 by that rectangle and row 370 by 0.456, and
-/// ours paints them at **0.2549** and **0.2079** — `0.504²` and `0.456²` to four digits. The
-/// coincident boundary is being **multiplied** where §10.7.4 intersects sets, which is
-/// `doc/todo/11` item 4, and `examples/coincident_edge_probe` isolates which composition does it:
-/// of the eight ways one rectangle can be stated twice, seven give the edge its own coverage and
-/// the eighth — a transparency group *and* a soft mask — gives its square. §11.4.4's NOTE 5
-/// flattens a group away unless a soft mask is in force, so the group blit `draw_group` performs
-/// is only reached when there is a mask beside it, which is why the residual had no small witness.
-/// This page is one now, and a cleaner one than `issue21346.pdf` was: two factors and a closed
-/// form rather than seven statements and a ladder.
+/// ours paints them at their own coverage, **0.5059** and **0.4549**: a group whose opacity is one
+/// carries its shape and meets a coincident clip as a set, `scan::intersect_group` (ADR 0492).
+/// Before that they were **0.2549** and **0.2079**, `0.504²` and `0.456²` — the coincident boundary
+/// **multiplied** where §10.7.4 intersects sets, `doc/todo/11` item 4 — and
+/// `examples/coincident_edge_probe` isolates the composition: of the eight ways one rectangle can
+/// be stated twice, seven give the edge its own coverage and the eighth — a transparency group
+/// *and* a soft mask — gave its square. §11.4.4's NOTE 5 flattens a group away unless a soft mask
+/// is in force, which is why that residual had no smaller witness than this page.
 ///
-/// **It stays here rather than being fixed** because fixing it moves the page toward the bound and
-/// not past it — the whole of those two rows is 0.0197 of a distance of 0.1721 — and because the
-/// composition it needs is the one `doc/todo/11` item 4 prices: a group's buffer carries alpha,
-/// which is shape times opacity, and only a shape channel beside it makes `min` the right answer.
+/// **The page is contradicted with that paid**, as ADR 0492 predicted: the whole of those two rows
+/// is 0.0197 of a distance of 0.1721, so paying them moves the page toward the bound and past
+/// neither.
 ///
 /// # `colors.pdf` pages 1 and 2, and a note that went stale three sessions after it was written
 ///
@@ -5180,12 +5183,11 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf p
 /// is `stamps.pdf`'s lesson one page along: the quantity is settled and what is left is where
 /// each filter puts an edge.
 ///
-/// **It left this group in the three-hundred-and-eightieth session without being fixed or being
-/// wrong**, and the diagnosis above still holds of the page: it started *reporting*, so the
-/// oracle stopped judging it. Its `/Luminosity` soft mask blends in `/DeviceGray` and the group
-/// draws a `/DeviceN` shading, whose colours rest on `DeviceCMYK` and so reach the mask as the
-/// grey of an RGB rather than as §10.4.2.3's grey (ADR 0217). That is a real departure this tree
-/// had never named, and the page is the corpus's only witness for it.
+/// **It is not in this group, and the diagnosis above still holds of the page.** Its
+/// `/Luminosity` soft mask blends in `/DeviceGray` and the group draws a `/DeviceN` shading whose
+/// alternate rests on `DeviceCMYK` (ADR 0217); that ramp reaches the mask in the components
+/// §11.5.3 composites (ADR 0220), and the page's own group puts every mark in ink, so it is judged
+/// under [`AMBIGUOUS_PAGE_DRAWN_IN_INK`] (ADR 0276).
 /// **`two_pages.pdf` page 1 is the fourteenth**, off §3a's ranking in the two-hundred-and-eighty-sixth
 /// session at 0.68 from the nearest reference and 1.38 from the furthest. It is the group's
 /// simplest instance and the reason it is worth adding: **one command**, which `open_one` prints
@@ -6206,8 +6208,9 @@ const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 /// **And this is the page that pays for the four-hundred-and-thirty-second session**, whose
 /// subject is exactly those three diagonal swatches. `tiny-skia`'s hairline lays one pixel down
 /// per step along the line's *longer* device axis, so a rule at 45° carried `cos 45°` of its own
-/// area; ADR 0268 draws such a rule one device pixel wide with the width it gave up in the paint's
-/// alpha. Measured with `examples/render_at` at 1×, the page's ink goes **0.6768 → 0.7566** —
+/// area; ADR 0268 widened such a rule to one device pixel with the width it gave up in the paint's
+/// alpha, and ADR 1102 draws it as the outline the document states. Measured with
+/// `examples/render_at` at 1× across ADR 0268's change, the page's ink goes **0.6768 → 0.7566** —
 /// against our own 8× rung of 0.7516 and the two references' 0.7543 and 0.7604, so ten per cent
 /// under the geometry to a twentieth of a level over it. The *grid* swatch does not move, because
 /// it is the one ADR 0226 already took.
@@ -6416,41 +6419,33 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// Two routes, neither required, and this tree takes the second: `substitute.rs` ranks the
 /// name, §9.8.3.2's PANOSE and Table 121's flags (ADR 0086), against whatever faces the machine
 /// has — deliberately, because ADR 0133 compiled in §9.6.2.2's fourteen and drew the boundary
-/// there. **We do not take the first route at all**, and these two pages are what that costs.
+/// there. **We take the first route only as far as `/Widths` states a shape** (ADR 0358), and
+/// these two pages are what the rest costs.
 ///
-/// # And this note had the direction backwards on `bug1671312_ArialNarrow.pdf`
-///
-/// It said "we are the only renderer that finds a *narrow* face at all, and the four that do
-/// not draw a better-fitting line", which cannot both be true of one page and is not: **ours is
-/// the wide one.** Corrected in the five-hundred-and-eighteenth session, by four measurements
-/// that agree and by the picture, which says it in one look — our letters *collide* where the
-/// other four have clean gaps between them.
+/// # `bug1671312_ArialNarrow.pdf`, where a substitute is condensed to the widths the file states
 ///
 /// The file is 1913 bytes and states a whole Table 120 descriptor for a non-embedded
 /// `/ArialNarrow`: `/StemV 66`, `/StemH 66`, `/AvgWidth 362`, `/MaxWidth 833`,
-/// `/FontBBox [-250 -210 1000 1054]`, `/Flags 32`, and 224 `/Widths`.
+/// `/FontBBox [-250 -210 1000 1054]`, `/Flags 32`, and 224 `/Widths`. A substitute's glyphs can be
+/// *wider* than the widths a document states as easily as narrower, and then the difference
+/// appears as collision rather than as letter spacing; `metrics::substitute_stretch` condenses a
+/// substituted simple font's outlines to the file's own `/Widths` and never expands them (ADR
+/// 0358).
 ///
-/// - **The advances and the extent are ours already.** The ink's bounding box is x[10, 149]
-///   y[15, 34] in ours against x[10, 147] y[15, 34] in `poppler`'s and `mupdf`'s — 1.4% wider
-///   over a 138-pixel line and the same rows — so §9.2.4's advances and the cap height are
+/// - **The advances and the extent are the references'.** The ink's bounding box is x[10, 147]
+///   y[15, 34] in ours, `poppler`'s and `mupdf`'s, so §9.2.4's advances and the cap height are
 ///   honoured and are not what differs.
-/// - **Inside that same box we mark 983 pixels against `poppler`'s 844, `mupdf`'s 825,
-///   `hayro`'s 812 and `ghostscript`'s 702.** Ink over the page: ours 18.45, `poppler` 15.52,
-///   `mupdf` 15.32, `hayro` 14.97, `ghostscript` 12.71 — ours 19% to 45% heavier than four
-///   renderers that sit within 2.9 of each other.
-/// - **At 576 dpi the modal dark run across the x-height band is 14 device pixels in ours and
-///   12 in `poppler`'s**, against the `/StemV 66` the file states, which at 20 pt and eight
-///   times is **10.56**. Both substitutes are heavier than the descriptor asks for and ours is
-///   three times as far over it.
-/// - **`hayro` is with the other three**, 10.41 from us, which is the whole argument: it shares
-///   `skrifa` with this tree and nothing else, so the choice of face is not a rasteriser
-///   question. Four renderers find a condensed face and we do not.
+/// - **Inside that box we mark 861 pixels against `poppler`'s 844, `mupdf`'s 825, `hayro`'s 812
+///   and `ghostscript`'s 702**, and the page's ink is 15.28 against 15.52, 15.32, 14.97 and 12.71.
+/// - **At 576 dpi the modal dark run across the x-height band is 12 device pixels in ours and in
+///   `poppler`'s**, against the `/StemV 66` the file states, which at 20 pt and eight times is
+///   **10.56**. The scale comes from `/Widths` alone, so the stem landing 9% over the file's own
+///   statement is two of the file's numbers agreeing rather than a constant fitted to a page.
+/// - **`hayro` shares `skrifa` with this tree and nothing else**, so the choice of face is not a
+///   rasteriser question.
 ///
-/// So a substitute's glyphs can be *wider* than the widths the document states as easily as
-/// narrower, and then the difference appears as collision rather than as letter spacing. §9.8.1
-/// still states no `shall` and the page is still `ambiguous` for that reason — but the document
-/// is the witness `doc/todo/21` item 4 says would open the question, and it is now recorded
-/// there.
+/// §9.8.1 still states no `shall` and the page is still `ambiguous` for that reason; the document
+/// is the witness `doc/todo/21` item 4 records.
 ///
 /// The measurement says the references are no closer to each other than to us. Mean absolute
 /// difference on `non-embedded-NuptialScript.pdf`:
@@ -6623,20 +6618,22 @@ const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 9] = [
 /// check is `tests/jpeg2000.rs`, against the reference software ISO/IEC 15444-5 publishes.
 ///
 /// **We are the ones who are wrong.** Every one of `S2.pdf`'s nine quantised codestreams and
-/// `issue5475.pdf`'s single one decodes to samples OpenJPEG does not produce, by up to 87 levels
-/// of 255 on three quarters of the samples. The discriminator across all thirty corpus
+/// `issue5475.pdf`'s single one decodes to samples OpenJPEG does not produce — under
+/// `hayro-jpeg2000` 0.4.0, by up to 87 levels of 255 on three quarters of the samples. The
+/// discriminator across all thirty corpus
 /// codestreams is `qntsty`: the reversible 5/3 path is byte-identical and the irreversible 9/7
 /// one is not, with one 316-byte crossing where the difference rounds away. Our samples move
 /// toward the image's own mean two to one, which is the signature of an inverse quantisation
 /// that reconstructs at the edge of the interval rather than at its middle.
 ///
 /// The defect was `hayro-jpeg2000`'s, is written up for its author in
-/// `doc/JPEG2000_FEEDBACK.md`, and **is mostly fixed**: 0.4.0 implemented none of ISO/IEC
-/// 15444-1 E.1.1.2's reconstruction bias, upstream `9cce046b` does, and this tree pins that
-/// revision. The worst sample error over the corpus fell from 87 levels to 3 and **these two
-/// pages stayed ambiguous**, which is worth knowing rather than assuming: the residual is 1 to 5
-/// levels over a large share of each plate's samples, and whether it is a second defect or the
-/// last place of two `f32` pipelines is not established. `jpeg2000.rs`'s own list is where that
+/// `doc/JPEG2000_FEEDBACK.md`, and **is fixed in two halves**: 0.4.0 implemented none of
+/// ISO/IEC 15444-1 E.1.1.2's reconstruction bias, upstream `9cce046b` adds it, and the case the
+/// bias must not touch is `2a1abd14`, which this tree pins through `close2/hayro` (ADR 0190).
+/// The worst sample error over the corpus fell from 87 levels to 1 and **these two pages stayed
+/// ambiguous**, which is worth knowing rather than assuming: the residual is one level on 0.02%
+/// to 0.1% of a plate's samples, and whether it is a third defect or the last place of two `f32`
+/// pipelines is not established. `jpeg2000.rs`'s own list is where that
 /// question is written down, and it fails first if either end of it moves. ADR 0161, ADR 0190.
 ///
 /// # And `issue5475.pdf` is second on `rank_the_manufactured_ambiguity`, which adds a reading
@@ -6858,11 +6855,12 @@ const AMBIGUOUS_EIGHT_BIT_COMPOSITING: [&str; 2] = [
 ///                 72 dpi    576 dpi
 /// poppler        2.48928   2.49989
 /// mupdf          2.50244   2.50086
-/// ours (1x, 8x)  2.22286   2.46552
+/// ours           —         2.46552
 /// ```
 ///
-/// The two ladders agree to **0.001 of 255** and ours climbs onto the limit from below, ending
-/// 0.035 under. `ghostscript` is 3.17 at the page's own scale — 27% over the geometry — and
+/// The two ladders agree to **0.001 of 255** and ours at 576 dpi is 0.035 under their limit; at
+/// the page's own scale ours lands on its own 576 dpi ink, which ADR 1341 measured on the page's
+/// crop as 1103.56 against 1103.56. `ghostscript` is 3.17 at the page's own scale — 27% over the geometry — and
 /// `hayro` 2.15, 14% under: **the same two outliers in the same two directions** as
 /// `bug1863910.pdf`'s 28% and 22% and `textfields.pdf`'s, which is why this is that page's group
 /// rather than a new one.
@@ -7949,7 +7947,8 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
     "calrgb.pdf page 17",
 ];
 
-/// Ambiguous, and it is **one paper under fifteen names** — 155 of this list's 179.
+/// Ambiguous, and it is **one paper under fifteen names** — most of the list, whose other pages
+/// the sections below name.
 ///
 /// **These paragraphs spent an unknown number of sessions above a different group's list.**
 /// They are this list's opening — the section below begins *and a second document* and the
@@ -7990,7 +7989,7 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// So nobody is drawing anything anybody else is not. What makes all of them `ambiguous` is the
 /// **text** tolerance — 0.90 structural similarity, measured over 153 reference-against-
 /// reference pairs because five rasterisers cannot agree more closely than that about small
-/// glyphs — applied to a page that is nothing but small glyphs. Across the paper's 155 pages the
+/// glyphs — applied to a page that is nothing but small glyphs. Across 155 paper pages measured the
 /// metrics form one band: mean 3.51 to 9.91, worst tile 20.94 to 42.96, ssim 0.7977 to 0.9195,
 /// against bounds of 5.00, 40.00 and 0.9000, with 7.07% to 19.15% of pixels differing against a
 /// bound of 5.00%. (The band read `9.93`, `48.31` and `0.9194` until ADR 0495 re-derived it from
@@ -8472,14 +8471,13 @@ const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
 /// agreeing rather than two renderers being close. `mupdf` is flat too, 0.14 below both, and
 /// `ghostscript` 0.11 above: five answers spanning a quarter of a level on a photograph, which is
 /// what `AMBIGUOUS_DEVICE_CMYK_CONVERSION` says about any page whose colour rests on a press.
-/// **The page left this bucket again in the four-hundred-and-fifteenth session, and the reason
-/// is one entry nothing had read.** Its page dictionary states
+/// **The page is not in this bucket, and the reason is one entry.** Its page dictionary states
 /// `/Group << /S /Transparency /CS /DeviceCMYK >>`, which §11.4.7 makes "the default blending
-/// colour space for each page" — so every mark on it composites in ink and this tree composites
-/// in the device's three components. The page reports that by name now and is no longer judged.
-/// The measurement above stands as what was found while it was, and it is *consistent* with the
-/// report rather than superseded by it: a photograph whose five renderers span a quarter of a
-/// level is exactly the page where a colour-space departure is small and real.
+/// colour space for each page" — so every mark on it composites in ink, which this tree does
+/// (ADR 0276), and the page is judged under [`AMBIGUOUS_PAGE_DRAWN_IN_INK`]. The measurement
+/// above is what was found while it composited in the device's three components: a photograph
+/// whose five renderers span a quarter of a level is exactly the page where a colour-space
+/// departure is small and real.
 const AMBIGUOUS_SUBTRACTIVE_MASK_GROUP: [&str; 0] = [];
 
 /// Ambiguous, and Table 87 defines the premultiplication and nothing else.
@@ -8616,19 +8614,17 @@ const AMBIGUOUS_NON_ISOLATED_POSTER: [&str; 1] = ["issue12798_page1_reduced.pdf 
 /// 16.57, which is **3.65 of 255** across five renderers on an illustration 209 pixels wide.
 ///
 /// The four-panel strip says where it lives and the numbers do not: the same lozenge carries a
-/// white highlight in ours and `poppler`, a grey one in `mupdf`, an outlined one in
+/// white highlight in ours, none in `poppler` (ADR 0276), a grey one in `mupdf`, an outlined one in
 /// `ghostscript` and a dark blot at its right-hand end in `hayro`. That is five readings of a
 /// stack of `Screen` blends under luminosity masks, which is §11.6.6's blending space —
-/// `doc/todo/23`'s standing item — rather than a mark anybody is missing. This tree reports
-/// nothing on the page and `open_one` finds all ten commands.
-/// **And that last sentence turned out to name the entry rather than the mechanism, which the
-/// four-hundred-and-fifteenth session found by reading it.** The page's blending space is not
-/// §11.6.6's at all: its *page* dictionary states `/Group << /S /Transparency /CS /DeviceCMYK >>`
-/// and §11.4.7 makes that the default for everything on the page, groups and top-level marks
-/// alike. Every group inside it is non-isolated and inherits it. So the five readings of a stack
-/// of `Screen` blends are five readings of `Screen` **in ink**, the page reports it by name now,
-/// and it is no longer judged here. The hypothesis in the paragraph above was right about the
-/// clause family and wrong about which clause, which is trap 1's shape one directory over.
+/// `doc/todo/23`'s standing item — rather than a mark anybody is missing.
+/// **The blending space is not §11.6.6's at all.** The *page* dictionary states
+/// `/Group << /S /Transparency /CS /DeviceCMYK >>` and §11.4.7 makes that the default for
+/// everything on the page, groups and top-level marks alike. Every group inside it is
+/// non-isolated and inherits it. So the five readings of a stack of `Screen` blends are five
+/// readings of `Screen` **in ink**, which this tree composites (ADR 0276), and the page is judged
+/// under [`AMBIGUOUS_PAGE_DRAWN_IN_INK`]. The hypothesis above is right about the clause family
+/// and wrong about which clause, which is trap 1's shape one directory over.
 const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 
 /// Ambiguous, and three pages where every renderer paints more than the geometry.
@@ -8655,8 +8651,10 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// levels over its own limit to 0.55, which is over half of what separated us from the geometry.
 /// The page states **65 859 strokes thinner than a device pixel**, every one of them round-capped
 /// and 91.8% of them shorter than one device pixel — median length 0.145, and every one of them
-/// 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`) — and ADR 0268 draws
-/// such a rule as its swept body one device pixel wide with the width it gave up in the paint's
+/// 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`) — and ADR 1102
+/// draws such a rule, wider than one level of a device pixel, as the stroke the document states,
+/// its outline filled through `render_cpu::area`; the figures in this paragraph are ADR 0268's
+/// construction, which drew it one device pixel wide with the width it gave up in the paint's
 /// alpha. **It reads 7.681 since the four-hundred-and-fifty-fifth**, which drew the caps ADR 0268
 /// butt-capped away: a cap's area is a *square* of the width, so it is stated at the substitute's
 /// width with `(w / W)²` of the alpha (ADR 0290). Those caps are 1.14 levels of the page's own
@@ -9200,10 +9198,9 @@ const AMBIGUOUS_OURS_ON_THE_LIMIT: [&str; 3] = [
 /// shape until the four-hundred-and-seventy-second, which read §11.4.6 for *which* backdrop it
 /// hands each element and found neither page needed a construction — one is §11.4.4's group
 /// wearing `/K`, the other is §11.4.5's under NOTE 6 (ADR 0307). Page 2 of this file
-/// agrees with the consensus now. Page 1's knockout groups were always ones this tree composites
-/// without reaching that condition, so the page is judged rather than excused, and **the numbers
-/// above are unmoved to a hundredth**: it is the group the five-renderer split is about, and no
-/// element of it states a shape.
+/// agrees with the consensus now. Page 1 is judged rather than excused: its knockout groups are
+/// the ones the five-renderer split is about, and one of their elements is a stencil under its
+/// own `/SMask`, whose shape §11.4.6 takes as stated (ADR 1113).
 const AMBIGUOUS_KNOCKOUT_GROUP: [&str; 1] = ["knockout_groups_test.pdf page 1"];
 
 /// Ambiguous, and the whole of the difference is four horizontal rules.
@@ -11174,9 +11171,10 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 /// > metrics and suitable substitution fonts, available.
 ///
 /// Two routes, either acceptable, and neither of them a set of outlines the standard states.
-/// This tree takes the first: `data/standard-fonts/` holds §9.6.2.2's fourteen programs, 804 KB
-/// of PDFium's Foxit faces compiled in, so these pages reproduce on a machine with no fonts
-/// installed (ADR 0133). The three C references read URW's from this machine's disk and `hayro`
+/// This tree takes the first: `data/standard-fonts/` holds §9.6.2.2's fourteen programs compiled
+/// in — PDFium's Foxit faces for Courier, Times, Symbol and ZapfDingbats and Liberation Sans for
+/// Helvetica — so these pages reproduce on a machine with no fonts installed (ADR 0133). The three
+/// C references read URW's from this machine's disk and `hayro`
 /// answers from its own built-in. **Five renderers, four sets of outlines, one clause that
 /// requires none of them.**
 ///
@@ -11207,8 +11205,9 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 /// sheet's subject arriving from a document that is not a specimen sheet, and the ladders say the
 /// same thing: `poppler` climbs onto 16.0883 and `mupdf` onto 16.0992 — 0.011 apart, so there is
 /// a limit — while ours is flat at 15.35 to 15.49, **0.60 of 255 below it**. That is 3.7% of the
-/// page's ink, and it is the difference between PDFium's Foxit outlines compiled into this binary
-/// and URW's read off this machine's disk. Neither is the clause's, because the clause states
+/// page's ink, and it is the difference between the Foxit and Liberation Sans outlines compiled
+/// into this binary and URW's read off this machine's disk. Neither is the clause's, because the
+/// clause states
 /// none.
 /// # A sixteenth, and it is eleven characters on a page the size of a postage stamp
 ///

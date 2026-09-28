@@ -1,0 +1,14 @@
+[package]
+name = "pdf-ccitt"
+description = "ITU-T T.4 and T.6 fax decoding, with ISO 32000-2 section 7.4.6's damaged-row concealment."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No dependencies, on purpose: the crate reads bits and writes changing elements, and the one
+# caller that knows what a sample is (`pdf-sandbox`) packs them.
+
+[lints]
+workspace = true

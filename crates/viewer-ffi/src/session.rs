@@ -1553,6 +1553,40 @@ mod tests {
         assert_eq!(session.page_count(), Ok(2), "the source is still itself");
     }
 
+    /// `QUORRA_EVENT_NEEDS_FILE` says whether the file opens beside the document that asked:
+    /// Table 203's `/NewWindow true` reaches a C caller as `true`, and its `false` — and an absent
+    /// entry — as `false`, so a caller asking a person can say "beside" or "in place of". The named
+    /// wrong answer is a C host with no way to tell the two apart (ADR 1335).
+    #[test]
+    fn the_question_about_a_file_says_whether_it_opens_beside() {
+        for (entry, beside) in [
+            ("/NewWindow true", true),
+            ("/NewWindow false", false),
+            ("", false),
+        ] {
+            let source = assembled(&[
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+                &format!(
+                    "<< /Type /Annot /Subtype /Link /Rect [0 0 50 50] /A << /Type /Action \
+                     /S /GoToR /D [0 /Fit] /F (second.pdf) {entry} >> >>"
+                ),
+            ]);
+            let mut session = Session::new(400, 400, 1.0);
+            drop(session.open(1, source, None, None));
+            let events = session.activate(4, 0);
+            let asked = (0..events.len())
+                .find(|index| events.kind(*index) == Ok(EventKind::NeedsFile))
+                .expect("the link asks for its file");
+            assert_eq!(events.needs_file_beside(asked), Ok(beside), "{entry}");
+            assert_eq!(
+                events.needs_file_beside(asked.wrapping_add(events.len())),
+                Err(Status::OutOfRange)
+            );
+        }
+    }
+
     /// A viewer with no document answers `NoAnswer` rather than zero.
     #[test]
     fn nothing_open_is_an_answer_and_not_a_count() {

@@ -279,7 +279,10 @@ screen still takes the bar — that sentence is the reader asking rather than th
   ignore this bit".
 - **No window has an assembling gesture**, and that is a fact about the windows rather than about the
   clause: `viewer_host::restriction::inert` says so in the menu, and the level is already the
-  reader's the day one arrives.
+  reader's the day one arrives. **It is not a host item first**: bit 11 names inserting, rotating and
+  deleting pages, and a window verb for any of them needs the page read through the edit log beside
+  the document — `pdf_model::Page`, its `/Rotate` and its place in the tree are read from the
+  immutable `pdf_syntax::Document` by every consumer — before any window has something to press.
 
 ## What not to do
 

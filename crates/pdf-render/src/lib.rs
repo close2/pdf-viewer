@@ -53,7 +53,9 @@ pub use blending::{
     BlendingSpace, ColourCube, GreyCurve, resolve as resolve_blending, resolve_cube, resolve_grey,
 };
 pub use closing::opened_where_a_dash_ends_at_the_close;
-pub use collapsed::{ClipRegion, CollapsedFill, clip_region, split_collapsed_fill};
+pub use collapsed::{
+    ClipRegion, CollapsedFill, clip_region, collapsed_by_transform, split_collapsed_fill,
+};
 pub use crop::cropped_rectangle;
 pub use degenerate::{
     DegenerateStroke, ZERO_DASH, dash_mark, dashes_showing_direction, split_dash_marks,

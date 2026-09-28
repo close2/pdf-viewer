@@ -5609,3 +5609,62 @@ the pair's own resolve is the same shape. Is there, or could there be, a pass th
 rasters of one frame on the device, from tables the list supplies, before the one readback? The
 pages that reach it are few (a reader has to ask, and the page has to name a spot ink), so this is
 a question about whether the shape exists rather than a request for it.
+
+## 54. A join is wound against the stroke body on one turn direction, so it subtracts where it should add — holes in a thick curve, and a seam on every thin one
+
+**The clause.** ISO 32000-2 §8.4.3.2 defines the region a stroke paints outright: "stroking a path
+shall entail painting all points whose perpendicular distance from the path in user space is less
+than or equal to half the line width". Under round joins and caps that region *is* the set of points
+within half the width of the path, which is what makes it measurable without either backend.
+
+**What we measured.** `ContentStreamNoCycleType3insideType3.pdf` is on `render-raster --test
+corpus`'s differing list at mean 0.089, and at 4× the picture is plain: a tiling cell of Helvetica
+`ba` stroked far wider than its own counters (text rendering mode 2, inherited through two Type 3
+glyphs) comes back from you with **fans of radial white slivers** across the letters, where the
+CPU oracle draws them solid. `examples/ink_ladder` puts you 4% short of the oracle at *every* rung,
+1× to 8×, which is an area missing rather than a boundary cost. Reproduced away from the document,
+on a 100 × 100 page with `1 J 1 j`, against the distance set computed independently of both
+backends (4 × 4 samples per pixel at 4×):
+
+| fixture | truth | CPU oracle | raster |
+|---|---|---|---|
+| `20 20 m 20 32 32 32 32 20 c S`, `16 w` | solid | solid | radial slivers, 558 pixels missing |
+| the same path stated `32 20` to `20 20` | solid | solid | solid |
+| a 1 w circle of radius 30, drawn anticlockwise (page space) | 188.50 | 189.08 | 188.94 |
+| the same circle drawn clockwise | 188.50 | 189.08 | **187.40** |
+
+(ink in device pixels at 1×, scale-normalised; the circle rows are the same at 2× and 4×).
+
+**Why, read in your `raster-gpu/src/raster/stroke.rs`.** The module comment says "[e]very fan here
+is wound the way the body it joins is", and `cap_fan` keeps that. `join_at` does not on one side:
+a segment quad is `a+n, b+n, b−n, a−n` with `n` the left normal, which is one orientation whatever
+the turn; the join polygon is `v, p1, (m,) p2` on the outer side, and flipping `s` with the sign of
+`cross` flips that polygon's orientation along with its side. So for a turn with `cross > 0` the
+join is wound against the quads. Two consequences, both measured above:
+
+1. **Where a join overlaps a neighbouring quad it cancels it.** On a flattened curve every vertex
+   is a join, and once half the width exceeds the curve's radius each join reaches across the
+   neighbouring quads: winding +1 and −1 sum to zero under non-zero, and the fan of holes is
+   those joins. Stated the other way round the same path turns the other way and draws solid.
+2. **Where a join and a quad share an edge they subtract at the boundary pixel.** Your fill
+   integrates the signed winding over the pixel and clamps the magnitude, so a pixel split
+   between the quad (+a) and a counter-wound join (−b) reads `|a − b|` instead of `a + b`. That
+   is the 0.8% a clockwise 1 w circle loses against the anticlockwise one, and the half-covered
+   apex of the green triangle on the same corpus page (a miter join, oracle 0 and yours 127 in
+   the channel the green leaves).
+
+**The ask.** Wind the join polygon (and `arc_fan` for a round join) the way the quads are wound, on
+both turn directions: emit it reversed when `cross > 0`. Nothing else changes: the pieces still
+overlap and the non-zero rule still unions them. We expect the corpus page to leave the differing
+list, or to leave with a residue whose reason is §8.7.3.1's own — the cell's `/BBox` is 60 × 60
+under `/XStep 55 /YStep 32`, so adjacent tiles overlap, and "[t]he order in which individual tiles
+(instances of the cell) are painted is unspecified and unpredictable".
+
+**And one on our side, found by the same fixtures.** The CPU oracle draws a *closed* curve stroked
+wider than its own diameter with a hole: a circle of radius 5 at `30 w` comes back as a ring of
+inner radius 10 where §8.4.3.2 paints the whole disk of radius 20, and a 6 × 3 ellipse at `14 w`
+shows a lens. `tiny-skia` 0.12's `PathStroker` emits a closed contour's inner offset as a reversed
+second contour, and once that offset turns inside out its winding cancels the outer one's — its own
+`stroke_path` leaves the same hole. You draw both solid. That is ours to fix in `render-cpu`, and it
+is written here so that the circle fixture is not read as evidence against your side when it is run
+against ours.

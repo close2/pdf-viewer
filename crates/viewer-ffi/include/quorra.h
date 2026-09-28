@@ -712,7 +712,10 @@ int32_t quorra_document_report(quorra_viewer *viewer, quorra_events **events);
  * follows, and quorra_event_document names the id it is about: the name quorra_beside held out, or
  * the document the link was in where the file replaces it. Answer with quorra_open under THAT id and
  * with THAT file's bytes — the ones just supplied, never the document on show. A §12.7.8 named page
- * opens under no id: once its password is right, a QUORRA_EVENT_CLOSED gives the id back. */
+ * opens under no id: once its password is right, a QUORRA_EVENT_CLOSED gives the id back.
+ * A person who will not give the password is answered with quorra_supply under the same purpose
+ * and a NULL `bytes`: the file is declined with the reason, a named page's references let go, and
+ * a QUORRA_EVENT_CLOSED gives back an id quorra_beside held out. */
 int32_t quorra_supply(quorra_viewer *viewer, uint32_t purpose, const uint8_t *bytes, size_t len,
                     quorra_events **events);
 
@@ -922,6 +925,10 @@ int32_t quorra_event_open_uri(const quorra_events *events, size_t index, char *o
 /* What a file is wanted for and the document's own words for it. Answer with quorra_supply. */
 int32_t quorra_event_needs_file(const quorra_events *events, size_t index, uint32_t *purpose,
                               char *out, size_t cap, size_t *needed);
+/* Whether that file opens BESIDE the document that asked (Table 203's and Table 204's /NewWindow
+ * true) or in place of it — false for every other purpose. A question put to a person about the
+ * file says which. */
+int32_t quorra_event_needs_file_beside(const quorra_events *events, size_t index, bool *beside);
 /* [x0, y0, x1, y1] in device pixels: a bound on what changed, not a promise that all of it did. */
 int32_t quorra_event_damage(const quorra_events *events, size_t index, float *into);
 int32_t quorra_event_dirty(const quorra_events *events, size_t index, bool *dirty);

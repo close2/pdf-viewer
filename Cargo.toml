@@ -26,6 +26,7 @@ pdf-font = { path = "crates/pdf-font", version = "0.1.0" }
 pdf-colour = { path = "crates/pdf-colour", version = "0.1.0" }
 pdf-render = { path = "crates/pdf-render", version = "0.1.0" }
 pdf-sandbox = { path = "crates/pdf-sandbox", version = "0.1.0" }
+pdf-ccitt = { path = "crates/pdf-ccitt", version = "0.1.0" }
 render-cpu = { path = "crates/render-cpu", version = "0.1.0" }
 render-gpu = { path = "crates/render-gpu", version = "0.1.0" }
 raster-compare = { path = "crates/raster-compare", version = "0.1.0" }
@@ -518,19 +519,18 @@ stringprep = "0.1.5"
 # back rather than compare it.
 getrandom = "0.4.3"
 
-# Group 3 and Group 4 fax, for `CCITTFaxDecode` (ISO 32000-2 §7.4.6). Named here rather
-# than reached through `hayro-jbig2`: it has been in the tree since the seventh session as
-# that crate's MMR dependency, and depending on a dependency's dependency is a version
-# nobody chose. ADR 0021 has the argument, which is not the same one ADR 0014 made — T.4
-# and T.6 are two pages of Huffman tables and a state machine, so "we could not write this"
-# is untrue here, and what decides it is instead that a decoder already compiled into this
-# binary and exercised by every MMR-coded JBIG2 region has been tested by more documents
-# than a fresh one would be.
+# `hayro-jbig2`'s MMR decoder, which is in the binary as that crate's dependency and decodes no
+# `CCITTFaxDecode` stream: §7.4.6 is `pdf-ccitt`'s, in this tree, because Table 11's
+# `/DamagedRowsBeforeError` needs a decoder that can say where a row broke and resume after it,
+# and this one cannot (ADR 1349, amending ADR 0021). Named here for one use: `pdf-model`'s
+# `ccitt_decoder_census` decodes every corpus fax stream with both decoders and compares them bit
+# for bit, as evidence about the new one's reading of T.4 and T.6 — a dev-dependency, never a
+# decoder a page is drawn with.
 #
 # **Pinned to the same git revision as `hayro-jbig2`**, and only because that crate is: the
 # two are one dependency here, `hayro-jbig2` names `hayro-ccitt` by path inside its own
 # workspace, and a crates.io `hayro-ccitt` beside a git one would be two crates with one name
-# compiled into one binary. Nothing about `CCITTFaxDecode` asked for the move.
+# compiled into one binary.
 hayro-ccitt = { git = "https://github.com/close2/hayro", rev = "64efcaca54cdc71cf8a1cd3bfd2333b1ce85cda2", version = "0.3.0", default-features = false }
 
 # The whole `hayro` renderer, used by `tools/hayro-compare` and by nothing else. It is the

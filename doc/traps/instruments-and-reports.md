@@ -941,6 +941,14 @@ export under one `CARGO_TARGET_DIR` reuse each other's artifacts by mtime, and t
 produced two identical binaries (ADR 1311). Give each export its own target directory, or touch the
 overlaid sources, and `md5sum` the two binaries before quoting a difference.
 
+### 55. A note's figure can be made false by an ADR that never names the note
+
+Sixty-nine oracle notes were flagged as overtaken; eighteen had a sentence made false and were
+corrected, but seven carry a NUMBER that a coverage or construction ADR (1082, 1102, 1341, 0358)
+changed without mentioning the page (round 1259, ADR 1355). Rewriting such a sentence carries the
+old figure forward under a new citation. A figure is corrected only where an ADR's own table gives
+the new one; otherwise it stays named in a re-measure population until a run re-takes it.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

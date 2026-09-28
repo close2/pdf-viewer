@@ -386,18 +386,15 @@ fn a_columns_that_is_not_the_padded_width_is_refused() {
 ///
 /// ISO 32000-2 §7.4.6 Table 11 gives the entry a precondition in its own row:
 ///
-/// > This entry shall apply only if EndOfLine is true and K is non-negative.
+/// > This entry shall apply only if `EndOfLine` is true and K is non-negative.
 ///
 /// The concealment it asks for resynchronises by "searching for an `EndOfLine` pattern", so it
 /// applies only where the encoding carries those patterns (`/EndOfLine true`) and is Group 3
-/// (`/K` non-negative). The pair below differs in `/EndOfLine` and nothing else: the same
-/// `/DamagedRowsBeforeError 2` is inert in the first, where the image decodes exactly as it does
-/// with no such entry, and applies in the second, where it is refused because the tolerance is
-/// unbuilt. Until this session both were refused — any positive value was, on a reading of the
-/// row that dropped its first sentence. The corpus states no such value at all (a census over
-/// 1450 documents of five corpora found 1048 CCITT images and not one with the entry above
-/// zero), so this is trap 8's construction: a rule no document happens to exercise, pinned by a
-/// hand-built pair.
+/// (`/K` non-negative). Here the same `/DamagedRowsBeforeError 2` is inert, and the image decodes
+/// exactly as it does with no such entry; the tests after it are the entry applied. The corpus
+/// states no such value at all (a census over 1450 documents of five corpora found 1048 CCITT
+/// images and not one with the entry above zero), so this is trap 8's construction: a rule no
+/// document happens to exercise, pinned by hand-built pages.
 #[test]
 fn damaged_rows_is_inert_where_end_of_line_is_false() {
     let (raster, said) = interpret(page_with_ccitt_image(
@@ -417,22 +414,79 @@ fn damaged_rows_is_inert_where_end_of_line_is_false() {
     );
 }
 
-/// The same value with `/EndOfLine true` applies, and is refused because the tolerance is unbuilt.
+/// Four scan lines of eight pels, Group 3 one-dimensional with an end-of-line code before each,
+/// the third damaged: black, white, eight zero bits (which begin no T.4 codeword and are not an
+/// end-of-line code, which needs eleven), black.
 ///
-/// The other half of the pair above: `/EndOfLine true` makes Table 11's precondition hold, so
-/// `/DamagedRowsBeforeError 2` is now a request for error concealment. `hayro-ccitt` exposes no
-/// way to resynchronise past a damaged code, so the request is refused out loud rather than
-/// answered with the ordinary truncated draw, which would drop it silently.
+/// `000000000001` is T.4 section 4.1.2's end-of-line code; `00110101 000101` a white run of zero
+/// and a black run of eight, `10011` a white run of eight (T.4 Table 2).
+const BLACK_WHITE_DAMAGED_BLACK: &str = "000000000001 00110101000101 000000000001 10011 \
+     000000000001 000000001 000000000001 00110101000101";
+
+/// Packs binary digits, spaces ignored, into bytes, the last padded with zeros.
+fn pack(digits: &str) -> Vec<u8> {
+    let digits: Vec<u8> = digits
+        .bytes()
+        .filter(|digit| matches!(digit, b'0' | b'1'))
+        .map(|digit| digit - b'0')
+        .collect();
+    digits
+        .chunks(8)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .enumerate()
+                .fold(0, |byte, (at, bit)| byte | (bit << (7 - at)))
+        })
+        .collect()
+}
+
+/// With `/EndOfLine true` the entry applies, and the damaged third line is concealed as Table 11
+/// says: "locating its end in the encoded data by searching for an `EndOfLine` pattern and then
+/// substituting decoded data from the previous row if the previous row was not damaged" — so it
+/// is the white line above it, the fourth line decodes after it, and the page says a line was
+/// concealed. Over the grey page, a concealed line is the white it was given, not the grey an
+/// unpainted one shows.
 #[test]
-fn damaged_rows_applies_and_is_refused_where_end_of_line_is_true() {
-    let (_, said) = interpret(page_with_ccitt_image(
+fn a_damaged_row_is_concealed_as_the_row_above_where_the_entry_applies() {
+    let (raster, said) = interpret(page_with_ccitt_image_over_grey(
         "/K 0 /Columns 8 /EndOfLine true /DamagedRowsBeforeError 2",
-        &FOUR_BLACK_LINES,
+        &pack(BLACK_WHITE_DAMAGED_BLACK),
     ));
+    let lines: Vec<u8> = (0..4).map(|row| scan_line(&raster, row)).collect();
+    assert_eq!(
+        lines,
+        [0, 255, 255, 0],
+        "black, white, the white line again in place of the damaged one, black"
+    );
     assert!(
         said.iter()
-            .any(|report| report.contains("CCITTFaxDecode")
-                && report.contains("DamagedRowsBeforeError")),
-        "the refusal should name the filter and the entry, and said {said:?}"
+            .any(|report| report.contains("concealed 1")
+                && report.contains("DamagedRowsBeforeError 2")),
+        "the concealment should be said beside the drawing, and said {said:?}"
+    );
+}
+
+/// The same four lines at Table 11's default of zero: the damaged line is where "an error
+/// occurs", so the two lines before it are drawn and the two from it are left unpainted.
+#[test]
+fn at_zero_the_damaged_row_ends_the_decode_where_the_entry_applies() {
+    let (raster, said) = interpret(page_with_ccitt_image_over_grey(
+        "/K 0 /Columns 8 /EndOfLine true",
+        &pack(BLACK_WHITE_DAMAGED_BLACK),
+    ));
+    assert_eq!((scan_line(&raster, 0), scan_line(&raster, 1)), (0, 255));
+    let grey = 100..=160;
+    for row in 2..4 {
+        assert!(
+            grey.contains(&scan_line(&raster, row)),
+            "scan line {row} is at or past the damage, so it is left unpainted; read {}",
+            scan_line(&raster, row)
+        );
+    }
+    assert!(
+        said.iter()
+            .any(|report| report.contains("delivered 2 of the 4 scan lines")),
+        "the shortfall should be said, and said {said:?}"
     );
 }

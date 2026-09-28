@@ -1322,6 +1322,17 @@ impl Viewer {
     /// Takes the bytes a host was asked for, or says that it declined.
     fn supply(&mut self, purpose: Purpose, bytes: Option<&[u8]>, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
+        // A decline that finds a file held for §7.6.4.1's password is about that file: its prompt
+        // was cancelled or ran out of attempts, and the hold ends here rather than waiting for
+        // the next open of any name (ADR 1345).
+        if bytes.is_none()
+            && let Some(hold) = self
+                .locked
+                .take_if(|hold| hold.source == id && hold.locked.purpose() == purpose)
+        {
+            self.withdraw(&hold, events);
+            return;
+        }
         let Some(open) = self.focused_mut() else {
             return;
         };
@@ -1461,6 +1472,22 @@ impl Viewer {
         } else {
             Self::apply_behind(hold.source, open, outcome, events);
         }
+    }
+
+    /// A file held for §7.6.4.1's password, declined by the host that was asking about it.
+    ///
+    /// The name the prompt was raised under is given back where it is not the source's own, as
+    /// after a named page's password was right, so a host holding it learns the file is settled
+    /// either way. What the decline says and leaves is [`interact::withdraw`]'s (ADR 1345).
+    fn withdraw(&mut self, hold: &Hold, events: &mut Vec<Event>) {
+        if hold.asked != hold.source {
+            events.push(Event::Closed(hold.asked));
+        }
+        let Some(open) = self.documents.get_mut(&hold.source) else {
+            return;
+        };
+        let outcome = interact::withdraw(open, &hold.locked);
+        self.apply(hold.source, outcome, events);
     }
 
     /// Turns what a click asked for into events, and does the parts that are this crate's.

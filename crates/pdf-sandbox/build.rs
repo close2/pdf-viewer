@@ -13,7 +13,9 @@
 //! - the workspace `Cargo.lock`, which pins every decoder — `hayro-jbig2`, `hayro-ccitt` and
 //!   `hayro-jpeg2000` are external crates and a git revision is where a fix to one of them
 //!   arrives;
-//! - every `.rs` file of this crate, which is the code on both ends of the pipe.
+//! - every `.rs` file of this crate, which is the code on both ends of the pipe;
+//! - every `.rs` file of `pdf-ccitt`, the one decoder that is a path dependency rather than a
+//!   pinned one — a change to it reaches the worker without touching `Cargo.lock` (ADR 1349).
 //!
 //! **What it does not cover is stated rather than implied**: the compiler, its version, and
 //! the profile a binary was built with. Two builds of the same sources by different
@@ -80,9 +82,11 @@ fn sources(root: &Path) -> Vec<PathBuf> {
 
 fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let source_root = manifest.join("src");
+    let source_roots = [manifest.join("src"), manifest.join("../pdf-ccitt/src")];
     let lock = manifest.join("../../Cargo.lock");
-    println!("cargo::rerun-if-changed={}", source_root.display());
+    for root in &source_roots {
+        println!("cargo::rerun-if-changed={}", root.display());
+    }
     println!("cargo::rerun-if-changed={}", lock.display());
 
     // The lockfile is absent in a vendored or `cargo package`d build, where there is no
@@ -94,13 +98,20 @@ fn main() {
         Err(_) => fold(FNV_OFFSET, b"no Cargo.lock\0"),
     };
 
-    let files = sources(&source_root);
-    assert!(
-        !files.is_empty(),
-        "crates/pdf-sandbox/src holds no Rust source, so the identity would describe nothing"
-    );
-    for file in files {
-        let relative = file.strip_prefix(&manifest).unwrap_or(&file);
+    for root in &source_roots {
+        assert!(
+            !sources(root).is_empty(),
+            "{} holds no Rust source, so the identity would describe nothing",
+            root.display()
+        );
+    }
+    for file in source_roots.iter().flat_map(|root| sources(root)) {
+        // Relative to this crate or to the directory holding both crates, never absolute: two
+        // checkouts of one commit in two places are one build.
+        let relative = file
+            .strip_prefix(&manifest)
+            .or_else(|_| file.strip_prefix(manifest.join("..")))
+            .unwrap_or(&file);
         // The path goes in as well as the contents: moving a file between two names is a
         // change, and hashing contents alone would call the two trees identical.
         hash = fold(hash, relative.to_string_lossy().as_bytes());

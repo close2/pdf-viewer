@@ -606,3 +606,109 @@ fn a_named_page_file_that_asks_for_a_password_is_drawn_in_once_it_is_given() {
         notes(&events)
     );
 }
+
+/// §12.7.8's second file whose password prompt a person cancels is declined with the reason, the
+/// references into it are let go with a sentence each, and the name the prompt was raised under
+/// is given back.
+///
+/// §7.6.4.1 says only that the processor "should prompt for a password"; a prompt declined is the
+/// file not supplied, which is `Command::Supply` with no bytes under the purpose it was supplied
+/// for. The named wrong answers: the references left waiting until some later import asks for the
+/// file again, a hold a later `Command::Open` under the offered name would still draw into the
+/// form, and a decline that says nothing about why (ADR 1345).
+#[test]
+fn a_named_page_file_whose_password_is_not_given_is_declined_and_let_go() {
+    const OFFERED: DocumentId = DocumentId(9);
+    let bytes = locked(library(), 6);
+    let (mut viewer, _) = importing();
+    viewer.handle(Command::Beside(Some(OFFERED))).for_each(drop);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::NamedPage,
+            bytes: Some(bytes.clone()),
+        })
+        .collect();
+    assert_eq!(prompts(&events), [OFFERED], "{:?}", notes(&events));
+
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::NamedPage,
+            bytes: None,
+        })
+        .collect();
+    let said = notes(&events);
+    assert!(
+        said.iter()
+            .any(|note| note.contains("library.pdf was not opened")
+                && note.contains("password it asks for was not given")),
+        "the reason is the password: {said:?}"
+    );
+    assert!(
+        said.iter()
+            .any(|note| note.contains("declined") && note.contains("/APRef /N")),
+        "the reference it was for is let go by name: {said:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Closed(document) if *document == OFFERED)),
+        "the name the prompt was raised under is given back: {events:?}"
+    );
+    assert!(asked_for(&events).is_empty(), "there was no second file");
+
+    // Nothing is waiting any more: the same file supplied again gives nothing, and the password
+    // retried under the offered name is no longer drawn into the form.
+    let again: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::NamedPage,
+            bytes: Some(library()),
+        })
+        .collect();
+    assert!(
+        !notes(&again).iter().any(|note| note.contains("gave")),
+        "{:?}",
+        notes(&again)
+    );
+    let retried = retry(&mut viewer, OFFERED, &bytes, PASSWORD);
+    assert!(
+        !notes(&retried)
+            .iter()
+            .any(|note| note.contains("library.pdf gave")),
+        "the hold ended with the decline: {:?}",
+        notes(&retried)
+    );
+}
+
+/// §12.6.4.7's file whose password prompt a person cancels declines the link with the reason,
+/// and the source document stays itself (ADR 1345).
+#[test]
+fn a_thread_file_whose_password_is_not_given_declines_the_link_with_the_reason() {
+    let bytes = locked(articles(), 7);
+    let (mut viewer, _) = threaded("<< /Type /Action /S /Thread /F (articles.pdf) /D 0 >>");
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::ThreadDocument,
+            bytes: Some(bytes),
+        })
+        .collect();
+    assert_eq!(prompts(&events), [DOCUMENT]);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::ThreadDocument,
+            bytes: None,
+        })
+        .collect();
+    let said = notes(&events);
+    assert!(
+        said.iter()
+            .any(|note| note.contains("Thread: articles.pdf was not opened")
+                && note.contains("(§7.6.4.1)")),
+        "{said:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Closed(_) | Event::Opened { .. })),
+        "the source is neither closed nor replaced: {events:?}"
+    );
+}

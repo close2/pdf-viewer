@@ -914,6 +914,19 @@ impl Locked {
         !matches!(self.held, Held::NamedPage(_))
     }
 
+    /// What the host supplied the file for, which is also what it declines the file under.
+    ///
+    /// `Command::Supply` with no bytes is a host's one way of saying a file will not be given,
+    /// and a prompt a person cancels is that answer arriving late: the file was supplied, and
+    /// then the one thing that would have made it readable was not (ADR 1345).
+    pub(crate) const fn purpose(&self) -> Purpose {
+        match self.held {
+            Held::Remote(_) => Purpose::RemoteDocument,
+            Held::Thread(_) => Purpose::ThreadDocument,
+            Held::NamedPage(_) => Purpose::NamedPage,
+        }
+    }
+
     /// Puts a file that opened at the place its jump names, or says why it cannot be.
     ///
     /// # Errors
@@ -1231,6 +1244,44 @@ pub(crate) fn decline_named_page(open: &mut Open) -> Outcome {
     };
     say_declined(open, &file, &mut outcome);
     request_named_page(open, &mut outcome);
+    outcome
+}
+
+/// A file held for §7.6.4.1's password whose prompt a person cancelled, or ran out of attempts.
+///
+/// §7.6.4.1 says the processor "should prompt for a password" and states nothing about a prompt
+/// declined, so this is the file not supplied, said with the reason. For a jump that is a sentence
+/// and nothing else. For §12.7.8's named pages it is the references declined: Table 253's `/F` is
+/// "[t]he file containing the named page", no page arrives from it, and each widget keeps the
+/// appearance its own dictionary states — the one the import found there — which is what
+/// [`decline_named_page`] already does for a file no host would give. The next file an import is
+/// waiting for is then asked for, as after any other answer (ADR 1345).
+pub(crate) fn withdraw(open: &mut Open, locked: &Locked) -> Outcome {
+    let mut outcome = Outcome::default();
+    match &locked.held {
+        Held::Remote(remote) => outcome.notes.push(format!(
+            "this link declines — GoToR: {} was not opened, because the password it asks for was \
+             not given (§7.6.4.1)",
+            remote.file.name()
+        )),
+        Held::Thread(threaded) => outcome.notes.push(format!(
+            "this link declines — Thread: {} was not opened, because the password it asks for \
+             was not given (§7.6.4.1)",
+            threaded.file.as_ref().map_or("", TargetRoot::name)
+        )),
+        Held::NamedPage(file) => {
+            outcome.notes.push(format!(
+                "named page: {file} was not opened, because the password it asks for was not \
+                 given (§7.6.4.1)"
+            ));
+            // A file whose references were declined meanwhile has nothing left waiting.
+            if open.view.file_awaited() == Some(file.as_str()) {
+                say_declined(open, file, &mut outcome);
+                outcome.redraw = true;
+            }
+            request_named_page(open, &mut outcome);
+        }
+    }
     outcome
 }
 

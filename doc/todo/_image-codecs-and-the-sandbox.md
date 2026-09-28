@@ -19,7 +19,8 @@ dependencies at all**:
 
 | crate | filter | `unsafe` | dependencies | lines |
 |---|---|---|---|---|
-| `hayro-ccitt` 0.3.0 | §7.4.6 `CCITTFaxDecode` (ITU-T T.4/T.6) | `#![forbid(unsafe_code)]`, **0 blocks** | none | 1 089 |
+| `pdf-ccitt`, in this tree (ADR 1349) | §7.4.6 `CCITTFaxDecode` (ITU-T T.4/T.6) | `#![forbid(unsafe_code)]`, **0 blocks** | none | 1 130 |
+| `hayro-ccitt` 0.3.0 | `hayro-jbig2`'s MMR regions only | `#![forbid(unsafe_code)]`, **0 blocks** | none | 1 089 |
 | `hayro-jbig2` 0.3.0 | §7.4.7 `JBIG2Decode` (ITU-T T.88) | `#![forbid(unsafe_code)]`, **0 blocks** | `hayro-ccitt` | 8 720 |
 | `hayro-jpeg2000` 0.4.0 | §7.4.9 `JPXDecode` (ISO/IEC 15444-1) | `#![forbid(unsafe_code)]`, **0 blocks** | none | 9 626 |
 
@@ -139,7 +140,9 @@ And the outcome would be *the same bug surface*. `hayro-jpeg2000`'s irreversible
 to find it. Our own would need the identical instrument, which already exists (`tests/jpeg2000.rs`)
 and would then be pointed at us.
 
-**Recommendation.** Own `hayro-ccitt`'s job (1 089 lines, fully specified, small tail). Leave JBIG2
+**Recommendation.** Own `hayro-ccitt`'s job (1 089 lines, fully specified, small tail) — done:
+`crates/pdf-ccitt` decodes `CCITTFaxDecode`, in the same worker, because §7.4.6's
+`/DamagedRowsBeforeError` needed a decoder that says where a row broke (ADR 1349). Leave JBIG2
 and JPEG 2000 where they are, and spend the effort on the JPEG 2000 *correctness* gap instead,
 which is worth more per hour than a reimplementation: 13 codestreams that decode to the wrong
 samples today are a defect a user can see.

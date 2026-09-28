@@ -42,7 +42,8 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
-lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082), and measures a path
+lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and the pieces a
+curve stroked wider than it bends is stated as (ADR 1348), and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
 with one another, which §11.6.2 forbids (ADR 1341) — `render-cpu` is also where a **non-isolated group the file
 composites under a mode other than Normal is drawn** instead of reported, by performing §11.4.4's
@@ -56,7 +57,9 @@ commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with
 processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
-JPEG 2000 in a confined worker, and Table 13's `/ColorTransform` read where the clause states it —
+JPEG 2000 in a confined worker, Group 3 and Group 4 fax there too through this tree's own ITU-T T.4
+and T.6 decoder, which conceals the damaged rows §7.4.6's `/DamagedRowsBeforeError` tolerates as the
+clause states (ADR 1349), and Table 13's `/ColorTransform` read where the clause states it —
 the entry, the `APP14` segment that silences it, and the component count, ranked in the order
 §7.4.8 gives them (ADR 1183). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
@@ -252,7 +255,9 @@ opens that file's own bytes, never the document in front (ADR 1332); §12.6.4.7'
 file and §12.7.8's named page in one take the same route, the named page drawn into the document
 that asked for it. The question says where the file would open, beside or in place, and a
 replacement relabels its tab and moves the window's path whether or not a password was asked
-(ADR 1335). **§O.2.1's `ef` is a third
+(ADR 1335). A prompt a person cancels declines the file with the reason — a jump says so, and a
+named page's references are let go, each widget keeping its own appearance (ADR 1345).
+**§O.2.1's `ef` is a third
 such value**, `--embedded-documents=refuse|ask|warn|open`, `ask` by default, on the restriction
 menu's third group beside sending a form (ADR 1331).
 
@@ -802,11 +807,15 @@ on their own grids under its placement, a codec picture decoded with them set as
 dictionary naming the cleared ones, and an image mask behind a codec written back as a one-bit
 stencil. An inline image behind `DCTDecode` or `CCITTFaxDecode` is decoded and spliced, and one
 naming a colour-space resource keeps the name.
-It refuses rather than cuts wrong — a Type 3 font, a composite font not
-`Identity-H`, `sh`, a soft mask over the region, a zero line width, a JPX image beyond the operator's
-budget, a matte a re-expressed codec picture cannot keep — each with its sentence, and the overlay
-text and fill it does not compose (A65's fence), said as a departure in the report (ADRs 1124,
-1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333).
+A **Type 3** code is tested against the box its glyph declares, a **composite** code takes
+the bytes its `CMap`'s codespace ranges delimit, **`sh`** is painted through its clip cut to the
+region's complement, a **soft mask's group** is entered and cut, and a stroke's survivors keep its
+own colour, alpha and overprint (ADRs 1351, 1352).
+It refuses rather than cuts wrong — a `d0` glyph whose marks are stated nowhere, a vertical composite
+font, a shading whose colours are data placed in the plane, a zero line width, a JPX image beyond
+the operator's budget, a matte a re-expressed codec picture cannot keep — each with its sentence,
+and the overlay text and fill it does not compose (A65's fence), said as a departure in the report
+(ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351, 1352).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

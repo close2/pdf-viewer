@@ -152,10 +152,6 @@ pub enum Request<'a> {
 /// apply those defaults. What crosses the pipe is therefore a complete description of what to
 /// decode, which is what lets the worker hold no opinion about PDF at all.
 ///
-/// `/DamagedRowsBeforeError` is deliberately absent: it asks for error concealment this decoder
-/// cannot perform, and Table 11 makes it apply only where `/EndOfLine` is true and `/K` is
-/// non-negative. Where it applies the image is refused where the dictionary is read; where it
-/// does not it is inert. Either way it never reaches the wire — see `pdf_model::image`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -196,6 +192,13 @@ pub struct CcittParameters {
     /// `/BlackIs1`: whether a 1 bit is black, "the reverse of the normal PDF syntactic
     /// convention for image data". Default false.
     pub black_is_1: bool,
+    /// `/DamagedRowsBeforeError`: how many damaged rows the filter conceals before damage ends
+    /// the decode. Default zero.
+    ///
+    /// Carried as the dictionary states it; Table 11's precondition — the entry "shall apply only
+    /// if `EndOfLine` is true and K is non-negative" — is applied by `pdf_ccitt`, beside the
+    /// concealment it governs (ADR 1349).
+    pub damaged_rows_before_error: u32,
 }
 
 impl Default for CcittParameters {
@@ -211,12 +214,13 @@ impl Default for CcittParameters {
             encoded_byte_align: false,
             end_of_block: true,
             black_is_1: false,
+            damaged_rows_before_error: 0,
         }
     }
 }
 
 /// How many bytes [`CcittParameters`] occupies on the wire.
-const CCITT_PARAMETERS_LEN: usize = 4 + 4 + 4 + 4 + 1;
+const CCITT_PARAMETERS_LEN: usize = 4 + 4 + 4 + 4 + 4 + 1;
 
 /// Bit positions of the four booleans, in Table 11's order.
 const CCITT_END_OF_LINE: u8 = 1 << 0;
@@ -234,8 +238,10 @@ impl CcittParameters {
         columns.copy_from_slice(&self.columns.to_be_bytes());
         let (rows, rest) = rest.split_at_mut(4);
         rows.copy_from_slice(&self.rows.to_be_bytes());
-        let (height, flags) = rest.split_at_mut(4);
+        let (height, rest) = rest.split_at_mut(4);
         height.copy_from_slice(&self.height.to_be_bytes());
+        let (damaged, flags) = rest.split_at_mut(4);
+        damaged.copy_from_slice(&self.damaged_rows_before_error.to_be_bytes());
         for (set, bit) in [
             (self.end_of_line, CCITT_END_OF_LINE),
             (self.encoded_byte_align, CCITT_ENCODED_BYTE_ALIGN),
@@ -261,7 +267,8 @@ impl CcittParameters {
         let columns = u32::from_be_bytes(bytes.get(4..8)?.try_into().ok()?);
         let rows = u32::from_be_bytes(bytes.get(8..12)?.try_into().ok()?);
         let height = u32::from_be_bytes(bytes.get(12..16)?.try_into().ok()?);
-        let flags = *bytes.get(16)?;
+        let damaged_rows_before_error = u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?);
+        let flags = *bytes.get(20)?;
         Some(Self {
             k,
             columns,
@@ -271,6 +278,7 @@ impl CcittParameters {
             encoded_byte_align: flags & CCITT_ENCODED_BYTE_ALIGN != 0,
             end_of_block: flags & CCITT_END_OF_BLOCK != 0,
             black_is_1: flags & CCITT_BLACK_IS_1 != 0,
+            damaged_rows_before_error,
         })
     }
 }
@@ -297,6 +305,10 @@ pub struct Bilevel {
     /// Table 11's `/Rows`, on the end of its data, or on damage — with the rows past it padded
     /// to the grid by the worker. Never above `height`.
     pub delivered: u32,
+    /// How many of the delivered rows are damaged rows the filter concealed, as §7.4.6 Table
+    /// 11's `/DamagedRowsBeforeError` asks: each is the row above it or white rather than what
+    /// the file coded. Zero for every filter but `CCITTFaxDecode`. Never above `delivered`.
+    pub concealed: u32,
     /// The decoder's own sentence where it stopped on damaged data before `height`.
     ///
     /// `None` where it stopped for a reason ISO 32000-2 §7.4.6 Table 11 allows — an
@@ -625,11 +637,12 @@ pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
                     .rows
                     .len()
                     .saturating_add(stopped_by.len())
-                    .saturating_add(16),
+                    .saturating_add(20),
             );
             payload.extend_from_slice(&bilevel.width.to_be_bytes());
             payload.extend_from_slice(&bilevel.height.to_be_bytes());
             payload.extend_from_slice(&bilevel.delivered.to_be_bytes());
+            payload.extend_from_slice(&bilevel.concealed.to_be_bytes());
             payload.extend_from_slice(&length(stopped_by));
             payload.extend_from_slice(stopped_by);
             payload.extend_from_slice(&bilevel.rows);
@@ -803,7 +816,7 @@ pub(crate) fn parse_response(
     }
 }
 
-/// Reads a bilevel response's payload: the grid, the rows delivered, the sentence about the
+/// Reads a bilevel response's payload: the grid, the rows delivered and concealed, the sentence about the
 /// rest, and the packed samples, each length checked against the one before it.
 fn parse_bilevel(payload: &[u8]) -> Result<Decoded, SandboxError> {
     let malformed = |detail: String| SandboxError::Malformed { detail };
@@ -815,6 +828,12 @@ fn parse_bilevel(payload: &[u8]) -> Result<Decoded, SandboxError> {
     if delivered > height {
         return Err(malformed(format!(
             "{delivered} rows delivered of a {height}-row image"
+        )));
+    }
+    let (concealed, rest) = dimensions_one(rest)?;
+    if concealed > delivered {
+        return Err(malformed(format!(
+            "{concealed} rows concealed of {delivered} delivered"
         )));
     }
     let stopped_by_len = rest
@@ -852,6 +871,7 @@ fn parse_bilevel(payload: &[u8]) -> Result<Decoded, SandboxError> {
         width,
         height,
         delivered,
+        concealed,
         stopped_by,
         rows: rest.to_vec(),
     }))
@@ -1014,6 +1034,7 @@ mod tests {
             width: 9,
             height: 2,
             delivered: 2,
+            concealed: 1,
             stopped_by: None,
             rows: vec![0b1010_1010, 0b1000_0000, 0x00, 0x00],
         });
@@ -1029,6 +1050,7 @@ mod tests {
             width: 9,
             height: 2,
             delivered: 1,
+            concealed: 0,
             stopped_by: Some("CCITTFaxDecode: invalid CCITT code sequence".to_owned()),
             rows: vec![0b1010_1010, 0b1000_0000, 0x00, 0x00],
         });
@@ -1044,6 +1066,7 @@ mod tests {
             width: 9,
             height: 2,
             delivered: 3,
+            concealed: 0,
             stopped_by: None,
             rows: vec![0; 4],
         });

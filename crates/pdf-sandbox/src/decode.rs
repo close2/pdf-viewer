@@ -4,7 +4,7 @@
 //! looked at, and it runs after [`crate::lockdown::apply`] has taken away everything the
 //! process could do with what it finds there.
 //!
-//! Its job is the *filter*, not the codec. `hayro-jbig2`, `hayro-jpeg2000` and `hayro-ccitt`
+//! Its job is the *filter*, not the codec. `hayro-jbig2`, `hayro-jpeg2000` and `pdf-ccitt`
 //! implement ITU-T T.88, T.800 and T.4/T.6; ISO 32000-2 §7.4.6, §7.4.7 and §7.4.9 say what a
 //! PDF filter built on them delivers, and the difference between those two statements is what
 //! is written here — the embedded segment organisation, the sense of a bilevel sample, the
@@ -357,6 +357,8 @@ struct PackedRows {
     delivered: Option<usize>,
     /// The decoder's own sentence where it stopped on damaged data; see [`Self::stop_short`].
     stopped_by: Option<String>,
+    /// How many delivered rows the filter concealed; see [`Bilevel::concealed`].
+    concealed: u32,
 }
 
 impl PackedRows {
@@ -372,6 +374,7 @@ impl PackedRows {
             filled: 0,
             delivered: None,
             stopped_by: None,
+            concealed: 0,
         }
     }
 
@@ -381,9 +384,9 @@ impl PackedRows {
     /// ISO 32000-2 §7.4.6: "The filter shall not perform any error correction or
     /// resynchronization" beyond what `/DamagedRowsBeforeError` asks for, whose Table 11 row
     /// reads "[t]he number of damaged rows of data that shall be tolerated before an error
-    /// occurs" and defaults to zero — so at the first damaged row the filter's decode
-    /// *ends*, and where it ends is a scan line the encoded data reached and this reader did
-    /// not invent. What the rows it did not reach show is stated nowhere: [`Self::pad_to_height`]
+    /// occurs" — so at the first damaged row past that number (the first of all, at its default
+    /// of zero) the filter's decode *ends*, and where it ends is a scan line the encoded data
+    /// reached. What the rows it did not reach show is stated nowhere: [`Self::pad_to_height`]
     /// fills them for the wire's fixed size, and `pdf_model::image` leaves them unpainted,
     /// reading [`Bilevel::delivered`] — the worker knows the filter's white and not the
     /// page's. A row the error fell inside is discarded rather than padded, because its runs
@@ -440,6 +443,9 @@ impl PackedRows {
             delivered: u32::try_from(delivered)
                 .unwrap_or(u32::MAX)
                 .min(self.height),
+            concealed: self
+                .concealed
+                .min(u32::try_from(delivered).unwrap_or(u32::MAX)),
             stopped_by: self.stopped_by,
             rows: self.rows,
         })
@@ -538,13 +544,13 @@ impl hayro_jbig2::Decoder for PackedRows {
 /// Decodes a CCITT fax-encoded image.
 ///
 /// ISO 32000-2 §7.4.6: Group 3 or Group 4 encoding as ITU-T T.4 and T.6 define it, with
-/// Table 11's parameters deciding which. Everything PDF-specific about it is in these thirty
-/// lines, because `hayro-ccitt` implements the two ITU recommendations and nothing else:
+/// Table 11's parameters deciding which. `pdf_ccitt` is the decoder and Table 11's concealment;
+/// what is PDF's rather than the coding's is here:
 ///
 /// - **Which scheme.** Table 11 says the filter "shall distinguish among negative, zero, and
 ///   positive values of K to determine how to interpret the encoded data; however, it shall
-///   not distinguish between different positive K values" — so the sign selects, and the
-///   magnitude is carried through for the mixed mode's own use rather than compared.
+///   not distinguish between different positive K values" — so the sign selects
+///   ([`pdf_ccitt::Coding::from_k`]).
 /// - **The sense of a bit**, which `/BlackIs1` decides. See [`CcittRows`].
 /// - **Where the decode stops and where the image ends**, which are two numbers and not one:
 ///   [`CcittParameters::rows`] bounds the filter and [`CcittParameters::height`] is the grid
@@ -558,20 +564,13 @@ impl hayro_jbig2::Decoder for PackedRows {
 /// Returns a description of what the decoder refused, or — where the data is damaged and not
 /// one whole scan line came before the damage — the decoder's own sentence about it.
 ///
-/// **A damaged stream is drawn as far as it decodes, and says so.** This said the opposite
-/// until the eight-hundred-and-seventy-sixth session: "a malformed stream is reported rather
-/// than partially drawn: the decoder can leave usable rows behind an error, and taking them
-/// would be a page that is silently missing its bottom half". The word carrying that sentence
-/// was *silently*, and the rows are not taken silently — [`Bilevel::stopped_by`] carries the
-/// decoder's sentence out beside them and `pdf_model::image` reports it beside the drawing,
-/// which is the same pair §7.3.8.2's short image already gets (ADR 0356). §7.4.6 forbids the
-/// filter any "error correction or resynchronization", so the rows before the damage are
-/// exactly the filter's output and the rows after it are nobody's; refusing the first because
-/// the second do not exist threw away the two thirds of a scanned page the file does carry.
-/// [`PackedRows::stop_short`] has the clause. ADR 0794.
+/// **A damaged stream is drawn as far as it decodes, and says so.** [`Bilevel::stopped_by`]
+/// carries the decoder's sentence out beside the rows and `pdf_model::image` reports it beside the
+/// drawing, which is the same pair §7.3.8.2's short image gets (ADR 0356). §7.4.6 forbids the
+/// filter any "error correction or resynchronization" beyond `/DamagedRowsBeforeError`'s, so the
+/// rows before the damage are exactly the filter's output and the rows after it are nobody's
+/// (ADR 0794). [`PackedRows::stop_short`] has the clause.
 pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel, String> {
-    use hayro_ccitt::{DecodeSettings, DecoderContext, EncodingMode};
-
     let (width, height, bound) = (parameters.columns, parameters.height, parameters.rows);
     // Both numbers, because either can be the larger: the decode may legitimately stop short of
     // the image (Table 11's `/Rows` under an `/EndOfBlock` of false), and a document may equally
@@ -584,31 +583,31 @@ pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel,
         ));
     }
 
-    let settings = DecodeSettings {
+    let settings = pdf_ccitt::Parameters {
+        coding: pdf_ccitt::Coding::from_k(i64::from(parameters.k)),
         columns: width,
         rows: bound,
-        end_of_block: parameters.end_of_block,
         end_of_line: parameters.end_of_line,
-        rows_are_byte_aligned: parameters.encoded_byte_align,
-        encoding: match parameters.k {
-            ..0 => EncodingMode::Group4,
-            0 => EncodingMode::Group3_1D,
-            k => EncodingMode::Group3_2D {
-                k: k.unsigned_abs(),
-            },
-        },
-        // Left false, and `/BlackIs1` applied in `CcittRows` instead: the decoder's flag and
-        // the PDF entry mean the same thing here, and having one place that turns a colour
-        // into a sample keeps the clause beside the line that implements it.
-        invert_black: false,
+        encoded_byte_align: parameters.encoded_byte_align,
+        end_of_block: parameters.end_of_block,
+        damaged_rows_before_error: parameters.damaged_rows_before_error,
     };
 
     let mut rows = CcittRows {
         packed: PackedRows::new("CCITTFaxDecode", width, height),
         black_is_1: parameters.black_is_1,
+        columns: width,
     };
-    if let Err(error) = hayro_ccitt::decode(data, &mut rows, &mut DecoderContext::new(settings)) {
-        rows.packed.stop_short(format!("CCITTFaxDecode: {error}"))?;
+    match pdf_ccitt::decode(data, &settings, &mut rows) {
+        Ok(summary) => rows.packed.concealed = summary.concealed,
+        Err(pdf_ccitt::Error::Damaged {
+            damage, delivered, ..
+        }) => {
+            rows.packed.concealed = delivered.concealed;
+            rows.packed
+                .stop_short(format!("CCITTFaxDecode: {damage}"))?;
+        }
+        Err(error) => return Err(format!("CCITTFaxDecode: {error}")),
     }
 
     // White, in whichever sense this image's `/BlackIs1` gives the word.
@@ -631,14 +630,22 @@ pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel,
 struct CcittRows {
     packed: PackedRows,
     black_is_1: bool,
+    /// Pels in a scan line, so the last run of a line reaches its end.
+    columns: u32,
 }
 
-impl hayro_ccitt::Decoder for CcittRows {
-    fn push_pixels(&mut self, white: bool, count: u32) {
-        self.packed.push_run(white != self.black_is_1, count);
-    }
-
-    fn next_line(&mut self) {
+impl pdf_ccitt::Rows for CcittRows {
+    fn row(&mut self, changes: &[u32]) {
+        // The runs between changing elements, white first: a line is white until its first
+        // changing element and alternates at each one after.
+        let mut at = 0_u32;
+        let mut white = true;
+        for &change in changes.iter().chain(std::iter::once(&self.columns)) {
+            self.packed
+                .push_run(white != self.black_is_1, change.saturating_sub(at));
+            at = change;
+            white = !white;
+        }
         self.packed.end_row();
     }
 }

@@ -354,6 +354,13 @@ outline with a join overlaps thinly and never trips it, so a dimension line drew
 against the 8× render exposed it. Mark what overlaps by construction and walk it whole; measure
 against a magnified render, not against the previous raster.
 
+### 56. Abutting convex pieces lose their shared edge's sample to both
+
+A stroke built as a union of chord bands, joins and caps, each convex and wound one way, came up
+2.2 pixels short on a disk: the supersampled converter gave the exactly shared edge's sample to
+neither piece, so interior pixels lost a sixteenth (ADR 1348). Overlap abutting pieces slightly; a
+union measured against the clause's distance set is what showed it.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

@@ -401,8 +401,13 @@ name it was asked under. `viewer_host::Arrivals` is that bookkeeping for the thr
 with a prompt and one made without relabel the tab by one route. **`Event::NeedsFile` took one
 field, `beside`** — Table 203's and Table 204's `/NewWindow true` — because a host asking a person
 whether to open the file owes them where it would open. `viewer-confined`'s wire carries it as one
-bit after the name; the C ABI does not expose it yet, and `quorra.h` states the retry rule beside
-`quorra_supply`. ADRs 1332, 1335.
+bit after the name, and the C ABI as `quorra_event_needs_file_beside`, a getter in
+`quorra_event_dirty`'s shape; `quorra.h` states the retry rule beside `quorra_supply`. **A prompt a
+person cancels is the file declined**: `Command::Supply` with no bytes under the purpose it was
+supplied for ends the core's hold, says why, lets a named page's references go — each widget keeps
+its own `/AP` — and gives back with `Event::Closed` a name `Command::Beside` held out.
+`viewer_host::Arrivals::cancel` and `declined` are that for the three windows, sent where the next
+arrival starts rather than from inside the events that raised the prompt. ADRs 1332, 1335, 1345.
 
 **And it added nothing at all for §12.9's rubber band**, which is worth the sentence because ADR
 1191 wrote down that it was owed. The points have been the host's since that round and

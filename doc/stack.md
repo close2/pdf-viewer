@@ -17,6 +17,7 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Accessibility | `AccessKit` (AT-SPI on Linux) |
 | Parallelism | `rayon` |
 | Deflate | `flate2` with `zlib-rs` backend (pure Rust, ~C speed) |
+| Image codecs | `hayro-jbig2` and `hayro-jpeg2000` for §7.4.7 and §7.4.9 (ADR 0014); **`pdf-ccitt`, this tree's own**, for §7.4.6's Group 3 and Group 4 fax, because Table 11's `/DamagedRowsBeforeError` needs a decoder that says where a row broke — all three in `pdf-sandbox`'s confined worker. `hayro-ccitt`, which decoded fax until then, is in the lock only as `hayro-jbig2`'s MMR decoder and in `pdf-model`'s census as evidence (ADR 1349) |
 | Spec model | Arlington PDF Model → generated validation layer |
 | FUSE | `fuser`, pinned `=0.18.0`, default features — its pure-Rust `/dev/fuse` path, no libfuse and no C linkage (ADR 0861) |
 | KIO | CMake, extra-cmake-modules, `Qt6::Core` and `KF6::KIOCore`, for `kio/` alone — **outside the cargo workspace**, no `Cargo.toml`, named by no manifest, so a machine with no KDE builds and tests the whole workspace unchanged and the one test that reaches it skips saying which package is missing (ADR 0869) |

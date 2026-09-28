@@ -147,7 +147,13 @@ depends on nothing but `thiserror`.
   it, sharpest where the quoting file is in the row's own `code = [...]`; the dominant noise is
   one short key in three clauses, so read the witness path it prints before believing a hit. A
   claim no source quotes is printed by name as `confirmed:`, because a witness cannot settle it and
-  only the clause can: whether a reader owes the entry at all.
+  only the clause can: whether a reader owes the entry at all. **The by-own-code count does not
+  reach zero, by the ledger's own habits**: read whole, every hit it printed on 2026-09-28 was a
+  sentence retiring the claim it names, a calibration naming a planted defect, a neighbouring key
+  or a word (`declared_and_unread`), or a true claim whose own code quotes the key for another
+  purpose — a writer carrying it, a table of keys a thumbnail may not hold. The two that were
+  none of those (§12.5.6.7 and §12.5.6.9 calling `/IT` and `/Measure` unread beside sentences
+  saying both are read) are corrected; the module doc names the shapes.
 - **One asks whether a stated *blocker* has expired**: `cargo run --release -p conformance
   --bin blockers`, seconds, over `ledger.toml` and the source roots — the first sweep as a program
   (ADR 0336). A blocker sentence naming a clause is judged against the ledger's own account of
@@ -308,8 +314,19 @@ depends on nothing but `thiserror`.
   longer prints. Calibrated per trap 13 against 662's own defect restored to the tree, where it is
   rung 1, rank 1. The noise is the last rung — a 370-page list collects a passing mention for free —
   and a note may deliberately not cite a later ADR about a different property of the same page.
-  **The cheapest way to keep off it: cite your own ADR in the note you rewrite.** The 62 notes that
-  cite no ADR at all are counted rather than listed; the comparison has no left-hand side.
+  **The cheapest way to keep off it: cite your own ADR in the note you rewrite.** The notes that
+  cite no ADR at all are counted rather than listed; the comparison has no left-hand side. A note
+  read against every decision the sweep prints for it, and corrected where one made a sentence
+  false, goes into `overtaken::READ` with the newest decision the reading reached, and returns only
+  when a later one names its pages (ADR 1355). **What stays on the list is the population whose
+  reading needs a measurement rather than a sentence**: seven notes whose figures a later decision
+  moved and no run has re-taken — `AMBIGUOUS_GLYPH_COVERAGE`, `AMBIGUOUS_NEAREST_THE_GEOMETRY`,
+  `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`, `AMBIGUOUS_STANDARD_FOURTEEN_FACE` (`issue16473.pdf`),
+  `AMBIGUOUS_SUBSTITUTED_FACE` (`non-embedded-NuptialScript.pdf`, `XiaoBiaoSong.pdf`) and
+  `CONTRADICTED_SUBPIXEL_IMAGE` against ADRs 1082, 1102 and 0358, and `REFUSED_BY_THE_DEVICE_AT_FOUR`,
+  whose "not one page … refused for frame bytes" sits beside two pages its own bullets price
+  against the scene-byte budget. Each leaves by an oracle or `render_at` run and a sentence, not by
+  an entry.
 - **One reads no source at all and no row either**: `cargo run --release -p
   conformance --bin quoted -- <the oracle's log>`, under a second, over the oracle's page-list
   notes and **the oracle's own printed output** — the twentieth sweep and the fifteenth to be a
@@ -582,10 +599,13 @@ depends on nothing but `thiserror`.
   §11.3.5.2 14 times by `raster-scene/src/blend.rs`, each under a row naming no file of that crate;
   the two that were not are a validator citing a clause it checks rather than implements, and a
   crate whose listed site is its C++ half. ADR 1274. A citation of a clause the ledger has **no
-  row** for is listed too, with what its number alone says — an informative annex (A, B or C) or a
-  whole clause is the standard cited where no row could hold it — because the wrong ones look the
-  same: a `§` meaning a section of an ADR, an RFC or a `doc/todo` file named at the end of the line
-  before, which is written "section N".
+  row** for is one of two things. A heading the ledger rows nothing under **by design** — an
+  informative annex, or a whole clause (`§11`, `§2`) — is counted per class with the numbers it
+  holds (`cited::Unrowed`, ADR 1355); every other one is listed and read, and **that count is zero
+  on a clean tree**: a `§` meaning a section of an ADR, an RFC or a `doc/todo` file named at the end
+  of the line before, which is written "section N", or a front-matter subclause. What a class cannot
+  see is a misread `§` that spells an informative annex's number or a whole clause's; the printed
+  numbers are how a new one shows.
 - **One asks whether a note's own sentence about the row agrees with the row's `status` field**, and
   it is the only sweep here whose two sides are both inside one row: `cargo run --release -p
   conformance --bin last_sentences`, a fraction of a second, over `ledger.toml` and nothing else —

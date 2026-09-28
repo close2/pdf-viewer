@@ -113,13 +113,14 @@ section_names() {
 # at a neighbour rather than implement anything — so the filter keeps the denominators and the top
 # rung; `cargo test -p conformance --test cited` gates the calibration alone. A checker citing the
 # clause it checks has a rung of its own, printed as a count per named crate (`cited::CHECKERS`).
-# Every no-row pair is listed with what its number alone says (`cited::why_no_row`): an informative
-# annex or a whole clause is a citation of the standard the ledger has no row for, and anything
-# else is read first — a `§` that meant a section of an ADR, an RFC or a `doc/todo` file named at
-# the end of the line before is written "section N". Those under `raster/` are counted apart.
+# A citation of a heading the ledger rows nothing under by design — an informative annex, a whole
+# clause — is counted per class (`cited::Unrowed`) with the numbers it holds; every other no-row
+# pair is listed and read first, because it is zero on a clean tree and rises only for a real gap:
+# a `§` that meant a section of an ADR, an RFC or a `doc/todo` file named at the end of the line
+# before is written "section N". Those under `raster/` are counted apart. ADR 1355.
 section_cited() {
     run "a clause a file cites against that clause's own code list" \
-        'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|no-row pair\(s\) lie under|^  §' \
+        'pair\(s\) over |a row claiming work|a checker cites|^  crates/|pair\(s\) the row already names|pair\(s\) cite |no class that says why|no-row pair\(s\) lie under|^  §' \
         cargo run -q --release -p conformance --bin cited
 }
 

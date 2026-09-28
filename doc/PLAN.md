@@ -292,7 +292,8 @@ scriptable on Linux — keep a small manually-captured Acrobat golden set.
 ## 4a. hayro, and what it changes
 
 `hayro` is a nine-crate pure-Rust PDF renderer published to crates.io. This project depends on
-three of its crates for JBIG2, JPEG 2000 and CCITT (ADR 0014), so the relationship is stated rather
+two of its crates for JBIG2 and JPEG 2000 (ADR 0014), and on a third, `hayro-ccitt`, only as the
+first one's MMR decoder (ADR 1349), so the relationship is stated rather
 than left implicit. `doc/hayro vs this project.md` has the long version; what belongs here is what
 it changes. Where a sentence below needs a figure, `tools/state.sh` prints the current one.
 
@@ -317,10 +318,11 @@ temptation stronger rather than weaker.
 
 ### Items taken from the comparison
 
-1. **`CCITTFaxDecode` through `hayro-ccitt`**, taken: it was already in the dependency tree as
-   `hayro-jbig2`'s MMR decoder, and it decodes in the confined worker beside JBIG2 and JPEG 2000,
-   `crates/pdf-sandbox/src/decode.rs` being the only place in the tree any of the three codestreams
-   is looked at.
+1. **`CCITTFaxDecode` through `pdf-ccitt`**, this tree's own: `hayro-ccitt` was taken first, as
+   `hayro-jbig2`'s MMR decoder already in the tree, and gave way when §7.4.6's
+   `/DamagedRowsBeforeError` needed a decoder that could say where a row broke (ADR 1349). It decodes
+   in the confined worker beside JBIG2 and JPEG 2000, `crates/pdf-sandbox/src/decode.rs` being the
+   only place in the tree any of the three codestreams is looked at.
 2. **Their crate boundaries are worth copying where ours are missing.** `hayro-cmap` as its
    own crate is a better shape than our "embedded `CMap`s are 14 documents in the text gap":
    a `CMap` parser is self-contained, independently testable and independently fuzzable,
@@ -547,9 +549,9 @@ and all three are arguments for the method in *How it gets filled* above:
   operators governs uncoloured *tiling patterns* as well as `d1` glyph descriptions, its list is
   not what Table 111's parenthesis implies, and `cs`/`CS` must set an initial colour which is black
   in only three of its six cases. None reported anything at runtime.
-- **One gap gets a row in every clause it is a gap for.** §11.7.4's overprinting is six rows;
-  §11.4.6, §11.6.6 and §11.3.7.3 are the transparency-group gap recorded three times. A reader of
-  any of them should find it, which is what a ledger is for.
+- **One gap gets a row in every clause it is a gap for.** §11.7.4's overprinting took six rows,
+  and one transparency-group gap took §11.4.6, §11.6.6 and §11.3.7.3 alike. A reader of any of
+  them finds it, which is what a ledger is for.
 
 **Table numbers are now checked, weakly and honestly.** The tree cited "§9.3.6 Table 106" for
 the text rendering modes in four comments, two tests and a written report; the modes are Table

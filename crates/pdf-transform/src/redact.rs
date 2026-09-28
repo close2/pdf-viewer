@@ -81,19 +81,40 @@
 //! space resource under the name the producer gave it; one behind `DCTDecode` or
 //! `CCITTFaxDecode` is decoded and re-expressed as an image `XObject` behind them is.
 //!
+//! # Every font's codes, and where a Type 3 glyph marks (ADR 1351)
+//!
+//! The code is the unit of removal, so a string is split exactly where a reader splits it: one
+//! byte for a simple font, and for a composite font as many bytes as §9.7.6.2's codespace ranges
+//! extract for each code, through the `CMap` the font loader resolves
+//! ([`pdf_font::composite_cmap`]) and the function it decodes with. A Type 3 glyph is a content
+//! stream that may mark past its advance, so its code is tested against the box its description
+//! declares — `d1`'s, or the font's `/FontBBox` for a `d0` glyph — carried to the page by
+//! `/FontMatrix` and §9.4.4's text rendering matrix. The glyph description itself is the font's
+//! and stays; only the code that invoked it goes, and its advance is restored like any other.
+//!
+//! # `sh`, soft-mask groups and a stroke's own state (ADRs 1351, 1352)
+//!
+//! `sh` paints the clip, so where it meets the region the clip is cut: the shading is painted
+//! through the clip intersected with the region's complement ([`shading`]). A soft mask's group
+//! is content that marks the page as shape or opacity, so it is entered at the `gs` that
+//! establishes it and cut like any other stream. A stroke's surviving outline is filled in the
+//! stroke's own colour, alpha and overprint — stated by a graphics state dictionary the stream's
+//! resources gain where the fill's differ.
+//!
 //! # What is refused, never cut wrong (trap 5)
 //!
 //! A page is refused by name — its content and its `/Redact` annotations left as the file
-//! wrote them — where removal cannot be proven to leave no trace: a Type 3 font (§9.6.5's glyph
-//! procedures draw outside the advance box this walk measures), a composite font not encoded
-//! `Identity-H` (§9.7.5's codespace decides the code-byte width), the `sh` operator (§8.7.4.2
-//! paints the whole clip), a soft-mask group, or any code count the interpreter does not confirm.
-//! An encrypted document is refused outright where no protection is stated for the output,
-//! because the redaction would otherwise be written in the clear (ADR 1162).
+//! wrote them — where removal cannot be proven to leave no trace, and every refusal is an owed
+//! capability or a reading of the clause rather than a silence:
 //!
-//! Marks meeting the region stay refused with their own narrower reason, each an owed capability
-//! rather than a silence:
-//!
+//! - any **code count** the interpreter does not confirm;
+//! - a **Type 3 glyph** whose marks are stated nowhere — a `d0` glyph in a font whose `/FontBBox`
+//!   is all zero, which §9.6.4 says to make "no assumptions about glyph sizes" from;
+//! - a **composite font** whose `CMap` does not resolve, or that writes vertically, where §9.4.4's
+//!   displacement is `ty` and the gap this walk restores is `tx`;
+//! - a **shading** whose colours are data placed in the plane — a function-based shading, a
+//!   mesh, or an axial or radial one through a sampled or calculator function — which cutting
+//!   the clip would hide rather than destroy;
 //! - a **codec image whose decode is not its own grid** — a `JPXDecode` codestream larger than
 //!   the operator's budget, which is refused rather than decoded at a reduced resolution level
 //!   (§7.4.9 NOTE 3) that would resample the image outside the region too — or whose decoder
@@ -103,13 +124,16 @@
 //!   whose shape its [`RasterKind`] cannot hold;
 //! - an **inline image** behind a filter §8.9.7 forbids inline, or whose colour space holds a
 //!   reference no resource name in force reaches;
-//! - a **painted path** whose marks the cut cannot take exactly: a zero-width stroke, one whose
-//!   stroking colour or alpha this walk cannot
-//!   restate, one whose path object another operator interrupted, and one whose surviving
-//!   coordinates are too large for [`paths::Cut::margin_holds`] to prove the cut edge cannot
-//!   round into the region;
-//! - a **form `XObject`** (§8.10) whose content does not decode, one that draws itself, or one
-//!   the page's resources name directly rather than by reference, so no object can be replaced.
+//! - a **painted path** whose marks the cut cannot take exactly: a zero-width stroke, whose width
+//!   §8.4.3.2 states in device pixels, one whose path object another operator interrupted, and
+//!   one whose surviving coordinates are too large for [`paths::Cut::margin_holds`] to prove the
+//!   cut edge cannot round into the region;
+//! - a **form `XObject`** (§8.10) whose content does not decode, one that draws itself, one the
+//!   page's resources name directly rather than by reference, so no object can be replaced, and
+//!   one drawn twice whose placements the region meets differently.
+//!
+//! An encrypted document is refused outright where no protection is stated for the output,
+//! because the redaction would otherwise be written in the clear (ADR 1162).
 //!
 //! # Cutting a painted path (§8.5, §12.5.6.23)
 //!
@@ -148,6 +172,7 @@
 //! as a per-page [`crate::Departure`] from §12.5.6.23's full application semantics.
 
 mod paths;
+mod shading;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -156,7 +181,7 @@ use std::sync::Arc;
 
 use pdf_model::colour::{ColourSpace, Conversion};
 use pdf_model::content::{Interpretation, base_transform, interpret};
-use pdf_model::image::Flattened;
+use pdf_model::image::{Flattened, ORDINARY_JPX_SAMPLES};
 use pdf_model::{Page, Pages};
 use pdf_render::geom::Point;
 use pdf_render::{Color, Transform};
@@ -245,19 +270,17 @@ pub(crate) fn run(
     let mut departures: Vec<usize> = Vec::new();
 
     for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
-            continue;
-        };
-        let Some(page_id) = page.id else {
+        let Some((page, page_id)) = pages
+            .get(index)
+            .and_then(|page| page.id.map(|id| (page, id)))
+        else {
             continue;
         };
         let regions = redactions(document, &page);
         if regions.is_empty() {
             continue;
         }
-        let image_samples = plan
-            .image_samples
-            .unwrap_or(pdf_model::image::ORDINARY_JPX_SAMPLES);
+        let image_samples = plan.image_samples.unwrap_or(ORDINARY_JPX_SAMPLES);
         match plan_page(document, &page, &regions, (&counts, image_samples)) {
             Ok(edit) => {
                 // §12.5.6.23: destroy the image data. Grouped and cleared per page, so a shared
@@ -279,6 +302,7 @@ pub(crate) fn run(
                     resources: page.resources.clone(),
                     images,
                     forms: edit.forms,
+                    states: edit.states,
                 });
             }
             Err(skip) => report.refused.push(Declined {
@@ -493,6 +517,8 @@ struct AppliedPage {
     images: Vec<ClearedImage>,
     /// The forms whose content this page's removal edited.
     forms: Vec<FormEdit>,
+    /// Graphics state dictionaries the edited content names that the page's resources gain.
+    states: Vec<(Vec<u8>, Dictionary)>,
 }
 
 /// One `/Redact` annotation's region and whether it states an overlay appearance.
@@ -608,6 +634,8 @@ struct PageEdit {
     paths: usize,
     /// The form `XObject`s whose own content streams the removal edited (§8.10).
     forms: Vec<FormEdit>,
+    /// Graphics state dictionaries the edited page content names that its resources must gain.
+    states: Vec<(Vec<u8>, Dictionary)>,
 }
 
 /// One image `XObject` placement the removal clears: which object, the transform that placed its
@@ -706,6 +734,11 @@ struct FormEdit {
     /// Whether the form is shared, so the edited stream must be a copy placed for this page and
     /// the original left holding the marks the other pages' placements draw.
     private: bool,
+    /// The resource dictionary the form's names were resolved in — its own, or the page's where
+    /// it states none — which is what it is written with when [`Self::states`] adds to it.
+    resources: Dictionary,
+    /// Graphics state dictionaries the edited stream names that its resources must gain.
+    states: Vec<(Vec<u8>, Dictionary)>,
 }
 
 /// An image's sample layout: enough of §8.9.5 to address one packed sample.
@@ -757,20 +790,86 @@ fn map_box(base: Transform, user: [f32; 4]) -> [f32; 4] {
     bbox_of_points(&flat)
 }
 
-/// How a font's codes are read from a show string's bytes.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum CodeWidth {
-    /// A simple font (§9.6): one byte, one code.
-    One,
-    /// A composite font encoded `Identity-H` (§9.7.5.2): two bytes, one code.
-    Two,
+/// How a font's codes are read from a show string's bytes, and where each one marks the page.
+///
+/// The code is the unit of removal, so the walk has to split a string exactly where a reader
+/// does; the cut is held to the interpreter by the code count as well (trap 13). ADR 1351.
+#[derive(Clone)]
+enum Codes {
+    /// A simple font with a glyph program (§9.6): one byte, one code, marking within the box the
+    /// interpreter placed.
+    Simple,
+    /// A Type 3 font (§9.6.4): one byte, one code — a simple font — whose glyph is a content
+    /// stream that may mark outside the advance box, so each code is tested against the box its
+    /// own description declares ([`Type3Marks`]).
+    Type3(Arc<Type3Marks>),
+    /// A composite font (§9.7): each code as long as the `CMap`'s codespace ranges make it, which
+    /// is how many bytes §9.7.6.2 extracts from the string for each successive code.
+    Composite(Arc<pdf_font::cmap::CMap>),
 }
 
-impl CodeWidth {
-    fn bytes(self) -> usize {
-        match self {
-            Self::One => 1,
-            Self::Two => 2,
+/// What the walk needs of a Type 3 font to say where one of its glyphs marks the page.
+///
+/// §9.6.4 states two boxes, and between them every glyph has one: Table 111's `d1` operands are
+/// the glyph's bounding box, of which it says "[t]he declared bounding box shall be correct - in
+/// other words, sufficiently large to enclose the entire glyph", and Table 110's `/FontBBox` is "the smallest rectangle
+/// enclosing all marks that would result if all of the glyphs of the font were placed with their
+/// origins coincident". A `d0` glyph declares no box of its own, so the font's is the one that
+/// holds — unless all four of its numbers are zero, where the clause withdraws it ("a PDF
+/// processor shall make no assumptions about glyph sizes based on the font bounding box") and the
+/// glyph's marks are stated nowhere. ADR 1351.
+struct Type3Marks {
+    /// The font, for §9.6.4's steps a) and b) and its `/FontMatrix`.
+    font: pdf_model::type3::Type3Font,
+    /// `/FontBBox` in glyph space, or `None` where every element is zero.
+    font_box: Option<[f64; 4]>,
+}
+
+impl Type3Marks {
+    /// The glyph-space box a code's glyph description marks within, `Ok(None)` where the code
+    /// reaches no description (§9.6.4 step b): "no glyph shall be painted"), or a refusal where
+    /// its marks are stated nowhere.
+    fn glyph_box(&self, document: &Document, code: u8) -> Result<Option<[f64; 4]>, String> {
+        let Some(stream) = self.font.glyph(document, u32::from(code)) else {
+            return Ok(None);
+        };
+        let declared = document
+            .decoded_stream_data(&stream)
+            .and_then(|data| declared_glyph_box(&data));
+        declared.or(self.font_box).map(Some).ok_or_else(|| {
+            format!(
+                "§9.6.4: the Type 3 glyph for code {code} begins with d0, which declares no                  bounding box, and the font's /FontBBox is all zero, so where its marks fall is                  stated nowhere; the page is refused rather than tested against a guess"
+            )
+        })
+    }
+}
+
+/// The bounding box a Type 3 glyph description's `d1` declares (Table 111), or `None` where the
+/// description begins with anything else.
+///
+/// Table 110 requires the stream to "include as its first operator either d0 or d1", so only the
+/// first operator is read.
+fn declared_glyph_box(data: &[u8]) -> Option<[f64; 4]> {
+    let mut lexer = Lexer::at(data, 0);
+    let mut operands: Vec<f64> = Vec::new();
+    loop {
+        lexer.skip_whitespace();
+        match lexer.next_token()? {
+            Token::Integer(value) => {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a glyph-space coordinate is far inside f64"
+                )]
+                operands.push(value as f64);
+            }
+            Token::Real(value) => operands.push(value),
+            Token::Keyword(keyword) if keyword == b"d1" => {
+                let [.., llx, lly, urx, ury] = operands.as_slice() else {
+                    return None;
+                };
+                return Some([llx.min(*urx), lly.min(*ury), llx.max(*urx), lly.max(*ury)]);
+            }
+            _ => return None,
         }
     }
 }
@@ -999,6 +1098,50 @@ struct Frame {
     path: Option<PathObject>,
     graphics: GraphicsState,
     graphics_stack: Vec<GraphicsState>,
+    text: TextState,
+    added_states: Vec<(Vec<u8>, Dictionary)>,
+}
+
+/// Byte-range edits to one content stream: start, end, and the bytes that replace the range.
+type Edits = Vec<(usize, usize, Vec<u8>)>;
+
+/// Graphics state parameter dictionaries a stream's edits name, each under the resource name it
+/// is added with.
+type AddedStates = Vec<(Vec<u8>, Dictionary)>;
+
+/// How the walk came to be running a form's content stream.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Entered {
+    /// Drawn with `Do` (§8.10.1), inheriting the graphics state.
+    Drawn,
+    /// Evaluated as a soft mask's transparency group (§11.6.5.1), from the initial state.
+    MaskGroup,
+}
+
+/// §9.3's text state as far as the walk tracks it, with the text matrix's linear part.
+#[derive(Clone)]
+struct TextState {
+    linear: Transform,
+    size: f32,
+    horizontal: f32,
+    char_spacing: f32,
+    word_spacing: f32,
+    codes: Option<Codes>,
+}
+
+impl Default for TextState {
+    /// The initial values §9.3 gives the parameters of Table 102: no font, a size of zero,
+    /// horizontal scaling of 100 per cent, no spacing.
+    fn default() -> Self {
+        Self {
+            linear: Transform::IDENTITY,
+            size: 0.0,
+            horizontal: 1.0,
+            char_spacing: 0.0,
+            word_spacing: 0.0,
+            codes: None,
+        }
+    }
 }
 
 /// The parts of §8.4's graphics state a cut of a §8.5.3.2 stroke needs, and nothing else.
@@ -1041,6 +1184,22 @@ struct GraphicsState {
     stroking_alpha: f64,
     /// §11.6.4.4's `/ca`, the non-stroking alpha constant.
     fill_alpha: f64,
+    /// Table 51's overprint parameter for stroking, set by Table 58's `/OP`.
+    stroke_overprint: bool,
+    /// The same for every other painting operation, set by `/op` — or by `/OP` where the same
+    /// dictionary states no `/op`.
+    fill_overprint: bool,
+    /// The pattern the non-stroking colour names, where `scn` named one (§8.7.2).
+    fill_pattern: Option<Vec<u8>>,
+    /// The pattern the stroking colour names, where `SCN` named one.
+    stroke_pattern: Option<Vec<u8>>,
+    /// A box in the display list's space enclosing §8.5.4's current clipping path, or `None`
+    /// while nothing has clipped the page.
+    ///
+    /// Each `W` or `W*` narrows it to the box of the path it intersects the clip with, which
+    /// contains that path, so the box only ever over-states the clip — the direction that tests
+    /// more marks against the region, never fewer. What `sh` paints is bounded by it (ADR 1351).
+    clip: Option<[f32; 4]>,
 }
 
 impl Default for GraphicsState {
@@ -1057,6 +1216,11 @@ impl Default for GraphicsState {
             value: None,
             stroking_alpha: 1.0,
             fill_alpha: 1.0,
+            stroke_overprint: false,
+            fill_overprint: false,
+            fill_pattern: None,
+            stroke_pattern: None,
+            clip: None,
         }
     }
 }
@@ -1092,22 +1256,27 @@ impl GraphicsState {
             .with_dashes(self.dash_phase, self.dashes.iter().copied())
     }
 
-    /// The operators that give a fill this state's **stroking** colour, or `None` where no
-    /// stroking colour operator has run.
+    /// The operators that give a fill this state's **stroking** colour.
     ///
     /// Table 74 pairs each stroking operator with the non-stroking one that sets the same thing,
     /// and the operands written are the file's own bytes rather than numbers this program
     /// re-formatted. A `CS` with no `SC` or `SCN` after it is enough on its own: §8.6.8 has that
     /// operator "set the colour to its initial value" for the space it names, and `cs` sets the
     /// same initial value for the same space.
-    fn non_stroking_colour(&self) -> Option<Vec<u8>> {
-        if self.space.is_none() && self.value.is_none() {
-            return None;
-        }
+    ///
+    /// Where no `CS` has run, the stroking space is Table 51's initial one, `DeviceGray` for both
+    /// colour spaces, which the non-stroking space need not still be, so it
+    /// is stated before an `SC` or `SCN` is replayed. Where no stroking colour operator has run at
+    /// all, the colour is that space's initial black, which `0 g` states (ADR 1351).
+    fn non_stroking_colour(&self) -> Vec<u8> {
         let mut out = Vec::new();
         if let Some(space) = &self.space {
             out.extend_from_slice(space);
             out.extend_from_slice(b" cs\n");
+        } else if self.value.is_none() {
+            out.extend_from_slice(b"0 g\n");
+        } else if matches!(&self.value, Some((_, "sc" | "scn"))) {
+            out.extend_from_slice(b"/DeviceGray cs\n");
         }
         if let Some((operands, operator)) = &self.value {
             out.extend_from_slice(operands);
@@ -1115,7 +1284,7 @@ impl GraphicsState {
             out.extend_from_slice(operator.as_bytes());
             out.push(b'\n');
         }
-        Some(out)
+        out
     }
 
     /// Records one stroking colour operator's operands under the non-stroking operator that sets
@@ -1331,7 +1500,11 @@ struct Walk<'a> {
     horizontal: f32,
     char_spacing: f32,
     word_spacing: f32,
-    width: Option<CodeWidth>,
+    /// How the current font's codes are split and where they mark, from the last `Tf`.
+    codes: Option<Codes>,
+    /// Graphics state dictionaries this stream's edits name and its resources must gain: the
+    /// stroking alpha and overprint a surviving outline is filled under ([`Walk::restate_stroke`]).
+    added_states: Vec<(Vec<u8>, Dictionary)>,
     /// The path object under construction (§8.5.2), or `None` between path objects.
     path: Option<PathObject>,
     /// §8.4's graphics state, as far as cutting a §8.5.3.2 stroke needs it.
@@ -1389,7 +1562,8 @@ impl<'a> Walk<'a> {
             horizontal: 1.0,
             char_spacing: 0.0,
             word_spacing: 0.0,
-            width: None,
+            codes: None,
+            added_states: Vec::new(),
             path: None,
             graphics: GraphicsState::default(),
             graphics_stack: Vec::new(),
@@ -1403,7 +1577,7 @@ impl<'a> Walk<'a> {
             form_edits: Vec::new(),
             forms_open: Vec::new(),
             inside_shared: 0,
-            image_samples: pdf_model::image::ORDINARY_JPX_SAMPLES,
+            image_samples: ORDINARY_JPX_SAMPLES,
         }
     }
 
@@ -1425,6 +1599,7 @@ impl<'a> Walk<'a> {
             inline_images: self.inline_cleared,
             paths: self.paths_cut,
             forms: self.form_edits,
+            states: self.added_states,
         })
     }
 
@@ -1490,7 +1665,14 @@ impl<'a> Walk<'a> {
                                 self.graphics.record_colour(keyword, bytes.to_vec());
                             }
                         }
-                        self.operator(keyword, start, &operands)?;
+                        if keyword == b"sh" {
+                            if let Some(path) = self.path.as_mut() {
+                                path.interrupted = true;
+                            }
+                            self.shade(content, &operands, start)?;
+                        } else {
+                            self.operator(keyword, start, &operands)?;
+                        }
                     }
                     operands.clear();
                 }
@@ -1547,6 +1729,12 @@ impl<'a> Walk<'a> {
                     }
                 }
             }
+            // §8.6.8's colour operators, as far as whether the colour is a pattern: a pattern is
+            // named by the operand of `scn` or `SCN`, and every other colour operator replaces it.
+            b"scn" => self.graphics.fill_pattern = pattern_name(operands),
+            b"cs" | b"sc" | b"g" | b"rg" | b"k" => self.graphics.fill_pattern = None,
+            b"SCN" => self.graphics.stroke_pattern = pattern_name(operands),
+            b"CS" | b"SC" | b"G" | b"RG" | b"K" => self.graphics.stroke_pattern = None,
             b"Tc" => self.char_spacing = first(&plain_numbers(operands)),
             b"Tw" => self.word_spacing = first(&plain_numbers(operands)),
             b"Tj" | b"'" => self.show_one(operands, keyword, keyword_start)?,
@@ -1587,15 +1775,12 @@ impl<'a> Walk<'a> {
             b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"B*" | b"b" | b"b*" => {
                 self.paint_path(keyword, keyword_start)?;
             }
-            b"n" => self.path = None,
-            b"Do" => self.do_xobject(operands)?,
-            b"sh" => {
-                return Err(
-                    "§8.7.4.2: the sh operator paints the whole clip, which no byte-range \
-                            edit can redact in part; the page is refused"
-                        .to_owned(),
-                );
+            b"n" => {
+                if let Some(path) = self.path.take() {
+                    self.narrow_clip(&path);
+                }
             }
+            b"Do" => self.do_xobject(operands)?,
             b"gs" => self.ext_gstate(operands)?,
             _ => {}
         }
@@ -1616,15 +1801,15 @@ impl<'a> Walk<'a> {
         {
             self.font_size = size.unwrap_or(0.0) as f32;
         }
-        self.width = match name {
-            Some(name) => Some(self.code_width(&name)?),
+        self.codes = match name {
+            Some(name) => Some(self.font_codes(&name)?),
             None => None,
         };
         Ok(())
     }
 
-    /// The code-byte width of the named font, or a refusal for a font the walk will not cut.
-    fn code_width(&self, name: &[u8]) -> Result<CodeWidth, String> {
+    /// How the named font's codes are read, or a refusal for a font the walk will not cut.
+    fn font_codes(&self, name: &[u8]) -> Result<Codes, String> {
         let fonts = self.document.get_key(&self.resources, "Font");
         let font = fonts
             .as_dict()
@@ -1644,13 +1829,9 @@ impl<'a> Walk<'a> {
             .map(|name| name.as_bytes().to_vec())
             .unwrap_or_default();
         match subtype.as_slice() {
-            b"Type1" | b"TrueType" | b"MMType1" => Ok(CodeWidth::One),
-            b"Type3" => Err(
-                "§9.6.5: a Type 3 font's glyphs are content streams that may draw outside the \
-                 advance box this walk measures; the page is refused"
-                    .to_owned(),
-            ),
-            b"Type0" => self.composite_width(font),
+            b"Type1" | b"TrueType" | b"MMType1" => Ok(Codes::Simple),
+            b"Type3" => self.type3_codes(font, name),
+            b"Type0" => self.composite_codes(font, name),
             other => Err(format!(
                 "the content shows a /{} font, whose code width this walk does not settle; the \
                  page is refused",
@@ -1659,21 +1840,55 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// A Type 0 font's width: two bytes for `Identity-H`, else a refusal (§9.7.5 codespace).
-    fn composite_width(&self, font: &Dictionary) -> Result<CodeWidth, String> {
-        if self
-            .document
-            .get_key(font, "Encoding")
-            .as_name()
-            .is_some_and(|name| name.as_bytes() == b"Identity-H")
-        {
-            return Ok(CodeWidth::Two);
+    /// A Type 3 font's codes (§9.6.4), with what locates each glyph's marks.
+    fn type3_codes(&self, font: &Dictionary, name: &[u8]) -> Result<Codes, String> {
+        let shown = String::from_utf8_lossy(name);
+        let read =
+            pdf_model::type3::Type3Font::read(self.document, font, &shown).map_err(|error| {
+                format!(
+                    "§9.6.4: the Type 3 font /{shown} cannot be read ({error}); the page is refused"
+                )
+            })?;
+        let font_box = numbers(self.document, font, "FontBBox")
+            .and_then(|values| match values.as_slice() {
+                [llx, lly, urx, ury] => Some([
+                    f64::from(*llx),
+                    f64::from(*lly),
+                    f64::from(*urx),
+                    f64::from(*ury),
+                ]),
+                _ => None,
+            })
+            .filter(|values| values.iter().any(|value| *value != 0.0))
+            .map(|[llx, lly, urx, ury]| [llx.min(urx), lly.min(ury), llx.max(urx), lly.max(ury)]);
+        Ok(Codes::Type3(Arc::new(Type3Marks {
+            font: read,
+            font_box,
+        })))
+    }
+
+    /// A Type 0 font's codes, as its `CMap`'s codespace ranges delimit them (§9.7.6.2).
+    ///
+    /// The `CMap` is resolved by the same function the font loader uses, so a predefined name, an
+    /// embedded stream and its `/UseCMap` chain are all read one way. A vertical `CMap` is refused:
+    /// in writing mode 1 §9.4.4's displacement is `ty`, and the gap a removal leaves is restored
+    /// here along the text space's x axis only.
+    fn composite_codes(&self, font: &Dictionary, name: &[u8]) -> Result<Codes, String> {
+        let shown = String::from_utf8_lossy(name);
+        let cmap = pdf_font::composite_cmap(self.document, font, &shown).map_err(|error| {
+            format!(
+                "§9.7.6.2: the composite font /{shown}'s CMap cannot be resolved ({error}), so \
+                 how many bytes each of its codes takes is unknown; the page is refused"
+            )
+        })?;
+        if cmap.wmode() != 0 {
+            return Err(format!(
+                "§9.7.4.3: the composite font /{shown} writes vertically, where a removed \
+                 glyph's advance is §9.4.4's ty rather than the tx this walk restores; the page \
+                 is refused"
+            ));
         }
-        Err(
-            "§9.7.5: a composite font encoded by anything but Identity-H has a codespace that \
-             decides the code-byte width; the page is refused"
-                .to_owned(),
-        )
+        Ok(Codes::Composite(Arc::new(cmap)))
     }
 
     /// `Tj`/`'`: one string. `'` (§9.4.3) is `T*` then a show, which does not move the text
@@ -1743,7 +1958,7 @@ impl<'a> Walk<'a> {
     /// restoring their advance as adjustments. `None` means nothing was removed, so the source
     /// bytes are left untouched (the "outside byte-identical" guarantee).
     fn rewrite_show(&mut self, elements: &[ArrayElement]) -> Result<Option<String>, String> {
-        let width = self.require_width()?;
+        let codes = self.require_codes()?;
         let scale = self.advance_scale();
         let refusal = if self.font_size == 0.0 || self.horizontal == 0.0 {
             Some(
@@ -1771,7 +1986,7 @@ impl<'a> Walk<'a> {
             // Still count the codes so the interpreter's total is met, and refuse only where the
             // region is actually touched — a page whose problematic text is nowhere near a
             // redaction is redacted fine.
-            return if self.count_only(elements, width)? {
+            return if self.count_only(elements, &codes)? {
                 Err(reason)
             } else {
                 Ok(None)
@@ -1784,7 +1999,7 @@ impl<'a> Walk<'a> {
             match element {
                 ArrayElement::Number(value) => write_number(&mut out, *value),
                 ArrayElement::Str(bytes) => {
-                    any |= self.rewrite_string(bytes, width, &mut out)?;
+                    any |= self.rewrite_string(bytes, &codes, &mut out)?;
                 }
             }
         }
@@ -1797,20 +2012,20 @@ impl<'a> Walk<'a> {
     fn rewrite_string(
         &mut self,
         bytes: &[u8],
-        width: CodeWidth,
+        codes: &Codes,
         out: &mut String,
     ) -> Result<bool, String> {
-        let codes = split_codes(bytes, width)?;
         let mut kept: Vec<u8> = Vec::new();
         let mut removed_first: Option<[f32; 8]> = None;
         let mut removed_last: [f32; 8] = [0.0; 8];
         let mut any = false;
-        for (start, len) in codes {
+        for (start, len) in split_codes(bytes, codes) {
             let quad = self.quad_at(self.code_index)?;
-            let meets = self
-                .regions
-                .iter()
-                .any(|region| overlaps(*region, bbox_of_points(&quad)));
+            let code = bytes
+                .get(start..start.saturating_add(len))
+                .unwrap_or_default();
+            let marks = self.code_box(&quad, codes, code)?;
+            let meets = self.regions.iter().any(|region| overlaps(*region, marks));
             self.code_index = self.code_index.saturating_add(1);
             if meets {
                 if removed_first.is_none() {
@@ -1860,13 +2075,11 @@ impl<'a> Walk<'a> {
     }
 
     /// Counts a show operator's codes and whether any meets the region, without editing.
-    fn count_only(&mut self, elements: &[ArrayElement], width: CodeWidth) -> Result<bool, String> {
+    fn count_only(&mut self, elements: &[ArrayElement], codes: &Codes) -> Result<bool, String> {
         let mut met = false;
         for element in elements {
             if let ArrayElement::Str(bytes) = element {
-                for _ in split_codes(bytes, width)? {
-                    met |= self.take_code()?;
-                }
+                met |= self.codes_meet_region(bytes, codes)?;
             }
         }
         Ok(met)
@@ -1874,22 +2087,64 @@ impl<'a> Walk<'a> {
 
     /// Tests every code of a string against the region without editing (the refused operators).
     fn string_meets_region(&mut self, bytes: &[u8]) -> Result<bool, String> {
-        let width = self.require_width()?;
+        let codes = self.require_codes()?;
+        self.codes_meet_region(bytes, &codes)
+    }
+
+    /// Consumes each code of a string, advancing the index, and answers whether any meets the
+    /// region.
+    fn codes_meet_region(&mut self, bytes: &[u8], codes: &Codes) -> Result<bool, String> {
         let mut met = false;
-        for _ in split_codes(bytes, width)? {
-            met |= self.take_code()?;
+        for (start, len) in split_codes(bytes, codes) {
+            let quad = self.quad_at(self.code_index)?;
+            self.code_index = self.code_index.saturating_add(1);
+            let code = bytes
+                .get(start..start.saturating_add(len))
+                .unwrap_or_default();
+            let marks = self.code_box(&quad, codes, code)?;
+            met |= self.regions.iter().any(|region| overlaps(*region, marks));
         }
         Ok(met)
     }
 
-    /// Consumes one code, advancing the index, and answers whether its quad meets the region.
-    fn take_code(&mut self) -> Result<bool, String> {
-        let quad = self.quad_at(self.code_index)?;
-        self.code_index = self.code_index.saturating_add(1);
-        Ok(self
-            .regions
-            .iter()
-            .any(|region| overlaps(*region, bbox_of_points(&quad))))
+    /// The box in the display list's space a code is tested against: the quadrilateral the
+    /// interpreter placed it in, widened for a Type 3 glyph to the box its description declares.
+    ///
+    /// A Type 3 glyph's description is a content stream that may mark anywhere the font's glyph
+    /// space reaches, so the advance box alone would miss a glyph whose marks fall in the region
+    /// while its advance does not. The declared box is carried by §9.6.4's own matrices: glyph
+    /// space to text space by `/FontMatrix`, then §9.4.4's text rendering matrix — whose
+    /// translation is the placed quadrilateral's first corner, glyph space's origin, because a
+    /// Type 3 box's descent is zero — and whose linear part the walk tracks (ADR 1351).
+    fn code_box(&self, quad: &[f32; 8], codes: &Codes, code: &[u8]) -> Result<[f32; 4], String> {
+        let placed = bbox_of_points(quad);
+        let Codes::Type3(marks) = codes else {
+            return Ok(placed);
+        };
+        let Some(&byte) = code.first() else {
+            return Ok(placed);
+        };
+        let Some([llx, lly, urx, ury]) = marks.glyph_box(self.document, byte)? else {
+            return Ok(placed);
+        };
+        let text = Transform::new(
+            self.font_size * self.horizontal,
+            0.0,
+            0.0,
+            self.font_size,
+            0.0,
+            0.0,
+        )
+        .then(self.text_linear)
+        .then(linear(self.ctm));
+        let glyph_to_display = marks.font.font_matrix().then(text);
+        let mut points: Vec<f32> = placed.to_vec();
+        for (x, y) in [(llx, lly), (urx, lly), (urx, ury), (llx, ury)] {
+            let point = glyph_to_display.apply(Point::new(narrow(x), narrow(y)));
+            points.push(point.x + quad[0]);
+            points.push(point.y + quad[1]);
+        }
+        Ok(bbox_of_points(&points))
     }
 
     /// The placed quadrilateral for a code index, or a refusal where the walk has outrun the
@@ -1901,8 +2156,8 @@ impl<'a> Walk<'a> {
         })
     }
 
-    fn require_width(&self) -> Result<CodeWidth, String> {
-        self.width.ok_or_else(|| {
+    fn require_codes(&self) -> Result<Codes, String> {
+        self.codes.clone().ok_or_else(|| {
             "the content shows text before any /Tf selects a font; the page is refused".to_owned()
         })
     }
@@ -2046,6 +2301,7 @@ impl<'a> Walk<'a> {
             return Ok(());
         };
         path.finish();
+        self.narrow_clip(&path);
         let Some(bbox) = path.bbox else {
             return Ok(());
         };
@@ -2086,6 +2342,14 @@ impl<'a> Walk<'a> {
             return Ok(());
         }
         admits_a_cut(&path)?;
+        if fill.is_some()
+            && let Some(name) = &self.graphics.fill_pattern
+        {
+            self.pattern_admits_a_cut(name)?;
+        }
+        if stroked && let Some(name) = &self.graphics.stroke_pattern {
+            self.pattern_admits_a_cut(name)?;
+        }
         let regions = self.region_bounds();
         let to_display = mapping(path.ctm);
         let mut replacement: Vec<u8> = Vec::new();
@@ -2103,27 +2367,14 @@ impl<'a> Walk<'a> {
             let outline = self.stroke_outline(&path, closes)?;
             let cut = cut_to_complement(&outline, &regions, to_display)?;
             if !cut.is_empty() {
-                let colour = self.graphics.non_stroking_colour().ok_or_else(|| {
-                    "§8.6.8: a stroked path meets the region and no stroking colour operator has \
-                     run in this content stream before it, so the colour the surviving outline \
-                     would be filled with is one this walk has not seen stated; the page is \
-                     refused rather than painted a colour the file does not state"
-                        .to_owned()
-                })?;
-                if (self.graphics.stroking_alpha - self.graphics.fill_alpha).abs() > 0.0 {
-                    return Err(
-                        "§11.6.4.4: an ExtGState has made the stroking alpha constant /CA differ \
-                         from the non-stroking /ca, and a surviving outline is painted as a \
-                         fill, which takes the second; the page is refused rather than drawn at \
-                         an opacity the file does not state for it"
-                            .to_owned(),
-                    );
-                }
+                let colour = self.graphics.non_stroking_colour();
+                let restated = self.restate_stroke();
                 let mut text = String::new();
                 paths::write_polygons(&mut text, &cut);
-                // Balanced inside the replacement (§8.4.2), so the fill colour the producer set
-                // for whatever comes next is the one that comes back.
+                // Balanced inside the replacement (§8.4.2), so the fill colour, alpha and
+                // overprint the producer set for whatever comes next are the ones that come back.
                 replacement.extend_from_slice(b"q\n");
+                replacement.extend_from_slice(&restated);
                 replacement.extend_from_slice(&colour);
                 replacement.extend_from_slice(text.as_bytes());
                 // §8.5.3.2's marks are the region the outline encloses, and `kurbo::stroke` winds
@@ -2148,6 +2399,72 @@ impl<'a> Walk<'a> {
             replacement,
         ));
         Ok(())
+    }
+
+    /// The `gs` that gives a fill of a surviving outline the stroke's own alpha and overprint, or
+    /// nothing where the fill's already are.
+    ///
+    /// A fill takes the non-stroking members of two pairs Table 51 keeps apart — §11.6.4.4's two
+    /// alpha constants, one for strokes and one for everything else, and the two overprint
+    /// parameters "one for stroking and one for all other painting operations" —
+    /// and no operator sets either, so where a stroke's differ from the fill's they are restated
+    /// by a graphics state parameter dictionary holding the stroke's values under the fill's keys,
+    /// `/ca` and `/op`. The dictionary states the producer's own numbers and nothing else, so
+    /// the outline composites exactly as the stroke did; the stream's resources gain it under a
+    /// name no entry already has (ADR 1351).
+    fn restate_stroke(&mut self) -> Vec<u8> {
+        let mut state = Dictionary::new();
+        if (self.graphics.stroking_alpha - self.graphics.fill_alpha).abs() > 0.0 {
+            state.insert(
+                Name::new(&b"ca"[..]),
+                Object::Real(self.graphics.stroking_alpha),
+            );
+        }
+        if self.graphics.stroke_overprint != self.graphics.fill_overprint {
+            state.insert(
+                Name::new(&b"op"[..]),
+                Object::Boolean(self.graphics.stroke_overprint),
+            );
+        }
+        if state.is_empty() {
+            return Vec::new();
+        }
+        state.insert(
+            Name::new(&b"Type"[..]),
+            Object::Name(Name::new(&b"ExtGState"[..])),
+        );
+        let name = if let Some((name, _)) = self
+            .added_states
+            .iter()
+            .find(|(_, earlier)| *earlier == state)
+        {
+            name.clone()
+        } else {
+            let taken = self.document.get_key(&self.resources, "ExtGState");
+            let taken = taken.as_dict();
+            let mut ordinal = self.added_states.len().saturating_add(1);
+            loop {
+                let candidate = format!("RedactStroke{ordinal}").into_bytes();
+                let used = taken.is_some_and(|dict| {
+                    dict.get_by_name(&Name::new(candidate.as_slice())).is_some()
+                }) || self.added_states.iter().any(|(name, _)| *name == candidate);
+                if !used {
+                    break candidate;
+                }
+                ordinal = ordinal.saturating_add(1);
+            }
+        };
+        if !self
+            .added_states
+            .iter()
+            .any(|(earlier, _)| *earlier == name)
+        {
+            self.added_states.push((name.clone(), state));
+        }
+        let mut out = b"/".to_vec();
+        out.extend_from_slice(&name);
+        out.extend_from_slice(b" gs\n");
+        out
     }
 
     /// The outline §8.5.3.2's stroke marks, as the subpaths a fill of it would paint.
@@ -2254,7 +2571,7 @@ impl<'a> Walk<'a> {
                 self.clears.extend(clears);
                 Ok(())
             }
-            b"Form" => self.run_form(&name, &entry, &object),
+            b"Form" => self.run_form(&name, &entry, &object, Entered::Drawn),
             _ => {
                 if self
                     .regions
@@ -2289,7 +2606,13 @@ impl<'a> Walk<'a> {
     ///
     /// Refused by name: a form whose content does not decode, and a form that draws itself
     /// (§8.10.1 states no recursion, and a walk that followed one would not end).
-    fn run_form(&mut self, name: &[u8], entry: &Object, object: &Object) -> Result<(), String> {
+    fn run_form(
+        &mut self,
+        name: &[u8],
+        entry: &Object,
+        object: &Object,
+        entered: Entered,
+    ) -> Result<(), String> {
         let shown = String::from_utf8_lossy(name);
         let Some(stream) = object.as_stream() else {
             return Err(format!(
@@ -2335,18 +2658,17 @@ impl<'a> Walk<'a> {
             .cloned()
             .unwrap_or_else(|| self.page.resources.clone());
 
-        let inner_ctm = matrix.then(self.ctm);
-        let saved = Frame {
-            edits: std::mem::take(&mut self.edits),
-            resources: std::mem::replace(&mut self.resources, resources),
-            ctm: std::mem::replace(&mut self.ctm, inner_ctm),
-            ctm_stack: std::mem::take(&mut self.ctm_stack),
-            path: self.path.take(),
-            // §8.10.1: a form inherits the graphics state, and its own `q`/`Q` nesting is its
-            // own — so the state carries in and the stack is set aside.
-            graphics: self.graphics.clone(),
-            graphics_stack: std::mem::take(&mut self.graphics_stack),
-        };
+        let group = self
+            .document
+            .get_key(&stream.dict, "Group")
+            .as_dict()
+            .is_some_and(|group| {
+                self.document
+                    .get_key(group, "S")
+                    .as_name()
+                    .is_some_and(|name| name.as_bytes() == b"Transparency")
+            });
+        let saved = self.enter_frame(resources, matrix.then(self.ctm), entered, group);
         let shared = !form_id.is_some_and(|id| self.owns(id));
         if let Some(id) = form_id {
             self.forms_open.push(id);
@@ -2361,13 +2683,7 @@ impl<'a> Walk<'a> {
         if form_id.is_some() {
             self.forms_open.pop();
         }
-        let edits = std::mem::replace(&mut self.edits, saved.edits);
-        self.resources = saved.resources;
-        self.ctm = saved.ctm;
-        self.ctm_stack = saved.ctm_stack;
-        self.path = saved.path;
-        self.graphics = saved.graphics;
-        self.graphics_stack = saved.graphics_stack;
+        let (edits, states, resources) = self.leave_frame(saved, entered);
         walked?;
 
         if edits.is_empty() {
@@ -2381,12 +2697,117 @@ impl<'a> Walk<'a> {
                  object this removal cannot replace; the page is refused"
             ));
         };
-        self.form_edits.push(FormEdit {
+        // A mask's group is reached through an `/ExtGState` entry, a graphics state dictionary
+        // and a soft-mask dictionary, any of which another page may share; a copy for this page
+        // is correct whichever of them is shared, because the original is carried into the
+        // output only where something else still reaches it.
+        let private = entered == Entered::MaskGroup || !self.owns(id);
+        self.record_form_edit(FormEdit {
             id,
             content: apply_edits(&data, edits),
-            private: !self.owns(id),
-        });
+            private,
+            resources,
+            states,
+        })
+    }
+
+    /// Sets the page's per-stream state aside and starts a form's, returning what to put back.
+    ///
+    /// §8.10.1: a form inherits the graphics state, and its own `q`/`Q` nesting is its own — so
+    /// the state carries in and the stack is set aside. Two things differ from inheritance: a
+    /// transparency group starts from Table 51's initial alpha constants, which the table says a
+    /// reader resets at the beginning of such a group's execution, and a soft mask's group is evaluated from the initial graphics state,
+    /// text state included, under its own coordinate system (§11.6.5.1), which is what the
+    /// interpreter runs it under.
+    fn enter_frame(
+        &mut self,
+        resources: Dictionary,
+        ctm: Transform,
+        entered: Entered,
+        group: bool,
+    ) -> Frame {
+        let saved = Frame {
+            edits: std::mem::take(&mut self.edits),
+            resources: std::mem::replace(&mut self.resources, resources),
+            ctm: std::mem::replace(&mut self.ctm, ctm),
+            ctm_stack: std::mem::take(&mut self.ctm_stack),
+            path: self.path.take(),
+            graphics: self.graphics.clone(),
+            graphics_stack: std::mem::take(&mut self.graphics_stack),
+            text: self.text_state(),
+            added_states: std::mem::take(&mut self.added_states),
+        };
+        if group {
+            self.graphics.stroking_alpha = 1.0;
+            self.graphics.fill_alpha = 1.0;
+        }
+        if entered == Entered::MaskGroup {
+            self.graphics = GraphicsState::default();
+            self.set_text_state(TextState::default());
+        }
+        saved
+    }
+
+    /// Puts the enclosing stream's state back, returning the form's edits, the graphics states
+    /// its edits name and the resources its names were resolved in.
+    fn leave_frame(&mut self, saved: Frame, entered: Entered) -> (Edits, AddedStates, Dictionary) {
+        let edits = std::mem::replace(&mut self.edits, saved.edits);
+        let states = std::mem::replace(&mut self.added_states, saved.added_states);
+        let resources = std::mem::replace(&mut self.resources, saved.resources);
+        self.ctm = saved.ctm;
+        self.ctm_stack = saved.ctm_stack;
+        self.path = saved.path;
+        self.graphics = saved.graphics;
+        self.graphics_stack = saved.graphics_stack;
+        if entered == Entered::MaskGroup {
+            self.set_text_state(saved.text);
+        }
+        (edits, states, resources)
+    }
+
+    /// Records one form's edited content, refusing a form whose placements the region meets
+    /// differently.
+    ///
+    /// A form drawn twice on the page — two `Do`s, or a `Do` and a soft mask — is one stream, so
+    /// the removal can write it only one way. Two placements asking for the same edit are one
+    /// edit; two asking for different ones would remove from one placement what the region only
+    /// met at the other.
+    fn record_form_edit(&mut self, edit: FormEdit) -> Result<(), String> {
+        if let Some(earlier) = self.form_edits.iter().find(|earlier| earlier.id == edit.id) {
+            if earlier.content == edit.content {
+                return Ok(());
+            }
+            return Err(format!(
+                "§8.10.1: form object {} is drawn more than once on the page and the region meets \
+                 its placements differently, so no one edit of its stream removes only what the \
+                 region covers; the page is refused",
+                edit.id.number
+            ));
+        }
+        self.form_edits.push(edit);
         Ok(())
+    }
+
+    /// The text state the walk tracks, as one value, for a stream that starts from its own.
+    fn text_state(&self) -> TextState {
+        TextState {
+            linear: self.text_linear,
+            size: self.font_size,
+            horizontal: self.horizontal,
+            char_spacing: self.char_spacing,
+            word_spacing: self.word_spacing,
+            codes: self.codes.clone(),
+        }
+    }
+
+    /// Puts a text state back.
+    fn set_text_state(&mut self, state: TextState) {
+        self.text_linear = state.linear;
+        self.font_size = state.size;
+        self.horizontal = state.horizontal;
+        self.char_spacing = state.char_spacing;
+        self.word_spacing = state.word_spacing;
+        self.codes = state.codes;
     }
 
     /// Plans clearing an image `XObject` that meets the region (§12.5.6.23), or refuses by name.
@@ -3162,6 +3583,36 @@ impl<'a> Walk<'a> {
         }
     }
 
+    /// A soft mask a `gs` establishes (§11.6.4.3): its transparency group's content is walked
+    /// and cut like any other content stream.
+    ///
+    /// §12.5.6.23 asks for "all traces of the specified content" to go, and a mask's group is
+    /// content that marks the page — not in colour, but as the shape or opacity of what is
+    /// painted under it — so its marks within the region are traces of what the region showed.
+    /// A glyph drawn into a `/Luminosity` group is legible through every mark the mask applies
+    /// to, and it would survive in the file with every one of those marks cut away. So the group
+    /// is entered, in §11.6.5.1's coordinate system — "concatenating the transformation matrix
+    /// specified by the Matrix entry in the transparency group's form dictionary … with the
+    /// current transformation matrix at the moment the soft mask is established in the graphics
+    /// state with the gs operator" — at the `gs`, which is where the interpreter evaluates it
+    /// and so where its codes fall in the count this walk is held to. ADR 1352.
+    fn enter_soft_mask(&mut self, state: &Dictionary) -> Result<(), String> {
+        let mask = self.document.get_key(state, "SMask");
+        let Some(mask) = mask.as_dict() else {
+            // `/None`, or no entry: §11.6.4.3's absence of a mask, which removes nothing.
+            return Ok(());
+        };
+        let Some(entry) = mask.get("G").cloned() else {
+            return Err(
+                "§11.6.5.1: a soft mask with no /G group is in force; the page is refused rather \
+                 than walked past a mask whose content cannot be read"
+                    .to_owned(),
+            );
+        };
+        let object = self.document.resolve(&entry);
+        self.run_form(b"SMask /G", &entry, &object, Entered::MaskGroup)
+    }
+
     /// Whether the page's `/XObject` resource subdictionary is not itself a shared object.
     fn xobject_private(&self) -> bool {
         let resources = self.document.get_key(&self.page.dict, "Resources");
@@ -3171,7 +3622,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// `gs`: a soft mask in the named graphics state is refused (§11.6.4.3 over the region).
+    /// `gs`: the named graphics state's line parameters and alphas, and its soft mask entered.
     fn ext_gstate(&mut self, operands: &[(Operand, usize)]) -> Result<(), String> {
         let Some(name) = operands.iter().find_map(|(operand, _)| match operand {
             Operand::Name(bytes) => Some(bytes.clone()),
@@ -3184,25 +3635,10 @@ impl<'a> Walk<'a> {
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name.as_slice())))
             .map(|entry| self.document.resolve(entry));
-        let masked = state
-            .as_ref()
-            .and_then(Object::as_dict)
-            .map(|dict| self.document.get_key(dict, "SMask"))
-            .is_some_and(|mask| match mask {
-                Object::Name(name) => name.as_bytes() != b"None",
-                Object::Null => false,
-                _ => true,
-            });
-        if masked {
-            return Err(
-                "§11.6.4.3: a soft-mask group is in force; the page is refused rather \
-                        than redact under a mask the removal does not model"
-                    .to_owned(),
-            );
-        }
         let Some(dict) = state.as_ref().and_then(Object::as_dict) else {
             return Ok(());
         };
+        self.enter_soft_mask(dict)?;
         // Table 58 states these in §8.4.3's own terms — `/LW` "[t]he line width", `/LC` "[t]he
         // line cap style", `/LJ` "[t]he line join style", `/ML` "[t]he miter limit", `/D` "[t]he
         // line dash pattern" — so they set exactly what the operators beside them set and are
@@ -3226,6 +3662,19 @@ impl<'a> Walk<'a> {
         }
         if let Some(alpha) = number("ca") {
             self.graphics.fill_alpha = alpha;
+        }
+        // Table 58: "Specifying an OP entry shall set both parameters unless there is also an op
+        // entry in the same graphics state parameter dictionary".
+        let flag = |key: &str| match self.document.get_key(dict, key) {
+            Object::Boolean(value) => Some(value),
+            _ => None,
+        };
+        let (stroking, other) = (flag("OP"), flag("op"));
+        if let Some(value) = stroking {
+            self.graphics.stroke_overprint = value;
+        }
+        if let Some(value) = other.or(stroking) {
+            self.graphics.fill_overprint = value;
         }
         let dash = self.document.get_key(dict, "D");
         if let Some([array, phase]) = dash.as_array() {
@@ -3505,25 +3954,40 @@ fn matrix(numbers: &[f64]) -> Option<Transform> {
     }
 }
 
+/// The pattern name a `scn` or `SCN` operator's operands end with, if they name one (§8.6.8).
+fn pattern_name(operands: &[(Operand, usize)]) -> Option<Vec<u8>> {
+    operands
+        .iter()
+        .rev()
+        .find_map(|(operand, _)| match operand {
+            Operand::Name(bytes) => Some(bytes.clone()),
+            _ => None,
+        })
+}
+
 /// The linear part of a transform (its translation dropped).
 fn linear(transform: Transform) -> Transform {
     Transform::new(transform.a, transform.b, transform.c, transform.d, 0.0, 0.0)
 }
 
-/// One string's byte offsets and lengths per code, or a refusal for a `Two`-byte string of odd
-/// length (a half code the walk will not cut).
-fn split_codes(bytes: &[u8], width: CodeWidth) -> Result<Vec<(usize, usize)>, String> {
-    let step = width.bytes();
-    if width == CodeWidth::Two && !bytes.len().is_multiple_of(2) {
-        return Err(
-            "§9.7.5: a two-byte-encoded string has an odd byte count; the page is refused"
-                .to_owned(),
-        );
+/// One string's byte offsets and lengths per code.
+///
+/// A simple font's code is one byte (§9.6). A composite font's is what §9.7.6.2's matching
+/// against the codespace ranges extracts, taken by [`pdf_font::cmap::CMap::next_code`] — the
+/// function the reader decodes with, including §9.7.6.3's rule for how many bytes a code outside
+/// every range consumes — so a removed code takes exactly its own bytes and no neighbour's.
+fn split_codes(bytes: &[u8], codes: &Codes) -> Vec<(usize, usize)> {
+    let Codes::Composite(cmap) = codes else {
+        return (0..bytes.len()).map(|start| (start, 1)).collect();
+    };
+    let mut out = Vec::new();
+    let mut start = 0;
+    while let Some(rest) = bytes.get(start..).filter(|rest| !rest.is_empty()) {
+        let length = usize::from(cmap.next_code(rest).length()).max(1);
+        out.push((start, length.min(rest.len())));
+        start = start.saturating_add(length);
     }
-    Ok((0..bytes.len())
-        .step_by(step)
-        .map(|start| (start, step))
-        .collect())
+    out
 }
 
 /// Reads a `[ … ]` array's elements from the lexer, keeping strings and numbers and skipping
@@ -4562,23 +5026,25 @@ fn build_page(
 
     let surviving = surviving_annotations(assembly, document, source);
     let mut dict = Dictionary::new();
+    let restated = !private.is_empty() || !page.states.is_empty();
     for (key, value) in source.iter() {
         let skipped = matches!(key.as_bytes(), b"Contents" | b"Annots")
-            || (key.as_bytes() == b"Resources" && !private.is_empty());
+            || (key.as_bytes() == b"Resources" && restated);
         if skipped {
             continue;
         }
         dict.insert(key.clone(), carry(assembly, document, value, 0));
     }
     dict.insert(Name::new(&b"Contents"[..]), Object::Reference(content_id));
-    if !private.is_empty() {
+    if restated {
         // §7.7.3.3 lets a page state its own `/Resources`, and §7.7.3.4's inheritance is what
         // `Page::resources` has already resolved — so writing the effective dictionary here is
-        // the same resources the producer's page had, with the copied objects substituted.
+        // the same resources the producer's page had, with the copied objects substituted and
+        // any graphics state the edited content names added.
         let resources = privatise(
             assembly,
             document,
-            &Object::Dictionary(page.resources.clone()),
+            &Object::Dictionary(with_states(document, &page.resources, &page.states)),
             private,
             0,
         );
@@ -4588,6 +5054,35 @@ fn build_page(
         dict.insert(Name::new(&b"Annots"[..]), annots);
     }
     Ok(Object::Dictionary(dict))
+}
+
+/// A resource dictionary with graphics state parameter dictionaries added to its `/ExtGState`.
+///
+/// Built in the source document's terms, before [`privatise`] carries it, so an `/ExtGState`
+/// held by reference is read and restated as a direct dictionary holding every entry it had and
+/// the added ones — the original object is left for whatever else names it.
+fn with_states(
+    document: &Document,
+    resources: &Dictionary,
+    states: &[(Vec<u8>, Dictionary)],
+) -> Dictionary {
+    if states.is_empty() {
+        return resources.clone();
+    }
+    let mut table = document
+        .get_key(resources, "ExtGState")
+        .as_dict()
+        .cloned()
+        .unwrap_or_default();
+    for (name, state) in states {
+        table.insert(
+            Name::new(name.as_slice()),
+            Object::Dictionary(state.clone()),
+        );
+    }
+    let mut out = resources.clone();
+    out.insert(Name::new(&b"ExtGState"[..]), Object::Dictionary(table));
+    out
 }
 
 /// Carries a value into the output, copying every object on the path to a privately replaced one.
@@ -4728,11 +5223,28 @@ fn build_form(
         ))
     })?;
     let mut dict = Dictionary::new();
+    if !form.states.is_empty() {
+        // The resources the form's names were resolved in, its own or the page's, gain the
+        // graphics states its edited content names; written on the form itself, so a form that
+        // inherited the page's names now states them.
+        let resources = with_states(document, &form.resources, &form.states);
+        dict.insert(
+            Name::new(&b"Resources"[..]),
+            privatise(
+                assembly,
+                document,
+                &Object::Dictionary(resources),
+                private,
+                0,
+            ),
+        );
+    }
     for (key, value) in source.dict.iter() {
         match key.as_bytes() {
             // The producer's encoding is dropped and §7.3.8.2's `/Length` restated: the content
             // written here is the decoded stream with the region's marks cut out of it.
             b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
+            b"Resources" if !form.states.is_empty() => {}
             _ => {
                 dict.insert(
                     key.clone(),

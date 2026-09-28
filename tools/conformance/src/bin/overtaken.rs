@@ -55,7 +55,7 @@ fn run() -> Result<(), Error> {
     let notes = overtaken::notes(&sources);
     let decisions = overtaken::decisions(&root)?;
 
-    let report = overtaken::sweep(&notes, &decisions);
+    let report = overtaken::sweep(&notes, &decisions, &overtaken::READ);
     let mut rung = None;
     for finding in &report.findings {
         if rung != Some(finding.rung()) {
@@ -80,6 +80,14 @@ fn run() -> Result<(), Error> {
         report.on(Rung::Member),
         report.uncited,
     );
+    println!(
+        "{} note(s) read through the decision `overtaken::READ` names beside them and not \
+         overtaken since.",
+        report.read,
+    );
+    for name in &report.unknown_read {
+        println!("    `overtaken::READ` names {name}, which no page list in the tree declares");
+    }
     println!(
         "A note is allowed to be about one property of a page while a later decision was about \
          another, so a hit is a reading list and not a verdict. The dominant noise is the last \

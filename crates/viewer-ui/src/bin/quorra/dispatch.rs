@@ -509,7 +509,7 @@ impl App {
             }
             viewer_host::Ask::Exhausted => {
                 println!("note: {}", viewer_host::password::EXHAUSTED);
-                self.given_up(document);
+                self.cancelled(document);
                 self.redraw();
             }
         }
@@ -685,6 +685,7 @@ impl App {
                         &mut self.documents,
                         path,
                         bytes.as_deref().unwrap_or_default(),
+                        purpose,
                     );
                     queue.push_back(Command::Beside(Some(name)));
                 }
@@ -716,7 +717,7 @@ impl App {
         if bytes.is_some() {
             // Table 203's `/NewWindow true` opens the destination beside this document rather
             // than in place of it, where this window has a name free for one (ADR 1263).
-            self.offer_a_name(path, bytes.as_deref().unwrap_or_default());
+            self.offer_a_name(path, bytes.as_deref().unwrap_or_default(), purpose);
         }
         self.dispatch(Command::Supply { purpose, bytes });
     }
@@ -817,7 +818,7 @@ impl App {
             viewer_host::Supplied::Open(secret) => secret,
             viewer_host::Supplied::Cancelled => {
                 println!("note: {}", viewer_host::password::CANCELLED);
-                self.given_up(document);
+                self.cancelled(document);
                 return;
             }
         };

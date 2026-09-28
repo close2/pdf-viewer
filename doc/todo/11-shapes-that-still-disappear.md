@@ -12,11 +12,9 @@ a set intersection on **both** backends since ADR 0280 and quorra's own ADR 0030
 a *clipping region* meets a filled mark's own coverage by `min` on this backend rather than by a
 product, since ADR 0363 a clip standing *beside* a soft mask does too, and since ADR 0535 a
 **stroke's** does, by drawing it as the fill of its own outline with the library's own stroker.**
-What is left of it is an image, **half of a group's raster — the half where §11.4.4's Table 139
-shape and alpha
-are one number, which is a group whose opacity is 1.0 everywhere, is paid on this backend since
-ADR 0492 and the other half is not** — and the two
-backends that still multiply; and what is left of the file is two marks abutting — which item 2
+What is left of it on this backend is **nothing owed**: an image's edge is paid and has a witness,
+and a group whose opacity is below 1.0 is a documented choice under §10.7.1's NOTE rather than a
+debt (ADR 1348) — and the two backends that still multiply; and what is left of the file is two marks abutting — which item 2
 had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
 its general form on a document the project owner reported (ADR 0308). **It is not a defect of this
 program**, and item 5 says on what evidence. **What an eight-bit raster does to a mark whose ink is
@@ -33,8 +31,9 @@ quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `
 (ADR 0474), **paid for the shape §10.7.4's own closed form covers** (ADR 0476).
 **Item 8 is the largest loss this file ever held and its refusal half is paid** (ADR 0482): a mark
 under a matrix with no inverse cost the whole page on all three backends, and now costs itself and
-is reported by name. What it still owes is §10.7.4's own mark for a shape a *transform* collapsed,
-which nothing builds and no document witnesses.
+is reported by name. §10.7.4's own mark for a shape a *transform* collapsed is built for a solid
+fill carried onto a line along a page axis (ADR 1348); what it still owes is the same mark for a
+stroke.
 Priority: 11
 Corpus: 5 known witnesses for items 1-7; 4 crawled documents and 1 of `format-corpus`' for item 8,
 all of them in `doc/checks/fixed-documents.toml` or named in ADR 0482
@@ -428,7 +427,11 @@ the mark is whole where the clip is not.
   worth stating: `Path::stroke` produces **one** path filled **once** under the non-zero rule, which
   is what `stroke_path` does with it anyway, so no mark is split into several and no seam is created.
   Item 7's remainder is the one with that dependency, and only for a path stating several rectangles.
-- **An image's edge**, which is `draw_pixmap`'s and is the library's own path.
+- ~~**An image's edge**, which is `draw_pixmap`'s and is the library's own path.~~ **Paid, and the
+  bullet was stale** (ADR 1348): `draw_image` fills its unit square through `scan::fill`, whose
+  composable clip meets the mark's coverage by `min` like every fill's.
+  `render-cpu/tests/image_clip_intersection.rs` is the witness: an edge covering 0.502 of its column
+  reads 0.502 under a clip sharing it that cuts the image's other side, where a product reads 0.255.
 - **A group's raster, which ADR 0355 recorded as *not owed* and which is owed.** That ADR argued
   "what a group's buffer carries at a pixel is §11.4.5's group alpha rather than one mark's
   coverage, so there is no second shape here"; §8.5.4's own third sentence answers it — the shape
@@ -455,7 +458,13 @@ the mark is whole where the clip is not.
   ADR 0234 — "a group's shape is the union of its elements'" — `Command::Shaped` carries one
   through the display list, and `render-cpu` draws one in `encode_shaped`. So the general case is a
   second render of the group's content into a band-sized mask rather than a new mechanism, and it
-  stays owed because no document has been shown to need it.
+  stays a documented choice rather than a debt (ADR 1348): the clipping paragraph intersects
+  *sets of pixels*, and under the clause's own aliased rule a clip and a shape are each 0 or 1 at a
+  pixel, where a product is the intersection; the two part only at a boundary pixel departure (1)
+  gives a fraction, and how two fractions compose is scan conversion, which §10.7.1's NOTE leaves to
+  the implementation — "Different implementations can perform scan conversion in different ways".
+  `min` is chosen where the shape is at hand; a group's alpha is shape times opacity, and below 1.0
+  the shape is not in it. No document has been shown to need the second render.
 
   **And it is where `issue21346.pdf`'s next factor actually is**, which is the correction below.
 
@@ -835,7 +844,10 @@ question was which converter, not how many calls.
   overlapping at a corner under both rules; `render-raster/examples/ink_ladder` reads
   `issue20232.pdf`, `issue6081.pdf` and `multiline.pdf` at their own 8× ink from 1× up. What is left
   is an overlap confined to pixels a path that is not an outline only partly covers, with no whole
-  winding of two in its row — bounded by the overlap's own area, and not measured on this disk.
+  winding of two in its row — bounded by the overlap's own area inside the pixel. Settling every
+  mark's rows by ADR 1347's clusters would close it and was measured: ISO 32000-2's page 101
+  +114%, `issue14415.pdf` seventeen times over. The walk itself is settled one cluster of a row at
+  a time and cut only where strands meet (ADR 1347).
 - ~~**A path stating *several* rectangles**, which is deliberate and is item 5's subject — two
   rectangles drawn as two marks composite by §11.3.7.3's union, so taking them one at a time would
   trade this defect for a worse one along every seam. A round that wants it needs the seam answered
@@ -900,7 +912,7 @@ question was which converter, not how many calls.
   0.98402, and the gate now measures 0.9879 and 0.9802. The pages belong to
   `CONTRADICTED_TIGHT_CONSENSUS` because the pair that votes is the pair furthest from the geometry.
 
-## 8. A paint that cannot be positioned costs the page rather than the mark — **the refusal is paid (ADR 0482); §10.7.4's own mark for such a shape is not**
+## 8. A paint that cannot be positioned costs the page rather than the mark — **the refusal is paid (ADR 0482); §10.7.4's own mark is built for a fill (ADR 1348) and owed for a stroke**
 
 Found in the six-hundred-and-fortieth session, on the SafeDocs crawl and not by ink: `4605705.pdf`
 states eight `/Contents` parts, every one a Flate stream that decodes cleanly for tens of kilobytes
@@ -955,6 +967,20 @@ display list before any target exists, so it never needed to be a rasteriser's e
 `crates/pdf-model/examples/singular_transform_census` is the instrument.
 
 ### What is left of it: §10.7.4's mark for a shape its *transform* collapsed
+
+**Built for a fill, owed for a stroke** (ADR 1348). The warrant is the clause's own `shall`:
+§10.7.4 states its rule for a shape whose "coordinates are mapped into device space", and §8.3.4's
+third NOTE is informative and states no behaviour. `pdf_render::collapsed_by_transform` restates a
+fill whose matrix has no inverse and carries every point onto one line along a page axis as that
+line in page space, and `DisplayList::restate_collapsed_fills` applies it in `pdf_model`'s finished
+list, so all three backends draw it by `split_collapsed_fill`'s construction and only what is still
+refused is counted. `pdf-model/tests/scan_conversion_collapsed_by_transform.rs` is `80 × 40` under
+`1 0 0 0 0 50.3 cm`: device row 49, eighty pixels of ink. Still refused, each for its reason: a
+**stroke**, whose image on the line is the projection of its own outline and only a backend's
+stroker states that outline (trap 2); a **point**, §8.5.3.3.1's, which `collapsed.rs` records as a
+departure; a **line across the axes**, `collapsed.rs`'s stated absence; a paint no space positions.
+An image paints nothing under §10.7.4's own image rule, since a region of no area holds no pixel
+centre. The three bullets below are the reading the build rests on.
 
 **Drawing nothing is not what §10.7.4 asks for, and this item now owns the gap rather than hiding
 it.** "[N]o shape ever disappears" gives a shape with no area a run of *whole* device pixels — "a
