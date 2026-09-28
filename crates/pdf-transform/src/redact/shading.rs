@@ -8,28 +8,17 @@
 //! [`super::paths`] applies to a painted path, so the edge the marks stop at is the one whose
 //! rounding [`super::paths::Cut::margin_holds`] proves cannot reach back into the region.
 //!
-//! **That is a clip hiding marks, and the clause forbids it for image data**: "clipping or image
-//! masks shall not be used to hide that data". So the construction is taken only where the
-//! shading holds no data of its own located in the region. An axial or radial shading (§8.7.4.5.3,
-//! §8.7.4.5.4) states two points or two circles and a function of one parameter; where that
-//! function is §7.10.3's exponential, or §7.10.4's stitching of exponentials, the dictionary
-//! states a colour at each end of each piece and nothing about where on the page any of it lands
-//! — the region's marks are the gradient law evaluated there, and nothing is left once they are
-//! not painted. A function-based shading (§8.7.4.5.2) is a function of two coordinates, a mesh
-//! (§8.7.4.5.5 to §8.7.4.5.8) is vertices and colours placed in the plane, and a sampled or
-//! calculator function (§7.10.2, §7.10.5) is a table or a program that may hold values only the
-//! region's parameters reach: each is data located in the region, which cutting the clip would
-//! hide rather than destroy, so a page where one meets the region is refused by name. ADR 1351.
+//! **A clip hides marks, and the clause forbids that for image data**: "clipping or image masks
+//! shall not be used to hide that data". So the clip is cut for the marks, and whatever the shading
+//! holds of its own located in the region alone — a mesh's vertices, a radial shading's inner
+//! circles, a function-based shading's samples — is destroyed where it is stated
+//! ([`super::located`], ADR 1363). ADR 1351 is the clip's construction.
 
 use pdf_render::Transform;
 use pdf_render::geom::Point;
 use pdf_syntax::object::{Name, Object};
 
 use super::{Operand, Walk, cut_to_complement, mapping, overlaps, paths};
-
-/// How deep a §7.10.4 stitching function's `/Functions` are followed before the shading is
-/// refused rather than read further.
-const MAX_STITCHING_DEPTH: usize = 8;
 
 impl Walk<'_> {
     /// Narrows the clip bound by a path that §8.5.4's `W` or `W*` made a clipping boundary.
@@ -69,10 +58,11 @@ impl Walk<'_> {
         };
         let shown = String::from_utf8_lossy(&name).into_owned();
         let shadings = self.document.get_key(&self.resources, "Shading");
-        let shading = shadings
+        let entry = shadings
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name.as_slice())))
-            .map(|entry| self.document.resolve(entry));
+            .cloned();
+        let shading = entry.as_ref().map(|entry| self.document.resolve(entry));
         let Some(dict) = shading.as_ref().and_then(Object::as_dict) else {
             return Err(format!(
                 "§8.7.4.2: the content paints /{shown}, which /Resources /Shading does not \
@@ -85,11 +75,10 @@ impl Walk<'_> {
         {
             return Ok(());
         }
-        if let Some(located) = self.located_data(dict) {
-            return Err(format!(
-                "the shading /{shown} meets the region, and {located}, which cutting the clip \
-                 would hide rather than destroy; the page is refused"
-            ));
+        // The data the shading locates in the region alone are destroyed where they are stated
+        // (ADR 1363); the clip below removes the marks.
+        if let Some(entry) = entry.as_ref() {
+            self.request_shading(&name, entry);
         }
         if self.ctm.determinant() == 0.0 {
             return Err(
@@ -211,94 +200,31 @@ impl Walk<'_> {
         Ok(polygon)
     }
 
-    /// Why a shading's colours are data placed in the plane, or `None` where they are a gradient
-    /// law that holds nothing of its own located in the region.
-    pub(super) fn located_data(&self, dict: &pdf_syntax::object::Dictionary) -> Option<String> {
-        let kind = self.document.get_key(dict, "ShadingType").as_integer();
-        if !matches!(kind, Some(2 | 3)) {
-            return Some(format!(
-                "§8.7.4.3's ShadingType {} places its colours in the plane — a function of two \
-                 coordinates or a mesh of vertices",
-                kind.map_or_else(|| "absent".to_owned(), |kind| kind.to_string())
-            ));
-        }
-        if !self.analytic(&self.document.get_key(dict, "Function"), 0) {
-            return Some(
-                "its §7.10 function is sampled or calculated, and may hold values only the \
-                 region's parameters reach"
-                    .to_owned(),
-            );
-        }
-        None
-    }
-
-    /// A painted path whose colour is a §8.7.4 shading pattern meets the region: refused where
-    /// the pattern's shading holds data placed in the plane, for the reason `sh` is (ADR 1351).
+    /// A painted path whose colour is a §8.7.4 shading pattern meets the region: the pattern's
+    /// shading has its located data destroyed at the pattern's placement, as `sh`'s are (ADR 1363).
     ///
     /// The cut removes the path's marks in the region, and the pattern goes on being named by the
-    /// marks that survive, so its dictionary is carried whole: a gradient law is carried with
-    /// nothing of the region's in it, a mesh or a sampled function with the region's colours in
-    /// it. A §8.7.3 tiling pattern's cell repeats across the whole plane and is the same data wherever
-    /// it is drawn, so nothing of it is the region's own.
-    pub(super) fn pattern_admits_a_cut(&self, name: &[u8]) -> Result<(), String> {
+    /// marks that survive, so what the pattern carries past the cut is its shading with the
+    /// region's own data gone. A §8.7.3 tiling pattern's cell repeats across the whole plane and
+    /// is the same data wherever it is drawn, so nothing of it is the region's own.
+    pub(super) fn pattern_admits_a_cut(&mut self, name: &[u8]) -> Result<(), String> {
         let shown = String::from_utf8_lossy(name);
         let patterns = self.document.get_key(&self.resources, "Pattern");
-        let pattern = patterns
+        let entry = patterns
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name)))
-            .map(|entry| self.document.resolve(entry));
-        let Some(pattern) = pattern.as_ref().and_then(Object::as_dict) else {
+            .cloned();
+        let pattern = entry.as_ref().map(|entry| self.document.resolve(entry));
+        let (Some(entry), Some(pattern)) = (entry, pattern.as_ref().and_then(Object::as_dict))
+        else {
             return Err(format!(
                 "§8.7.2: a path painted in the pattern /{shown} meets the region, and \
                  /Resources /Pattern does not define it; the page is refused"
             ));
         };
-        if self.document.get_key(pattern, "PatternType").as_integer() != Some(2) {
-            return Ok(());
+        if self.document.get_key(pattern, "PatternType").as_integer() == Some(2) {
+            self.request_pattern(name, &entry, &pattern.clone());
         }
-        let shading = self.document.get_key(pattern, "Shading");
-        let located = shading.as_dict().map_or_else(
-            || Some("it names no shading dictionary".to_owned()),
-            |dict| self.located_data(dict),
-        );
-        match located {
-            Some(located) => Err(format!(
-                "§8.7.4.1: a path painted in the shading pattern /{shown} meets the region, and \
-                 {located}, which the pattern would carry past the cut; the page is refused"
-            )),
-            None => Ok(()),
-        }
-    }
-
-    /// Whether a shading's `/Function` is analytic: §7.10.3's exponential, or §7.10.4's stitching
-    /// of functions that are, given one per component or as one function.
-    fn analytic(&self, function: &Object, depth: usize) -> bool {
-        if depth > MAX_STITCHING_DEPTH {
-            return false;
-        }
-        let function = self.document.resolve(function);
-        if let Some(items) = function.as_array() {
-            return !items.is_empty()
-                && items
-                    .iter()
-                    .all(|item| self.analytic(item, depth.saturating_add(1)));
-        }
-        let Some(dict) = function.as_dict() else {
-            return false;
-        };
-        match self.document.get_key(dict, "FunctionType").as_integer() {
-            Some(2) => true,
-            Some(3) => self
-                .document
-                .get_key(dict, "Functions")
-                .as_array()
-                .is_some_and(|items| {
-                    !items.is_empty()
-                        && items
-                            .iter()
-                            .all(|item| self.analytic(item, depth.saturating_add(1)))
-                }),
-            _ => false,
-        }
+        Ok(())
     }
 }

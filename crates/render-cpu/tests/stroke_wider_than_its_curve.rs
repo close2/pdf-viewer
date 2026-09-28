@@ -192,3 +192,52 @@ fn a_circle_stroked_narrower_than_it_bends_is_its_ring() {
         "the ring measures 188.50 units; drawn {ink:.2}"
     );
 }
+
+/// A curve that folds between straight stretches that do not, at `16 w` with round caps and
+/// joins: the straight stretches are the stroker's and the curve is pieces (ADR 1359), and their
+/// union is still the one distance set — 2024.62, counted by `numpy` on a grid a sixty-fourth of a
+/// unit apart against the lines and two thousand chords of the cubic. Its boundary is some two
+/// hundred and eighty pixels long, near twice the disk's rim, so the converter's sixteenths are
+/// allowed twice the disk's unit; the stroke stated wholly as pieces reads 2025.86 here.
+#[test]
+fn a_folding_curve_between_straight_stretches_is_one_distance_set() {
+    let mut path = Path::new();
+    path.push(PathCommand::MoveTo(Point::new(10.0, 60.0)));
+    path.push(PathCommand::LineTo(Point::new(40.0, 60.0)));
+    path.push(PathCommand::CurveTo(
+        Point::new(40.0, 72.0),
+        Point::new(52.0, 72.0),
+        Point::new(52.0, 60.0),
+    ));
+    path.push(PathCommand::LineTo(Point::new(52.0, 30.0)));
+    path.push(PathCommand::LineTo(Point::new(85.0, 30.0)));
+    let raster = drawn(&stroked(path, 16.0, (LineCap::Round, LineJoin::Round)));
+    let ink = ink(&raster);
+    assert!(
+        (ink - 2024.62).abs() < 2.0 * TOLERANCE,
+        "the distance set measures 2024.62 units; drawn {ink:.2}"
+    );
+}
+
+/// A subpath that does not fold beside one that does, wound either way: a circle of radius 15 at
+/// `16 w` is the stroker's ring from 7 to 23, a circle of radius 5 inside it folds into the disk of
+/// radius 13, and their union is the disk of radius 23, `529π` = 1661.90 — whichever way the ring
+/// runs, since a ring wound against the pieces would cancel them where the two overlap. The rim is
+/// a hundred and forty-five pixels, the disk's; the stroker's own offset curves, cut at its default
+/// resolution, overshot this ring by four units, which is why the stretches are stroked at sixteen
+/// times the device's resolution (ADR 1359).
+#[test]
+fn a_ring_the_stroker_draws_adds_to_the_pieces_whichever_way_it_runs() {
+    for reversed in [false, true] {
+        let mut ring = Path::new();
+        ellipse(&mut ring, (50.0, 50.0), (15.0, 15.0));
+        let mut path = if reversed { ring.reversed() } else { ring };
+        ellipse(&mut path, (50.0, 50.0), (5.0, 5.0));
+        let raster = drawn(&stroked(path, 16.0, (LineCap::Butt, LineJoin::Miter)));
+        let ink = ink(&raster);
+        assert!(
+            (ink - 1661.90).abs() < 2.0 * TOLERANCE,
+            "reversed {reversed}: the disk of radius 23 is 1661.90 units; drawn {ink:.2}"
+        );
+    }
+}

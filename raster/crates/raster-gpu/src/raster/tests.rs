@@ -33,6 +33,7 @@
 //! | [`flatten`](flatten) | §10.7.2 and ADR 0044 — how finely a curve becomes chords, and what that costs its ink |
 //! | [`fill`](fill) | §8.5.3.3 and ADR 0005/0049 — coverage from polylines, the two rules, and a region's cut at a tile border |
 //! | [`stroke`](stroke) | §8.4.3 — caps, joins, and the expansion's arithmetic at the ends of the coordinate range |
+//! | [`stroke_set`](stroke_set) | §8.4.3.2 — the stroke as one set of points whichever way its path runs, on a 1× to 8× ladder (ADR 1361) |
 //!
 //! What stays here is what more than one of them builds: the identity transform every case
 //! rasterises under, the coverage probe, and the rectangle path. Everything used by exactly
@@ -51,6 +52,7 @@
 mod fill;
 mod flatten;
 mod stroke;
+mod stroke_set;
 
 use raster_scene::{Point, Segment};
 

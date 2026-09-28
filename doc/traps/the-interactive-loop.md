@@ -199,3 +199,10 @@ will spring it again.
 a `pump` nested inside a `pump`. Split into `take_the_front` (state only) and `show_document`
 (state plus the message), which is the shape `viewer-gtk` already has by taking the queue as a
 parameter (ADR 1264).
+
+### 57. A toolkit that owns keyboard focus swallows Tab before the shared key table sees it
+
+Qt's own focus chain took every Tab, so §12.5.1's walk over the document's `/Tabs` never reached
+the Rust side at all, and no test could see it; GTK's move-focus did the same for its own controls
+(ADR 1357). The page now declines the toolkit's focus chain and an event filter hands Tab to the
+shared key table. After any focus or controls change, drive Tab under Xvfb in every window.

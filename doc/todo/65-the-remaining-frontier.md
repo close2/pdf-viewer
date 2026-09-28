@@ -92,10 +92,9 @@ permanent) or an owner decision to acquire a specification.
 
 ### 3. Hard rendering / architecture — a real build across several rounds
 
-These are genuine model or rasteriser gaps, most of them priced and most unwitnessed on any first
-page. **What would unblock them:** focused multi-round work on a per-pixel second-rasterisation pass,
-a colour route that is not affine, or the tessellation tolerance `pdf-model` cannot state in device
-pixels. *One raster carries the product of shape and opacity where the clause wants the pair* is not
+No row is here at present. The bucket is for a genuine model or rasteriser gap that only a build
+across several rounds closes, and the last one, §10.7.4's mark for a stroke its matrix collapses,
+was built (ADR 1360). *One raster carries the product of shape and opacity where the clause wants the pair* is not
 among them: §11.4.6 is the one reader of the pair the standard has, every knockout element states its
 shape, and §11.3.7.3's NOTE 2 licenses the product everywhere else (§11.4.3's row, ADR 1340).
 
@@ -111,25 +110,18 @@ precision that stood beside it here is closed, the cube into a parent's componen
 the device's decoding, a linear grid and the space's own encoding rather than as one sampled grid
 (ADR 1267).
 
-- §10.7.4 — one residue `doc/todo/11` item 8 carries: §10.7.4's own mark for a *stroke* its matrix
-  collapsed, whose image is the projection of the stroke's own outline; a fill so collapsed onto a
-  page axis is its line (ADR 1348). Item 4's image edge is paid and its group below opacity 1.0 is a
-  documented choice (ADR 1348). An overlap confined to pixels a path that is not a stroker's outline
-  only partly covers stays, bounded by its own area and priced (ADR 1347). A path whose subpaths
-  overlap is measured as the set the fill rule declares inside, under both rules (ADR 1341), one
-  cluster of a row at a time (ADR 1347). The clip region that is the
-  union of two fills is built:
-  `render-cpu` composes it and the other two backends refuse it by name, with
-  `doc/QUORRA_FEEDBACK.md` section 51 the ask that would let a scene state it (ADR 1231). The row's
-  four
-  *departures* — anti-aliasing instead of the half-open square rule, the covered-area consequence of
-  it, averaging over the pixel area, and the clipping paragraph's own product — are documented
-  choices §10.7.1's NOTE licenses, each measured against a closed form rather than argued; §10.7 is
-  this row's aggregate.
-  **Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `departed`. The patch travels
-  to the backend and the fineness is derived there in device pixels (ADR 1217); the one branch left
-  is a patch whose colours §8.7.4.4 requires be converted between its corners, which no corpus
-  document takes.
+**Beside this bucket and not in it**: §10.7.4 is `departed` on one pixel — the one a shape with no
+extent along either axis lies in, ADR 1060's decision for §8.5.3.3.1's point and ADR 1360's for a mark
+a matrix of rank zero collapses — and everything else it states is executed: a fill or a stroke its
+matrix carries onto a line is that line (ADRs 1348, 1360), a path whose subpaths overlap is measured
+as the set its rule declares inside (ADRs 1341, 1347), and the exact set's cost has a measured floor
+(ADR 1359). Its four scan-conversion departures are choices §10.7.1's NOTE licenses; §10.7 is
+`implemented` with it.
+
+**Beside this bucket and not in it**: §8.7.4.5.7 and §8.7.4.5.8 are `departed`. The patch travels
+to the backend and the fineness is derived there in device pixels (ADR 1217); the one branch left
+is a patch whose colours §8.7.4.4 requires be converted between its corners, which no corpus
+document takes.
 
 ### 4. Feature depth — a built feature with cases still owed
 
@@ -152,10 +144,15 @@ a normal round extending the existing code.
   the box its glyph declares, a composite code takes the bytes its `CMap`'s codespace ranges
   delimit, `sh` is cut by its clip where the shading is a gradient law, a soft mask's group is
   entered and cut, and a stroke's survivors keep its colour, alpha and overprint (ADRs 1351,
-  1352). What is still owed is the refusal list in `doc/todo/64`: a Type 3 `d0` glyph whose marks
-  are stated nowhere, a vertical composite font, a shading whose colours are data placed in the
-  plane, a zero-width stroke, and the codec cases named there. The overlay is a decided departure
-  inside the row (ADRs 1124, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351, 1352).
+  1352). A `d0` glyph under an all-zero `/FontBBox` is measured by its own marks, a vertical
+  `CMap`'s code restores its `w1`, a zero-width stroke is cut along its path, a form met
+  differently at two placements is copied per edit, and a shading's data located in the region
+  alone are destroyed where they are stated — a mesh cut, a radial or function-based shading's
+  samples cleared — with a calculator function serving them refused as a decision (ADR 1363).
+  What is still owed is the codec residue in `doc/todo/64`: a matte a re-expressed picture cannot
+  keep, a `JPXDecode` whose components disagree on a depth above eight, and a decode shape no fresh
+  raster holds. The overlay is a decided departure inside the row (ADRs 1124, 1195, 1196, 1236,
+  1248, 1277, 1324, 1333, 1351, 1352, 1363).
 - **Beside this bucket and not in it** — §12.7.4.3 is `departed`: a rich text field's formatting,
   which the clause hands to XFA 3.3, is reported rather than applied (ADRs 1122, 1197). A `/DA`
   whose `Tm` has no inverse is the clause carried out — the translation is the processor's to
@@ -181,7 +178,12 @@ the first commit, and the private key a host input (ADR 1134). **What starts the
 trigger — a document whose recipient list could match a certificate the user holds, or a host asking
 to supply a private key — not the clause's own sake. The robustness gain is nil (the five corpus
 documents carry no recipient certificate this reader could match), so the calibrated refusal is the
-honest state until then.
+honest state until then. **That robustness figure rests on a premise that is false for four of the
+five**: `doc/corpora/pdfbox`'s four public-key documents sit beside the keystores that decrypt them,
+their issuer and serial matching what each document's `EnvelopedData` names, so a finished handler
+would open them under a key a test host supplies. They are a witness for the build rather than the
+user's certificate; `doc/questions/Q168` asks whether they are the trigger, and §7.6.5's note has the
+evidence.
 
 - §7.6.5, §7.6.5.1 (`reported`), §7.6.5.2 (`reported`), §7.6.5.3 (`reported`) — the handler itself and
   its dictionary and algorithms, refused by name before Table 23 is read.
@@ -193,7 +195,7 @@ the parity and names the open ones. The owner's answers of 2026-09-22 are built:
 §12.7.6.2's request, so that row and §12.7.6 are `implemented` (ADR 1291); A72's bound — a quantity
 may be chosen where the clause names the kind of mark and withholds only the number — moved
 §12.4.4, §12.4.4.1, §12.5.6.19 and §12.6.4.15 to `implemented` (ADR 1299), puts §12.5.6.11's and
-§12.5.6.12's artwork on its far side, and moved §12.7.5.4 to `implemented` (ADR 1323); A76's
+§12.5.6.12's artwork on its far side (both `departed` on it, ADR 1367), and moved §12.7.5.4 to `implemented` (ADR 1323); A76's
 mode is drawn in `raster/` (ADR 1295); A97's text is held and §12.7.8.3.4 reads it (ADR 1297);
 A100 made §8.6.6.5 `implemented`; A03 ratified Annex F, whose rows are all `implemented` (ADRs 1293,
 1309); A67 names no ledger row. A130 wrote TLS into principle 3 as its one named exception, with
@@ -206,9 +208,9 @@ A normal round can advance or close each of these today; there is no missing sur
 package, no cross-round architecture. Membership is re-derived from the ledger rather than carried: a
 row is in this bucket when its note names none of those three.
 
-No row is here at present. §11.6.5.2, the last one named, is `implemented`: a `/Matte` on a
-`JPXDecode` parent decoded at a reduced level is undone on that grid, the mask carried onto it over
-the same footprints (ADR 1324).
+No row is here at present. §12.6.4.6 was, and is `departed`: a launch whose Table 207 `/F` is a
+PDF opens under the reader's remote-documents level, and one that names an application is the one
+requirement withheld, by principle 3's sandbox (ADRs 1368, 1358).
 
 Bucket 4's rows are buildable by a normal round as well; what separates them is that each of
 those closes a *case* while a row here closes the row. The seven this bucket last named — §7.5.6,
@@ -221,8 +223,7 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §10.7, §12.1, §12.5, §12.5.6, §12.6, §12.6.4, §12.8, §12.8.3,
-§12.8.3.4.
+§7.6, §12.1, §12.5, §12.5.6, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap
@@ -231,21 +232,17 @@ The residue here is not fresh implementation work: the clause hands the feature 
 exclusion, deprecates it, states no artwork, or the case is one the standard leaves undefined and this
 tree reports rather than guesses. **This is the bucket principle 5 says decays** — a *not owed* claim
 is a claim about the specification, so a revisiting round re-reads the titles around the clause before
-trusting the word (the DeviceCMYK and transfer-function precedents in `CLAUDE.md`). Every row below
-has been read against its clause and against Errata Collection 3, and each one's note records the
+trusting the word (the DeviceCMYK and transfer-function precedents in `CLAUDE.md`). A row that
+arrives here is read against its clause and against Errata Collection 3, and its note records the
 reading.
 
-- §12.6.4.9, §12.6.4.10 (`reported`) — Sound and Movie. Each clause hands the playing to 13.2 in its
-  own opening sentence, and clause 13 is on `CLAUDE.md`'s closed exclusion list; `spec-errata emit`
-  files no annotation under either heading.
-- §12.6.4.6 (`reported`) — Launch. Two different facts wear one shape and `action::launch` says which:
-  a launch action with no `/F` is declined by Table 207's own sentence, because nothing here
-  understands the three alternatives it names, and one *with* an `/F` is withheld by the sandbox,
-  which is principle 3 rather than a gap. One document of 978 states a `/S /Launch` and it states an
-  `/F`.
-- §12.5.6.11, §12.5.6.12 (`reported`) — a caret's `/Sy` symbol and a rubber stamp's `/IT`, whose
-  artwork the standard states nowhere (`doc/todo/26`); every corpus instance carries an appearance,
-  and Table 184 is the only place any of the fourteen stamp legends is printed at all.
+No row is here at present, and the bucket was emptied by re-reading it rather than by building.
+§12.6.4.9's and §12.6.4.10's own opening sentence hands the playing to 13.2, so both are
+`out-of-scope` on principle 5's clause 13 entry, the position §12.6.4.14's rendition action is in.
+§12.5.6.11's caret and §12.5.6.12's stamp legends are `departed`: `doc/questions/A72` put their
+artwork on the far side of its bound, which made it a decision rather than a debt (ADR 1367).
+§12.6.4.6 did not hold: Table 207's `/F` names a document to open as well as an application to run,
+and the half that names a PDF is built (ADRs 1368, 1358).
 
 ### Expired premises — a decision whose factual ground the tree has since removed
 

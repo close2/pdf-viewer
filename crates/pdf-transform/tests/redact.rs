@@ -718,23 +718,102 @@ fn a_stroke_whose_outline_holds_an_arc_is_cut_at_the_region_edge() {
     }
 }
 
-/// §8.4.3.2's zero line width is refused: it "shall denote the thinnest line that can be
-/// rendered at device resolution", which is a width in device pixels and not one an outline in
-/// user space can be written from.
+/// A zero-width stroke is cut as the path it is drawn along (§8.4.3.2, ADR 1363): the stretch
+/// inside the region is gone from the content stream, the rest is stroked again at the same zero
+/// width, and the page is identical outside the region and blank inside it.
 #[test]
-fn a_zero_width_stroke_in_the_region_refuses_the_page() {
+fn a_zero_width_stroke_is_cut_as_a_path() {
     let content = "0 0 0 RG 0 w 0 J 20 50 m 120 50 l S";
+    let region = [60.0, 30.0, 140.0, 80.0];
     let bytes = build(
         content,
         &["<< /Type /Annot /Subtype /Redact /Rect [60 30 140 80] >>"],
     );
-    let (report, _out) = redact(&bytes);
-    assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
     assert!(
-        report.refused[0].detail.contains("§8.4.3.2"),
-        "the refusal names the clause: {}",
-        report.refused[0].detail
+        contains(&out, b"20 50 m\n59.99 50 l\nS\n"),
+        "the survivor is the path up to the widened region's edge, stroked again"
     );
+    assert!(!contains(&out, b"120 50 l"), "the removed end is gone");
+    no_mark_meets(&out, region);
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// A dashed zero-width stroke is dashed before it is cut, and the dashes are written as subpaths
+/// of their own under a solid pattern, so a surviving piece marks the stretches it marked before.
+#[test]
+fn a_dashed_zero_width_stroke_is_dashed_before_it_is_cut() {
+    let content = "0 0 1 RG 0 w [6 4] 3 d 20 100 m 180 100 l S";
+    let region = [93.0, 80.0, 117.0, 120.0];
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [93 80 117 120] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"q\n[] 0 d\n"),
+        "the dashes are stroked solid"
+    );
+    assert!(
+        contains(&out, b"20 100 m\n23 100 l\n"),
+        "the first dash is the phase's remainder of the pattern, as §8.4.3.6 marks it"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// A zero-width §8.5.2.2 curve is split at the roots where it meets the region's edges and stays
+/// a curve on either side, ending on the widened region's edge lines.
+#[test]
+fn a_zero_width_curve_is_cut_at_its_roots() {
+    let content = "1 0 0 RG 0 w 20 40 m 60 160 140 160 180 40 c S";
+    let region = [90.0, 100.0, 110.0, 180.0];
+    let bytes = build(
+        content,
+        &["<< /Type /Annot /Subtype /Redact /Rect [90 100 110 180] >>"],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let text = String::from_utf8_lossy(&out);
+    let tail = &text[text.find("RG").expect("the content")..];
+    assert_eq!(
+        tail.matches(" m\n").count(),
+        2,
+        "two runs survive, one either side: {tail}"
+    );
+    assert!(
+        !tail.contains(" l\n"),
+        "each run is the source's curve, split at its roots: {tail}"
+    );
+    // The arch is symmetric about x = 100, so it crosses both widened edges at one height.
+    assert!(
+        tail.contains("89.99 128.88359 c\n110.01 128.88359 m\n"),
+        "the runs end and begin on the edges x = 89.99 and 110.01: {tail}"
+    );
+    // Inside the region nothing is drawn. Outside it the survivors are the source curve exactly,
+    // but a renderer flattens each piece to its own tolerance, so the hairline's anti-aliased
+    // coverage there is not held to the original pixel for pixel; the geometry above is.
+    let after = pixels(&out);
+    let scale = after.width as f32 / PAGE_POINTS as f32;
+    for y in 0..after.height {
+        for x in 0..after.width {
+            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let (px, py) = (fx / scale, PAGE_POINTS as f32 - fy / scale);
+            if px > region[0] + 1.0
+                && px < region[2] - 1.0
+                && py > region[1] + 1.0
+                && py < region[3] - 1.0
+            {
+                let at = (y * after.width + x) as usize * 4;
+                assert_eq!(
+                    &after.data[at..at + 3],
+                    &[0xFF, 0xFF, 0xFF],
+                    "({x}, {y}) inside"
+                );
+            }
+        }
+    }
 }
 
 /// The surviving outline is painted in the **stroking** colour, replayed under Table 74's
@@ -4179,35 +4258,72 @@ fn a_type3_glyph_whose_marks_reach_the_region_past_its_advance_is_removed() {
     held_outside_and_blank_inside(&bytes, &out, region, &[[30.0, 99.0, 75.5, 112.0]]);
 }
 
-/// A `d0` glyph in a font whose `/FontBBox` is all zero states nowhere where its marks fall, so
-/// the page is refused by name rather than tested against a guess.
+/// A `d0` glyph in a font whose `/FontBBox` is all zero states its marks nowhere but in its own
+/// description, so the description is run and its marks measured (§9.6.4, ADR 1363): the glyph
+/// whose bar reaches the region past its advance is removed, and the one whose marks stay clear
+/// of it is kept, although both advance boxes miss the region.
+///
+/// The bar glyph advances 15 units and paints `0 0 3000 750 re f`, so set at x = 30 at 15 points
+/// its marks run to x = 75; the region at x = 68…74 is clear of every advance box on the line,
+/// the second glyph's included (x = 45…60), and of the square's marks (x = 45…56.25).
 #[test]
-fn a_type3_glyph_whose_marks_are_stated_nowhere_refuses_the_page() {
+fn a_type3_d0_glyph_under_an_all_zero_font_box_is_measured_by_its_own_marks() {
+    let font = vec![
+        b"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 0 0] \
+          /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 8 0 R /Encoding 7 0 R \
+          /FirstChar 97 /LastChar 98 /Widths [1000 1000] >>"
+            .to_vec(),
+        b"<< /Type /Encoding /Differences [97 /bar /square] >>".to_vec(),
+        b"<< /bar 9 0 R /square 10 0 R >>".to_vec(),
+        stream_object("", b"1000 0 d0 0 0 1 rg 0 0 3000 750 re f"),
+        stream_object("", b"1000 0 d0 1 0 0 rg 0 0 750 750 re f"),
+    ];
+    let content = "BT /FT3 15 Tf 30 100 Td (ab) Tj ET";
+    let region = [68.0, 95.0, 74.0, 120.0];
+    let bytes = page_with("<< /Font << /FT3 6 0 R >> >>", content, region, &font);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"[ -1000(b)] TJ"),
+        "the bar went and the square stayed at its own origin: {:?}",
+        shown(&out)
+    );
+    no_mark_meets(&out, region);
+    held_outside_and_blank_inside(&bytes, &out, region, &[[30.0, 99.0, 75.5, 112.0]]);
+}
+
+/// A measured `d0` glyph whose description strokes inherits the line width in force at the
+/// text-showing operator (§9.6.4), so the measure reaches as far as the stroke does: a vertical
+/// hairline of glyph space stroked 8 units wide at the page's `w` meets a region 3 units beside it.
+#[test]
+fn a_measured_d0_glyph_inherits_the_line_width_of_its_invocation() {
     let font = vec![
         b"<< /Type /Font /Subtype /Type3 /FontBBox [0 0 0 0] \
           /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 8 0 R /Encoding 7 0 R \
           /FirstChar 97 /LastChar 97 /Widths [1000] >>"
             .to_vec(),
-        b"<< /Type /Encoding /Differences [97 /square] >>".to_vec(),
-        b"<< /square 9 0 R >>".to_vec(),
-        stream_object("", b"1000 0 d0 0 0 1 rg 0 0 750 750 re f"),
+        b"<< /Type /Encoding /Differences [97 /stem] >>".to_vec(),
+        b"<< /stem 9 0 R >>".to_vec(),
+        // A stem at x = 2000 in glyph space: 30 + 2000 × 0.015 = 60 on the page.
+        stream_object("", b"1000 0 d0 2000 0 m 2000 750 l S"),
     ];
-    let bytes = page_with(
-        "<< /Font << /FT3 6 0 R >> >>",
-        "BT /FT3 15 Tf 30 100 Td (a) Tj ET",
-        [0.0, 0.0, 10.0, 10.0],
-        &font,
-    );
-    let (report, out) = redact(&bytes);
-    let refused = report.refused.first().expect("the page is refused");
-    assert!(
-        refused.detail.contains("d0") && refused.detail.contains("FontBBox"),
-        "the refusal names why: {}",
-        refused.detail
-    );
-    assert!(
-        contains(&out, b"/Redact"),
-        "the annotation is left as the file wrote it"
+    // 8 units of the page is 533.3 units of glyph space at 0.015 to the unit, so the stroke
+    // reaches 4 units either side of x = 60, and the measure — a whole width, at a miter limit
+    // of 1 — 8: into a region that starts at x = 63. At the initial width of 1 it would reach
+    // 0.015 units and miss.
+    let content = "0 0 1 RG 533.3333 w 1 M BT /FT3 15 Tf 30 100 Td (a) Tj ET";
+    let region = [63.0, 95.0, 70.0, 120.0];
+    let bytes = page_with("<< /Font << /FT3 6 0 R >> >>", content, region, &font);
+    let (report, _) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let Some(Origin::Redacted { glyphs, .. }) =
+        report.outputs.first().map(|output| output.origin.clone())
+    else {
+        panic!("a redacted origin");
+    };
+    assert_eq!(
+        glyphs, 1,
+        "the stem's stroke reaches the region, so its code went"
     );
 }
 
@@ -4374,11 +4490,12 @@ fn a_shading_clipped_clear_of_the_region_is_left_alone() {
     );
 }
 
-/// A shading whose colours are sampled data — a §7.10.2 sampled function behind an axial
-/// shading — may hold values only the region reaches; a clip would hide them rather than
-/// destroy them, so the page is refused by name.
+/// An axial shading's colour at a parameter lies along a line that "extends indefinitely
+/// perpendicular to that axis" (§8.7.4.5.3), so none of its values is located in the region alone
+/// — a sampled function's included — and the shading is cut by its clip with its dictionary and
+/// its function the producer's (ADR 1363).
 #[test]
-fn a_shading_through_a_sampled_function_refuses_the_page() {
+fn a_shading_through_a_sampled_function_is_cut_by_its_clip() {
     let shading = b"<< /ShadingType 2 /ColorSpace /DeviceGray /Coords [20 0 180 0] \
         /Function 7 0 R /Extend [true true] >>"
         .to_vec();
@@ -4386,15 +4503,20 @@ fn a_shading_through_a_sampled_function_refuses_the_page() {
         "/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [4] /BitsPerSample 8",
         &[0, 255, 0, 255],
     );
+    let region = [60.0, 60.0, 100.0, 100.0];
     let bytes = page_with(
         "<< /Shading << /Sh0 6 0 R >> >>",
-        "/Sh0 sh",
-        [60.0, 60.0, 100.0, 100.0],
+        "q 20 20 160 160 re W n /Sh0 sh Q",
+        region,
         &[shading, function],
     );
-    let (report, _) = redact(&bytes);
-    let refused = report.refused.first().expect("the page is refused");
-    assert!(refused.detail.contains("sampled"), "{}", refused.detail);
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, &[0, 255, 0, 255]),
+        "the function's samples are the producer's"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
 }
 
 /// A soft mask's group is content: text drawn into a `/Luminosity` group is legible through the
@@ -4550,28 +4672,674 @@ fn a_path_filled_with_an_axial_shading_pattern_is_cut() {
     held_outside_and_blank_inside(&bytes, &out, region, &[]);
 }
 
-/// A path filled with a shading pattern whose colours are sampled data is refused by name: the
-/// cut would remove the marks and carry the pattern, with the region's colours in it, past them.
+/// A path filled with a shading pattern whose radial shading's inner circles lie inside the
+/// region is cut, and the pattern it carries past the cut is written afresh for the page with those
+/// circles' samples destroyed (§8.7.3.1's pattern matrix places them, ADR 1363).
 #[test]
-fn a_path_filled_with_a_sampled_shading_pattern_refuses_the_page() {
-    let pattern = b"<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceGray \
-        /Coords [20 0 180 0] /Function 7 0 R >> >>"
-        .to_vec();
-    let function = stream_object(
-        "/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [4] /BitsPerSample 8",
-        &[0, 255, 0, 255],
-    );
+fn a_path_filled_with_a_sampled_shading_pattern_loses_the_region_s_samples() {
+    let mut objects = sampled_radial("false false");
+    let shading = objects.remove(0);
+    let mut pattern = b"<< /PatternType 2 /Shading ".to_vec();
+    pattern.extend_from_slice(&shading);
+    pattern.extend_from_slice(b" >>");
+    let region = [80.0, 80.0, 120.0, 120.0];
     let bytes = page_with(
         "<< /Pattern << /P0 6 0 R >> >>",
         "/Pattern cs /P0 scn 20 20 160 160 re f",
-        [60.0, 60.0, 100.0, 100.0],
-        &[pattern, function],
+        region,
+        &[pattern, objects.remove(0)],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert!(contains(&bytes, &original), "the fixture holds the table");
+    assert!(
+        !contains(&out, &original),
+        "the table with the inner circles' samples is gone from the file"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+// --- A vertical CMap, a d0 glyph's own marks, located shading data and a form met twice (ADR 1363)
+
+/// The placed quadrilaterals of the first page, in the order the interpreter placed its codes.
+fn placed_quads(bytes: &[u8]) -> Vec<[f32; 8]> {
+    let document = Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page)
+        .text_layer
+        .iter()
+        .map(|placed| placed.quad)
+        .collect()
+}
+
+/// A composite font writing vertically through an embedded `CMap` of `/WMode 1`, mapping the
+/// codes `<0078>`…`<007A>` to CIDs 120…122, whose descendant states §9.7.4.3's EXAMPLE 3 for CID
+/// 120 — `/W2 [120 [-1000 250 772]]` — and a longer displacement for CIDs 121 and 122, with no
+/// program, so the text layer is placed from the metrics and read back through `/ToUnicode`.
+fn vertical_font() -> Vec<Vec<u8>> {
+    let codespace = "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange";
+    let cmap = format!(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+         /CMapName /TestV def /CMapType 1 def /WMode 1 def\n\
+         /CIDSystemInfo << /Registry (Test) /Ordering (Test) /Supplement 0 >> def\n\
+         {codespace}\n1 begincidrange\n<0078> <007A> 120\nendcidrange\n\
+         endcmap CMapName currentdict /CMap defineresource pop end end\n"
+    );
+    let unicode = format!(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n\
+         {codespace}\n1 beginbfrange\n<0078> <007A> <0058>\nendbfrange\n\
+         endcmap CMapName currentdict /CMap defineresource pop end end\n"
+    );
+    vec![
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding 7 0 R \
+          /DescendantFonts [8 0 R] /ToUnicode 10 0 R >>"
+            .to_vec(),
+        stream_object(
+            "/Type /CMap /CMapName /TestV /WMode 1 \
+             /CIDSystemInfo << /Registry (Test) /Ordering (Test) /Supplement 0 >>",
+            cmap.as_bytes(),
+        ),
+        b"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Test \
+          /CIDSystemInfo << /Registry (Test) /Ordering (Test) /Supplement 0 >> \
+          /FontDescriptor 9 0 R /DW 1000 /DW2 [880 -1000] \
+          /W2 [120 [-1000 250 772] 121 122 -1500 250 772] >>"
+            .to_vec(),
+        b"<< /Type /FontDescriptor /FontName /Test /Flags 4 /ItalicAngle 0 /Ascent 800 \
+          /Descent -200 /CapHeight 700 /StemV 80 /FontBBox [0 -200 1000 800] >>"
+            .to_vec(),
+        stream_object("", unicode.as_bytes()),
+    ]
+}
+
+/// In writing mode 1 the gap a removed code leaves is §9.4.4's `ty`, from the glyph's own `w1`
+/// (§9.7.4.3): CID 121 moves the pen 15 units down at 10 points, so its removal is restored by a
+/// `TJ` number of 1500 thousandths — not the 1000 of `/DW2`, and not a horizontal width — and the
+/// code after it is placed exactly where it was.
+#[test]
+fn a_vertical_cmap_s_removed_code_restores_its_own_vertical_displacement() {
+    // CID 120 from y = 150 (box 140.28…150.28), CID 121 from 140 (130.28…140.28), CID 122 from
+    // 125: the region at y = 131…139 meets the middle code alone.
+    let region = [95.0, 131.0, 110.0, 139.0];
+    let bytes = page_with(
+        "<< /Font << /F0 6 0 R >> >>",
+        "BT /F0 10 Tf 100 150 Td <00780079007A> Tj ET",
+        region,
+        &vertical_font(),
+    );
+    let before = placed_quads(&bytes);
+    assert_eq!(before.len(), 3, "the fixture places its three codes");
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, br"[(\000x) 1500(\000z)] TJ"),
+        "the middle code's two bytes went and its 15-unit fall is restored: {:?}",
+        shown(&out)
+    );
+    let text = page_text(&out);
+    assert!(
+        text.contains('X') && text.contains('Z') && !text.contains('Y'),
+        "the middle code is gone from the text: {text:?}"
+    );
+    let after = placed_quads(&out);
+    assert_eq!(after.len(), 2);
+    for (moved, stayed) in after[0].iter().zip(before[0]) {
+        assert!(
+            (moved - stayed).abs() < 1e-6,
+            "the first code is where it was"
+        );
+    }
+    for (moved, stayed) in after[1].iter().zip(before[2]) {
+        assert!(
+            (moved - stayed).abs() < 1e-3,
+            "the third code is where it was: {:?} against {:?}",
+            after[1],
+            before[2]
+        );
+    }
+}
+
+/// A one-page 200 × 200 PDF like [`page_with`], whose `/Redact` annotation is given whole.
+fn page_with_annotation(
+    resources: &str,
+    content: &str,
+    annotation: &str,
+    extras: &[Vec<u8>],
+) -> Vec<u8> {
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources {resources} \
+             /Contents 4 0 R /Annots [5 0 R] >>"
+        )
+        .into_bytes(),
+        stream_object("", content.as_bytes()),
+        annotation.as_bytes().to_vec(),
+    ];
+    objects.extend(extras.iter().cloned());
+    assemble_bytes(&objects)
+}
+
+/// A blue square form, 40 units on a side, drawn twice.
+fn square_form() -> Vec<u8> {
+    stream_object(
+        "/Type /XObject /Subtype /Form /BBox [0 0 40 40]",
+        b"0 0 1 rg 0 0 40 40 re f",
+    )
+}
+
+/// A form drawn twice that the region meets at one placement only: the placement it missed keeps
+/// drawing the producer's form, and the one it met draws a copy of its own with the region's marks
+/// cut out, named in the page's resources (§8.10.1, ADR 1363).
+#[test]
+fn a_form_drawn_twice_and_met_once_is_copied_for_the_placement_met() {
+    let region = [140.0, 110.0, 170.0, 170.0];
+    let bytes = page_with(
+        "<< /XObject << /Fm0 6 0 R >> >>",
+        "q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 120 120 cm /Fm0 Do Q",
+        region,
+        &[square_form()],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(
+            &out,
+            b"q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 120 120 cm /RedactForm1 Do Q"
+        ),
+        "the placement met draws its own copy, the other the producer's form"
+    );
+    assert!(
+        contains(&out, b"0 0 1 rg 0 0 40 40 re f"),
+        "the producer's form is still drawn where the region missed it"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// A form drawn twice that two regions meet differently: the first placement's edit takes the
+/// form's own place and the second's is a copy, so the producer's uncut square is gone from the
+/// file and each placement is cut by its own region alone.
+#[test]
+fn a_form_drawn_twice_and_met_differently_is_cut_each_way() {
+    let first = [30.0, 10.0, 50.0, 70.0];
+    let second = [110.0, 130.0, 170.0, 150.0];
+    let annotation = "<< /Type /Annot /Subtype /Redact /Rect [30 10 170 150] \
+        /QuadPoints [30 70 50 70 30 10 50 10 110 150 170 150 110 130 170 130] >>";
+    let bytes = page_with_annotation(
+        "<< /XObject << /Fm0 6 0 R >> >>",
+        "q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 120 120 cm /Fm0 Do Q",
+        annotation,
+        &[square_form()],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"/Fm0 Do Q q 1 0 0 1 120 120 cm /RedactForm1 Do Q"),
+        "the second placement draws a copy of its own"
+    );
+    assert!(
+        !contains(&out, b"0 0 40 40 re f"),
+        "the uncut square is in the file nowhere"
+    );
+    held_outside_and_blank_inside(&bytes, &out, first, &[second]);
+    held_outside_and_blank_inside(&bytes, &out, second, &[first]);
+}
+
+/// A form drawn twice from inside another form is split in that form's own stream: the copy is
+/// named in the enclosing form's resources, which the enclosing form's edited stream states.
+#[test]
+fn a_form_drawn_twice_inside_a_form_is_copied_in_that_form_s_resources() {
+    let region = [140.0, 110.0, 170.0, 170.0];
+    let outer = stream_object(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] \
+         /Resources << /XObject << /Fm0 7 0 R >> >>",
+        b"q 1 0 0 1 20 20 cm /Fm0 Do Q q 1 0 0 1 120 120 cm /Fm0 Do Q",
+    );
+    let bytes = page_with(
+        "<< /XObject << /Outer 6 0 R >> >>",
+        "/Outer Do",
+        region,
+        &[outer, square_form()],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"/RedactForm1 Do"),
+        "the placement met draws a copy"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// [`held_outside_and_blank_inside`] for a mesh: inside the region nothing is drawn, and outside
+/// it every pixel is within `levels` of the original's.
+///
+/// A renderer interpolates a mesh's colours by its own subdivision, within §8.7.4.4's allowance —
+/// "PDF processors are free to use this strategy as long as the interpolated colour values
+/// approximate those defined by the shading to within the smoothness tolerance" — and a cut mesh
+/// is subdivided from different vertices than the whole one, so the same colour law can round a
+/// level differently at a pixel.
+fn held_outside_within(before: &[u8], after: &[u8], region: [f32; 4], levels: u8) {
+    let before = pixels(before);
+    let after = pixels(after);
+    assert_eq!((before.width, before.height), (after.width, after.height));
+    let scale = before.width as f32 / PAGE_POINTS as f32;
+    let (x0, x1) = (region[0] * scale, region[2] * scale);
+    let (y0, y1) = (
+        (PAGE_POINTS as f32 - region[3]) * scale,
+        (PAGE_POINTS as f32 - region[1]) * scale,
+    );
+    let mut marked = false;
+    for y in 0..before.height {
+        for x in 0..before.width {
+            let at = (y * before.width + x) as usize * 4;
+            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+            if fx > x0 + 1.0 && fx < x1 - 1.0 && fy > y0 + 1.0 && fy < y1 - 1.0 {
+                marked |= before.data[at..at + 3] != [0xFF, 0xFF, 0xFF];
+                assert_eq!(
+                    &after.data[at..at + 3],
+                    &[0xFF, 0xFF, 0xFF],
+                    "({x}, {y}) inside"
+                );
+            } else if fx < x0 - 1.0 || fx > x1 + 1.0 || fy < y0 - 1.0 || fy > y1 + 1.0 {
+                for channel in 0..4 {
+                    let moved = before.data[at + channel].abs_diff(after.data[at + channel]);
+                    assert!(moved <= levels, "({x}, {y}) outside moved by {moved}");
+                }
+            }
+        }
+    }
+    assert!(marked, "the original marks the region");
+}
+
+/// A coordinate on a 16-bit grid over `/Decode [0 200]`.
+fn grid16(value: f64) -> [u8; 2] {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a fixture coordinate between 0 and 200, on a grid of 65 535"
+    )]
+    let q = (value / 200.0 * 65535.0).round() as u16;
+    q.to_be_bytes()
+}
+
+/// A free-form Gouraud mesh (§8.7.4.5.5) of two triangles over x, y = 20…180: red, green and blue
+/// at three corners and white at the fourth, the second triangle joined by edge flag 1.
+fn gouraud_mesh() -> Vec<u8> {
+    let vertex = |flag: u8, x: f64, y: f64, rgb: [u8; 3]| {
+        let mut out = vec![flag];
+        out.extend_from_slice(&grid16(x));
+        out.extend_from_slice(&grid16(y));
+        out.extend_from_slice(&rgb);
+        out
+    };
+    let mut data = Vec::new();
+    data.extend(vertex(0, 20.0, 20.0, [255, 0, 0]));
+    data.extend(vertex(0, 180.0, 20.0, [0, 255, 0]));
+    data.extend(vertex(0, 20.0, 180.0, [0, 0, 255]));
+    data.extend(vertex(1, 180.0, 180.0, [255, 255, 255]));
+    stream_object(
+        "/ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 16 /BitsPerComponent 8 \
+         /BitsPerFlag 8 /Decode [0 200 0 200 0 1 0 1 0 1]",
+        &data,
+    )
+}
+
+/// The vertices of a type 4 mesh the output names as `/Sh0`, decoded as the reader decodes them.
+fn output_mesh_vertices(out: &[u8]) -> (i64, Vec<(f64, f64)>) {
+    let document = Document::open_with_limits(out.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let shadings = document.get_key(&page.resources, "Shading");
+    let entry = shadings
+        .as_dict()
+        .and_then(|dict| dict.get("Sh0"))
+        .cloned()
+        .expect("the page names /Sh0");
+    let object = document.resolve(&entry);
+    let stream = object.as_stream().expect("a mesh is a stream");
+    let kind = document
+        .get_key(&stream.dict, "ShadingType")
+        .as_integer()
+        .expect("a type");
+    let bits = document
+        .get_key(&stream.dict, "BitsPerCoordinate")
+        .as_integer()
+        .expect("a width");
+    assert_eq!(bits, 32, "the survivors are written on a 32-bit grid");
+    let data = document.decoded_stream_data(stream).expect("it decodes");
+    let components = 3usize;
+    let stride = 1 + 8 + 2 * components;
+    let points = data
+        .chunks_exact(stride)
+        .map(|vertex| {
+            let x = u32::from_be_bytes(vertex[1..5].try_into().expect("four bytes"));
+            let y = u32::from_be_bytes(vertex[5..9].try_into().expect("four bytes"));
+            (
+                f64::from(x) / f64::from(u32::MAX) * 200.0,
+                f64::from(y) / f64::from(u32::MAX) * 200.0,
+            )
+        })
+        .collect();
+    (kind, points)
+}
+
+/// A free-form Gouraud mesh painted with `sh` under a region is cut exactly: no vertex of the
+/// written mesh lies inside the region, the mesh is still a stream of triangles, and the page is
+/// identical outside the region and blank inside it (§8.7.4.5.5, ADR 1363).
+#[test]
+fn a_gouraud_mesh_is_cut_where_its_colours_are_located() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &[gouraud_mesh()],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let (kind, points) = output_mesh_vertices(&out);
+    assert_eq!(kind, 4, "still a free-form mesh");
+    assert!(
+        points.len() > 6,
+        "the two triangles became pieces: {}",
+        points.len()
+    );
+    for (x, y) in &points {
+        // The display list flips y on this page, so the region is the same box either way up.
+        assert!(
+            !(*x > 80.0 && *x < 120.0 && *y > 80.0 && *y < 120.0),
+            "a vertex ({x}, {y}) lies inside the region"
+        );
+    }
+    held_outside_within(&bytes, &out, region, 2);
+}
+
+/// A Coons patch (§8.7.4.5.7) over x, y = 20…180 with straight edges, its twelve boundary points
+/// on a 16-bit grid and its four corners red, green, blue and white.
+fn coons_patch() -> Vec<u8> {
+    let third = |from: f64, to: f64, k: f64| from + (to - from) * k / 3.0;
+    let points = [
+        (20.0, 20.0),
+        (20.0, third(20.0, 180.0, 1.0)),
+        (20.0, third(20.0, 180.0, 2.0)),
+        (20.0, 180.0),
+        (third(20.0, 180.0, 1.0), 180.0),
+        (third(20.0, 180.0, 2.0), 180.0),
+        (180.0, 180.0),
+        (180.0, third(20.0, 180.0, 2.0)),
+        (180.0, third(20.0, 180.0, 1.0)),
+        (180.0, 20.0),
+        (third(20.0, 180.0, 2.0), 20.0),
+        (third(20.0, 180.0, 1.0), 20.0),
+    ];
+    let mut data = vec![0u8];
+    for (x, y) in points {
+        data.extend_from_slice(&grid16(x));
+        data.extend_from_slice(&grid16(y));
+    }
+    for rgb in [[255u8, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]] {
+        data.extend_from_slice(&rgb);
+    }
+    stream_object(
+        "/ShadingType 6 /ColorSpace /DeviceRGB /BitsPerCoordinate 16 /BitsPerComponent 8 \
+         /BitsPerFlag 8 /Decode [0 200 0 200 0 1 0 1 0 1]",
+        &data,
+    )
+}
+
+/// A Coons patch under a region loses the sub-patches that meet it and is written back as a
+/// tensor-product mesh (§8.7.4.5.8) of the ones that do not; the page is blank inside the region
+/// and identical outside it but for the one leaf's width the removal may reach past its edge.
+#[test]
+fn a_coons_patch_is_removed_a_sub_patch_at_a_time() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &[coons_patch()],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let document = Document::open_with_limits(out.clone(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let shadings = document.get_key(&page.resources, "Shading");
+    let object = document.resolve(
+        shadings
+            .as_dict()
+            .and_then(|dict| dict.get("Sh0"))
+            .expect("the page names /Sh0"),
+    );
+    let stream = object.as_stream().expect("a mesh is a stream");
+    assert_eq!(
+        document.get_key(&stream.dict, "ShadingType").as_integer(),
+        Some(7),
+        "a Coons patch's sub-patches are tensor patches"
+    );
+    let source = coons_patch();
+    let data = &source[find(&source, b"stream\n").expect("a stream") + 7..source.len() - 10];
+    assert!(contains(&bytes, data), "the fixture holds the patch's data");
+    assert!(
+        !contains(&out, data),
+        "the producer's patch data are gone from the file"
+    );
+    held_outside_within(&bytes, &out, region, 2);
+}
+
+/// A sampled function (§7.10.2) of 17 grey levels behind a radial shading of concentric circles
+/// about (100, 100), radius 0 to 80.
+fn sampled_radial(extend: &str) -> Vec<Vec<u8>> {
+    let samples: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    vec![
+        format!(
+            "<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [100 100 0 100 100 80] \
+             /Function 7 0 R /Extend [{extend}] >>"
+        )
+        .into_bytes(),
+        stream_object(
+            "/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [17] /BitsPerSample 8",
+            &samples,
+        ),
+    ]
+}
+
+/// The first sample table the output's page reaches through `/Sh0`'s function.
+fn output_function_samples(out: &[u8]) -> Vec<u8> {
+    let document = Document::open_with_limits(out.to_vec(), Limits::DEFAULT).expect("it opens");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let shadings = document.get_key(&page.resources, "Shading");
+    let shading = document.resolve(
+        shadings
+            .as_dict()
+            .and_then(|dict| dict.get("Sh0"))
+            .expect("the page names /Sh0"),
+    );
+    let function = document.get_key(shading.as_dict().expect("a dictionary"), "Function");
+    let stream = function
+        .as_stream()
+        .expect("a sampled function is a stream");
+    document
+        .decoded_stream_data(stream)
+        .expect("it decodes")
+        .to_vec()
+}
+
+/// A radial shading's circles that lie wholly inside the region carry the only values located
+/// there, so the samples interpolated across those circles alone are cleared and every other is
+/// the producer's (§8.7.4.5.4, ADR 1363): the region reaches radius 20 of 80, a quarter of the
+/// parameter, and samples 0, 1 and 2 of 17 are interpolated across nothing beyond it.
+#[test]
+fn a_sampled_radial_shading_loses_the_samples_only_its_inner_circles_carry() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &sampled_radial("false false"),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let samples = output_function_samples(&out);
+    let original: Vec<u8> = (0..17u8).map(|k| 40 + k * 12).collect();
+    assert_eq!(
+        &samples[..3],
+        &[0, 0, 0],
+        "the inner circles' samples are destroyed"
+    );
+    assert_eq!(
+        &samples[3..17],
+        &original[3..],
+        "every other sample is the producer's"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// An `/Extend` past the smaller circle adds circles that shrink to a point inside the region, so
+/// the first value is still the region's alone; past the larger one it adds circles that leave the
+/// region, which the last value colours, and that value is kept.
+#[test]
+fn an_extended_radial_shading_keeps_the_value_its_extension_carries_outside() {
+    let region = [80.0, 80.0, 120.0, 120.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &sampled_radial("true true"),
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let samples = output_function_samples(&out);
+    assert_eq!(
+        &samples[..3],
+        &[0, 0, 0],
+        "the inner circles' samples are destroyed"
+    );
+    assert_eq!(
+        samples[16],
+        40 + 16 * 12,
+        "the last value colours the extension"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// A calculator function (§7.10.5) serving values only the region's circles carry is refused by
+/// name: a program is not divided by the values it serves.
+#[test]
+fn a_calculator_function_serving_the_region_s_values_refuses_the_page() {
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceGray /Coords [100 100 0 100 100 80] \
+        /Function 7 0 R >>"
+        .to_vec();
+    let function = stream_object("/FunctionType 4 /Domain [0 1] /Range [0 1]", b"{ }");
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        [80.0, 80.0, 120.0, 120.0],
+        &[shading, function],
     );
     let (report, _) = redact(&bytes);
     let refused = report.refused.first().expect("the page is refused");
-    assert!(
-        refused.detail.contains("shading pattern") && refused.detail.contains("sampled"),
-        "{}",
-        refused.detail
+    assert!(refused.detail.contains("§7.10.5"), "{}", refused.detail);
+}
+
+/// §8.7.4.5.4's EXAMPLE 1, the leaf's radial shading — concentric circles, a stitching of two
+/// exponential functions, extended both ways — painted as EXAMPLE 2 paints it, under a region
+/// over part of the leaf. Every piece of the function serves circles outside the region too, so
+/// nothing of the dictionary is destroyed and the marks inside the region are cut by the clip.
+#[test]
+fn the_radial_example_of_8_7_4_5_4_is_redacted() {
+    let shading = b"<< /ShadingType 3 /ColorSpace /DeviceCMYK /Coords [0.0 0.0 0.096 0.0 0.0 1.0] \
+        /Function 7 0 R /Extend [true true] >>"
+        .to_vec();
+    let stitching = b"<< /FunctionType 3 /Domain [0.0 1.0] /Functions [8 0 R 9 0 R] \
+        /Bounds [0.708] /Encode [1.0 0.0 0.0 1.0] >>"
+        .to_vec();
+    let first = b"<< /FunctionType 2 /Domain [0.0 1.0] /C0 [0.929 0.357 1.0 0.298] \
+        /C1 [0.631 0.278 1.0 0.027] /N 1.048 >>"
+        .to_vec();
+    let second = b"<< /FunctionType 2 /Domain [0.0 1.0] /C0 [0.929 0.357 1.0 0.298] \
+        /C1 [0.941 0.400 1.0 0.102] /N 1.374 >>"
+        .to_vec();
+    // EXAMPLE 2's leaf, moved onto this 200-unit page by subtracting (210, 40).
+    let content = "106.789 100.311 m 93.222 106.388 72.966 96.518 69.122 81.983 c 67.322 80.182 l \
+        75.125 82.688 81.441 81.716 88.156 79.386 c 126.448 79.386 l \
+        121.072 88.643 113.346 97.376 106.789 100.311 c W n \
+        q 27.7843 0.00 0.00 -27.7843 100.2461 81.1521 cm /Sh1 sh Q";
+    let region = [95.0, 78.0, 110.0, 90.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh1 6 0 R >> >>",
+        content,
+        region,
+        &[shading, stitching, first, second],
     );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"/C1 [0.631 0.278 1 0.027]"),
+        "the functions are the producer's, as the writer spells their numbers"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// A function-based shading (§8.7.4.5.2) over x, y = 20…180 whose 2-in sampled function is a 9 by
+/// 9 grid of grey levels: the samples whose cells lie wholly inside the region are cleared and the
+/// rest are the producer's.
+#[test]
+fn a_function_based_shading_loses_the_samples_located_in_the_region() {
+    let samples: Vec<u8> = (0..81u8).map(|k| 40 + k * 2).collect();
+    let shading = b"<< /ShadingType 1 /ColorSpace /DeviceGray /Domain [0 1 0 1] \
+        /Matrix [160 0 0 160 20 20] /Function 7 0 R >>"
+        .to_vec();
+    let function = stream_object(
+        "/FunctionType 0 /Domain [0 1 0 1] /Range [0 1] /Size [9 9] /BitsPerSample 8",
+        &samples,
+    );
+    // Samples sit every 20 units from 20; sample (4, 4) is at (100, 100) and is interpolated over
+    // 80…120 each way, which the region takes whole.
+    let region = [75.0, 75.0, 125.0, 125.0];
+    let bytes = page_with(
+        "<< /Shading << /Sh0 6 0 R >> >>",
+        "/Sh0 sh",
+        region,
+        &[shading, function],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    let cleared = output_function_samples(&out);
+    for (index, (after, before)) in cleared.iter().zip(&samples).enumerate() {
+        let (i, j) = (index % 9, index / 9);
+        if (i, j) == (4, 4) {
+            assert_eq!(*after, 0, "the sample located in the region is destroyed");
+        } else {
+            assert_eq!(after, before, "sample ({i}, {j}) is the producer's");
+        }
+    }
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
+}
+
+/// A form drawn with `Do` and also evaluated as a soft mask's group (§11.6.5.1), which the region
+/// meets differently at the two: the `Do` takes the form's own place and the mask's placement is
+/// given a copy of its own, named by a fresh graphics state restating the producer's with the
+/// copy as its `/G`.
+#[test]
+fn a_form_that_is_also_a_soft_mask_s_group_is_copied_for_the_mask() {
+    let form = stream_object(
+        "/Type /XObject /Subtype /Form /BBox [0 0 200 200] \
+         /Group << /S /Transparency /CS /DeviceGray >>",
+        b"1 g 0 0 200 200 re f 0 g 20 20 40 40 re f",
+    );
+    let region = [130.0, 110.0, 150.0, 170.0];
+    let bytes = page_with(
+        "<< /ExtGState << /GS0 << /SMask << /Type /Mask /S /Luminosity /G 6 0 R >> >> >> \
+         /XObject << /Fm0 6 0 R >> >>",
+        "q 1 0 0 1 100 0 cm /Fm0 Do Q q /GS0 gs 0 0 1 rg 20 100 160 80 re f Q",
+        region,
+        &[form],
+    );
+    let (report, out) = redact(&bytes);
+    assert!(report.refused.is_empty(), "{:?}", report.refused);
+    assert!(
+        contains(&out, b"/RedactMask1 gs"),
+        "the mask's placement names a graphics state of its own"
+    );
+    held_outside_and_blank_inside(&bytes, &out, region, &[]);
 }

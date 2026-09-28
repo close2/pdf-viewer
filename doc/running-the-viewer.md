@@ -339,8 +339,10 @@ colours — `QPalette::Highlight` and `QPalette::Accent`, which GTK 4.22 exposes
 all — and Table 233 bit 19's editable combo box, which `QComboBox` supports and `GtkDropDown` does
 not. The sidebar's three tabs are `QTreeView`s over one `QAbstractItemModel` with two columns, a
 layer's switch is `Qt::CheckStateRole` rather than a widget, and §12.7's fields are `QLineEdit`,
-`QPlainTextEdit`, `QCheckBox`, `QRadioButton`, `QPushButton`, `QComboBox` and `QListWidget` placed
-over the page.
+`QPlainTextEdit`, `QCheckBox`, `QRadioButton`, `QComboBox` and `QListWidget` placed over the page. A
+push-button is not one of them: the page draws its own appearance, a click on it is the pointer's, and
+Tab on the page walks §12.5.1's annotations in the document's order, so Space or Enter presses the one
+the walk is on (ADR 1357).
 
 **It needs Qt 6's development files to build** — `qmake6`, `moc` and a C++ compiler — which is what a
 native host binding a platform means, and is why it is in none of the three cross-target checks.

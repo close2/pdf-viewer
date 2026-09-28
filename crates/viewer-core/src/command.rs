@@ -1401,6 +1401,15 @@ pub enum Purpose {
     /// page §12.4.3's bead is on — [`Self::RemoteDocument`]'s act reached through a different
     /// table. ADR 1239.
     ThreadDocument,
+    /// §12.6.4.6's launch action: Table 207's `/F`, "[t]he application that shall be launched or
+    /// the document that shall be opened or printed".
+    ///
+    /// The bytes **may** be a PDF, and only they can say: a file specification's name is no
+    /// evidence of what the file is. One whose §7.5.2 header says it is a PDF is opened as
+    /// [`Self::RemoteDocument`]'s is, beside the one being read where Table 207's `/NewWindow` asks;
+    /// anything else is an application, and starting one is what the sandbox withholds (ADRs
+    /// 1368, 1358).
+    LaunchDocument,
 }
 
 /// What a worker did with a [`crate::RenderRequest`].

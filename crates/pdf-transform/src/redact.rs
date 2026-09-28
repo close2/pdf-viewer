@@ -88,9 +88,11 @@
 //! extract for each code, through the `CMap` the font loader resolves
 //! ([`pdf_font::composite_cmap`]) and the function it decodes with. A Type 3 glyph is a content
 //! stream that may mark past its advance, so its code is tested against the box its description
-//! declares — `d1`'s, or the font's `/FontBBox` for a `d0` glyph — carried to the page by
-//! `/FontMatrix` and §9.4.4's text rendering matrix. The glyph description itself is the font's
-//! and stays; only the code that invoked it goes, and its advance is restored like any other.
+//! declares — `d1`'s, or the font's `/FontBBox` for a `d0` glyph, or where that box is all zero
+//! the box its own marks fill when the description is run ([`type3`], ADR 1363) — carried to the
+//! page by `/FontMatrix` and §9.4.4's text rendering matrix. The glyph description itself is the
+//! font's and stays; only the code that invoked it goes, and its advance is restored like any
+//! other — in writing mode 1 by §9.4.4's `ty`, from the descendant's `/W2` and `/DW2`.
 //!
 //! # `sh`, soft-mask groups and a stroke's own state (ADRs 1351, 1352)
 //!
@@ -101,6 +103,16 @@
 //! stroke's own colour, alpha and overprint — stated by a graphics state dictionary the stream's
 //! resources gain where the fill's differ.
 //!
+//! # Located shading data, a hairline and a form met twice (ADR 1363)
+//!
+//! A shading's data located in the region alone — a mesh's vertices and corners, a radial
+//! shading's inner circles, a function-based shading's samples — are destroyed where they are
+//! stated, and the shading is written afresh for the page ([`located`], [`mesh`]); an axial
+//! shading's values lie on lines that leave any region, so it is cut by its clip alone. A stroke
+//! of width 0 is cut along its path rather than as an outline, since §8.4.3.2 states its width in
+//! device pixels. A form drawn more than once that the region meets differently is given a copy
+//! per edit it is asked for, each named where it is drawn ([`forms`]).
+//!
 //! # What is refused, never cut wrong (trap 5)
 //!
 //! A page is refused by name — its content and its `/Redact` annotations left as the file
@@ -108,13 +120,12 @@
 //! capability or a reading of the clause rather than a silence:
 //!
 //! - any **code count** the interpreter does not confirm;
-//! - a **Type 3 glyph** whose marks are stated nowhere — a `d0` glyph in a font whose `/FontBBox`
-//!   is all zero, which §9.6.4 says to make "no assumptions about glyph sizes" from;
-//! - a **composite font** whose `CMap` does not resolve, or that writes vertically, where §9.4.4's
-//!   displacement is `ty` and the gap this walk restores is `tx`;
-//! - a **shading** whose colours are data placed in the plane — a function-based shading, a
-//!   mesh, or an axial or radial one through a sampled or calculator function — which cutting
-//!   the clip would hide rather than destroy;
+//! - a **Type 3 glyph** whose description the interpreter could not draw in full, where its marks
+//!   are measured rather than declared;
+//! - a **composite font** whose `CMap` does not resolve;
+//! - a **calculator function** (§7.10.5) serving colours only the region carries, since a program
+//!   is not divided by the values it serves, and a **shading** whose data meeting the region do
+//!   not read — a mesh stream or a sample table that does not decode as its clause states;
 //! - a **codec image whose decode is not its own grid** — a `JPXDecode` codestream larger than
 //!   the operator's budget, which is refused rather than decoded at a reduced resolution level
 //!   (§7.4.9 NOTE 3) that would resample the image outside the region too — or whose decoder
@@ -124,13 +135,12 @@
 //!   whose shape its [`RasterKind`] cannot hold;
 //! - an **inline image** behind a filter §8.9.7 forbids inline, or whose colour space holds a
 //!   reference no resource name in force reaches;
-//! - a **painted path** whose marks the cut cannot take exactly: a zero-width stroke, whose width
-//!   §8.4.3.2 states in device pixels, one whose path object another operator interrupted, and
-//!   one whose surviving coordinates are too large for [`paths::Cut::margin_holds`] to prove the
-//!   cut edge cannot round into the region;
+//! - a **painted path** whose marks the cut cannot take exactly: one whose path object another
+//!   operator interrupted, and one whose surviving coordinates are too large for
+//!   [`paths::Cut::margin_holds`] to prove the cut edge cannot round into the region;
 //! - a **form `XObject`** (§8.10) whose content does not decode, one that draws itself, one the
 //!   page's resources name directly rather than by reference, so no object can be replaced, and
-//!   one drawn twice whose placements the region meets differently.
+//!   a page asking for more copies of its forms than [`forms::MAX_COPIES`].
 //!
 //! An encrypted document is refused outright where no protection is stated for the output,
 //! because the redaction would otherwise be written in the clear (ADR 1162).
@@ -171,8 +181,12 @@
 //! `CLAUDE.md`'s authoring line. So the removal happens and the overlay is not drawn, reported
 //! as a per-page [`crate::Departure`] from §12.5.6.23's full application semantics.
 
+mod forms;
+mod located;
+mod mesh;
 mod paths;
 mod shading;
+mod type3;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -303,6 +317,7 @@ pub(crate) fn run(
                     images,
                     forms: edit.forms,
                     states: edit.states,
+                    names: edit.names,
                 });
             }
             Err(skip) => report.refused.push(Declined {
@@ -519,6 +534,8 @@ struct AppliedPage {
     forms: Vec<FormEdit>,
     /// Graphics state dictionaries the edited content names that the page's resources gain.
     states: Vec<(Vec<u8>, Dictionary)>,
+    /// The new objects the edited content names.
+    names: Names,
 }
 
 /// One `/Redact` annotation's region and whether it states an overlay appearance.
@@ -636,7 +653,24 @@ struct PageEdit {
     forms: Vec<FormEdit>,
     /// Graphics state dictionaries the edited page content names that its resources must gain.
     states: Vec<(Vec<u8>, Dictionary)>,
+    /// The new objects the edited page content names (ADR 1363).
+    names: Names,
 }
+
+/// What a page's edited streams name that the producer's resources do not hold (ADR 1363).
+struct Names {
+    /// Form copies the page content names, which its resources must gain.
+    forms: AddedForms,
+    /// Shading and pattern entries of the page's resources whose located data were destroyed.
+    overrides: Overrides,
+    /// Every destruction of located shading data the page's streams name, by what it replaces.
+    located: HashMap<located::Key, located::Built>,
+    /// Graphics states the page content names that establish a soft mask on a group's copy.
+    masks: AddedMasks,
+}
+
+/// Every placement of a form the walk reached, with the edited stream it asked for.
+type FormOutcomes = Vec<(ObjectId, Option<Vec<u8>>)>;
 
 /// One image `XObject` placement the removal clears: which object, the transform that placed its
 /// unit square into the display list's space, and the page's region boxes in that same space.
@@ -739,6 +773,16 @@ struct FormEdit {
     resources: Dictionary,
     /// Graphics state dictionaries the edited stream names that its resources must gain.
     states: Vec<(Vec<u8>, Dictionary)>,
+    /// Copies of forms the edited stream draws under new names, which its resources must gain.
+    forms: AddedForms,
+    /// Shading and pattern entries of its resources whose located data the removal destroyed.
+    overrides: Overrides,
+    /// Graphics states its edited stream names that establish a soft mask on a group's copy.
+    masks: AddedMasks,
+    /// Whether this is one placement's own copy of a form drawn more than once, written into a
+    /// slot of its own and named by the placements that draw it rather than replacing the form or
+    /// standing in for it on the page (ADR 1363).
+    placement_copy: bool,
 }
 
 /// An image's sample layout: enough of §8.9.5 to address one packed sample.
@@ -767,9 +811,26 @@ fn plan_page(
         .collect();
 
     let content = page.content(document);
+    let mut walk = Walk::new(
+        document,
+        page,
+        &interpretation,
+        region_boxes.clone(),
+        counts,
+    );
+    walk.image_samples = image_samples;
+    let (edit, outcomes) = walk.run(&content)?;
+    // A form the region meets differently at two of its placements is one stream asked to be
+    // written two ways; the first walk finds which, and a second writes each placement's own
+    // (ADR 1363).
+    let split = forms::split(&outcomes)?;
+    if split.is_empty() {
+        return Ok(edit);
+    }
     let mut walk = Walk::new(document, page, &interpretation, region_boxes, counts);
     walk.image_samples = image_samples;
-    walk.run(&content)
+    walk.split = split;
+    Ok(walk.run(&content)?.0)
 }
 
 /// A user-space box mapped through the base transform into the display list's coordinates.
@@ -805,7 +866,34 @@ enum Codes {
     Type3(Arc<Type3Marks>),
     /// A composite font (§9.7): each code as long as the `CMap`'s codespace ranges make it, which
     /// is how many bytes §9.7.6.2 extracts from the string for each successive code.
-    Composite(Arc<pdf_font::cmap::CMap>),
+    Composite(Arc<CompositeCodes>),
+}
+
+/// What the walk needs of a composite font: how its codes are delimited, and — in writing mode 1
+/// — how far each one moves the pen.
+struct CompositeCodes {
+    /// The `CMap` the font loader resolves ([`pdf_font::composite_cmap`]).
+    cmap: pdf_font::cmap::CMap,
+    /// §9.7.4.3's vertical displacements where the `CMap`'s `/WMode` is 1, `None` in writing
+    /// mode 0.
+    ///
+    /// In writing mode 1 §9.4.4's displacement is `ty`, computed from the glyph's `w1`, which the
+    /// placed quadrilateral does not carry: the quad is the glyph's horizontal box moved back by
+    /// its position vector. So a removed code's advance is read from `/W2` and `/DW2` — the
+    /// numbers the interpreter moved the pen by — rather than from the quad (ADR 1363).
+    vertical: Option<pdf_font::VerticalDisplacements>,
+}
+
+impl CompositeCodes {
+    /// The CID a code selects, as the font loader selects it: the `CMap`'s mapping, else its
+    /// `notdef` mapping, else CID 0 (§9.7.6.3).
+    fn cid(&self, code: &[u8]) -> u32 {
+        let code = self.cmap.next_code(code);
+        self.cmap
+            .cid(code)
+            .or_else(|| self.cmap.notdef_cid(code))
+            .unwrap_or(0)
+    }
 }
 
 /// What the walk needs of a Type 3 font to say where one of its glyphs marks the page.
@@ -817,7 +905,7 @@ enum Codes {
 /// origins coincident". A `d0` glyph declares no box of its own, so the font's is the one that
 /// holds — unless all four of its numbers are zero, where the clause withdraws it ("a PDF
 /// processor shall make no assumptions about glyph sizes based on the font bounding box") and the
-/// glyph's marks are stated nowhere. ADR 1351.
+/// glyph's own marks are measured instead ([`type3`]). ADRs 1351, 1363.
 struct Type3Marks {
     /// The font, for §9.6.4's steps a) and b) and its `/FontMatrix`.
     font: pdf_model::type3::Type3Font,
@@ -827,20 +915,30 @@ struct Type3Marks {
 
 impl Type3Marks {
     /// The glyph-space box a code's glyph description marks within, `Ok(None)` where the code
-    /// reaches no description (§9.6.4 step b): "no glyph shall be painted"), or a refusal where
-    /// its marks are stated nowhere.
-    fn glyph_box(&self, document: &Document, code: u8) -> Result<Option<[f64; 4]>, String> {
+    /// reaches no description (§9.6.4 step b): "no glyph shall be painted") or the description
+    /// paints nothing, or a refusal where its marks cannot be measured.
+    ///
+    /// The declared box where there is one — `d1`'s, else `/FontBBox` — and for a `d0` glyph under
+    /// an all-zero `/FontBBox` the box its own marks are measured to fill when the description is
+    /// run ([`type3::measured_marks`], ADR 1363). `stroke` is the line width and miter limit in
+    /// force at the text-showing operator, which the description inherits.
+    fn glyph_box(
+        &self,
+        document: &Document,
+        page: &Page,
+        stroke: (f64, f64),
+        code: u8,
+    ) -> Result<Option<[f64; 4]>, String> {
         let Some(stream) = self.font.glyph(document, u32::from(code)) else {
             return Ok(None);
         };
         let declared = document
             .decoded_stream_data(&stream)
             .and_then(|data| declared_glyph_box(&data));
-        declared.or(self.font_box).map(Some).ok_or_else(|| {
-            format!(
-                "§9.6.4: the Type 3 glyph for code {code} begins with d0, which declares no                  bounding box, and the font's /FontBBox is all zero, so where its marks fall is                  stated nowhere; the page is refused rather than tested against a guess"
-            )
-        })
+        match declared.or(self.font_box) {
+            Some(declared) => Ok(Some(declared)),
+            None => type3::measured_marks(document, page, &self.font, &stream, stroke),
+        }
     }
 }
 
@@ -1100,6 +1198,10 @@ struct Frame {
     graphics_stack: Vec<GraphicsState>,
     text: TextState,
     added_states: Vec<(Vec<u8>, Dictionary)>,
+    added_forms: AddedForms,
+    added_overrides: Overrides,
+    added_masks: AddedMasks,
+    stream_base: Transform,
 }
 
 /// Byte-range edits to one content stream: start, end, and the bytes that replace the range.
@@ -1109,13 +1211,40 @@ type Edits = Vec<(usize, usize, Vec<u8>)>;
 /// is added with.
 type AddedStates = Vec<(Vec<u8>, Dictionary)>;
 
+/// Form `XObject` copies a stream's edits name, each under the resource name it is added with and
+/// as an index into the page's recorded form edits (ADR 1363).
+type AddedForms = Vec<(Vec<u8>, usize)>;
+
+/// Resource entries a stream's resources give a replacement for: the category and name, and which
+/// destruction replaces it ([`located`], ADR 1363).
+type Overrides = Vec<(located::Category, Vec<u8>, located::Key)>;
+
+/// Graphics state parameter dictionaries a stream's edits name that establish a soft mask whose
+/// group is a copy of its own: the new name, the producer's `/ExtGState` entry it restates, and
+/// the index of the group's copy among the page's recorded form edits (ADR 1363).
+type AddedMasks = Vec<(Vec<u8>, Object, usize)>;
+
 /// How the walk came to be running a form's content stream.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Entered {
-    /// Drawn with `Do` (§8.10.1), inheriting the graphics state.
-    Drawn,
-    /// Evaluated as a soft mask's transparency group (§11.6.5.1), from the initial state.
-    MaskGroup,
+    /// Drawn with `Do` (§8.10.1), inheriting the graphics state: where the operator's name
+    /// operand begins and where the operator ends, which a placement given its own copy of the
+    /// form rewrites (ADR 1363).
+    Drawn {
+        /// Where the `Do`'s name operand begins in the enclosing stream.
+        name_start: usize,
+        /// Where the `Do` operator ends.
+        do_end: usize,
+    },
+    /// Evaluated as a soft mask's transparency group (§11.6.5.1), from the initial state: where
+    /// the `gs` that established it begins its name operand and where it ends, which a placement
+    /// given its own copy of the group rewrites (ADR 1363).
+    MaskGroup {
+        /// Where the `gs`'s name operand begins in the enclosing stream.
+        name_start: usize,
+        /// Where the `gs` operator ends.
+        gs_end: usize,
+    },
 }
 
 /// §9.3's text state as far as the walk tracks it, with the text matrix's linear part.
@@ -1411,6 +1540,21 @@ fn split_subpaths(outline: &kurbo::BezPath) -> Vec<paths::SubPath> {
     out
 }
 
+/// A path split into its subpaths as the producer stated them, open or closed, for a cut taken
+/// along the path rather than over the area it encloses.
+fn split_open(path: &kurbo::BezPath) -> Vec<paths::SubPath> {
+    let mut out: Vec<paths::SubPath> = Vec::new();
+    for element in path.elements() {
+        if matches!(element, kurbo::PathEl::MoveTo(_)) {
+            out.push(kurbo::BezPath::new());
+        }
+        if let Some(current) = out.last_mut() {
+            current.push(*element);
+        }
+    }
+    out
+}
+
 /// Whether this path object's own bytes are a cut's to replace, or the refusal by name.
 ///
 /// Two questions, neither about the geometry: whether the byte range the replacement occupies is
@@ -1535,6 +1679,30 @@ struct Walk<'a> {
     /// The most samples a `JPXDecode` image is decoded to at full resolution
     /// ([`RedactPlan::image_samples`]).
     image_samples: u64,
+    /// Every placement of a form `XObject` that is an object, in the order the walk reached it,
+    /// with the edited stream it asked for or `None` where the region left it alone — what the
+    /// first walk of a page learns, and a form whose placements disagree is split by (ADR 1363).
+    form_outcomes: FormOutcomes,
+    /// How each placement of a form whose placements disagree is written, by the order the walk
+    /// reaches them: empty on the first walk of a page.
+    split: HashMap<ObjectId, Vec<forms::Slot>>,
+    /// How many placements of each split form this walk has reached.
+    placements: HashMap<ObjectId, usize>,
+    /// Which recorded form edit each copy of a split form became.
+    copies: HashMap<(ObjectId, usize), usize>,
+    /// Form copies this stream's edits name and its resources must gain.
+    added_forms: AddedForms,
+    /// Every shading or pattern entry whose located data some placement asked destroyed.
+    located: Vec<(located::Key, located::Request)>,
+    /// The entries of this stream's resources those destructions replace.
+    added_overrides: Overrides,
+    /// Graphics states naming a copy of a soft mask's group, which this stream's resources gain.
+    added_masks: AddedMasks,
+    /// The `/ExtGState` entry the last `gs` named, which a soft mask's group copy is restated from.
+    current_state: Option<Object>,
+    /// The transform the stream now running began under — the page's base transform, or a form's
+    /// matrix at its `Do` — which a pattern's `/Matrix` is stated against (§8.7.3.1).
+    stream_base: Transform,
 }
 
 impl<'a> Walk<'a> {
@@ -1578,11 +1746,22 @@ impl<'a> Walk<'a> {
             forms_open: Vec::new(),
             inside_shared: 0,
             image_samples: ORDINARY_JPX_SAMPLES,
+            form_outcomes: Vec::new(),
+            split: HashMap::new(),
+            placements: HashMap::new(),
+            copies: HashMap::new(),
+            added_forms: Vec::new(),
+            located: Vec::new(),
+            added_overrides: Vec::new(),
+            added_masks: Vec::new(),
+            current_state: None,
+            stream_base: base_transform(page),
         }
     }
 
-    /// Walks the page's content stream, returning the edited bytes or a refusal by name.
-    fn run(mut self, content: &[u8]) -> Result<PageEdit, String> {
+    /// Walks the page's content stream, returning the edited bytes and every form placement's
+    /// outcome, or a refusal by name.
+    fn run(mut self, content: &[u8]) -> Result<(PageEdit, FormOutcomes), String> {
         self.run_stream(content)?;
         if self.code_index != self.quads.len() {
             return Err(format!(
@@ -1592,15 +1771,25 @@ impl<'a> Walk<'a> {
                 self.quads.len()
             ));
         }
-        Ok(PageEdit {
-            content: apply_edits(content, self.edits),
-            removed: self.removed,
-            clears: self.clears,
-            inline_images: self.inline_cleared,
-            paths: self.paths_cut,
-            forms: self.form_edits,
-            states: self.added_states,
-        })
+        let located = self.finish_located()?;
+        Ok((
+            PageEdit {
+                content: apply_edits(content, self.edits),
+                removed: self.removed,
+                clears: self.clears,
+                inline_images: self.inline_cleared,
+                paths: self.paths_cut,
+                forms: self.form_edits,
+                states: self.added_states,
+                names: Names {
+                    forms: self.added_forms,
+                    overrides: self.added_overrides,
+                    located,
+                    masks: self.added_masks,
+                },
+            },
+            self.form_outcomes,
+        ))
     }
 
     /// Walks one content stream — the page's, or a form's under [`Walk::run_form`] — leaving its
@@ -1780,8 +1969,8 @@ impl<'a> Walk<'a> {
                     self.narrow_clip(&path);
                 }
             }
-            b"Do" => self.do_xobject(operands)?,
-            b"gs" => self.ext_gstate(operands)?,
+            b"Do" => self.do_xobject(operands, keyword_start)?,
+            b"gs" => self.ext_gstate(operands, keyword_start)?,
             _ => {}
         }
         Ok(())
@@ -1870,9 +2059,9 @@ impl<'a> Walk<'a> {
     /// A Type 0 font's codes, as its `CMap`'s codespace ranges delimit them (§9.7.6.2).
     ///
     /// The `CMap` is resolved by the same function the font loader uses, so a predefined name, an
-    /// embedded stream and its `/UseCMap` chain are all read one way. A vertical `CMap` is refused:
-    /// in writing mode 1 §9.4.4's displacement is `ty`, and the gap a removal leaves is restored
-    /// here along the text space's x axis only.
+    /// embedded stream and its `/UseCMap` chain are all read one way. A vertical `CMap` carries the
+    /// descendant's §9.7.4.3 displacements with it, because in writing mode 1 the gap a removal
+    /// leaves is §9.4.4's `ty` ([`CompositeCodes::vertical`]).
     fn composite_codes(&self, font: &Dictionary, name: &[u8]) -> Result<Codes, String> {
         let shown = String::from_utf8_lossy(name);
         let cmap = pdf_font::composite_cmap(self.document, font, &shown).map_err(|error| {
@@ -1881,14 +2070,25 @@ impl<'a> Walk<'a> {
                  how many bytes each of its codes takes is unknown; the page is refused"
             )
         })?;
-        if cmap.wmode() != 0 {
-            return Err(format!(
-                "§9.7.4.3: the composite font /{shown} writes vertically, where a removed \
-                 glyph's advance is §9.4.4's ty rather than the tx this walk restores; the page \
-                 is refused"
-            ));
-        }
-        Ok(Codes::Composite(Arc::new(cmap)))
+        let vertical = if cmap.wmode() == 0 {
+            None
+        } else {
+            Some(
+                pdf_font::VerticalDisplacements::of_composite(self.document, font).ok_or_else(
+                    || {
+                        format!(
+                            "§9.7.4.3: the composite font /{shown} writes vertically and names no \
+                             descendant CIDFont to state its vertical displacements; the page is \
+                             refused"
+                        )
+                    },
+                )?,
+            )
+        };
+        Ok(Codes::Composite(Arc::new(CompositeCodes {
+            cmap,
+            vertical,
+        })))
     }
 
     /// `Tj`/`'`: one string. `'` (§9.4.3) is `T*` then a show, which does not move the text
@@ -2018,6 +2218,12 @@ impl<'a> Walk<'a> {
         let mut kept: Vec<u8> = Vec::new();
         let mut removed_first: Option<[f32; 8]> = None;
         let mut removed_last: [f32; 8] = [0.0; 8];
+        // The removed run's §9.7.4.3 vertical displacement, in thousandths, in writing mode 1.
+        let mut removed_w1y = 0.0f32;
+        let vertical = match codes {
+            Codes::Composite(composite) => composite.vertical.as_ref().map(|_| composite),
+            Codes::Simple | Codes::Type3(_) => None,
+        };
         let mut any = false;
         for (start, len) in split_codes(bytes, codes) {
             let quad = self.quad_at(self.code_index)?;
@@ -2036,22 +2242,49 @@ impl<'a> Walk<'a> {
                     removed_first = Some(quad);
                 }
                 removed_last = quad;
+                if let Some(composite) = vertical
+                    && let Some(displacements) = composite.vertical.as_ref()
+                {
+                    removed_w1y += displacements.w1y(composite.cid(code));
+                }
                 self.removed = self.removed.saturating_add(1);
                 any = true;
             } else {
                 if let Some(first) = removed_first.take() {
-                    self.write_gap(out, first, removed_last);
+                    self.write_run_gap(out, (first, removed_last), vertical.map(|_| removed_w1y));
+                    removed_w1y = 0.0;
                 }
                 kept.extend_from_slice(&bytes[start..start.saturating_add(len)]);
             }
         }
         if let Some(first) = removed_first.take() {
-            self.write_gap(out, first, removed_last);
+            self.write_run_gap(out, (first, removed_last), vertical.map(|_| removed_w1y));
         }
         if !kept.is_empty() {
             write_pdf_string(out, &kept);
         }
         Ok(any)
+    }
+
+    /// The `TJ` adjustment restoring a removed run's advance, in the writing mode the font writes
+    /// in: `vertical_w1y` is the run's summed §9.7.4.3 vertical displacement in writing mode 1,
+    /// `None` in writing mode 0.
+    ///
+    /// §9.4.4 computes `ty = (w1 − Tj/1000) × Tfs + Tc + Tw` in vertical writing, and the `TJ`
+    /// number is "subtracted from the current horizontal or vertical coordinate, depending on the
+    /// writing mode" (§9.4.3). With `Tc` and `Tw` zero — spacing in force refuses the page before
+    /// this — the number that moves the pen by the removed glyphs' own `w1` is minus their sum,
+    /// already in thousandths, and `Th` takes no part: it scales `tx` alone (ADR 1363).
+    fn write_run_gap(
+        &self,
+        out: &mut String,
+        run: ([f32; 8], [f32; 8]),
+        vertical_w1y: Option<f32>,
+    ) {
+        match vertical_w1y {
+            Some(w1y) => write_number(out, f64::from(-w1y)),
+            None => self.write_gap(out, run.0, run.1),
+        }
     }
 
     /// The `TJ` adjustment restoring a removed run's advance: §9.4.4's `w0` read back from the
@@ -2124,7 +2357,9 @@ impl<'a> Walk<'a> {
         let Some(&byte) = code.first() else {
             return Ok(placed);
         };
-        let Some([llx, lly, urx, ury]) = marks.glyph_box(self.document, byte)? else {
+        let stroke = (self.graphics.width, self.graphics.miter_limit);
+        let Some([llx, lly, urx, ury]) = marks.glyph_box(self.document, self.page, stroke, byte)?
+        else {
             return Ok(placed);
         };
         let text = Transform::new(
@@ -2343,12 +2578,12 @@ impl<'a> Walk<'a> {
         }
         admits_a_cut(&path)?;
         if fill.is_some()
-            && let Some(name) = &self.graphics.fill_pattern
+            && let Some(name) = self.graphics.fill_pattern.clone()
         {
-            self.pattern_admits_a_cut(name)?;
+            self.pattern_admits_a_cut(&name)?;
         }
-        if stroked && let Some(name) = &self.graphics.stroke_pattern {
-            self.pattern_admits_a_cut(name)?;
+        if stroked && let Some(name) = self.graphics.stroke_pattern.clone() {
+            self.pattern_admits_a_cut(&name)?;
         }
         let regions = self.region_bounds();
         let to_display = mapping(path.ctm);
@@ -2363,8 +2598,10 @@ impl<'a> Walk<'a> {
                 replacement.extend_from_slice(text.as_bytes());
             }
         }
-        if stroked {
-            let outline = self.stroke_outline(&path, closes)?;
+        if stroked && self.graphics.width <= 0.0 {
+            replacement.extend_from_slice(&self.cut_hairline(&path, closes, &regions, to_display)?);
+        } else if stroked {
+            let outline = self.stroke_outline(&path, closes);
             let cut = cut_to_complement(&outline, &regions, to_display)?;
             if !cut.is_empty() {
                 let colour = self.graphics.non_stroking_colour();
@@ -2467,6 +2704,66 @@ impl<'a> Walk<'a> {
         out
     }
 
+    /// A zero-width stroke cut as the path it is drawn along, and restroked at the same width
+    /// (ADR 1363).
+    ///
+    /// §8.4.3.2 states the width in the device's terms — "[a] line width of 0 shall denote the
+    /// thinnest line that can be rendered at device resolution: 1 device pixel wide" — so the
+    /// marks are the path at whatever resolution draws it, and no outline in user space states
+    /// them. The path is therefore cut as a line ([`paths::subtract_along`]): the stretches inside
+    /// the region go, the rest are stroked again by the same `S` under the same graphics state,
+    /// whose width is still 0. A dash pattern is applied first, as it is for a wide stroke, since
+    /// it decides which stretches are marked at all; the dashes are written out as subpaths of
+    /// their own and stroked solid, inside a §8.4.2-balanced `q`/`Q`, because a pattern restarted
+    /// at each surviving piece would mark different stretches.
+    fn cut_hairline(
+        &self,
+        path: &PathObject,
+        closes: bool,
+        regions: &[[f64; 4]],
+        to_display: paths::Mapping,
+    ) -> Result<Vec<u8>, String> {
+        let source = path.stroked_path(closes);
+        let subpaths = if self.graphics.dashes.is_empty() {
+            split_open(&source)
+        } else {
+            let dashed: kurbo::BezPath = kurbo::dash(
+                source.elements().iter().copied(),
+                self.graphics.dash_phase,
+                &self.graphics.dashes,
+            )
+            .collect();
+            split_open(&dashed)
+        };
+        let cut = paths::subtract_along(&subpaths, regions, to_display).ok_or_else(|| {
+            "§12.5.6.23: cutting a zero-width stroke against these regions exceeds this build's \
+             bound on the surviving pieces; the page is refused rather than truncated"
+                .to_owned()
+        })?;
+        if !cut.margin_holds() {
+            return Err(
+                "§7.3.3: a coordinate of the cut path is large enough that writing it back and \
+                 reading it as a single-precision real could move the cut end inside the region; \
+                 the page is refused rather than leave a sliver of the removed marks"
+                    .to_owned(),
+            );
+        }
+        if cut.polygons.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut text = String::new();
+        let dashed = !self.graphics.dashes.is_empty();
+        if dashed {
+            text.push_str("q\n[] 0 d\n");
+        }
+        paths::write_open(&mut text, &cut.polygons);
+        text.push_str("S\n");
+        if dashed {
+            text.push_str("Q\n");
+        }
+        Ok(text.into_bytes())
+    }
+
     /// The outline §8.5.3.2's stroke marks, as the subpaths a fill of it would paint.
     ///
     /// > The S operator shall paint a line along the current path.
@@ -2482,20 +2779,7 @@ impl<'a> Walk<'a> {
     /// [`ARC_TOLERANCE`] of the arc and are cut at their roots like any §8.5.2.2 curve: the
     /// outline outside the region is the producer's mark re-expressed to that bound, and the
     /// one inside it is gone. ADR 1324.
-    fn stroke_outline(
-        &self,
-        path: &PathObject,
-        closes: bool,
-    ) -> Result<Vec<paths::SubPath>, String> {
-        if self.graphics.width <= 0.0 {
-            return Err(
-                "§8.4.3.2: a stroked path meets the region with a line width of 0, which shall \
-                 denote the thinnest line that can be rendered at device resolution, one device \
-                 pixel wide — a width in device pixels rather than in the user space an outline \
-                 is written in; the page is refused"
-                    .to_owned(),
-            );
-        }
+    fn stroke_outline(&self, path: &PathObject, closes: bool) -> Vec<paths::SubPath> {
         let source = path.stroked_path(closes);
         // `admits_a_cut` has refused a singular transform, so the norm is positive.
         let tolerance = ARC_TOLERANCE / mapping(path.ctm).norm();
@@ -2505,7 +2789,7 @@ impl<'a> Walk<'a> {
             &kurbo::StrokeOpts::default(),
             tolerance,
         );
-        Ok(split_subpaths(&outline))
+        split_subpaths(&outline)
     }
 
     /// The region boxes as double-precision numbers, which the cut's decisions are taken in.
@@ -2525,9 +2809,13 @@ impl<'a> Walk<'a> {
 
     /// `Do`: an image that meets the region is cleared (§12.5.6.23); a form or an image the
     /// removal cannot clear is refused by its own narrower reason.
-    fn do_xobject(&mut self, operands: &[(Operand, usize)]) -> Result<(), String> {
-        let Some(name) = operands.iter().find_map(|(operand, _)| match operand {
-            Operand::Name(bytes) => Some(bytes.clone()),
+    fn do_xobject(
+        &mut self,
+        operands: &[(Operand, usize)],
+        keyword_start: usize,
+    ) -> Result<(), String> {
+        let Some((name, name_start)) = operands.iter().find_map(|(operand, start)| match operand {
+            Operand::Name(bytes) => Some((bytes.clone(), *start)),
             _ => None,
         }) else {
             return Ok(());
@@ -2571,7 +2859,15 @@ impl<'a> Walk<'a> {
                 self.clears.extend(clears);
                 Ok(())
             }
-            b"Form" => self.run_form(&name, &entry, &object, Entered::Drawn),
+            b"Form" => self.run_form(
+                &name,
+                &entry,
+                &object,
+                Entered::Drawn {
+                    name_start,
+                    do_end: keyword_start.saturating_add(2),
+                },
+            ),
             _ => {
                 if self
                     .regions
@@ -2641,16 +2937,7 @@ impl<'a> Walk<'a> {
             ));
         };
 
-        let matrix = numbers(self.document, &stream.dict, "Matrix")
-            .and_then(|values| {
-                matrix(
-                    &values
-                        .iter()
-                        .map(|value| f64::from(*value))
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .unwrap_or(Transform::IDENTITY);
+        let matrix = stated_matrix(self.document, &stream.dict);
         let resources = self
             .document
             .get_key(&stream.dict, "Resources")
@@ -2683,14 +2970,22 @@ impl<'a> Walk<'a> {
         if form_id.is_some() {
             self.forms_open.pop();
         }
-        let (edits, states, resources) = self.leave_frame(saved, entered);
+        let (edits, states, (named, overrides, masks), resources) =
+            self.leave_frame(saved, entered);
         walked?;
 
-        if edits.is_empty() {
+        let edited = (!edits.is_empty()).then(|| apply_edits(&data, edits));
+        if let Some(id) = form_id {
+            self.form_outcomes.push((id, edited.clone()));
+        }
+        let Some(content) = edited else {
             // Nothing of this form falls under the region: its stream crosses the output byte
             // for byte, and so does the `Do` that draws it.
-            return Ok(());
-        }
+            return match form_id {
+                Some(id) if self.split.contains_key(&id) => self.place_split(id, None, entered),
+                _ => Ok(()),
+            };
+        };
         let Some(id) = form_id else {
             return Err(format!(
                 "§12.5.6.23: the form /{shown} draws marks under the region but is a direct \
@@ -2701,14 +2996,22 @@ impl<'a> Walk<'a> {
         // and a soft-mask dictionary, any of which another page may share; a copy for this page
         // is correct whichever of them is shared, because the original is carried into the
         // output only where something else still reaches it.
-        let private = entered == Entered::MaskGroup || !self.owns(id);
-        self.record_form_edit(FormEdit {
+        let private = matches!(entered, Entered::MaskGroup { .. }) || !self.owns(id);
+        let edit = FormEdit {
             id,
-            content: apply_edits(&data, edits),
+            content,
             private,
             resources,
             states,
-        })
+            forms: named,
+            overrides,
+            masks,
+            placement_copy: false,
+        };
+        if self.split.contains_key(&id) {
+            return self.place_split(id, Some(edit), entered);
+        }
+        self.record_form_edit(edit)
     }
 
     /// Sets the page's per-stream state aside and starts a form's, returning what to put back.
@@ -2736,12 +3039,16 @@ impl<'a> Walk<'a> {
             graphics_stack: std::mem::take(&mut self.graphics_stack),
             text: self.text_state(),
             added_states: std::mem::take(&mut self.added_states),
+            added_forms: std::mem::take(&mut self.added_forms),
+            added_overrides: std::mem::take(&mut self.added_overrides),
+            added_masks: std::mem::take(&mut self.added_masks),
+            stream_base: std::mem::replace(&mut self.stream_base, ctm),
         };
         if group {
             self.graphics.stroking_alpha = 1.0;
             self.graphics.fill_alpha = 1.0;
         }
-        if entered == Entered::MaskGroup {
+        if matches!(entered, Entered::MaskGroup { .. }) {
             self.graphics = GraphicsState::default();
             self.set_text_state(TextState::default());
         }
@@ -2750,37 +3057,55 @@ impl<'a> Walk<'a> {
 
     /// Puts the enclosing stream's state back, returning the form's edits, the graphics states
     /// its edits name and the resources its names were resolved in.
-    fn leave_frame(&mut self, saved: Frame, entered: Entered) -> (Edits, AddedStates, Dictionary) {
+    fn leave_frame(
+        &mut self,
+        saved: Frame,
+        entered: Entered,
+    ) -> (
+        Edits,
+        AddedStates,
+        (AddedForms, Overrides, AddedMasks),
+        Dictionary,
+    ) {
         let edits = std::mem::replace(&mut self.edits, saved.edits);
         let states = std::mem::replace(&mut self.added_states, saved.added_states);
+        let named = std::mem::replace(&mut self.added_forms, saved.added_forms);
+        let overrides = std::mem::replace(&mut self.added_overrides, saved.added_overrides);
+        let masks = std::mem::replace(&mut self.added_masks, saved.added_masks);
+        self.stream_base = saved.stream_base;
         let resources = std::mem::replace(&mut self.resources, saved.resources);
         self.ctm = saved.ctm;
         self.ctm_stack = saved.ctm_stack;
         self.path = saved.path;
         self.graphics = saved.graphics;
         self.graphics_stack = saved.graphics_stack;
-        if entered == Entered::MaskGroup {
+        if matches!(entered, Entered::MaskGroup { .. }) {
             self.set_text_state(saved.text);
         }
-        (edits, states, resources)
+        (edits, states, (named, overrides, masks), resources)
     }
 
-    /// Records one form's edited content, refusing a form whose placements the region meets
-    /// differently.
+    /// Records one form's edited content in the form's own place.
     ///
-    /// A form drawn twice on the page — two `Do`s, or a `Do` and a soft mask — is one stream, so
-    /// the removal can write it only one way. Two placements asking for the same edit are one
-    /// edit; two asking for different ones would remove from one placement what the region only
-    /// met at the other.
+    /// A form drawn twice on the page is one stream, so this place can hold it only one way: two
+    /// placements asking for the same edit are one edit. Two asking for different ones are what
+    /// the first walk of a page notes and the second splits ([`forms`], ADR 1363), so on the
+    /// first walk the disagreement is left for [`forms::split`] to find.
     fn record_form_edit(&mut self, edit: FormEdit) -> Result<(), String> {
-        if let Some(earlier) = self.form_edits.iter().find(|earlier| earlier.id == edit.id) {
+        if let Some(earlier) = self
+            .form_edits
+            .iter()
+            .find(|earlier| earlier.id == edit.id && !earlier.placement_copy)
+        {
             if earlier.content == edit.content {
                 return Ok(());
             }
+            if self.split.is_empty() {
+                return Ok(());
+            }
             return Err(format!(
-                "§8.10.1: form object {} is drawn more than once on the page and the region meets \
-                 its placements differently, so no one edit of its stream removes only what the \
-                 region covers; the page is refused",
+                "§8.10.1: the second walk of the page asked form object {} for an edit the first \
+                 did not; the page is refused rather than written from two readings",
                 edit.id.number
             ));
         }
@@ -3596,7 +3921,7 @@ impl<'a> Walk<'a> {
     /// current transformation matrix at the moment the soft mask is established in the graphics
     /// state with the gs operator" — at the `gs`, which is where the interpreter evaluates it
     /// and so where its codes fall in the count this walk is held to. ADR 1352.
-    fn enter_soft_mask(&mut self, state: &Dictionary) -> Result<(), String> {
+    fn enter_soft_mask(&mut self, state: &Dictionary, at: (usize, usize)) -> Result<(), String> {
         let mask = self.document.get_key(state, "SMask");
         let Some(mask) = mask.as_dict() else {
             // `/None`, or no entry: §11.6.4.3's absence of a mask, which removes nothing.
@@ -3610,7 +3935,15 @@ impl<'a> Walk<'a> {
             );
         };
         let object = self.document.resolve(&entry);
-        self.run_form(b"SMask /G", &entry, &object, Entered::MaskGroup)
+        self.run_form(
+            b"SMask /G",
+            &entry,
+            &object,
+            Entered::MaskGroup {
+                name_start: at.0,
+                gs_end: at.1,
+            },
+        )
     }
 
     /// Whether the page's `/XObject` resource subdictionary is not itself a shared object.
@@ -3623,22 +3956,28 @@ impl<'a> Walk<'a> {
     }
 
     /// `gs`: the named graphics state's line parameters and alphas, and its soft mask entered.
-    fn ext_gstate(&mut self, operands: &[(Operand, usize)]) -> Result<(), String> {
-        let Some(name) = operands.iter().find_map(|(operand, _)| match operand {
-            Operand::Name(bytes) => Some(bytes.clone()),
+    fn ext_gstate(
+        &mut self,
+        operands: &[(Operand, usize)],
+        keyword_start: usize,
+    ) -> Result<(), String> {
+        let Some((name, name_start)) = operands.iter().find_map(|(operand, start)| match operand {
+            Operand::Name(bytes) => Some((bytes.clone(), *start)),
             _ => None,
         }) else {
             return Ok(());
         };
         let states = self.document.get_key(&self.resources, "ExtGState");
-        let state = states
+        let entry = states
             .as_dict()
             .and_then(|dict| dict.get_by_name(&Name::new(name.as_slice())))
-            .map(|entry| self.document.resolve(entry));
+            .cloned();
+        let state = entry.as_ref().map(|entry| self.document.resolve(entry));
         let Some(dict) = state.as_ref().and_then(Object::as_dict) else {
             return Ok(());
         };
-        self.enter_soft_mask(dict)?;
+        self.current_state = entry;
+        self.enter_soft_mask(dict, (name_start, keyword_start.saturating_add(2)))?;
         // Table 58 states these in §8.4.3's own terms — `/LW` "[t]he line width", `/LC` "[t]he
         // line cap style", `/LJ` "[t]he line join style", `/ML` "[t]he miter limit", `/D` "[t]he
         // line dash pattern" — so they set exactly what the operators beside them set and are
@@ -3939,6 +4278,20 @@ fn first(numbers: &[f64]) -> f32 {
     numbers.first().copied().unwrap_or(0.0) as f32
 }
 
+/// A dictionary's `/Matrix` (Table 93's, a pattern's, Table 78's), or the identity it defaults to.
+fn stated_matrix(document: &Document, dict: &Dictionary) -> Transform {
+    numbers(document, dict, "Matrix")
+        .and_then(|values| {
+            matrix(
+                &values
+                    .iter()
+                    .map(|value| f64::from(*value))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or(Transform::IDENTITY)
+}
+
 /// A six-number matrix operand as a transform.
 #[expect(
     clippy::cast_possible_truncation,
@@ -3977,9 +4330,10 @@ fn linear(transform: Transform) -> Transform {
 /// function the reader decodes with, including §9.7.6.3's rule for how many bytes a code outside
 /// every range consumes — so a removed code takes exactly its own bytes and no neighbour's.
 fn split_codes(bytes: &[u8], codes: &Codes) -> Vec<(usize, usize)> {
-    let Codes::Composite(cmap) = codes else {
+    let Codes::Composite(composite) = codes else {
         return (0..bytes.len()).map(|start| (start, 1)).collect();
     };
+    let cmap = &composite.cmap;
     let mut out = Vec::new();
     let mut start = 0;
     while let Some(rest) = bytes.get(start..).filter(|rest| !rest.is_empty()) {
@@ -4871,56 +5225,11 @@ fn write_document(
             .replace(0, page.page_id)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
-    // An object the redacted page **owns** is replaced the same way the page is: its slot is
-    // reserved before the closure walk, so `copy_closure` short-circuits on it and the original
-    // samples or marks are reached from nowhere and never copied — which is what makes the
-    // destruction a destruction rather than the file still holding what was removed behind a new
-    // object. A **shared** object cannot be replaced, because another page's placement draws it
-    // and that placement's marks are content the annotation did not identify; it is copied for
-    // this page instead, below.
-    // Two kinds of replacement, and the difference is whether the redacted page owns the object.
-    //
-    // An object it **owns** takes the original's slot: reserved before the closure walk, so
-    // `copy_closure` short-circuits on it and the original samples or marks are reached from
-    // nowhere and never copied — which is what makes the destruction a destruction rather than
-    // the file still holding what was removed behind a new object. An object another page also
-    // draws is **copied** instead, into a slot of its own, because that page's placement draws
-    // marks the annotation did not identify (ADR 1196).
-    //
-    // Every slot is taken before any object is built, so a copy's own resources can name the
-    // page's other copies: a form holding a nested shared form is the case that needs it, and
-    // building in one pass would have left the nested copy reachable from nothing while the page
-    // went on drawing the original.
-    let mut replacements: Vec<(ObjectId, Owned<'_>, usize)> = Vec::new();
-    let mut private: Vec<HashMap<ObjectId, ObjectId>> = Vec::with_capacity(applied.len());
-    for (index, page) in applied.iter().enumerate() {
-        let mut copies = HashMap::new();
-        for image in &page.images {
-            let slot = if image.private {
-                assembly.reserve()
-            } else {
-                assembly.replace(0, image.id)
-            }
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-            if image.private {
-                copies.insert(image.id, slot);
-            }
-            replacements.push((slot, Owned::Image(image), index));
-        }
-        for form in &page.forms {
-            let slot = if form.private {
-                assembly.reserve()
-            } else {
-                assembly.replace(0, form.id)
-            }
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-            if form.private {
-                copies.insert(form.id, slot);
-            }
-            replacements.push((slot, Owned::Form(form), index));
-        }
-        private.push(copies);
-    }
+    let Slots {
+        replacements,
+        private,
+        forms: form_slots,
+    } = reserve_slots(&mut assembly, applied)?;
     // The reachable closure, pruned: a replaced page short-circuits the walk, so its old content
     // and its removed annotations are reached from nowhere else and never copied.
     let mapped_root = copy_closure(&mut assembly, document, root, true)
@@ -4936,9 +5245,17 @@ fn write_document(
         assembly.set_info(Some(carried));
     }
 
+    let placed_located = place_located(&mut assembly, document, applied, &private)?;
     for (index, page) in applied.iter().enumerate() {
         let copies = private.get(index).cloned().unwrap_or_default();
-        let object = build_page(&mut assembly, document, page, &copies)?;
+        let slots = form_slots.get(index);
+        let carried = Carried {
+            private: &copies,
+            named: &slotted(&page.names.forms, slots),
+            overrides: &resolved(&page.names.overrides, placed_located.get(index)),
+            masks: &slotted_masks(&page.names.masks, slots),
+        };
+        let object = build_page(&mut assembly, document, page, &carried)?;
         assembly
             .place(page.placed, object)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
@@ -4948,7 +5265,16 @@ fn write_document(
         let copies = private.get(index).cloned().unwrap_or_default();
         let object = match source {
             Owned::Image(image) => build_cleared_image(&mut assembly, document, image, &copies)?,
-            Owned::Form(form) => build_form(&mut assembly, document, form, &copies)?,
+            Owned::Form(form) => {
+                let slots = form_slots.get(index);
+                let carried = Carried {
+                    private: &copies,
+                    named: &slotted(&form.forms, slots),
+                    overrides: &resolved(&form.overrides, placed_located.get(index)),
+                    masks: &slotted_masks(&form.masks, slots),
+                };
+                build_form(&mut assembly, document, form, &carried)?
+            }
         };
         assembly
             .place(placed, object)
@@ -4990,6 +5316,87 @@ fn write_document(
     })
 }
 
+/// The slots a redaction's replaced and copied objects take, taken before any object is built.
+struct Slots<'a> {
+    /// Each object to build, the slot it goes into, and the page it belongs to.
+    replacements: Vec<(ObjectId, Owned<'a>, usize)>,
+    /// Per page, the objects copied for it and the slots of their copies.
+    private: Vec<HashMap<ObjectId, ObjectId>>,
+    /// Per page, the slot each of its form edits was given.
+    forms: Vec<Vec<ObjectId>>,
+}
+
+/// Takes a slot for every image and form the removal destroyed or edited, replacing an owned
+/// object's own and reserving a fresh one for a copy.
+fn reserve_slots<'a>(
+    assembly: &mut Assembly<'_>,
+    applied: &'a [AppliedPage],
+) -> Result<Slots<'a>, Refusal> {
+    // An object the redacted page **owns** is replaced the same way the page is: its slot is
+    // reserved before the closure walk, so `copy_closure` short-circuits on it and the original
+    // samples or marks are reached from nowhere and never copied — which is what makes the
+    // destruction a destruction rather than the file still holding what was removed behind a new
+    // object. A **shared** object cannot be replaced, because another page's placement draws it
+    // and that placement's marks are content the annotation did not identify; it is copied for
+    // this page instead, below.
+    // Two kinds of replacement, and the difference is whether the redacted page owns the object.
+    //
+    // An object it **owns** takes the original's slot: reserved before the closure walk, so
+    // `copy_closure` short-circuits on it and the original samples or marks are reached from
+    // nowhere and never copied — which is what makes the destruction a destruction rather than
+    // the file still holding what was removed behind a new object. An object another page also
+    // draws is **copied** instead, into a slot of its own, because that page's placement draws
+    // marks the annotation did not identify (ADR 1196).
+    //
+    // Every slot is taken before any object is built, so a copy's own resources can name the
+    // page's other copies: a form holding a nested shared form is the case that needs it, and
+    // building in one pass would have left the nested copy reachable from nothing while the page
+    // went on drawing the original.
+    let mut replacements: Vec<(ObjectId, Owned<'a>, usize)> = Vec::new();
+    let mut private: Vec<HashMap<ObjectId, ObjectId>> = Vec::with_capacity(applied.len());
+    // The slot each of a page's form edits was given, so a stream naming a placement's own copy
+    // of a form can name the slot it went into (ADR 1363).
+    let mut form_slots: Vec<Vec<ObjectId>> = Vec::with_capacity(applied.len());
+    for (index, page) in applied.iter().enumerate() {
+        let mut copies = HashMap::new();
+        let mut slots = Vec::with_capacity(page.forms.len());
+        for image in &page.images {
+            let slot = if image.private {
+                assembly.reserve()
+            } else {
+                assembly.replace(0, image.id)
+            }
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+            if image.private {
+                copies.insert(image.id, slot);
+            }
+            replacements.push((slot, Owned::Image(image), index));
+        }
+        for form in &page.forms {
+            let slot = if form.private {
+                assembly.reserve()
+            } else {
+                assembly.replace(0, form.id)
+            }
+            .map_err(|error| Refusal::Assembly(error.to_string()))?;
+            // A placement's own copy stands in for the form nowhere else: only the placements
+            // that name it draw it, and every other reference keeps reaching the form.
+            if form.private && !form.placement_copy {
+                copies.insert(form.id, slot);
+            }
+            slots.push(slot);
+            replacements.push((slot, Owned::Form(form), index));
+        }
+        private.push(copies);
+        form_slots.push(slots);
+    }
+    Ok(Slots {
+        replacements,
+        private,
+        forms: form_slots,
+    })
+}
+
 /// Builds a replaced page dictionary: the edited content, the surviving annotations, and every
 /// other entry with its references carried into the output's numbering.
 ///
@@ -5000,7 +5407,7 @@ fn build_page(
     assembly: &mut Assembly<'_>,
     document: &Document,
     page: &AppliedPage,
-    private: &HashMap<ObjectId, ObjectId>,
+    carried: &Carried<'_>,
 ) -> Result<Object, Refusal> {
     let mut length = Dictionary::new();
     length.insert(
@@ -5026,7 +5433,7 @@ fn build_page(
 
     let surviving = surviving_annotations(assembly, document, source);
     let mut dict = Dictionary::new();
-    let restated = !private.is_empty() || !page.states.is_empty();
+    let restated = !carried.private.is_empty() || !page.states.is_empty() || carried.names();
     for (key, value) in source.iter() {
         let skipped = matches!(key.as_bytes(), b"Contents" | b"Annots")
             || (key.as_bytes() == b"Resources" && restated);
@@ -5041,13 +5448,8 @@ fn build_page(
         // `Page::resources` has already resolved — so writing the effective dictionary here is
         // the same resources the producer's page had, with the copied objects substituted and
         // any graphics state the edited content names added.
-        let resources = privatise(
-            assembly,
-            document,
-            &Object::Dictionary(with_states(document, &page.resources, &page.states)),
-            private,
-            0,
-        );
+        let stated = with_states(document, &page.resources, &page.states);
+        let resources = carried.resources(assembly, document, &stated);
         dict.insert(Name::new(&b"Resources"[..]), resources);
     }
     if let Some(annots) = surviving {
@@ -5083,6 +5485,299 @@ fn with_states(
     let mut out = resources.clone();
     out.insert(Name::new(&b"ExtGState"[..]), Object::Dictionary(table));
     out
+}
+
+/// What a replaced page or form carries its resources with: the objects copied for the page, and
+/// the new objects its edited stream names (ADR 1363).
+struct Carried<'a> {
+    /// The objects copied for the page, by the original's number.
+    private: &'a HashMap<ObjectId, ObjectId>,
+    /// Form copies named in `/XObject`, with their slots.
+    named: &'a [(Vec<u8>, ObjectId)],
+    /// Shading and pattern entries given their placed replacements.
+    overrides: &'a [(located::Category, Vec<u8>, Object)],
+    /// Graphics states establishing a soft mask on a group's copy: the new name, the producer's
+    /// `/ExtGState` entry, and the copy's slot.
+    masks: &'a [(Vec<u8>, Object, ObjectId)],
+}
+
+impl Carried<'_> {
+    /// Whether the edited stream names anything new, so its resources are written afresh.
+    fn names(&self) -> bool {
+        !self.named.is_empty() || !self.overrides.is_empty() || !self.masks.is_empty()
+    }
+
+    /// A stream's resources, carried into the output with the page's copies substituted, the
+    /// replaced entries replaced and the new names added.
+    ///
+    /// `stated` is in the source document's terms; every subdictionary a name is added to or
+    /// taken from is written direct first, so the change is made on this stream's own copy and
+    /// the producer's subdictionary is left for whatever else names it.
+    fn resources(
+        &self,
+        assembly: &mut Assembly<'_>,
+        document: &Document,
+        stated: &Dictionary,
+    ) -> Object {
+        let mut stated = without_overridden(document, stated, self.overrides);
+        for (category, needed) in [
+            ("XObject", !self.named.is_empty()),
+            ("ExtGState", !self.masks.is_empty()),
+        ] {
+            if needed {
+                let table = document
+                    .get_key(&stated, category)
+                    .as_dict()
+                    .cloned()
+                    .unwrap_or_default();
+                stated.insert(Name::new(category.as_bytes()), Object::Dictionary(table));
+            }
+        }
+        let resources = privatise(
+            assembly,
+            document,
+            &Object::Dictionary(stated),
+            self.private,
+            0,
+        );
+        let resources = with_overrides(name_forms(resources, self.named), self.overrides);
+        let Object::Dictionary(mut resources) = resources else {
+            return resources;
+        };
+        if !self.masks.is_empty() {
+            let mut table = match resources.get("ExtGState") {
+                Some(Object::Dictionary(table)) => table.clone(),
+                _ => Dictionary::new(),
+            };
+            for (name, state, slot) in self.masks {
+                table.insert(
+                    Name::new(name.as_slice()),
+                    mask_state(assembly, document, state, *slot, self.private),
+                );
+            }
+            resources.insert(Name::new(&b"ExtGState"[..]), Object::Dictionary(table));
+        }
+        Object::Dictionary(resources)
+    }
+}
+
+/// The producer's graphics state dictionary restated with its soft mask's group the copy in
+/// `slot`: every entry carried, and in `/SMask` every entry but `/G` (§11.6.5.1).
+fn mask_state(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    state: &Object,
+    slot: ObjectId,
+    private: &HashMap<ObjectId, ObjectId>,
+) -> Object {
+    let resolved = document.resolve(state);
+    let mut out = Dictionary::new();
+    for (key, value) in resolved.as_dict().into_iter().flat_map(Dictionary::iter) {
+        if key.as_bytes() == b"SMask" {
+            let mask = document.resolve(value);
+            let mut restated = Dictionary::new();
+            for (entry, item) in mask.as_dict().into_iter().flat_map(Dictionary::iter) {
+                let carried = if entry.as_bytes() == b"G" {
+                    Object::Reference(slot)
+                } else {
+                    privatise(assembly, document, item, private, 0)
+                };
+                restated.insert(entry.clone(), carried);
+            }
+            out.insert(key.clone(), Object::Dictionary(restated));
+        } else {
+            out.insert(
+                key.clone(),
+                privatise(assembly, document, value, private, 0),
+            );
+        }
+    }
+    Object::Dictionary(out)
+}
+
+/// A stream's mask states paired with the slots their groups' copies were given.
+fn slotted_masks(
+    masks: &AddedMasks,
+    slots: Option<&Vec<ObjectId>>,
+) -> Vec<(Vec<u8>, Object, ObjectId)> {
+    masks
+        .iter()
+        .filter_map(|(name, state, index)| {
+            slots
+                .and_then(|slots| slots.get(*index))
+                .map(|slot| (name.clone(), state.clone(), *slot))
+        })
+        .collect()
+}
+
+/// Each page's destructions of located shading data, placed once and named by every resource
+/// dictionary on the page that gives one of its entries the replacement (ADR 1363).
+fn place_located(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    applied: &[AppliedPage],
+    private: &[HashMap<ObjectId, ObjectId>],
+) -> Result<Vec<HashMap<located::Key, Object>>, Refusal> {
+    let mut out = Vec::with_capacity(applied.len());
+    for (index, page) in applied.iter().enumerate() {
+        let copies = private.get(index).cloned().unwrap_or_default();
+        let mut placed = HashMap::new();
+        for (key, built) in &page.names.located {
+            placed.insert(
+                key.clone(),
+                place_built(assembly, document, built, &copies)?,
+            );
+        }
+        out.push(placed);
+    }
+    Ok(out)
+}
+
+/// A stream's overridden entries paired with the placed replacements.
+fn resolved(
+    overrides: &Overrides,
+    placed: Option<&HashMap<located::Key, Object>>,
+) -> Vec<(located::Category, Vec<u8>, Object)> {
+    overrides
+        .iter()
+        .filter_map(|(category, name, key)| {
+            placed
+                .and_then(|placed| placed.get(key))
+                .map(|object| (*category, name.clone(), object.clone()))
+        })
+        .collect()
+}
+
+/// A resource dictionary with the overridden entries taken out of their categories, written
+/// direct, in the source document's terms (like [`with_states`]), so that nothing carried names
+/// the producer's object under them.
+fn without_overridden(
+    document: &Document,
+    resources: &Dictionary,
+    overrides: &[(located::Category, Vec<u8>, Object)],
+) -> Dictionary {
+    let mut out = resources.clone();
+    for category in [located::Category::Shading, located::Category::Pattern] {
+        let names: Vec<&[u8]> = overrides
+            .iter()
+            .filter(|(known, _, _)| *known == category)
+            .map(|(_, name, _)| name.as_slice())
+            .collect();
+        if names.is_empty() {
+            continue;
+        }
+        let stated = document.get_key(resources, category.key());
+        let mut table = Dictionary::new();
+        for (name, entry) in stated.as_dict().into_iter().flat_map(Dictionary::iter) {
+            if !names.contains(&name.as_bytes()) {
+                table.insert(name.clone(), entry.clone());
+            }
+        }
+        out.insert(
+            Name::new(category.key().as_bytes()),
+            Object::Dictionary(table),
+        );
+    }
+    out
+}
+
+/// A carried resource dictionary with each overridden entry given its placed replacement.
+fn with_overrides(resources: Object, overrides: &[(located::Category, Vec<u8>, Object)]) -> Object {
+    let Object::Dictionary(mut resources) = resources else {
+        return resources;
+    };
+    for (category, name, object) in overrides {
+        let key = Name::new(category.key().as_bytes());
+        let mut table = match resources.get(category.key()) {
+            Some(Object::Dictionary(table)) => table.clone(),
+            _ => Dictionary::new(),
+        };
+        table.insert(Name::new(name.as_slice()), object.clone());
+        resources.insert(key, Object::Dictionary(table));
+    }
+    Object::Dictionary(resources)
+}
+
+/// Places a replacement built for located shading data: the producer's values carried into the
+/// output's numbering, and each object of its own added and named by its new number.
+fn place_built(
+    assembly: &mut Assembly<'_>,
+    document: &Document,
+    built: &located::Built,
+    private: &HashMap<ObjectId, ObjectId>,
+) -> Result<Object, Refusal> {
+    let entries = |assembly: &mut Assembly<'_>, entries: &[(Name, located::Built)]| {
+        let mut dict = Dictionary::new();
+        for (key, value) in entries {
+            dict.insert(
+                key.clone(),
+                place_built(assembly, document, value, private)?,
+            );
+        }
+        Ok::<Dictionary, Refusal>(dict)
+    };
+    Ok(match built {
+        located::Built::Source(value) => privatise(assembly, document, value, private, 0),
+        located::Built::Dict(values) => Object::Dictionary(entries(assembly, values)?),
+        located::Built::Array(items) => Object::Array(
+            items
+                .iter()
+                .map(|item| place_built(assembly, document, item, private))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        located::Built::Stream(values, data) => {
+            let mut dict = entries(assembly, values)?;
+            dict.insert(
+                Name::new(&b"Length"[..]),
+                Object::Integer(i64::try_from(data.len()).unwrap_or(i64::MAX)),
+            );
+            Object::Stream(Arc::new(Stream {
+                dict,
+                data: Arc::from(data.as_slice()),
+                decryption_failed: false,
+            }))
+        }
+        located::Built::New(inner) => {
+            let object = place_built(assembly, document, inner, private)?;
+            Object::Reference(
+                assembly
+                    .add(object)
+                    .map_err(|error| Refusal::Assembly(error.to_string()))?,
+            )
+        }
+    })
+}
+
+/// A stream's added form names paired with the slots their copies were given.
+fn slotted(named: &[(Vec<u8>, usize)], slots: Option<&Vec<ObjectId>>) -> Vec<(Vec<u8>, ObjectId)> {
+    named
+        .iter()
+        .filter_map(|(name, index)| {
+            slots
+                .and_then(|slots| slots.get(*index))
+                .map(|slot| (name.clone(), *slot))
+        })
+        .collect()
+}
+
+/// A carried resource dictionary with each form copy named in its `/XObject`, by the output slot
+/// the copy was given (ADR 1363).
+fn name_forms(resources: Object, named: &[(Vec<u8>, ObjectId)]) -> Object {
+    let Object::Dictionary(mut resources) = resources else {
+        return resources;
+    };
+    if named.is_empty() {
+        return Object::Dictionary(resources);
+    }
+    let mut table = match resources.get("XObject") {
+        Some(Object::Dictionary(table)) => table.clone(),
+        _ => Dictionary::new(),
+    };
+    for (name, slot) in named {
+        table.insert(Name::new(name.as_slice()), Object::Reference(*slot));
+    }
+    resources.insert(Name::new(&b"XObject"[..]), Object::Dictionary(table));
+    Object::Dictionary(resources)
 }
 
 /// Carries a value into the output, copying every object on the path to a privately replaced one.
@@ -5213,7 +5908,7 @@ fn build_form(
     assembly: &mut Assembly<'_>,
     document: &Document,
     form: &FormEdit,
-    private: &HashMap<ObjectId, ObjectId>,
+    carried: &Carried<'_>,
 ) -> Result<Object, Refusal> {
     let object = document.get(form.id);
     let source = object.as_stream().ok_or_else(|| {
@@ -5223,32 +5918,25 @@ fn build_form(
         ))
     })?;
     let mut dict = Dictionary::new();
-    if !form.states.is_empty() {
+    let restated = !form.states.is_empty() || carried.names();
+    if restated {
         // The resources the form's names were resolved in, its own or the page's, gain the
-        // graphics states its edited content names; written on the form itself, so a form that
-        // inherited the page's names now states them.
+        // graphics states, form copies and replaced shadings its edited content names; written
+        // on the form itself, so a form that inherited the page's names now states them.
         let resources = with_states(document, &form.resources, &form.states);
-        dict.insert(
-            Name::new(&b"Resources"[..]),
-            privatise(
-                assembly,
-                document,
-                &Object::Dictionary(resources),
-                private,
-                0,
-            ),
-        );
+        let resources = carried.resources(assembly, document, &resources);
+        dict.insert(Name::new(&b"Resources"[..]), resources);
     }
     for (key, value) in source.dict.iter() {
         match key.as_bytes() {
             // The producer's encoding is dropped and §7.3.8.2's `/Length` restated: the content
             // written here is the decoded stream with the region's marks cut out of it.
             b"Filter" | b"DecodeParms" | b"DP" | b"Length" => {}
-            b"Resources" if !form.states.is_empty() => {}
+            b"Resources" if restated => {}
             _ => {
                 dict.insert(
                     key.clone(),
-                    privatise(assembly, document, value, private, 0),
+                    privatise(assembly, document, value, carried.private, 0),
                 );
             }
         }

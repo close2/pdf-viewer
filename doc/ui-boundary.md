@@ -689,9 +689,13 @@ that changes `/V` and this tree read only the sentence after it.
 vocabulary after `Restrict`, and a different kind: that one says how much of what a *document*
 asserts over its reader this program obeys, this says which half of the page the *host* draws. It
 reaches `interpret` through `ViewState`, where rule 1 says a statement about the view belongs and
-where the magnification already sits, and it removes **exactly the widgets `Query::Fields` answered
-for** — a widget §12.7.4.2 leaves "simply a Widget annotation" keeps its appearance, because no
-control replaced it. `ViewState::of` is the other value, so every existing caller's display list is
+where the magnification already sits, and it removes **exactly the widgets of the fields a host places
+a control over** — `pdf_model::form::Control::is_delegable` and `viewer_host::ControlKind::is_placed`
+are one set, held together by a test. A widget §12.7.4.2 leaves "simply a Widget annotation" keeps its
+appearance, because no control replaced it, and so do §12.7.5.2.2's push-button, §12.7.5.5's
+signature and a field stating no `/FT`: a push-button's `/AP` is the producer's whole statement of what
+it looks like, so no window puts a toolkit button over it. Its click is the pointer's, as on every
+page-drawn widget, and Space or Enter at §12.5.1's focus is `viewer_host::pressed`'s (ADR 1357). `ViewState::of` is the other value, so every existing caller's display list is
 unchanged: 974 corpus documents digested before and after, an empty diff.
 
 **The vocabulary is complete**, and ten sessions of building on it added five messages rather than

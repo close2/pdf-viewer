@@ -616,6 +616,13 @@ impl Host {
             shift: shift || keys::shifted_by_name(code),
             ctrl,
         };
+        // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since
+        // no toolkit button stands over one to take them (ADR 1357). A key a placed control had
+        // the keyboard for never arrives: `MainWindow::keyPressEvent` keeps Enter from one.
+        if let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held) {
+            self.press(&pressed);
+            return;
+        }
         let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
             return;
         };
@@ -1450,13 +1457,30 @@ impl Host {
         }
     }
 
-    /// §12.7.5.2.2's push button was pressed.
-    pub(crate) fn activate_control(&mut self, index: usize) {
-        let Some(placed) = self.placed.get(index) else {
-            return;
+    /// Which placed control §12.5.1's focus is on, as its index in `placed`, or -1 for none.
+    pub(crate) fn focused_control(&self) -> i32 {
+        let Answer::Focus { object, .. } = self.viewer.query(Query::Focus) else {
+            return -1;
         };
-        let annotation = placed.annotation;
-        self.dispatch(Command::Activate(annotation));
+        self.placed
+            .iter()
+            .position(|placed| placed.annotation == object)
+            .and_then(|index| i32::try_from(index).ok())
+            .unwrap_or(-1)
+    }
+
+    /// Carries out a key's press on a push-button: its activation, or the refusal said by name.
+    fn press(&mut self, pressed: &viewer_host::Pressed) {
+        if let Some(said) = pressed.note() {
+            self.say(&said);
+            return;
+        }
+        match pressed {
+            viewer_host::Pressed::Activates { annotation, .. } => {
+                self.dispatch(Command::Activate(*annotation));
+            }
+            viewer_host::Pressed::ReadOnly { .. } => {}
+        }
     }
 
     /// §7.6.4.1: a person typed a password, or closed the prompt with nothing in it.
@@ -3672,18 +3696,20 @@ impl Host {
     }
 }
 
-/// The control one widget of one field becomes, or nothing where the clause gives it none.
+/// The control one widget of one field becomes, or nothing where the page draws the field itself.
 ///
-/// §12.7.5.5's signature has no control to build and Table 226's absent `/FT` names none, so this
-/// host places nothing and the page's own appearance stands. Inventing a control for either would
-/// be a statement about the document that the document did not make.
+/// [`ControlKind::is_placed`] is the set, and it is the one `pdf_model::form::Control::is_delegable`
+/// leaves on the page: a push-button's `/AP` is the producer's whole statement of what it looks
+/// like, so a toolkit button in its place would be marks the producer did not draw — its click is
+/// the pointer's and its key is `viewer_host::pressed`'s (ADR 1357). §12.7.5.5's signature has no
+/// control to build and Table 226's absent `/FT` names none.
 fn placement(
     field: &FormField,
     widget: &viewer_core::FormWidget,
     kind: &ControlKind,
 ) -> Option<Placement> {
     match kind {
-        ControlKind::Signature | ControlKind::Unstated => None,
+        kind if !kind.is_placed() => None,
         _ => Some(Placement {
             name: field.name.clone(),
             annotation: widget.annotation,
@@ -3725,13 +3751,14 @@ fn describe_kind(kind: &ControlKind) -> (u8, i32, bool, bool) {
         }
         ControlKind::Check { .. } => (3, -1, false, false),
         ControlKind::Radio { .. } => (4, -1, false, false),
-        ControlKind::Push => (5, -1, false, false),
         ControlKind::Combo { editable, .. } => (6, -1, false, *editable),
         ControlKind::List { multi, .. } => (7, -1, *multi, false),
-        // Unreachable: `placement` returns `None` for both, so no control of either kind is ever
-        // in `placed`. Answered rather than asserted away, because a refusal that cannot happen
-        // still has to say something if it does.
-        ControlKind::Signature | ControlKind::Unstated => (255, -1, false, false),
+        // Unreachable: `placement` returns `None` for all three, so no control of any of them is
+        // ever in `placed`. Answered rather than asserted away, because a refusal that cannot
+        // happen still has to say something if it does.
+        ControlKind::Push | ControlKind::Signature | ControlKind::Unstated => {
+            (255, -1, false, false)
+        }
     }
 }
 
@@ -4154,16 +4181,23 @@ mod tests {
         };
         let host = opened(&path);
         let controls = host.controls();
+        // 76 widgets over this form's 67 fields, less the 10 whose field `ControlKind::is_placed`
+        // leaves to the page's own appearance (ADR 1357).
         assert_eq!(
             controls.len(),
-            76,
-            "the same 76 controls `viewer-gtk` places over this form's 67 fields"
+            66,
+            "the same 66 controls `viewer-gtk` places over this form's 67 fields"
         );
         // Every one of them names the field an edit is addressed by and the widget that
         // distinguishes it from the field's other widgets.
         assert!(controls.iter().all(|control| !control.field.is_empty()));
-        // And every kind is one the C++ side has a widget for: 8 kinds, 0 to 7.
-        assert!(controls.iter().all(|control| control.kind < 8));
+        // And every kind is one the C++ side has a widget for: 0 to 7, less 5, the push-button
+        // number no control is built for.
+        assert!(
+            controls
+                .iter()
+                .all(|control| control.kind < 8 && control.kind != 5)
+        );
     }
 
     /// `CLAUDE.md`: a document's restrictions are the reader's, and turning them off must work.
@@ -4388,9 +4422,9 @@ mod tests {
             }),
             (1, -1, false, false)
         );
-        assert_eq!(describe_kind(&ControlKind::Push), (5, -1, false, false));
-        // §12.7.5.5's signature and Table 226's absent `/FT` are never placed, so their number is
-        // one the window refuses by name rather than one it draws.
+        // §12.7.5.2.2's push-button, §12.7.5.5's signature and Table 226's absent `/FT` are never
+        // placed, so their number is one the window refuses by name rather than one it draws.
+        assert_eq!(describe_kind(&ControlKind::Push).0, 255);
         assert_eq!(describe_kind(&ControlKind::Signature).0, 255);
         assert_eq!(describe_kind(&ControlKind::Unstated).0, 255);
     }

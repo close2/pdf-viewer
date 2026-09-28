@@ -164,6 +164,32 @@ impl ControlKind {
             | Self::Unstated => false,
         }
     }
+
+    /// Whether a host that places controls over the page puts one over this field's widgets.
+    ///
+    /// **The same set [`pdf_model::form::Control::is_delegable`] takes off the page**, asked of
+    /// the control rather than of the field so that a host building a widget from this enum cannot
+    /// place one where the page still draws the field's appearance, nor leave a field's appearance
+    /// off the page with nothing in its place. `the_controls_a_host_places_are_the_appearances_it_was_given`
+    /// holds the two answers together for every variant.
+    ///
+    /// **A push-button is not placed**: ISO 32000-2 §6.3.2.2 obliges a processor to "render the
+    /// appropriate appearance stream for all annotations", and a push-button's `/AP` — or the
+    /// caption and icon Table 192's `/MK` constructs one from — is the whole of what the producer
+    /// said it looks like. A toolkit button labelled with the field's name would show marks the
+    /// producer did not draw. A click on it is the pointer's, as on every page-drawn widget
+    /// ([`Clicked::Pointed`]), and a key on it is [`pressed`]'s (ADR 1357).
+    #[must_use]
+    pub fn is_placed(&self) -> bool {
+        match self {
+            Self::Entry { .. }
+            | Self::Check { .. }
+            | Self::Radio { .. }
+            | Self::Combo { .. }
+            | Self::List { .. } => true,
+            Self::Push | Self::Signature | Self::Unstated => false,
+        }
+    }
 }
 
 /// The control a field is, from what `viewer_core::Query::Fields` said about it.
@@ -525,6 +551,87 @@ pub fn clicked(viewer: &Viewer, at: (f32, f32)) -> Clicked {
         no_toggle_to_off,
         widget.on_state.as_deref(),
     )
+}
+
+/// What Space or Enter comes to where §12.5.1's focus is on a push-button's widget.
+///
+/// **The keyboard's half of a push-button, now that no toolkit button stands over one** (ADR
+/// 1357). ISO 32000-2 §12.5.1 names one key and gives it one job:
+///
+/// > Interactive PDF processors may permit the user to navigate through the annotations on a page
+/// > by using the keyboard (in particular, the tab key).
+///
+/// — so reaching a widget is the standard's and *pressing* one is not. Space and Enter are this
+/// program's choice, and they are the two keys both toolkits already press a focused button with,
+/// which is what a person who reached one by Tab expects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pressed {
+    /// The widget to send [`viewer_core::Command::Activate`] for.
+    Activates {
+        /// The field, for a report.
+        name: FieldName,
+        /// The widget annotation §12.5.1's focus is on.
+        annotation: pdf_syntax::ObjectId,
+    },
+    /// Table 227 bit 1, whose second sentence is about exactly this: "any associated widget
+    /// annotations should not interact with the user".
+    ReadOnly {
+        /// The field the document locked.
+        name: FieldName,
+    },
+}
+
+impl Pressed {
+    /// What to say about a press this did not carry out, worded as [`Clicked::note`] words it.
+    #[must_use]
+    pub fn note(&self) -> Option<String> {
+        match self {
+            Self::Activates { .. } => None,
+            Self::ReadOnly { name } => Clicked::ReadOnly { name: name.clone() }.note(false),
+        }
+    }
+}
+
+/// Whether this key presses the push-button §12.5.1's focus is on, and what that comes to.
+///
+/// `None` for every other key, for a key with Control held, and wherever the focus is on anything
+/// but a push-button's widget — a host then asks [`crate::meaning`] as it would have, so Space
+/// still turns the page when no button has the focus. **A host asks this before the key table and
+/// only for a press that reached the page**: a toolkit control with the keyboard has had the key
+/// first, which is the ordering `crate::keys` states for every other piece of chrome.
+///
+/// The widget is found by [`viewer_core::Query::Focus`]'s annotation among
+/// [`viewer_core::Query::Fields`]' widgets, because the first names an annotation and only the
+/// second says which of §12.7.5's types its field is.
+#[must_use]
+pub fn pressed(viewer: &Viewer, key: crate::Key, held: crate::Modifiers) -> Option<Pressed> {
+    if held.ctrl || !matches!(key, crate::Key::Space | crate::Key::Enter) {
+        return None;
+    }
+    let Answer::Focus { object, .. } = viewer.query(Query::Focus) else {
+        return None;
+    };
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        return None;
+    };
+    let field = fields.iter().find(|field| {
+        field
+            .widgets
+            .iter()
+            .any(|widget| widget.annotation == object)
+    })?;
+    if !matches!(field.control, Control::PushButton) {
+        return None;
+    }
+    if field.read_only {
+        return Some(Pressed::ReadOnly {
+            name: field.name.clone(),
+        });
+    }
+    Some(Pressed::Activates {
+        name: field.name.clone(),
+        annotation: object,
+    })
 }
 
 #[cfg(test)]

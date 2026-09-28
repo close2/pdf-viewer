@@ -2,16 +2,27 @@
 //!
 //! One thing: ISO 32000-2 §8.4.3's geometry. **A stroke is not coverage and this
 //! module produces none** — it takes [`Polyline`]s from [`flatten`](mod@super::flatten)
-//! and hands back [`Polyline`]s, one closed polygon per segment quad, per join
-//! (§8.4.3.4) and per cap (§8.4.3.3), for [`fill`](super::fill) to rasterise under
-//! [`Rule::NonZero`](super::Rule). Overlaps between the pieces double the winding,
-//! which non-zero coverage clamps away — so the pieces need no boolean union, and that
-//! is the whole reason the expansion may be this simple.
+//! and hands back [`Polyline`]s, one closed polygon per segment, per join (§8.4.3.4)
+//! and per cap (§8.4.3.3), for [`fill`](super::fill) to rasterise under
+//! [`Rule::NonZero`](super::Rule). The pieces need no boolean union, and that is the
+//! whole reason the expansion may be this simple. §8.4.3.2 says what their union is:
 //!
-//! **Every fan here is wound the way the body it joins is**, and that invariant is
-//! load-bearing rather than decorative: a fan wound against the body punches a hole of
-//! exactly its own area instead of adding one, which is the defect [`cap_fan`] states
-//! and `each_cap_deposits_the_area_table_53_gives_it` measures.
+//! > stroking a path shall entail painting all points whose perpendicular distance from
+//! > the path in user space is less than or equal to half the line width
+//!
+//! Two invariants make the pieces add up to that set rather than to something near it
+//! (ADR 1361):
+//!
+//! - **Every piece is wound the way every other is**, on both turn directions. A piece
+//!   wound against the body cancels it where they overlap and subtracts from it in a
+//!   pixel they share, which is the defect [`cap_fan`] states and [`join_at`] orders its
+//!   corners against; `stroke_set`'s fixtures draw every shape both ways to hold it.
+//! - **Pieces meet edge to edge wherever they can**, because [`fill`](super::fill)
+//!   integrates winding over a pixel and clamps it afterwards: an overlap is free inside
+//!   the stroke but counted twice in a rim pixel. A segment's piece is cut at the inner
+//!   side of each join ([`inner_cut`]) and the outer side's join starts on the piece's own
+//!   end points. Where a curve bends more tightly than the half-width the cuts would
+//!   cross, and the pieces overlap instead — the same set, dearer only at the rim.
 
 use raster_scene::{LineCap, LineJoin, Point, Stroke};
 
@@ -43,10 +54,9 @@ pub(crate) fn resolve_width(stroke: Stroke, t: DeviceTransform) -> f32 {
     }
 }
 
-/// Expand a stroke into closed polygons (ISO 32000-2 §8.4.3: quads per segment,
-/// §8.4.3.4's joins at interior vertices, §8.4.3.3's caps at open ends), for filling
-/// with the non-zero rule — overlaps between pieces double the winding, which
-/// non-zero coverage clamps away.
+/// Expand a stroke into closed polygons (ISO 32000-2 §8.4.3: a piece per segment,
+/// §8.4.3.4's joins at interior vertices, §8.4.3.3's caps at open ends), all wound one
+/// way, for filling with the non-zero rule.
 ///
 /// The device width arrives from [`resolve_width`] (ADR 0085: §8.4.3.2's zero and
 /// §10.7.5's adjustment applied at encode); dashing is already applied and degenerate
@@ -86,20 +96,23 @@ pub(crate) fn stroke_polylines(
         } else {
             pts.len() - 1
         };
-        // One quad per segment.
-        for i in 0..segment_count {
-            let a = pts[i];
-            let b = pts[(i + 1) % pts.len()];
-            let n = normal(a, b, hw);
-            out.push(Polyline {
-                points: vec![
-                    Point::new(a.x + n.x, a.y + n.y),
-                    Point::new(b.x + n.x, b.y + n.y),
-                    Point::new(b.x - n.x, b.y - n.y),
-                    Point::new(a.x - n.x, a.y - n.y),
-                ],
-                closed: true,
-            });
+        // Each vertex's inner cut, computed once so that the two pieces meeting there
+        // share its point to the bit (ADR 1361).
+        let cuts: Vec<Option<InnerCut>> = (0..pts.len())
+            .map(|j| {
+                let joined = polyline.closed || (j > 0 && j + 1 < pts.len());
+                if !joined {
+                    return None;
+                }
+                let prev = pts[(j + pts.len() - 1) % pts.len()];
+                inner_cut(prev, pts[j], pts[(j + 1) % pts.len()], hw)
+            })
+            .collect();
+        // One piece per segment, less those another segment's piece already holds.
+        let held = held_by_a_neighbour(&pts, polyline.closed, segment_count);
+        for i in (0..segment_count).filter(|&i| !held[i]) {
+            let (from, to) = (i, (i + 1) % pts.len());
+            out.push(segment_piece(pts[from], pts[to], hw, cuts[from], cuts[to]));
         }
         // Joins at interior vertices (all vertices when closed).
         let join_count = if polyline.closed {
@@ -178,6 +191,150 @@ fn direction(a: Point, b: Point) -> Point {
     }
 }
 
+/// The length of `a → b`, by the same two computations as [`direction`] and for the
+/// same reason: a square that leaves `f32` must not decide a comparison.
+fn distance(a: Point, b: Point) -> f32 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len.is_finite() && len > 0.0 {
+        len
+    } else {
+        dx.hypot(dy)
+    }
+}
+
+/// Which segments' pieces lie wholly inside a neighbour's, and are therefore not emitted.
+///
+/// A path that turns exactly back on itself runs its second segment along the first one's
+/// line, so the shorter of the two rectangles is a subset of the longer — the out-and-back
+/// outline a closed two-point subpath is, above all (`0 0 m 10 0 l s`). The set is the
+/// longer rectangle either way; emitting both would count the shared part twice in every
+/// rim pixel, for the reason [`inner_cut`] gives. Only an exact reversal qualifies — a turn
+/// the arithmetic cannot tell from straight back is one [`join_at`] also treats as one —
+/// and of two equal segments the one with the lower index goes, which leaves the last
+/// segment of any chain of reversals standing, so nothing a piece held is lost.
+#[expect(clippy::arithmetic_side_effects)] // indices below `pts.len()`, which is at least 2
+fn held_by_a_neighbour(pts: &[Point], closed: bool, segment_count: usize) -> Vec<bool> {
+    let mut held = vec![false; segment_count];
+    let vertices = if closed {
+        0..pts.len()
+    } else {
+        1..pts.len() - 1
+    };
+    for v in vertices {
+        let (before, after) = ((v + segment_count - 1) % segment_count, v % segment_count);
+        let prev = pts[(v + pts.len() - 1) % pts.len()];
+        let next = pts[(v + 1) % pts.len()];
+        let (d1, d2) = (direction(prev, pts[v]), direction(pts[v], next));
+        let turned_back = d1.x * d2.y - d1.y * d2.x == 0.0 && d1.x * d2.x + d1.y * d2.y < 0.0;
+        if !turned_back || before == after {
+            continue;
+        }
+        let (l1, l2) = (distance(prev, pts[v]), distance(pts[v], next));
+        let shorter = if l1 < l2 {
+            before
+        } else if l2 < l1 {
+            after
+        } else {
+            before.min(after)
+        };
+        held[shorter] = true;
+    }
+    held
+}
+
+/// Where the two inner offset lines of a vertex meet, and on which side of the stroke
+/// that is (`left`: the side of the left normal [`normal`] gives).
+#[derive(Debug, Clone, Copy)]
+struct InnerCut {
+    point: Point,
+    left: bool,
+}
+
+/// The inner cut at `v`, or `None` where the two pieces meeting there must overlap
+/// instead (ADR 1361).
+///
+/// Two segment rectangles meeting at an angle overlap on the inner side of the turn,
+/// in the kite between `v` and the point where their inner edges cross. Under
+/// [`fill`](super::fill)'s accumulation an overlap costs nothing inside the stroke,
+/// where the winding is clamped, but in a pixel on the stroke's rim it is **counted
+/// twice**: the pixel integrates `+a` and `+b` and reads `a + b`, not the area of their
+/// union. On a thin curve every pixel is on the rim, so nearly every overlap is counted
+/// in full (0.7 units of ink on a one-unit ring of 64 sides). Cutting both rectangles along the line from `v` to that crossing makes
+/// them meet edge to edge instead, and the part each loses is inside the other, so
+/// the union — §8.4.3.2's set — is unchanged.
+///
+/// The crossing lies `t = hw · tan(θ / 2)` back along each segment from `v`, where `θ`
+/// is the turn. It is only a corner of both pieces while `t` is at most half of each
+/// segment: past that, the cuts at a segment's two ends could meet, and a curve that
+/// bends more tightly than the half-width is exactly where they do. Such a vertex
+/// keeps the overlap, which is the same set and costs only the rim pixels it touches.
+fn inner_cut(prev: Point, v: Point, next: Point, hw: f32) -> Option<InnerCut> {
+    let d1 = direction(prev, v);
+    let d2 = direction(v, next);
+    let cross = d1.x * d2.y - d1.y * d2.x;
+    let dot = d1.x * d2.x + d1.y * d2.y;
+    // `tan(θ / 2) = sin θ / (1 + cos θ)`; a reversal has no crossing at all.
+    let t = hw * cross.abs() / (1.0 + dot);
+    let reach = 0.5 * distance(prev, v).min(distance(v, next));
+    if cross == 0.0 || !t.is_finite() || t > reach {
+        return None;
+    }
+    // The inner side is the side the path turns towards: the left normal's side when
+    // `cross > 0`, which is [`join_at`]'s gap on the other side.
+    let left = cross > 0.0;
+    let side = if left { hw } else { -hw };
+    Some(InnerCut {
+        point: Point::new(v.x - d1.y * side - d1.x * t, v.y + d1.x * side - d1.y * t),
+        left,
+    })
+}
+
+/// The piece one segment contributes: its rectangle (§8.4.3.2's points within the
+/// half-width, across the segment's own length), with the inner corner at either end
+/// replaced by that vertex's [`InnerCut`] where it has one.
+///
+/// The points are visited in the rectangle's own order — left side forward, right side
+/// back — so a cut piece is wound as every other piece is. At a cut end the vertex
+/// itself is inserted between the inner point and the uncut half of the end, because
+/// that half is the edge the join on the outer side shares.
+fn segment_piece(
+    a: Point,
+    b: Point,
+    hw: f32,
+    start: Option<InnerCut>,
+    end: Option<InnerCut>,
+) -> Polyline {
+    let n = normal(a, b, hw);
+    let (a_left, a_right) = (
+        Point::new(a.x + n.x, a.y + n.y),
+        Point::new(a.x - n.x, a.y - n.y),
+    );
+    let (b_left, b_right) = (
+        Point::new(b.x + n.x, b.y + n.y),
+        Point::new(b.x - n.x, b.y - n.y),
+    );
+    let mut points = Vec::with_capacity(6);
+    match start {
+        Some(cut) if cut.left => points.push(cut.point),
+        _ => points.push(a_left),
+    }
+    match end {
+        Some(cut) if cut.left => points.extend([cut.point, b, b_right]),
+        Some(cut) => points.extend([b_left, b, cut.point]),
+        None => points.extend([b_left, b_right]),
+    }
+    match start {
+        Some(cut) if cut.left => points.extend([a_right, a]),
+        Some(cut) => points.extend([cut.point, a]),
+        None => points.push(a_right),
+    }
+    Polyline {
+        points,
+        closed: true,
+    }
+}
+
 /// The left normal of `a → b`, scaled to the half-width.
 fn normal(a: Point, b: Point, hw: f32) -> Point {
     let d = direction(a, b);
@@ -197,7 +354,14 @@ fn join_at(
     let d2 = direction(v, next);
     let cross = d1.x * d2.y - d1.y * d2.x;
     if cross == 0.0 {
-        return; // collinear: the quads already meet edge-to-edge
+        // Straight on, the pieces already meet edge to edge. Turned straight back, a
+        // round join's arc is a half turn round `v` beyond the first segment's end —
+        // the shape of a round cap there, and [`cap_fan`] is built for exactly pi — while
+        // a miter is past any limit and its bevel has no area.
+        if matches!(join, LineJoin::Round) && d1.x * d2.x + d1.y * d2.y < 0.0 {
+            out.push(cap_fan(v, d1, Point::new(-d1.y * hw, d1.x * hw), hw));
+        }
+        return;
     }
     // The gap opens on the side away from the turn.
     let s = if cross > 0.0 { -1.0 } else { 1.0 };
@@ -205,9 +369,16 @@ fn join_at(
     let n2 = Point::new(-d2.y * hw * s, d2.x * hw * s);
     let p1 = Point::new(v.x + n1.x, v.y + n1.y);
     let p2 = Point::new(v.x + n2.x, v.y + n2.y);
+    // The order the two outer corners are visited in is what winds the piece, and it
+    // must be the quads' order on both turns (ADR 1361). A quad `a+n, b+n, b−n, a−n`
+    // with `n` the left normal has the same orientation whatever its direction; the
+    // wedge `v, p1, p2` has it when the gap is on the left (`cross < 0`) and the
+    // opposite one when the gap is on the right, because flipping `s` mirrors the
+    // wedge along with its side. Visiting `p2` first on that turn undoes the mirror.
+    let (first, second) = if cross > 0.0 { (p2, p1) } else { (p1, p2) };
     match join {
         LineJoin::Bevel => out.push(Polyline {
-            points: vec![v, p1, p2],
+            points: vec![v, first, second],
             closed: true,
         }),
         LineJoin::Miter => {
@@ -220,18 +391,18 @@ fn join_at(
                 let scale = 1.0 / denom.max(f32::EPSILON);
                 let m = Point::new(v.x + (n1.x + n2.x) * scale, v.y + (n1.y + n2.y) * scale);
                 out.push(Polyline {
-                    points: vec![v, p1, m, p2],
+                    points: vec![v, first, m, second],
                     closed: true,
                 });
             } else {
                 out.push(Polyline {
-                    points: vec![v, p1, p2],
+                    points: vec![v, first, second],
                     closed: true,
                 });
             }
         }
         LineJoin::Round => {
-            out.push(arc_fan(v, p1, p2, hw));
+            out.push(arc_fan(v, first, second, hw));
         }
     }
 }
@@ -252,7 +423,7 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
         }),
         // §8.4.3.3, Table 53: "[a] semicircular arc with a diameter equal to the line
         // width shall be drawn around the endpoint and shall be filled in."
-        LineCap::Round => out.push(cap_fan(end, dir, hw)),
+        LineCap::Round => out.push(cap_fan(end, dir, n, hw)),
     }
 }
 
@@ -272,33 +443,70 @@ fn cap_at(out: &mut Vec<Polyline>, end: Point, dir: Point, hw: f32, cap: LineCap
 /// caller's ink-total instrument read a round cap as depositing exactly what a butt cap
 /// does (`QUORRA_FEEDBACK.md` section 21.1), which is the sum, not the picture.
 ///
-/// The step count is [`ARC_STEP`]'s, as for any other arc.
-fn cap_fan(end: Point, dir: Point, hw: f32) -> Polyline {
+/// The step count is [`arc_steps`]', as for any other arc.
+///
+/// Its two corners are `end ± n`, the very points the segment's own piece ends on,
+/// rather than the same points recomputed through `cos` and `sin`: a fan that meets
+/// the body a rounding error away leaves a sliver of rim counted once or twice.
+fn cap_fan(end: Point, dir: Point, n: Point, hw: f32) -> Polyline {
     // `cap_at`'s `n` is `dir` turned a quarter turn, so the cap's two corners sit at
     // `base ± pi/2` and the outward point at `base`. Sweeping downward from `+pi/2`
     // passes through `base`, which is what makes this the outward half — and gives the
     // fan the stroke body's own winding, so it adds rather than cancels.
     let base = dir.y.atan2(dir.x);
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // pi / ARC_STEP
-    let steps = ((std::f32::consts::PI / ARC_STEP).ceil() as usize).max(1);
+    let steps = arc_steps(std::f32::consts::PI, hw);
     let mut points = Vec::with_capacity(steps.saturating_add(2));
     points.push(end);
-    for i in 0..=steps {
-        #[expect(clippy::cast_precision_loss)] // steps is a dozen
+    points.push(Point::new(end.x + n.x, end.y + n.y));
+    for i in 1..steps {
+        #[expect(clippy::cast_precision_loss)] // steps is at most MAX_ARC_STEPS
         let t =
             base + std::f32::consts::FRAC_PI_2 - std::f32::consts::PI * (i as f32) / (steps as f32);
         points.push(Point::new(end.x + hw * t.cos(), end.y + hw * t.sin()));
     }
+    points.push(Point::new(end.x - n.x, end.y - n.y));
     Polyline {
         points,
         closed: true,
     }
 }
 
-/// The angle one step of an arc advances: deterministic (brief section 4.6), and within
-/// [`FLATTEN_TOLERANCE`](super::flatten::FLATTEN_TOLERANCE) for any stroke width a page
-/// realistically holds.
+/// The coarsest angle one step of an arc advances. Deterministic (brief section 4.6),
+/// and the step [`arc_steps`] takes for any arc of radius under 16 device pixels.
 const ARC_STEP: f32 = 0.35;
+
+/// The most steps one arc of up to a half turn is cut into: a stroke's width is a
+/// document's number, and the step count is an allocation (CLAUDE.md principle 3).
+/// At this count an arc is within the tolerance up to a radius of about 13 000 device
+/// pixels; a wider one is drawn coarser than that, and no finer.
+const MAX_ARC_STEPS: usize = 256;
+
+/// How many chords an arc of `sweep` radians and radius `radius` is cut into, so that
+/// no chord falls further inside the arc than
+/// [`FLATTEN_TOLERANCE`](super::flatten::FLATTEN_TOLERANCE) — §10.7.2's bound, the one
+/// every other curve here is flattened to (ADR 1361).
+///
+/// A chord of angle `a` falls `r · (1 − cos(a / 2))` inside, which is at most
+/// `r · a² / 8`; so `a = sqrt(8 · tolerance / r)` is within the bound, and `sqrt` is
+/// correctly rounded, so the count is the same on every machine. A fixed angle is not:
+/// its sag grows with the radius, and at 0.35 a round join of 64 device pixels fell a
+/// whole pixel short of its arc.
+fn arc_steps(sweep: f32, radius: f32) -> usize {
+    let bound = (8.0 * super::flatten::FLATTEN_TOLERANCE / radius).sqrt();
+    let step = if bound.is_finite() && bound > 0.0 {
+        bound.min(ARC_STEP)
+    } else {
+        ARC_STEP
+    };
+    // Clamped to `MAX_ARC_STEPS` before the conversion, which a `usize` holds exactly.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let steps = (sweep.abs() / step).ceil().min(MAX_ARC_STEPS as f32) as usize;
+    steps.max(1)
+}
 
 /// A fan of points approximating the arc from `from` to `to` around `centre` (both on
 /// the circle of radius `radius`), as one closed polygon including the centre.
@@ -318,8 +526,7 @@ fn arc_fan(centre: Point, from: Point, to: Point, radius: f32) -> Polyline {
     } else if sweep < -std::f32::consts::PI {
         sweep += 2.0 * std::f32::consts::PI;
     }
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let steps = ((sweep.abs() / ARC_STEP).ceil() as usize).max(1);
+    let steps = arc_steps(sweep, radius);
     let mut points = vec![centre, from];
     for i in 1..steps {
         #[expect(clippy::cast_precision_loss)]

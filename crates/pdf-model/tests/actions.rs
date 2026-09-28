@@ -630,6 +630,7 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
             A::SubmitForm(_) => "SubmitForm",
             A::GoToE(_) => "GoToE",
             A::GoToR(_) => "GoToR",
+            A::Launch(_) => "Launch",
             A::GoToDp(_) => "GoToDp",
             A::Trans(_) => "Trans",
             A::Refused(_) => "Refused",
@@ -648,7 +649,10 @@ fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
         ),
         ("GoToE", "/S /GoToE /D [0 /Fit]", Performed("GoToE")),
         ("GoToDp", "/S /GoToDp /Dp 4 0 R", Performed("GoToDp")),
-        ("Launch", "/S /Launch /F (other.pdf)", Refused),
+        // Table 207's `/F` names a file to ask for, which a host opens if its bytes are a PDF;
+        // with no `/F` the table's own "it shall do nothing" declines it (ADR 1358).
+        ("Launch", "/S /Launch /F (other.pdf)", Performed("Launch")),
+        ("Launch", "/S /Launch", Refused),
         ("Thread", "/S /Thread /D 0", Performed("Thread")),
         // Table 209's `/F` is performed too since ADR 1239: the file crosses to a host and the
         // jump is made in the document that comes back.

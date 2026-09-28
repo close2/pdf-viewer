@@ -105,6 +105,12 @@ fn agree(path: &Path) -> Result<usize, String> {
         "{}",
         path.display()
     );
+    assert_eq!(
+        memory.padded_stream_keywords(),
+        disk.padded_stream_keywords(),
+        "{}",
+        path.display()
+    );
     assert!(disk.scan_refused().is_none(), "{}", path.display());
     assert!(
         disk.bytes().read_failure().is_none(),

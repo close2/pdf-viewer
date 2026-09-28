@@ -46,6 +46,10 @@ const TAB: u32 = 0x0100_0001;
 const BACKTAB: u32 = 0x0100_0002;
 /// `Qt::Key_Space`.
 const SPACE: u32 = 0x20;
+/// `Qt::Key_Return`, the main keyboard's.
+const RETURN: u32 = 0x0100_0004;
+/// `Qt::Key_Enter`, which Qt reports for the keypad's.
+const ENTER: u32 = 0x0100_0005;
 /// `Qt::Key_Plus`.
 const PLUS: u32 = 0x2b;
 /// `Qt::Key_Minus`.
@@ -120,6 +124,7 @@ pub(crate) fn stated(code: u32) -> Option<Stated> {
         ESCAPE => Stated::Escape,
         TAB | BACKTAB => Stated::Tab,
         SPACE => Stated::Space,
+        RETURN | ENTER => Stated::Enter,
         HOME => Stated::Home,
         END => Stated::End,
         LEFT => Stated::Left,
@@ -185,6 +190,7 @@ mod tests {
                 Stated::Escape => 0x0100_0000,
                 Stated::Tab => 0x0100_0001,
                 Stated::Space => 0x20,
+                Stated::Enter => 0x0100_0004,
                 Stated::Home => 0x0100_0010,
                 Stated::End => 0x0100_0011,
                 Stated::Left => 0x0100_0012,

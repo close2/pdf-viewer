@@ -292,6 +292,9 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    /// Declines Qt's own focus chain, so that Tab on the page — and in a control over it, which
+    /// asks its parent — reaches the window's key handler and walks §12.5.1's annotations.
+    bool focusNextPrevChild(bool next) override;
 
 private:
     /// One pointer event, in the device pixels the boundary speaks.
@@ -443,6 +446,8 @@ private:
 protected:
     /// What a key means is `src/keys.rs`'s, so this carries the `Qt::Key` number and no meaning.
     void keyPressEvent(QKeyEvent* event) override;
+    /// Takes Tab from the page before Qt's own focus chain can, for §12.5.1's walk (ADR 1357).
+    bool eventFilter(QObject* watched, QEvent* event) override;
     /// The window moved, so every node's screen coordinates moved with it.
     void moveEvent(QMoveEvent* event) override;
     /// The window's frame changed size, which moves the contents' origin inside it.

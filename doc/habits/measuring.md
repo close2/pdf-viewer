@@ -605,3 +605,10 @@ changes nothing because its alpha is 0 or 255; only the shader's multiply failed
 Round 1246's one walk split the 951 unseparated pages into two causes; both were built, and the
 named files were then opened by hand — one walk, not two, on a machine where a walk is the cost
 (ADR 1329).
+
+## 52. A cost floor is stated by measuring an "off" arm of the expensive step
+
+With the overlap walk switched off, two join-dense pages drew 19% and 24% cheaper than before the
+walk existed, so the walk's own cost and its scaffolding's could be told apart, and 99.4% of the
+clusters it walks on one page genuinely leave the set (ADR 1359). A floor measured that way is a
+number; argued from the profile alone it is a guess.

@@ -11,7 +11,7 @@
 
 use pdf_model::Pages;
 use pdf_model::action::{
-    Action, EmbeddedGoTo, ImportData, RemoteGoTo, TargetRoot, ThreadJump, Trigger,
+    Action, EmbeddedGoTo, ImportData, RemoteAct, RemoteGoTo, TargetRoot, ThreadJump, Trigger,
 };
 use pdf_model::navigation::Transition;
 use pdf_model::submission::Click;
@@ -806,23 +806,47 @@ fn open_remote(open: &mut Open, remote: &RemoteGoTo, outcome: &mut Outcome) {
         // §7.11.2.2's forbidden relative URL is the one form nothing is asked for, because
         // asking would mean having resolved it — which is the hazard that sentence is about.
         TargetRoot::ForbiddenUrl(url) => outcome.notes.push(format!(
-            "this link declines — GoToR: §7.11.2.2 limits a relative URL file specification to a \
-             path, and {url} is not one"
+            "this link declines — {}: §7.11.2.2 limits a relative URL file specification to a \
+             path, and {url} is not one",
+            remote.act.action_name()
         )),
         TargetRoot::Url {
             url,
             relative: true,
         } => outcome.notes.push(format!(
-            "this link declines — GoToR: {url} is a partial URL and where this document itself \
-             is is not this reader's to know"
+            "this link declines — {}: {url} is a partial URL and where this document itself \
+             is is not this reader's to know",
+            remote.act.action_name()
         )),
         TargetRoot::File(_) | TargetRoot::Url { .. } => {
             open.opening = Some(remote.clone());
             outcome
                 .needs_file
-                .push((Purpose::RemoteDocument, remote.file.name().to_owned()));
+                .push((purpose_of(remote.act), remote.file.name().to_owned()));
         }
     }
+}
+
+/// Which question a host is asked for the file one of the two acts named.
+const fn purpose_of(act: RemoteAct) -> Purpose {
+    match act {
+        RemoteAct::GoTo => Purpose::RemoteDocument,
+        RemoteAct::Launch => Purpose::LaunchDocument,
+    }
+}
+
+/// Whether bytes a launch action's `/F` named are a PDF, by §7.5.2's header.
+///
+/// ISO 32000-2 §7.5.2: "The PDF file begins with the 5 characters ' %PDF -' and byte offsets shall
+/// be calculated from the PERCENT SIGN (25h)", and its NOTE 1 allows bytes before it — so the
+/// marker is looked for in the first 1024 bytes, the window `pdf_syntax` measures offsets from.
+/// Table 207's `/F` may name an application as well as a document, and the name says nothing
+/// about which: this is the one point at which the file's kind is known (ADR 1358).
+fn states_a_pdf_header(bytes: &[u8]) -> bool {
+    const WINDOW: usize = 1024;
+    bytes
+        .get(..bytes.len().min(WINDOW))
+        .is_some_and(|start| start.windows(5).any(|at| at == b"%PDF-"))
 }
 
 /// §12.6.4.3's jump made, against the document a host supplied.
@@ -839,6 +863,19 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         return outcome;
     };
     let name = remote.file.name().to_owned();
+    let act = remote.act.action_name();
+    // Table 207's `/F` is "[t]he application that shall be launched or the document that shall be
+    // opened or printed", and only the bytes say which. A document is opened below exactly as a
+    // remote go-to's is; anything else is an application, and starting one is what principle 3's
+    // sandbox withholds — Table 207's `/NewWindow` "shall be ignored" for it, which it is, since
+    // nothing is opened (ADRs 1368, 1358).
+    if remote.act == RemoteAct::Launch && !states_a_pdf_header(bytes) {
+        outcome.notes.push(format!(
+            "this link declines — Launch: {name} is not a PDF document (§7.5.2's header), so \
+             Table 207 makes it an application to launch, which the sandbox withholds"
+        ));
+        return outcome;
+    }
     // Table 203's `/NewWindow`, read and carried. What a window does with it — open the document
     // beside the one it was reached from, or in place of it and say so — is decided where
     // `Command::Beside`'s reserve is held, because that is the only place this program knows
@@ -854,7 +891,7 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         Err(pdf_syntax::SyntaxError::PasswordRequired) => {
             outcome
                 .notes
-                .push(format!("GoToR: {name} asks for a password (§7.6.4.1)"));
+                .push(format!("{act}: {name} asks for a password (§7.6.4.1)"));
             outcome.locked = Some(Box::new(Locked {
                 held: Held::Remote(remote),
                 limits,
@@ -863,7 +900,7 @@ pub(crate) fn resume_remote(open: &mut Open, bytes: &[u8]) -> Outcome {
         }
         Err(error) => {
             outcome.notes.push(format!(
-                "this link declines — GoToR: cannot read {name}: {error}"
+                "this link declines — {act}: cannot read {name}: {error}"
             ));
             return outcome;
         }
@@ -920,8 +957,8 @@ impl Locked {
     /// and a prompt a person cancels is that answer arriving late: the file was supplied, and
     /// then the one thing that would have made it readable was not (ADR 1345).
     pub(crate) const fn purpose(&self) -> Purpose {
-        match self.held {
-            Held::Remote(_) => Purpose::RemoteDocument,
+        match &self.held {
+            Held::Remote(remote) => purpose_of(remote.act),
             Held::Thread(_) => Purpose::ThreadDocument,
             Held::NamedPage(_) => Purpose::NamedPage,
         }
@@ -954,8 +991,17 @@ impl Locked {
 /// The sentence that declines the jump: a document with no pages, or none the action names.
 pub(crate) fn place_remote(remote: &RemoteGoTo, replacement: &mut Open) -> Result<String, String> {
     let name = remote.file.name();
+    let act = remote.act.action_name();
     if replacement.page_count == 0 {
-        return Err(format!("this link declines — GoToR: {name} has no pages"));
+        return Err(format!("this link declines — {act}: {name} has no pages"));
+    }
+    // Table 207 names a document to be opened and no place in it, so it opens where opening it
+    // puts it — which `Open::around` has already decided — rather than at a page nobody named.
+    if remote.act == RemoteAct::Launch {
+        return Ok(format!(
+            "opened {name}, {} page(s), as the launch action asked",
+            replacement.page_count
+        ));
     }
     // Read in the *remote* document, because that is the only document either entry is about:
     // §12.3.2.2 makes an explicit destination's first element "an integer page number within the
@@ -968,7 +1014,7 @@ pub(crate) fn place_remote(remote: &RemoteGoTo, replacement: &mut Open) -> Resul
     drop(pages);
     let Some(page_index) = page_index else {
         return Err(format!(
-            "this link declines — GoToR: {name} holds no page this action names"
+            "this link declines — {act}: {name} holds no page this action names"
         ));
     };
     replacement.page_index = page_index;
@@ -982,12 +1028,14 @@ pub(crate) fn place_remote(remote: &RemoteGoTo, replacement: &mut Open) -> Resul
 /// What is said when a host will not supply Table 203's `/F`.
 pub(crate) fn decline_remote(open: &mut Open) -> Outcome {
     let mut outcome = Outcome::default();
-    let named = open
+    let (act, named) = open
         .opening
         .take()
-        .map_or_else(String::new, |remote| format!(" {}", remote.file.name()));
+        .map_or(("GoToR", String::new()), |remote| {
+            (remote.act.action_name(), format!(" {}", remote.file.name()))
+        });
     outcome.notes.push(format!(
-        "this link declines — GoToR:{named} was not supplied"
+        "this link declines — {act}:{named} was not supplied"
     ));
     outcome
 }

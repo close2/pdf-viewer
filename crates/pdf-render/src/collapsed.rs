@@ -125,7 +125,11 @@
 //! whose shape is guessed is worse than a stated absence.
 
 use crate::geom::{Path, PathCommand, Point, Transform};
-use crate::paint::thinnest_line;
+use crate::paint::{Stroke, thinnest_line};
+
+mod stroke_image;
+
+use stroke_image::StrokeImage;
 
 /// A fill's path separated into the part that encloses an area and the marks left by the part
 /// that does not.
@@ -194,38 +198,37 @@ pub fn split_collapsed_fill(path: &Path, to_device: Transform) -> Option<Collaps
     Some(CollapsedFill { filled, marks })
 }
 
-/// `path` stated in the space `transform` maps it into, where that transform has no inverse and
-/// carries every point of the path onto one line along an axis — ISO 32000-2 §10.7.4; `None`
-/// otherwise.
+/// `path` stated on the line `transform` carries it onto, where that transform has no inverse —
+/// ISO 32000-2 §10.7.4; `None` otherwise. The second value is the transform the restated path is
+/// to be drawn under: the identity where the line runs along a page axis, and otherwise the
+/// rotation that lays the restated path's own x-axis along the line (ADR 1360).
 ///
 /// The restated path is flat in its own space, so [`split_collapsed_fill`] gives it §10.7.4's
-/// mark. The test is exact equality of the mapped coordinates rather than a tolerance, as
-/// [`Extent`]'s is and for its reason, and it is what keeps a matrix whose determinant cancels to
-/// zero only in the arithmetic — a full-rank matrix of enormous entries, which the corpus holds in
-/// a damaged stream — from being restated as the enormous shape it still is: such a matrix maps
-/// the path onto no line at all, so it is refused as before. A matrix carrying the path onto one
-/// point is refused too, since both axes are then flat, and that is §8.5.3.3.1's point rather than
-/// this rule's line.
+/// mark: along a page axis the run of whole device pixels, and across the axes the band of one
+/// device pixel that is that function's construction wherever the grid is turned.
+///
+/// **Which matrices qualify is decided exactly.** A 2 × 2 matrix of `f32` entries has rank one
+/// when `ad = bc` and it is not zero, and a product of two `f32` values is exact in `f64` (48
+/// significand bits of 53), so that comparison is exact: a matrix whose determinant cancels to
+/// zero only in `f32` arithmetic — a full-rank matrix of enormous entries, which the corpus holds
+/// in a damaged stream — is refused as before, since it carries the path onto no line at all. A
+/// matrix carrying the path onto one point is refused too, and so is one whose image of *this*
+/// path is one point; that is §8.5.3.3.1's point, which this tree records as a departure.
 ///
 /// Curves are restated by their control points, which an affine map carries exactly.
 #[must_use]
-pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<Path> {
+pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<(Path, Transform)> {
     if transform.invert().is_some() {
         return None;
     }
+    let line = ImageLine::of(transform)?;
     let mut restated = Path::new();
-    let mut first: Option<Point> = None;
-    let (mut same_x, mut same_y, mut finite) = (true, true, true);
+    let (mut lowest, mut highest) = (f64::INFINITY, f64::NEG_INFINITY);
     let mut map = |point: Point| {
-        let mapped = transform.apply(point);
-        finite &= mapped.x.is_finite() && mapped.y.is_finite();
-        if let Some(first) = first {
-            same_x &= mapped.x.to_bits() == first.x.to_bits();
-            same_y &= mapped.y.to_bits() == first.y.to_bits();
-        } else {
-            first = Some(mapped);
-        }
-        mapped
+        let along = line.along(point);
+        lowest = lowest.min(along);
+        highest = highest.max(along);
+        line.point(along)
     };
     for command in path.commands() {
         restated.push(match *command {
@@ -235,8 +238,167 @@ pub fn collapsed_by_transform(path: &Path, transform: Transform) -> Option<Path>
             PathCommand::Close => PathCommand::Close,
         });
     }
-    first?;
-    (finite && same_x != same_y).then_some(restated)
+    let spans = lowest.is_finite() && highest.is_finite() && lowest < highest;
+    let finite = restated
+        .commands()
+        .iter()
+        .all(|command| command_points(command).all(|p| p.x.is_finite() && p.y.is_finite()));
+    (spans && finite).then_some((restated, line.frame()))
+}
+
+/// A stroke's image under a matrix with no inverse, stated as the fill of that image — ISO
+/// 32000-2 §10.7.4 and §8.4.3.2; `None` where the matrix is invertible, carries everything onto a
+/// point, or the stroke's image is a point.
+///
+/// §8.4.3.2 states the stroke as a set in user space — "stroking a path shall entail painting all
+/// points whose perpendicular distance from the path in user space is less than or equal to half
+/// the line width" — together with §8.4.3.3's caps, §8.4.3.4's joins, §8.4.3.5's limit and
+/// §8.4.3.6's dashes, and §10.7.4 scan-converts the shape whose "coordinates are mapped into
+/// device space". A matrix of rank one maps the plane onto a line by a linear functional `s`
+/// (`ImageLine::along`), so the image of the stroke's set is `s` of that set: each connected
+/// piece of it — a subpath, or a dash — is compact, so its image is the interval from the least
+/// to the greatest `s` over it, and the set is a union of convex parts whose extremes are closed
+/// forms. That is the whole construction, and no stroker is involved: the interval is computed
+/// from the path and the width alone, in the crate every backend reads (trap 2). ADR 1360.
+///
+/// The returned path is one flat subpath per interval, which [`split_collapsed_fill`] draws as
+/// §10.7.4's line, and the transform is [`collapsed_by_transform`]'s frame. The width is the
+/// document's own: a zero width contributes nothing beyond the path's own image, and the line one
+/// device pixel wide that §8.4.3.2 asks of it is the mark itself.
+#[must_use]
+pub(crate) fn collapsed_stroke_by_transform(
+    path: &Path,
+    stroke: &Stroke,
+    transform: Transform,
+) -> Option<(Path, Transform)> {
+    if transform.invert().is_some() {
+        return None;
+    }
+    let line = ImageLine::of(transform)?;
+    let intervals = StrokeImage::new(line, stroke)?.of(path)?;
+    let mut restated = Path::new();
+    for (lowest, highest) in intervals {
+        let (from, to) = (line.point(lowest), line.point(highest));
+        if !(from.x.is_finite() && from.y.is_finite() && to.x.is_finite() && to.y.is_finite()) {
+            return None;
+        }
+        if from == to {
+            continue;
+        }
+        restated.push(PathCommand::MoveTo(from));
+        restated.push(PathCommand::LineTo(to));
+        restated.push(PathCommand::Close);
+    }
+    (!restated.is_empty()).then_some((restated, line.frame()))
+}
+
+/// Every point a command names, control points included.
+fn command_points(command: &PathCommand) -> impl Iterator<Item = Point> {
+    let (points, count) = match *command {
+        PathCommand::MoveTo(point) | PathCommand::LineTo(point) => ([point; 3], 1),
+        PathCommand::CurveTo(one, two, to) => ([one, two, to], 3),
+        PathCommand::Close => ([Point::new(0.0, 0.0); 3], 0),
+    };
+    points.into_iter().take(count)
+}
+
+/// The line a matrix of rank one carries the plane onto, and the functional that says where on
+/// it a point lands.
+#[derive(Debug, Clone, Copy)]
+struct ImageLine {
+    /// Where the origin of user space lands, in page space.
+    origin: (f64, f64),
+    /// The line's unit direction in page space.
+    direction: (f64, f64),
+    /// `s(p) = functional · p`: how far along [`Self::direction`] from [`Self::origin`] the image
+    /// of `p` lies. The matrix's rows projected on the direction.
+    functional: (f64, f64),
+}
+
+impl ImageLine {
+    /// The line `transform` maps onto, or `None` where its rank is not exactly one.
+    #[expect(
+        clippy::float_cmp,
+        reason = "the rank is decided exactly: products of two f32 values are exact in f64, so \
+                  equality here is the matrix's own singularity and not an accident of rounding"
+    )]
+    fn of(transform: Transform) -> Option<Self> {
+        let x_axis = (f64::from(transform.a), f64::from(transform.b));
+        let y_axis = (f64::from(transform.c), f64::from(transform.d));
+        let origin = (f64::from(transform.e), f64::from(transform.f));
+        let finite = [x_axis.0, x_axis.1, y_axis.0, y_axis.1, origin.0, origin.1]
+            .iter()
+            .all(|value| value.is_finite());
+        if !finite || x_axis.0 * y_axis.1 != x_axis.1 * y_axis.0 {
+            return None;
+        }
+        // The images of the two user axes are parallel; the longer is the better-conditioned
+        // direction, and a zero column contributes nothing to either choice.
+        let column = if x_axis.0.hypot(x_axis.1) >= y_axis.0.hypot(y_axis.1) {
+            x_axis
+        } else {
+            y_axis
+        };
+        let length = column.0.hypot(column.1);
+        if length == 0.0 || !length.is_finite() {
+            return None;
+        }
+        let direction = (column.0 / length, column.1 / length);
+        Some(Self {
+            origin,
+            direction,
+            functional: (
+                direction.0 * x_axis.0 + direction.1 * x_axis.1,
+                direction.0 * y_axis.0 + direction.1 * y_axis.1,
+            ),
+        })
+    }
+
+    /// Where on the line `point` lands.
+    fn along(self, point: Point) -> f64 {
+        self.dot(point.x.into(), point.y.into())
+    }
+
+    /// `functional · (x, y)`.
+    fn dot(self, x: f64, y: f64) -> f64 {
+        self.functional.0 * x + self.functional.1 * y
+    }
+
+    /// Whether the line runs along a page axis, so that the restated path is stated in page space.
+    fn on_an_axis(self) -> bool {
+        self.direction.0 == 0.0 || self.direction.1 == 0.0
+    }
+
+    /// The point `along` the line, in the space [`Self::frame`] maps onto the page.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the restated path is f32 like every path; the value is checked finite by the \
+                  caller, and one rounding of an exact f64 is closer than the f32 transform was"
+    )]
+    fn point(self, along: f64) -> Point {
+        if self.on_an_axis() {
+            Point::new(
+                (self.origin.0 + self.direction.0 * along) as f32,
+                (self.origin.1 + self.direction.1 * along) as f32,
+            )
+        } else {
+            Point::new(along as f32, 0.0)
+        }
+    }
+
+    /// The transform a path restated by [`Self::point`] is drawn under.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a unit direction and the matrix's own f32 translation, carried back to f32"
+    )]
+    fn frame(self) -> Transform {
+        if self.on_an_axis() {
+            Transform::IDENTITY
+        } else {
+            let (x, y) = (self.direction.0 as f32, self.direction.1 as f32);
+            Transform::new(x, y, -y, x, self.origin.0 as f32, self.origin.1 as f32)
+        }
+    }
 }
 
 /// The device pixel grid, in both directions, for a placement transform that has axes to snap to.

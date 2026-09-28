@@ -1929,9 +1929,6 @@ impl Host {
                         Err(refusal) => host.say(&refusal),
                     }
                 }
-                FieldChange::Activate(annotation) => {
-                    host.dispatch(Command::Activate(annotation));
-                }
             });
         })
     }
@@ -3356,6 +3353,15 @@ impl Host {
         } else {
             viewer_host::Mode::Reading
         };
+        // A push-button §12.5.1's focus is on takes Space and Enter before the page does, since no
+        // toolkit button stands over one to take them (ADR 1357) — unless one of this host's own
+        // controls has the keyboard, which has had the key first and whose Enter GTK may pass on.
+        if !self.a_control_has_the_keyboard()
+            && let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held)
+        {
+            self.press(pressed);
+            return;
+        }
         let waiting = self.waiting();
         let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
             return;
@@ -3370,9 +3376,65 @@ impl Host {
                     self.say("select some text first — §12.5.6.10's markups mark up text");
                     return;
                 }
+                let walked = matches!(command, Command::Focused(_));
                 self.dispatch(command);
+                if walked {
+                    self.follow_focus();
+                }
             }
             viewer_host::Meaning::Window(act) => self.window_act(act),
+        }
+    }
+
+    /// Gives GTK's keyboard to whatever §12.5.1's tab walk just landed on.
+    ///
+    /// GTK moves its own focus on the same Tab — to a toolbar button or a row of the panel — and a
+    /// focused GTK widget takes Space and Enter before this window's key table is asked. So where
+    /// the walk lands on a control this host placed, that control gets the keyboard; anywhere else,
+    /// including a push-button the page draws itself (ADR 1357), the window's focus is cleared so
+    /// that the next Space or Enter reaches [`viewer_host::pressed`]. Done from an idle because
+    /// GTK's own focus move for the same key runs after this controller has returned.
+    fn follow_focus(&mut self) {
+        let control = match self.viewer.query(Query::Focus) {
+            Answer::Focus { object, .. } => self
+                .placed
+                .iter()
+                .find(|placed| placed.key.1 == object)
+                .map(|placed| placed.widget.clone()),
+            _ => None,
+        };
+        let window = self.ui.window.clone();
+        glib::idle_add_local_once(move || match control {
+            Some(control) => {
+                control.grab_focus();
+            }
+            None => GtkWindowExt::set_focus(&window, None::<&gtk4::Widget>),
+        });
+    }
+
+    /// Whether the keyboard is in one of the §12.7 controls this host placed over the page.
+    fn a_control_has_the_keyboard(&self) -> bool {
+        let Some(focused) = GtkWindowExt::focus(&self.ui.window) else {
+            return false;
+        };
+        focused.is_ancestor(&self.ui.fixed)
+    }
+
+    /// Carries out a key's press on a push-button: its activation, or the refusal said by name.
+    fn press(&mut self, pressed: viewer_host::Pressed) {
+        if let Some(said) = pressed.note() {
+            self.say(&said);
+            return;
+        }
+        match pressed {
+            viewer_host::Pressed::Activates { name, annotation } => {
+                self.trace.say(
+                    Topic::Pointer,
+                    format_args!("pressing the push-button {}", name.shown()),
+                );
+                self.dispatch(Command::Activate(annotation));
+            }
+            viewer_host::Pressed::ReadOnly { .. } => {}
         }
     }
 
@@ -5028,6 +5090,7 @@ fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
         Gdk::Escape => Stated::Escape,
         Gdk::Tab | Gdk::ISO_Left_Tab => Stated::Tab,
         Gdk::space => Stated::Space,
+        Gdk::Return | Gdk::KP_Enter => Stated::Enter,
         Gdk::Home => Stated::Home,
         Gdk::End => Stated::End,
         Gdk::Left => Stated::Left,
@@ -5144,6 +5207,7 @@ mod tests {
                 Stated::Escape => Gdk::Escape,
                 Stated::Tab => Gdk::Tab,
                 Stated::Space => Gdk::space,
+                Stated::Enter => Gdk::Return,
                 Stated::Home => Gdk::Home,
                 Stated::End => Gdk::End,
                 Stated::Left => Gdk::Left,

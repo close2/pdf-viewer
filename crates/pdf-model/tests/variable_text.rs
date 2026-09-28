@@ -3474,14 +3474,15 @@ fn a_turned_matrixs_wrapped_lines_each_get_the_room_the_box_leaves_them() {
 /// written under the producer's four numbers enclose no area, and the report says why
 /// (`Owed::SingularTextMatrix`). What each marks is §10.7.4's: a glyph carried onto a line along
 /// a page axis is that line, a pixel wide — "A zero-width or zero-height rectangle paints a line 1
-/// pixel wide" (ADR 1348) — while one carried onto a line across the axes, or onto a point, is
-/// refused as `pdf_render::collapsed` refuses the same shapes flat in their own space.
+/// pixel wide" (ADR 1348); one carried onto a line across the axes is the band of one device
+/// pixel along it (ADR 1360); one carried onto a point is refused as `pdf_render::collapsed`
+/// refuses a point flat in its own space.
 #[test]
 fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
     for (tm, a_line) in [
-        ("1 2 2 4 0 0", false),
-        ("1 0 2 0 0 0", true),
-        ("0 0 0 0 0 0", false),
+        ("1 2 2 4 0 0", None),
+        ("1 0 2 0 0 0", Some(true)),
+        ("0 0 0 0 0 0", Some(false)),
     ] {
         let (reported, raster) = draw(matrix_field(tm));
         assert!(
@@ -3491,16 +3492,19 @@ fn a_da_whose_text_matrix_has_no_inverse_says_it_flattens_every_glyph() {
         let rows: std::collections::BTreeSet<u32> = (0..raster.height)
             .filter(|&row| (0..raster.width).any(|x| opacity(&raster, x, row) > 0))
             .collect();
-        if a_line {
-            assert!(
+        match a_line {
+            Some(true) => assert!(
                 rows.len() == 1,
                 "{tm} carries every glyph onto one horizontal line, which is one row: {rows:?}"
-            );
-        } else {
-            assert!(
+            ),
+            Some(false) => assert!(
                 inked_columns(&raster).is_empty(),
-                "{tm} maps every glyph onto a line across the axes or a point: nothing is drawn"
-            );
+                "{tm} maps every glyph onto a point: nothing is drawn"
+            ),
+            None => assert!(
+                rows.len() > 1 && !inked_columns(&raster).is_empty(),
+                "{tm} carries every glyph onto a line across the axes, a band along it: {rows:?}"
+            ),
         }
     }
 

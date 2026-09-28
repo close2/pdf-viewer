@@ -889,7 +889,8 @@ and names two ITU-T Recommendations for it. ITU publishes both free of charge, a
 on 2026-09-28 — after the ITU server had answered `500` to every request for ten minutes — into a
 round's scratch directory, never under `doc/` (a PDF there joins the oracle's population, trap 43),
 and prepared with `python3 tools/spec-md.py <pdf> --out doc/md/T.4.md` and `--out doc/md/T.6.md`
-into the ignored `doc/md/`. The PDFs themselves were not kept — the hashes below are how a copy
+into the ignored `doc/md/`. The PDFs are kept outside the tree, at `/home/AI/specs/t4.pdf` and
+`/home/AI/specs/t6.pdf` on the agent's machine, and the hashes below are theirs — which is how a copy
 fetched again is known to be the one read:
 
 | text | fetched from | SHA-256 of the PDF |

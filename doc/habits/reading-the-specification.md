@@ -235,3 +235,12 @@ only reader of shape apart from opacity is a knockout group (ADR 1340). Grep the
 §10.7.4 says nothing about a pixel two portions share, but it fixes the order of steps — all
 "insideness" computations have been performed before scan conversion — so the pixel is covered by the
 area of the set the fill rule declares inside, and there was nothing else to say (ADR 1341).
+
+## What an entry can NAME is read before recording that an act is withheld or excluded
+
+Table 207's `/F` names "the application that shall be launched or the document that shall be opened",
+and the tree already opened documents named by three other `/F` entries, so a launch action naming a
+PDF was the remote-documents act under the four levels, not a sandbox refusal (ADRs 1368, 1358). And a
+shading type's own geometry sentence is read before its values are called "located in the region":
+an axial shading "extends indefinitely perpendicular to that axis", so its sampled function holds
+nothing the region alone carries (ADR 1363).

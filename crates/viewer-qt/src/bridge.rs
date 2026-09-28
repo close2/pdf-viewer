@@ -190,8 +190,8 @@ pub mod ffi {
         /// Height.
         height: f32,
         /// Which control: 0 entry, 1 multiline entry, 2 password entry, 3 check box,
-        /// 4 radio button, 5 push button, 6 combo box, 7 list box. A field the clause gives no
-        /// control to is not in this list at all.
+        /// 4 radio button, 6 combo box, 7 list box. A field whose appearance the page draws —
+        /// §12.7.5.2.2's push-button among them (ADR 1357) — is not in this list at all.
         kind: u8,
         /// §12.7.4.2's fully qualified name, which is what an edit is addressed by.
         field: String,
@@ -564,8 +564,11 @@ pub mod ffi {
         /// the Rust side has it: §12.7.5.2.3 makes `/V` select among Table 170's appearance
         /// states by name, so a C++ side that sent "on" would be inventing one.
         fn toggle_control(self: &mut Host, index: usize, on: bool);
-        /// §12.7.5.2.2's push button was pressed.
-        fn activate_control(self: &mut Host, index: usize);
+        /// Which placed control §12.5.1's focus is on, as its index, or -1 where it is on none.
+        ///
+        /// Asked after a Tab so that the keyboard follows the walk: into the control, or to the
+        /// page, where Space and Enter press a push-button the page draws (ADR 1357).
+        fn focused_control(self: &Host) -> i32;
         /// §7.6.4.1: a person typed a password, or dismissed the prompt with an empty one.
         ///
         /// **An empty string is a decline and not the default user password**, which the reader

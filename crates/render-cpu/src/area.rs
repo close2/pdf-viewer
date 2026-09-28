@@ -254,6 +254,8 @@ struct SetBuffers {
     unsorted: Vec<Edge>,
     /// [`Edge::by_row`]'s count of edges per row.
     counts: Vec<usize>,
+    /// [`Edge::by_row`]'s row for each edge before it is placed.
+    placed_rows: Vec<usize>,
     /// The horizontal ones, which enclose nothing and bound what the others enclose.
     flats: Vec<Flat>,
     /// One row's working state.
@@ -608,12 +610,12 @@ impl Accumulator<'_> {
     /// What it buys is the page's own ink: `render-raster/examples/ink_ladder` reads
     /// `issue20232.pdf` at 17 932 at 1× against its own 17 866 at 8×, where the supersampled
     /// converter read 19 324 and the integral alone 23 722, and every page it moved lands on its
-    /// own 2× figure (ADR 1341). What it costs is ADR 1347's table: `callgrind_rasterise`,
+    /// own 2× figure (ADR 1341). What it costs is ADR 1359's table: `callgrind_rasterise`,
     /// `RAYON_NUM_THREADS=1`, five rasterisations, against the tree that left every such mark to
-    /// `tiny-skia`'s supersampled converter, walking every row of such a mark cost
-    /// `issue14415.pdf` +47% and `issue19802.pdf` +51%, and walking only the clusters that can part
-    /// from the set, strand by strand, costs them +27% and +19% — ADR 1347's table, which also
-    /// carries what ADR 1348's stroke pieces add on the first.
+    /// `tiny-skia`'s supersampled converter, `issue19802.pdf` and `issue20232.pdf` +14.5% each, of
+    /// which the walk is all — the same pages with it switched off draw 19% and 24% *cheaper* than
+    /// that tree — and on the second 99.4% of the clusters walked do part from the set. That is the
+    /// floor ADR 1359 states for this construction.
     ///
     /// # Why not every mark
     ///
@@ -642,13 +644,17 @@ impl Accumulator<'_> {
             edges,
             unsorted,
             counts,
+            placed_rows,
             flats,
             rows,
         } = set;
         lines.clear();
         trace(lines, path, at);
         Edge::sort_into(lines, (edges, unsorted, counts), flats);
-        Edge::by_row((edges, unsorted, counts), (self.origin.1, self.rows));
+        Edge::by_row(
+            (edges, unsorted, counts, placed_rows),
+            (self.origin.1, self.rows),
+        );
         rows.start();
         for row in 0..self.rows {
             if !self.measure_row(row, (edges, flats), rule, rows) {
@@ -938,7 +944,12 @@ impl Edge {
     /// reaches: on the two pages ADR 1341 measured dense with joins, the comparison sort was a
     /// tenth of the walk (ADR 1347).
     fn by_row(
-        (edges, unsorted, counts): (&mut Vec<Self>, &mut Vec<Self>, &mut Vec<usize>),
+        (edges, unsorted, counts, placed_rows): (
+            &mut Vec<Self>,
+            &mut Vec<Self>,
+            &mut Vec<usize>,
+            &mut Vec<usize>,
+        ),
         (first, rows): (f32, usize),
     ) {
         // The row gather puts an edge in: the first whose bottom lies below its upper end, with
@@ -957,8 +968,11 @@ impl Edge {
         std::mem::swap(edges, unsorted);
         counts.clear();
         counts.resize(rows.saturating_add(2), 0);
-        for edge in unsorted.iter() {
-            if let Some(count) = counts.get_mut(row_of(edge).saturating_add(1)) {
+        // Each edge's row is found once and read twice, by the count and by the placing.
+        placed_rows.clear();
+        placed_rows.extend(unsorted.iter().map(row_of));
+        for &row in placed_rows.iter() {
+            if let Some(count) = counts.get_mut(row.saturating_add(1)) {
                 *count = count.saturating_add(1);
             }
         }
@@ -979,8 +993,8 @@ impl Edge {
                 chain: 0,
             },
         );
-        for edge in unsorted.iter() {
-            let Some(slot) = counts.get_mut(row_of(edge)) else {
+        for (edge, &row) in unsorted.iter().zip(placed_rows.iter()) {
+            let Some(slot) = counts.get_mut(row) else {
                 continue;
             };
             if let Some(place) = edges.get_mut(*slot) {
@@ -1341,9 +1355,14 @@ impl RowScratch {
     fn needs_walk(&self, cluster: Cluster) -> bool {
         let mut pieces = self.members(cluster);
         match (pieces.next(), pieces.next(), pieces.next()) {
-            (None | Some(_), None, _) => false,
             (Some(a), Some(b), None) => !a_pair_reads_exactly(a, b),
-            _ => true,
+            // Pieces of one chain are one strand — a polyline monotone in `y` meets a row in one
+            // stretch — and one strand takes two adjacent windings, which the walk would find only
+            // after sorting and cutting it (ADR 1359). The whole-row reference walks it.
+            (Some(a), Some(_), Some(_)) => {
+                tests::walk_every_row() || self.members(cluster).any(|piece| piece.chain != a.chain)
+            }
+            _ => false,
         }
     }
 

@@ -148,7 +148,7 @@ pub use copying::{ContentOrder, Copied, copied};
 pub use documents::{Arrivals, Arriving, Close, Documents, Named};
 pub use drawing::{DrawRequest, Drawing, Finished};
 pub use fit::ControlFit;
-pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};
+pub use form::{Clicked, ControlKind, Pressed, clicked, control_kind, pressed, toggling};
 pub use geometry::{bounds, covers};
 pub use keys::{Key, Meaning, Mode, Modifiers, Waiting, WindowAct, ctrl_meaning, meaning};
 pub use measuring::Measuring;

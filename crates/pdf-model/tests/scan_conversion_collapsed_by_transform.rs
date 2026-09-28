@@ -1,5 +1,6 @@
-//! A fill whose matrix carries it onto a line is §10.7.4's line — ISO 32000-2 §10.7.4 against
-//! §8.3.4's third NOTE, `doc/todo/11` item 8.
+//! A mark whose matrix carries it onto a line is §10.7.4's line — ISO 32000-2 §10.7.4 against
+//! §8.3.4's third NOTE, `doc/todo/11` item 8; a fill since ADR 1348, a stroke and a line across
+//! the axes since ADR 1360.
 //!
 //! # What the expected values come from
 //!
@@ -13,11 +14,15 @@
 //! one device pixel per unit the mark is device row `floor(100 − 50.3)` = 49, columns 10 to 89,
 //! whole — eighty pixels of ink, and none anywhere else.
 //!
+//! A stroke is §8.4.3.2's set, "all points whose perpendicular distance from the path in user
+//! space is less than or equal to half the line width", and the matrix carries that set onto the
+//! line: its image is the interval from the least to the greatest `x` over the set, which for a
+//! segment is its ends' `x` widened by `w/2 · |n_x|`, `n` its unit normal, and by what Table 53's
+//! cap adds. The stroke's row carries that interval's length in ink.
+//!
 //! What stays refused is stated by the clauses too: a matrix that carries the path onto one point
-//! is §8.5.3.3.1's point, which this tree records as a departure, and a line across the axes is
-//! `pdf_render::collapsed`'s stated absence. Both are still counted as
-//! `Unsupported::NoninvertibleMatrix`, and the line is not.
-
+//! is §8.5.3.3.1's point, which this tree records as a departure, and it is still counted as
+//! `Unsupported::NoninvertibleMatrix`.
 #![expect(
     clippy::expect_used,
     clippy::indexing_slicing,
@@ -128,13 +133,13 @@ fn a_rectangle_flattened_onto_a_vertical_line_is_a_column() {
     }
 }
 
-/// A matrix carrying everything onto one point, and one carrying it onto a line across the axes,
-/// stay refused and counted.
+/// A matrix carrying everything onto one point stays refused and counted, for a fill and for a
+/// stroke.
 #[test]
-fn a_point_and_a_line_across_the_axes_stay_refused() {
+fn a_point_stays_refused() {
     for content in [
         "0 g 0 0 0 0 50 50 cm 10 20 80 40 re f",
-        "0 g 1 1 1 1 0 0 cm 10 20 30 40 re f",
+        "0 G 5 w 0 0 0 0 50 50 cm 20 30 m 60 70 l S",
     ] {
         let (rows, reported, _) = drawn(content);
         assert!(
@@ -146,6 +151,81 @@ fn a_point_and_a_line_across_the_axes_stay_refused() {
         assert!(
             rows.iter().all(|ink| *ink == 0.0),
             "{content}: nothing is drawn"
+        );
+    }
+}
+
+/// `1 1 1 1 0 0 cm` carries `(x, y)` to `(x + y, x + y)`: the rectangle `10 20 30 40 re`, whose
+/// `x + y` runs from 30 to 100, onto the diagonal from (30, 30) to the page's corner (100, 100),
+/// device (30, 70) to (100, 0).
+/// `pdf_render::split_collapsed_fill`'s band of one device pixel along a line across the grid:
+/// its ink is its length, `70√2`, and every inked pixel is within a pixel of the line.
+#[test]
+fn a_rectangle_flattened_onto_a_diagonal_is_a_band_along_it() {
+    let (rows, reported, _) = drawn("0 g 1 1 1 1 0 0 cm 10 20 30 40 re f");
+    assert!(
+        !reported
+            .iter()
+            .any(|report| matches!(report, Unsupported::NoninvertibleMatrix { .. })),
+        "the band is drawn: {reported:?}"
+    );
+    let total: f64 = rows.iter().sum();
+    let length = 70.0 * 2f64.sqrt();
+    assert!(
+        (total - length).abs() < 1.0,
+        "the band carries {total} of ink where its length is {length}"
+    );
+    // Row `r` of the device is page `y = 100 − r − ½`, where the diagonal is at `x = y`: one
+    // pixel's ink in each row the line crosses, none elsewhere.
+    for (row, ink) in rows.iter().enumerate() {
+        let expected = if row < 70 { 2f64.sqrt() } else { 0.0 };
+        assert!(
+            (ink - expected).abs() < 0.1 || row == 0 || row == 69 || row == 70,
+            "device row {row} carries {ink} where the band puts {expected}"
+        );
+    }
+}
+
+/// A stroke the matrix carries onto `y = 50.3`: the segment `(20, 30)–(60, 70)` at `5 w` is
+/// device row 49 from `20 − 2.5/√2` to `60 + 2.5/√2` under butt caps, and from 17.5 to 62.5
+/// under round ones.
+#[test]
+fn a_stroke_its_matrix_flattens_is_its_set_on_the_line() {
+    let across = 2.5 / 2f64.sqrt();
+    for (cap, expected) in [(0, 40.0 + 2.0 * across), (1, 45.0)] {
+        let content = format!("0 G 5 w {cap} J 1 0 0 0 0 50.3 cm 20 30 m 60 70 l S");
+        let (rows, reported, commands) = drawn(&content);
+        assert!(
+            !reported
+                .iter()
+                .any(|report| matches!(report, Unsupported::NoninvertibleMatrix { .. })),
+            "{content}: the stroke is drawn, so nothing is reported about its matrix: {reported:?}"
+        );
+        assert!(
+            matches!(commands.as_slice(), [Command::Fill { transform, .. }] if *transform == Transform::IDENTITY),
+            "{content}: the stroke is restated as the fill of its image, in page space"
+        );
+        for (row, ink) in rows.iter().enumerate() {
+            let want = if row == 49 { expected } else { 0.0 };
+            assert!(
+                (ink - want).abs() < 0.05,
+                "{content}: device row {row} carries {ink} where the stroke's image puts {want}"
+            );
+        }
+    }
+}
+
+/// A vertical rule under a matrix that keeps only `x` is one point of the path and the whole
+/// width of the stroke: `x = 40 ± 2.5`, five pixels of row 49 — the width a stroke states in the
+/// space its matrix collapsed.
+#[test]
+fn a_rule_the_matrix_makes_a_point_is_its_width() {
+    let (rows, _, _) = drawn("0 G 5 w 1 0 0 0 0 50.3 cm 40 20 m 40 80 l S");
+    for (row, ink) in rows.iter().enumerate() {
+        let want = if row == 49 { 5.0 } else { 0.0 };
+        assert!(
+            (ink - want).abs() < 0.05,
+            "device row {row} carries {ink} where the stroke's image puts {want}"
         );
     }
 }

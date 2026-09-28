@@ -477,14 +477,15 @@ pub const fn asked_for(purpose: Purpose) -> &'static str {
         Purpose::RemoteDocument => "GoToR",
         Purpose::NamedPage => "named page",
         Purpose::ThreadDocument => "Thread",
+        Purpose::LaunchDocument => "Launch",
     }
 }
 
 /// What this reader would do with the file, in the sentence a person is asked about.
 ///
-/// Three of the five purposes reach [`asked_to_open_remote`], and they do different things with
-/// the bytes: two replace the document on the screen and one draws a page of the second file into
-/// the document being read. A person deciding whether to let a file be opened is deciding about
+/// Four of the six purposes reach [`asked_to_open_remote`], and they do different things with
+/// the bytes: three replace the document on the screen — one of them only if the bytes prove to be
+/// a PDF — and one draws a page of the second file into the document being read. A person deciding whether to let a file be opened is deciding about
 /// *that*, so the sentence is per purpose rather than per act (trap 5, ADR 1239).
 ///
 /// `beside` is `viewer_core::Event::NeedsFile`'s: Table 203's `/NewWindow true`, which every
@@ -517,6 +518,19 @@ const fn what_would_happen(purpose: Purpose, beside: bool) -> &'static str {
         Purpose::RemoteDocument => {
             "This reader would open that file in place of the one you are reading (ISO 32000-2 \
              §12.6.4.3)."
+        }
+        // Table 207's `/F` may name an application, and the question has to say what happens to
+        // one as plainly as to a document: nothing is started either way (ADR 1358).
+        Purpose::LaunchDocument if beside => {
+            "This reader would open that file beside the one you are reading, in a tab of its own, \
+             because the launch action asks for a new window — if it is a PDF. If it is anything \
+             else it is an application, and this reader starts none (ISO 32000-2 §12.6.4.6, Table \
+             207)."
+        }
+        Purpose::LaunchDocument => {
+            "This reader would open that file in place of the one you are reading — if it is a PDF. \
+             If it is anything else it is an application, and this reader starts none (ISO 32000-2 \
+             §12.6.4.6, Table 207)."
         }
     }
 }
@@ -1284,15 +1298,19 @@ pub fn remote_documents(word: &str) -> Result<RemoteDocuments, String> {
 /// windows and not the third.
 ///
 /// The division is ADR 1227's and ADR 1239 applies it: §12.7.6.4's own file holds another
-/// document's *values* and is resolved by the path rule alone, while §12.6.4.3's, §12.6.4.7's and
-/// §12.7.8's each make this program parse a second PDF — which is what a reader answered for when
-/// they set the word. §12.6.4.4's root document is the one that looks like an exception and is
+/// document's *values* and is resolved by the path rule alone, while §12.6.4.3's, §12.6.4.6's,
+/// §12.6.4.7's and §12.7.8's each make this program parse a second PDF — which is what a reader
+/// answered for when they set the word. §12.6.4.6's file may be an application instead, which is
+/// found out after it is read and started never (ADRs 1368, 1358). §12.6.4.4's root document is the one that looks like an exception and is
 /// not: its bytes are named by a document too, and it stays with the import until somebody argues
 /// otherwise rather than being moved in passing.
 #[must_use]
 pub const fn under_remote_documents(purpose: Purpose) -> bool {
     match purpose {
-        Purpose::RemoteDocument | Purpose::NamedPage | Purpose::ThreadDocument => true,
+        Purpose::RemoteDocument
+        | Purpose::NamedPage
+        | Purpose::ThreadDocument
+        | Purpose::LaunchDocument => true,
         Purpose::ImportData | Purpose::TargetRoot => false,
     }
 }

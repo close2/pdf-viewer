@@ -3354,6 +3354,7 @@ dependencies = [
  "flate2",
  "getrandom 0.4.3",
  "md-5",
+ "pdf-ccitt",
  "rc4",
  "sha2",
  "stringprep",

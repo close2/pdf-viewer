@@ -143,6 +143,10 @@ pub struct Document {
     /// whose cross-reference table is wrong, and a reader that repairs one in silence is a
     /// reader nobody can ask what it repaired. Reported by [`Document::misfiled_objects`].
     misfiled: RwLock<BTreeSet<u32>>,
+    /// Streams whose `stream` keyword was followed by spaces or tabs before its end-of-line
+    /// marker, by object number, with how many were skipped. Reported by
+    /// [`Document::padded_stream_keywords`] for the reason [`Self::misfiled_objects`] gives.
+    padded: RwLock<BTreeMap<u32, usize>>,
     /// Objects an object stream names and this reader would not read from a prefix of it.
     ///
     /// §7.5.7 states each compressed object's extent, so an object the decoded prefix does not
@@ -449,6 +453,7 @@ impl Document {
             damaged: RwLock::new(None),
             scan_refused: OnceLock::new(),
             misfiled: RwLock::new(BTreeSet::new()),
+            padded: RwLock::new(BTreeMap::new()),
             lost_to_damage: RwLock::new(LostToDamage::default()),
             decoded: RwLock::new(DecodedStreams::with_budget(DECODED_BUDGET)),
             recovered_compressed: CompressedRecovery::default(),
@@ -593,6 +598,26 @@ impl Document {
     #[must_use]
     pub fn misfiled_objects(&self) -> Vec<u32> {
         read(&self.misfiled).iter().copied().collect()
+    }
+
+    /// The streams whose `stream` keyword this reader found followed by spaces or tabs before
+    /// its end-of-line marker, by object number, beside how many it skipped.
+    ///
+    /// ISO 32000-2 §7.3.8.1 has the keyword "followed by an end-ofline marker", and a space is
+    /// not one, so a document this answers non-empty for is malformed. The bytes are skipped
+    /// rather than handed to the stream's filter as data — the clause places the data after the
+    /// marker, so they are not data on any reading of the file — and they are reported here so
+    /// that the repair is answerable rather than silent, as [`Self::misfiled_objects`] is. A
+    /// stream whose `/Length` fits only with the padding counted as data is read that way and is
+    /// not in this list: the file's own statement of its extent wins. ADR 1365.
+    ///
+    /// Grows as objects are loaded, because nothing is parsed until it is asked for.
+    #[must_use]
+    pub fn padded_stream_keywords(&self) -> Vec<(u32, usize)> {
+        read(&self.padded)
+            .iter()
+            .map(|(&number, &bytes)| (number, bytes))
+            .collect()
     }
 
     /// What an object stream this reader could only partly decode did not yield.
@@ -1018,17 +1043,26 @@ impl Document {
         // grows to what the parse examined on disk — the same slice either way, which is what
         // keeps the object a function of the bytes alone (ADR 0809). The parser's positions are
         // the window's, so the one it hands out is put back into the file's.
-        let (found, object, data_at) =
+        let (found, object, data_at, padding) =
             self.bytes
                 .parse_from(offset, crate::file::FIRST_WINDOW, |input, _| {
                     let mut parser = Parser::at(input, 0, self.limits);
                     let parsed = parser.parse_indirect_object().ok().map(|(found, object)| {
                         let data_at = parser.stream_data_at().map(|at| at.saturating_add(offset));
-                        (found, object, data_at)
+                        let padding = parser.stream_keyword_padding().map(|padding| {
+                            crate::parser::KeywordPadding {
+                                keyword_end: padding.keyword_end.saturating_add(offset),
+                                bytes: padding.bytes,
+                            }
+                        });
+                        (found, object, data_at, padding)
                     });
                     (parsed, parser.examined())
                 })?;
-        let object = self.with_stated_length(data_at, object);
+        let (object, padding) = self.with_stated_length(data_at, padding, object);
+        if let Some(padding) = padding {
+            write(&self.padded).insert(found.number, padding.bytes);
+        }
         Some((found, self.decrypt_object(found, object)))
     }
 
@@ -1052,33 +1086,72 @@ impl Document {
     /// parser puts on a direct length: the stated end is taken only where `endstream` is actually
     /// there, so a *wrong* `/Length` still loses to the search. §7.3.8.2's "[a]ll of these
     /// constraints shall be consistent" is what makes that check the right arbiter either way.
-    fn with_stated_length(&self, data_at: Option<usize>, object: Object) -> Object {
+    ///
+    /// **And it is the indirect half of the guard on the parser's padding recovery** (ADR
+    /// 1365): where the parser skipped spaces before the `stream` keyword's end-of-line marker
+    /// and the stated length is confirmed only from the keyword's own end, the padding was the
+    /// data's by the file's own count, and it is read that way and not reported.
+    fn with_stated_length(
+        &self,
+        data_at: Option<usize>,
+        padding: Option<crate::parser::KeywordPadding>,
+        object: Object,
+    ) -> (Object, Option<crate::parser::KeywordPadding>) {
         let Object::Stream(stream) = &object else {
-            return object;
+            return (object, padding);
         };
         // Only an indirect one: a direct `/Length` is the parser's own business and it has
         // already decided, with more context than this has.
         if !matches!(stream.dict.get("Length"), Some(Object::Reference(_))) {
-            return object;
+            return (object, padding);
         }
         let Some(start) = data_at else {
-            return object;
+            return (object, padding);
         };
         let Some(stated) = self
             .get_key(&stream.dict, "Length")
             .as_integer()
             .and_then(|value| usize::try_from(value).ok())
         else {
-            return object;
+            return (object, padding);
         };
-        if stated == stream.data.len() || stated > self.limits.max_stream_len {
-            return object;
+        if stated > self.limits.max_stream_len {
+            return (object, padding);
         }
-        let Some(end) = start.checked_add(stated) else {
-            return object;
+        if stated == stream.data.len() {
+            return (object, padding);
+        }
+        if let Some(data) = self.stated_extent(start, stated) {
+            let stream = Object::Stream(Arc::new(Stream {
+                dict: stream.dict.clone(),
+                data: Arc::from(&*data),
+                decryption_failed: stream.decryption_failed,
+            }));
+            return (stream, padding);
+        }
+        let Some(unpadded) = padding else {
+            return (object, padding);
         };
+        match self.stated_extent(unpadded.keyword_end, stated) {
+            Some(data) => (
+                Object::Stream(Arc::new(Stream {
+                    dict: stream.dict.clone(),
+                    data: Arc::from(&*data),
+                    decryption_failed: stream.decryption_failed,
+                })),
+                None,
+            ),
+            None => (object, padding),
+        }
+    }
+
+    /// The `stated` bytes from `start`, where `endstream` follows them in the file — the check
+    /// the parser puts on a direct length — and `None` where it does not, so that a *wrong*
+    /// `/Length` still loses to the search.
+    fn stated_extent(&self, start: usize, stated: usize) -> Option<std::borrow::Cow<'_, [u8]>> {
+        let end = start.checked_add(stated)?;
         if end > self.bytes.len() {
-            return object;
+            return None;
         }
         // Whether `endstream` follows the stated end, read from there: a small window that
         // grows over any whitespace before the keyword, as the parser's own check does.
@@ -1086,17 +1159,10 @@ impl Document {
             crate::parser::endstream_examined(input, 0)
         });
         if !follows {
-            return object;
+            return None;
         }
         let data = self.bytes.read(start..end);
-        if data.len() != stated {
-            return object;
-        }
-        Object::Stream(Arc::new(Stream {
-            dict: stream.dict.clone(),
-            data: Arc::from(&*data),
-            decryption_failed: stream.decryption_failed,
-        }))
+        (data.len() == stated).then_some(data)
     }
 
     /// Applies §7.6.2 to one freshly parsed indirect object.

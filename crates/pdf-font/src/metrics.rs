@@ -749,6 +749,41 @@ impl Vertical {
     }
 }
 
+/// §9.7.4.3's vertical displacement of each CID in a composite font, read from its descendant's
+/// `/DW2` and `/W2` for a caller that needs where writing mode 1 moves the pen and not the glyph
+/// program.
+///
+/// > To be used in this way, the CIDFont shall define the vertical displacement for each glyph
+/// > and the position vector that relates the horizontal and vertical writing origins.
+///
+/// The same reading [`crate::LoadedFont::vertical_metrics`] places glyphs with, so a caller that
+/// restores a removed glyph's advance moves the pen exactly as far as the interpreter did.
+#[derive(Debug)]
+pub struct VerticalDisplacements(Vertical);
+
+impl VerticalDisplacements {
+    /// Reads a Type 0 font dictionary's descendant `CIDFont` (Table 119's `/DescendantFonts`, a
+    /// one-element array), or `None` where it names no dictionary.
+    #[must_use]
+    pub fn of_composite(document: &Document, font: &Dictionary) -> Option<Self> {
+        let descendants = document.get_key(font, "DescendantFonts");
+        let first = descendants
+            .as_array()?
+            .first()
+            .map(|item| document.resolve(item))?;
+        let descendant = first.as_dict()?;
+        Some(Self(Vertical::read(document, descendant)))
+    }
+
+    /// The vertical component of the displacement `w1` for one CID, in glyph space's thousandths
+    /// of a unit of text space — `/W2`'s where it states the CID, `/DW2`'s second number where it
+    /// does not.
+    #[must_use]
+    pub fn w1y(&self, cid: u32) -> f32 {
+        self.0.metrics(cid, 0.0).0[1]
+    }
+}
+
 /// Reads §9.7.4.3's `/W2` array, whose two formats mirror `/W`'s with three numbers per CID.
 ///
 /// > The elements of the array shall be organised in groups of two or five … In the first

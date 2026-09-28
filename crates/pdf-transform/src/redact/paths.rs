@@ -107,7 +107,7 @@ pub(super) struct Mapping {
 
 impl Mapping {
     /// The point's display-space image.
-    fn apply(self, point: Point) -> Point {
+    pub(super) fn apply(self, point: Point) -> Point {
         Point::new(
             self.a.mul_add(point.x, self.c.mul_add(point.y, self.e)),
             self.b.mul_add(point.x, self.d.mul_add(point.y, self.f)),
@@ -236,6 +236,135 @@ pub(super) fn subtract(
         largest,
         norm: to_display.norm(),
     })
+}
+
+/// Cuts a zero-width stroke's path to the complement of every region, as a path (ADR 1363).
+///
+/// §8.4.3.2: "A line width of 0 shall denote the thinnest line that can be rendered at device
+/// resolution: 1 device pixel wide." That width is the device's and not user space's, so there is
+/// no outline to write it from; what the content stream states is the path, and the marks lie
+/// along it. So the path is cut as a line rather than as an area: each segment is split where it
+/// crosses one of a region's four edge lines — the roots [`crossings`] solves, so a §8.5.2.2 curve
+/// stays the curve it was — and a piece whose midpoint lies inside the widened region goes. After
+/// the split every piece lies wholly on one side of every edge line, so its midpoint decides it.
+/// The survivors are open subpaths the same zero width strokes; a closed subpath the regions do
+/// not reach keeps its close, and one they do is opened where they cut it.
+///
+/// `None` where the survivors would exceed [`MAX_POLYGONS`], refused by the caller.
+pub(super) fn subtract_along(
+    subpaths: &[SubPath],
+    regions: &[[f64; 4]],
+    to_display: Mapping,
+) -> Option<Cut> {
+    let mut survivors: Vec<SubPath> = Vec::new();
+    for subpath in subpaths {
+        let closed = matches!(subpath.elements().last(), Some(PathEl::ClosePath));
+        let mut pieces: Vec<PathSeg> = subpath.segments().collect();
+        if pieces.is_empty() {
+            // A subpath of one point: kept where the point is clear of every region.
+            if let Some(PathEl::MoveTo(point)) = subpath.elements().first()
+                && !regions
+                    .iter()
+                    .any(|region| strictly_inside(*region, to_display.apply(*point)))
+            {
+                survivors.push(subpath.clone());
+            }
+            continue;
+        }
+        for region in regions {
+            for plane in edge_planes(*region) {
+                pieces = pieces
+                    .into_iter()
+                    .flat_map(|piece| split_at_crossings(piece, plane, to_display))
+                    .collect();
+            }
+        }
+        let kept: Vec<bool> = pieces
+            .iter()
+            .map(|piece| {
+                let middle = to_display.apply(piece.eval(0.5));
+                !regions
+                    .iter()
+                    .any(|region| strictly_inside(*region, middle))
+            })
+            .collect();
+        if kept.iter().all(|keep| *keep) {
+            survivors.push(subpath.clone());
+            continue;
+        }
+        // A closed subpath is a loop: the run that wraps past its start is one run, so the walk
+        // begins just after the first piece that went.
+        let begin = if closed {
+            kept.iter()
+                .position(|keep| !*keep)
+                .map_or(0, |at| at.saturating_add(1))
+        } else {
+            0
+        };
+        let count = pieces.len();
+        let mut run: Option<SubPath> = None;
+        for step in 0..count {
+            let index = begin.saturating_add(step).checked_rem(count).unwrap_or(0);
+            let piece = pieces[index];
+            if !kept[index] {
+                survivors.extend(run.take());
+                continue;
+            }
+            let path = run.get_or_insert_with(|| {
+                let mut path = BezPath::new();
+                path.move_to(piece.start());
+                path
+            });
+            match piece {
+                PathSeg::Line(line) => path.line_to(line.p1),
+                PathSeg::Quad(quad) => path.quad_to(quad.p1, quad.p2),
+                PathSeg::Cubic(cubic) => path.curve_to(cubic.p1, cubic.p2, cubic.p3),
+            }
+        }
+        survivors.extend(run.take());
+        if survivors.len() > MAX_POLYGONS {
+            return None;
+        }
+    }
+    let sources: std::collections::HashSet<(u64, u64)> =
+        subpaths.iter().flat_map(control_points).collect();
+    let largest = survivors
+        .iter()
+        .flat_map(control_points_with_values)
+        .filter(|(key, _)| !sources.contains(key))
+        .map(|(_, point)| point.x.abs().max(point.y.abs()))
+        .fold(0.0f64, f64::max);
+    Some(Cut {
+        polygons: survivors,
+        largest,
+        norm: to_display.norm(),
+    })
+}
+
+/// The four lines bounding a region widened by [`REGION_PAD`], as half-planes whose boundaries a
+/// segment is split at.
+fn edge_planes(region: [f64; 4]) -> [HalfPlane; 4] {
+    let [x0, y0, x1, y1] = region;
+    let plane = |axis, bound| HalfPlane {
+        axis,
+        bound,
+        keep_above: true,
+    };
+    [
+        plane(Axis::X, x0 - REGION_PAD),
+        plane(Axis::X, x1 + REGION_PAD),
+        plane(Axis::Y, y0 - REGION_PAD),
+        plane(Axis::Y, y1 + REGION_PAD),
+    ]
+}
+
+/// Whether a display-space point lies strictly inside a region widened by [`REGION_PAD`].
+fn strictly_inside(region: [f64; 4], at: Point) -> bool {
+    let [x0, y0, x1, y1] = region;
+    at.x > x0 - REGION_PAD
+        && at.x < x1 + REGION_PAD
+        && at.y > y0 - REGION_PAD
+        && at.y < y1 + REGION_PAD
 }
 
 /// Every control point of a subpath, as the bit patterns the source set is compared by.
@@ -485,6 +614,35 @@ pub(super) fn write_polygons(out: &mut String, polygons: &[SubPath]) {
         }
         if !matches!(polygon.elements().last(), Some(PathEl::ClosePath)) {
             out.push_str("h\n");
+        }
+    }
+}
+
+/// Writes a zero-width stroke's surviving subpaths: §8.5.2's `m`, `l` and `c`, with `h` only
+/// where the source closed a subpath the regions did not reach.
+pub(super) fn write_open(out: &mut String, paths: &[SubPath]) {
+    for path in paths {
+        let mut current = Point::ZERO;
+        for element in path.elements() {
+            match *element {
+                PathEl::MoveTo(point) => {
+                    write_operator(out, &[point], "m");
+                    current = point;
+                }
+                PathEl::LineTo(point) => {
+                    write_operator(out, &[point], "l");
+                    current = point;
+                }
+                PathEl::QuadTo(one, two) => {
+                    write_operator(out, &[lifted(current, one), lifted(two, one), two], "c");
+                    current = two;
+                }
+                PathEl::CurveTo(one, two, three) => {
+                    write_operator(out, &[one, two, three], "c");
+                    current = three;
+                }
+                PathEl::ClosePath => out.push_str("h\n"),
+            }
         }
     }
 }

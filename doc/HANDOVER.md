@@ -60,6 +60,7 @@ what these files are split by.
 | writes a whole file — `split`, `merge`, `pages`, `optimize`, `optimize --linearize`, `redact` | [`doc/todo/57`](todo/57-the-transform-suite.md) (the suite, Annex F's writer among it), [`doc/todo/64`](todo/64-redaction-and-relocation.md) for redaction, [`doc/rfc/0002`](rfc/0002-the-transform-suite.md) for the design |
 | validates a document against ISO 19005, or converts one | [`doc/rfc/0006`](rfc/0006-pdf-a-validation-and-conversion.md) and [`0007`](rfc/0007-a-refusal-is-a-question-somebody-can-answer-in-advance.md) (the designs), [`doc/pdf-a-mitigations.md`](pdf-a-mitigations.md) (every refusal's remedy), [`doc/todo/66`](todo/66-the-mitigation-catalogue-build-out.md) (which remedies this version carries out, and the command that prints it), [`doc/third-party-data.md`](third-party-data.md) for the texts |
 | adds or questions a dependency | [`doc/stack.md`](stack.md), [`doc/third-party-data.md`](third-party-data.md), [`doc/PLAN.md`](PLAN.md) §1 |
+| fetches a free specification text a clause hands its subject to | into `scratchpad/r<round>/` first and never under `doc/` (a PDF there joins the oracle's population, trap 43); `python3 tools/spec-md.py <pdf> --out doc/md/<name>.md` into the ignored `doc/md/`; a section in [`doc/third-party-data.md`](third-party-data.md) with the URL, the SHA-256 and what the notice permits; the PDF kept at `/home/AI/specs/`. ITU-T T.4 and T.6 are the precedent (ADR 1349) |
 | quotes, or wants to quote, a standard that is not ISO 32000-2 | [`doc/third-party-data.md`](third-party-data.md), which states the position per text, and ADRs 0187 and 1085 — see the rule below |
 | runs the program | [`doc/running-the-viewer.md`](running-the-viewer.md), [`doc/environment.md`](environment.md) |
 | runs an instrument that is not a §2 gate | [`doc/verify.md`](verify.md) — `deny`, the fuzzers, callgrind, the cross-target checks, the census examples, AT-SPI |
@@ -96,7 +97,8 @@ round "is in" runs to hundreds of lines (`wc -l doc/traps/*.md`) and the line it
 every trap keeps its number and resolves any citation by number in one hop.
 
 A round that skips the trap its work is in repeats a mistake somebody paid for, and the index is how
-it finds out which one that is.
+it finds out which one that is. `tools/state.sh traps` counts the index's rows, the group files' lengths and which
+traps the rounds' records cite most, so none of those is written down here.
 
 ---
 

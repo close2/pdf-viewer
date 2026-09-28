@@ -332,11 +332,10 @@ pub enum Unsupported {
     /// **whole page**. 293 commands of `4605705.pdf`'s went that way for one `cm` in a damaged
     /// stream.
     ///
-    /// What it counts is what is still refused. A solid fill its matrix carries onto a line along
-    /// a page axis is §10.7.4's line and is drawn — `pdf_render::DisplayList::restate_collapsed_fills`
-    /// restates it in page space before this count, ADR 1348 — so the count is a stroke, a point,
-    /// a line across the axes and a paint no space positions, and `doc/todo/11` item 8 carries the
-    /// stroke.
+    /// What it counts is what is still refused. A solid fill or stroke its matrix carries onto a
+    /// line is §10.7.4's line and is drawn — `pdf_render::DisplayList::restate_collapsed_marks`
+    /// restates it as the fill of its image before this count, ADRs 1348 and 1360 — so the count
+    /// is a mark whose image is a point, §8.5.3.3.1's departure, and a paint no space positions.
     NoninvertibleMatrix {
         /// How many marking commands the page states under one.
         commands: usize,

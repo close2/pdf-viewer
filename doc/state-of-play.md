@@ -42,8 +42,9 @@ annotation drawn from **the group it belongs to** rather than from itself, which
 nine shared entries. **Three rasterisers behind one display list**: `render-cpu` is the correctness
 oracle — and it is one because it computes a path's coverage of a pixel as the **exact integral of
 §8.5.3.3's winding number over §10.7.4's half-open pixel square** rather than sampling it on a
-lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and the pieces a
-curve stroked wider than it bends is stated as (ADR 1348), and measures a path
+lattice, leaving the library beneath it the axis-aligned rectangle (ADR 1082) and a stroke some of
+whose curves bend more tightly than its half-width — those curves as pieces, the stretches between
+as the stroker's outline (ADRs 1348, 1359) — and measures a path
 whose portions overlap as the set its fill rule declares inside rather than composite the portions
 with one another, which §11.6.2 forbids (ADR 1341) — `render-cpu` is also where a **non-isolated group the file
 composites under a mode other than Normal is drawn** instead of reported, by performing §11.4.4's
@@ -249,7 +250,10 @@ number *there*. **A request for a new window opens a second document beside the 
 and Table 204's `/NewWindow true` are read in the core and answered where the host's answer is,
 because whether this program has a second place to put a document is a fact about the window —
 `Command::Beside` carries a name a host has free for one, and a window that offers none gets the
-sentence saying the destination replaced what was open (ADRs 1227, 1263). A file the go-to names
+sentence saying the destination replaced what was open (ADRs 1227, 1263). **§12.6.4.6's launch action
+is the same act where its Table 207 `/F` names a PDF**: the file is asked for under the same level and
+path rule, its §7.5.2 header decides what it is once it has arrived, a PDF opens where `/NewWindow`
+puts it, and anything else is an application, which the sandbox starts none of (ADRs 1368, 1358). A file the go-to names
 that asks for a password is asked about under the name it would open under, and the second attempt
 opens that file's own bytes, never the document in front (ADR 1332); §12.6.4.7's thread in another
 file and §12.7.8's named page in one take the same route, the named page drawn into the document
@@ -811,11 +815,18 @@ A **Type 3** code is tested against the box its glyph declares, a **composite** 
 the bytes its `CMap`'s codespace ranges delimit, **`sh`** is painted through its clip cut to the
 region's complement, a **soft mask's group** is entered and cut, and a stroke's survivors keep its
 own colour, alpha and overprint (ADRs 1351, 1352).
-It refuses rather than cuts wrong — a `d0` glyph whose marks are stated nowhere, a vertical composite
-font, a shading whose colours are data placed in the plane, a zero line width, a JPX image beyond
-the operator's budget, a matte a re-expressed codec picture cannot keep — each with its sentence,
-and the overlay text and fill it does not compose (A65's fence), said as a departure in the report
-(ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351, 1352).
+A `d0` glyph under an all-zero `/FontBBox` is tested against its own marks, run through the
+interpreter; a **vertical** `CMap`'s removed code restores its `/W2` displacement; a **zero-width
+stroke** is cut along its path; a form the region meets differently at two placements is **copied
+per edit** and named where it is drawn; and a **shading's data located in the region alone** are
+destroyed where they are stated — a mesh cut triangle by triangle or a quarter-point sub-patch at a
+time, a radial shading's inner circles' samples and a function-based shading's cells' samples
+cleared — while an axial shading, whose values lie on unbounded lines, is cut by its clip (ADR 1363).
+It refuses rather than cuts wrong — a calculator function serving the region's own colours, a JPX
+image beyond the operator's budget, a matte a re-expressed codec picture cannot keep — each with its
+sentence, and the overlay text and fill it does not compose (A65's fence), said as a departure in
+the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351, 1352,
+1363).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree

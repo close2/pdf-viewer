@@ -552,6 +552,20 @@ impl App {
             shift: self.shift,
             ctrl: self.control,
         };
+        // A push-button §12.5.1's focus is on takes Space and Enter before the page does, which
+        // is the keyboard's half of the click the three windows share (ADR 1357).
+        if let Some(pressed) = viewer_host::pressed(&self.viewer, stated, held) {
+            if let Some(said) = pressed.note() {
+                println!("note: {said}");
+            }
+            match pressed {
+                viewer_host::Pressed::Activates { annotation, .. } => {
+                    self.dispatch(Command::Activate(annotation));
+                }
+                viewer_host::Pressed::ReadOnly { .. } => {}
+            }
+            return;
+        }
         let Some(meaning) = viewer_host::meaning(stated, held, mode, waiting) else {
             return;
         };
@@ -730,6 +744,7 @@ fn press(key: &Key<&str>) -> Option<viewer_host::Key> {
         Key::Named(NamedKey::Escape) => Stated::Escape,
         Key::Named(NamedKey::Tab) => Stated::Tab,
         Key::Named(NamedKey::Space) => Stated::Space,
+        Key::Named(NamedKey::Enter) => Stated::Enter,
         Key::Named(NamedKey::Home) => Stated::Home,
         Key::Named(NamedKey::End) => Stated::End,
         Key::Named(NamedKey::ArrowLeft) => Stated::Left,
@@ -825,6 +840,7 @@ mod tests {
                 Stated::Escape => Key::Named(NamedKey::Escape),
                 Stated::Tab => Key::Named(NamedKey::Tab),
                 Stated::Space => Key::Named(NamedKey::Space),
+                Stated::Enter => Key::Named(NamedKey::Enter),
                 Stated::Home => Key::Named(NamedKey::Home),
                 Stated::End => Key::Named(NamedKey::End),
                 Stated::Left => Key::Named(NamedKey::ArrowLeft),

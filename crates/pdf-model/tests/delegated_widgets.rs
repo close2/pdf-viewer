@@ -47,24 +47,7 @@ fn fixture() -> Vec<u8> {
     // The last of the four states its box in the page's own coordinates rather than at the
     // origin, because it has no `/Rect`: §12.5.5's algorithm has nothing to map onto, and this
     // crate places such an annotation where its appearance's box says (ADR 0113's converse).
-    let stream = |box_: [u32; 4], colour: &str| {
-        let contents = format!(
-            "{colour} {} {} {} {} re f",
-            box_[0],
-            box_[1],
-            box_[2].saturating_sub(box_[0]),
-            box_[3].saturating_sub(box_[1])
-        );
-        format!(
-            "<< /Type /XObject /Subtype /Form /BBox [{} {} {} {}] /Length {} >>\nstream\n\
-             {contents}\nendstream",
-            box_[0],
-            box_[1],
-            box_[2],
-            box_[3],
-            contents.len().saturating_add(1)
-        )
-    };
+    let stream = filled;
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
@@ -89,6 +72,31 @@ fn fixture() -> Vec<u8> {
         stream(RECTLESS, "1 0 1 rg"),
     );
 
+    assembled(&body)
+}
+
+/// A form `XObject` filling its whole `/BBox` with one colour.
+fn filled(box_: [u32; 4], colour: &str) -> String {
+    let contents = format!(
+        "{colour} {} {} {} {} re f",
+        box_[0],
+        box_[1],
+        box_[2].saturating_sub(box_[0]),
+        box_[3].saturating_sub(box_[1])
+    );
+    format!(
+        "<< /Type /XObject /Subtype /Form /BBox [{} {} {} {}] /Length {} >>\nstream\n\
+         {contents}\nendstream",
+        box_[0],
+        box_[1],
+        box_[2],
+        box_[3],
+        contents.len().saturating_add(1)
+    )
+}
+
+/// Writes object bodies numbered from 1 as a file with §7.5.4's table and a trailer.
+fn assembled(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -113,7 +121,12 @@ fn fixture() -> Vec<u8> {
 
 /// Rasterises the fixture under one policy.
 fn drawn(appearances: WidgetAppearances) -> pdf_render::Raster {
-    let document = Document::open(fixture()).expect("the fixture is a valid PDF");
+    drawn_from(fixture(), appearances)
+}
+
+/// Rasterises one file's first page under one policy.
+fn drawn_from(file: Vec<u8>, appearances: WidgetAppearances) -> pdf_render::Raster {
+    let document = Document::open(file).expect("the fixture is a valid PDF");
     let page = pdf_model::Pages::new(&document).get(0).expect("page one");
     let mut view = ViewState::of(&document);
     assert_eq!(
@@ -197,6 +210,7 @@ fn only_the_widgets_a_host_was_told_about_are_delegated() {
 
     let told: std::collections::BTreeSet<_> = pdf_model::form::fields(&document, &page, &view)
         .iter()
+        .filter(|field| field.control.is_delegable())
         .flat_map(|field| field.widgets.iter())
         .map(|widget| widget.annotation)
         .collect();
@@ -241,4 +255,72 @@ fn a_delegated_field_leaves_the_readback_with_the_page() {
         after.display_list.commands().len(),
         before.display_list.commands().len()
     );
+}
+
+/// Four fields, of which only the one whose value a toolkit control shows is delegated.
+///
+/// Every widget states an appearance filling its `/Rect` in the one colour, so the question is
+/// only which rectangles still hold ink under [`WidgetAppearances::Delegated`].
+fn valueless_fields() -> Vec<u8> {
+    let (width, height) = PAGE;
+    let wide = [0, 0, 80, 20];
+    let appearance = filled(wide, "0 0 1 rg");
+    let widget = |kind: &str, name: &str, rect: [u32; 4], ap: u32| {
+        format!(
+            "<< /Type /Annot /Subtype /Widget {kind} /T ({name}) /Rect [{} {} {} {}] /F 4 \
+             /AP << /N {ap} 0 R >> >>",
+            rect[0], rect[1], rect[2], rect[3]
+        )
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R 7 0 R 8 0 R] \
+         >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R 6 0 R 7 0 R 8 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n{}\nendobj\n\
+         6 0 obj\n{}\nendobj\n\
+         7 0 obj\n{}\nendobj\n\
+         8 0 obj\n{}\nendobj\n\
+         9 0 obj\n{appearance}\nendobj\n",
+        widget("/FT /Tx", "typed", FIELD, 9),
+        widget("/FT /Btn /Ff 65536", "pressed", MARKUP, 9),
+        widget("/FT /Sig", "signed", FIELDLESS, 9),
+        widget("", "unstated", RECTLESS, 9),
+    );
+    assembled(&body)
+}
+
+/// ISO 32000-2 §12.7.5.2.2's push-button, §12.7.5.5's signature and a field with no `/FT` keep
+/// their appearance under a host's instruction, because no control a host places replaces it.
+///
+/// §6.3.2.2's "unless otherwise instructed" is an instruction about the appearances a host draws
+/// itself, and a host draws no push-button: the producer's `/AP` is the only picture it has
+/// (ADR 1357). A rule that delegated every field's widget would empty all four rectangles.
+#[test]
+fn a_field_with_no_value_a_control_shows_keeps_its_appearance() {
+    let before = drawn_from(valueless_fields(), WidgetAppearances::Drawn);
+    let after = drawn_from(valueless_fields(), WidgetAppearances::Delegated);
+    assert!(
+        ink(&before, FIELD) > 0,
+        "the text field is drawn by default"
+    );
+    assert_eq!(
+        ink(&after, FIELD),
+        0,
+        "and a host that places an entry draws it instead"
+    );
+    for (name, rect) in [
+        ("the push-button", MARKUP),
+        ("the signature", FIELDLESS),
+        ("the field stating no /FT", RECTLESS),
+    ] {
+        assert!(ink(&before, rect) > 0, "{name} is drawn by default");
+        assert_eq!(
+            ink(&before, rect),
+            ink(&after, rect),
+            "{name} keeps its own appearance under a host's instruction"
+        );
+    }
 }

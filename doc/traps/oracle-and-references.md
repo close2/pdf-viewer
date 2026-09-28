@@ -676,6 +676,13 @@ came back ambiguous and undiagnosed and failed the gate until `doc/todo/00` step
 placed it in `AMBIGUOUS_GLYPH_SCAN_CONVERSION`. A round that puts a PDF under `doc/` runs the oracle
 before it reports and diagnoses what its own file added.
 
+### 59. A low-resolution ink deficit can be the page's fractional last row
+
+A note diagnosed "hinting" from a 5–6% deficit at 72 dpi; the page is 14.218 pt tall and is
+rasterised to 15 rows, which dilutes every renderer's mean by the same factor, and ours, poppler and
+mupdf all sit at the same place (round 1264). Check the raster height against the page height before
+attributing a deficit to a renderer.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves

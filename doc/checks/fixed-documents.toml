@@ -379,17 +379,17 @@ why = "the same refusal on a US Letter page of 2891 commands, one of them under 
 path = "corpus-cache/safedocs/cc-main-2021-31/2883/2883540.pdf"
 page = 1
 session = 653
-reports = ["NoninvertibleMatrix"]
+reports = []
 ink = 157.277 .. 159.277
-why = "the same refusal on a page of 192 commands with two such marks, which is the smallest denominator of the four and the one that says the cost is not proportional to anything (ADR 0482, 8.3.4)"
+why = "the same refusal on a page of 192 commands with two such marks, which is the smallest denominator of the four and the one that says the cost is not proportional to anything (ADR 0482, 8.3.4). The report left in session 1261: both marks are white 0.25 w strokes of a horizontal rule under a matrix whose a, b and c are zero, so the rule is one point of the vertical line x = e and the stroke is its own width there, 0.25 units of it; §10.7.4 draws that image, left of the page at x = -30.3 and -29.1, so no pixel changes and ink is 158.293, inside the band (ADR 1360, 10.7.4)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/7803/7803534.pdf"
 page = 1
 session = 653
-reports = ["NoninvertibleMatrix"]
+reports = []
 ink = 16.186 .. 18.186
-why = "the fifth and last of the crawl's page-losing witnesses: a course registration form of 1025 commands, refused whole for one of them (ADR 0482, 8.3.4)"
+why = "the fifth and last of the crawl's page-losing witnesses: a course registration form of 1025 commands, refused whole for one of them (ADR 0482, 8.3.4). The report left in session 1261: that mark is a 1 w stroke of a horizontal rule under a matrix whose a, b and c are zero and d is 0.809, so the rule is one point of the line x = 89.75 and the stroke is 0.809 units of it about y = 409.35, which §10.7.4 now draws; ink is 17.252, inside the band and unchanged at this precision (ADR 1360, 10.7.4)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/7803/7803013.pdf"

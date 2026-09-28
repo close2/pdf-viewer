@@ -366,3 +366,10 @@ then to what actually happens.
 later decision the sweep lists for it, and a note whose correction is a NUMBER goes into a named
 re-measure population instead (ADR 1355). Under Xvfb, `windowfocus --sync` the viewer's window before
 every key: a click on the tab strip does not give keyboard focus (round 1254).
+
+## A gitignored data directory in the shared worktree is checked for being a symlink before writing
+
+`fuzz/corpus` and `corpus-cache` point into the owner's read-only checkout; a round wrote three seeds
+there by mistake and removed them (round 1264). `ls -la` first; seeds go under the round's scratch for
+the merge to place. And when a host stops placing a control, check the controls-signature comparison:
+a field that is in the signature but never placed rebuilds the controls every frame (ADR 1357).

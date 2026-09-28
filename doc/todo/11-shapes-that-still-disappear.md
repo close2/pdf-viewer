@@ -32,8 +32,8 @@ quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `
 **Item 8 is the largest loss this file ever held and its refusal half is paid** (ADR 0482): a mark
 under a matrix with no inverse cost the whole page on all three backends, and now costs itself and
 is reported by name. §10.7.4's own mark for a shape a *transform* collapsed is built for a solid
-fill carried onto a line along a page axis (ADR 1348); what it still owes is the same mark for a
-stroke.
+fill and a solid stroke, along a page axis or across it (ADRs 1348, 1360); a mark carried onto a
+single point is §8.5.3.3.1's departure (ADR 1060).
 Priority: 11
 Corpus: 5 known witnesses for items 1-7; 4 crawled documents and 1 of `format-corpus`' for item 8,
 all of them in `doc/checks/fixed-documents.toml` or named in ADR 0482
@@ -912,7 +912,7 @@ question was which converter, not how many calls.
   0.98402, and the gate now measures 0.9879 and 0.9802. The pages belong to
   `CONTRADICTED_TIGHT_CONSENSUS` because the pair that votes is the pair furthest from the geometry.
 
-## 8. A paint that cannot be positioned costs the page rather than the mark — **the refusal is paid (ADR 0482); §10.7.4's own mark is built for a fill (ADR 1348) and owed for a stroke**
+## 8. A paint that cannot be positioned costs the page rather than the mark — **the refusal is paid (ADR 0482); §10.7.4's own mark is built for a fill and a stroke (ADRs 1348, 1360)**
 
 Found in the six-hundred-and-fortieth session, on the SafeDocs crawl and not by ink: `4605705.pdf`
 states eight `/Contents` parts, every one a Flate stream that decodes cleanly for tens of kilobytes
@@ -966,38 +966,30 @@ display list before any target exists, so it never needed to be a rasteriser's e
 `crates/render-raster/tests/singular_transform.rs` is the pair, on all three backends, and
 `crates/pdf-model/examples/singular_transform_census` is the instrument.
 
-### What is left of it: §10.7.4's mark for a shape its *transform* collapsed
+### §10.7.4's mark for a shape its *transform* collapsed — **built for a fill and a stroke**
 
-**Built for a fill, owed for a stroke** (ADR 1348). The warrant is the clause's own `shall`:
-§10.7.4 states its rule for a shape whose "coordinates are mapped into device space", and §8.3.4's
-third NOTE is informative and states no behaviour. `pdf_render::collapsed_by_transform` restates a
-fill whose matrix has no inverse and carries every point onto one line along a page axis as that
-line in page space, and `DisplayList::restate_collapsed_fills` applies it in `pdf_model`'s finished
-list, so all three backends draw it by `split_collapsed_fill`'s construction and only what is still
-refused is counted. `pdf-model/tests/scan_conversion_collapsed_by_transform.rs` is `80 × 40` under
-`1 0 0 0 0 50.3 cm`: device row 49, eighty pixels of ink. Still refused, each for its reason: a
-**stroke**, whose image on the line is the projection of its own outline and only a backend's
-stroker states that outline (trap 2); a **point**, §8.5.3.3.1's, which `collapsed.rs` records as a
-departure; a **line across the axes**, `collapsed.rs`'s stated absence; a paint no space positions.
-An image paints nothing under §10.7.4's own image rule, since a region of no area holds no pixel
-centre. The three bullets below are the reading the build rests on.
+**Built for a fill (ADR 1348) and for a stroke, along a page axis or across it (ADR 1360).** The
+warrant is the clause's own `shall`: §10.7.4 states its rule for a shape whose "coordinates are
+mapped into device space", and §8.3.4's third NOTE is informative and states no behaviour.
+`pdf_render::collapsed_by_transform` restates a fill whose matrix has rank exactly one as its points
+on the line the matrix carries the plane onto, and `collapsed_stroke_by_transform` restates a stroke
+as the fill of the intervals §8.4.3.2's set covers there — each connected piece of the set is one
+interval, from its caps, joins and bands alone, so no stroker is asked (trap 2). Along a page axis
+the restatement is in page space and `split_collapsed_fill` draws the run of whole pixels; across the
+axes it is in the frame whose x-axis is the line, and the band of one device pixel is drawn.
+`DisplayList::restate_collapsed_marks` applies both in `pdf_model`'s finished list.
+`pdf-model/tests/scan_conversion_collapsed_by_transform.rs` holds the fill's eighty pixels, the
+diagonal's `70√2`, and a stroke's image from its closed form. Still refused and counted: a mark whose
+image is a single **point** — §8.5.3.3.1's, which `collapsed.rs` records as a departure (ADR 1060) —
+and a paint no space positions. An image paints nothing under §10.7.4's own image rule, since a
+region of no area holds no pixel centre.
 
-**Drawing nothing is not what §10.7.4 asks for, and this item now owns the gap rather than hiding
-it.** "[N]o shape ever disappears" gives a shape with no area a run of *whole* device pixels — "a
-filling region is considered to intersect every pixel through which its boundary passes, even if the
-interior of the filling region is empty" — and `pdf_render::split_collapsed_fill` builds exactly that
-for a subpath flat in its **own** space. A path collapsed by its **transform** reaches no such
-construction and nothing builds one.
+How the three things this item said a round owed were answered:
 
-Three things a round taking it owes, and they are why it was not taken with the refusal:
-
-- **A warrant.** §8.3.4 NOTE 3 is the standard declining to state the case, which is weaker than
-  what `split_collapsed_fill` has. Whether §10.7.4 outranks a NOTE that says "unpredictable" is the
-  argument to make first, and it is not obvious.
-- **A placement, not only an extent.** §10.7.4 identifies a pixel by flooring a point; the collapsed
-  image of a rotated or sheared path is a staircase, which is the case `collapsed.rs` already
-  declines to snap. A rank-**zero** transform is worse still — the whole path is one point, and
-  §8.5.3.3.1's device pixel is the only shape left.
+- **A warrant**: §10.7.4's `shall` against a NOTE that states nothing (ADR 1348).
+- **A placement**: the run of whole pixels along a page axis; across the axes, the band of one
+  device pixel `collapsed.rs` already draws where the grid is turned (ADR 1360). A rank-zero
+  matrix leaves a point, which is ADR 1060's decision.
 - **A witness. This bullet said "which there is not" and it was wrong** — corrected in the
   nine-hundred-and-thirty-seventh session by running `examples/singular_transform_census` over
   **every corpus on this disk** rather than over the population the sentence was written against.

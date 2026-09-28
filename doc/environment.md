@@ -473,3 +473,7 @@ no citation without `doc/md/ISO_32000-2_sponsored_EC3.md`. **CI is a developer l
 here** and unpacks the archive from the `SPEC_ZIP_PASSWORD` repository secret before its tests;
 a pull request from a fork gets no secret, and the step says so rather than failing obscurely.
 
+
+**Driving `quorra-qt` under Xvfb:** Qt ignores key presses there until it is run with
+`QT_XCB_NO_XI2=1` and the page has been clicked once; `xdotool windowfocus --sync <id>` before every
+`key` (round 1260, ADR 1357).

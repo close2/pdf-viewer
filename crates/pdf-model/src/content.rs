@@ -2210,7 +2210,7 @@ fn finished(document: &Document, mut interpreter: Interpreter<'_>) -> Interpreta
     // what makes such a mark absent whatever any backend does.
     // §10.7.4's mark for a fill its matrix carried onto a line, restated before the count below so
     // that what the count names is what no backend draws (`doc/todo/11` item 8, ADR 1348).
-    interpreter.list.restate_collapsed_fills();
+    interpreter.list.restate_collapsed_marks();
     let noninvertible = interpreter.list.noninvertible_marks();
     if noninvertible > 0 {
         unsupported.push(Unsupported::NoninvertibleMatrix {

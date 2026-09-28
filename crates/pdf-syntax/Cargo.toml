@@ -20,6 +20,9 @@ stringprep.workspace = true
 getrandom.workspace = true
 
 [dev-dependencies]
+# Decodes the corpus witness of the `stream` keyword recovery (ADR 1365); a leaf crate with no
+# dependencies of its own, so no cycle.
+pdf-ccitt.workspace = true
 test-scenes.workspace = true
 
 [lints]

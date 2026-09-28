@@ -581,6 +581,42 @@ section_counts() {
     printf '                     whatever has been fetched, and `survey --dir <path>` re-baselines it\n'
 }
 
+# How many traps there are, how long the group files a round opens have grown, and which traps the
+# rounds actually cite. `doc/reviews/1012-where-the-effort-goes.md` counted once that a handful of
+# traps carry most citations; that is a fact about `doc/history/` and it moves every round, so it is
+# counted here rather than carried. A citation is the word `trap` or `traps` followed by a number,
+# and a list after `traps` (`traps 12 and 13`, `traps 53, 54`) counts each member; a range written
+# with a dash counts its two ends. The index's row count is the population; a number cited that has
+# no row is printed rather than dropped, because it is either a citation that resolves to nothing or
+# prose the pattern mistook for one ("the trap 632 named" is a session's number), and either is a
+# person's to read.
+section_traps() {
+    heading "traps: the index, the group files, and what the rounds cite" \
+        "doc/traps/README.md rows; wc -l doc/traps/*.md; trap citations across doc/history/"
+    local rows
+    rows=$(grep -oE '^\| [0-9]+[a-z]? \|' doc/traps/README.md | tr -d '| ' | sort -u)
+    printf 'traps in the index:  %s\n' "$(printf '%s\n' "$rows" | grep -c .)"
+    printf 'group files:\n'
+    wc -l doc/traps/*.md | sed 's/^/  /'
+    grep -rhoE '\btraps? [0-9]+[a-z]?(( ?[,–-] ?| and | or )[0-9]+[a-z]?)*' doc/history/ |
+        sed -E 's/^traps? //; s/ and | or |,|–|-/ /g' | tr -s ' ' '\n' | grep -E '^[0-9]+[a-z]?$' |
+        sort | uniq -c | sort -k1,1nr -k2,2n |
+        awk -v rows="$rows" '
+            BEGIN { n = split(rows, r, "\n"); for (i = 1; i <= n; i++) known[r[i]] = 1 }
+            { count[NR] = $1; number[NR] = $2; total += $1; if (!($2 in known)) unknown = unknown " " $2 }
+            END {
+                printf "citations in doc/history/: %d, of %d distinct traps\n", total, NR
+                running = 0
+                for (i = 1; i <= NR; i++) {
+                    running += count[i]
+                    if (i <= 10) printf "  trap %-4s %5d   %3d%% cumulative\n", number[i], count[i], 100 * running / total
+                    if (!reached && running * 5 >= total * 4) { reached = i }
+                }
+                printf "traps carrying 80%% of citations: %d\n", reached
+                printf "cited with no row in the index:%s\n", (unknown == "" ? " none" : unknown)
+            }'
+}
+
 # How much of `viewer-core`'s vocabulary a C caller can reach.
 #
 # `doc/ui-boundary.md` and `doc/todo/30` both said the ABI's entry points were "the whole
@@ -877,8 +913,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
-quick="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts hosts windows binaries disk remedies"
+all="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
+quick="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk remedies"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -934,6 +970,7 @@ for section in $sections; do
     questions) section_questions ;;
     records) section_records ;;
     counts) section_counts ;;
+    traps) section_traps ;;
     hosts) section_hosts ;;
     windows) section_windows ;;
     binaries) section_binaries ;;

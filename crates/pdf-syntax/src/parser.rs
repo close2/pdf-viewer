@@ -120,6 +120,10 @@ pub struct Parser<'a> {
     /// applied one layer up — and applying it needs the offset the guess was made at. See
     /// [`crate::Document`]'s `with_stated_length`. ADR 0366.
     stream_data_at: Option<usize>,
+    /// The spaces and tabs the last stream this parser read wrote between its `stream` keyword
+    /// and the end-of-line marker, which a conforming file never writes, and which were
+    /// skipped. See [`Self::parse_stream_data`] for the recovery and ADR 1365 for its guard.
+    stream_keyword_padding: Option<KeywordPadding>,
 }
 
 impl<'a> Parser<'a> {
@@ -137,6 +141,7 @@ impl<'a> Parser<'a> {
             limits,
             depth: 0,
             stream_data_at: None,
+            stream_keyword_padding: None,
         }
     }
 
@@ -148,6 +153,7 @@ impl<'a> Parser<'a> {
             limits,
             depth: 0,
             stream_data_at: None,
+            stream_keyword_padding: None,
         }
     }
 
@@ -193,6 +199,18 @@ impl<'a> Parser<'a> {
     #[must_use]
     pub(crate) fn stream_data_at(&self) -> Option<usize> {
         self.stream_data_at
+    }
+
+    /// The spaces and tabs the last stream this parser read wrote between its `stream` keyword
+    /// and the end-of-line marker, and which were skipped rather than handed on as data.
+    ///
+    /// `None` for every conforming stream and for every stream this parser has not read. What
+    /// it is for is [`crate::Document::padded_stream_keywords`], which reports the recovery on
+    /// the document rather than making it in silence, and the indirect `/Length`'s half of the
+    /// recovery's guard, which only the document can apply.
+    #[must_use]
+    pub(crate) fn stream_keyword_padding(&self) -> Option<KeywordPadding> {
+        self.stream_keyword_padding
     }
 
     /// Parses the next object.
@@ -465,21 +483,44 @@ impl<'a> Parser<'a> {
     /// indirect `/Length` cannot be resolved without the document, and a wrong `/Length`
     /// is one of the most common corruptions in real files.
     fn parse_stream_data(&mut self, dict: Dictionary) -> SyntaxResult<Object> {
-        // The keyword is followed by CRLF or LF — but not CR alone, per the specification.
-        // Tolerate CR alone anyway, since files contain it.
-        match self.lexer.peek() {
-            Some(b'\r') => {
-                self.lexer.seek(self.lexer.position().saturating_add(1));
-                if self.lexer.peek() == Some(b'\n') {
-                    self.lexer.seek(self.lexer.position().saturating_add(1));
-                }
-            }
-            Some(b'\n') => self.lexer.seek(self.lexer.position().saturating_add(1)),
-            _ => {}
-        }
-
-        let start = self.lexer.position();
+        let keyword_end = self.lexer.position();
         let input = self.lexer.input();
+
+        // ISO 32000-2 §7.3.8.1:
+        //
+        // > The keyword stream that follows the stream dictionary shall be followed by an
+        // > end-ofline marker consisting of either a CARRIAGE RETURN and a LINE FEED or just a
+        // > LINE FEED, and not by a CARRIAGE RETURN alone.
+        //
+        // Two malformations of that sentence are recovered, both because files write them. A
+        // CR alone is taken as the marker. And spaces or tabs written between the keyword and
+        // the marker are skipped: the clause puts the data after the marker, so bytes before
+        // it are not data in any reading of the file, and handing them to a filter corrupts
+        // every stream whose filter does not delimit its own data (ADR 1365).
+        //
+        // **The guard is the claim, trap 28.** The padding is skipped only where it is nothing
+        // but spaces and tabs and a CR or LF ends it — so a keyword followed by a space and
+        // then data is left as it was — and a direct `/Length` that `endstream` confirms from
+        // the keyword's own end, and not from past the marker, wins below: the file's
+        // statement of where its data starts is never overruled by this reader's guess.
+        let padding = input
+            .get(keyword_end..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|&&byte| byte == b' ' || byte == b'\t')
+            .count();
+        let padded_marker = matches!(
+            input.get(keyword_end.saturating_add(padding)),
+            Some(b'\r' | b'\n')
+        );
+        self.lexer
+            .note_examined(keyword_end.saturating_add(padding).saturating_add(1));
+        let mut skipped = if padding > 0 && padded_marker {
+            padding
+        } else {
+            0
+        };
+        let mut start = past_end_of_line(input, keyword_end.saturating_add(skipped));
 
         let declared = dict
             .get("Length")
@@ -491,11 +532,26 @@ impl<'a> Parser<'a> {
         // search note how far they looked, because over a *window* of a longer file (ADR 0809)
         // a stated end past the window's end is a question the window cannot answer — the
         // note is what has the window grown to where it can, and over a whole file it is moot.
-        let stated = declared.and_then(|length| {
-            let stated_end = start.saturating_add(length);
-            let (follows, looked) = endstream_examined(input, stated_end);
-            self.lexer.note_examined(looked);
-            (stated_end <= input.len() && follows).then_some(stated_end)
+        let confirmed = |from: usize, lexer: &mut Lexer<'a>| {
+            declared.and_then(|length| {
+                let stated_end = from.saturating_add(length);
+                let (follows, looked) = endstream_examined(input, stated_end);
+                lexer.note_examined(looked);
+                (stated_end <= input.len() && follows).then_some(stated_end)
+            })
+        };
+        let mut stated = confirmed(start, &mut self.lexer);
+        if stated.is_none() && skipped > 0 {
+            // The padding's guard: a `/Length` that fits only where the padding is data.
+            if let Some(end) = confirmed(keyword_end, &mut self.lexer) {
+                start = keyword_end;
+                stated = Some(end);
+                skipped = 0;
+            }
+        }
+        self.stream_keyword_padding = (skipped > 0).then_some(KeywordPadding {
+            keyword_end,
+            bytes: skipped,
         });
         let end = stated.unwrap_or_else(|| {
             let found = find_endstream(input, start);
@@ -687,6 +743,27 @@ pub(crate) fn endstream_examined(input: &[u8], offset: usize) -> (bool, usize) {
             .saturating_add(trimmed)
             .saturating_add(b"endstream".len()),
     )
+}
+
+/// Spaces and tabs a stream wrote between its `stream` keyword and the end-of-line marker,
+/// ISO 32000-2 §7.3.8.1, skipped by [`Parser::parse_stream_data`]'s recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct KeywordPadding {
+    /// Where the keyword ends and the padding begins: where the data would begin were the
+    /// padding the data's, which is the reading the guard falls back to.
+    pub(crate) keyword_end: usize,
+    /// How many spaces and tabs were skipped.
+    pub(crate) bytes: usize,
+}
+
+/// The offset past one end-of-line marker at `at`: CR LF, LF, or the CR alone §7.3.8.1 forbids
+/// and files write. `at` itself where no marker begins there.
+fn past_end_of_line(input: &[u8], at: usize) -> usize {
+    match input.get(at) {
+        Some(b'\r') if input.get(at.saturating_add(1)) == Some(&b'\n') => at.saturating_add(2),
+        Some(b'\r' | b'\n') => at.saturating_add(1),
+        _ => at,
+    }
 }
 
 /// Finds the offset of the `endstream` keyword at or after `from`.

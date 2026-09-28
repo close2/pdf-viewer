@@ -1501,7 +1501,7 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// |---|---|
 /// | §10.7.4's sampled-image rule | 0.000 |
 /// | the geometry (0.48 of a row) | 0.480 |
-/// | ours | **0.502** — row 25 is `0x7F` across all 180 columns |
+/// | ours | **0.478** — row 25 is `0x85` across all 180 columns |
 /// | `poppler`, `mupdf`, `ghostscript`, `hayro` | 1.000 |
 ///
 /// **All five renderers depart from the clause, in two directions**, which is the ambiguous
@@ -1511,16 +1511,16 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// before the one that governs. Snapping to a full row would be neither the clause nor our
 /// departure, so the page stays listed.
 ///
-/// The 0.502 against a geometry of 0.480 is a second, smaller thing and it is `tiny-skia`'s:
-/// the scan converter samples four sub-rows at 0.125, 0.375, 0.625 and 0.875, and a band from
-/// 25.000 to 25.480 crosses two of them, so 0.48 is quantised to 0.50. ADR 0226 removed that
-/// quantum for an axis-aligned *rectangle* — `pdf_render::sub_pixel_bands` — and an image does
-/// not take that path. 4.6% on one row of one corpus page, recorded rather than chased.
+/// Ours is the geometry's own 0.480 to within one level of 255, because `render_cpu::area` states
+/// a pixel's coverage as the area the shape covers in it (ADR 1082): the band from device y 25.000
+/// to 25.480 is 0.48 of row 25, and 255 − 133 is 0.478 of 255. The departure is the partial
+/// paint, not the amount of it.
 ///
 /// # One row of coverage, converted into the one bound this page fails
 ///
 /// The table above is a coverage, which is not one of the four numbers the verdict is made of;
-/// the page fails on the **differing fraction** alone, and by 1.16 points. The conversion is
+/// the page fails on the **differing fraction** alone — 8.06% against a bound of 7.33%, by 0.73
+/// points (re-taken on the gate's own run after ADR 1082). The conversion is
 /// arithmetic. `raster_compare` counts channels rather than pixels and divides by
 /// width × height × 4, so 180 columns of one row, differing in three of four channels because
 /// both rasters are opaque, is `180 × 3 ÷ (200 × 50 × 4)` = **1.35 percentage points** — which is
@@ -1529,11 +1529,11 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 ///
 /// Measured rather than asserted, by the instrument [`CONTRADICTED_VISIBILITY_EXPRESSION`] uses:
 /// a §7.5.6 incremental update restates object 5 without the `BI … EI`, and nothing else about
-/// the file changes. Against `poppler`, the differing fraction falls from the 8.49% the gate
-/// prints to 7.13%, so the mask owns **1.3575** of it — the closed form to the digit. The bound is
-/// twice the consensus pair's own figure and the pair barely moves, so it stays at 7.32: **take the
-/// image out and this page agrees.** The control is the references against each other, where
-/// `mupdf` against `ghostscript` is byte for byte what it was.
+/// the file changes. Against `poppler`, the differing fraction falls from the 8.06% the gate
+/// prints to 6.71%, so the mask owns **1.3575** of it — the closed form to the digit. The bound is
+/// twice the consensus pair's own figure and the pair barely moves (3.67% with the mask, 3.66%
+/// without), so it stays at 7.32: **take the image out and this page agrees.** Re-taken after ADR
+/// 1082 with `examples/render_at`, `pdftoppm -cropbox` and `examples/compare_rasters`.
 ///
 /// So this note *does* account for the number the gate fails us on, once its own row of coverage
 /// is put in the gate's units — it belongs with [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]
@@ -1542,7 +1542,7 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 ///
 /// And the *bound* the verdict rests on belongs to another population: the page is convicted by
 /// `poppler` and `mupdf` alone, the voting pair that shares a glyph rasteriser, and it is one of
-/// the 32 pages on which `ghostscript` fails the same differing-fraction bound against both
+/// the 16 pages on which `ghostscript` fails the same differing-fraction bound against both
 /// members of that pair — [`CONTRADICTED_GLYPH_EDGES`]'s last section has the table. The mask
 /// paragraph above owns the margin; ADR 0717 measured what the bound under it is made of.
 const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
@@ -3356,43 +3356,25 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
 /// and the tell here was that the two renderers agreeing with us were the two whose output
 /// format matched ours.
 ///
-/// # A twenty-first, from `CONTRADICTED_UNEXPLAINED`, and the closed form is what moved it
+/// # `freeculture.pdf` page 313, which this group held and ADR 1082 moved to `agrees`
 ///
 /// **`freeculture.pdf` page 313** is one page of the book whose other three hundred are
-/// `ambiguous` under `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`. It sat unexplained because nothing had
-/// been measured on it; the two-hundred-and-forty-second session measured it, and the two
-/// ladders answer it outright:
+/// `ambiguous` under `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`, and it is not in this array: it is one
+/// of the seventeen the first section names, and the gate's run prints it as agreeing. The two
+/// ladders are why it was here and why it could leave:
 ///
 /// ```text
-///          the 242nd session      re-run in the 845th
-///            1x       8x            1x       8x
-/// ours     5.9139   6.0729        5.854    5.993
-/// poppler  6.0271   6.0658        5.943    5.983
-/// mupdf    6.0725   6.0819        6.013    6.019
+///            1x       8x
+/// ours     6.0655   6.0810
+/// poppler  6.0271   6.0658
+/// mupdf    6.0725   6.0820
 /// ```
 ///
-/// (Both columns are ink in levels of 255, `-alpha off -channel R`, `render_at` against
-/// `pdftoppm` and `mutool draw` at 72 and 576 dpi. The absolute figures moved — this tree's own
-/// scan conversion changed under them, ADR 0476 among the reasons — and the *reading* did not:
-/// ours at 8× is between the two references that vote in both columns.)
-///
-/// **Ours at eight times the resolution is inside the references' own spread**, which is this
-/// group's diagnosis exactly: the marks are the right marks and the difference is glyph coverage
-/// at the page's own scale.
-///
-/// **The three figures this paragraph then quoted from the gate went stale, and the sentence
-/// after them was backwards.** It said "[e]very printed metric is *inside* the class bound — mean
-/// 2.56 against 5.00, worst tile 12.54 against 40.00, ssim 0.9445 against 0.9000 — and the page is
-/// contradicted only because `poppler` and `mupdf` agree so closely that twice their spread is a
-/// tighter bound than the floor". The gate prints mean **1.88**, worst tile **9.54**, ssim
-/// **0.9685** and differing **6.05%** against a bound of **6.01%** — so the failing measure is one
-/// the sentence did not mention, and the widening on this page runs the other way: twice the
-/// pair's 3.00% is 6.01%, which is *looser* than the 5.00% class floor, and the page is
-/// contradicted with a bound the consensus **widened**. The ladder was re-run in the
-/// eight-hundred-and-forty-fifth session and its conclusion is unchanged while its numbers moved
-/// with the rasteriser — ours 5.854 → **5.993** against `poppler` 5.943 → **5.983** and `mupdf`
-/// 6.013 → **6.019**, which puts us between the two that vote at 8×. ADR 0772, and the last
-/// section of this note is where the page's verdict is accounted for.
+/// (Ink in levels of 255, `-alpha off -channel R`, `render_at` against `pdftoppm -cropbox` and
+/// `mutool draw` at 72 and 576 dpi, re-taken after ADR 1082.) **Ours is inside the references' own
+/// spread at both scales** — between the two that vote at 8× and at 1× alike — which is this
+/// group's diagnosis exactly: the marks are the right marks, and what differed was glyph coverage
+/// at the page's own scale, which the exact area closed.
 ///
 /// # Five more in the four-hundred-and-thirty-first, and every one had a *substituted* face
 ///
@@ -6367,28 +6349,30 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 ///
 /// # The measurement, and it is the references that disagree
 ///
-/// Mean absolute difference over the 250×50 raster all five share:
+/// Mean absolute difference over the 250×50 raster all five share (`magick compare -metric MAE`
+/// over the gate's panels, in 65535ths; ours re-taken after ADR 1082, and `poppler`'s are this
+/// machine's `pdftoppm` 26.08.0):
 ///
 /// ```text
-/// ours vs mupdf  359      mupdf vs poppler       1768
-/// ours vs hayro  618      ghostscript vs poppler 1483
-/// ours vs gs     989      ghostscript vs mupdf   1181
-/// ours vs poppler 1704
+/// ours vs mupdf  360      mupdf vs poppler       2265
+/// ours vs hayro  853      ghostscript vs poppler 2691
+/// ours vs gs    1016      ghostscript vs mupdf   1181
+/// ours vs poppler 2310
 /// ```
 ///
-/// **We are three to five times closer to `mupdf` than any two references are to each other**,
+/// **We are three to seven times closer to `mupdf` than any two references are to each other**,
 /// which is what makes the verdict ambiguous rather than a contradiction, and it is the bound
 /// doing its job (trap 12 in reverse).
 ///
 /// Ink, `-alpha off -channel R` on each greyscale artefact:
 ///
 /// ```text
-/// ours 18.43   hayro 18.16   mupdf 18.40   ghostscript 18.62   poppler 18.75
+/// ours 18.49   hayro 18.16   mupdf 18.40   ghostscript 18.62   poppler 15.93
 /// ```
 ///
-/// **All five within 0.6 of each other**, which is ink conserved and the difference confined to
-/// where the glyphs are — five substitutes for a face nobody shipped, drawing the same sentence
-/// in the same places.
+/// **Four within 0.46 of each other and `poppler` 2.5 under them**, which is ink conserved by four
+/// and a lighter face chosen by the fifth — five substitutes for a face nobody shipped, drawing the
+/// same sentence in the same places.
 ///
 /// **This entry first read "ours 9.22, hayro 9.08 │ mupdf 18.40, ghostscript 18.62, poppler
 /// 18.75" and concluded that three `libfreetype` references were darkening stems.** They were
@@ -6435,8 +6419,9 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// - **The advances and the extent are the references'.** The ink's bounding box is x[10, 147]
 ///   y[15, 34] in ours, `poppler`'s and `mupdf`'s, so §9.2.4's advances and the cap height are
 ///   honoured and are not what differs.
-/// - **Inside that box we mark 861 pixels against `poppler`'s 844, `mupdf`'s 825, `hayro`'s 812
-///   and `ghostscript`'s 702**, and the page's ink is 15.28 against 15.52, 15.32, 14.97 and 12.71.
+/// - **Inside that box the page's ink is ours 15.45 against `poppler`'s 15.52, `mupdf`'s 15.32,
+///   `hayro`'s 14.97 and `ghostscript`'s 12.71** (the gate's panels; ours re-taken after ADR 1082),
+///   so four of the five cover the box to within 0.55 of 255.
 /// - **At 576 dpi the modal dark run across the x-height band is 12 device pixels in ours and in
 ///   `poppler`'s**, against the `/StemV 66` the file states, which at 20 pt and eight times is
 ///   **10.56**. The scale comes from `/Widths` alone, so the stem landing 9% over the file's own
@@ -6447,19 +6432,22 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// §9.8.1 still states no `shall` and the page is still `ambiguous` for that reason; the document
 /// is the witness `doc/todo/21` item 4 records.
 ///
-/// The measurement says the references are no closer to each other than to us. Mean absolute
-/// difference on `non-embedded-NuptialScript.pdf`:
+/// The measurement says ours is nearer two of the references than any two references are to each
+/// other but one pair. Mean absolute difference on `non-embedded-NuptialScript.pdf` (`magick
+/// compare -metric MAE` over the gate's panels, in 65535ths; re-taken after ADRs 0358 and 1082, and
+/// the four reference pairs reproduce to the unit):
 ///
 /// ```text
-/// ours vs hayro  2924    mupdf vs hayro          422
-/// ours vs mupdf  3972    ghostscript vs mupdf   2924
-/// ours vs gs     4062    hayro vs poppler       4044
-/// ours vs poppler 5833   ghostscript vs poppler 4096
+/// ours vs mupdf  1515    mupdf vs hayro          422
+/// ours vs hayro  1546    ghostscript vs mupdf   2924
+/// ours vs gs     2500    hayro vs poppler       4044
+/// ours vs poppler 3939   ghostscript vs poppler 4096
 /// ```
 ///
 /// and the 422 is its own small finding: `mupdf` and `hayro` are within a rounding of each
-/// other while every other pair is seven to ten times further apart, because those two answer
-/// a missing face from a *built-in* rather than from this machine. Trap 9's second shape, seen
+/// other while every other pair of references is seven to ten times further apart, because those
+/// two answer a missing face from a *built-in* rather than from this machine — and ours, ranked out
+/// of this machine's faces, lands 3.6 times further from them than they are from each other. Trap 9's second shape, seen
 /// from outside — ask what data a renderer reads from the machine before crediting its
 /// agreement, and ask the same before crediting its disagreement.
 /// # Two more, and the first of them states its own answer
@@ -6471,7 +6459,7 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// ForceBold bit, so the weight is the whole of the evidence and it is unambiguous.
 ///
 /// ```text
-/// ours 23.47   hayro 24.30   poppler 24.14   mupdf 17.76   ghostscript 15.67
+/// ours 23.60   hayro 24.30   poppler 24.14   mupdf 17.76   ghostscript 15.67
 /// ```
 ///
 /// Ours, `poppler` and `hayro` draw it bold; `mupdf` and `ghostscript` draw it regular, and
@@ -6481,7 +6469,7 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 ///
 /// `issue5244.pdf` is 200 × 50 of Polish diacritics in a *non-embedded* `TimesNewRoman,Bold`
 /// under `Identity-H`, so §9.7.4.2 leaves the codes reachable only through `/ToUnicode` — which
-/// this file has. Ink: ours 15.50, `poppler` 15.60, `ghostscript` 13.17, `mupdf` 19.43 and
+/// this file has. Ink: ours 15.42, `poppler` 15.60, `ghostscript` 13.17, `mupdf` 19.43 and
 /// `hayro` **2.80**, which is `hayro` drawing two of the eleven characters. Every pair in the
 /// matrix is 0.021 to 0.069 apart and the smallest of the ten is ours against `poppler`.
 ///
@@ -6497,8 +6485,8 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 ///
 /// ```text
 ///           ours    poppler   mupdf
-/// page 1   9.2865   6.1379   7.0004
-/// page 2  15.1896  11.4200  11.5458
+/// page 1   9.0577   6.1379   7.0004
+/// page 2  15.1442  11.4200  11.5458
 /// ```
 ///
 /// **The ink table is not the finding here and the four-panel strip is.** `poppler` draws
@@ -6506,7 +6494,8 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// `ghostscript` and ours draw the line. So the spread is three renderers drawing different
 /// *sets of characters* and, among those that draw all of them, three faces of different weight
 /// — Ryumin is a light-weight Mincho and what each of us substitutes for it is whatever the
-/// machine has. Ours is the heaviest, which is what 30% more ink over the same glyphs means.
+/// machine has. Ours is the heaviest of the three in the table, which is what 30% more ink over
+/// the same glyphs means (ours re-taken after ADR 1082).
 ///
 /// This group's standing sentence, with a page that states it twice: §9.10.2 says how to learn
 /// what a code means and nothing about which face draws it, so five processors reach five faces.
@@ -6519,11 +6508,15 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// themselves mojibake (the bytes of a GB2312 name read as Latin-1). At the page's own scale:
 ///
 /// ```text
-/// poppler 10.8844   ghostscript 10.8804   ours 10.7511   hayro 9.7978   mupdf 7.1015
+/// poppler 10.8844   ghostscript 10.8804   ours 10.0287   hayro 9.7978   mupdf 7.1015
 /// ```
 ///
-/// Ours, `poppler` and `ghostscript` agree to 0.13 of 255; `mupdf` is **3.6 below all three**,
-/// which is a third of the page's ink and is a face that draws far less of it. Two ladders say
+/// `poppler` and `ghostscript` agree to 0.004 of 255, ours is 0.86 under them and 0.23 over
+/// `hayro`, and `mupdf` is **2.9 below ours and 3.8 below those two**, which is a third of the
+/// page's ink and is a face that draws far less of it. Ours is re-taken on the unconfined process,
+/// whose face ADR 0881's `here` column measures at 150 dpi as 10.02 — the decisions about which
+/// faces a confined worker is offered (ADRs 0870, 0880 and 0881) are what make that the face a
+/// confined render draws too. Two ladders say
 /// the same thing at 576 dpi — `poppler` 10.8095 against `mupdf` 7.1384 — so there is no limit
 /// to climb onto here and the finding is the *spread*: §9.10.2 says how to learn what a code
 /// means and nothing about which face draws it, and five processors reached five answers, one of
@@ -6564,11 +6557,12 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// The bounding box of the ink, at eight times the page's own scale:
 ///
 /// ```text
-/// ours    1022 x 123 at (87, 121)      mupdf       1022 x 123 at (87, 121)
-/// poppler 1029 x 118 at (88, 124)      ghostscript 1023 x 119 at (88, 123)
+/// ours    1021 x 123 at (88, 121)      mupdf       1021 x 123 at (88, 121)
+/// poppler 1029 x 118 at (88, 124)      ghostscript 1023 x 117 at (88, 124)
 /// ```
 ///
-/// Ours and `mupdf` are identical to the raster pixel over a 1 029-pixel line, and all four span
+/// (Each raster thresholded at half its grey, re-taken after ADR 1082.) Ours and `mupdf` are
+/// identical to the raster pixel over a 1 029-pixel line, and all four span
 /// the same width to 0.7%. Nobody is inventing metrics; `/W` is doing what the sentence says, and
 /// the letter spacing `poppler` shows is a substitute whose glyphs are narrower than the widths
 /// the document states — this group's standing subject on `bug1671312_ArialNarrow.pdf`.
@@ -6580,11 +6574,11 @@ const AMBIGUOUS_SUB_PIXEL_LINE_WORK: [&str; 10] = [
 /// poppler       12.86500  12.88830  12.88730  12.89100
 /// ghostscript   12.80070  12.69520  12.67880  12.69980
 /// mupdf         14.27660  14.33990  14.35620  14.35980
-/// ours          14.43400  14.35070  14.33050  14.35120   (1x, 4x, 8x, 16x)
+/// ours          14.35140  14.35450  14.35420  14.35390   (1x, 4x, 8x, 16x)
 /// ```
 ///
 /// **Four ladders, four limits, and they are two camps 1.46 of 255 apart** — ours and `mupdf`
-/// agree to **0.009**, `poppler` and `ghostscript` to 0.19. A difference that does not shrink with
+/// agree to **0.006** (ours re-taken after ADR 1082), `poppler` and `ghostscript` to 0.19. A difference that does not shrink with
 /// the pixels is not scan conversion, and the pairwise matrix at the page's own scale says it
 /// again: ours against `mupdf` is the smallest of the ten pairs by a factor of four, and no other
 /// pair is closer than that one. `hayro` is the fifth answer and the picture names it — its ink
@@ -8631,44 +8625,36 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///
 /// ```text
 ///                    limit             ours     hayro    poppler   mupdf    ghostscript
-/// issue12963 p8     5.6177 / 5.6180   5.601    5.841    5.921    5.630    5.488
-/// two_pages p2      1.0448 / 1.0457   1.032    1.029    1.070    1.073    1.063
-/// issue12295 p1     7.4106 / 6.9985   7.681   12.744   11.036   10.504   14.763
+/// issue12963 p8     5.6177 / 5.6180   5.608    5.841    5.921    5.630    5.488
+/// two_pages p2      1.0448 / 1.0457   1.033    1.029    1.070    1.073    1.063
+/// issue12295 p1     7.4106 / 6.9985   7.000   12.744   11.036   10.504   14.763
 /// ```
 ///
-/// On the first two the ladders agree to four figures and ours is nearest the geometry — 0.017
-/// and 0.013 under, where the pair that is furthest is 0.3 and 0.03 over.
+/// Each renderer at the page's own scale, off the gate's own panels; ours re-taken after ADRs 1082
+/// and 1102. On the first two the ladders agree to four figures and ours is nearest the geometry —
+/// 0.010 and 0.012 under, where the pair that is furthest is 0.3 and 0.03 over.
 ///
 /// **`issue12295.pdf` is the extreme of this group's standing subject and is worth its numbers.**
 /// The two ladders themselves are 0.41 apart, so there is no exact limit, but both are near 7
-/// and **all five renderers are above them at the page's own scale** — `mupdf` by 3.1, `poppler`
-/// by 3.6, `hayro` by 5.3, `ghostscript` by 7.4. A page whose marks are thin enough that every
-/// renderer paints three to seven levels more than their area is §10.7.4 as written on five
-/// implementations at once, and ADR 0025's departure is why ours is the smallest of the five
-/// overshoots rather than the largest.
+/// and **all four references are above them at the page's own scale** — `mupdf` by 3.1, `poppler`
+/// by 3.6, `hayro` by 5.3, `ghostscript` by 7.4 — while ours is on the lower of the two. A page
+/// whose marks are thin enough that every reference paints three to seven levels more than their
+/// area is §10.7.4 as written on four implementations at once, and ours is the one that paints the
+/// area, because ADR 1102 draws a sub-pixel stroke as the outline the document states.
 ///
-/// **Ours read 8.792 until the four-hundred-and-thirty-second session and 7.547 after it**, 1.4
-/// levels over its own limit to 0.55, which is over half of what separated us from the geometry.
-/// The page states **65 859 strokes thinner than a device pixel**, every one of them round-capped
-/// and 91.8% of them shorter than one device pixel — median length 0.145, and every one of them
-/// 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`) — and ADR 1102
-/// draws such a rule, wider than one level of a device pixel, as the stroke the document states,
-/// its outline filled through `render_cpu::area`; the figures in this paragraph are ADR 0268's
-/// construction, which drew it one device pixel wide with the width it gave up in the paint's
-/// alpha. **It reads 7.681 since the four-hundred-and-fifty-fifth**, which drew the caps ADR 0268
-/// butt-capped away: a cap's area is a *square* of the width, so it is stated at the substitute's
-/// width with `(w / W)²` of the alpha (ADR 0290). Those caps are 1.14 levels of the page's own
-/// geometry and 0.133 of a level landed, because at that width each cap's ink is about half a level
-/// of 255 on each of a few pixels and half a level is what an eight-bit raster rounds away.
-/// Our own ladder at 8× is **6.934 before and after both changes**, which is the check rather than
-/// a spare number: at that scale the strokes are no longer sub-pixel and neither rule may touch
-/// them. The page therefore sits 0.75 of a level above its own geometry where it sat 0.61, and
-/// every reference sits 3 to 7 levels above it, which is this group's whole subject.
+/// **Ours reads 7.000 at the page's own scale and 6.911 at eight times** (`examples/render_at`,
+/// re-taken after ADR 1102). The page states **65 859 strokes thinner than a device pixel**, every
+/// one of them round-capped and 91.8% of them shorter than one device pixel — median length 0.145,
+/// and every one of them 0.1366 of a device pixel wide (`pdf-model/examples/sub_pixel_width_census`)
+/// — and ADR 1102 draws such a rule, wider than one level of a device pixel, as the stroke the
+/// document states, caps included, its outline filled through `render_cpu::area`. So ours sits on
+/// `mupdf`'s ladder at the page's own scale, 0.09 of a level above its own eight-times figure, and
+/// every reference sits 3.5 to 7.8 levels above it, which is this group's whole subject.
 ///
-/// `doc/todo/00`'s step-7 sweep reads it the other way and its own note already says why: this page
-/// went −1.712 → **−2.956** of our ink minus the lightest reference's, because moving toward a
-/// geometry every reference overpaints is moving away from all of them. ADR 0290 moves it back to
-/// −2.823 for the same reason in reverse.
+/// `doc/todo/00`'s step-7 sweep reads it the other way and its own note already says why: our ink
+/// minus the lightest reference's is **−3.504** on this page (7.000 against `mupdf`'s 10.504 on the
+/// gate's panels), because moving toward a geometry every reference overpaints is moving away from
+/// all of them.
 ///
 /// ## What the references are doing on that page, settled in the five-hundred-and-eighty-fourth
 ///
@@ -8682,12 +8668,15 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///    width   geometry      ours   poppler     mupdf        gs     hayro
 ///   0.1366     0.1393     0.136      1.02     0.204     0.272     1.024
 ///     0.05     0.0510     0.048      1.02     0.204     0.272     1.024
-///    0.001     0.0010         0      0.128     0.204     0.272     1.024
+///    0.001     0.0010     0.008      0.128     0.204     0.272     1.024
 /// ```
 ///
 /// Each reference floors a sub-pixel rule at a **device-pixel** width — the same numbers at 8× —
 /// and **no two of the four floors agree**: `poppler` and `hayro` at 1.0 device pixels, `mupdf` at
-/// 0.2, `ghostscript` at 0.27. Ours is the straight line through the origin at both resolutions.
+/// 0.2, `ghostscript` at 0.27. Ours is the straight line through the origin at 576 dpi, and at 72
+/// dpi down to one level of a device pixel: below that ADR 1102 states the rule at that level,
+/// which is §10.7.4's "at least as large" and the 0.008 of the last row (re-taken on a rebuilt
+/// fixture of the same construction).
 /// Ask the three C references for the clause's *own* algorithm instead — `pdftoppm -aa no`,
 /// `gs -dGraphicsAlphaBits=1`, `mutool draw -A 0` — and the disagreement vanishes: **1.02 apiece at
 /// every sub-pixel width**, one whole device pixel, which is §10.7.4 read literally. They agree
@@ -8711,7 +8700,7 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// `issue12963.pdf` page 7 is page 8's neighbour and says the same thing more exactly: `poppler`
 /// descends onto **9.5574** and `mupdf` onto **9.5584** — one thousandth of a level apart, which
 /// is two independent programs agreeing about a geometry rather than two programs being close —
-/// and ours at 8× is 9.5344, 0.023 under. At the page's own scale ours is 9.510 and `poppler`
+/// and ours at 8× is 9.5346, 0.023 under. At the page's own scale ours is 9.517 and `poppler`
 /// 9.888, a third of a level *over* its own limit. Same document, same finding, four figures.
 /// # And the other four pages of that document, in the three-hundredth, which finish it
 ///
@@ -8721,16 +8710,16 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///
 /// ```text
 ///          poppler 72   poppler 576   mupdf 576    apart     ours 1x   ours - limit
-/// page 2     10.9983      10.7058      10.7062    0.0004     10.647      -0.059
-/// page 3     11.9148      11.5641      11.5645    0.0004     11.5037     -0.061
-/// page 4      9.6651       9.3382       9.3375    0.0007      9.2901     -0.048
-/// page 5     10.9246      10.6455      10.6461    0.0006     10.6236     -0.022
+/// page 2     10.9983      10.7058      10.7062    0.0004     10.6544     -0.051
+/// page 3     11.9148      11.5641      11.5645    0.0004     11.5111     -0.053
+/// page 4      9.6651       9.3382       9.3375    0.0007      9.2976     -0.041
+/// page 5     10.9246      10.6455      10.6461    0.0006     10.6006     -0.045
 /// ```
 ///
 /// **Two independent programs agreeing about a geometry to 0.0004 of 255 is the tightest limit
 /// this bucket has measured**, four figures better than page 7's thousandth, and it is measured
 /// four times over on one document. At the page's own scale `poppler` is 0.28 to 0.35 *over* its
-/// own limit and ours is 0.02 to 0.06 under it — a form of five-point type and comb cells is
+/// own limit and ours is 0.04 to 0.05 under it (re-taken after ADR 1082) — a form of five-point type and comb cells is
 /// thin marks all the way down, which is this group's standing subject.
 ///
 /// The verdict is `ambiguous` rather than agreeing because `ghostscript` draws the same form a
@@ -8745,8 +8734,7 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// recording that the page did not move. **It could not have moved.** Expanded with `qpdf --qdf
 /// --object-streams=disable`, the document states `/Pattern` zero times and `SCN` zero times, so
 /// neither arm of `Interpreter::tile` is reached on it at all; what it states is the 65 859
-/// sub-pixel strokes above, in a flat colour. The gap reproduces at −2.362 and the verdict is
-/// unchanged. ADR 0738.
+/// sub-pixel strokes above, in a flat colour, and the verdict is unchanged. ADR 0738.
 ///
 /// # And every figure above was true of a page drawn wrong, which took opening it
 ///
@@ -8761,11 +8749,10 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// The ink was conserved by the widening and then a fifth of it was rounded away; a ladder sees
 /// neither. ADR 0945 has the arithmetic, the fix and the census that prices it.
 ///
-/// **What that changes here is a figure and not the verdict.** Ours at the page's own scale is
-/// 7.1795 where it was 8.0147, descending onto 6.8047 at eight times — 5.5% above the page's own
-/// geometry where it stood 17.8% above — so this group's premise holds more sharply than before:
-/// every renderer paints more than the geometry and ours least, and it is now least by less. The
-/// page is `ambiguous` on both sides of the change, because the four references still floor a
+/// **What that changed here is a figure and not the verdict**, and ADR 1102's outline changed it
+/// again: ours at the page's own scale is 7.000, descending onto 6.911 at eight times — 1.3% above
+/// its own geometry — so every reference paints more than the geometry and ours paints the
+/// geometry. The page is `ambiguous`, because the four references still floor a
 /// sub-pixel stroke at four device-pixel widths no two of which agree.
 const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
     "issue12963.pdf page 2",
@@ -9285,26 +9272,29 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 /// Three pages of small marks — `issue7339_reduced.pdf` at 115×220, `issue21570.pdf` at 842×595
 /// and `personwithdog.pdf` at 612×792 — where the five renderers spread by more than a bound and
 /// none of them is drawing anything the others are not. Step 6's closed form, taken with two
-/// ladders at 576 dpi:
+/// ladders at 576 dpi; the four references are at the page's own scale, and ours is given at both
+/// (`examples/render_at`, re-taken after ADR 1082 made this tree's coverage an area and ADRs 1058
+/// and 1217 changed how a shading such as `personwithdog.pdf`'s is subdivided):
 ///
 /// ```text
-///                        limit           ours     hayro    poppler   mupdf    ghostscript
-/// issue7339_reduced   11.636 / 11.561   11.554   13.181   13.082   12.024   12.904
-/// issue21570          12.562 / 12.547   12.554   12.565   12.683   12.547   12.852
-/// personwithdog       21.991 / 21.101   21.620   20.901   22.114   20.911   21.532
+///                        limit           ours 1x / 8x       hayro    poppler   mupdf    ghostscript
+/// issue7339_reduced   11.636 / 11.561   11.591 / 11.526   13.181   13.082   12.024   12.904
+/// issue21570          12.562 / 12.547   12.564 / 12.555   12.565   12.683   12.547   12.852
+/// personwithdog       21.991 / 21.101   21.732 / 21.814   20.901   22.114   20.911   21.532
 /// ```
 ///
-/// **On the first two ours is inside a hundredth of the limit and every other renderer is above
-/// it**, by up to 1.6 of 255 — §10.7.4 as written applied to marks a fraction of a pixel wide,
-/// which is this group's standing subject and ADR 0025's documented departure from the other
-/// side.
+/// **On the first two ours is within 0.04 of the limit at eight times** — 0.035 under the lower
+/// ladder on the first and between the two ladders on the second — while every reference but the
+/// ladder's own `mupdf` is above it at the page's own scale, by up to 1.6 of 255: §10.7.4 as
+/// written applied to marks a fraction of a pixel wide, which is this group's standing subject and
+/// ADR 0025's documented departure from the other side.
 ///
 /// **The third is a result about the instrument rather than about the page, and it is the first
 /// of its kind.** `poppler` and `mupdf` at 576 dpi are 0.89 apart, where on the other two they
 /// agree to a hundredth — so there is no limit to take, and the two-ladder rule the
 /// two-hundred-and-sixteenth session added is doing exactly what it was added for: one ladder
 /// cannot tell convergence from drift, and two say when neither has converged. Ours sits in the
-/// middle of the five at 21.62 and nothing here can rank them. That is a page for a heatmap and
+/// middle of the five at 21.73 and nothing here can rank them. That is a page for a heatmap and
 /// a later session, and it is listed rather than explained.
 ///
 /// **And "a later session" came in the four-hundred-and-fifteenth, which answered it without a
@@ -9315,11 +9305,10 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 /// the ladders said while it was here, and the two references being 0.89 apart where they agree
 /// to a hundredth elsewhere reads differently once the page is known to be printed in ink.
 ///
-/// **The four-hundred-and-twenty-sixth drew it in ink and the page is back**, with the same
-/// verdict and a ladder that moved by exactly the amount ADR 0262 predicts: ours is **21.620 →
-/// 21.720** at the page's own scale and 21.722 → 21.822 at 576 dpi, +0.100 of 255 at both, and
-/// the direction is the one ADR 0251 derived — half a covering of ink over ink is darker than
-/// the average of the two colours it converts to. Still inside the 21.991 / 21.101 bracket and
+/// **Drawn in ink the page is back**, with the same verdict and a ladder that moved by the amount
+/// ADR 0262 predicts, +0.100 of 255 at both scales, in the direction ADR 0251 derived — half a
+/// covering of ink over ink is darker than the average of the two colours it converts to. The
+/// figures in the table above are re-taken since, and still inside the 21.991 / 21.101 bracket and
 /// still in the middle of the five, so nothing about the ranking changed; what changed is that
 /// the page is no longer reported, which is what puts it back in front of this gate.
 /// # A fourth in the three-hundred-and-fifth, where ours lands *between* the two limits
@@ -9330,11 +9319,11 @@ const AMBIGUOUS_TABLE_RULE_EDGES: [&str; 3] = [
 ///                 72 dpi    576 dpi
 /// poppler        20.8373   20.7291
 /// mupdf          20.6976   20.7084
-/// ours (1x, 8x)  20.6243   20.7117
+/// ours (1x, 8x)  20.6993   20.7094
 /// ```
 ///
 /// The two ladders bracket the geometry within **0.021 of 255** and ours at eight times sits
-/// between them, 0.017 from one and 0.003 from the other — the tightest a renderer can be to a
+/// between them, 0.020 from one and 0.001 from the other (re-taken after ADR 1082) — the tightest a renderer can be to a
 /// limit, which is inside it. `ghostscript` is **20.62 against 23.93**, 3.2 of 255 above all four
 /// of the others at the page's own scale, and it is the whole reason the verdict is `ambiguous`:
 /// trap 12's arithmetic with one reference far enough out to drag the consensus apart.
@@ -9838,25 +9827,30 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 /// is 2% of the ink.
 ///
 /// Step 6's closed form says who is measuring the outlines. `poppler` at 72, 576 and 2304 dpi
-/// gives 40.81, 43.17, **43.26**, so the glyphs cover 43.3 of 255. At the page's own scale:
+/// gives 40.81, 43.17, **43.26**, so the glyphs cover 43.3 of 255. At the page's own scale, each
+/// renderer on its own uncropped raster (ours re-taken after ADR 1082, which made this tree's
+/// coverage an area):
 ///
 /// ```text
-/// ours 43.32   hayro 43.55   poppler 40.81   mupdf 40.88   ghostscript 61.38
+/// ours 40.93   poppler 40.81   mupdf 40.88   ghostscript 61.38
 ///              └ the limit is 43.26
 /// ```
 ///
-/// **Ours is on the geometry to three figures.** `poppler` and `mupdf` are 5.7% under it at 72
-/// dpi and converge on it by 576 — which is hinting, a thing that exists to make small text
-/// legible and by construction moves ink; `ghostscript` is 42% over, which is §10.7.4 as written
-/// applied to stems a fraction of a pixel wide. The verdict is `ambiguous` because five
-/// renderers disagree by more than any bound can call, on a page of fifteen rows.
+/// **Ours, `poppler` and `mupdf` are the same 5.4 to 5.7% under the limit at 72 dpi, and it is
+/// not hinting: it is the page's last row.** The page is 14.218 points tall and all three
+/// rasterise it to 15 rows, so at the page's own scale the ink is spread over a fifteenth more
+/// raster than it covers — 43.26 × 14.218 / 15 is 41.0 — and by 576 dpi the partial row is a
+/// hundredth of the raster and all three are on the limit. `ghostscript` rasterises it to 14 rows
+/// and is 42% over, which is §10.7.4 as written applied to stems a fraction of a pixel wide. The
+/// verdict is `ambiguous` because the renderers disagree by more than any bound can call, on a
+/// page of fifteen rows.
 /// # Two more, both of them one word on a page the size of a postage stamp
 ///
 /// `endchar.pdf` is 40×50 device pixels and draws a single `É` from an embedded `/FontFile3`
 /// whose name is its own hypothesis — the CFF `endchar` operator's four-argument form, which
 /// composes an accented character out of two glyphs. **All five renderers compose it**, so the
 /// hypothesis is answered and what is left is one outline's edges. `poppler` at 2304 dpi gives
-/// 60.98 and at 72 gives 59.06; ours 59.39, `ghostscript` 59.66, `mupdf` 58.16, `hayro` 62.84 —
+/// 60.98 and at 72 gives 59.06; ours 59.34, `ghostscript` 59.66, `mupdf` 58.16, `hayro` 62.84 —
 /// five renderers spanning 4.7 levels about a limit of 61.0, on a page where one glyph is all
 /// the ink there is.
 ///
@@ -9869,58 +9863,56 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 ///
 /// ```text
 ///                   72       288       576      2304
-/// ours          59.4874   59.8367   61.1486   60.9729
+/// ours          59.3418   60.3485   60.8577   60.9891
 /// mupdf         58.1554   59.9419   60.6850   60.9314
 /// poppler       59.0589   60.3054   60.8458   60.9757
 /// ghostscript   59.6630   61.4630   60.9818   61.0843
 /// ```
 ///
-/// **Four independent ladders land within 0.153 of 255 of each other**, ours between `mupdf`'s and
-/// `poppler`'s, so the geometry is 60.93 to 61.08 and every one of the four converges on it —
+/// **Four independent ladders land within 0.153 of 255 of each other**, ours between `poppler`'s
+/// and `ghostscript`'s (re-taken after ADR 1082), so the geometry is 60.93 to 61.08 and every one of the four converges on it —
 /// including this tree's. What is left at 72 dpi is a spread of 1.51 of 255 over a raster of
 /// **15 × 34 device pixels**, which is this group's sentence rather than a defect: the coverage is
 /// agreed and what differs is where the covered pixels are.
 ///
 /// **And on this page the ladder is the right instrument, which is a thing to check rather than to
-/// assume** (ADR 0688). `endchar.pdf` is eleventh on [`rank_the_pages_we_are_alone_on`] at 2.36×,
+/// assume** (ADR 0688). `endchar.pdf` is eleventh on [`rank_the_pages_we_are_alone_on`] at 2.12×,
 /// marked `[widened: outside]`, and the gate names both halves: ours is the **mean against
-/// `mupdf`**, 1.97, and the divisor is the **mean between `poppler` and `ghostscript`**, 0.83. Like
-/// for like, so this page's number may be read as the ratio it looks like — one of the three rows
-/// of that list's head whose numerator is a mean at all, the others being
-/// `copy_paste_ligatures.pdf` below and `AMBIGUOUS_OVERSIZED_BORDER`'s page.
+/// `mupdf`**, 1.77, and the divisor is the **mean between `poppler` and `ghostscript`**, 0.83. Like
+/// for like, so this page's number may be read as the ratio it looks like — one of the two rows
+/// of that list's printed head whose numerator is a mean at all, the other being
+/// `AMBIGUOUS_OVERSIZED_BORDER`'s page.
 /// `examples/compare_rasters` over the gate's own panels, that
 /// example's figures and one named pair
 /// per row (ADR 0663), against text bounds of mean 5.00, worst tile 40.00, similarity 0.9000:
 ///
 /// ```text
 ///                           mean      ssim     bounds
-/// ours vs mupdf           9.8343   0.92555     1.97  ← the numerator, on the mean
-/// ours vs poppler        11.6544   0.90148     2.33
-/// ours vs ghostscript    15.0172   0.85351     3.00
+/// ours vs mupdf           8.8431   0.93149     1.77  ← the numerator, on the mean
+/// ours vs poppler        11.8221   0.90708     2.36
+/// ours vs ghostscript    15.2828   0.86008     3.06
 /// poppler vs ghostscript  4.1686   0.98289     0.83  ← the divisor, on the mean
 /// poppler vs mupdf        4.9809   0.98269     1.00
 /// mupdf vs ghostscript    9.0015   0.94456     1.80
 /// ```
 ///
-/// **Our similarity against `mupdf` is 0.92555, which is 0.74 of the bound and therefore inside
+/// **Our similarity against `mupdf` is 0.93149, which is 0.69 of the bound and therefore inside
 /// it**: the accented glyph is in the same place in both rasters and differently covered, which is
 /// the group's own sentence read off the measure that is failing rather than off the one that is
 /// not.
 ///
 /// **One caution the table earns and the ladder cannot state.** A ladder's ink is a *signed page
 /// total* and the gate's mean is a *per-pixel absolute difference*, and the two are not the same
-/// statistic even though both are means: at 72 dpi the ink puts `ghostscript` 0.18 from us and
-/// `mupdf` 1.33, while the gate's mean puts `mupdf` nearest at 9.83 and `ghostscript` furthest at
-/// 15.02. On a raster of 15 × 34 two renderers can cover the same total with different pixels, and
+/// statistic even though both are means: at 72 dpi the ink puts `ghostscript` 0.32 from us and
+/// `mupdf` 1.19, while the gate's mean puts `mupdf` nearest at 8.84 and `ghostscript` furthest at
+/// 15.28. On a raster of 15 × 34 two renderers can cover the same total with different pixels, and
 /// which is nearer then depends on which question is asked. Both answers are above, and neither is
 /// a correction of the other.
 ///
-/// **Three of the four 72-dpi figures above this table reproduce and the fourth is ours**:
-/// `poppler` 59.0589 against a recorded 59.06, `ghostscript` 59.6630 against 59.66, `mupdf`
-/// 58.1554 against 58.16, and *ours* **59.4874 against a recorded 59.39**. So the number that moved
-/// in the rounds between is this tree's own, by 0.10 of 255 on a fifteen-column raster, while every
-/// reference is where it was — which is the only direction of that comparison worth anything, and
-/// is why a note's figures are re-measured rather than cited (ADR 0663).
+/// **Every reference figure in this section reproduces to the digit when re-taken and ours is the
+/// one that moves**, because the scan conversion is this tree's own: the ladder and the table are
+/// ours after ADR 1082. That is the only direction of that comparison worth anything, and it is why
+/// a note's figures are re-measured rather than cited (ADR 0663).
 ///
 /// `issue16316.pdf` is 60×10 device pixels: the word *Experimentation* in an embedded
 /// `NimbusRomNo9L`. Its crop box is **59.813 × 9.375 points**, which has no whole-pixel answer
@@ -9932,9 +9924,9 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 ///
 /// Among the three that agree about the raster, step 6's closed form settles the rest:
 /// `poppler` at 576 and 2304 dpi gives 43.81 and 43.79, so the outlines cover **43.8**, and at
-/// the page's own scale ours is 42.02 against `mupdf`'s 41.09 and `poppler`'s 41.03. Ours is
-/// nearest the geometry and the two `libfreetype` references are 6% under it, which is hinting
-/// — the same result `copy_paste_ligatures.pdf` gives above, on a page of ten rows.
+/// the page's own scale ours is 41.03 against `mupdf`'s 41.09 and `poppler`'s 41.03. All three
+/// are 6% under the geometry for the reason `copy_paste_ligatures.pdf` gives above: 9.375 points
+/// rasterised to 10 rows, and 43.79 × 9.375 / 10 is 41.05.
 ///
 /// # Everything above this line spent sessions attached to a different group
 ///
@@ -9963,32 +9955,33 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 ///
 /// ```text
 /// copy_paste_ligatures.pdf   72 dpi   288 dpi   576 dpi
-///   ours (1x/4x/8x)          40.431    43.496    43.126
+///   ours (1x/4x/8x)          40.927    43.168    43.166
 ///   poppler                  40.807    43.164    43.174
 ///   mupdf                    40.879    43.190    43.191
 ///   ghostscript              61.383    44.995    43.221
 ///
 /// issue16316.pdf
-///   ours (1x/4x/8x)          42.023    43.467    43.532
+///   ours (1x/4x/8x)          41.028    43.182    43.787
 ///   poppler                  41.030    43.138    43.813
 ///   mupdf                    41.085    43.252    43.836
 ///   ghostscript              45.882    43.467    43.970
 /// ```
 ///
 /// **Two reference ladders converge to 0.017 of 255 of each other on the first page** and to
-/// 0.023 on the second, and ours ends 0.05 and 0.28 under them. On `issue16316.pdf` ours at
-/// 72 dpi is **1.51 under its own limit where `poppler` is 2.78 and `mupdf` 2.75 under
-/// theirs**, which is the nearest of the four.
+/// 0.023 on the second, and ours ends 0.008 to 0.025 under them on the first and 0.026 to 0.049
+/// on the second (re-taken after ADR 1082). At 72 dpi the three that share the raster are **2.2 to
+/// 2.8 under their own eight-times figures on both pages**, which is the partial row's arithmetic
+/// and the same for all three.
 ///
-/// **Our 40.43 here and the 43.32 four paragraphs up are the same render**, and the difference
+/// **Our 40.93 here and the 43.85 on the gate's panel are the same render**, and the difference
 /// is `doc/todo/00` step 3's: that figure came off `<stem>-p1-ours.png`, which is our raster
 /// after `normalise::to_common_size` cropped its last row away, and dropping a blank row from a
 /// fifteen-row page raises the mean by a fifteenth. The ladder above is `examples/render_at`'s
 /// output, uncropped, which is the only place our own page size can be read.
 ///
-/// So the *coverage* is agreed — the five renderers' inks sit within 0.6 of 255 on
-/// `copy_paste_ligatures.pdf` once `ghostscript` is set aside, and within 1.9 on `endchar.pdf`
-/// — and the group's name is a claim the measurement does not support. What differs is
+/// So the *coverage* is agreed — the three renderers that share `copy_paste_ligatures.pdf`'s
+/// 143 × 15 raster sit within 0.12 of 255 of each other on it, and four of the five within 1.51 on
+/// `endchar.pdf` — and the group's name is a claim the measurement does not support. What differs is
 /// **where** the covered pixels are, which is §10.7.4's closing sentence:
 ///
 /// > Scan conversion of character glyphs may be performed by a different algorithm from the
@@ -10001,7 +9994,7 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 ///
 /// # And `ghostscript` on `copy_paste_ligatures.pdf` is a renderer rather than a page
 ///
-/// Its 72 dpi ink is **61.38 against four renderers within 0.56 of each other** and its own
+/// Its 72 dpi ink is **61.38 against three renderers within 0.12 of each other** and its own
 /// 576 dpi value is 43.22, so it descends 18 levels onto the same geometry as everybody else:
 /// its excess at the page's own scale is scan conversion of an embedded `TimesNewRomanPSMT`
 /// subset and not a substituted face, which the four-panel strip invites and the ladder
@@ -10009,8 +10002,8 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 ///
 /// # Which bound `copy_paste_ligatures.pdf` is alone on, which the ink above cannot say
 ///
-/// It is **marked `[widened: outside]`** on [`rank_the_pages_we_are_alone_on`] — 2.81 ours over
-/// 1.71 between `poppler` and `mupdf`, 1.65× and below that list's readable cut while the
+/// It is **`[widened: outside]`** on [`rank_the_pages_we_are_alone_on`]'s arithmetic — 2.71 ours
+/// over 1.71 between `poppler` and `mupdf`, 1.58× and below that list's printed head while the
 /// per-measure test fires (ADR 0684) — and the paragraphs above price the page in ink, which is
 /// not the measure any of that is taken on. `examples/compare_rasters` over the gate's own panels,
 /// whose figures are **that example's and not this gate's**, one named pair per row where the
@@ -10018,21 +10011,22 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 ///
 /// ```text
 /// at the gate's own 143 x 14
-/// ours vs mupdf          mean 14.0709  ssim 0.85082      poppler vs mupdf        mean  8.5400  ssim 0.94612
-/// ours vs poppler        mean 15.8362  ssim 0.83136      poppler vs ghostscript  mean 29.6598  ssim 0.62435
-/// ours vs ghostscript    mean 39.6009  ssim 0.39894      mupdf vs ghostscript    mean 33.5215  ssim 0.56207
+/// ours vs mupdf          mean 13.5303  ssim 0.84789      poppler vs mupdf        mean  8.5400  ssim 0.94612
+/// ours vs poppler        mean 15.7354  ssim 0.82919      poppler vs ghostscript  mean 29.6598  ssim 0.62435
+/// ours vs ghostscript    mean 39.7159  ssim 0.39874      mupdf vs ghostscript    mean 33.5215  ssim 0.56207
 /// ```
 ///
-/// Our own number is the **mean** against `mupdf`, 14.0709 of a text bound of 5.00, which is the
-/// 2.81 the list prints; the pair's is the mean too, 8.5400, which is its 1.71. Widen that bound
-/// by `Judgement::CORPUS`'s factor and the mean goes *inside* — 14.0709 against 17.08 — while the
-/// **similarity** does not: 0.85082 against a widened 0.89224. So the measure that puts this page
+/// Our own number is the **mean** against `mupdf`, 13.5303 of a text bound of 5.00, which is
+/// 2.71; the pair's is the mean too, 8.5400, which is its 1.71. Widen that bound by
+/// `Judgement::CORPUS`'s factor and the mean goes *inside* — 13.5303 against 17.08 — while the
+/// **similarity** does not: 0.84789 against a widened 0.89224. Ours re-taken after ADR 1082; the
+/// three reference pairs reproduce to the digit. So the measure that puts this page
 /// above the mark is the one the ink cannot reach, on a raster of 143 × 14 where §10.7.4's licence
 /// for a different glyph algorithm is worth the whole page.
 ///
 /// **And the camps are the sharpest in the bucket.** `hayro`'s raster is 142 wide, so it is not in
 /// the comparison above and both were cropped to 142 × 14 for this one: ours against it is mean
-/// **4.3906** and similarity **0.98537**, closer than any two voting references are to each other,
+/// **1.7901** and similarity **0.99403**, closer than any two voting references are to each other,
 /// where the closest voting pair is 8.5400 and 0.94612. That is `doc/todo/00`'s two-camp reading at
 /// its extreme, and it is evidence about the verdict rather than about us
 /// (`Reference::independence`).
@@ -11178,22 +11172,25 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 /// answers from its own built-in. **Five renderers, four sets of outlines, one clause that
 /// requires none of them.**
 ///
-/// The ink says how much that is worth on page 7 — `poppler` 15.506, `mupdf` 16.402, ours
-/// 17.487, `ghostscript` 18.374, `hayro` 20.518, a spread of **5.0 of 255**, a third of the
-/// page — and the pairwise matrix says who is alone, which is nobody:
+/// The ink says how much that is worth on page 7 — `poppler` 15.506, ours 16.290, `mupdf`
+/// 16.402, `ghostscript` 18.374, `hayro` 20.518, a spread of **5.0 of 255**, a third of the page
+/// — and the pairwise matrix (`magick compare -metric MAE` over the gate's panels, cropped to
+/// their common 595 × 841) says who is alone, which is nobody:
 ///
 /// ```text
 ///              poppler   mupdf   ghostscript   hayro
-/// ours          0.0360  0.0243      0.0265    0.0190
-/// poppler          —    0.0241      0.0274    0.0315
+/// ours          0.0297  0.0178      0.0242    0.0297
+/// poppler          —    0.0241      0.0275    0.0316
 /// mupdf                    —        0.0147    0.0222
 /// ghostscript                          —      0.0182
 /// ```
 ///
-/// Ours against `hayro` is the second-smallest pair of the ten and `poppler` is the furthest
-/// from everybody, including from the two references that share `FreeType` with it. All fourteen
-/// pages sit in one band — mean 4.72 to 7.09, worst tile 16.73 to 23.71, ssim 0.8592 to 0.9052 —
-/// which is the tolerance's design applied to a page whose whole subject is a typeface.
+/// Ours against `mupdf` is the second-smallest pair of the ten and `poppler` is the furthest
+/// from everybody on average, including from the two references that share `FreeType` with it.
+/// All fourteen pages sit in one band — mean 3.41 to 5.89, worst tile 16.85 to 24.65, ssim 0.8810
+/// to 0.9256 on the gate's own run. Ours and that band are re-taken after ADR 1082 and ADR 1102, which
+/// moved this tree's glyph coverage and its thinnest strokes; the references' figures reproduce to
+/// the digit. It is the tolerance's design applied to a page whose whole subject is a typeface.
 ///
 /// **Not `AMBIGUOUS_SUBSTITUTED_FACE`**, which is §9.8.1's *other* route: a face nobody embedded
 /// and nobody standardised, ranked out of whatever this machine holds. Here the clause names the
@@ -11204,7 +11201,7 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 /// embedded** — Helvetica twice, Times three times, Courier-Bold and ZapfDingbats. So it is this
 /// sheet's subject arriving from a document that is not a specimen sheet, and the ladders say the
 /// same thing: `poppler` climbs onto 16.0883 and `mupdf` onto 16.0992 — 0.011 apart, so there is
-/// a limit — while ours is flat at 15.35 to 15.49, **0.60 of 255 below it**. That is 3.7% of the
+/// a limit — while ours is flat at 15.48 to 15.49 from 1× to 8×, **0.61 of 255 below it**. That is 3.7% of the
 /// page's ink, and it is the difference between the Foxit and Liberation Sans outlines compiled
 /// into this binary and URW's read off this machine's disk. Neither is the clause's, because the
 /// clause states
@@ -11217,15 +11214,16 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 ///
 /// ```text
 ///                1x       2x       4x       8x       16x
-/// ours         14.9153  18.1384  18.2702  18.3156  18.2232
+/// ours         18.1749  18.2277  18.3678  18.3677  18.3742
 /// poppler      18.0950                    18.5724 (576 dpi)
 /// mupdf                                   18.6207 (576 dpi)
 /// ```
 ///
-/// The whole of our climb is between 1× and 2× — eleven glyphs on a forty-pixel page is where
-/// scan conversion costs most — and from there ours is flat at 18.2 to 18.3 against a limit the
-/// two references put at 18.57 and 18.62. **0.3 of 255 under, at every resolution**, which is a
-/// systematic difference in the outlines rather than in the pixels: this is the sheet's subject
+/// Ours is flat from the page's own scale up, 18.17 to 18.37, against a limit the two references
+/// put at 18.57 and 18.62, and at 1× it is 0.08 over `poppler` (re-taken after ADR 1082, ADR 1088
+/// and ADR 1095, the decisions about this page's glyph coverage and its clip). **0.2 to 0.4 of 255 under,
+/// at every resolution**, which is a systematic difference in the outlines rather
+/// than in the pixels: this is the sheet's subject
 /// arriving through a widget's appearance stream. `ghostscript` draws 22.05 and `hayro` 15.72 at
 /// the page's own scale, a spread of 6.3 on eleven characters.
 const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 16] = [

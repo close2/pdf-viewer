@@ -1581,9 +1581,11 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
     };
 
     for (action, sentence) in [
+        // A launch naming nothing is declined by Table 207's own "it shall do nothing"; one naming
+        // a file asks for it, and `tests/launch_actions.rs` holds that half (ADRs 1368, 1358).
         (
-            "<< /S /Launch /F (calc.exe) >>",
-            "Launch: running an application, which the sandbox withholds",
+            "<< /S /Launch >>",
+            "Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing",
         ),
         (
             "<< /S /Sound /Sound 9 0 R >>",

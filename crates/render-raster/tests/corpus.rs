@@ -364,9 +364,13 @@ const REFUSED_BY_THE_DEVICE: [&str; 3] = [
 /// was that most of them were *arithmetic against a byte budget* that upstream kept improving:
 /// four pages over the 256 MiB frame budget by 4 % to 20 % is a list that moves the moment
 /// anything is allocated more tightly, and raster's ADRs 0036 to 0039 allocated every plan, mask
-/// and root to what it marks. **Not one page of this corpus is refused for frame bytes at any
-/// scale now**, and what is left at this stage is one page and one ceiling that no allocation
-/// strategy reaches — the two bullets below being what left and what stayed:
+/// and root to what it marks. **What that allocation left refused at this scale is four pages, and
+/// two of them are over the frame's scene-byte budget by far more than any allocation reaches**:
+/// `issue1905.pdf` at *365144861* and `issue12810.pdf` at *609086160 scene-derived bytes*, each
+/// over 268435456, beside `issue9418.pdf`'s coverage sheet and the cycle's resource bytes — a run
+/// of this lane over the four names and the two that left, taken after ADR 0702 rebuilt the scene
+/// in page space and [`PIXEL_BUDGET`]'s raise admitted the second page. The two bullets below are
+/// what left and what stayed:
 ///
 /// - **`22060_A1_01_Plans.pdf` left this list in the five-hundred-and-thirty-ninth session, and
 ///   what took it off was neither a larger budget nor a tighter allocation.** It held 522 014 748
@@ -543,10 +547,10 @@ fn not_comparable_pages() -> Vec<(String, NotComparable)> {
 /// raster's ADR 0049 on the device). Its page is three clipped circles filled with a tiling
 /// pattern of small coloured ellipses, so almost every inked pixel is somebody's curve boundary;
 /// `examples/ink_ladder` puts
-/// the two backends 0.73% apart at 1× and **0.17% apart at 8×**, and the excess shrinks at every
+/// the two backends 0.74% apart at 1× and **0.17% apart at 8×**, and the excess shrinks at every
 /// rung, which is that instrument's signature for a per-boundary cost rather than a shape. Both
 /// backends read heavier at the page's own scale than at eight times it — ours by 0.68% and
-/// raster's by 0.12% — which is the side §10.7.4's "[t]he area covered by painted pixels shall
+/// raster's by 0.11% — which is the side §10.7.4's "[t]he area covered by painted pixels shall
 /// always be at least as large as the area of the original shape" asks for. Flattening is not the
 /// difference and that is measured rather than assumed: at tolerances of 1/16, 1/64, 1/256 and
 /// 1/1024 of a device pixel the page's ink reads 13002.05, 13022.88, 13030.50 and 13031.90, so the
@@ -559,8 +563,8 @@ const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
 ///
 /// The name is the *classifier's*, and every page here has been examined; none is an open
 /// question. Each is below with the clause that says which backend is right and the ask that
-/// would take it off. The pages that left, and why, are the ADRs this list cites and
-/// `doc/history/`; what is written here is only what holds for the four that stay.
+/// would take it off. The pages that left, and why, are the ADRs this list cites, ADR 1361 for
+/// the strokes, and `doc/history/`; what is written here is only what holds for the one that stays.
 ///
 /// **`issue19083.pdf` is a clip taken as a product at a coincident boundary.** It is one widget
 /// appearance whose `/BBox` is `[0 0 125.25 20]` and whose whole content is `0.5 0.5 124.2502 19
@@ -570,45 +574,10 @@ const DIFFERS_AT_THE_EDGES: [&str; 1] = ["issue2177.pdf"];
 /// clipping region with the set of pixels for the region to be painted"; `render-cpu` composes the
 /// two with `min` (ADR 0355, ADR 0535) and raster multiplies them inside the graphics library,
 /// which squares a mark's coverage where its own edge and its clip's share a pixel.
-/// `examples/ink_ladder` reads raster 396.96 at 1× against the oracle's 448.52 and level with it by
+/// `examples/ink_ladder` reads raster 396.58 at 1× against the oracle's 448.33 and level with it by
 /// 4×, the signature of a per-boundary cost. The oracle is the side the clause states, and
 /// `doc/QUORRA_FEEDBACK.md` section 24c is the ask.
-///
-/// **`issue15150.pdf` and `issue20232.pdf` are paths whose own portions overlap**, and the
-/// paragraph on [`differing_pages`] that begins "Raster long at 1×" reads them against §8.5.3.3 and
-/// §10.7.4: raster clamps the winding *integral* per pixel where the clauses define a set, so a
-/// region wound twice is drawn heavier than the region. Both are `doc/QUORRA_FEEDBACK.md` section
-/// 45. `issue15150.pdf`'s whole content stream is `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s`, whose
-/// stroked region is the device rectangle `[0, 0.5] × [0, 0.5]` — a quarter of pixel (0, 0). The
-/// oracle draws **0.251** of that pixel, the area itself (ADR 1082); raster draws 0.5, twice the
-/// area, at this scale only — the two agree at 2× and above. Erring heavy is the side §10.7.4's
-/// third sentence permits, so this is a difference rather than a defect.
-///
-/// **`ContentStreamNoCycleType3insideType3.pdf`** is a tiling cell of stroked text, 20 units wide,
-/// inside a Type 3 glyph inside a Type 3 glyph. §8.7.3.1 starts the cell from the graphics state
-/// its parent stream began with, and that stream is the inner glyph's description, which begins in
-/// text rendering mode 2 with a red stroke of that width (ADR 1320) — so the cell's strokes cross
-/// its own box on every side. The oracle draws them solid; raster draws fans of radial slivers
-/// across the letters, through which the magenta fill under each stroke shows, and is 4% short of
-/// the oracle's ink at every rung of `examples/ink_ladder` from 1× to 8× — an area missing, not a
-/// boundary cost. Mean 0.089 over the page and 9.27 at the worst tile.
-///
-/// §8.4.3.2 settles which side is right without either backend: "stroking a path shall entail
-/// painting all points whose perpendicular distance from the path in user space is less than or
-/// equal to half the line width", and a stroke far wider than a glyph's counters covers them. The
-/// slivers are raster's joins: a join on a turn of one sign is wound against the quads it joins,
-/// so where half the width exceeds the curve's radius each join cancels the quads it overlaps, and
-/// the same path stated the other way round draws solid. `doc/QUORRA_FEEDBACK.md` section 54 is the
-/// ask, with a fixture measured against the distance set itself. What may remain after it is
-/// answered is §8.7.3.1's own and not a defect: the cell's `/BBox` is 60 × 60 under `/XStep 55
-/// /YStep 32`, so adjacent tiles overlap, and "[t]he order in which individual tiles (instances of
-/// the cell) are painted is unspecified and unpredictable".
-const DIFFERS_IN_SHAPE: [&str; 4] = [
-    "ContentStreamNoCycleType3insideType3.pdf",
-    "issue15150.pdf",
-    "issue19083.pdf",
-    "issue20232.pdf",
-];
+const DIFFERS_IN_SHAPE: [&str; 1] = ["issue19083.pdf"];
 
 /// The two groups as one list, sorted as the run produces them.
 ///
@@ -650,8 +619,8 @@ const DIFFERS_IN_SHAPE: [&str; 4] = [
 ///
 /// **A page whose totals part is the other shape**, and the way the gap moves along the ladder
 /// says what it is. A gap that halves at every rung is a cost paid per boundary pixel, and one
-/// page here is still made of that: `issue19083.pdf` reads raster 396.96 at 1× against the
-/// oracle's 448.52 and is level with it by 4×, which is ADR 0355's clip-against-the-mark product
+/// page here is still made of that: `issue19083.pdf` reads raster 396.58 at 1× against the
+/// oracle's 448.33 and is level with it by 4×, which is ADR 0355's clip-against-the-mark product
 /// measured in ink instead of in pixels — §10.7.4 asks for "the intersection of the set of pixels
 /// defined by the clipping region with the set of pixels for the region to be painted", and a
 /// product at a coincident boundary takes ink an intersection does not. It is the page that is
@@ -659,28 +628,6 @@ const DIFFERS_IN_SHAPE: [&str; 4] = [
 /// it by, so the clip genuinely cuts and ADR 1088's rule declines it by name;
 /// `doc/QUORRA_FEEDBACK.md` section 24c is the standing ask, and it is where this measurement
 /// is written down.
-///
-/// **Raster long at 1× and halving its excess is the other sign, and it is one defect**:
-/// `issue15150.pdf` (twice the area) and `issue20232.pdf` (+32.2% at 1×, +18.1%, +9.3% and +4.4%
-/// up the ladder to 8×, against an oracle flat at 17 932 to 17 866) are paths whose own portions
-/// overlap — a stroke's expanded quads meeting at a join, or the
-/// out-and-back outline `s` makes of a two-point subpath. §8.5.3.3 defines the painted region as
-/// the points whose winding number is non-zero and §10.7.4 makes a pixel's coverage the area of
-/// that region inside it, so a region wound twice covers what it covers once. raster integrates
-/// the winding number over the pixel and clamps the *integral*, which is the same defect ADR 1082
-/// found on the oracle and §11.6.2 names — "[p]ortions of an object shall not be composited with
-/// one another". Reproduced away from any document: a 0.75-wide band on an 8 × 4 page reads 2.9961
-/// on both backends stated once and 2.9961 against raster's **4.0000** stated twice, at 1× and at
-/// 2× alike. `doc/QUORRA_FEEDBACK.md` section 45 is the ask.
-///
-/// **`issue15150.pdf` is 449 bytes and the two backends still part on it**:
-/// `0.5 w 1 0 0 RG 0 9.75 m 0.5 9.75 l s` on a 10 × 10 page, whose stroked region is the device
-/// rectangle `[0, 0.5] × [0, 0.5]` and whose area is therefore a quarter of pixel (0, 0). Both
-/// backends draw that area at 2× and above; at 1× `render-cpu` lays down **0.251**, the area
-/// itself, by `pdf_render::sub_pixel_bands`' closed form, and raster 0.5. `s` closes the subpath,
-/// so the outline is the same rectangle traversed twice the same way round — one region by
-/// §8.5.3.3's winding rule and two by an integral that is clamped after it is accumulated, which
-/// is the `issue20232` defect above on the smallest page that states it.
 fn differing_pages() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = DIFFERS_AT_THE_EDGES
         .iter()

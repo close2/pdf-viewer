@@ -5668,3 +5668,15 @@ second contour, and once that offset turns inside out its winding cancels the ou
 `stroke_path` leaves the same hole. You draw both solid. That is ours to fix in `render-cpu`, and it
 is written here so that the circle fixture is not read as evidence against your side when it is run
 against ours.
+
+**Answered (ADR 1361).** `join_at` now visits the wedge's outer corners in the rectangles' order on
+both turns, so every piece is wound one way; and the pieces meet edge to edge wherever the half-width
+allows — each rectangle cut along the line from the vertex to where the inner edges cross, and at an
+exact reversal the shorter rectangle not emitted, since the longer holds it — so a rim pixel no
+longer counts an overlap twice. Round joins and caps are cut to the flatness tolerance rather than a
+fixed angle. Against the distance set, drawn both ways at 1× to 8×: the hook 557.87 → 564.30
+(565.50), the circle 188.17 → 188.50 (188.52), the same circle as a 64-gon within 0.06 of its closed
+form 188.42 at every rung. `render-raster --test corpus` went from 946 agree / 5 differ to 949 / 2:
+`ContentStreamNoCycleType3insideType3.pdf` (5117.46 against 5121.42 at 1×), and section 45's two
+stroke pages `issue20232.pdf` and `issue15150.pdf` (their out-and-back subpaths), left the list.
+Section 45's fill case — a filled path stated twice — is not the stroker's and stands.

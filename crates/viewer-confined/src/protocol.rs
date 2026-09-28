@@ -1428,6 +1428,7 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 Purpose::RemoteDocument => 2,
                 Purpose::NamedPage => 3,
                 Purpose::ThreadDocument => 4,
+                Purpose::LaunchDocument => 5,
             });
             match bytes {
                 Some(bytes) => {
@@ -1867,6 +1868,7 @@ pub(crate) fn decode_command_holding(
                 2 => Purpose::RemoteDocument,
                 3 => Purpose::NamedPage,
                 4 => Purpose::ThreadDocument,
+                5 => Purpose::LaunchDocument,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -2344,6 +2346,7 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                     Purpose::RemoteDocument => 2,
                     Purpose::NamedPage => 3,
                     Purpose::ThreadDocument => 4,
+                    Purpose::LaunchDocument => 5,
                 })
                 .str(name)
                 .bool(*beside);
@@ -2582,6 +2585,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                 2 => Purpose::RemoteDocument,
                 3 => Purpose::NamedPage,
                 4 => Purpose::ThreadDocument,
+                5 => Purpose::LaunchDocument,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "a purpose",
@@ -4417,6 +4421,15 @@ mod tests {
                 purpose: Purpose::ThreadDocument,
                 bytes: None,
             },
+            // §12.6.4.6's Table 207 `/F`: the sixth, whose bytes may not be a PDF (ADR 1358).
+            Command::Supply {
+                purpose: Purpose::LaunchDocument,
+                bytes: Some(b"#!/bin/sh".to_vec()),
+            },
+            Command::Supply {
+                purpose: Purpose::LaunchDocument,
+                bytes: None,
+            },
             // §10.8.3's simulation, in both of its answers: one bit, and a bit is where an
             // encoding that wrote the wrong byte would look like the other answer.
             Command::Separations(true),
@@ -4659,6 +4672,12 @@ mod tests {
                 purpose: Purpose::ThreadDocument,
                 name: "articles.pdf".to_owned(),
                 beside: false,
+            },
+            Event::NeedsFile {
+                document,
+                purpose: Purpose::LaunchDocument,
+                name: "file1.pdf".to_owned(),
+                beside: true,
             },
             Event::Transition {
                 document,

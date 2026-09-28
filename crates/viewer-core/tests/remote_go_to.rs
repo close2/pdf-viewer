@@ -532,3 +532,111 @@ fn a_remote_file_that_asks_for_a_password_is_asked_about_under_its_own_name() {
         "the document holding the link is untouched"
     );
 }
+
+/// §12.6.4.6's launch action naming a file: the corpus's own case, `issue17846.pdf`'s object 28.
+const LAUNCH: &str = "<< /S /Launch /F (file1.pdf) /NewWindow true >>";
+
+/// Table 207's `/F` — "[t]he application that shall be launched or the document that shall be
+/// opened or printed" — is asked of the host under a purpose of its own, with `/NewWindow` beside
+/// it, because only the bytes can say which of the two it names (ADRs 1368, 1358).
+#[test]
+fn a_launch_action_naming_a_file_asks_for_it_under_its_own_purpose() {
+    let (_, events) = asked(LAUNCH);
+    let asked_for: Vec<(Purpose, String, bool)> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::NeedsFile {
+                purpose,
+                name,
+                beside,
+                ..
+            } => Some((*purpose, name.clone(), *beside)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked_for,
+        [(Purpose::LaunchDocument, "file1.pdf".to_owned(), true)],
+        "the purpose is the launch's, not a remote go-to's, and Table 207's /NewWindow travels"
+    );
+    assert!(
+        notes(&events).is_empty(),
+        "nothing is refused before the bytes say what they are"
+    );
+}
+
+/// A launched file whose §7.5.2 header says it is a PDF is opened, where opening it puts it.
+///
+/// Table 207 names no destination, so the named wrong answer is a jump to a page the action never
+/// named — the third, which [`REMOTE`] would have gone to.
+#[test]
+fn a_launched_pdf_is_opened_where_opening_it_puts_it() {
+    let (mut viewer, _) = asked(LAUNCH);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::LaunchDocument,
+            bytes: Some(plain(4)),
+        })
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Opened { pages: 4, .. })),
+        "the file the launch named is the document now open"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { index, .. } if *index != 0)),
+        "and it opens at its first page, since Table 207 names none"
+    );
+    assert!(
+        notes(&events)
+            .iter()
+            .any(|note| note == "opened file1.pdf, 4 page(s), as the launch action asked"),
+        "{:?}",
+        notes(&events)
+    );
+}
+
+/// A launched file that is not a PDF is an application, and starting one is the sandbox's refusal.
+#[test]
+fn a_launched_file_that_is_not_a_pdf_is_an_application_the_sandbox_withholds() {
+    let (mut viewer, _) = asked(LAUNCH);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::LaunchDocument,
+            bytes: Some(b"MZ\x90\x00 an executable".to_vec()),
+        })
+        .collect();
+    assert_eq!(
+        notes(&events),
+        [
+            "this link declines — Launch: file1.pdf is not a PDF document (§7.5.2's header), so \
+          Table 207 makes it an application to launch, which the sandbox withholds"
+                .to_owned()
+        ],
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Opened { .. })),
+        "and nothing was opened"
+    );
+}
+
+/// A host that will not supply a launch's file is answered in the launch's own name.
+#[test]
+fn a_launch_file_the_host_will_not_supply_is_declined_by_name() {
+    let (mut viewer, _) = asked(LAUNCH);
+    let events: Vec<Event> = viewer
+        .handle(Command::Supply {
+            purpose: Purpose::LaunchDocument,
+            bytes: None,
+        })
+        .collect();
+    assert_eq!(
+        notes(&events),
+        ["this link declines — Launch: file1.pdf was not supplied".to_owned()],
+    );
+}

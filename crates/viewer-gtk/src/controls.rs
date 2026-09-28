@@ -34,8 +34,6 @@ pub(crate) enum FieldChange {
         /// The new value: characters, §12.7.5.4's chosen options, or nothing to clear it.
         value: Entered,
     },
-    /// [`viewer_core::Command::Activate`] on a widget, which is what a push button is for.
-    Activate(ObjectId),
 }
 
 /// A control on the screen, and enough to know whether the next frame may keep it.
@@ -62,10 +60,13 @@ impl std::fmt::Debug for Placed {
 ///
 /// Compared between frames so that a scroll or a zoom *moves* the controls instead of rebuilding
 /// them: rebuilding would take the keyboard away from whatever a person is typing into, and the
-/// page moves under them every time the window is resized.
+/// page moves under them every time the window is resized. Only the fields
+/// [`ControlKind::is_placed`] builds a control for are in it, so that a page holding a push-button
+/// or a signature is not a page whose controls differ from the last frame's on every frame.
 pub(crate) fn signature(fields: &[FormField]) -> Vec<(String, ObjectId)> {
     fields
         .iter()
+        .filter(|field| control_kind(&field.control).is_placed())
         .flat_map(|field| {
             field
                 .widgets
@@ -114,7 +115,6 @@ pub(crate) fn build(
             on,
             no_toggle_to_off,
         } => toggle(field, widget, *on, *no_toggle_to_off, suppress, change),
-        ControlKind::Push => push(field, widget, change),
         ControlKind::Combo {
             options,
             selected,
@@ -126,10 +126,13 @@ pub(crate) fn build(
             multi,
             top,
         } => list(field, options, selected, *multi, *top, suppress, change),
-        // §12.7.5.5's signature has no control to build and Table 226's absent `/FT` names none,
-        // so this host places nothing and the page's own appearance stands. Inventing a control
-        // for either would be a statement about the document that the document did not make.
-        ControlKind::Signature | ControlKind::Unstated => return None,
+        // `ControlKind::is_placed`'s three: the page draws each one's own appearance, because
+        // `pdf_model::form::Control::is_delegable` leaves it there. A push-button's `/AP` is the
+        // producer's whole statement of what it looks like, and a toolkit button labelled with
+        // the field's name would be marks the producer did not draw; its click is the pointer's
+        // and its key is `viewer_host::pressed`'s (ADR 1357). §12.7.5.5's signature has no
+        // control to build and Table 226's absent `/FT` names none.
+        ControlKind::Push | ControlKind::Signature | ControlKind::Unstated => return None,
     };
     // Table 227 bit 1: "the field shall not be modified by the user". The platform's own way of
     // saying so, rather than a refusal after the fact.
@@ -366,17 +369,6 @@ fn toggle(
             }
         }
     });
-    button.upcast()
-}
-
-/// §12.7.5.2.2's push button, "a purely interactive control … without retaining a permanent
-/// value".
-fn push(field: &FormField, widget: &FormWidget, change: &Rc<dyn Fn(FieldChange)>) -> gtk4::Widget {
-    let label = field.name.shown();
-    let button = gtk4::Button::with_label(if label.is_empty() { " " } else { label });
-    let annotation = widget.annotation;
-    let change = Rc::clone(change);
-    button.connect_clicked(move |_| change(FieldChange::Activate(annotation)));
     button.upcast()
 }
 

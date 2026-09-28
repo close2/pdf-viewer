@@ -514,10 +514,11 @@ host places its own furniture — so §12.3.5's collection is what is left of th
 
    **Two asymmetries remain and both are named rather than left silent.** §12.5.6.6's free-text drag
    is `t` in the table and is **refused by name** in the two native hosts, because authoring that
-   annotation is a drag mode plus an editor and both are `doc/todo/33`'s. And on a *delegated* form a
-   real `GtkEntry` or `QLineEdit` has the focus, so the toolkit's own traversal takes Tab before any
-   window controller sees it — what is walked there is the toolkit's order rather than Table 31's
-   `/Tabs`, which is a platform's behaviour and not something this tree can take back.
+   annotation is a drag mode plus an editor and both are `doc/todo/33`'s. On a *delegated* form Tab
+   on the page walks Table 31's `/Tabs` in both native hosts and the keyboard follows the walk — into
+   the `GtkEntry` or `QLineEdit` over the widget it lands on, or to the page, where Space or Enter
+   presses a push-button the page draws (ADR 1357). GTK still moves its own focus on the same key,
+   and the window gives it to the control or the page from an idle once that has happened.
 3. ~~**`viewer-ui`'s password prompt**~~ — **taken in the six-hundred-and-ninety-fifth**
    (ADR 0545), and **it needed no message**, which is the ninth time since the
    six-hundred-and-seventh. `viewer_ui::chrome::PasswordCard` is the tier-2 counterpart of

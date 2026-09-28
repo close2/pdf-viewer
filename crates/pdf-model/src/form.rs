@@ -211,6 +211,37 @@ pub enum Control {
     Unstated,
 }
 
+impl Control {
+    /// Whether a host that places its own controls replaces this field's appearance with one.
+    ///
+    /// **A field whose value a person gives it**: §12.7.5.3's text, §12.7.5.4's choice and
+    /// §12.7.5.2's two toggling kinds, whose states select an appearance by the value. A toolkit
+    /// control shows that value, so the page's picture of it would be the field shown twice.
+    ///
+    /// **The other three keep their appearance, because nothing a toolkit draws replaces it.**
+    /// ISO 32000-2 §6.3.2.2:
+    ///
+    /// > A PDF processor shall also render the appropriate appearance stream for all annotations
+    /// > (12.5.5, "Appearance streams") which have appearance streams designated for this purpose as
+    /// > indicated by the annotation flags (see 12.5.3, "Annotation flags"), unless otherwise
+    /// > instructed.
+    ///
+    /// A push-button "responds immediately to user input without retaining a permanent value"
+    /// (§12.7.5.2.2), so its `/AP` — or the caption and icon Table 192's `/MK` constructs one from
+    /// — is the whole of what the producer said it looks like, and a toolkit button labelled with
+    /// the field's name in its place shows marks the producer did not draw. A signature's value is
+    /// a dictionary (§12.7.5.5) and a field stating no `/FT` names no control at all. ADR 1357.
+    #[must_use]
+    pub fn is_delegable(&self) -> bool {
+        match self {
+            Self::CheckBox { .. } | Self::RadioButton { .. } | Self::Text(_) | Self::Choice(_) => {
+                true
+            }
+            Self::PushButton | Self::Signature | Self::Unstated => false,
+        }
+    }
+}
+
 /// §12.7.5.3's text field, and the five of Table 231's flags that change the control.
 #[expect(
     clippy::struct_excessive_bools,
@@ -378,18 +409,19 @@ pub fn fields(document: &Document, page: &Page, view: &ViewState) -> Vec<FormFie
 
 /// The widget annotations on this page whose appearance a host has undertaken to draw itself.
 ///
-/// **Exactly the widgets [`fields`] answered for**, and that identity is the whole point rather
-/// than an implementation detail: what [`crate::view::WidgetAppearances::Delegated`] leaves out
-/// of the page is what a host was handed a control for, so no appearance can disappear without a
-/// control taking its place. Built from the same call for that reason —
-/// `every_delegated_widget_is_one_a_host_was_told_about` is the assertion, and a second traversal
-/// that agreed today could stop agreeing.
+/// **The widgets [`fields`] answered for, of the fields whose control
+/// [`Control::is_delegable`] says a host replaces**, and built from that same call so that what
+/// [`crate::view::WidgetAppearances::Delegated`] leaves out of the page is exactly what a host was
+/// handed a control for. No appearance can disappear without a control taking its place, and a
+/// second traversal that agreed today could stop agreeing.
 ///
-/// Three kinds of widget are therefore **not** here and keep their appearance. One the field tree
+/// Four kinds of widget are therefore **not** here and keep their appearance. One the field tree
 /// does not reach, which §12.7.4.2 makes "simply a Widget annotation"; one belonging to a field
 /// whose `/Parent` chain runs past this crate's bound, which [`fields`] refuses for the same
-/// reason `crate::appearance::field_text_value` does; and one with no `/Rect`, which is a widget
-/// nothing could place a control over.
+/// reason `crate::appearance::field_text_value` does; one with no `/Rect`, which is a widget
+/// nothing could place a control over; and one whose field has no value a control could show,
+/// which is §12.7.5.2.2's push-button, §12.7.5.5's signature and a field stating no `/FT` (ADR
+/// 1357).
 ///
 /// A [`std::collections::BTreeSet`] rather than a list because the interpreter asks about one
 /// annotation at a time, in `/Annots` order, and this is asked once per page.
@@ -401,6 +433,7 @@ pub fn delegated_widgets(
 ) -> std::collections::BTreeSet<ObjectId> {
     fields(document, page, view)
         .iter()
+        .filter(|field| field.control.is_delegable())
         .flat_map(|field| field.widgets.iter())
         .map(|widget| widget.annotation)
         .collect()

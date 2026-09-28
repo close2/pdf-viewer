@@ -1343,7 +1343,11 @@ impl Viewer {
             // §12.6.4.4's suspended walk, resumed against the root that arrived.
             (Purpose::TargetRoot, Some(bytes)) => interact::resume_root(open, bytes),
             // §12.6.4.3's jump, made against the file Table 203's `/F` named.
-            (Purpose::RemoteDocument, Some(bytes)) => interact::resume_remote(open, bytes),
+            // §12.6.4.6's launch runs the same route, and `resume_remote` reads the bytes'
+            // header before it opens anything (ADR 1358).
+            (Purpose::RemoteDocument | Purpose::LaunchDocument, Some(bytes)) => {
+                interact::resume_remote(open, bytes)
+            }
             // Trap 5 on the one path where a *host* declines: a click that silently does
             // nothing is indistinguishable from a click on nothing.
             (Purpose::ImportData, None) => {
@@ -1358,7 +1362,9 @@ impl Viewer {
                 outcome
             }
             (Purpose::TargetRoot, None) => interact::decline_root(open),
-            (Purpose::RemoteDocument, None) => interact::decline_remote(open),
+            (Purpose::RemoteDocument | Purpose::LaunchDocument, None) => {
+                interact::decline_remote(open)
+            }
             // §12.7.8's named page in a second file, and §12.6.4.7's thread in one (ADR 1239).
             (Purpose::NamedPage, Some(bytes)) => interact::supply_named_page(open, bytes),
             (Purpose::NamedPage, None) => interact::decline_named_page(open),
@@ -1631,7 +1637,7 @@ impl Viewer {
                 purpose,
                 name,
                 beside: match purpose {
-                    Purpose::RemoteDocument => remote_beside,
+                    Purpose::RemoteDocument | Purpose::LaunchDocument => remote_beside,
                     Purpose::TargetRoot => root_beside,
                     Purpose::ImportData | Purpose::NamedPage | Purpose::ThreadDocument => false,
                 },

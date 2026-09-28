@@ -19,14 +19,15 @@
 //! | `ImportData` | §12.7.6.4 | yes — read, and performed by whoever has the file (§12.7.8, ISO 19444-1) |
 //! | `GoToE` | §12.6.4.4 | yes — where the target is embedded in this file, which needs no filesystem |
 //! | `GoToR` | §12.6.4.3 | yes — read here; the file is named rather than opened, and a host supplies it |
+//! | `Launch` | §12.6.4.6 | where `/F` names a file — named as `GoToR`'s is, opened only if it proves to be a PDF |
 //! | `Trans` | §12.6.4.15 | yes — read as §12.4.4's transition; playing one is a window's job |
 //! | `GoToDp` | §12.6.4.5 | yes — the page §14.12's document part begins at |
 //! | `SubmitForm` | §12.7.6.2 | yes — read here, composed by [`crate::submission`], transmitted by whoever has a network |
 //! | everything else | | [`Action::Refused`], by name |
 //!
-//! The refusals are not laziness and they are not uniform. `Launch` wants a file system, which
-//! principle 3's sandbox
-//! deliberately withholds (ADR 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
+//! The refusals are not laziness and they are not uniform. A `Launch` whose file is an
+//! application wants a process started, which principle 3's sandbox deliberately withholds (ADR
+//! 0014); `JavaScript` is on `CLAUDE.md`'s closed exclusion list;
 //! `Sound`, `Movie`, `Rendition` and `GoTo3DView` are clause 13's multimedia, excluded by the
 //! same list. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
@@ -41,8 +42,9 @@
 //! So the exclusion is not being stretched across a clause boundary to reach them; the clause
 //! that defines them says where they now live, and that is the clause `CLAUDE.md` principle 5
 //! excludes. §12.6.4.6's `Launch` is handed to no other clause, but it does say what a processor
-//! does with an action whose target it cannot name — "it shall do nothing" — so its refusal is the
-//! sandbox's only where Table 207's `/F` is present, and [`launch`] is where the two part.
+//! does with an action whose target it cannot name — "it shall do nothing" — and Table 207's `/F`
+//! may name "the document that shall be opened", which is a PDF this reader opens under the same
+//! four levels as `GoToR`'s. [`launch`] is where the three part (ADRs 1368, 1358).
 //!
 //! # A URI action is read here and performed nowhere
 //!
@@ -125,6 +127,15 @@ pub enum Action {
     /// filesystem, so what this carries is what the *document* wrote, for whoever owns one to
     /// resolve or to refuse (ADR 1227).
     GoToR(RemoteGoTo),
+    /// §12.6.4.6: open the document Table 207's `/F` names.
+    ///
+    /// Table 207 makes `/F` "[t]he application that shall be launched or the document that shall
+    /// be opened or printed", and which of the two it is cannot be told from a file
+    /// specification's name. So the file is named here as [`Self::GoToR`]'s is, for whoever owns
+    /// a filesystem to resolve or refuse under the same four levels, and what came back decides:
+    /// a PDF is opened and anything else is an application, which the sandbox withholds (ADRs
+    /// 1368, 1358). [`RemoteGoTo::act`] is [`RemoteAct::Launch`] and it names no destination.
+    Launch(RemoteGoTo),
     /// §12.6.4.5: show the page a document part begins at.
     GoToDp(DocumentPartJump),
     /// §12.6.4.15: show the page as it stands, using this transition.
@@ -561,7 +572,39 @@ pub struct RemoteGoTo {
     /// program's preference is one document in one view, which is what [`EmbeddedGoTo::new_window`]
     /// already says about Table 204's identical entry — so the destination document replaces the
     /// current one, and a request for a new window is said out loud rather than passed over.
+    ///
+    /// Table 207's `/NewWindow` is the same three sentences with a fourth — it "shall be ignored if
+    /// the file designated by the F entry is not a PDF document" — which holds by construction:
+    /// a file that is not one is never opened, so nothing reads the entry for it.
     pub new_window: Option<bool>,
+    /// Which table named the file: Table 203's go-to, or Table 207's launch.
+    pub act: RemoteAct,
+}
+
+/// Which of the two actions that open a second PDF by its file specification this is.
+///
+/// Both ask for one file under the same four levels and open it the same way; they differ in what
+/// the file may turn out to be and in where the document opens. Table 203's `/F` is "[t]he file in
+/// which the destination shall be located", so it is a PDF and `/D` names the page. Table 207's is
+/// "[t]he application that shall be launched or the document that shall be opened or printed", so
+/// it is a PDF only if its bytes say so, and it names no page (ADR 1358).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteAct {
+    /// §12.6.4.3's remote go-to.
+    GoTo,
+    /// §12.6.4.6's launch, whose `/F` names a document to be opened.
+    Launch,
+}
+
+impl RemoteAct {
+    /// Table 201's name for the action, which is the word a person can look up.
+    #[must_use]
+    pub const fn action_name(self) -> &'static str {
+        match self {
+            Self::GoTo => "GoToR",
+            Self::Launch => "Launch",
+        }
+    }
 }
 
 impl RemoteGoTo {
@@ -942,6 +985,7 @@ fn remote_go_to(document: &Document, dict: &Dictionary) -> Option<Action> {
             Object::Boolean(value) => Some(value),
             _ => None,
         },
+        act: RemoteAct::GoTo,
     }))
 }
 
@@ -1384,9 +1428,9 @@ fn one(document: &Document, dict: &Dictionary) -> Option<Action> {
                 _ => return None,
             },
         }),
-        // §12.6.4.6 is the one refused type whose sentence the dictionary decides; `launch`
-        // says why.
-        b"Launch" => Action::Refused(launch(document, dict)),
+        // §12.6.4.6: a named file is opened if it proves to be a PDF, and the refusals are the
+        // dictionary's own; `launch` says which is which.
+        b"Launch" => launch(document, dict),
         other => Action::Refused(refused(other)?),
     })
 }
@@ -1711,7 +1755,7 @@ impl Change {
     }
 }
 
-/// §12.6.4.6's refusal, which is two refusals the clause itself distinguishes.
+/// §12.6.4.6's launch action: a file to ask for, or one of the two refusals the clause distinguishes.
 ///
 /// Table 207 makes `/F` — "[t]he application that shall be launched or the document that shall
 /// be opened or printed" — required only "if none of the entries Win , Mac , or Unix is
@@ -1722,30 +1766,51 @@ impl Change {
 /// > alternative entries, it shall do nothing.
 ///
 /// The three alternatives are understood by nothing here — `/Mac` and `/Unix` are typed
-/// "(undefined)" by the table itself and `/Win` is deprecated in PDF 2.0 — so the standard's own
-/// instruction covers every launch action without an `/F`, and it is a *different* fact about the
-/// file from the one the sandbox states. A reader told only "the sandbox withholds this" cannot
-/// tell a document that named an application from one that named none at all.
+/// "(undefined)" by the table itself and `/Win` is deprecated in PDF 2.0 — and §12.6.4.6 says "[t]he
+/// F entry determines the file specification platform to be launched", so `/F` is the only entry
+/// that names the file. A launch action without one is declined by the standard's own instruction,
+/// which is a different fact about the file from any this program could state.
 ///
-/// Table 208's `/F`, `/D`, `/O` and `/P` are not read and their bytes do not reach these
-/// sentences: [`Action::Refused`] carries this program's vocabulary rather than the document's,
-/// which is the decision its own doc comment records, and a `&'static str` is what enforces it.
+/// **A launch action with an `/F` is [`Action::Launch`]**, and whether it opens anything is decided
+/// once the bytes are in hand: a file specification's name is no evidence of what the file is, and
+/// the one document in the corpus that states this action names a PDF (ADRs 1368, 1358). `/F`
+/// that is not a file specification §7.11 can read names nothing, and says so.
+///
+/// Table 208's `/F`, `/D`, `/O` and `/P` are not read: `/O` is the one way Table 207 has to choose
+/// printing over opening, and `/Win` is deprecated. [`Action::Refused`] carries this program's
+/// vocabulary rather than the document's, and a `&'static str` is what enforces it.
 ///
 /// §7.3.9 decides what "present" means — "[s]pecifying the null object as the value of a
 /// dictionary entry … shall be equivalent to omitting the entry entirely" — so `get_key` answers
 /// it, not `Dictionary::get`.
-fn launch(document: &Document, dict: &Dictionary) -> &'static str {
+fn launch(document: &Document, dict: &Dictionary) -> Action {
     if !matches!(document.get_key(dict, "F"), Object::Null) {
-        return "Launch: running an application, which the sandbox withholds";
+        let Some(file) = target_root(document, dict) else {
+            return Action::Refused(
+                "Launch: Table 207's /F is not a file specification this reader can read (§7.11)",
+            );
+        };
+        return Action::Launch(RemoteGoTo {
+            file,
+            destination: Object::Null,
+            structure_destination: None,
+            new_window: match document.get_key(dict, "NewWindow") {
+                Object::Boolean(value) => Some(value),
+                _ => None,
+            },
+            act: RemoteAct::Launch,
+        });
     }
     if ["Win", "Mac", "Unix"]
         .iter()
         .any(|key| !matches!(document.get_key(dict, key), Object::Null))
     {
-        return "Launch: the target is named only by Table 207's /Win, /Mac or /Unix, which no \
-                reader here understands, so §12.6.4.6 says to do nothing";
+        return Action::Refused(
+            "Launch: the target is named only by Table 207's /Win, /Mac or /Unix, which no \
+             reader here understands, so §12.6.4.6 says to do nothing",
+        );
     }
-    "Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing"
+    Action::Refused("Launch: Table 207 names no target at all, so §12.6.4.6 says to do nothing")
 }
 
 /// The eight of Table 201's types this reader declines with one sentence each.
@@ -1776,7 +1841,7 @@ fn refused(kind: &[u8]) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Action, AttachmentIndex, AttachmentPage, BeadTarget, Change, HideTarget, Named,
+        Action, AttachmentIndex, AttachmentPage, BeadTarget, Change, HideTarget, Named, RemoteAct,
         ResetTarget, TargetError, TargetStep, ThreadTarget, read,
     };
     use pdf_syntax::{Document, Object, ObjectId};
@@ -1928,21 +1993,19 @@ mod tests {
         assert_eq!(kinds, vec!["Hide", "URI", "Launch", "JavaScript"]);
     }
 
-    /// §12.6.4.6's three launch actions, and the two reasons the clause gives for declining one.
+    /// §12.6.4.6's launch actions: one naming a file, and the two the clause itself declines.
     ///
     /// Table 207 requires `/F` only "if none of the entries Win , Mac , or Unix is present", and
     /// states the answer for the rest itself: "If this entry is absent and the interactive PDF
-    /// processor does not understand any of the alternative entries, it shall do nothing." So a
-    /// launch action that names an application is withheld by principle 3's sandbox, and one that
-    /// names it only through Table 207's deprecated platform entries — or names nothing — is
-    /// declined by the standard, which is a different fact about the file. Calibrated by making
-    /// [`launch`] answer the sandbox's sentence for all three, under which the two `assert_ne!`
-    /// lines fail (trap 13).
+    /// processor does not understand any of the alternative entries, it shall do nothing." A launch
+    /// action with an `/F` names a file to ask for — which may be "the document that shall be
+    /// opened" — and one that names its target only through the deprecated platform entries, or
+    /// names nothing, is declined by the standard (ADRs 1368, 1358).
     #[test]
     fn a_launch_action_is_declined_for_the_reason_table_207_gives() {
         let doc = document(&[
             "<< /Type /Catalog >>",
-            "<< /S /Launch /F (notepad.exe) >>",
+            "<< /S /Launch /F (file1.pdf) /NewWindow true >>",
             "<< /S /Launch /Win << /F (notepad.exe) >> >>",
             "<< /S /Launch >>",
             "<< /S /Launch /F null /Unix 9 0 R >>",
@@ -1951,10 +2014,17 @@ mod tests {
             [Action::Refused(why)] => (*why).to_owned(),
             other => panic!("one refused launch action, not {other:?}"),
         };
-        let (named, platform, nothing) = (sentence(2), sentence(3), sentence(4));
-        assert!(named.contains("the sandbox withholds"), "{named}");
-        assert_ne!(platform, named);
-        assert_ne!(nothing, named);
+        match read(&doc, &Object::Reference(id(2))).as_slice() {
+            [Action::Launch(launch)] => {
+                assert_eq!(launch.file.name(), "file1.pdf");
+                assert_eq!(launch.new_window, Some(true));
+                assert_eq!(launch.act, RemoteAct::Launch);
+                assert_eq!(launch.act.action_name(), "Launch");
+            }
+            other => panic!("a launch action naming a file asks for it, not {other:?}"),
+        }
+        let (platform, nothing) = (sentence(3), sentence(4));
+        assert_ne!(platform, nothing);
         assert!(platform.contains("/Win, /Mac or /Unix"), "{platform}");
         assert!(nothing.contains("no target at all"), "{nothing}");
         // §7.3.9: a null `/F` is an absent `/F`, and `/Unix` naming an object the file does not

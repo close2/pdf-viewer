@@ -3643,7 +3643,11 @@ impl ViewState {
             Action::ImportData(import) => return Some(Request::Import(import.clone())),
             Action::SubmitForm(submit) => return Some(Request::Submit(submit.clone())),
             Action::GoToE(target) => return Some(Request::Embedded(target.clone())),
-            Action::GoToR(remote) => return Some(Request::Remote(remote.clone())),
+            // §12.6.4.6's launch naming a file asks for it as §12.6.4.3's go-to does; which of
+            // the two it was travels in `RemoteGoTo::act` (ADR 1358).
+            Action::GoToR(remote) | Action::Launch(remote) => {
+                return Some(Request::Remote(remote.clone()));
+            }
             Action::Trans(transition) => {
                 return Some(Request::Transition(transition.clone()));
             }

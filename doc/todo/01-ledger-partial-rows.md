@@ -318,15 +318,15 @@ depends on nothing but `thiserror`.
   cite no ADR at all are counted rather than listed; the comparison has no left-hand side. A note
   read against every decision the sweep prints for it, and corrected where one made a sentence
   false, goes into `overtaken::READ` with the newest decision the reading reached, and returns only
-  when a later one names its pages (ADR 1355). **What stays on the list is the population whose
-  reading needs a measurement rather than a sentence**: seven notes whose figures a later decision
-  moved and no run has re-taken — `AMBIGUOUS_GLYPH_COVERAGE`, `AMBIGUOUS_NEAREST_THE_GEOMETRY`,
-  `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`, `AMBIGUOUS_STANDARD_FOURTEEN_FACE` (`issue16473.pdf`),
-  `AMBIGUOUS_SUBSTITUTED_FACE` (`non-embedded-NuptialScript.pdf`, `XiaoBiaoSong.pdf`) and
-  `CONTRADICTED_SUBPIXEL_IMAGE` against ADRs 1082, 1102 and 0358, and `REFUSED_BY_THE_DEVICE_AT_FOUR`,
-  whose "not one page … refused for frame bytes" sits beside two pages its own bullets price
-  against the scene-byte budget. Each leaves by an oracle or `render_at` run and a sentence, not by
-  an entry.
+  when a later one names its pages (ADR 1355). **A note whose figures a later decision moved leaves
+  by a run and a sentence, not by an entry**: its figures are re-taken with the instrument the note
+  names — the oracle's own printed line, `examples/render_at` for a ladder, `examples/compare_rasters`
+  or `magick compare -metric MAE` over the gate's panels under `tmp/oracle` — the sentence is
+  rewritten with the measured number and the ADR that moved it, and only then does the name go into
+  `READ`. The seven that needed it (`AMBIGUOUS_GLYPH_COVERAGE`, `AMBIGUOUS_NEAREST_THE_GEOMETRY`,
+  `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY`, `AMBIGUOUS_STANDARD_FOURTEEN_FACE`,
+  `AMBIGUOUS_SUBSTITUTED_FACE`, `CONTRADICTED_SUBPIXEL_IMAGE` and `REFUSED_BY_THE_DEVICE_AT_FOUR`)
+  are re-taken and read; what the sweep prints now are notes whose pages a newer decision names.
 - **One reads no source at all and no row either**: `cargo run --release -p
   conformance --bin quoted -- <the oracle's log>`, under a second, over the oracle's page-list
   notes and **the oracle's own printed output** — the twentieth sweep and the fifteenth to be a

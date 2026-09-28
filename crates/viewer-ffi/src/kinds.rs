@@ -893,6 +893,8 @@ pub enum PurposeKind {
     NamedPage = 3,
     /// §12.6.4.7's thread action: Table 209's `/F`, the file the thread is in, also a PDF.
     ThreadDocument = 4,
+    /// §12.6.4.6's launch action: Table 207's `/F`, opened only if its bytes are a PDF (ADR 1358).
+    LaunchDocument = 5,
 }
 
 impl PurposeKind {
@@ -905,6 +907,7 @@ impl PurposeKind {
             2 => Self::RemoteDocument,
             3 => Self::NamedPage,
             4 => Self::ThreadDocument,
+            5 => Self::LaunchDocument,
             _ => return None,
         })
     }
@@ -918,6 +921,7 @@ impl PurposeKind {
             Purpose::RemoteDocument => Self::RemoteDocument,
             Purpose::NamedPage => Self::NamedPage,
             Purpose::ThreadDocument => Self::ThreadDocument,
+            Purpose::LaunchDocument => Self::LaunchDocument,
         }
     }
 
@@ -930,6 +934,7 @@ impl PurposeKind {
             Self::RemoteDocument => Purpose::RemoteDocument,
             Self::NamedPage => Purpose::NamedPage,
             Self::ThreadDocument => Purpose::ThreadDocument,
+            Self::LaunchDocument => Purpose::LaunchDocument,
         }
     }
 

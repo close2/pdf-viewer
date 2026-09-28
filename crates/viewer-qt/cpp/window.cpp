@@ -774,6 +774,16 @@ PageArea::PageArea(QWidget* parent) : QWidget(parent), chrome_(new ChromeOverlay
     setFocusPolicy(Qt::StrongFocus);
 }
 
+bool PageArea::focusNextPrevChild(bool /*next*/)
+{
+    // ISO 32000-2 §12.5.1 permits navigating "through the annotations on a page by using the
+    // keyboard (in particular, the tab key)", and the order is the document's (Table 31's /Tabs),
+    // which only the Rust side reads. Answering false sends the Tab on to keyPressEvent, and from
+    // there to the key table, instead of letting Qt move between widgets in its own order — which
+    // is also what keeps a push-button the page draws (ADR 1357) reachable from the keyboard.
+    return false;
+}
+
 void PageArea::setFrames(QList<QPair<QImage, QPointF>> frames)
 {
     frames_ = std::move(frames);
@@ -878,6 +888,9 @@ MainWindow::MainWindow(rust::Box<Host> host)
     // that the three hosts and the three rasterisers state one fact once — and taken at all
     // because the toolkit's own window background is within a few levels of paper white, which
     // made the gap between two pages of a column as good as invisible.
+    // Tab on the page is §12.5.1's key rather than Qt's focus chain's; see `eventFilter`.
+    page_->installEventFilter(this);
+
     const rust::Vec<std::uint8_t> ground = host_->surround();
     if (ground.size() >= 3) {
         QPalette laid = page_->palette();
@@ -1594,6 +1607,15 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
         QMainWindow::keyPressEvent(event);
         return;
     }
+    // Enter is the key that presses a push-button §12.5.1's focus is on (ADR 1357), and a
+    // QLineEdit passes its Enter on after emitting returnPressed — so an Enter a placed control
+    // had the keyboard for stops here rather than pressing a button the pointer focused earlier.
+    const bool enter = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+    QWidget* focused = focusWidget();
+    if (enter && focused != nullptr && focused != page_ && page_->isAncestorOf(focused)) {
+        QMainWindow::keyPressEvent(event);
+        return;
+    }
     Busy guard(busy_);
     // ISO 32000-2 §12.5.1's tab key needs a direction, which Shift supplies; Control selects the
     // table of conventional bindings, and a Control the table does not bind means nothing rather
@@ -1602,6 +1624,34 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
                (event->modifiers() & Qt::ShiftModifier) != 0,
                (event->modifiers() & Qt::ControlModifier) != 0);
     applyUpdates();
+    // §12.5.1's walk decides where the keyboard goes next: into the control placed over the
+    // widget it landed on, or to the page, where Space and Enter press a push-button it draws.
+    const bool tab = event->key() == Qt::Key_Tab || event->key() == Qt::Key_Backtab;
+    if (tab && (event->modifiers() & Qt::ControlModifier) == 0) {
+        const int at = host_->focused_control();
+        if (at >= 0 && static_cast<std::size_t>(at) < controls_.size()) {
+            controls_[static_cast<std::size_t>(at)]->setFocus(Qt::TabFocusReason);
+        } else if (page_ != nullptr) {
+            page_->setFocus(Qt::TabFocusReason);
+        }
+    }
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    // A Tab that reaches the page — pressed there, or passed on by a control placed over it, whose
+    // own focus chain asks the page and is declined by `PageArea::focusNextPrevChild` — would
+    // otherwise go to the page's parents, and each of them moves Qt's focus in Qt's order. Handing
+    // it to `keyPressEvent` here is what makes it §12.5.1's key, in the document's order.
+    if (watched == page_ && event->type() == QEvent::KeyPress) {
+        auto* key = static_cast<QKeyEvent*>(event);
+        const bool tab = key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab;
+        if (tab && (key->modifiers() & Qt::ControlModifier) == 0) {
+            keyPressEvent(key);
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::syncDocuments()
@@ -2116,20 +2166,6 @@ void MainWindow::rebuildControls()
                 }
                 Busy guard(busy_);
                 host_->toggle_control(index, on);
-                applyUpdates();
-            });
-            widget = button;
-            break;
-        }
-        case 5: { // §12.7.5.2.2's push button, "without retaining a permanent value"
-            auto* button = new QPushButton(page_);
-            button->setText(text(control.tooltip));
-            connect(button, &QPushButton::clicked, this, [this, index] {
-                if (busy_) {
-                    return;
-                }
-                Busy guard(busy_);
-                host_->activate_control(index);
                 applyUpdates();
             });
             widget = button;

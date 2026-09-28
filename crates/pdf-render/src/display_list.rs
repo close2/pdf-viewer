@@ -1350,8 +1350,8 @@ impl DisplayList {
         &self.commands
     }
 
-    /// Restates every solid fill whose matrix has no inverse and carries it onto a line along a
-    /// page axis as the same line in page space — ISO 32000-2 §10.7.4, `doc/todo/11` item 8.
+    /// Restates every solid mark whose matrix has no inverse and carries it onto a line as the
+    /// fill of its image on that line — ISO 32000-2 §10.7.4, `doc/todo/11` item 8.
     ///
     /// §10.7.4 applies its rule to a shape whose "coordinates are mapped into device space", and
     /// the rule is stated for exactly the shape such a matrix leaves: "A shape shall be
@@ -1361,21 +1361,22 @@ impl DisplayList {
     /// filling region is empty". §8.3.4's third NOTE, which says such a matrix "can result in
     /// unpredictable behaviour", is informative and states no behaviour, so it cannot stand
     /// against a requirement that states one. [`crate::collapsed`] already builds that mark for a
-    /// path flat in its own space; a path carried flat by its matrix is the same shape once it is
-    /// stated where it lies, so it is restated there — its points through its own matrix, under the
-    /// identity — and every backend draws it by that one construction (trap 2).
+    /// path flat in its own space; a mark carried flat by its matrix is the same shape once it is
+    /// stated where it lies, so it is restated there and every backend draws it by that one
+    /// construction (trap 2). A fill is its points through its own matrix (ADR 1348); a stroke is
+    /// the image of §8.4.3.2's set, whose width is stated in the space the matrix collapsed, as
+    /// the fill of the intervals that set covers on the line (ADR 1360). Along a page axis the
+    /// restatement is in page space; across the axes it is in the frame whose x-axis is the line.
     ///
     /// What is not restated is left as it was, refused and counted by
     /// [`DisplayList::noninvertible_marks`]: a paint other than a solid colour, which a space with
-    /// no inverse cannot position; a matrix that carries the path onto a single point, which
-    /// §8.5.3.3.1 governs and [`crate::collapsed`] records as a departure; one that carries it onto
-    /// a line across the axes, which [`crate::collapsed`] states as its own absence; and a stroke,
-    /// whose width is stated in the space the matrix collapsed. See [`collapsed_by_transform`].
+    /// no inverse cannot position, and a mark whose image is a single point, which §8.5.3.3.1
+    /// governs and [`crate::collapsed`] records as a departure. See [`collapsed_by_transform`].
     ///
     /// Nested groups are walked, because a group's elements are marks of this page.
     ///
     /// [`collapsed_by_transform`]: crate::collapsed::collapsed_by_transform
-    pub fn restate_collapsed_fills(&mut self) {
+    pub fn restate_collapsed_marks(&mut self) {
         fn restate(commands: &mut [Command]) {
             for command in commands {
                 match command {
@@ -1385,11 +1386,36 @@ impl DisplayList {
                         paint: Paint::Solid(_),
                         ..
                     } => {
-                        if let Some(flat) =
+                        if let Some((flat, frame)) =
                             crate::collapsed::collapsed_by_transform(path, *transform)
                         {
                             *path = Arc::new(flat);
-                            *transform = Transform::IDENTITY;
+                            *transform = frame;
+                        }
+                    }
+                    Command::Stroke {
+                        path,
+                        transform,
+                        stroke,
+                        paint: paint @ Paint::Solid(_),
+                        clip,
+                        mask,
+                        blend,
+                    } => {
+                        if let Some((image, frame)) =
+                            crate::collapsed::collapsed_stroke_by_transform(
+                                path, stroke, *transform,
+                            )
+                        {
+                            *command = Command::Fill {
+                                path: Arc::new(image),
+                                transform: frame,
+                                fill_rule: FillRule::NonZero,
+                                paint: paint.clone(),
+                                clip: *clip,
+                                mask: *mask,
+                                blend: *blend,
+                            };
                         }
                     }
                     Command::Group { commands, .. } => restate(commands),

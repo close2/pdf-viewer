@@ -210,6 +210,12 @@ cargo run --release -p pdf-syntax --example linearised_census -- doc/corpora doc
   # (`/tmp` here is a `tmpfs` and cannot). Give it disjoint roots: it recurses, so naming `doc`
   # beside `doc/corpora` counts everything twice. No display, no device and no sandbox, so it runs
   # at any load. ADR 1225
+cargo run --release -p pdf-model --example ccitt_decoder_census -- <directory>... 2>/dev/null
+  # whether `pdf-ccitt` decodes every stream object whose filter chain ends in §7.4.6's
+  # `CCITTFaxDecode` to the scan lines `hayro-ccitt` decodes, bit for bit, and how long each takes;
+  # the measurement ADR 1349's move onto this tree's own decoder rests on, with the streams stating
+  # Table 11's `/DamagedRowsBeforeError` above zero counted beside. Inline images are not reached.
+  # A corpus walk: behind the lock. ADR 1349
 cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pdf.js doc/corpora
   # what a *rebuilt* cross-reference table loses to §7.5.7's object streams: how many documents
   # reach `xref::rebuild` at all, how many of those carry object streams the scan can see, and

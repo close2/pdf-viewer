@@ -361,6 +361,15 @@ A stroke built as a union of chord bands, joins and caps, each convex and wound 
 neither piece, so interior pixels lost a sixteenth (ADR 1348). Overlap abutting pieces slightly; a
 union measured against the clause's distance set is what showed it.
 
+### 58. Overlapping pieces are free inside a stroke and counted twice at its edge
+
+raster's fill adds up each pixel's winding and clamps afterwards, so two stroke pieces that overlap
+on an edge pixel count it twice, and on a thin ring nearly every pixel is an edge: the winding fix
+alone could not reach §8.4.3.2's set (ADR 1361). Ink totals with byte-rounding slack hid it; summing
+the pieces' signed areas with no rasteriser showed 656 against 640. And where a piece meets a stretch
+another stroker drew, it is turned from the stretch's exact tangent, not its last chord — a join
+square to the chord left a 45-level seam inside a stroke (ADR 1359).
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

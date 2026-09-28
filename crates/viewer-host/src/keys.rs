@@ -184,6 +184,9 @@ pub enum Key {
     Tab,
     /// The space bar.
     Space,
+    /// Enter, or Return — the key that presses a push-button §12.5.1's focus is on, and nothing
+    /// else on the page ([`crate::pressed`], ADR 1357).
+    Enter,
     /// Home.
     Home,
     /// End.
@@ -233,6 +236,7 @@ impl Key {
         Self::Escape,
         Self::Tab,
         Self::Space,
+        Self::Enter,
         Self::Home,
         Self::End,
         Self::Left,
@@ -486,6 +490,10 @@ pub fn meaning(key: Key, held: Modifiers, mode: Mode, waiting: Waiting) -> Optio
             FocusMove::Next
         })),
         Key::Right | Key::PageDown | Key::Space => Meaning::Send(Command::GoTo(PageTarget::Next)),
+        // Enter presses a push-button §12.5.1's focus is on, which a host asks
+        // `crate::pressed` about before this table; with none focused there is nothing on the
+        // page for the key to press, and turning a page on it would be a second Space.
+        Key::Enter => return None,
         Key::Left | Key::PageUp => Meaning::Send(Command::GoTo(PageTarget::Previous)),
         // §12.4.4.2's "arrow key press" while a presentation is running, and the view's own
         // movement otherwise. A presented page fills the screen, so nothing is lost either way.
@@ -659,6 +667,7 @@ mod tests {
                 | Key::Escape
                 | Key::Tab
                 | Key::Space
+                | Key::Enter
                 | Key::Home
                 | Key::End
                 | Key::Left
@@ -676,7 +685,7 @@ mod tests {
         }
         assert_eq!(
             seen.len(),
-            32,
+            33,
             "the list is the enumeration, and no shorter"
         );
     }
@@ -687,12 +696,15 @@ mod tests {
     /// hosts translate and none can act on.
     #[test]
     fn no_key_this_program_names_is_bound_to_nothing() {
-        for key in Key::ALL {
+        // Enter is the one exception, and it is not bound to nothing: it presses the push-button
+        // §12.5.1's focus is on, which `crate::pressed` answers before this table is asked.
+        for key in Key::ALL.iter().filter(|key| **key != Key::Enter) {
             assert!(
                 meaning(*key, Modifiers::NONE, Mode::Reading, Waiting::Nothing).is_some(),
                 "{key:?} reaches the page and means nothing"
             );
         }
+        assert!(meaning(Key::Enter, Modifiers::NONE, Mode::Reading, Waiting::Nothing).is_none());
     }
 
     /// §12.4.4.2's arrow keys, and the two rows [`Mode`] exists for.
