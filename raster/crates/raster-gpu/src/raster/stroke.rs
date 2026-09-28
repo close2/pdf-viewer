@@ -22,11 +22,14 @@
 //!   the stroke but counted twice in a rim pixel. A segment's piece is cut at the inner
 //!   side of each join ([`inner_cut`]) and the outer side's join starts on the piece's own
 //!   end points. Where a curve bends more tightly than the half-width the cuts would
-//!   cross, and the pieces overlap instead — the same set, dearer only at the rim.
+//!   cross; there the pieces that meet the bend are re-cut into a tiling instead
+//!   ([`disjoint`](mod@disjoint), ADR 1375).
 
 use raster_scene::{LineCap, LineJoin, Point, Stroke};
 
 use super::flatten::{DeviceTransform, Polyline};
+
+mod disjoint;
 
 /// The device width a stroke resolves to under a placement (ADR 0085).
 ///
@@ -97,22 +100,32 @@ pub(crate) fn stroke_polylines(
             pts.len() - 1
         };
         // Each vertex's inner cut, computed once so that the two pieces meeting there
-        // share its point to the bit (ADR 1361).
+        // share its point to the bit (ADR 1361); and which vertices turn without one,
+        // a bend tighter than the half-width (ADR 1375).
+        let mut tight = vec![false; pts.len()];
         let cuts: Vec<Option<InnerCut>> = (0..pts.len())
             .map(|j| {
                 let joined = polyline.closed || (j > 0 && j + 1 < pts.len());
                 if !joined {
                     return None;
                 }
-                let prev = pts[(j + pts.len() - 1) % pts.len()];
-                inner_cut(prev, pts[j], pts[(j + 1) % pts.len()], hw)
+                let (prev, next) = (
+                    pts[(j + pts.len() - 1) % pts.len()],
+                    pts[(j + 1) % pts.len()],
+                );
+                let cut = inner_cut(prev, pts[j], next, hw);
+                tight[j] = cut.is_none() && turns(prev, pts[j], next);
+                cut
             })
             .collect();
+        // The pieces, and beside each whether it meets a tight bend.
+        let (mut pieces, mut at_a_tight_bend) = (Vec::new(), Vec::new());
         // One piece per segment, less those another segment's piece already holds.
         let held = held_by_a_neighbour(&pts, polyline.closed, segment_count);
         for i in (0..segment_count).filter(|&i| !held[i]) {
             let (from, to) = (i, (i + 1) % pts.len());
-            out.push(segment_piece(pts[from], pts[to], hw, cuts[from], cuts[to]));
+            pieces.push(segment_piece(pts[from], pts[to], hw, cuts[from], cuts[to]));
+            at_a_tight_bend.push(tight[from] || tight[to]);
         }
         // Joins at interior vertices (all vertices when closed).
         let join_count = if polyline.closed {
@@ -124,7 +137,16 @@ pub(crate) fn stroke_polylines(
             let prev = pts[j];
             let v = pts[(j + 1) % pts.len()];
             let next = pts[(j + 2) % pts.len()];
-            join_at(&mut out, prev, v, next, hw, stroke.join, stroke.miter_limit);
+            join_at(
+                &mut pieces,
+                prev,
+                v,
+                next,
+                hw,
+                stroke.join,
+                stroke.miter_limit,
+            );
+            at_a_tight_bend.resize(pieces.len(), tight[(j + 1) % pts.len()]);
         }
         // Caps at open ends.
         if !polyline.closed {
@@ -132,16 +154,32 @@ pub(crate) fn stroke_polylines(
             let last = pts.len() - 1;
             let last_dir = direction(pts[last - 1], pts[last]);
             cap_at(
-                &mut out,
+                &mut pieces,
                 pts[0],
                 Point::new(-first_dir.x, -first_dir.y),
                 hw,
                 stroke.cap,
             );
-            cap_at(&mut out, pts[last], last_dir, hw, stroke.cap);
+            cap_at(&mut pieces, pts[last], last_dir, hw, stroke.cap);
+            at_a_tight_bend.resize(pieces.len(), false);
+        }
+        // Where the path bends more tightly than the half-width the pieces overlap in a
+        // star whose points are the rim, and the fill would count each overlap twice
+        // there; the tiling holds the same set with every point covered once.
+        if at_a_tight_bend.contains(&true) {
+            out.extend(disjoint::disjoint(pieces, &at_a_tight_bend));
+        } else {
+            out.extend(pieces);
         }
     }
     out
+}
+
+/// Whether the path changes direction at `v` at all, other than straight back: a vertex
+/// [`inner_cut`] declines for that reason is not a tight bend.
+fn turns(prev: Point, v: Point, next: Point) -> bool {
+    let (d1, d2) = (direction(prev, v), direction(v, next));
+    d1.x * d2.y - d1.y * d2.x != 0.0
 }
 
 /// The unit vector from `a` to `b`, or the zero vector when there is no direction to
@@ -267,8 +305,9 @@ struct InnerCut {
 /// The crossing lies `t = hw · tan(θ / 2)` back along each segment from `v`, where `θ`
 /// is the turn. It is only a corner of both pieces while `t` is at most half of each
 /// segment: past that, the cuts at a segment's two ends could meet, and a curve that
-/// bends more tightly than the half-width is exactly where they do. Such a vertex
-/// keeps the overlap, which is the same set and costs only the rim pixels it touches.
+/// bends more tightly than the half-width is exactly where they do. Such a vertex is
+/// left uncut, and the pieces that meet it are tiled by [`disjoint`](mod@disjoint)
+/// instead (ADR 1375).
 fn inner_cut(prev: Point, v: Point, next: Point, hw: f32) -> Option<InnerCut> {
     let d1 = direction(prev, v);
     let d2 = direction(v, next);

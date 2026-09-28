@@ -1,4 +1,4 @@
-# Verify it — every instrument in this tree, and when to run it
+# Verify it — the instruments in this tree, and when to run them
 
 Status: **standing** — the catalogue. `doc/todo/02-every-round.md` §2 is the round's own gate
 sequence and **owns those commands**; this file owns everything a round runs when it has a reason
@@ -10,6 +10,11 @@ census example or the AT-SPI recipe. `doc/HANDOVER.md`'s reading table is the po
 **The gate sequence is not repeated here, deliberately.** Two documents stating the same commands
 is how they drift apart, and they had: this list said 1369 tests where the gate printed 1371, and
 omitted `render-raster`'s corpus gate altogether. `doc/todo/02` §2 is the one copy.
+
+**This catalogue does not name every example, and how many it misses is counted rather than
+claimed**: `tools/state.sh instruments` lists each example under a package's `examples/` whose
+name appears nowhere below, with the first line of its own header, which says what it measures.
+An example a round writes gets its line here in the same round.
 
 **Nothing here runs in a fresh clone until the specifications are unpacked**, which is one command
 and is in `doc/environment.md`.
@@ -148,6 +153,28 @@ cargo run --release -p pdf-model --example render_at -- [file.pdf] [page] [scale
 cargo run --release -p render-raster --example zoom_ladder -- [file.pdf] [page] [out-dir]
   # the two backends compared up a ladder of magnifications and back down, through one device,
   # switching coverage lanes where `viewer-ui` does. `doc/QUORRA_FEEDBACK.md` §11
+cargo run --release -p render-raster --example zoom_frame -- <file.pdf> [page] [scale] [factor]
+  # what a zoom step costs phase by phase on a device that has already drawn the page — the second
+  # frame, against warm caches, which is the one a person waits for. `ZOOM_FRAME_COVERAGE=compute`
+  # measures the lane the window actually draws a moved view on (ADR 0767);
+  # `ZOOM_FRAME_SEQUENCE=1,1.25,1.5,1.25,1` generalises the pair to a session (ADR 0424)
+cargo run --release -p render-raster --example frame_budget -- [file.pdf] [page] [label]
+  # where one refresh's 8.333 ms goes on the shipped path — interpretation, scene, encode, transfer,
+  # the device's passes — for a page turn, a warm repaint and a zoom step, each on the lane the
+  # window gives it; `FRAME_BUDGET_ROUNDS`, `FRAME_BUDGET_WINDOW=WxH` (ADR 1260)
+cargo run --release -p render-raster --example ink_ladder -- <stem>...
+  # each backend's total ink on a pdf.js page at four resolutions, against §10.7.4's area rule:
+  # a total that walks toward the other backend's as the scale rises is a per-boundary cost, a flat
+  # one is geometry. The ladder that exposed the thin overlaps a heuristic missed (trap 54, ADR
+  # 1341); a stem with no document is a panic, not a skipped row
+cargo test -p raster-gpu --lib stroke_set
+  # the same ladder as a gate inside raster: every fixture stroked both ways, and the two masks
+  # agree to a sixteenth of a pixel at 1×, 2×, 4×, 8× against §8.4.3.2's distance set, whose area
+  # is derived in closed form or by a sampling quoted beside the fixture (ADR 1361, trap 58)
+GESTURE_PDF=<file.pdf> cargo test --release -p viewer-ui --bin quorra -- --ignored a_zoom_gesture_out --nocapture
+  # a zoom gesture on the real render thread and adapter under a simulated 120 Hz clock: how many
+  # of each notch's refreshes put up a frame of its own and how many a stand-in;
+  # `GESTURE_NOTCHES`, `GESTURE_EVERY`, `GESTURE_SUPERSAMPLE` (ADR 1289). Needs a device
 PDFVIEWER_QUORRA_COVERAGE=gpu PDFVIEWER_QUORRA_SCALE=4 \
   cargo test --profile gates -p render-raster --test corpus -- --ignored --nocapture
   # §2's quorra gate pointed at the *other* coverage lane — the one `viewer-ui` switches to past
@@ -216,6 +243,16 @@ cargo run --release -p pdf-model --example ccitt_decoder_census -- <directory>..
   # the measurement ADR 1349's move onto this tree's own decoder rests on, with the streams stating
   # Table 11's `/DamagedRowsBeforeError` above zero counted beside. Inline images are not reached.
   # A corpus walk: behind the lock. ADR 1349
+cargo run --release -p pdf-model --example spot_depth -- @paths.txt   # --pages N, --separate
+  # how many spot colourants each page names, as a distribution with its largest page and every
+  # page at or above the bound the tree carries on §10.8.3's planes — the standard states none, so
+  # the bound is what documents do (trap 38, ADR 1311). `--separate` interprets each such page and
+  # counts the pages the separation is made for against the pages it gives up on, each with its
+  # report's reason (ADR 1329); a page given up with no report is printed as a defect
+cargo run --release -p pdf-model --example image_decode_census -- doc/pdf.js/test/pdfs
+  # how much of page one's interpretation is image decoding, and how much of that a parallel decode
+  # could take off the critical path: `decode` one after another against `longest`, beside `interp`.
+  # The measurement ADR 1321's parallel decode rests on
 cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pdf.js doc/corpora
   # what a *rebuilt* cross-reference table loses to §7.5.7's object streams: how many documents
   # reach `xref::rebuild` at all, how many of those carry object streams the scan can see, and
@@ -862,6 +899,29 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # `Validity`, where a certificate states two `Time`s and a revocation list one.
   # Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
 ```
+
+**Sections of `tools/state.sh` a round runs by name**, each seconds long and each in `quick`, with
+the argument in the comment above its function:
+
+```sh
+tools/state.sh navigation   # the four navigational documents against --bin pointers, overtaken
+                            # and unread: their absent pointers, and each note's confirmed-unread claim
+tools/state.sh departures   # every `departed` row's deciding ADR and what has cited it since
+                            # (ADR 1166); run it before touching such a row
+tools/state.sh cited        # each clause a source cites against its row's `code` list (ADR 1274)
+tools/state.sh traps        # the trap index's rows, the group files' lengths, and which traps
+                            # doc/history/ cites — the most cited and how many carry four-fifths
+tools/state.sh remedies     # doc/todo/66's two halves: remedy sites not built, profiles that
+                            # still say `does not carry out yet`
+tools/state.sh instruments  # the examples this catalogue does not name
+cargo run --release -p conformance --bin unread   # the whole list navigation filters
+cargo run --release -p conformance --bin pointers # every path pointer, by rung; an owner's
+                            # uncommitted answer is its own rung, not an absent pointer
+```
+
+**`tools/batch.sh commit <message-file>`** is the merge's, not a round's: it stages a batch's whole
+population by name, counts it, and commits, so a refused `git add` cannot let a partial commit
+through (ADR 1313). A round commits nothing.
 
 **Two measurements that are not gates, and each says why in its own header.**
 

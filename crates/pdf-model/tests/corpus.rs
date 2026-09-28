@@ -50,8 +50,16 @@ use std::time::{Duration, Instant};
 use pdf_model::Unsupported;
 use pdf_model::page::ContentIssue;
 use pdf_render::{Rasterizer, TargetSpec};
-use pdf_syntax::{Document, SyntaxError};
+use pdf_syntax::{Document, Limits, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+
+#[path = "support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is the oracle's; this gate opens the \
+              document itself and has no reference to hand one to"
+)]
+mod corpus_passwords;
 use render_cpu::CpuRasterizer;
 
 /// Pixel budget per page, generous enough that no real page reaches it.
@@ -67,55 +75,24 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// equality this was written as.
 const MAX_UNOPENABLE: usize = 0;
 
-/// Documents that are encrypted and refuse the default user password.
+/// Documents that are encrypted, refuse the default user password, and have no published one.
 ///
 /// Not a defect: ISO 32000-2 §7.6.4.1 says a reader "shall first try to authenticate the
 /// encrypted document using the padding string … (default user password)" and prompt when that
-/// fails, which is what a viewer with a window does and what this gate cannot do. Each name below
-/// carries where its password comes from, and `pdf-syntax`'s `encryption.rs` opens every one of
-/// them with it, so what is missing is only the prompt. `print_protection.pdf`'s `1234` comes from
-/// pdf.js's own browser test, the only place that file is used at all.
+/// fails, which is what a viewer with a window does and what this gate cannot do. Where the
+/// password is published beside the file, `corpus_passwords` answers the prompt, [`examine`] opens
+/// the document with it, and the document is walked like any other; nine are opened that way
+/// (ADR 1377). What is left here is a document nobody has a password for.
 ///
-/// Two members say something about this reader rather than about the file. `issue21579.pdf` is
-/// `/R 5`, which this reader implements (ADR 0820), so it is a document with a password rather
-/// than an encryption declined. `encrypted-attachment.pdf` states no `/AuthEvent`, so Table 25's
-/// default of `DocOpen` requires the key at the open; its twin `auth-event-ef-open.pdf` — the same
-/// bytes plus that one line — is the file that opens without one (ADR 1040).
+/// `encrypted-attachment.pdf` states no `/AuthEvent`, so Table 25's default of `DocOpen` requires
+/// the key at the open; its twin `auth-event-ef-open.pdf` — the same bytes plus that one line — is
+/// the file that opens without one (ADR 1040). No password for it is recorded anywhere.
 ///
 /// Named rather than counted, because a ceiling cannot tell a document that *started* needing a
 /// password from one that *stopped*, and both are findings — a file this reader stopped
 /// decrypting and a file whose password began working are the same number and opposite news (ADR
-/// 1081). The count is still printed beside the length of this list, so the ratchet table stays
-/// whole.
-const LOCKED: [&str; 10] = [
-    // §7.6.4.4's user password, published in the pdf.js issue or pull request each file is named
-    // after, and opened with it by `encryption.rs`'s
-    // `a_document_with_a_password_opens_with_it_and_not_without`: `test`.
-    "issue15893_reduced.pdf",
-    // `ELXRTQWS`.
-    "issue3371.pdf",
-    // `Hello`.
-    "bug1782186.pdf",
-    // `abc`.
-    "issue6010_1.pdf",
-    // `æøå`, which has to reach the hash as UTF-8 (§7.6.4.1's preprocessing).
-    "issue6010_2.pdf",
-    // `SªSL­prep`, the one SASLprep *changes*: U+00AA normalises to `a` and U+00AD maps to
-    // nothing, which is what makes §7.6.4.1's preprocessing load-bearing rather than decorative.
-    "saslprep-r6.pdf",
-    // `asdfasdf`, from pull request #6531's discussion — a user password and no owner password.
-    "pr6531_1.pdf",
-    // `1234`, in no issue at all: it is typed into pdf.js's own browser test, which is the only
-    // place the file is used.
-    "print_protection.pdf",
-    // `pässwört`, and this one is /R 5 — refused outright until ADR 0820 read §7.6.4.1 as stating
-    // a requirement about revision 5 rather than a silence.
-    "issue21579.pdf",
-    // No password anybody has recorded, and it is here by a reading rather than by a failure:
-    // §7.6.6 binds a failed authorization to the stream, this file states no `/AuthEvent`, and
-    // Table 25's default `DocOpen` therefore wants the key at the open. ADR 1040.
-    "encrypted-attachment.pdf",
-];
+/// 1081). A published password that stops opening its document lands here by name.
+const LOCKED: [&str; 1] = ["encrypted-attachment.pdf"];
 
 /// Documents whose encryption this reader does not implement.
 ///
@@ -1735,10 +1712,20 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
     let Ok(bytes) = std::fs::read(path) else {
         return;
     };
-    let document = match Document::open(bytes) {
+    // ISO 32000-2 §7.6.4.1 has a reader try the default user password and then prompt, and the
+    // published password `corpus_passwords` holds is this gate's answer to the prompt.
+    let opened = match (
+        Document::open(bytes.clone()),
+        corpus_passwords::corpus_password(&name),
+    ) {
+        (Err(SyntaxError::PasswordRequired), Some(known)) => {
+            Document::open_with_password(bytes, Limits::default(), known.password)
+        }
+        (opened, _) => opened,
+    };
+    let document = match opened {
         Ok(document) => document,
-        // ISO 32000-2 §7.6.4.1 has a reader try the default user password and then prompt.
-        // A file that refuses it is *locked*, not unreadable, and the distinction is the
+        // A file that refuses both is *locked*, not unreadable, and the distinction is the
         // point: the first is a document waiting for a person and the second is work owed.
         Err(SyntaxError::PasswordRequired) => {
             record(tally, |t| t.locked.push(name));

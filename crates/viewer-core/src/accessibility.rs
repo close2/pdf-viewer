@@ -554,6 +554,38 @@ pub struct AccessibilityNode {
     pub lines: Vec<TextLine>,
 }
 
+impl AccessibilityNode {
+    /// A root node stating nothing, for a caller to fill in the fields it has an answer for.
+    ///
+    /// The one caller is an untagged page's widget (ADR 1369), which has a role, a name, a place,
+    /// a control and an annotation and none of the structure tree's other facts.
+    pub(crate) fn blank() -> Self {
+        Self {
+            parent: None,
+            role: String::new(),
+            name: String::new(),
+            substituted: false,
+            language: None,
+            quads: Vec::new(),
+            header_scope: None,
+            cell: None,
+            summary: None,
+            short: None,
+            bounds: None,
+            allocation: None,
+            artifact: None,
+            drawn: None,
+            enclosed_a_refusal: false,
+            control: None,
+            annotation: None,
+            headers: Vec::new(),
+            continues_a_list: false,
+            continued_from: None,
+            lines: Vec::new(),
+        }
+    }
+}
+
 /// One line of an element's text, and where each of its characters is.
 ///
 /// A *line* here is what [`crate::Query::Selection`]'s merge already means by one: a run of

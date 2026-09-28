@@ -373,3 +373,22 @@ every key: a click on the tab strip does not give keyboard focus (round 1254).
 there by mistake and removed them (round 1264). `ls -la` first; seeds go under the round's scratch for
 the merge to place. And when a host stops placing a control, check the controls-signature comparison:
 a field that is in the signature but never placed rebuilds the controls every frame (ADR 1357).
+
+## A press is driven with `mousedown`, a mid-press screenshot and `mouseup`
+
+Both of round 1266's defects — the down appearance dropped by a `Moved` after the press, a drag at
+the press point selecting text so the button's action never ran — lived between press and release,
+where a plain click shows nothing (ADR 1370).
+
+## A held gate population is checked for a published answer before it is accepted
+
+Eleven pages were held for a password the corpus itself publishes in pdf.js's manifest; nine now
+compare, and the references had to be handed the same password or the page only moves from one held
+bucket to another (ADR 1377). Before accepting a population held because a clause asks for a person's
+answer, look for the answer where the corpus keeps it.
+
+## A whole class of standing false positive gets a rung that prints its members, never a skip list
+
+The owner's uncommitted answer files and a `scratchpad/r<n>` template stood as four false pointer
+findings until each became a rung of its own with a reason (ADR 1379); plant a member that must stay
+a finding (`A999` with no `Q`) so the rung cannot swallow a real gap.

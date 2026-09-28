@@ -500,7 +500,9 @@ standard**, because that is the crate whose gates already read the repository's 
 a doc comment names is one the tree declares (`tests/names.rs`, ADR 1273), a record is at most forty
 lines (`tests/records.rs`), `--bin cited`'s rank is calibrated by a planted pair (`tests/cited.rs`,
 ADR 1274), and `tools/batch.sh commit` stages the whole population by name while `close` refuses a
-worktree holding uncommitted work (`tests/batch.rs`, ADR 1313). The sweeps under `src/bin/` —
+worktree holding uncommitted work (`tests/batch.rs`, ADR 1313), and every row of the trap index has
+an entry of its number in the group file it names and every entry its row (`tests/traps.rs`,
+ADR 1379). The sweeps under `src/bin/` —
 `pointers`, `overtaken`, `retired`, `unread`, `cited` and the rest — are reading lists and never
 gates, since each judges prose; `tools/state.sh` runs them by section.
 

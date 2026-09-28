@@ -387,15 +387,40 @@ impl Cache {
         dpi: u32,
         work_dir: &Path,
     ) -> Result<Raster, HarnessError> {
+        self.render_with_password(reference, pdf, page, dpi, work_dir, None)
+    }
+
+    /// [`Self::render`] for an encrypted document, authenticating with `password` where one is
+    /// given — [`Reference::render_with_password`] behind the same cache.
+    ///
+    /// The password is on the command line, so it is in the key: a render made with it and one
+    /// made without it are two entries, and `None` is exactly [`Self::render`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::render`].
+    pub fn render_with_password(
+        &self,
+        reference: Reference,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+        password: Option<&str>,
+    ) -> Result<Raster, HarnessError> {
+        let run = |reference: Reference| match password {
+            Some(password) => reference.render_with_password(pdf, page, dpi, work_dir, password),
+            None => reference.render(pdf, page, dpi, work_dir),
+        };
         let key = run_key(reference, pdf, page, dpi);
-        let Some(entry) = self.entry_for(reference, pdf, page, dpi, work_dir) else {
+        let Some(entry) = self.entry_for(reference, pdf, page, dpi, work_dir, password) else {
             // Nothing can be stored, so this run is remembered nowhere and the next question
             // about the same page will spawn the renderer again. That is what [`Runs::unstored`]
             // is the ceiling *for*, and counting it here is why the floor sees a lookup that
             // never reached the cache at all.
             self.record_run(&key);
             self.unstored.fetch_add(1, Ordering::Relaxed);
-            return reference.render(pdf, page, dpi, work_dir);
+            return run(reference);
         };
 
         if let Some(stored) = read_entry(&entry, reference, work_dir) {
@@ -408,7 +433,7 @@ impl Cache {
         self.misses.fetch_add(1, Ordering::Relaxed);
 
         self.record_run(&key);
-        let produced = reference.render(pdf, page, dpi, work_dir);
+        let produced = run(reference);
         if !write_entry(&entry, reference, work_dir, &produced) {
             self.unstored.fetch_add(1, Ordering::Relaxed);
         }
@@ -428,6 +453,7 @@ impl Cache {
         page: u32,
         dpi: u32,
         work_dir: &Path,
+        password: Option<&str>,
     ) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
         let document = self.document_digest(pdf)?;
@@ -442,7 +468,7 @@ impl Cache {
         key.update_field(&dpi.to_be_bytes());
         // The invocation itself, so that a changed flag is a changed key. This is the whole
         // defence against the stale-render failure described at the top of this file.
-        for word in reference.command_signature(pdf, page, dpi, work_dir) {
+        for word in reference.command_signature_with(pdf, page, dpi, work_dir, password) {
             key.update_field(word.as_bytes());
         }
         let key = key.hex();

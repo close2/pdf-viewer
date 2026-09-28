@@ -5680,3 +5680,50 @@ form 188.42 at every rung. `render-raster --test corpus` went from 946 agree / 5
 `ContentStreamNoCycleType3insideType3.pdf` (5117.46 against 5121.42 at 1×), and section 45's two
 stroke pages `issue20232.pdf` and `issue15150.pdf` (their out-and-back subpaths), left the list.
 Section 45's fill case — a filled path stated twice — is not the stroker's and stands.
+
+## 55. A banded ramp's step lands on the texel grid, half a texel either way — `issue10572.pdf` at 4× on every lane
+
+An ask, with the rows counted from the file rather than from either backend. Section 54's closing
+is extended first, because the same round measured it.
+
+**Section 54, and section 45's stroke instance, closed on the stroker's side (ADR 1375).** Where a
+path bends more tightly than the half-width, `inner_cut` has no cut to make, and the rectangles of a
+tight run cross one another's edges on the rim; a quarter circle of radius 3 at `8 w` read 39.51
+against its pieces' union of 38.27 at 1×, one pixel 0.37 over. The pieces that meet such a bend are
+now re-cut into a tiling — each less what the pieces before it hold, convex minus convex, with no
+boolean library — so the union is unchanged and no two fragments share area: 38.28 against 38.27,
+and every pixel of a closed-form L within one coverage step at 1×–8×, both ways. The hook's own
+gap to its set (557.87 against 565.50 at 1×) turned out not to be this: its pieces' union is 557.83,
+and the rest is the flattened centre line. `issue20232.pdf` and `issue15150.pdf` agree, and the
+corpus gate reads 958 agree / 2 differ with nothing moved by the stroker. Section 45's fill case — a
+filled path whose own contours overlap, and a stroke's crossings where no bend is tight — is the
+fill's, and stands.
+
+**The page.** `61 716 225 -450 re f` under an axial pattern on `[112.5 -900 112.5 900]`, `/Domain
+[-6 6]`, whose function is twelve type 3 stitchings each of `/Bounds [.5 .5]` — twenty-four hard
+stripes, 75 units each, and every stripe boundary falls on a whole device row at 1×, 2×, 4× and 8×.
+So every pixel lies wholly inside one stripe, and §8.7.4.5.3 makes its colour the function's at its
+own `t`: there is nothing for antialiasing to decide. §10.7.3 states what an approximation of a
+shading may cost — "Smoothness is the allowable colour error between a shading approximated by
+piecewise linear interpolation and the true value of a (possibly nonlinear) shading function" — and a
+row drawn in the neighbouring stripe's colour is an error of the whole range.
+
+**What each side draws**, rows whose colour differs from the file's, column 150·s:
+
+```text
+          1x   2x   4x   8x
+  raster   0    0    2    4
+  oracle   0    3    7   13
+```
+
+The same on `cpu`, `gpu` and `compute`, so it is not a lane. Your rows are `shading.wgsl`'s
+`textureLoad` at `round(t · 4095)` into `device/ramp.rs`'s 4 096-texel table, which moves a step by
+up to half a texel either side — 0.22 units on this 1 800-unit axis, a row at 4× and two at 8× —
+where `ramp.rs`'s comment describes the snap as one-sided. The oracle's rows are ours, larger, and
+grow along the axis; they are with the round that owns `render-cpu`.
+
+**The ask.** Place a stop pair's step at its own `t` rather than at the nearest texel: either carry
+the ramp's hard stops beside the table and compare `t` against them in the shader, or index the
+table only between steps. The first keeps the table for everything smooth, which is nearly every
+ramp; §7.10.4's half-open intervals, already in `ramp_color_at`, say which side a pixel exactly on
+the step takes.

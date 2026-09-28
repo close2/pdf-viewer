@@ -963,6 +963,7 @@ fn decode_dct(
         samples: mut rgba,
         components,
         grid,
+        ..
     } = decode_jpeg(&source.data, stated)?;
     // §8.9.6.4's ranges cover "colour components before decoding", which for this
     // filter are the bytes just answered with; the conversion below replaces them, so
@@ -1007,6 +1008,126 @@ fn decode_dct(
         stencil_opacity: None,
         shortfall,
     })
+}
+
+/// The samples a `DCTDecode`, `CCITTFaxDecode` or `JBIG2Decode` filter delivers, packed as
+/// §8.9.5.2 lays out any image's samples: what a writer that must carry the image re-encodes
+/// (ADR 1371).
+///
+/// Table 87 makes a codec's output the image's sample data like any other filter's: "a
+/// CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit samples, a RunLengthDecode or
+/// DCTDecode filter shall always deliver 8-bit samples", and `/BitsPerComponent` "shall be
+/// consistent with the size of the data samples that the filter delivers". So these are the
+/// integers the dictionary's `/ColorSpace`, `/Decode`, colour key and a mask's `/Matte` describe,
+/// before any of them is applied — the step [`decode`] takes before it makes colour of them.
+#[derive(Debug, Clone)]
+#[expect(
+    clippy::doc_markdown,
+    reason = "the comment quotes Table 87 verbatim, and a quotation is not marked up"
+)]
+pub struct FilterSamples {
+    /// Columns the filter delivered: the codestream's own for `DCTDecode`, whose dimensions
+    /// §7.4.8 puts in the encoded data, and the dictionary's for the two bilevel filters.
+    pub width: u32,
+    /// Rows the filter delivered, on the same terms.
+    pub height: u32,
+    /// Colour components per sample: the frame's for `DCTDecode`, one for the bilevel filters.
+    pub components: usize,
+    /// Bits per component: eight for `DCTDecode`, one for the bilevel filters.
+    pub bits: u8,
+    /// The samples, left to right and top to bottom, each row filled to a byte boundary.
+    pub data: Vec<u8>,
+    /// Where the filter stopped before the grid was whole, or concealed damaged rows as Table 11
+    /// asks, the sentence saying so: rows that are the worker's padding or the row above, and
+    /// not what the file coded.
+    pub shortfall: Option<String>,
+}
+
+/// Runs a `DCTDecode`, `CCITTFaxDecode` or `JBIG2Decode` image's codec as a filter and returns
+/// the samples it delivers, unconverted (ADR 1371).
+///
+/// The codecs are the ones [`decode`] runs, under the same isolation: `DCTDecode` in this process
+/// with §7.4.8 Table 13's colour transform undone as the filter's own step, the two bilevel ones
+/// through the confined worker. Nothing after the filter is applied — no `/Decode`, no colour
+/// conversion, no mask — so each integer is the one the file's entries were written against.
+///
+/// # Errors
+///
+/// See [`ImageError`]; an image behind no codec, or behind `JPXDecode`, is
+/// [`ImageError::UnsupportedFilter`], because a codec-free image's stream already holds its
+/// samples and a JPEG 2000 image's are [`jpx_samples`]'.
+pub fn filter_samples(document: &Document, stream: &Stream) -> Result<FilterSamples, ImageError> {
+    let dict = &stream.dict;
+    let width = positive_integer(document, dict, "Width")?;
+    let height = positive_integer(document, dict, "Height")?;
+    let samples = u64::from(width).saturating_mul(u64::from(height));
+    if samples > MAX_SAMPLES {
+        return Err(ImageError::TooLarge { samples });
+    }
+    let source = document
+        .image_stream(stream)
+        .ok_or_else(|| ImageError::Malformed {
+            detail: "stream did not decode".to_owned(),
+        })?;
+    match source.codec.as_deref() {
+        Some(b"DCTDecode" | b"DCT") => {
+            let stated = source
+                .parms
+                .as_ref()
+                .map(|parms| document.get_key(parms, "ColorTransform"))
+                .and_then(|value| value.as_integer());
+            let DecodedJpeg {
+                samples,
+                stated_components: components,
+                grid,
+                ..
+            } = decode_jpeg(&source.data, stated)?;
+            // [`DecodedJpeg::samples`] holds four bytes a pixel whatever the frame's count; the
+            // frame's own components are the first `components` of them, a grey frame's one
+            // component being delivered three times over.
+            let data = samples
+                .chunks_exact(4)
+                .flat_map(|pixel| pixel.iter().take(components).copied())
+                .collect();
+            Ok(FilterSamples {
+                width: grid.0,
+                height: grid.1,
+                components,
+                bits: 8,
+                data,
+                shortfall: None,
+            })
+        }
+        Some(b"CCITTFaxDecode" | b"CCF") => {
+            let (bilevel, damaged_rows) = ccitt_bilevel(document, &source, (width, height))?;
+            let shortfall = ccitt_shortfall(&bilevel, height, damaged_rows);
+            Ok(FilterSamples {
+                width,
+                height,
+                components: 1,
+                bits: 1,
+                data: bilevel.rows,
+                shortfall,
+            })
+        }
+        Some(b"JBIG2Decode") => {
+            let bilevel = jbig2_bilevel(document, &source, (width, height))?;
+            Ok(FilterSamples {
+                width,
+                height,
+                components: 1,
+                bits: 1,
+                data: bilevel.rows,
+                shortfall: bilevel.stopped_by,
+            })
+        }
+        other => Err(ImageError::UnsupportedFilter {
+            filter: other.map_or_else(
+                || "an image behind no codec".to_owned(),
+                |name| String::from_utf8_lossy(name).into_owned(),
+            ),
+        }),
+    }
 }
 
 /// Reads a required positive dimension, Table 87's `/Width` or `/Height`.
@@ -1974,6 +2095,39 @@ fn decode_jbig2(
         dict,
         resources,
     } = at;
+    let bilevel = jbig2_bilevel(document, source, (width, height))?;
+    let space = if painting.is_mask {
+        ColourSpace::Mask
+    } else {
+        colour_space(document, dict, resources, painting.into)?
+    };
+    let decode = Decode::read(document, dict, &space, 1);
+    let rgba = unpack(
+        &bilevel.rows,
+        width,
+        height,
+        &Samples {
+            bits: 1,
+            space: &space,
+            decode: &decode,
+            // Table 87: "a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit
+            // samples", and those are the bits below, so §8.9.6.4's test is exact here.
+            colour_key: painting.colour_key,
+            fill: painting.fill,
+            into: painting.into,
+            matte: painting.matte,
+        },
+    )?;
+    Ok((rgba, bilevel.stopped_by))
+}
+
+/// The one-bit rows a `JBIG2Decode` filter delivers (§7.4.7), read through the sandbox with the
+/// filter's own `/JBIG2Globals`, and held to the dictionary's grid.
+fn jbig2_bilevel(
+    document: &Document,
+    source: &ImageStream,
+    (width, height): (u32, u32),
+) -> Result<pdf_sandbox::Bilevel, ImageError> {
     // A globals stream that will not decode is reported rather than skipped: without its
     // symbol dictionary the page would decode to blank or to nothing, and "the image is
     // empty" is a far worse answer than "the image needs a stream I could not read".
@@ -2014,30 +2168,7 @@ fn decode_jbig2(
             ),
         });
     }
-
-    let space = if painting.is_mask {
-        ColourSpace::Mask
-    } else {
-        colour_space(document, dict, resources, painting.into)?
-    };
-    let decode = Decode::read(document, dict, &space, 1);
-    let rgba = unpack(
-        &bilevel.rows,
-        width,
-        height,
-        &Samples {
-            bits: 1,
-            space: &space,
-            decode: &decode,
-            // Table 87: "a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit
-            // samples", and those are the bits below, so §8.9.6.4's test is exact here.
-            colour_key: painting.colour_key,
-            fill: painting.fill,
-            into: painting.into,
-            matte: painting.matte,
-        },
-    )?;
-    Ok((rgba, bilevel.stopped_by))
+    Ok(bilevel)
 }
 
 /// How many scan lines the filter is asked for, from Table 11's `/Rows` and `/EndOfBlock` and
@@ -2156,6 +2287,45 @@ fn decode_ccitt(
         dict,
         resources,
     } = at;
+    let (bilevel, damaged_rows) = ccitt_bilevel(document, source, (width, height))?;
+    let shortfall = ccitt_shortfall(&bilevel, height, damaged_rows);
+
+    let space = if painting.is_mask {
+        ColourSpace::Mask
+    } else {
+        colour_space(document, dict, resources, painting.into)?
+    };
+    let decode = Decode::read(document, dict, &space, 1);
+    let mut rgba = unpack(
+        &bilevel.rows,
+        width,
+        height,
+        &Samples {
+            bits: 1,
+            space: &space,
+            decode: &decode,
+            // As in [`decode_jbig2`]: Table 87 makes this filter's samples one bit, which is
+            // what §8.9.6.4's ranges are stated over and what [`unpack`] reads.
+            colour_key: painting.colour_key,
+            fill: painting.fill,
+            into: painting.into,
+            matte: painting.matte,
+        },
+    )?;
+    if shortfall.is_some() {
+        leave_unpainted(&mut rgba, bilevel.delivered, width);
+    }
+    Ok((rgba, shortfall))
+}
+
+/// The one-bit rows a `CCITTFaxDecode` filter delivers (§7.4.6) under Table 11's parameters,
+/// read through the sandbox and held to the dictionary's grid, with the `/DamagedRowsBeforeError`
+/// its shortfall is judged by.
+fn ccitt_bilevel(
+    document: &Document,
+    source: &ImageStream,
+    (width, height): (u32, u32),
+) -> Result<(pdf_sandbox::Bilevel, u32), ImageError> {
     let parms = source.parms.as_ref();
     let integer = |key: &str, default: i64| -> i64 {
         parms
@@ -2236,35 +2406,7 @@ fn decode_ccitt(
             ),
         });
     }
-
-    let shortfall = ccitt_shortfall(&bilevel, height, damaged_rows);
-
-    let space = if painting.is_mask {
-        ColourSpace::Mask
-    } else {
-        colour_space(document, dict, resources, painting.into)?
-    };
-    let decode = Decode::read(document, dict, &space, 1);
-    let mut rgba = unpack(
-        &bilevel.rows,
-        width,
-        height,
-        &Samples {
-            bits: 1,
-            space: &space,
-            decode: &decode,
-            // As in [`decode_jbig2`]: Table 87 makes this filter's samples one bit, which is
-            // what §8.9.6.4's ranges are stated over and what [`unpack`] reads.
-            colour_key: painting.colour_key,
-            fill: painting.fill,
-            into: painting.into,
-            matte: painting.matte,
-        },
-    )?;
-    if shortfall.is_some() {
-        leave_unpainted(&mut rgba, bilevel.delivered, width);
-    }
-    Ok((rgba, shortfall))
+    Ok((bilevel, damaged_rows))
 }
 
 /// Clears every sample from row `delivered` on: the rows a filter never delivered, unpainted.
@@ -2443,9 +2585,17 @@ pub struct JpxSamples {
     pub height: u32,
     /// Colour components per pixel.
     pub components: usize,
-    /// Bits per sample, 1 to 16: one byte a sample to eight, two big-endian bytes above.
+    /// Bits per sample of the widest channel, 1 to 16, which sizes every sample's field: one
+    /// byte to eight, two big-endian bytes above.
     pub precision: u8,
-    /// The colour components, interleaved, at [`Self::precision`].
+    /// Each colour component's own depth, which its integers are at within that field — all
+    /// [`Self::precision`] unless §7.4.9's "[t]he colour components in an image may have
+    /// different numbers of bits per sample" applies (ADR 1371).
+    pub depths: Vec<u8>,
+    /// The opacity channel's own depth, where [`Self::opacity`] is carried.
+    pub opacity_depth: u8,
+    /// The colour components, interleaved, each at its own depth in [`Self::precision`]'s
+    /// field.
     pub colour: Vec<u8>,
     /// Table 87's opacity channel at [`Self::precision`], where `/SMaskInData` is 1 or 2 and the
     /// codestream carries one; `None` where a reader applies none.
@@ -2574,6 +2724,10 @@ pub fn jpx_samples(
         height: raster.height,
         components,
         precision: raster.precision,
+        depths: (0..components)
+            .map(|channel| raster.depth_of(channel))
+            .collect(),
+        opacity_depth: raster.depth_of(components),
         colour,
         opacity: opacity.then_some(opacity_channel).flatten(),
         premultiplied: opacity && smask_in_data == 2,
@@ -3297,6 +3451,9 @@ struct DecodedJpeg {
     samples: Vec<u8>,
     /// How many components the frame carries, which is what interprets [`Self::samples`].
     components: usize,
+    /// How many components the frame header states: [`Self::components`] except for a grey
+    /// frame, which is delivered as three equal channels and states one.
+    stated_components: usize,
     /// The grid the *codestream* states, which is not always the dictionary's.
     grid: (u32, u32),
 }
@@ -3717,6 +3874,7 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
         return Ok(DecodedJpeg {
             samples: pixels,
             components,
+            stated_components: usize::from(info.components),
             grid,
         });
     }
@@ -3724,6 +3882,7 @@ fn decode_jpeg(data: &[u8], stated: Option<i64>) -> Result<DecodedJpeg, ImageErr
     Ok(DecodedJpeg {
         samples: widened(&pixels, count, delivered)?,
         components,
+        stated_components: usize::from(info.components),
         grid,
     })
 }

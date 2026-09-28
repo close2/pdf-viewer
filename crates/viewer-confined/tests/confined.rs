@@ -620,6 +620,10 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
                         crossed.nodes, ours.nodes,
                         "{name}: a structure tree changed"
                     );
+                    assert_eq!(
+                        crossed.widgets, ours.widgets,
+                        "{name}: an untagged page's widgets changed"
+                    );
                 }
             }
             (Reply::None, Answer::None) => {}

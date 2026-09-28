@@ -77,10 +77,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use pdf_render::{Raster, Rasterizer, TargetSpec};
-use pdf_syntax::Document;
+use pdf_syntax::{Document, Limits, SyntaxError};
 use pdfref::{Cache, Judgement, Outcome, Reference, Tolerance, normalise, report};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use render_cpu::CpuRasterizer;
+
+#[path = "support/corpus_passwords.rs"]
+mod corpus_passwords;
+
+use corpus_passwords::{CorpusPassword, corpus_password};
 
 /// Comparison resolution. 72 dpi means one pixel per PDF unit, so a difference is a
 /// difference rather than a resampling artefact.
@@ -1134,16 +1139,11 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
 ///
 /// Five pages in four documents, and the group with the most evidence behind it of any here —
-/// none of which is anybody's rendering. (This line said "4 pages in 3 documents" from the
-/// hundred-and-sixtieth session, which is the session whose own heading below records
-/// `transparent.pdf` joining as the fourth document; the array underneath it has said five all
-/// along, and the five-hundred-and-fourteenth read the array.)
+/// none of which is anybody's rendering.
 ///
 /// # What the pages are
 ///
-/// **All four documents reach `DeviceCMYK`, and this heading said "all three" while the list
-/// below it named four** — the same arithmetic the paragraph above corrects, one heading down.
-/// `type4psfunc.pdf` and `postscript_type4_many_outputs.pdf` arrive through a `/DeviceN` whose
+/// **All four documents reach `DeviceCMYK`.** `type4psfunc.pdf` and `postscript_type4_many_outputs.pdf` arrive through a `/DeviceN` whose
 /// alternate it is, `function_based_shading_cmyk.pdf` directly and through a `/Separation`,
 /// `transparent.pdf` through a `k` operator.
 /// `postscript_type4_many_outputs.pdf` is the one that settles the group, because it is a
@@ -1182,18 +1182,33 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 ///
 /// # Why the pages stay listed rather than being fixed
 ///
-/// Because principle 5 forbids the fix. ISO 32000-2 states no destination for `DeviceCMYK`:
-/// §8.6.4.4 says only "concentrations of process colourants", §10.4.2.1 ranks §10.3's ICC
-/// route above §10.4.2's "crude approximations", and §10.3.2 licenses a processor to supply
-/// a profile for a device space — which is what `default_cmyk.icc` is, somebody else's
-/// choice of press. Adopting it because it would move four pages into agreement is
-/// curve-fitting with a licence attached. ADRs 0009 and 0042 argue the sixteen corners, and
+/// Because principle 5 forbids the fix. The standard answers `DeviceCMYK` → RGB twice and ranks
+/// the answers. §10.4.2.5 states a formula; §10.4.2.1 says what it is worth:
+///
+/// > Although ICC enabled PDF processors should always follow the provisions and
+/// > recommendations provided in 10.3, "CIE-Based colour to device colour", a less-capable PDF
+/// > processor may choose to use the algorithms specified in the following subclauses 10.4.2.2
+/// > through 10.4.2.5. These algorithms are, however, very simple and as perceived by a human
+/// > viewer they produce only crude approximations of the original colours.
+///
+/// **So this group is not §10.4.2.5 against the references, and no renderer here uses that
+/// formula** — on `transparent.pdf` it would draw the bottle black, below. Every one of the five
+/// is on §10.3's route, and §10.3.2's NOTE, quoted further down, is what licenses the *source*
+/// assumption each makes: ours ADR 0009's process-ink corners, theirs a press profile —
+/// `default_cmyk.icc` is somebody else's choice of press. Adopting it because it would move five
+/// pages into agreement is curve-fitting with a licence attached. ADRs 0009 and 0042 argue the sixteen corners, and
 /// the measurement that supports them is corpus-wide rather than four pages: §10.4.2.5's
 /// formula, tried, moved the gate from 802 agreeing to 800.
 ///
 /// What would change this is a *document* asking for a profile — a `/DefaultCMYK`
 /// (§8.6.5.6) or an output intent's `/DestOutputProfile` (§14.11.5), both of which outrank
-/// the table and both of which are already honoured. None of these three files has one.
+/// the table and both of which are already honoured. None of these four files has one, and two
+/// things since built leave that true: the profile ADR 1153 ships is the archival converter's
+/// CMYK output intent, written into a converted file and changing no rendering, and ADR 1253's
+/// black point compensation acts on the ICC route, which a document that names no press never
+/// reaches. Re-sampled over the oracle's own panels by ADR 1378's run,
+/// `postscript_type4_many_outputs.pdf` at device (100, 25) and `transparent.pdf`'s bottle are
+/// still exactly the figures the two sections below give, for all five renderers.
 ///
 /// # A fourth document joined them in the hundred-and-sixtieth session, from the unexplained list
 ///
@@ -1349,11 +1364,14 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// the differing fraction is the bottle's own area divided by four:
 ///
 /// ```text
-///   ours' ink                                      11.4175% of the page
-///   blue alone, as a share of all four channels     2.8750%   = 11.50% of pixels ÷ 4
-///   red and green, at the silhouette's edge only    0.4413%
-///   printed by the gate                             3.3163%   against a bound of 1.38%
+///   pixels ours inks                               11.515% of the page
+///   blue alone, as a share of all four channels     2.8644%   = 11.46% of pixels ÷ 4
+///   red and green, at the silhouette's edge only    0.4725%
+///   printed by the gate                             3.34%     against a bound of 1.38%
 /// ```
+///
+/// (Against `ghostscript`'s panel, the consensus member the gate fails the page on, from ADR
+/// 1378's run.)
 ///
 /// **The whole failing measurement is two levels of blue.** At four levels rather than six in
 /// every channel this page would report about 0.44% and agree, which is what §10.3.2's licence
@@ -1372,9 +1390,13 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 ///   function_based_shading_cmyk p1   2.70 / 10.68 / 17.25% / .9959    0.48 / 1.74 / 0.19% / .9988
 ///   function_based_shading_cmyk p2   5.15 / 19.47 / 29.19% / .9956    0.41 / 3.15 / 0.46% / .9988
 ///   postscript_type4_many_outputs    7.30 / 18.04 / 37.25% / .9942    0.39 / 0.74 / 0.85% / .9976
-///   transparent p1                   0.65 /  3.18 /  3.32% / .9952    0.41 / 1.77 / 0.66% / .9953
+///   transparent p1                   0.64 /  3.01 /  3.34% / .9956    0.41 / 1.77 / 0.66% / .9953
 ///   type4psfunc p1                   0.31 /  6.70 /  1.29% / .9998    0.12 / 1.72 / 0.07% / .9954
 /// ```
+///
+/// The *ours* column is the gate's own line from ADR 1378's run: four rows reproduce ADR 0510's
+/// figures to the hundredth, and `transparent.pdf`'s moved only at the bottle's silhouette, its
+/// flat interior sampling the same (28, 32, 40). The ablated column is ADR 0510's.
 ///
 /// **Every one of the five is then inside every bound**, the largest ratio in that column being
 /// 0.63 of what its page allows. So the group's named mechanism owns **100% of every failing
@@ -4187,53 +4209,25 @@ const GEOMETRY: [&str; 0] = [];
 // pages rather than the complete ones: a page that renders nothing is never complete, so
 // filtering on `complete` would hold nothing at all.
 
-/// Pages refused because §7.6.4.1 asks for a password nobody has supplied.
+/// Pages refused because §7.6.4.1 asks for a password nobody has published.
 ///
 /// > If a user attempts to open an encrypted document that has a user password, the PDF reader
 /// > shall first try to authenticate the encrypted document using the padding string defined in
 /// > 7.6.4.3, "File encryption key algorithm" (default user password):
 ///
 /// and where that fails, "the interactive PDF processor should prompt for a password". This gate
-/// is not interactive and supplies none, so the refusal is the clause working rather than a gap.
+/// has nobody to prompt, so it answers the prompt from `corpus_passwords` — the one table of the
+/// passwords published beside the pdf.js corpus's encrypted files — and hands each reference the
+/// same password ([`Work::password`], ADR 1377). The nine documents that table holds are judged
+/// like every other page; what is left here is a document no password is recorded for.
 ///
-/// What makes that more than an assertion is the **first** sentence: the empty user password is
-/// tried on every one of these eight and rejected, and all three references reject it too, each in
-/// its own words — `gs` prints *This file requires a password for access*, `mutool` *cannot
-/// authenticate password*, `pdftoppm` *Incorrect password*. Four independent derivations of
-/// §7.6.4.3's key agreeing that the default password is not this document's is evidence about our
-/// reading of that clause, in principle 5's one permitted direction, and it is the only thing this
-/// list needs from them.
-///
-/// `bug1782186.pdf` is the one worth a sentence, because a reference does produce a raster
-/// there: `poppler` prints *Unsupported version/revision (4/4) of Standard security handler*
-/// and then emits an 842x596 sheet of **zero ink**, so what it drew is not the document. `gs`
-/// and `mutool` refuse it as they refuse the rest.
-///
-/// **Nine since the eight-hundred-and-eighty-seventh session, and the ninth came off the list
-/// below** (ADR 0820). `issue21579.pdf` was there as an encryption the standard states no
-/// algorithm for; revision 5 is implemented now, so the file is what the other eight are — a
-/// document with a password this gate does not supply, opened by `encryption.rs` with
-/// `pässwört`. That is the whole of what changed for the oracle: the page it cannot draw is
-/// the same page, and the sentence it cannot draw it for is a weaker one.
-/// **Ten, and the tenth is the one whose references disagree.** `encrypted-attachment.pdf` is
-/// `auth-event-ef-open.pdf` with one line deleted — the `/AuthEvent /EFOpen` in its crypt filter —
-/// so it takes §7.6.6 Table 25's default of `DocOpen`, where authorization is required when the
-/// document is opened and the clause's own sentence for a failure is that the event shall fail.
-/// `mutool` and `gs` refuse it, `pdftoppm` opens it and draws the page; what puts it here is the
-/// entry rather than the vote, and its `EFOpen` twin is still drawn and still compared below.
-/// ADR 1040.
-const NO_RENDER_NEEDS_A_PASSWORD: [&str; 10] = [
-    "bug1782186.pdf page 1",
-    "encrypted-attachment.pdf page 1",
-    "issue15893_reduced.pdf page 1",
-    "issue21579.pdf page 1",
-    "issue3371.pdf page 1",
-    "issue6010_1.pdf page 1",
-    "issue6010_2.pdf page 1",
-    "pr6531_1.pdf page 1",
-    "print_protection.pdf page 1",
-    "saslprep-r6.pdf page 1",
-];
+/// `encrypted-attachment.pdf` is `auth-event-ef-open.pdf` with one line deleted — the
+/// `/AuthEvent /EFOpen` in its crypt filter — so it takes §7.6.6 Table 25's default of `DocOpen`,
+/// where authorization is required when the document is opened and the clause's own sentence for
+/// a failure is that the event shall fail. `mutool` and `gs` refuse it, `pdftoppm` opens it and
+/// draws the page; what puts it here is the entry rather than the vote, and its `EFOpen` twin is
+/// still drawn and still compared below. ADR 1040.
+const NO_RENDER_NEEDS_A_PASSWORD: [&str; 1] = ["encrypted-attachment.pdf page 1"];
 
 /// Pages refused because the file's encryption is not something §7.6 states an algorithm for.
 ///
@@ -4396,8 +4390,8 @@ fn reference_geometry_expected() -> Vec<&'static str> {
 /// `DocOpen` different answers. ADR 1040.
 ///
 /// That is the mirror of [`NO_RENDER_NEEDS_A_PASSWORD`] and it is worth the distinction. There
-/// four derivations of §7.6.4.3's key agree that the empty user password is **not** the
-/// document's; here two say it is and two say it is not, which `doc/HANDOVER.md`'s trap 9
+/// Table 25's default puts the key at the open and this tree refuses the document; here two
+/// references say the empty user password opens the page and two say it does not, which `doc/HANDOVER.md`'s trap 9
 /// already records for a different pair of files — two against two is not a tie but a question,
 /// and §7.6.6 puts a refusal on the stream whose key is missing rather than on the document.
 /// Nothing is owed unless the page we draw is wrong, and the reference that agrees with it is
@@ -5418,7 +5412,16 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf p
 /// the rules' edges and on the letterforms' edges and nowhere else, and ours-against-`mupdf` and
 /// `poppler`-against-`mupdf` leave the *same* pattern. This group's sentence, on a page where every
 /// pixel is an edge.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 18] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 19] = [
+    // Judged once its published password opened it (ADR 1377): a Kyocera scan, one 2480x3507
+    // one-bit `JBIG2Decode` stencil drawn onto 595x842 — a reduction of 4.17 to 1 — with the one
+    // line of text inside the image, so the page carries no glyphs and is held to the vector
+    // tolerance; it fails the worst tile alone. Ink in levels of 255, taken over panels rendered
+    // with the harness's flags: ours 0.1639 at 1x and 0.1672 at 4x, `poppler` 0.1768 and 0.1683,
+    // `mupdf` 0.1739 and 0.1694, `ghostscript` 0.1703 and 0.1705 at 72 and 288 dpi. The four
+    // converge inside 0.004 at the larger scale, so what differs at the page's own is the
+    // reduction rule, this group's subject.
+    "issue3371.pdf page 1",
     "issue4379.pdf page 1",
     "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
@@ -12192,6 +12195,21 @@ impl Work {
         let stem = self.path.file_stem().unwrap_or_default().to_string_lossy();
         format!("{stem}-p{}", self.page)
     }
+
+    /// The published password this page's document opens with, which only a pdf.js corpus
+    /// document can have: [`corpus_passwords`] is keyed by that corpus's file names, and a
+    /// submodule corpus shares some of them with different bytes ([`Work::name`]).
+    fn password(&self) -> Option<&'static CorpusPassword> {
+        match self.corpus {
+            Some(_) => None,
+            None => published_password(&self.path),
+        }
+    }
+
+    /// That password as the reference renderers are handed it.
+    fn password_for_the_references(&self) -> Option<&'static str> {
+        self.password().map(|known| known.for_the_references)
+    }
 }
 
 /// Where the references' answers are remembered between runs.
@@ -12385,7 +12403,7 @@ fn corpus_items(corpus: &'static Corpus) -> Vec<Work> {
         .flat_map(|path| {
             let last = match corpus.sheets {
                 Sheets::First => 1,
-                Sheets::All => page_count(path),
+                Sheets::All => page_count(path, None),
             };
             (1..=last)
                 .map(|page| Work {
@@ -12447,7 +12465,7 @@ fn work_items() -> Option<Vec<Work>> {
     let mut items: Vec<Work> = corpus
         .par_iter()
         .flat_map(|path| {
-            (1..=page_count(path))
+            (1..=page_count(path, published_password(path)))
                 .map(|page| Work {
                     path: path.clone(),
                     page,
@@ -12468,12 +12486,32 @@ fn work_items() -> Option<Vec<Work>> {
     Some(items)
 }
 
+/// The published password of a pdf.js corpus document, found by its file name.
+fn published_password(path: &Path) -> Option<&'static CorpusPassword> {
+    corpus_password(&path.file_name()?.to_string_lossy())
+}
+
+/// Opens a document, and where §7.6.4.1's default user password is refused, with the published
+/// one [`corpus_passwords`] holds for it.
+///
+/// A document with no published password is refused exactly as [`Document::open`] refuses it,
+/// so what stays in [`NO_RENDER_NEEDS_A_PASSWORD`] is a document nobody can open rather than one
+/// this gate did not try.
+fn open_document(bytes: Vec<u8>, known: Option<&CorpusPassword>) -> Result<Document, SyntaxError> {
+    match (Document::open(bytes.clone()), known) {
+        (Err(SyntaxError::PasswordRequired), Some(known)) => {
+            Document::open_with_password(bytes, Limits::default(), known.password)
+        }
+        (opened, _) => opened,
+    }
+}
+
 /// How many pages a document has, or one when that cannot be established.
-fn page_count(path: &Path) -> u32 {
+fn page_count(path: &Path, known: Option<&CorpusPassword>) -> u32 {
     let Ok(bytes) = std::fs::read(path) else {
         return 1;
     };
-    let Ok(document) = Document::open(bytes) else {
+    let Ok(document) = open_document(bytes, known) else {
         return 1;
     };
     u32::try_from(pdf_model::Pages::new(&document).len())
@@ -12501,7 +12539,8 @@ fn render_ours(work: &Work) -> Result<OurRender, String> {
     let path = work.path.as_path();
     let index = usize::try_from(work.page.saturating_sub(1)).unwrap_or(usize::MAX);
     let bytes = std::fs::read(path).map_err(|e| format!("unreadable: {e}"))?;
-    let document = Document::open(bytes).map_err(|e| format!("will not open: {e}"))?;
+    let document =
+        open_document(bytes, work.password()).map_err(|e| format!("will not open: {e}"))?;
     let page = pdf_model::Pages::new(&document)
         .get(index)
         .ok_or_else(|| format!("no page {}", work.page))?;
@@ -12675,8 +12714,14 @@ fn leave_the_evidence(
     triangulation: &pdfref::Triangulation,
     cache: &Cache,
 ) {
-    if let Ok(raster) = cache.render(Reference::Hayro, &work.path, work.page, DPI, work_dir)
-        && raster.width == ours.width
+    if let Ok(raster) = cache.render_with_password(
+        Reference::Hayro,
+        &work.path,
+        work.page,
+        DPI,
+        work_dir,
+        work.password_for_the_references(),
+    ) && raster.width == ours.width
         && raster.height == ours.height
     {
         references.push((Reference::Hayro, raster));
@@ -13571,7 +13616,14 @@ fn render_references(
         .par_iter()
         .map(|reference| {
             let rendered = cache
-                .render(*reference, &work.path, work.page, DPI, work_dir)
+                .render_with_password(
+                    *reference,
+                    &work.path,
+                    work.page,
+                    DPI,
+                    work_dir,
+                    work.password_for_the_references(),
+                )
                 .map_err(|e| format!("{e}"));
             (*reference, rendered)
         })
@@ -16155,7 +16207,14 @@ fn spreads_of(
     let page: Arc<str> = Arc::from(work.name());
     let substitutions = substitutions_of(&page, &raster, &references, &testimony, ours.has_text);
     if let Some(fourth) = fourth
-        && let Ok(extra) = cache.render(fourth, &work.path, work.page, DPI, &work_dir)
+        && let Ok(extra) = cache.render_with_password(
+            fourth,
+            &work.path,
+            work.page,
+            DPI,
+            &work_dir,
+            work.password_for_the_references(),
+        )
         && extra.width == raster.width
         && extra.height == raster.height
     {

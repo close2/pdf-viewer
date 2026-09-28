@@ -6194,6 +6194,62 @@ mod tests {
 
     use super::{Band, MASK_BUDGET, MaskCache, RECTANGULAR_OUTLINE_VERBS, Surface};
 
+    /// A circle of radius 4 and one of radius 1, stroked at `8 w`, are the disks of radius 8 and 5
+    /// (§8.4.3.2's set; the first's inside is within the half-width of its curve), and the union of
+    /// the pieces `folding_stroke_outline` states for them is measured exactly by `crate::area`
+    /// under the non-zero rule, at the scale the pieces were flattened for. The shortfall is held
+    /// to what [`FOLD_FLATNESS`] promises: the set's rim, in device pixels, times a sixty-fourth of
+    /// one. The expected areas are the Bézier circle's own — its area plus its length times the
+    /// half-width plus `πh²`, the outer parallel body of a convex region — computed from the control
+    /// points (`numpy`, 200 000 samples a curve): 201.0910 and 78.5398 (ADR 1374).
+    ///
+    /// Measured at scales 1 and 2 only: from 4 up the pieces overlap in every row past
+    /// `crate::area`'s work bound, which is why ADR 1348 hands them to the library's converter.
+    #[test]
+    fn a_small_disc_s_pieces_add_up_to_its_set_within_the_flatness() {
+        let kappa = 0.5523_f32;
+        let half = 4.0_f32;
+        for (radius, set) in [(4.0_f32, 201.091_f64), (1.0, 78.5398)] {
+            for scale in [1.0_f32, 2.0] {
+                let (cx, cy, r, k) = (20.0_f32, 20.0_f32, radius, kappa * radius);
+                let mut builder = tiny_skia::PathBuilder::new();
+                builder.move_to(cx + r, cy);
+                builder.cubic_to(cx + r, cy + k, cx + k, cy + r, cx, cy + r);
+                builder.cubic_to(cx - k, cy + r, cx - r, cy + k, cx - r, cy);
+                builder.cubic_to(cx - r, cy - k, cx - k, cy - r, cx, cy - r);
+                builder.cubic_to(cx + k, cy - r, cx + r, cy - k, cx + r, cy);
+                builder.close();
+                let circle = builder.finish().expect("a circle");
+                let style = tiny_skia::Stroke {
+                    width: 2.0 * half,
+                    line_join: tiny_skia::LineJoin::Round,
+                    ..tiny_skia::Stroke::default()
+                };
+                let pieces =
+                    super::folding_stroke_outline(&circle, &style, scale).expect("it folds");
+                let at = tiny_skia::Transform::identity();
+                let region = crate::area::region(&pieces, at, (40, 40)).expect("on the surface");
+                let mut target = vec![0_u8; 40 * 40];
+                assert!(crate::area::fill(
+                    &mut crate::area::Buffers::default(),
+                    &mut target,
+                    (40, region),
+                    (&pieces, true),
+                    tiny_skia::FillRule::Winding,
+                    at,
+                ));
+                let union = target.iter().map(|&level| f64::from(level)).sum::<f64>() / 255.0;
+                let rim = 2.0 * std::f64::consts::PI * f64::from(radius + half);
+                let bound = rim * f64::from(super::FOLD_FLATNESS / scale);
+                assert!(
+                    (union - set).abs() <= bound,
+                    "radius {radius} at scale {scale}: the pieces' union is {union:.4} against \
+                     {set:.4}, past {bound:.4}"
+                );
+            }
+        }
+    }
+
     /// A stretch's outline joins the pieces wound the way every piece is, whichever way the
     /// stroker wound it (ADR 1359): a square traced clockwise and anticlockwise comes out with the
     /// same positive area. The stroker has wound every outline the fixtures draw positively, so

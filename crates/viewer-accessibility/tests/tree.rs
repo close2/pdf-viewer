@@ -69,6 +69,7 @@ fn view<'a>(nodes: &'a [AccessibilityNode], reports: &'a [String]) -> PageView<'
         label: None,
         bounds: [0.0, 0.0, 800.0, 1000.0],
         nodes,
+        widgets: &[],
         reports,
         readback: pdf_model::content::Shortfall::default(),
     }
@@ -1061,5 +1062,71 @@ fn an_untagged_page_beside_a_tagged_one_still_says_it_is_untagged() {
     assert!(
         said.contains("states no logical structure"),
         "the untagged page says so in this program's own words: {said:?}"
+    );
+}
+
+/// One widget of an untagged page, as `PageStructure::widgets` answers with it.
+fn widget(name: &str, control: Control, object: u32) -> AccessibilityNode {
+    AccessibilityNode {
+        control: Some(control),
+        annotation: Some(pdf_syntax::ObjectId::new(object, 0)),
+        bounds: Some([100.0, 200.0, 180.0, 230.0]),
+        ..element(None, "Form", name)
+    }
+}
+
+/// An untagged page's fields are controls a client can press, beside the sentence that says the
+/// page states no reading order for its text (ADR 1369).
+///
+/// Table 226's `/TU` is "[a]n alternative field name that shall be used in place of the actual
+/// field name wherever the field shall be identified in the user interface", so the name a widget
+/// carries is the one the node is announced by; and §12.5.1's "[w]hen the user activates the
+/// annotation by clicking it" is the click the node declares, for the reason a `Form` element
+/// declares it.
+#[test]
+fn an_untagged_pages_widgets_are_controls_beside_the_untagged_sentence() {
+    let widgets = [
+        widget("Submit the order", Control::PushButton, 12),
+        widget("I agree", Control::CheckBox { on: true }, 13),
+    ];
+    let update = built(PageView {
+        widgets: &widgets,
+        ..view(&[], &[])
+    });
+    let page = node(&update, NodeId(2));
+    assert_eq!(
+        page.children(),
+        [NodeId(16), NodeId(100_016), NodeId(100_017)],
+        "the sentence first, then the widgets in the order they were answered in"
+    );
+    let said = node(&update, NodeId(16)).value().unwrap_or_default();
+    assert!(said.contains("no logical structure"), "{said}");
+
+    let button = node(&update, NodeId(100_016));
+    assert_eq!(button.role(), Role::Button);
+    assert_eq!(button.label(), Some("Submit the order"));
+    assert!(button.supports_action(Action::Click));
+    assert!(button.supports_action(Action::ScrollIntoView));
+    assert!(button.bounds().is_some());
+
+    let tick = node(&update, NodeId(100_017));
+    assert_eq!(tick.role(), Role::CheckBox);
+    assert_eq!(tick.toggled(), Some(Toggled::True));
+    assert!(tick.supports_action(Action::Click));
+}
+
+/// A tagged page publishes its widgets as its `Form` elements and nothing else, so a list handed
+/// in beside its elements is not published a second time.
+#[test]
+fn a_tagged_page_publishes_no_widget_list_beside_its_elements() {
+    let nodes = [element(None, "P", "a paragraph")];
+    let widgets = [widget("go", Control::PushButton, 12)];
+    let update = built(PageView {
+        widgets: &widgets,
+        ..view(&nodes, &[])
+    });
+    assert!(
+        update.nodes.iter().all(|(id, _)| id.0 < 100_000),
+        "no widget identifier on a tagged page"
     );
 }

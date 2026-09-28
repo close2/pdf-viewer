@@ -3510,6 +3510,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
             for page in pages {
                 writer.usize(page.page);
                 panels::encode_accessibility(&mut writer, &page.nodes);
+                panels::encode_accessibility(&mut writer, &page.widgets);
             }
         }
         Answer::Outline(outline) => {
@@ -4093,6 +4094,7 @@ pub(crate) fn decode_answer_reusing(
             Ok(crate::Structured {
                 page: reader.usize("a structure tree's page")?,
                 nodes: panels::decode_accessibility(reader)?,
+                widgets: panels::decode_accessibility(reader)?,
             })
         })?),
         value => {
@@ -5757,14 +5759,18 @@ mod tests {
         // and stopped would pass with one. The second is deliberately **untagged**: an empty
         // list is an answer (§14.7 lets a page state no structure) and a wire that dropped the
         // entry would turn "this page says nothing" into "there is no such page".
+        // Its widgets cross as a list of their own, ADR 1369's, so the untagged page carries
+        // the nodes the tagged one does in the other list.
         let pages = vec![
             viewer_core::PageStructure {
                 page: 3,
                 nodes: nodes.clone(),
+                widgets: Vec::new(),
             },
             viewer_core::PageStructure {
                 page: 4,
                 nodes: Vec::new(),
+                widgets: nodes.clone(),
             },
         ];
         let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(pages.clone())) else {
@@ -5774,6 +5780,7 @@ mod tests {
         for (read, ours) in read.iter().zip(&pages) {
             assert_eq!(read.page, ours.page);
             assert_eq!(read.nodes, ours.nodes);
+            assert_eq!(read.widgets, ours.widgets);
         }
 
         // §12.7, and one of every control §12.7.5 defines: a host on this boundary builds the

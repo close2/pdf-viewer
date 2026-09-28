@@ -370,6 +370,19 @@ the pieces' signed areas with no rasteriser showed 656 against 640. And where a 
 another stroker drew, it is turned from the stretch's exact tangent, not its last chord — a join
 square to the chord left a 45-level seam inside a stroke (ADR 1359).
 
+### 60. A coverage floor asked per pixel paints a row of false ink
+
+`45.6 · 150/72` is `95.0` in real numbers and `94.99999` in f32, and ADR 0419's floor lifted that
+ten-thousandth of a pixel to a full level along a whole column outside an edge (ADR 1374). The
+floor is now asked once per shape — a mark none of whose pixels reaches one level is still lifted,
+every other mark's pixels are rounded to nearest — and eleven golden pages lost one false level.
+
+### 62. A residue attributed to a mechanism is measured in isolation before anything is built on it
+
+The hook's 557.87 against the set's 565.50 was attributed to a rim counted twice; the pieces' union,
+sampled with no rasteriser, read 557.83, so the whole gap was the centre line's flattening and the
+double count was real only on short tight bends (ADR 1375). One number separated the two.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

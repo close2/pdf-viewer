@@ -1592,8 +1592,8 @@ impl Host {
     /// §12.7.6.4's file, under the narrowest policy that performs the action.
     ///
     /// No level: the clause makes performing an import a `shall` and what is admitted is the one
-    /// rule `viewer_host::resolve_import` states — a single path component beside the open
-    /// document. A refusal is said rather than swallowed (trap 5).
+    /// rule `viewer_host::resolve_import` states — a relative path to a file in or below the open
+    /// document's directory. A refusal is said rather than swallowed (trap 5).
     fn import(&mut self, purpose: Purpose, name: &str, queue: &mut VecDeque<Command>) {
         let bytes = match viewer_host::policy::read_import(self.showing.directory.as_deref(), name)
         {

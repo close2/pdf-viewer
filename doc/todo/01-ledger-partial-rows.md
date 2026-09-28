@@ -188,9 +188,12 @@ depends on nothing but `thiserror`.
   every Markdown document under `doc/` bar `doc/history/` — the eighth sweep as a program (ADR
   0372). **A pointer is resolved from where it is written**, so a `tests/x.rs` in a doc comment
   means its own crate's tests and the same words in a document under `doc/` are *unrooted* rather
-  than dead; the other three rungs it prints instead of a finding are a fragment that resolves in
-  another crate, a metavariable (`doc/todo/NN`), and a path this tree deliberately does not carry.
-  The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
+  than dead; the other four rungs it prints instead of a finding are a fragment that resolves in
+  another crate, a form (`doc/todo/NN`, a glob, a template such as `scratchpad/r<round>/`), a path
+  this tree deliberately does not carry (a submodule, an ignored directory, a round's scratch), and
+  an owner's `A` file whose `Q` is here — an answer lands through the owner's own commit, so a
+  worktree can hold the question and cite the answer before it does, and `tests/questions.rs` owns
+  that directory (ADR 1379). The oldest false positive is a correction quoting the pointer it retired, and it is marked rather
   than dropped. Read the sentence before believing a hit.
 - **One asks whether the table a sentence cites states the key it gives it**: `cargo run --release
   -p conformance --bin tables`, seconds, over `ledger.toml`, the source roots and every Markdown

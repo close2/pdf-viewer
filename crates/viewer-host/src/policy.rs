@@ -275,44 +275,89 @@ pub enum ImportRefusal {
     /// question about *this machine* that nobody asked.
     #[error("the document is not in a known directory")]
     NoDirectory,
-    /// The name is not a single path component beside the document.
+    /// The name does not reach a file in the document's directory or a directory below it.
     ///
-    /// Checked as a path rather than as a string, so that a separator this platform recognises
-    /// and this program does not cannot slip through: `../secrets`, `/etc/passwd` and a Windows
-    /// drive letter are all refused by the same rule.
-    #[error("{name} is not a plain file name beside the document")]
-    NotAPlainName {
+    /// Checked component by component as a path rather than as a string, so that a separator this
+    /// platform recognises and this program does not cannot slip through: `../secrets`,
+    /// `/etc/passwd`, `sub/../../x` and a Windows drive letter are all refused by the same rule.
+    #[error("{name} is not a file in or below the document's own directory")]
+    OutsideTheDocumentsDirectory {
         /// The name the document wrote, unchanged.
         name: String,
     },
 }
 
-/// Where §12.7.6.4's named file may be read from, under the narrowest policy that performs it.
+/// Where a file a document names may be read from, under the narrowest policy that performs it.
 ///
 /// Two rules, and they are the whole policy:
 ///
-/// - the name must be a single path component, so `../…`, an absolute path and a drive-relative
-///   one are all refused;
+/// - the name must be a **relative** file specification whose every component names a directory
+///   or file *below* where it stands, so `..`, `.`, an empty component, an absolute path and a
+///   drive-relative one are all refused;
 /// - it is resolved against the directory the open document is in, and nowhere else.
 ///
+/// §7.11.2.2 is the construction the first rule admits and nothing wider: "[a] file specification
+/// that does not begin with a SOLIDUS shall be a relative file specification giving the location of
+/// the file relative to that of the PDF file containing it", and its EXAMPLE 1 is a relative
+/// specification into a subdirectory, `ArtFiles/Figure1.pdf`. The rule exists to keep a document to
+/// its own directory; a directory below it is inside it, and `..` is the one component that leaves
+/// it. ADR 1369.
+///
+/// §7.11.2.1 is how the name is split: the SOLIDUS separates components, and one preceded by a
+/// REVERSE SOLIDUS is part of a component — which no file name on this platform can hold, so such a
+/// component is refused by the same per-component check as `..`.
+///
 /// Pure, so that the policy is testable without a filesystem and without a window — which is what
-/// `tests/host_mappings.rs` does. Reading the bytes is [`read_import`]'s. (This named a
-/// `tests/import_policy.rs` that has never existed in this tree, found by `doc/todo/01`'s eighth
-/// sweep on the round it became a program.)
+/// `tests/host_mappings.rs` does. Reading the bytes is [`read_import`]'s.
 ///
 /// # Errors
 ///
 /// [`ImportRefusal`], one variant per rule above.
 pub fn resolve_import(directory: Option<&Path>, name: &str) -> Result<PathBuf, ImportRefusal> {
     let directory = directory.ok_or(ImportRefusal::NoDirectory)?;
-    let named = Path::new(name);
-    let mut components = named.components();
-    let (Some(Component::Normal(single)), None) = (components.next(), components.next()) else {
-        return Err(ImportRefusal::NotAPlainName {
-            name: name.to_owned(),
-        });
+    let outside = || ImportRefusal::OutsideTheDocumentsDirectory {
+        name: name.to_owned(),
     };
-    Ok(directory.join(single))
+    let mut path = directory.to_path_buf();
+    for component in file_specification_components(name) {
+        let mut parts = Path::new(&component).components();
+        let (Some(Component::Normal(single)), None) = (parts.next(), parts.next()) else {
+            return Err(outside());
+        };
+        path.push(single);
+    }
+    if path.as_path() == directory {
+        return Err(outside());
+    }
+    Ok(path)
+}
+
+/// A file specification string's components, by §7.11.2.1's escape.
+///
+/// "The SOLIDUS is a generic component separator", and a SOLIDUS preceded by a REVERSE SOLIDUS is
+/// part of the component — the REVERSE SOLIDUS "shall be removed in processing the string". A
+/// leading SOLIDUS gives an empty first component, which is how an absolute specification reaches
+/// the caller's check.
+fn file_specification_components(name: &str) -> Vec<String> {
+    let mut components = vec![String::new()];
+    let mut characters = name.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' if characters.peek() == Some(&'/') => {
+                characters.next();
+                if let Some(last) = components.last_mut() {
+                    last.push('/');
+                }
+            }
+            '/' => components.push(String::new()),
+            other => {
+                if let Some(last) = components.last_mut() {
+                    last.push(other);
+                }
+            }
+        }
+    }
+    components
 }
 
 /// The bytes of §12.7.6.4's file, or the sentence saying why not.

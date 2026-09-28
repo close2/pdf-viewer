@@ -39,13 +39,16 @@
 //!
 //! # The noise, classified rather than filtered
 //!
-//! Four shapes are known and none of them is a defect, so each gets a rung of its own rather
+//! Five shapes are known and none of them is a defect, so each gets a rung of its own rather
 //! than a place in the reading list: a fragment that resolves in **another crate**
 //! ([`Reach::AnotherCrate`] — `pdf-syntax` naming `examples/callgrind_interpret`, which is
 //! `pdf-model`'s), a **form** rather than a citation ([`Reach::Placeholder`] —
-//! `doc/todo/NN`, `crates/foo.rs`, a glob), a path the tree deliberately does not **carry**
-//! ([`Reach::NotCarried`] — a submodule nobody checked out, a fuzz corpus a run builds, the
-//! specifications unpacked from `doc/specifications.zip`), and the unrooted fragment above.
+//! `doc/todo/NN`, `crates/foo.rs`, a glob, a template such as `scratchpad/r<round>/`), a path the
+//! tree deliberately does not **carry** ([`Reach::NotCarried`] — a submodule nobody checked out, a
+//! fuzz corpus a run builds, a round's scratch directory, the specifications unpacked from
+//! `doc/specifications.zip`), an **owner's answer** to a question this tree holds
+//! ([`Reach::AnswerNotHere`] — `doc/questions/`'s own gate owns that directory), and the unrooted
+//! fragment above.
 //! What is left is [`Reach::Absent`], and it is classified once more by
 //! [`crate::retired::kind_of`]: a **correction quoting the pointer it retired** is this sweep's
 //! oldest false positive — §8.9.6.1 has produced it on every run since the three-hundred-and-
@@ -84,21 +87,41 @@ pub const PLACEHOLDERS: [&str; 6] = ["foo", "foo.rs", "bar.rs", "file.rs", "x.pd
 
 /// The paths a checkout of this repository does not carry, with what puts them there.
 ///
-/// - `doc/corpora`, `doc/pdf.js` and `doc/arlington-pdf-model` are submodules, and three of the
-///   four corpora are optional in the strong sense (`doc/environment.md`): a pointer into one is
-///   live for a developer who checked it out and absent for everybody else, so it is neither.
+/// - `doc/corpora`, `doc/pdf.js`, `doc/arlington-pdf-model` and `doc/veraPDF-corpus` are
+///   submodules, and three of the four corpora are optional in the strong sense
+///   (`doc/environment.md`): a pointer into one is live for a developer who checked it out and
+///   absent for everybody else, so it is neither.
+/// - `doc/pdfa`, `doc/veraPDF-library` and `doc/specifications.password` are ignored by
+///   `.gitignore` or `doc/.gitignore`: bought texts, a validator's sources read as evidence, and
+///   the key to the archive below (`doc/third-party-data.md`). `doc/errata.md` is ignored too,
+///   and `tools/spec-errata` writes it.
+/// - `doc/adr_revisit` is the owner's own notes on ADRs, kept in the owner's checkout and read
+///   from there by the round a note is addressed to.
 /// - `fuzz/corpus` is what a fuzzing run builds, and `.gitignore` covers it.
 /// - `doc/md` and the specifications beside it are unpacked from `doc/specifications.zip`, which
 ///   ADR 0187 decided and `NOTICE` section 3 explains.
 /// - `target` is the build directory.
-pub const NOT_CARRIED: [&str; 6] = [
+/// - `scratchpad` is where a round keeps its own intermediate files (`doc/todo/02` section 8);
+///   a merge stages explicit paths and never one under it, so a record naming a file there is
+///   naming something no checkout has.
+pub const NOT_CARRIED: [&str; 13] = [
     "doc/corpora",
     "doc/pdf.js",
     "doc/arlington-pdf-model",
+    "doc/veraPDF-corpus",
+    "doc/pdfa",
+    "doc/veraPDF-library",
+    "doc/specifications.password",
+    "doc/errata.md",
+    "doc/adr_revisit",
     "fuzz/corpus",
     "doc/md",
     "target",
+    "scratchpad",
 ];
+
+/// The directory an owner's answer lives in, and the letter that makes a file one.
+const QUESTIONS: &str = "doc/questions/";
 
 /// What a pointer resolved to, in the order a person reads them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -112,10 +135,18 @@ pub enum Reach {
     /// A fragment whose head is [`RELATIVE_HEADS`], written where no crate says what it is
     /// relative to — a document addressed to another project, most often.
     Unrooted,
-    /// A form rather than a citation: [`PLACEHOLDERS`], or a glob.
+    /// A form rather than a citation: [`PLACEHOLDERS`], a glob, or a template whose segment is
+    /// written in angle brackets (`scratchpad/r<round>/`).
     Placeholder,
     /// Under one of [`NOT_CARRIED`]: the tree deliberately does not have it here.
     NotCarried,
+    /// `doc/questions/A<n>`, absent, where `doc/questions/Q<n>` is here: the owner's answer to a
+    /// question this tree asked, not in this checkout. The owner writes an `A` file and it lands
+    /// through the owner's own commit, so a worktree can be a round ahead of it; whether a
+    /// question is answered is `tools/conformance/tests/questions.rs`'s to say, over the directory
+    /// itself. An `A` whose `Q` is missing too is still [`Reach::Absent`] — nothing asked it
+    /// (ADR 1379).
+    AnswerNotHere,
     /// Resolved. A file or a directory exists at it, or the number it names does.
     Live,
 }
@@ -128,6 +159,7 @@ impl fmt::Display for Reach {
             Self::Unrooted => "unrooted",
             Self::Placeholder => "a form",
             Self::NotCarried => "not carried",
+            Self::AnswerNotHere => "an answer not in this checkout",
             Self::Live => "live",
         })
     }
@@ -262,6 +294,9 @@ impl Tree {
 
     /// Walks the workspace, skipping what [`NOT_CARRIED`] names and every hidden directory.
     ///
+    /// A hidden *file* is walked: `doc/.gitignore` is cited as the reason a directory is not
+    /// carried, and it is a file every checkout has.
+    ///
     /// # Errors
     ///
     /// If a directory cannot be read: a sweep that skipped what it could not open would report a
@@ -346,7 +381,8 @@ fn collect(root: &Path, directory: &Path, into: &mut Vec<String>) -> std::io::Re
             .replace('\\', "/");
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with('.') || NOT_CARRIED.iter().any(|skipped| relative == *skipped) {
+        let hidden_directory = name.starts_with('.') && path.is_dir();
+        if hidden_directory || NOT_CARRIED.iter().any(|skipped| relative == *skipped) {
             continue;
         }
         into.push(relative);
@@ -453,7 +489,7 @@ fn source_index(sources: &[(PathBuf, String)]) -> BTreeMap<String, &str> {
 
 /// What a pointer reaches, given the crate it was written in.
 fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> Reach {
-    if text.contains('*') || text.split('/').any(is_a_placeholder) {
+    if text.contains(['*', '<']) || text.split('/').any(is_a_placeholder) {
         return Reach::Placeholder;
     }
     let head = text.split('/').next().unwrap_or_default();
@@ -464,6 +500,10 @@ fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> Reach {
             Some(directory) => format!("{directory}/{text}"),
             None => return Reach::Unrooted,
         }
+    } else if is_not_carried(text) {
+        // The walk skips what the tree does not carry, so a top-level directory among them
+        // (`scratchpad`, `target`) is not a head the walk saw.
+        return Reach::NotCarried;
     } else {
         return Reach::Unrooted;
     };
@@ -471,15 +511,33 @@ fn reach_of(text: &str, home: Option<&str>, tree: &Tree) -> Reach {
         Reach::Live
     } else if RELATIVE_HEADS.contains(&head) && tree.holds_anywhere(text) {
         Reach::AnotherCrate
-    } else if NOT_CARRIED
-        .iter()
-        .any(|carried| path == *carried || path.starts_with(&format!("{carried}/")))
-        || is_a_specification(&path)
-    {
+    } else if is_not_carried(&path) || is_a_specification(&path) {
         Reach::NotCarried
+    } else if question_of_answer(&path).is_some_and(|question| tree.holds(&question)) {
+        Reach::AnswerNotHere
     } else {
         Reach::Absent
     }
+}
+
+/// The question an answer's path is addressed to: `doc/questions/A72-…` → `doc/questions/Q72`.
+///
+/// Only the number is carried across, because a pointer may name the answer by its number alone
+/// and [`Tree::holds`] resolves a number to the file whose name begins with it.
+#[must_use]
+pub fn question_of_answer(path: &str) -> Option<String> {
+    let name = path.strip_prefix(QUESTIONS)?.strip_prefix('A')?;
+    let number: String = name.chars().take_while(char::is_ascii_digit).collect();
+    let rest = name.get(number.len()..).unwrap_or_default();
+    (!number.is_empty() && (rest.is_empty() || rest.starts_with(['-', '.'])))
+        .then(|| format!("{QUESTIONS}Q{number}"))
+}
+
+/// Whether a path is at or under one of [`NOT_CARRIED`].
+fn is_not_carried(path: &str) -> bool {
+    NOT_CARRIED
+        .iter()
+        .any(|carried| path == *carried || path.starts_with(&format!("{carried}/")))
 }
 
 /// Whether a segment is one of the names this project writes to show a *form*.
@@ -526,6 +584,14 @@ fn paths_in(sentence: &str) -> Vec<String> {
         let start = at;
         while at < bytes.len() && is_path_character(bytes[at]) {
             at = at.saturating_add(1);
+            // A segment written in angle brackets straight after a path character is a template
+            // (`scratchpad/r<round>/`, `doc/questions/Q<next>.md`) and belongs to the token, so
+            // that [`reach_of`] can call it a form instead of resolving the stem before it.
+            if bytes.get(at) == Some(&'<')
+                && let Some(close) = template_end(&bytes, at)
+            {
+                at = close;
+            }
         }
         let token: String = bytes[start..at].iter().collect();
         let token = token.trim_end_matches(['.', '-', '/']).to_owned();
@@ -534,6 +600,25 @@ fn paths_in(sentence: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// Where a `<…>` opened at `open` ends, one past its `>`, when it holds only name characters.
+///
+/// The limit is what keeps `a<b` in a sentence about arithmetic, or a generic type's
+/// `Vec<String>`, from being read as a template: a template names a variable of the path, so it
+/// is a word or two joined by hyphens or underscores.
+fn template_end(bytes: &[char], open: usize) -> Option<usize> {
+    let mut at = open.saturating_add(1);
+    while let Some(character) = bytes.get(at) {
+        if *character == '>' {
+            return (at > open.saturating_add(1)).then(|| at.saturating_add(1));
+        }
+        if !(character.is_ascii_lowercase() || matches!(character, '-' | '_')) {
+            return None;
+        }
+        at = at.saturating_add(1);
+    }
+    None
 }
 
 /// The characters a path is written with here.
@@ -750,6 +835,56 @@ mod tests {
         let found = sweep(&tree(), &ledger(Vec::new()), &[], &documents);
         assert_eq!(found.reaching(Reach::NotCarried).len(), 2);
         assert!(found.reaching(Reach::Absent).is_empty());
+    }
+
+    /// A template names the shape of a path, not a path: `scratchpad/r<round>/` was read as
+    /// `scratchpad/r` and printed as absent on every run, and a round's scratch directory is
+    /// never carried by a checkout either.
+    #[test]
+    fn a_template_and_a_rounds_scratch_are_not_citations() {
+        let documents = vec![file(
+            "doc/HANDOVER.md",
+            "Scratch goes under `scratchpad/r<round>/`; the ADR's was `scratchpad/r1242/`.\n",
+        )];
+        let found = sweep(&tree(), &ledger(Vec::new()), &[], &documents);
+        assert_eq!(
+            found
+                .reaching(Reach::Placeholder)
+                .iter()
+                .map(|pointer| pointer.text.as_str())
+                .collect::<Vec<_>>(),
+            ["scratchpad/r<round>"]
+        );
+        assert_eq!(found.reaching(Reach::NotCarried).len(), 1);
+        assert!(found.reaching(Reach::Absent).is_empty());
+        // A generic type is not a template: `Vec<String>` has no separator, and a comparison
+        // with a capital or a digit inside the brackets is not a name.
+        assert_eq!(paths_in("See `doc/a<B>` and doc/b<1>."), ["doc/a", "doc/b"]);
+    }
+
+    /// An answer is the owner's to commit and `tests/questions.rs`'s to check; one whose question
+    /// is here is its own rung, and the control is the answer to a question nobody asked.
+    #[test]
+    fn an_answer_to_a_question_held_here_is_the_questions_gates() {
+        let tree = Tree::of([
+            "doc",
+            "doc/questions",
+            "doc/questions/Q72-where-the-standard-states-no-quantity.md",
+        ]);
+        let ledger = ledger(vec![row(
+            "12.4.4",
+            "The owner ruled in `doc/questions/A72`; `doc/questions/A999` is a slip.",
+        )]);
+        let found = sweep(&tree, &ledger, &[], &[]);
+        assert_eq!(found.reaching(Reach::AnswerNotHere).len(), 1);
+        let absent = found.reaching(Reach::Absent);
+        assert_eq!(absent.len(), 1);
+        assert_eq!(absent.first().expect("one").text, "doc/questions/A999");
+        assert_eq!(
+            question_of_answer("doc/questions/A72-where.md").as_deref(),
+            Some("doc/questions/Q72")
+        );
+        assert_eq!(question_of_answer("doc/questions/Answers.md"), None);
     }
 
     /// The oldest false positive: a correction quotes the pointer it retired, and the sweep

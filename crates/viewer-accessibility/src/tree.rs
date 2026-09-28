@@ -90,6 +90,12 @@
 //! precisely what §14.7 exists to state, and a reader that guessed one would be presenting a
 //! guess in the place a person is entitled to expect the author's answer.
 //!
+//! **Its fields are published all the same** (ADR 1369), after that sentence and as siblings of
+//! it: each widget annotation as the control its §12.7.5 field type is, named by Table 226's
+//! `/TU` or its §12.7.4.2 name, declaring the click a tagged page's `Form` declares. A field is
+//! content a person acts on rather than text to be read in order, and the order they arrive in is
+//! §12.5.1's tab order — the one the page states for its annotations — so nothing is invented.
+//!
 //! # What this program refused
 //!
 //! A page with an unreported gap is one thing; a page whose text is not drawn at all is another,
@@ -130,6 +136,11 @@ const REPORT_BASE: u64 = 1_000_000;
 /// line's identifier from its element's would have to bound the lines per element to stay
 /// injective.
 const RUN_BASE: u64 = 2_000_000;
+/// How far an untagged page's widgets are moved inside its band, past every element's identifier.
+///
+/// Above [`ELEMENT_BASE`] plus `viewer_core`'s 8192 elements, and below [`REPORT_BASE`], so a
+/// widget's identifier meets neither an element's nor a report's (ADR 1369).
+const WIDGETS: u64 = 100_000;
 /// How far apart two pages' identifier bands are.
 ///
 /// **Table 29's continuous arrangements are what made this necessary**: a column publishes one
@@ -172,6 +183,16 @@ impl Band {
                 .saturating_add(ELEMENT_BASE)
                 .saturating_add(ceiling(index)),
         )
+    }
+
+    /// The band an untagged page's widgets are built in: this one, moved past every element.
+    ///
+    /// [`elements`] builds a widget exactly as it builds a `Form` element, and takes its
+    /// identifiers from [`Self::element`]; moving the band by [`WIDGETS`] is what keeps the two
+    /// ranges apart without a second copy of that walk. A widget has no text of its own, so the
+    /// moved band's runs and reports are never taken.
+    fn widgets(self) -> Self {
+        Self(self.0.saturating_add(WIDGETS))
     }
 
     /// The identifier one of the status group's items takes.
@@ -251,6 +272,12 @@ pub struct PageView<'a> {
     /// §14.7's elements for this page, parent-first, as `viewer_core::Query::AccessibilityTree`
     /// answers for it.
     pub nodes: &'a [AccessibilityNode],
+    /// The page's widget annotations where its document states no structure tree, as
+    /// `viewer_core::PageStructure::widgets` answers them (ADR 1369).
+    ///
+    /// Published after the sentence saying the page is untagged, and never on a tagged page, whose
+    /// widgets are `Form` elements in [`Self::nodes`].
+    pub widgets: &'a [AccessibilityNode],
     /// What this page could not draw, as `viewer_core::Query::Reports` answers.
     pub reports: &'a [String],
     /// What this page could not be *read* as, as `viewer_core::Query::Readback` answers.
@@ -505,19 +532,39 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
     }
 
     if view.nodes.is_empty() {
-        // §14.7 leaves a producer free to say nothing about its own structure, and this is what
-        // "nothing" sounds like. A statement about the *document*, not about this reader.
-        let id = band.element(0);
-        let mut untagged = Node::new(Role::Label);
-        say(
-            &mut untagged,
-            "this document states no logical structure (ISO 32000-2 §14.7), so this reader can \
-             offer no reading order for the page's text",
-        );
-        out.push((id, untagged));
-        roots.push(id);
+        untagged(view, band, out, &mut roots);
     }
     roots
+}
+
+/// What an untagged page publishes in place of §14.7's elements: one sentence saying so, and its
+/// widget annotations (ADR 1369).
+fn untagged(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>, roots: &mut Vec<NodeId>) {
+    // §14.7 leaves a producer free to say nothing about its own structure, and this is what
+    // "nothing" sounds like. A statement about the *document*, not about this reader.
+    let id = band.element(0);
+    let mut untagged = Node::new(Role::Label);
+    say(
+        &mut untagged,
+        "this document states no logical structure (ISO 32000-2 §14.7), so this reader can \
+         offer no reading order for the page's text",
+    );
+    out.push((id, untagged));
+    roots.push(id);
+    // **Its fields are not text, and they are published** (ADR 1369). A widget is content a
+    // person acts on, and §12.5.1's click is one definition for the mouse and for this bus
+    // (ADR 0425); what the page lacks is a reading order, and the order these arrive in is
+    // §12.5.1's tab order, which the page states for its annotations. They are built by the
+    // same walk as a `Form` element, in a band of their own so that no identifier meets the
+    // sentence above or a tagged page's elements.
+    if !view.widgets.is_empty() {
+        let widgets = PageView {
+            nodes: view.widgets,
+            widgets: &[],
+            ..*view
+        };
+        roots.extend(elements(&widgets, band.widgets(), out));
+    }
 }
 
 /// One [`Role::TextRun`] per line of the element's own text, appended, and their identifiers.

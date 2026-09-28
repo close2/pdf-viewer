@@ -448,6 +448,18 @@ fn every_dash_has_its_caps_and_its_corner_either_way() {
     }
 }
 
+/// A piece's signed area, the shoelace sum halved in `f64`.
+fn signed_area(piece: &crate::raster::Polyline) -> f64 {
+    let p = &piece.points;
+    (0..p.len())
+        .map(|i| {
+            let (a, b) = (p[i], p[(i + 1) % p.len()]);
+            f64::from(a.x) * f64::from(b.y) - f64::from(b.x) * f64::from(a.y)
+        })
+        .sum::<f64>()
+        / 2.0
+}
+
 /// **The pieces add up to the set, each counted once and all wound one way** — asked of
 /// the expansion itself, with no rasteriser in between, because rounding each pixel to a
 /// byte hides an overlap of a fraction of a pixel in a total of hundreds.
@@ -462,16 +474,6 @@ fn every_dash_has_its_caps_and_its_corner_either_way() {
 #[test]
 fn the_pieces_of_a_thin_stroke_tile_its_set() {
     const N: usize = 64;
-    fn signed_area(piece: &crate::raster::Polyline) -> f64 {
-        let p = &piece.points;
-        (0..p.len())
-            .map(|i| {
-                let (a, b) = (p[i], p[(i + 1) % p.len()]);
-                f64::from(a.x) * f64::from(b.y) - f64::from(b.x) * f64::from(a.y)
-            })
-            .sum::<f64>()
-            / 2.0
-    }
     let check = |path: &[Segment], stroke: Stroke, want: f64, what: &str| {
         for drawn in [path.to_vec(), reversed(path)] {
             let pieces = stroke_polylines(&flatten(&drawn, scaled(1.0)), stroke, stroke.width);
@@ -523,4 +525,129 @@ fn the_pieces_of_a_thin_stroke_tile_its_set() {
         .collect();
     let mitred = stroke(1.0, LineCap::Butt, LineJoin::Miter, 10.0);
     check(&line_path(&points, true), mitred, ring, "mitred 64-gon");
+}
+
+/// The L of arms 2 long at `8 w`, placed off the pixel grid: a bend far tighter than the
+/// half-width, since the cut [`inner_cut`](crate::raster::stroke) would take, `4 · tan 45° =
+/// 4` back along each arm, is past both arms' halves. Its pieces are the two rectangles
+/// §8.4.3.2 sweeps, `A = [20.3, 22.3] × [16.6, 24.6]` and `B = [18.3, 26.3] × [20.6, 22.6]`,
+/// and on the outer side of the turn Table 54's join — under a miter the square
+/// `M = [22.3, 26.3] × [16.6, 20.6]`. `A` and `B` overlap in `[20.3, 22.3] × [20.6, 22.6]`,
+/// and that square reaches the set's rim at three reflex corners, `(20.3, 20.6)`,
+/// `(20.3, 22.6)` and `(22.3, 22.6)`, where the edge of one rectangle crosses the edge of
+/// the other.
+fn tight_ell() -> Vec<Segment> {
+    line_path(&[(20.3, 20.6), (22.3, 20.6), (22.3, 22.6)], false)
+}
+
+/// The area of `[x0, x1] × [y0, y1]` inside another such rectangle.
+fn overlap(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let w = (a[1].min(b[1]) - a[0].max(b[0])).max(0.0);
+    let h = (a[3].min(b[3]) - a[2].max(b[2])).max(0.0);
+    w * h
+}
+
+/// **A bend tighter than the half-width counts its rim once, either way** (ADR 1375).
+///
+/// The set is `A ∪ B ∪ M` of [`tight_ell`], so its area is `16 + 16 − 4 + 16 = 44` and the
+/// area of it inside any pixel is exactly `|P∩A| + |P∩B| + |P∩M| − |P∩A∩B|`, the three
+/// rectangles meeting `M` only along edges. Every pixel at every rung, drawn both ways, is
+/// held to that within one coverage step. A fill that integrates winding and clamps it
+/// (trap 58) reads the overlap twice in the three pixels that hold a reflex corner, a
+/// quarter of a pixel or more apart from the set's own coverage at each.
+#[test]
+fn a_tight_bend_counts_its_rim_once_either_way() {
+    let mitred = stroke(8.0, LineCap::Butt, LineJoin::Miter, 10.0);
+    let (a, b, m) = (
+        [20.3, 22.3, 16.6, 24.6],
+        [18.3, 26.3, 20.6, 22.6],
+        [22.3, 26.3, 16.6, 20.6],
+    );
+    let both = [20.3, 22.3, 20.6, 22.6];
+    for rung in both_ways(&tight_ell(), mitred, "the tight L") {
+        within(&rung, 44.0, 0.0, "the tight L");
+    }
+    for s in RUNGS {
+        for drawn in [tight_ell(), reversed(&tight_ell())] {
+            let mask = mask(&drawn, mitred, s);
+            let scale = f64::from(s);
+            for y in 0..mask.height {
+                for x in 0..mask.width {
+                    let pixel = [
+                        f64::from(x) / scale,
+                        f64::from(x + 1) / scale,
+                        f64::from(y) / scale,
+                        f64::from(y + 1) / scale,
+                    ];
+                    let set = (overlap(pixel, a) + overlap(pixel, b) + overlap(pixel, m)
+                        - overlap(pixel, both))
+                        * scale
+                        * scale;
+                    let byte = f64::from(mask.coverage[(y * mask.width + x) as usize]);
+                    assert!(
+                        (byte - 255.0 * set).abs() <= 1.0,
+                        "the tight L at {s}×, pixel ({x}, {y}): {byte} against the set's {:.2}",
+                        255.0 * set
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// **The pieces of a tight bend tile its set** — the same question as
+/// [`the_pieces_of_a_thin_stroke_tile_its_set`] asked where the rectangles cannot be cut at
+/// their join: summed with no rasteriser, the pieces [`stroke_polylines`] returns for
+/// [`tight_ell`] must all have one sign and meet the set's 44 under a miter and, with the
+/// bevel's triangle `8` in place of the square, 36. Pieces that overlap sum to 48 and 40.
+#[test]
+fn the_pieces_of_a_tight_bend_tile_its_set() {
+    for (join, want) in [(LineJoin::Miter, 44.0), (LineJoin::Bevel, 36.0)] {
+        for drawn in [tight_ell(), reversed(&tight_ell())] {
+            let pieces = stroke_polylines(
+                &flatten(&drawn, scaled(1.0)),
+                stroke(8.0, LineCap::Butt, join, 10.0),
+                8.0,
+            );
+            let areas: Vec<f64> = pieces.iter().map(signed_area).collect();
+            let negative = areas.iter().filter(|a| **a < -1e-9).count();
+            let positive = areas.iter().filter(|a| **a > 1e-9).count();
+            assert!(
+                negative == 0 || positive == 0,
+                "{join:?}: {negative} pieces wound one way and {positive} the other"
+            );
+            let sum = areas.iter().sum::<f64>().abs();
+            assert!(
+                (sum - want).abs() < 1e-3,
+                "{join:?}: the pieces sum to {sum:.5} against the set's {want:.5}"
+            );
+        }
+    }
+}
+
+/// **A round-capped dot is its disc, to within the flatness bound's own ceiling.**
+///
+/// A subpath of length `ε = 1/64` at `4 w` with round caps is, by Table 53, a disc of radius
+/// 2 split by a `4 × ε` rectangle: `4π + 4ε`. §10.7.2 bounds how far a chord may fall inside
+/// its arc, and at a radius of two device pixels that bound, a quarter pixel, would admit a
+/// hexagon — the inscribed polygon §10.7.2's NOTE 2 says the tolerance is not for. ADR 0044's
+/// relative bound is this tree's reading of that note: at least sixteen chords a turn, so a
+/// disc may fall short of its area by `1 − (8/π)·sin(π/8) = 2.55%` and no more. Held at 1×
+/// (radius 2 device pixels) and 4× (radius 8), both ways, since an arc's step at a small
+/// radius is exactly where the distance bound alone is too loose (ADR 1375).
+#[test]
+fn a_round_dot_is_its_disc_within_the_relative_bound() {
+    let eps = 1.0 / 64.0;
+    let path = line_path(&[(50.3, 50.6), (50.3 + eps, 50.6)], false);
+    let dot = stroke(4.0, LineCap::Round, LineJoin::Round, 10.0);
+    let disc = 4.0 * std::f32::consts::PI + 4.0 * eps;
+    let ceiling = 1.0 - (8.0 / std::f32::consts::PI) * (std::f32::consts::PI / 8.0).sin();
+    // The rungs are the exact constants of `RUNGS`.
+    #[expect(clippy::float_cmp)]
+    for rung in both_ways(&path, dot, "the dot")
+        .into_iter()
+        .filter(|rung| rung.s == 1.0 || rung.s == 4.0)
+    {
+        within(&rung, disc, disc * ceiling, "the dot");
+    }
 }

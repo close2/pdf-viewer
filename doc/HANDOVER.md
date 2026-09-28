@@ -57,7 +57,7 @@ what these files are split by.
 | needs the owner's word on something | [`doc/questions/`](questions/) — one `Q` file per open question, answered by an `A` file of the same name whose `Status` header says what the answer left open; write yours in the same commit as the work that raised it |
 | **measures** anything | [`doc/habits/measuring.md`](habits/measuring.md), [`doc/performance.md`](performance.md), [`doc/verify.md`](verify.md) — and `tools/state.sh`, because the number has to be printed rather than quoted |
 | writes a host, or adds a message | [`doc/ui-boundary.md`](ui-boundary.md), [`doc/todo/30`](todo/30-a-native-host.md)–[`33`](todo/33-annotation-editing.md), and [`doc/todo/38`](todo/38-a-documents-restrictions-have-levels.md) for the restriction levels' operations and what the two gestures still owe |
-| writes a whole file — `split`, `merge`, `pages`, `optimize`, `optimize --linearize`, `redact` | [`doc/todo/57`](todo/57-the-transform-suite.md) (the suite, Annex F's writer among it), [`doc/todo/64`](todo/64-redaction-and-relocation.md) for redaction, [`doc/rfc/0002`](rfc/0002-the-transform-suite.md) for the design |
+| writes a whole file — `split`, `merge`, `pages`, `optimize`, `optimize --linearize`, `redact` | [`doc/todo/57`](todo/57-the-transform-suite.md) (the suite, Annex F's writer among it), ADRs 1124 and 1371 for redaction, [`doc/rfc/0002`](rfc/0002-the-transform-suite.md) for the design |
 | validates a document against ISO 19005, or converts one | [`doc/rfc/0006`](rfc/0006-pdf-a-validation-and-conversion.md) and [`0007`](rfc/0007-a-refusal-is-a-question-somebody-can-answer-in-advance.md) (the designs), [`doc/pdf-a-mitigations.md`](pdf-a-mitigations.md) (every refusal's remedy), [`doc/todo/66`](todo/66-the-mitigation-catalogue-build-out.md) (which remedies this version carries out, and the command that prints it), [`doc/third-party-data.md`](third-party-data.md) for the texts |
 | adds or questions a dependency | [`doc/stack.md`](stack.md), [`doc/third-party-data.md`](third-party-data.md), [`doc/PLAN.md`](PLAN.md) §1 |
 | fetches a free specification text a clause hands its subject to | into `scratchpad/r<round>/` first and never under `doc/` (a PDF there joins the oracle's population, trap 43); `python3 tools/spec-md.py <pdf> --out doc/md/<name>.md` into the ignored `doc/md/`; a section in [`doc/third-party-data.md`](third-party-data.md) with the URL, the SHA-256 and what the notice permits; the PDF kept at `/home/AI/specs/`. ITU-T T.4 and T.6 are the precedent (ADR 1349) |
@@ -87,14 +87,16 @@ nothing from them appears between quotation marks or after a `>` (ADR 1085).
 ## Traps — read the index, open the group a line bites in
 
 Each trap is a mistake somebody actually made in this tree, and the whole of it — the incident, the
-evidence and the argument — is in one of five group files grouped by **what a round is doing**.
+evidence and the argument — is in one of the group files, grouped by **what a round is doing**.
 
 **[`doc/traps/README.md`](traps/README.md) is the index and it is what a round reads**: one line per
 trap, giving the position that springs it and the rule, plus the table of which group file is for
 which kind of round. A round reads the condition column against what it is about to do and opens a
 group file only where a line bites — which is the whole change ADR 1036 made, because the group a
 round "is in" runs to hundreds of lines (`wc -l doc/traps/*.md`) and the line it needed is six of them. The index also states why
-every trap keeps its number and resolves any citation by number in one hop.
+every trap keeps its number and resolves any citation by number in one hop, and
+`cargo test -p conformance --test traps` holds every row to an entry of its number in the group file
+it names, and every entry to its row (ADR 1379).
 
 A round that skips the trap its work is in repeats a mistake somebody paid for, and the index is how
 it finds out which one that is. `tools/state.sh traps` counts the index's rows, the group files' lengths and which

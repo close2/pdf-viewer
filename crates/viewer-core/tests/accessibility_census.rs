@@ -52,6 +52,8 @@
 //! **caret** can move through rather than only listen to (ADR 0394). And last, the count that
 //! guards a *decision* rather than a capability: an untagged page answers with the honest empty
 //! tree and is never given an invented reading order (ADR 0214).
+//! Beside it, what such a page *is* given: its widget annotations as controls a client can press,
+//! and a tagged page never given them twice (ADR 1369).
 //!
 //! # The census counts reports now, and it did not (ADR 0573)
 //!
@@ -314,6 +316,15 @@ struct Census {
     untagged_honest: usize,
     /// An untagged page answered with structure — ADR 0214's decision, broken.
     invented: Vec<(String, String)>,
+    /// Untagged pages publishing at least one widget annotation, and how many widgets in all.
+    ///
+    /// ADR 1369's capability: a field on an untagged page is a control a client can press, named
+    /// by Table 226's `/TU` or its §12.7.4.2 name, in §12.5.1's tab order.
+    untagged_with_widgets: usize,
+    untagged_widgets: usize,
+    /// A tagged page answered with a widget list beside its elements, which would state a field
+    /// twice — once as §14.7.5.3's `Form` and once as the untagged page's list.
+    widgets_on_tagged: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -369,6 +380,11 @@ impl Census {
         self.untagged_pages = self.untagged_pages.saturating_add(from.untagged_pages);
         self.untagged_honest = self.untagged_honest.saturating_add(from.untagged_honest);
         self.invented.extend(from.invented);
+        self.untagged_with_widgets = self
+            .untagged_with_widgets
+            .saturating_add(from.untagged_with_widgets);
+        self.untagged_widgets = self.untagged_widgets.saturating_add(from.untagged_widgets);
+        self.widgets_on_tagged.extend(from.widgets_on_tagged);
         self.panicked.extend(from.panicked);
     }
 
@@ -710,14 +726,21 @@ fn sweep(
         // 29's default, so there is one entry and it is this page — and taking it by *name*
         // rather than by position is what makes a page answered under another page's number read
         // as the silence it would be, instead of passing as this page's tree.
-        let nodes: Vec<AccessibilityNode> = shown
+        let (nodes, widgets): (Vec<AccessibilityNode>, usize) = shown
             .into_iter()
             .filter(|structure| structure.page == index)
-            .flat_map(|structure| structure.nodes)
-            .collect();
+            .fold((Vec::new(), 0), |(mut nodes, widgets), structure| {
+                let count = widgets.saturating_add(structure.widgets.len());
+                nodes.extend(structure.nodes);
+                (nodes, count)
+            });
         let where_ = format!("{name} p{}", index.saturating_add(1));
         let Some(tree) = tree else {
             census.untagged_pages = census.untagged_pages.saturating_add(1);
+            if widgets > 0 {
+                census.untagged_with_widgets = census.untagged_with_widgets.saturating_add(1);
+                census.untagged_widgets = census.untagged_widgets.saturating_add(widgets);
+            }
             if nodes.is_empty() {
                 census.untagged_honest = census.untagged_honest.saturating_add(1);
             } else {
@@ -732,6 +755,12 @@ fn sweep(
             continue;
         };
         census.structured_pages = census.structured_pages.saturating_add(1);
+        if widgets > 0 {
+            census.widgets_on_tagged.push((
+                where_.clone(),
+                format!("{widgets} widget(s) beside the structure"),
+            ));
+        }
         // The same page's own refusals, taken through the boundary the nodes came through and by
         // the page's own number for the same reason: under Table 29's default there is one entry,
         // and taking it by name is what keeps another page's sentence from being read as this
@@ -966,6 +995,14 @@ fn report(census: &Census, files: usize, seconds: f64) {
         "an untagged page answered with structure it does not state",
         &census.invented,
     );
+    println!(
+        "untagged pages whose fields are published as controls: {} ({} widget(s))",
+        census.untagged_with_widgets, census.untagged_widgets
+    );
+    print_witnesses(
+        "a tagged page answered with a widget list beside its elements",
+        &census.widgets_on_tagged,
+    );
     print_witnesses("panicked", &census.panicked);
 }
 
@@ -1062,6 +1099,13 @@ fn what_a_screen_reader_is_told_about_every_document() {
         census.invented.is_empty(),
         "an untagged page was answered with structure: {:?}",
         census.invented
+    );
+    // ADR 1369's other half: a tagged page's widgets are its `Form` elements, and a list beside
+    // them would announce each field twice.
+    assert!(
+        census.widgets_on_tagged.is_empty(),
+        "a tagged page was answered with a widget list: {:?}",
+        census.widgets_on_tagged
     );
     // `TextLine`'s own invariant, over the whole population rather than over an example: the
     // characters' byte counts sum to the line's text. Every platform text interface indexes one
@@ -1248,6 +1292,17 @@ fn whole_population_floors(census: &Census, specifications: &[String]) {
             "untagged pages answering honestly, whole population",
             census.untagged_honest,
             889,
+        );
+        // ADR 1369's two counts, new with it, over the whole population.
+        gate_ratchet::floor(
+            "untagged pages whose fields are controls, whole population",
+            census.untagged_with_widgets,
+            87,
+        );
+        gate_ratchet::floor(
+            "an untagged page's widgets published, whole population",
+            census.untagged_widgets,
+            386,
         );
     } else {
         println!(
@@ -1506,6 +1561,18 @@ fn ratchet(
         "untagged pages answering honestly",
         tracked_census.untagged_honest,
         876,
+    );
+    // ADR 1369: an untagged page's fields published as controls, beside the sentence above rather
+    // than instead of it. Both counts are new with that decision; the honest count did not move.
+    gate_ratchet::floor(
+        "untagged pages whose fields are controls",
+        tracked_census.untagged_with_widgets,
+        87,
+    );
+    gate_ratchet::floor(
+        "an untagged page's widgets published",
+        tracked_census.untagged_widgets,
+        386,
     );
 
     whole_population_floors(census, specifications);

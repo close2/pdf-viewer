@@ -18,11 +18,11 @@ ADRs cite them by number, and an ADR is not edited to follow a file that moved u
 
 **Including the ones that have moved.** A trap merged into another, or demoted to a habit, keeps
 its own row here and its own number, and the row says where its incident now lives; the incident
-itself is never deleted, only relocated. Three have moved so far, all in the
-one-thousand-and-twenty-fifth session on `doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s
-recommendations: **4 → 8**, **29 → 13**, and **36 → `doc/habits/measuring.md`**.
+itself is never deleted, only relocated. The ones that have moved did so on
+`doc/reviews/1018-what-retiring-a-trap-would-cost.md`'s recommendations: **4 → 8**, **29 → 13**,
+and **36 → `doc/habits/measuring.md`**.
 
-The five group files, and what each is the group *for*:
+The group files, and what each is the group *for*:
 
 | file | the round it is for |
 |---|---|
@@ -87,8 +87,8 @@ machinery, and those are not indexed here.
 | 41 | you add a field to a `pdf_render` vocabulary type and `raster_golden` moves rows "list only" | the list digest is the `Debug` of the list, so every page using that variant moves with no pixel moving; count the digest-only rows as the variant's users before reading one as a change | instruments |
 | 42 | a doc comment or an ADR says a refusal fires for a specific reason, or its reason carries a qualifier | read the branch that prints the message and the test of the qualifier: the generic arm may be the one that fires, and a condition may have been applied as a classification | instruments |
 | 43 | you fetch a specification PDF into `doc/` | its page one joins the oracle's judged population; run the oracle and diagnose the page your file added before reporting | oracle |
-| 44 | you remove a tab or notebook page in a host that moves one widget tree between pages | the page owns its child; reparent the view before the page is destroyed | loop |
-| 45 | you write a host method that sends a command and it is reachable from the event handler | a method reachable from `react` takes the queue as a parameter; it does not start a `pump` of its own | loop |
+| 44 | you remove a tab or notebook page in a host that moves one widget tree between pages | the page owns its child; reparent the view before the page is destroyed | interactive loop |
+| 45 | you write a host method that sends a command and it is reachable from the event handler | a method reachable from `react` takes the queue as a parameter; it does not start a `pump` of its own | interactive loop |
 | 46 | you copy an object that resolves every reference it meets, and the object names one that names it back (a popup and its parent, a bead and its thread) | read a mutual reference as a link before carrying anything; a depth budget refuses the whole entry, not the loop | parsers |
 | 47 | you build a page list from `pdf_model::Pages::indices()` | it maps interior page-tree nodes too; build page lists from `Pages::get(i).id` — it bit a writer and its checker in one round | parsers |
 | 48 | you delete a by-name refusal and promise the page it named will now compare | run the witness page first: the refusal that stood behind it takes over (an implicit Multiply group did, ADR 1295) | pixels |
@@ -98,11 +98,18 @@ machinery, and those are not indexed here.
 | 52 | you draw a bare knockout element with a Porter-Duff mode through a clip mask | `tiny-skia` scales the source by the mask instead of interpolating, so the accumulation near the clip's edge is cleared (ADR 1319); test every bare-draw-with-a-mode route with a clip that cuts the mark | pixels |
 | 53 | interpretation crosses into another document (a reference XObject's imported page) and a dictionary of the CONTAINING file is still to be read | read the proxy's `/Group` and its `/CS` before the swap: an indirect reference resolves in whichever document is in force (ADR 1339) — trap 1's shape at a new place | pixels |
 | 54 | you detect an overlap between a path's portions by a heuristic signal (a cell past one whole winding) | thin overlaps never trip it; mark what overlaps by construction (a stroker's outline with a join or a second subpath) and walk it whole; the 1×-to-8× ink ladder is what exposed the miss (ADR 1341) | pixels |
-| 55 | you rewrite a corpus note's sentence because a later ADR made it stale | a coverage or construction ADR (1082, 1102, 1341) can make the note's FIGURE false without naming the note; rewriting the prose carries the old number forward under a new citation — correct it only where an ADR's own table gives the number, otherwise leave the figure named for a run (`overtaken::READ`, round 1259) | instruments |
+| 55 | you rewrite a corpus note's sentence because a later ADR made it stale | a coverage or construction ADR (1082, 1102, 1341, 0358) can make the note's FIGURE false without naming the note; rewriting the prose carries the old number forward under a new citation — correct it only where an ADR's own table gives the number, otherwise leave the figure named for a run (`overtaken::READ`, round 1259) | instruments |
 | 56 | you build a union of convex pieces that share an edge exactly (a stroke as chord bands, joins and caps) | the supersampled converter loses the shared edge's sample to both pieces and interior pixels come up 1/16 short; overlap the pieces slightly (ADR 1348) | pixels |
-| 57 | a native host's toolkit owns keyboard focus (Qt's `focusNextPrevChild`, GTK's move-focus) | it can swallow §12.5.1's Tab before the shared key table sees it — Qt's Tab walk never reached Rust and no test could see it (ADR 1357); drive Tab under Xvfb in every window after any focus or controls change | loop |
+| 57 | a native host's toolkit owns keyboard focus (Qt's `focusNextPrevChild`, GTK's move-focus) | it can swallow §12.5.1's Tab before the shared key table sees it — Qt's Tab walk never reached Rust and no test could see it (ADR 1357); drive Tab under Xvfb in every window after any focus or controls change | interactive loop |
 | 58 | a converter adds up winding per pixel and clamps afterwards, and a stroke is a union of pieces | pieces that overlap are free inside the shape and counted twice at its edge, and ink totals with byte-rounding slack hide it; sum the pieces' signed areas with no rasteriser (ADR 1361), and where a piece meets a stretch another stroker drew, turn it from the exact tangent, not the last chord (ADR 1359) | pixels |
 | 59 | a note attributes a low-resolution ink deficit to hinting or a renderer | a 14.2-point page rasterised to 15 rows dilutes every renderer's mean by the same fractional last row (round 1264); check the raster height against the page height before attributing | oracle |
+| 60 | you apply a coverage floor per pixel | an f32 coordinate that should land on a pixel boundary lands a hair short (`45.6 · 150/72 = 94.99999`) and the floor paints a whole row or column of false ink; ask the floor per SHAPE, never per pixel (ADR 1374) | pixels |
+| 61 | a sweep resolves a path by the prefix of a sibling's name (`doc/corpora` counted live because `doc/corpora-own` exists) | a skip-list entry and a real file sharing a prefix silently change which rung a pointer lands on; match the whole component (round 1271) | instruments |
+| 62 | a record attributes a residue to a mechanism ("the rim is counted twice") and you build on it | measure the mechanism in isolation first — the hook's shortfall was flattening, measured as the pieces' union with no rasteriser, not double counting (ADR 1375) | pixels |
+
+**Which traps the rounds actually cite is counted, not written here**: `tools/state.sh traps`
+prints the citations across `doc/history/`, the ten most cited with their cumulative share, and how
+many traps carry four-fifths of them — a few carry most, and which few moves every round.
 
 **Two are not optional for the round they are about.** If this round can change a pixel, **trap 1**
 is the one that has paid every session since the tenth. If this round adds a report, **trap 11** is

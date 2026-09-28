@@ -949,6 +949,12 @@ changed without mentioning the page (round 1259, ADR 1355). Rewriting such a sen
 old figure forward under a new citation. A figure is corrected only where an ADR's own table gives
 the new one; otherwise it stays named in a re-measure population until a run re-takes it.
 
+### 61. A path resolved by a sibling's prefix lands on the wrong rung
+
+`pointers::Tree::holds` resolved `doc/corpora` as live because `doc/corpora-own` exists, so a skip-list
+entry and a real file sharing a prefix silently decided which rung a pointer fell on (round 1271).
+Match the whole path component.
+
 ## Things worth knowing
 
 **This section sat between trap 39 and trap 34 until session 967**, so four traps were nested under

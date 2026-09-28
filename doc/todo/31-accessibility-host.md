@@ -347,6 +347,13 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   structure tree, and what crosses is one node saying so. Reading order is what §14.7 exists to
   state; a guess presented where a person expects the author's answer is worse than the honest
   sentence. Revisit by argument, not by attrition.
+- **An untagged page's fields are published all the same** (ADR 1369): `PageStructure::widgets`
+  carries each widget annotation §12.5.3 lets a person interact with, as the control its field type
+  is, named by Table 226's `/TU` or its §12.7.4.2 name, in §12.5.1's tab order, with the click a
+  `Form` element declares. It is interactive content rather than a reading order, so the sentence
+  above still stands for the page's text. `tools/state.sh accessibility` counts both, and a tagged
+  page answered with such a list is a defect class held at zero. **What it leaves**: a *tagged*
+  page's widget that no `Form` element's `/OBJR` names is still reached by no node.
 - **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
   lines rather than exposing nothing quietly — in all three windows since the
   seven-hundred-and-thirty-first, because the sentence is the crate's rather than a host's. AccessKit has adapters for both; nothing in this

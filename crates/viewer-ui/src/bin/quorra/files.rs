@@ -182,7 +182,8 @@ impl App {
     /// nothing about *which* files a document may name, because that is a property of the
     /// processor. So this states the policy, and it is a host's to state:
     ///
-    /// - the name must be a single path component, so `../…` and any absolute path are refused;
+    /// - the name must be a relative path to a file in or below the document's directory, so `../…`
+    ///   and any absolute path are refused (§7.11.2.2, ADR 1369);
     /// - it is resolved against the directory the open document is in, and nowhere else.
     ///
     /// Both rules are `viewer_host::resolve_import`, which is where the three hosts keep the one
@@ -193,7 +194,10 @@ impl App {
     pub(crate) fn supply(&self, purpose: Purpose, name: &str) -> Option<Vec<u8>> {
         let path = match viewer_host::resolve_import(self.directory.as_deref(), name) {
             Ok(path) => path,
-            Err(refusal @ (ImportRefusal::NoDirectory | ImportRefusal::NotAPlainName { .. })) => {
+            Err(
+                refusal @ (ImportRefusal::NoDirectory
+                | ImportRefusal::OutsideTheDocumentsDirectory { .. }),
+            ) => {
                 println!(
                     "{}",
                     viewer_host::supply_note(purpose, &refusal.to_string())

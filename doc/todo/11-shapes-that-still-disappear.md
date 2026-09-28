@@ -847,7 +847,9 @@ question was which converter, not how many calls.
   winding of two in its row — bounded by the overlap's own area inside the pixel. Settling every
   mark's rows by ADR 1347's clusters would close it and was measured: ISO 32000-2's page 101
   +114%, `issue14415.pdf` seventeen times over. The walk itself is settled one cluster of a row at
-  a time and cut only where strands meet (ADR 1347).
+  a time and cut only where strands meet (ADR 1347). Its cost is measured step by step, and the
+  exact detector that would let a row skip its clustering costs every mark more than it saves
+  (ADR 1373): ADR 1359's floor stands.
 - ~~**A path stating *several* rectangles**, which is deliberate and is item 5's subject — two
   rectangles drawn as two marks composite by §11.3.7.3's union, so taking them one at a time would
   trade this defect for a worse one along every seam. A round that wants it needs the seam answered
@@ -907,6 +909,12 @@ question was which converter, not how many calls.
   worth, and a fill's, a stroke's and an opaque group's are no longer among them. `issue21346.pdf`'s edge went
   0.306 → 0.469 of the mark, and the two stand in the ratio `(0.75/0.827)^4.4`, so four to five of
   that page's seven statements of one rectangle are still products.
+- **A fill of one rectangle and the same area stated as abutting rectangles can differ by one
+  level at a pixel**: the first is the library's 8.8 fixed point, the second the closed form, and
+  ADR 0476 states that level. Making the fill exact was priced at `colors.pdf` +183% through the
+  coverage buffer and ISO 32000-2 page 6 +48% as nine bands (ADR 1374). The closed form's floor is
+  owed per shape: a mark none of whose pixels reaches a level is lifted to one, and every other
+  mark's boundary slivers are rounded to their own level (ADR 1374).
 - **`colors.pdf` is still contradicted and that is the predicted outcome**, not a residue: 643
   computed that the exact form would read ssim 0.98772 and 0.98001 against bounds of 0.98862 and
   0.98402, and the gate now measures 0.9879 and 0.9802. The pages belong to

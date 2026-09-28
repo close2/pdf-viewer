@@ -11,14 +11,16 @@
 //! list, and why a dead pointer is a question for a person rather than a build failure.
 //!
 //! It prints the absent pointers first, standing claims above corrections, then the symbol
-//! pointers no file defines, then the counts on every rung — so that a clean run says what it was
-//! clean over. It exits non-zero only where it cannot read what it needs.
+//! pointers no file defines, then the owner's answers named here whose question this checkout
+//! holds and whose `A` file it does not, then the counts on every rung — so that a clean run says
+//! what it was clean over. It exits non-zero only where it cannot read what it needs.
 
 #![expect(
     clippy::print_stdout,
     reason = "the report is the whole output of the program"
 )]
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -102,10 +104,27 @@ fn run() -> Result<(), Error> {
         println!("    none.");
     }
 
+    let answers: BTreeSet<&str> = found
+        .reaching(Reach::AnswerNotHere)
+        .iter()
+        .map(|pointer| pointer.text.as_str())
+        .collect();
+    println!();
+    println!(
+        "Answers named whose question is here and whose `A` file is not in this checkout — the \
+         owner's to commit, and `tests/questions.rs`'s to judge once it is:"
+    );
+    for answer in &answers {
+        println!("    {answer}");
+    }
+    if answers.is_empty() {
+        println!("    none.");
+    }
+
     println!();
     println!(
         "{} path pointer(s): {} live, {} absent, {} in another crate, {} unrooted, {} a form, \
-         {} not carried. {} symbol pointer(s), {} undefined.",
+         {} not carried, {} an answer not in this checkout. {} symbol pointer(s), {} undefined.",
         found.pointers.len(),
         found.reaching(Reach::Live).len(),
         absent.len(),
@@ -113,6 +132,7 @@ fn run() -> Result<(), Error> {
         found.reaching(Reach::Unrooted).len(),
         found.reaching(Reach::Placeholder).len(),
         found.reaching(Reach::NotCarried).len(),
+        found.reaching(Reach::AnswerNotHere).len(),
         found.symbols.len(),
         undefined.len(),
     );

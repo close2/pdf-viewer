@@ -54,9 +54,17 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use pdf_render::{DisplayList, Rasterizer, TargetSpec};
-use pdf_syntax::Document;
+use pdf_syntax::{Document, Limits, SyntaxError};
 use render_cpu::CpuRasterizer;
 use render_raster::QuorraRasterizer;
+
+#[path = "../../pdf-model/tests/support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is `pdf-model`'s oracle's; this gate \
+              compares two of this tree's own backends and hands a password to neither"
+)]
+mod corpus_passwords;
 
 /// Pixel budget per page: the number of pixels the **program** will hand a host in one raster.
 ///
@@ -483,11 +491,14 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// `MAX_UNREADABLE_ENCRYPTION` and `MAX_PAGELESS`, and reads each document one at a time.) The
 /// mapping is one-to-one:
 ///
-/// - the eleven [`NotComparable::WouldNotOpen`] are its `NO_RENDER_NEEDS_A_PASSWORD` (ten
-///   documents whose user password is not the empty one §7.6.4.3 defines, refused by all three
-///   references as well) and its `NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE`
+/// - the two [`NotComparable::WouldNotOpen`] are its `NO_RENDER_NEEDS_A_PASSWORD`
+///   (`encrypted-attachment.pdf`, whose user password is not the empty one §7.6.4.3 defines and
+///   is published nowhere) and its `NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE`
 ///   (`PDFBOX-4352-0.pdf`, whose fuzzed cross-reference table leaves the `/Encrypt` §7.6.2
-///   names resolving to nothing);
+///   names resolving to nothing). The nine encrypted documents whose passwords are published
+///   are opened with them — `pdf-model`'s `tests/support/corpus_passwords.rs` is the one table
+///   every corpus gate reads, [`page_one`] among them — and each compares like any other page
+///   (ADR 1377);
 /// - the five [`NotComparable::NoFirstPage`] are its `NO_RENDER_NO_PAGE_IN_THE_TREE` less the one
 ///   entry that names a *second* page, which this gate never asks for.
 ///
@@ -505,23 +516,14 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// [`NotComparable::RastersCannotBeCompared`] are the other two silences. An empty cause is a claim
 /// about this tree made by an instrument nobody has watched work, so each of the four was planted
 /// in turn and the run named each one it was given (trap 13).
-const NOT_COMPARABLE: [(&str, NotComparable); 16] = [
+const NOT_COMPARABLE: [(&str, NotComparable); 7] = [
     ("Brotli-Prototype-FileA.pdf", NotComparable::NoFirstPage),
     ("PDFBOX-4352-0.pdf", NotComparable::WouldNotOpen),
     ("REDHAT-1531897-0.pdf", NotComparable::NoFirstPage),
     ("bug1020226.pdf", NotComparable::NoFirstPage),
-    ("bug1782186.pdf", NotComparable::WouldNotOpen),
     ("encrypted-attachment.pdf", NotComparable::WouldNotOpen),
-    ("issue15893_reduced.pdf", NotComparable::WouldNotOpen),
-    ("issue21579.pdf", NotComparable::WouldNotOpen),
-    ("issue3371.pdf", NotComparable::WouldNotOpen),
-    ("issue6010_1.pdf", NotComparable::WouldNotOpen),
-    ("issue6010_2.pdf", NotComparable::WouldNotOpen),
     ("poppler-85140-0.pdf", NotComparable::NoFirstPage),
     ("poppler-937-0-fuzzed.pdf", NotComparable::NoFirstPage),
-    ("pr6531_1.pdf", NotComparable::WouldNotOpen),
-    ("print_protection.pdf", NotComparable::WouldNotOpen),
-    ("saslprep-r6.pdf", NotComparable::WouldNotOpen),
 ];
 
 /// [`NOT_COMPARABLE`] as the run produces it: sorted by name, owned.
@@ -1159,8 +1161,18 @@ fn oracles_render(
 fn page_one(path: &Path) -> Result<DisplayList, (NotComparable, String)> {
     let bytes =
         std::fs::read(path).map_err(|why| (NotComparable::Unreadable, format!(": {why}")))?;
-    let document =
-        Document::open(bytes).map_err(|why| (NotComparable::WouldNotOpen, format!(": {why}")))?;
+    // §7.6.4.1's default user password first, and where it is refused the password
+    // `corpus_passwords` publishes for the file — the prompt a person would have answered.
+    let known = path
+        .file_name()
+        .and_then(|name| corpus_passwords::corpus_password(&name.to_string_lossy()));
+    let opened = match (Document::open(bytes.clone()), known) {
+        (Err(SyntaxError::PasswordRequired), Some(known)) => {
+            Document::open_with_password(bytes, Limits::default(), known.password)
+        }
+        (opened, _) => opened,
+    };
+    let document = opened.map_err(|why| (NotComparable::WouldNotOpen, format!(": {why}")))?;
     let pages = pdf_model::Pages::new(&document);
     let page = pages
         .get(0)

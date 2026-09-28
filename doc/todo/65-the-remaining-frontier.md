@@ -16,8 +16,9 @@ do not cover.
 **The population is the ledger's `partial` and `reported` rows, and only those.** A `departed` row
 is a decision already taken and priced — `doc/HANDOVER.md` says what the word means — so it is not
 open work and is not mapped here, even where the departure itself waits on something; what such a
-row waits on is in its own note. Three of them are worth knowing about beside buckets 2 and 3 and
-are named in those buckets' prose rather than as bullets. ADR 1237 is the rule and its cost.
+row waits on is in its own note. Those worth knowing about are named beside the bucket their
+residue would otherwise belong to, in that bucket's prose rather than as bullets. ADR 1237 is the
+rule and its cost.
 
 **Read it against `CLAUDE.md`'s two denominators.** Coverage is the specification and the ledger is
 its instrument; this map is a reading of that instrument. A bucket that says *blocked* is a claim
@@ -36,8 +37,9 @@ an exclusion, a deprecation, or a case the standard leaves undefined.
 
 `CLAUDE.md` principle 3 gives a document's restrictions four levels (`off`/`on`/ask/warn) whose
 interface is in scope to build; the same surface covers printing and a collection's alternate
-presentations. These rows are not a gap in the reading — each one's core is already in place,
-waiting only on the surface and the operation it drives. **What builds them:** the host work of
+presentations. No row is here at present: what the bucket held was a gap in the surface rather than
+in the reading, each row's core already in place and waiting only on the operation it drives, and
+each row left as its surface was built. **What builds a row that arrives here:** the host work of
 `doc/todo/30`–`38` and RFC 0004's print path. Table 147's print half is no longer among them: it is
 read, answered and applied entry by entry, and §12.2 is `departed` for `/HideMenubar` alone
 (ADRs 1203, 1204, 1227).
@@ -128,31 +130,11 @@ document takes.
 The feature draws; the residue is a case the first build did not reach. **What would unblock them:**
 a normal round extending the existing code.
 
-- §12.5.6.23 — applying a redaction is built (`crates/pdf-transform/src/redact.rs`, the `redact`
-  verb, `doc/questions/A64`): content within the region is removed and the bytes are gone, a painted
-  path is cut to the region's complement, a §8.5.2.2 Bézier is split at the root where it crosses
-  the region's edge, a §8.5.3.2 stroke is cut as the outline it marks, and a form is entered. The
-  clipping path keeps its boundary while its marks are cut, an image's `/Alternates` is dropped with
-  its variants, and a JPEG 2000 image on its own grid is cleared and re-encoded. A picture's
-  `/SMask` and `/Mask` are cleared on their own grids, a `JPXDecode` opacity channel becomes the
-  soft mask Table 87 names, and an inline image behind `DCTDecode` or `CCITTFaxDecode` or naming a
-  colour-space resource is spliced (ADR 1277). A stroke whose outline holds an arc is cut as cubics
-  within a stated bound of it (ADR 1324). A `JPXDecode` image is written back as its own samples at
-  its own precision, decoded at full resolution within the operator's `--image-samples` budget; a
-  colour key on a re-expressed codec picture becomes the stencil it is equivalent to; a picture
-  pre-blended with a `/Matte` is cleared to the matte (ADR 1333). A Type 3 code is tested against
-  the box its glyph declares, a composite code takes the bytes its `CMap`'s codespace ranges
-  delimit, `sh` is cut by its clip where the shading is a gradient law, a soft mask's group is
-  entered and cut, and a stroke's survivors keep its colour, alpha and overprint (ADRs 1351,
-  1352). A `d0` glyph under an all-zero `/FontBBox` is measured by its own marks, a vertical
-  `CMap`'s code restores its `w1`, a zero-width stroke is cut along its path, a form met
-  differently at two placements is copied per edit, and a shading's data located in the region
-  alone are destroyed where they are stated — a mesh cut, a radial or function-based shading's
-  samples cleared — with a calculator function serving them refused as a decision (ADR 1363).
-  What is still owed is the codec residue in `doc/todo/64`: a matte a re-expressed picture cannot
-  keep, a `JPXDecode` whose components disagree on a depth above eight, and a decode shape no fresh
-  raster holds. The overlay is a decided departure inside the row (ADRs 1124, 1195, 1196, 1236,
-  1248, 1277, 1324, 1333, 1351, 1352, 1363).
+- **Beside this bucket and not in it** — §12.5.6.23 is `departed`: every content class the clause
+  reaches is removed, a codec's output carried as the image's own samples in every colour space
+  (ADR 1371), and Table 195's overlay is the one decided departure (ADR 1124). Two refusals stay as
+  decisions with their cost recorded: a calculator function serving region-only colours (ADR 1363)
+  and a `JPXDecode` component deeper than sixteen bits (ADR 1371).
 - **Beside this bucket and not in it** — §12.7.4.3 is `departed`: a rich text field's formatting,
   which the clause hands to XFA 3.3, is reported rather than applied (ADRs 1122, 1197). A `/DA`
   whose `Tm` has no inverse is the clause carried out — the translation is the processor's to
@@ -176,14 +158,12 @@ a normal round extending the existing code.
 that seam after ADR 1020, with `EnvelopedData` and RSADP added there, its fuzz targets carried from
 the first commit, and the private key a host input (ADR 1134). **What starts the build:** a real
 trigger — a document whose recipient list could match a certificate the user holds, or a host asking
-to supply a private key — not the clause's own sake. The robustness gain is nil (the five corpus
-documents carry no recipient certificate this reader could match), so the calibrated refusal is the
-honest state until then. **That robustness figure rests on a premise that is false for four of the
-five**: `doc/corpora/pdfbox`'s four public-key documents sit beside the keystores that decrypt them,
-their issuer and serial matching what each document's `EnvelopedData` names, so a finished handler
-would open them under a key a test host supplies. They are a witness for the build rather than the
-user's certificate; `doc/questions/Q168` asks whether they are the trigger, and §7.6.5's note has the
-evidence.
+to supply a private key — not the clause's own sake. **Four of the five corpus public-key documents
+could be opened**: `doc/corpora/pdfbox` holds them beside the keystores that decrypt them, their
+issuer and serial matching what each document's `EnvelopedData` names, so a finished handler would
+open them under a key a test host supplies. They are a witness for the build rather than a user's
+certificate; `doc/questions/Q168` asks whether they are the trigger, and §7.6.5's note has the
+evidence. Until the owner answers, the calibrated refusal is the state.
 
 - §7.6.5, §7.6.5.1 (`reported`), §7.6.5.2 (`reported`), §7.6.5.3 (`reported`) — the handler itself and
   its dictionary and algorithms, refused by name before Table 23 is read.
@@ -223,7 +203,7 @@ These are `partial` only because something they carry is; each note says so and 
 They are not independently actionable — do not brief a round to *take* one. `tools/state.sh ledger`
 counts them among `partial`; they flip when the last binding row flips.
 
-§7.6, §12.1, §12.5, §12.5.6, §12.8, §12.8.3, §12.8.3.4.
+§7.6, §12.1, §12.8, §12.8.3, §12.8.3.4.
 
 
 ### Not owed — a documented choice, an exclusion, a deprecation, or a standard-gap

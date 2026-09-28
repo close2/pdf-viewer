@@ -113,6 +113,14 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use render_cpu::CpuRasterizer;
 use sha2::{Digest as _, Sha256};
 
+#[path = "support/corpus_passwords.rs"]
+#[expect(
+    dead_code,
+    reason = "the references' spelling of a password is the oracle's; this gate opens the \
+              document itself and has no reference to hand one to"
+)]
+mod corpus_passwords;
+
 /// Pixels one page may cost, so that a malformed extent cannot exhaust this process. The same
 /// figure `tests/corpus.rs` and `examples/raster_digest` use.
 const PIXEL_BUDGET: u64 = 64 << 20;
@@ -122,20 +130,6 @@ const SCALE: f32 = 1.0;
 
 /// The environment variable that turns the check into a regeneration.
 const UPDATE_VARIABLE: &str = "PDFVIEWER_RASTER_GOLDEN";
-
-/// The corpus documents that refuse §7.6.4.1's default user password, with the password each
-/// one's own pdf.js issue records — the same eight `pdf-syntax`'s `encryption.rs` verifies and
-/// the accessibility census opens. A locked page has no raster to hold; with the password it has.
-const KNOWN_PASSWORDS: &[(&str, &str)] = &[
-    ("issue15893_reduced.pdf", "test"),
-    ("issue3371.pdf", "ELXRTQWS"),
-    ("bug1782186.pdf", "Hello"),
-    ("issue6010_1.pdf", "abc"),
-    ("issue6010_2.pdf", "\u{E6}\u{F8}\u{E5}"),
-    ("saslprep-r6.pdf", "S\u{AA}SL\u{AD}prep"),
-    ("pr6531_1.pdf", "asdfasdf"),
-    ("print_protection.pdf", "1234"),
-];
 
 /// What became of one page, in one word the file can hold.
 ///
@@ -305,13 +299,12 @@ fn key_for(path: &Path) -> String {
     format!("{name} p1")
 }
 
-/// The password on record for one file, or the empty default §7.6.4.1 starts with.
+/// The password `corpus_passwords` publishes for one file, or the empty default §7.6.4.1 starts
+/// with. A locked page has no raster to hold; with the password it has.
 fn password_for(path: &Path) -> &'static str {
-    let name = path.file_name().map(|name| name.to_string_lossy());
-    KNOWN_PASSWORDS
-        .iter()
-        .find(|(known, _)| name.as_deref() == Some(*known))
-        .map_or("", |(_, password)| *password)
+    path.file_name()
+        .and_then(|name| corpus_passwords::corpus_password(&name.to_string_lossy()))
+        .map_or("", |known| known.password)
 }
 
 /// Opens, interprets and rasterises one document's first page, and digests all three.

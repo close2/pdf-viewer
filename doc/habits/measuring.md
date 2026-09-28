@@ -612,3 +612,11 @@ With the overlap walk switched off, two join-dense pages drew 19% and 24% cheape
 walk existed, so the walk's own cost and its scaffolding's could be told apart, and 99.4% of the
 clusters it walks on one page genuinely leave the set (ADR 1359). A floor measured that way is a
 number; argued from the profile alone it is a guess.
+
+## 53. The disputed pixel's closed-form area is computed before either construction is called wrong
+
+A square drawn as eight pieces showed one more level at its corner than the square drawn whole; the
+corner pixel's exact coverage is 0.885 of a level, so the pieces were right and the whole square's
+fixed-point converter truncates — ADR 0476's accepted gap — while the real defect sat in the next
+column (ADR 1374). And a floor is measured step by step: switching the walk's scaffolding off one
+stage at a time is what showed no cheaper exact detector exists (ADR 1373).

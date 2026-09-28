@@ -1100,11 +1100,12 @@ pub(crate) fn mask_fill(
 ) {
     let anti_alias = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
     if anti_alias && exact.usable() {
+        let floor = owed_a_floor(exact.iter());
         match exact {
-            Exact::Shared(rectangles) => mask_shared_rectangles(mask, rectangles),
+            Exact::Shared(rectangles) => mask_shared_rectangles(mask, rectangles, floor),
             _ => {
                 for rect in exact.iter() {
-                    mask_rectangle(mask, rect);
+                    mask_rectangle(mask, rect, floor);
                 }
             }
         }
@@ -1160,16 +1161,16 @@ pub(crate) fn mask_fill(
 ///
 /// The pairwise walk is `pdf_render::share_a_device_pixel`'s own question asked a second time, and
 /// it is quadratic in a count `pdf_render::RECTANGLES_PER_PATH` bounds.
-fn mask_shared_rectangles(mask: &mut tiny_skia::Mask, rectangles: &[tiny_skia::Rect]) {
+fn mask_shared_rectangles(mask: &mut tiny_skia::Mask, rectangles: &[tiny_skia::Rect], floor: bool) {
     for rect in rectangles {
-        mask_rectangle(mask, *rect);
+        mask_rectangle(mask, *rect, floor);
     }
     for (index, rect) in rectangles.iter().enumerate() {
         for other in rectangles
             .get(index.saturating_add(1)..)
             .unwrap_or_default()
         {
-            mask_summed_pixels(mask, rectangles, (*rect, *other));
+            mask_summed_pixels(mask, rectangles, (*rect, *other), floor);
         }
     }
 }
@@ -1184,6 +1185,7 @@ fn mask_summed_pixels(
     mask: &mut tiny_skia::Mask,
     rectangles: &[tiny_skia::Rect],
     (a, b): (tiny_skia::Rect, tiny_skia::Rect),
+    floor: bool,
 ) {
     let (width, height) = (mask.width(), mask.height());
     let stride = width as usize;
@@ -1205,7 +1207,7 @@ fn mask_summed_pixels(
             if covered <= 0.0 {
                 continue;
             }
-            let level = level_of(pdf_render::expressible_coverage(covered.min(1.0)));
+            let level = stated(covered.min(1.0), floor);
             if let Some(byte) = mask
                 .data_mut()
                 .get_mut(row.saturating_mul(stride).saturating_add(column))
@@ -1213,6 +1215,54 @@ fn mask_summed_pixels(
                 *byte = (*byte).max(level);
             }
         }
+    }
+}
+
+/// Whether a mark made of `rectangles` is owed §10.7.4's floor: no pixel of any of them reaches
+/// one level of 255, so rounding each to nearest would paint nothing at all — ISO 32000-2 §10.7.4,
+/// ADR 0419, ADR 1374.
+///
+/// The clause's purpose is stated of a **shape**:
+///
+/// > This ensures that no shape ever disappears as a result of unfavourable placement relative to
+/// > the device pixel grid, as might happen with other possible scan conversion rules.
+///
+/// A rectangle whose largest pixel shows it has not disappeared, and lifting its boundary slivers
+/// to a level paints what it does not cover — on a page drawn at 150 dpi, `45.6 · 150/72` is
+/// `94.99999` in `f32`, and a floor on that ten-thousandth of a column stated a whole column of
+/// ink outside a redacted square's edge that the same square drawn whole does not have. So the
+/// floor is asked once per mark: a shape too small to show is lifted, and every other shape's
+/// pixels are rounded to their own level.
+fn owed_a_floor(rectangles: impl Iterator<Item = tiny_skia::Rect>) -> bool {
+    let mut owed = false;
+    for rect in rectangles {
+        let largest =
+            largest_overlap(rect.left(), rect.right()) * largest_overlap(rect.top(), rect.bottom());
+        if pdf_render::expressible_coverage(largest) <= largest {
+            return false;
+        }
+        owed = true;
+    }
+    owed
+}
+
+/// The longest stretch of `[low, high)` any one unit interval `[i, i + 1)` holds: the first
+/// column's, the one after it (whole wherever there is a whole one) and the last.
+fn largest_overlap(low: f32, high: f32) -> f32 {
+    let first = low.floor();
+    let overlap = |at: f32| (high.min(at + 1.0) - low.max(at)).clamp(0.0, 1.0);
+    overlap(first)
+        .max(overlap(first + 1.0))
+        .max(overlap((high - 1.0).ceil().max(first)))
+}
+
+/// A coverage as the level a mask holds: rounded to nearest, and lifted to one level where the
+/// mark is owed the floor — [`owed_a_floor`].
+fn stated(coverage: f32, floor: bool) -> u8 {
+    if floor {
+        level_of(pdf_render::expressible_coverage(coverage))
+    } else {
+        level_of(coverage)
     }
 }
 
@@ -1231,9 +1281,10 @@ fn area_of(rect: tiny_skia::Rect) -> pdf_render::Rect {
 /// entry point of its own, only `fill_path`. `pdf_render::rectangle_coverage` is the arithmetic in
 /// both places, so the mark and the region are measured by one rule.
 ///
-/// A positive coverage under one level of 255 is stated *at* one level, which is
-/// `pdf_render::expressible_coverage` and ADR 0419's reading of "no shape ever disappears": a
-/// region that admits a sliver of a pixel must not be a region that admits nothing there.
+/// A positive coverage under one level of 255 is stated *at* one level only where `floor` says
+/// the whole shape would otherwise disappear — [`owed_a_floor`], ADR 0419's reading of "no shape
+/// ever disappears" taken per shape (ADR 1374). Everywhere else a coverage is rounded to nearest,
+/// which is the closed form's own level.
 ///
 /// **It takes the larger of what is there and what it writes**, which keeps
 /// [`tiny_skia::Mask::fill_path`]'s "draws on top of existing data" contract in the only direction
@@ -1246,7 +1297,7 @@ fn area_of(rect: tiny_skia::Rect) -> pdf_render::Rect {
 /// whole rasterisation**, where filling the run costs nothing measurable. The three calls a row
 /// makes are its two boundary columns and one interior column, whose answer is the row's own
 /// overlap because an interior column's is 1.
-fn mask_rectangle(mask: &mut tiny_skia::Mask, rect: tiny_skia::Rect) {
+fn mask_rectangle(mask: &mut tiny_skia::Mask, rect: tiny_skia::Rect, floor: bool) {
     let (width, height) = (mask.width(), mask.height());
     let stride = width as usize;
     let (left, right) = (
@@ -1286,7 +1337,7 @@ fn mask_rectangle(mask: &mut tiny_skia::Mask, rect: tiny_skia::Rect) {
             if coverage > 0.0
                 && let Some(byte) = scanline.get_mut(column)
             {
-                *byte = (*byte).max(level_of(pdf_render::expressible_coverage(coverage)));
+                *byte = (*byte).max(stated(coverage, floor));
             }
         }
         if inner.is_empty() {
@@ -1296,7 +1347,7 @@ fn mask_rectangle(mask: &mut tiny_skia::Mask, rect: tiny_skia::Rect) {
         if down <= 0.0 {
             continue;
         }
-        let level = level_of(pdf_render::expressible_coverage(down));
+        let level = stated(down, floor);
         if let Some(run) = scanline.get_mut(inner.start..inner.end) {
             for byte in run {
                 *byte = (*byte).max(level);
@@ -1432,7 +1483,32 @@ pub(crate) fn mask_intersect(
 
 #[cfg(test)]
 mod tests {
-    use super::{Exact, SUPERSAMPLED_LIMIT, expressible};
+    use super::{Exact, SUPERSAMPLED_LIMIT, expressible, mask_rectangle, owed_a_floor};
+
+    /// §10.7.4's floor is asked of the shape (ADR 1374): a rectangle no pixel of which reaches a
+    /// level is lifted to one where it lies, and a rectangle that shows elsewhere keeps its
+    /// boundary sliver at the sliver's own level, which is none.
+    #[test]
+    fn a_rectangle_is_lifted_only_where_the_whole_of_it_would_disappear() {
+        let rect = |l, t, r, b| tiny_skia::Rect::from_ltrb(l, t, r, b).expect("a rectangle");
+        let speck = rect(1.3, 1.3, 1.301, 1.301);
+        let sliver_of_a_square = rect(0.9999, 0.0, 3.0, 3.0);
+        assert!(owed_a_floor([speck].into_iter()));
+        assert!(!owed_a_floor([sliver_of_a_square].into_iter()));
+        assert!(!owed_a_floor([speck, sliver_of_a_square].into_iter()));
+
+        let mut mask = tiny_skia::Mask::new(4, 4).expect("a mask");
+        mask_rectangle(&mut mask, speck, true);
+        assert_eq!(mask.data()[4 + 1], 1, "the speck is not lost");
+        let mut mask = tiny_skia::Mask::new(4, 4).expect("a mask");
+        mask_rectangle(&mut mask, sliver_of_a_square, false);
+        assert_eq!(
+            mask.data()[4],
+            0,
+            "column 0 holds a ten-thousandth of the square"
+        );
+        assert_eq!(mask.data()[4 + 1], 255);
+    }
 
     /// A half-plane whose vertical edge falls at `x`, covering the rest of a 4-row mask.
     fn half_plane(x: f32) -> tiny_skia::Path {

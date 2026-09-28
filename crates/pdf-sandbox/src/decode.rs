@@ -774,7 +774,8 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
 /// cannot take it, because a raster on a reduced grid is not the image's own. So this never
 /// steps down: the codestream's grid fits `samples` or the answer is a refusal naming both
 /// numbers. The worker holds `samples` to what its own address-space ceiling was sized for
-/// before calling this (ADR 1333).
+/// before calling this (ADR 1333). For the same reason each channel comes back as its own
+/// integers at its own depth ([`jpx_own_integers`], ADR 1371).
 ///
 /// # Errors
 ///
@@ -853,6 +854,7 @@ fn jpx_under(data: &[u8], indices: bool, budget: JpxBudget) -> Result<Raster, St
             // stretched nor widened: §8.6.6.3 caps `hival` at 255 and the clamp above holds
             // every value to a byte.
             precision: 8,
+            depths: Vec::new(),
             data,
         });
     }
@@ -888,7 +890,14 @@ fn jpx_under(data: &[u8], indices: bool, budget: JpxBudget) -> Result<Raster, St
         return Err("JPX: the codestream has no colour components".to_owned());
     }
 
-    let (precision, data) = jpx_samples(&decoded);
+    let Integers {
+        precision,
+        depths,
+        data,
+    } = match budget {
+        JpxBudget::StepDown => jpx_samples(&decoded),
+        JpxBudget::Whole(_) => jpx_own_integers(&decoded)?,
+    };
     Ok(Raster {
         width,
         height,
@@ -898,6 +907,7 @@ fn jpx_under(data: &[u8], indices: bool, budget: JpxBudget) -> Result<Raster, St
         has_opacity,
         colour,
         precision,
+        depths,
         data,
     })
 }
@@ -912,11 +922,10 @@ fn jpx_under(data: &[u8], indices: bool, budget: JpxBudget) -> Result<Raster, St
 /// throw away a comparison the clause requires (ADR 1242).
 ///
 /// Where the components disagree on a depth, or state more than sixteen bits, the decoder's
-/// own eight-bit stretch is taken and the raster says eight: a single domain does not exist
-/// for the first and no PDF sample does for the second, and both are then refused above by
-/// `pdf_model`'s reading of the same headers rather than being masked in a domain they are
-/// not in.
-fn jpx_samples(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> (u8, Vec<u8>) {
+/// own eight-bit stretch is taken and the raster says eight: a drawing needs one domain and
+/// that is the one every channel reaches. A writer that carries the integers is answered by
+/// [`jpx_own_integers`] instead.
+fn jpx_samples(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> Integers {
     let components = decoded.components();
     let uniform = components
         .first()
@@ -928,16 +937,79 @@ fn jpx_samples(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> (u8, Vec<u8>) {
                     .all(|component| component.bit_depth() == *depth)
         });
     let Some(depth) = uniform.filter(|depth| *depth > 8) else {
-        return (8, decoded.data_u8());
+        return Integers {
+            precision: 8,
+            depths: Vec::new(),
+            data: decoded.data_u8(),
+        };
     };
-    // `2^depth − 1` computed in `u32`, because `1u16 << 16` is not a `u16` and the sixteen-bit
-    // case is exactly the one a narrower shift would answer one short of.
-    let highest =
-        f32::from(u16::try_from((1u32 << u32::from(depth)).saturating_sub(1)).unwrap_or(u16::MAX));
+    Integers {
+        precision: depth,
+        depths: Vec::new(),
+        data: interleaved(components, 2),
+    }
+}
+
+/// A decode's samples as a [`crate::Raster`] carries them: the field's depth, each channel's
+/// own where they differ, and the interleaved integers.
+struct Integers {
+    precision: u8,
+    depths: Vec<u8>,
+    data: Vec<u8>,
+}
+
+/// The decoded channels interleaved as each one's **own** integers, for a writer that carries
+/// them ([`crate::Request::JpxWhole`], ADR 1371).
+///
+/// §7.4.9: "[t]he colour components in an image may have different numbers of bits per sample,
+/// however bits per sample shall be between 1 to 38 inclusive". [`jpx_samples`]'s eight-bit
+/// stretch is a drawing's answer to the first half — each channel scaled to one domain — and a
+/// writer cannot take it, because a stretched integer is not the one the codestream states.
+/// So every channel keeps its own integers, in a field of one byte where the widest is eight
+/// bits or fewer and two above, and the depths travel beside them where they differ.
+///
+/// # Errors
+///
+/// A channel of more than sixteen bits: no field here holds its integers, and §8.9.5.1 Table 87
+/// gives an image sample no depth above sixteen, so there is nothing to carry them in.
+fn jpx_own_integers(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> Result<Integers, String> {
+    let components = decoded.components();
+    let depths: Vec<u8> = components
+        .iter()
+        .map(hayro_jpeg2000::ComponentData::bit_depth)
+        .collect();
+    if let Some(wide) = depths.iter().find(|depth| !(1..=16).contains(*depth)) {
+        return Err(format!(
+            "JPX: a channel of {wide} bits, whose integers no sample of sixteen bits or fewer holds"
+        ));
+    }
+    let precision = depths.iter().copied().max().unwrap_or(8);
+    let uniform = depths.iter().all(|depth| *depth == precision);
+    let width = if precision > 8 { 2 } else { 1 };
+    Ok(Integers {
+        precision,
+        depths: if uniform { Vec::new() } else { depths },
+        data: interleaved(components, width),
+    })
+}
+
+/// Each channel's samples rounded to its own integers and interleaved, `width` bytes a sample,
+/// big-endian where two.
+fn interleaved(components: &[hayro_jpeg2000::ComponentData], width: usize) -> Vec<u8> {
     let samples = components.first().map_or(0, |first| first.samples().len());
-    let mut data = Vec::with_capacity(samples.saturating_mul(components.len()).saturating_mul(2));
+    let mut data = Vec::with_capacity(
+        samples
+            .saturating_mul(components.len())
+            .saturating_mul(width),
+    );
     for sample in 0..samples {
         for component in components {
+            // `2^depth − 1` computed in `u32`, because `1u16 << 16` is not a `u16` and the
+            // sixteen-bit case is exactly the one a narrower shift would answer one short of.
+            let highest = f32::from(
+                u16::try_from((1u32 << u32::from(component.bit_depth())).saturating_sub(1))
+                    .unwrap_or(u16::MAX),
+            );
             let raw = component.samples().get(sample).copied().unwrap_or(0.0);
             #[expect(
                 clippy::cast_possible_truncation,
@@ -946,10 +1018,14 @@ fn jpx_samples(decoded: &hayro_jpeg2000::DecodedImage<'_>) -> (u8, Vec<u8>) {
                           cast; a float-to-integer cast saturates rather than wrapping"
             )]
             let value = raw.round().clamp(0.0, highest) as u16;
-            data.extend_from_slice(&value.to_be_bytes());
+            if width == 2 {
+                data.extend_from_slice(&value.to_be_bytes());
+            } else {
+                data.push(u8::try_from(value).unwrap_or(u8::MAX));
+            }
         }
     }
-    (depth, data)
+    data
 }
 
 #[cfg(test)]

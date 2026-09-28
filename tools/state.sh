@@ -617,6 +617,37 @@ section_traps() {
             }'
 }
 
+# Which of the tree's examples `doc/verify.md` does not name. That file is the catalogue a round
+# opens to find an instrument, and it grows only when the round that writes an example remembers
+# to add a line — so how complete it is was a claim, and this counts it instead. An example is a
+# file or a directory under a package's `examples/`, in this workspace or raster's; it counts as
+# named where its stem appears in the catalogue at all. Each unnamed one is printed with the first
+# line of its own `//!` header, which says what it measures: that is the reading list for the
+# next round that writes catalogue lines, and it is printed rather than failed, because an example
+# may be a one-off probe that a record already describes.
+section_instruments() {
+    heading "instruments: the examples doc/verify.md does not name" \
+        "ls {crates,raster/crates}/*/examples; grep -c <stem> doc/verify.md"
+    local path stem header named=0 unnamed=0 listing=
+    for path in crates/*/examples/* raster/crates/*/examples/*; do
+        [ -e "$path" ] || continue
+        stem=$(basename -- "$path" .rs)
+        if grep -qF -- "$stem" doc/verify.md; then
+            named=$((named + 1))
+            continue
+        fi
+        unnamed=$((unnamed + 1))
+        if [ -d "$path" ]; then
+            header=$(grep -hm1 '^//!' "$path"/main.rs 2>/dev/null)
+        else
+            header=$(grep -m1 '^//!' "$path")
+        fi
+        listing+=$(printf '  %s — %s' "$path" "${header#//! }")$'\n'
+    done
+    printf 'examples named in doc/verify.md: %d; not named: %d\n' "$named" "$unnamed"
+    printf '%s' "$listing"
+}
+
 # How much of `viewer-core`'s vocabulary a C caller can reach.
 #
 # `doc/ui-boundary.md` and `doc/todo/30` both said the ABI's entry points were "the whole
@@ -913,8 +944,8 @@ section_ratchets() {
     done
 }
 
-all="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000"
-quick="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk remedies"
+all="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk tests corpus golden oracle text selection accessibility quorra fixed transform writer archive vfs confined launch frame dates xmp save actions on-disk jpeg2000 instruments"
+quick="ledger departures flags names cited last-sentences navigation conformance annex-o governing questions records counts traps hosts windows binaries disk remedies instruments"
 
 # Sections another section already runs. Not in `all`, because a full run pays for every line
 # they run — `ratchets` through the gates it composes, `remedies` inside `archive` — and named by
@@ -971,6 +1002,7 @@ for section in $sections; do
     records) section_records ;;
     counts) section_counts ;;
     traps) section_traps ;;
+    instruments) section_instruments ;;
     hosts) section_hosts ;;
     windows) section_windows ;;
     binaries) section_binaries ;;

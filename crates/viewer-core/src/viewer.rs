@@ -1111,9 +1111,18 @@ impl Viewer {
             pdf_model::view::annotation_at(&open.document, object, &open.view, x, y)
         });
 
+        // **A move between a press and its release is a move with the button held**, whatever the
+        // host called it: GTK's motion controller reports the pointer during a press as well as
+        // between presses, so a `Moved` arrives right after every `Pressed`. §12.5.5 is stated
+        // about the button, not about the message — "[t]he down appearance shall be used when the
+        // mouse button is pressed or held down within the annotation's active area" — so while
+        // the annotation the press went down on is still under the pointer, its down appearance
+        // stays. ADR 1370.
+        let held_on = open.pressed_on.filter(|_| action == PointerAction::Moved);
         let wanted = match action {
-            // A drag is a person choosing text, not looking at an annotation, so it leaves
-            // §12.5.5's appearance where the press put it.
+            PointerAction::Moved if held_on.is_some() => over
+                .filter(|annotation| Some(*annotation) == held_on)
+                .map(|annotation| (annotation, Pointer::Down)),
             PointerAction::Moved | PointerAction::Dragged => {
                 over.map(|annotation| (annotation, Pointer::Over))
             }
@@ -1121,6 +1130,8 @@ impl Viewer {
             // Back to hovering: the button is up and the cursor is still where it was.
             PointerAction::Released => over.map(|annotation| (annotation, Pointer::Over)),
         };
+        // A drag is a person choosing text, not looking at an annotation, so it leaves §12.5.5's
+        // appearance where the press put it.
         let wanted = if action == PointerAction::Dragged {
             open.pointer
         } else {
@@ -1150,7 +1161,8 @@ impl Viewer {
         // true when the cursor later leaves it. The entry is postponed rather than dropped: this
         // field stays empty until a message finds the button up over the same annotation, which
         // is the earliest moment the first constraint allows one.
-        let button_down = matches!(action, PointerAction::Pressed | PointerAction::Dragged);
+        let button_down =
+            matches!(action, PointerAction::Pressed | PointerAction::Dragged) || held_on.is_some();
         let mut raised: Vec<(ObjectId, Trigger)> = Vec::new();
         if open.inside != over {
             raised.extend(open.inside.map(|left| (left, Trigger::Exit)));
@@ -1203,8 +1215,28 @@ impl Viewer {
                 // A pointer over no page at all — the gap between two rows, the margin beside
                 // them — leaves the selection where it was rather than dropping its far end
                 // somewhere arbitrary, which is what `on_page` answering `None` already meant.
-                if let (Some(chosen), Some(position), Some((page, _))) =
-                    (open.selection, position, on_page)
+                //
+                // **A drag still inside the annotation whose down appearance the press put up is
+                // that press, not a selection.** The press anchored the selection in the readback
+                // of the page as it was drawn *before* §12.5.5's down appearance replaced the
+                // normal one, and the down appearance may carry text of its own — so an offset
+                // taken now is into a different readback, and the two ends of the "selection"
+                // would name characters of two different pages. GTK reports a drag at the press's
+                // own point with every press, and that range was enough to turn a click on a push
+                // button into a selection and withhold its `/A`. ADR 1370.
+                //
+                // A push button only: §12.7.5.2.2 makes it a control that "responds immediately to
+                // user input", so a press on it is its activation, while a text field or an
+                // annotation lying over the page's text is somewhere a person may start a
+                // selection (ADR 0424).
+                let pressing = open.pressed_on.is_some_and(|annotation| {
+                    over == Some(annotation)
+                        && open.pointer == Some((annotation, Pointer::Down))
+                        && is_push_button(&open.document, annotation)
+                });
+                if !pressing
+                    && let (Some(chosen), Some(position), Some((page, _))) =
+                        (open.selection, position, on_page)
                 {
                     open.selection = Some(Chosen {
                         from: chosen.from,
@@ -2957,6 +2989,65 @@ impl Viewer {
             .map(|on_screen| PageStructure {
                 page: on_screen.page,
                 nodes: self.structure(open, on_screen),
+                widgets: self.untagged_widgets(open, on_screen),
+            })
+            .collect()
+    }
+
+    /// An untagged page's widget annotations, as [`PageStructure::widgets`] states them.
+    ///
+    /// **What a person must be able to reach is decided by what the page lets them do, not by
+    /// whether the producer tagged it.** §12.5.1 makes an annotation something "the user activates
+    /// … by clicking it", and ADR 0425 made that one definition for the mouse and for an assistive
+    /// technology; a field on an untagged page is exactly as interactive as one on a tagged page.
+    /// What tagging adds is a *reading order*, and nothing here is one: the order is §12.5.1's
+    /// tab order, which the page states for its annotations (Table 31's `/Tabs`) or which its
+    /// default derives, and the name is Table 226's `/TU` — "[a]n alternative field name that
+    /// shall be used in place of the actual field name wherever the field shall be identified in
+    /// the user interface" — or the §12.7.4.2 name where there is none. ADR 1369.
+    ///
+    /// §12.5.3's `Hidden`, `NoView` and `ReadOnly` decide whether a widget is offered at all, as they
+    /// decide whether a click reaches it.
+    fn untagged_widgets(
+        &self,
+        open: &Open,
+        on_screen: &crate::open::OnScreen,
+    ) -> Vec<crate::AccessibilityNode> {
+        if pdf_model::structure::Tree::of(&open.document).is_some() {
+            return Vec::new();
+        }
+        let Some(page_id) = on_screen.object.id else {
+            return Vec::new();
+        };
+        let fields = pdf_model::form::fields(&open.document, &on_screen.object, &open.view);
+        if fields.is_empty() {
+            return Vec::new();
+        }
+        let languages =
+            pdf_model::structure::annotation_languages(&open.document, &on_screen.object.dict);
+        let order = pdf_model::tab_order::order(&open.document, &on_screen.object, page_id);
+        order
+            .iter()
+            .filter(|annotation| {
+                pdf_model::view::annotation_interacts(&open.document, **annotation, &open.view)
+            })
+            .filter_map(|annotation| {
+                let (field, widget) = fields.iter().find_map(|field| {
+                    field
+                        .widgets
+                        .iter()
+                        .find(|widget| widget.annotation == *annotation)
+                        .map(|widget| (field, widget))
+                })?;
+                Some(crate::AccessibilityNode {
+                    role: "Form".to_owned(),
+                    name: field.name.shown().to_owned(),
+                    language: languages.get(annotation).cloned(),
+                    bounds: self.device_rect(open, on_screen.page, widget.rect),
+                    control: Some(this_widgets_control(&field.control, widget)),
+                    annotation: Some(*annotation),
+                    ..crate::AccessibilityNode::blank()
+                })
             })
             .collect()
     }
@@ -4449,6 +4540,41 @@ fn resolve(open: &Open, target: PageTarget) -> Option<usize> {
         PageTarget::Previous => current.saturating_sub(1),
         PageTarget::Relative(delta) => current.saturating_add_signed(delta).min(last),
     })
+}
+
+/// Whether an annotation is a push button: a widget whose field states Table 229 bit 17 with a
+/// `/FT` of `Btn`, both inheritable through `/Parent` (Table 226). ADR 1370.
+fn is_push_button(document: &pdf_syntax::Document, annotation: ObjectId) -> bool {
+    /// Table 229 bit 17, `Pushbutton`.
+    const PUSH_BUTTON: i64 = 1 << 16;
+    /// How far up `/Parent` the inheritable entries are looked for, as `pdf_model::form` bounds it.
+    const DEPTH: usize = 32;
+    let mut field_type: Option<bool> = None;
+    let mut flags: Option<i64> = None;
+    let mut node = document.get(annotation);
+    for _ in 0..DEPTH {
+        let Some(dict) = node.as_dict() else {
+            break;
+        };
+        if field_type.is_none() {
+            field_type = document
+                .get_key(dict, "FT")
+                .as_name()
+                .map(|name| name.as_bytes() == b"Btn");
+        }
+        if flags.is_none() {
+            flags = document.get_key(dict, "Ff").as_integer();
+        }
+        if field_type.is_some() && flags.is_some() {
+            break;
+        }
+        let parent = document.get_key(dict, "Parent");
+        let Some(next) = parent.as_reference() else {
+            break;
+        };
+        node = document.get(next);
+    }
+    field_type == Some(true) && flags.unwrap_or(0) & PUSH_BUTTON != 0
 }
 
 /// Whether an annotation is a widget, which is what §12.6.3's Table 197 makes `/Fo` and `/Bl`

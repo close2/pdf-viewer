@@ -110,10 +110,11 @@ impl Host {
         self.trace.say(
             Topic::Access,
             format_args!(
-                "accessibility: {} page(s) on screen, {} element(s), {} report(s), \
+                "accessibility: {} page(s) on screen, {} element(s), {} widget(s), {} report(s), \
                  {} unreadable code(s)",
                 reading.pages_shown(),
                 reading.elements(),
+                reading.widgets(),
                 reading.reports(),
                 reading.unreadable()
             ),

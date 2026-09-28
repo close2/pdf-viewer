@@ -187,8 +187,9 @@ fn clamped(value: f32, limit: u32) -> u32 {
 /// # Why the level is a plain rounding and carries no floor
 ///
 /// `pdf_render::expressible_coverage` states a positive coverage under one level *at* one level,
-/// and every other exact construction in this backend applies it. This one does not, and the
-/// difference is what the coverage is made of. That function exists for a mark whose area was
+/// and the rectangle constructions in `scan` apply it to a mark none of whose pixels reaches one
+/// (ADR 1374). This one does not apply it at all, and the difference is what the coverage is made
+/// of. That function exists for a mark whose area was
 /// deliberately moved into the paint's alpha by a substitution (ADR 0419), where a coverage
 /// rounding to nothing is the substitution losing the mark it was built to keep. Here the
 /// coverage is the shape's own area, measured where it lies; a shape too small for the raster to
@@ -615,7 +616,10 @@ impl Accumulator<'_> {
     /// `tiny-skia`'s supersampled converter, `issue19802.pdf` and `issue20232.pdf` +14.5% each, of
     /// which the walk is all — the same pages with it switched off draw 19% and 24% *cheaper* than
     /// that tree — and on the second 99.4% of the clusters walked do part from the set. That is the
-    /// floor ADR 1359 states for this construction.
+    /// floor ADR 1359 states for this construction. ADR 1373 takes it apart a step at a time: on
+    /// `issue19802.pdf`, glyphs that overlap themselves, re-tracing, ordering, gathering and
+    /// clustering the rows are 244 M of five draws and the walk 128 M, and a chain number per cell
+    /// that would let a row skip its clustering costs page 101 7.2% before it saves anything.
     ///
     /// # Why not every mark
     ///

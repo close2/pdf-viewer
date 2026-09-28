@@ -376,6 +376,16 @@ pub struct Raster {
     /// its own depth, and the eight-bit raster the page is drawn on is reached afterwards, by
     /// the `/Decode` map §8.9.5.2 puts between the two. ADR 1242.
     pub precision: u8,
+    /// Each channel's own depth, opacity last, where the channels' integers are not all at
+    /// [`Self::precision`]; empty where they are.
+    ///
+    /// §7.4.9: "[t]he colour components in an image may have different numbers of bits per
+    /// sample". A writer that must carry every integer as the codestream states it
+    /// ([`crate::Request::JpxWhole`]) is answered with each channel's own integers, and then
+    /// channel `i` holds values of `depths[i]` bits in the field [`Self::precision`] sizes, which
+    /// is the widest of them. A reader that draws is answered with one depth for every channel
+    /// and leaves this empty (ADR 1371).
+    pub depths: Vec<u8>,
     /// Interleaved samples at [`Self::precision`] bits each, opacity last where present.
     ///
     /// One byte per sample at eight bits or fewer, two big-endian bytes above that, which is
@@ -394,6 +404,13 @@ impl Raster {
     #[must_use]
     pub fn bytes_per_sample(&self) -> usize {
         if self.precision > 8 { 2 } else { 1 }
+    }
+
+    /// The depth channel `channel`'s integers are at: its own where [`Self::depths`] states
+    /// one, [`Self::precision`] otherwise.
+    #[must_use]
+    pub fn depth_of(&self, channel: usize) -> u8 {
+        self.depths.get(channel).copied().unwrap_or(self.precision)
     }
 
     /// The largest value a sample can take at this precision.
@@ -673,6 +690,9 @@ pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
             payload.push(tag);
             payload.extend_from_slice(&length(profile));
             payload.extend_from_slice(profile);
+            // The per-channel depths, counted by one byte: zero, or one a channel.
+            payload.push(u8::try_from(raster.depths.len()).unwrap_or(u8::MAX));
+            payload.extend_from_slice(&raster.depths);
             payload.extend_from_slice(&raster.data);
             (STATUS_RASTER, payload)
         }
@@ -777,11 +797,12 @@ pub(crate) fn parse_response(
                 3 => Colour::Icc(profile.to_vec()),
                 _ => Colour::Unknown,
             };
+            let channels = usize::from(components).saturating_add(usize::from(has_opacity));
+            let (depths, after_depths) = channel_depths(rest, after_profile, channels, precision)?;
             let samples = rest
-                .get(after_profile..)
+                .get(after_depths..)
                 .ok_or_else(|| malformed("truncated samples".to_owned()))?;
 
-            let channels = usize::from(components).saturating_add(usize::from(has_opacity));
             let per_sample = if precision > 8 { 2usize } else { 1 };
             let expected = usize::try_from(width)
                 .ok()
@@ -809,11 +830,47 @@ pub(crate) fn parse_response(
                 has_opacity,
                 colour,
                 precision,
+                depths: depths.to_vec(),
                 data: samples.to_vec(),
             }))
         }
         _ => Err(malformed("unrecognised status".to_owned())),
     }
+}
+
+/// Reads a raster response's per-channel depths at `at`: a count of zero or `channels`, then
+/// the depths, each within the field `precision` sizes and the widest of them `precision`
+/// itself — anything else is not a raster the worker's own code produces. Answers the depths
+/// and where the samples begin.
+fn channel_depths(
+    rest: &[u8],
+    at: usize,
+    channels: usize,
+    precision: u8,
+) -> Result<(&[u8], usize), SandboxError> {
+    let malformed = |detail: String| SandboxError::Malformed { detail };
+    let count = usize::from(
+        *rest
+            .get(at)
+            .ok_or_else(|| malformed("no depth count".to_owned()))?,
+    );
+    let first = at.saturating_add(1);
+    let end = first
+        .checked_add(count)
+        .ok_or_else(|| malformed("implausible depths".to_owned()))?;
+    let depths = rest
+        .get(first..end)
+        .ok_or_else(|| malformed("truncated depths".to_owned()))?;
+    if !depths.is_empty()
+        && (depths.len() != channels
+            || depths.iter().any(|depth| !(1..=precision).contains(depth))
+            || depths.iter().max() != Some(&precision))
+    {
+        return Err(malformed(format!(
+            "per-channel depths {depths:?} for {channels} channels at {precision} bits"
+        )));
+    }
+    Ok((depths, end))
 }
 
 /// Reads a bilevel response's payload: the grid, the rows delivered and concealed, the sentence about the
@@ -1091,6 +1148,7 @@ mod tests {
             has_opacity: true,
             colour: Colour::Icc(vec![1, 2, 3]),
             precision: 8,
+            depths: Vec::new(),
             data: vec![10, 20, 30, 40, 50, 60, 70, 80],
         });
         let encoded = encode_response(&decoded);
@@ -1133,6 +1191,7 @@ mod tests {
             has_opacity: true,
             colour: Colour::Rgb,
             precision: 8,
+            depths: Vec::new(),
             data: vec![10, 20, 30, 40, 50, 60, 70, 80],
         });
         let encoded = encode_response(&decoded);
@@ -1160,6 +1219,7 @@ mod tests {
             has_opacity: false,
             colour: Colour::Gray,
             precision: 12,
+            depths: Vec::new(),
             data: vec![0x08, 0x00, 0x08, 0x01],
         });
         let encoded = encode_response(&decoded);
@@ -1174,6 +1234,70 @@ mod tests {
         assert_eq!(raster.sample(0), Some(2048));
         assert_eq!(raster.sample(1), Some(2049));
         assert_eq!(raster.sample(2), None);
+    }
+
+    /// Channels at depths of their own come back with each depth beside the samples.
+    ///
+    /// §7.4.9: "[t]he colour components in an image may have different numbers of bits per
+    /// sample", and a writer carrying them needs to know which integer is at which depth
+    /// (ADR 1371).
+    #[test]
+    fn channels_at_depths_of_their_own_round_trip_with_their_depths() {
+        let decoded = Decoded::Raster(Raster {
+            width: 1,
+            height: 1,
+            stated_width: 1,
+            stated_height: 1,
+            components: 3,
+            has_opacity: false,
+            colour: Colour::Rgb,
+            precision: 16,
+            depths: vec![12, 16, 12],
+            data: vec![0x0F, 0xFF, 0xFF, 0xFF, 0x00, 0x01],
+        });
+        let encoded = encode_response(&decoded);
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        let Ok(Decoded::Raster(raster)) = parse_response(shape, payload) else {
+            panic!("a raster of mixed depths is still a raster");
+        };
+        assert_eq!(raster, decoded_raster(decoded));
+        assert_eq!(
+            (raster.depth_of(0), raster.depth_of(1), raster.depth_of(2)),
+            (12, 16, 12)
+        );
+    }
+
+    /// The raster a [`Decoded`] holds.
+    fn decoded_raster(decoded: Decoded) -> Raster {
+        let Decoded::Raster(raster) = decoded else {
+            panic!("a raster");
+        };
+        raster
+    }
+
+    /// A channel's depth wider than the field it is sent in is not one the worker produces.
+    #[test]
+    fn a_depth_wider_than_the_precision_is_refused() {
+        let decoded = Decoded::Raster(Raster {
+            width: 1,
+            height: 1,
+            stated_width: 1,
+            stated_height: 1,
+            components: 1,
+            has_opacity: false,
+            colour: Colour::Gray,
+            precision: 8,
+            depths: vec![12],
+            data: vec![0x0F],
+        });
+        let encoded = encode_response(&decoded);
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        assert!(matches!(
+            parse_response(shape, payload),
+            Err(SandboxError::Malformed { .. })
+        ));
     }
 
     /// The payload is sized from the precision, so an eight-byte one cannot be twelve bits.

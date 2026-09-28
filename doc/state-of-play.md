@@ -51,7 +51,11 @@ composites under a mode other than Normal is drawn** instead of reported, by per
 backdrop removal (ADR 1107) — which `render-raster` now draws too, through raster's own reading of
 the clause (ADR 1307) — and where §10.7.4's substituted width for a mark too thin to measure
 begins **one level of 255 below visible rather than one whole device pixel below it**, so between
-those two widths every backend draws the shape the document states (ADR 1102); `render-gpu` is Vello and the backend it is compared against — they agree to the channel
+those two widths every backend draws the shape the document states (ADR 1102) — and where a matrix
+of rank one maps a mark onto a line, every backend draws a fill as that line and a stroke as the
+image of its set, one interval per subpath or dash computed from the path, its width, caps, joins
+and dashes, so the one pixel §10.7.4 is departed on is a shape with no extent in either axis (ADRs
+1348, 1360, 1060); `render-gpu` is Vello and the backend it is compared against — they agree to the channel
 over `test-scenes`' fixtures **and over real pages at a real window's resolution**, which is where
 they did not (ADR 0127) — and `render-raster` is the third, over the document renderer this project
 commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with**, held against the
@@ -65,7 +69,9 @@ the entry, the `APP14` segment that silences it, and the component count, ranked
 §7.4.8 gives them (ADR 1183). Encryption at every revision Table 21 lists and every method Table 25 names, in both
 directions — including revision 5, whose algorithm is the Adobe extension the table points at
 rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
-performing eleven of §12.6's actions, §14.9's accessibility entries, §12.4.4's whole presentation
+performing every one of Table 201's actions that is neither clause 13's media nor the excluded
+`JavaScript` — a launch of an application being the one half principle 3's sandbox withholds, and
+`pdf_model::action`'s table the list — §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — every one of Table 164's transition styles drawn frame by frame (ADR 0230),
 four of them — `Blinds`, `Dissolve`, `Glitter`, `Fly` — at a quantity the table does not state,
 which this program chose and says is its own (ADR 1299), with §12.4.4.2's states walked inside a page before an arrow key turns it, on the mode
@@ -148,7 +154,11 @@ in §12.7.5.4's two controls in all three windows**, which is Table 233 bit 19 o
 directions it states rather than in the one that reads as a permission: the flag set is an editable
 text box beside a drop-down list — composed in GTK4, which has no widget that is both — and the flag
 clear is a drop-down and no way to type into it, which the host drawing its own chrome broke for the
-whole of its life (ADR 0596); a click on a markup annotation
+whole of its life (ADR 0596); a **push button keeps its own appearance in all three windows** — the
+producer's `/AP`, or the caption §12.5.6.19's `/MK` constructs — because GTK and Qt place no toolkit
+button over it, and a click, or Space or Enter at §12.5.1's focus, performs its `/A`, the Qt page
+declining the toolkit's own focus chain so that Tab walks the document's `/Tabs` (ADR 1357); a
+click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
 activation (ADR 0191) — **in all three windows**, where two
 of them drew nothing of it at all: the clause gives a popup "no appearance stream", so the window is
@@ -253,7 +263,9 @@ because whether this program has a second place to put a document is a fact abou
 sentence saying the destination replaced what was open (ADRs 1227, 1263). **§12.6.4.6's launch action
 is the same act where its Table 207 `/F` names a PDF**: the file is asked for under the same level and
 path rule, its §7.5.2 header decides what it is once it has arrived, a PDF opens where `/NewWindow`
-puts it, and anything else is an application, which the sandbox starts none of (ADRs 1368, 1358). A file the go-to names
+puts it, and anything else is an application, which the sandbox starts none of (ADRs 1368, 1358). The path
+rule admits §7.11.2.2's relative specification into a directory below the document's own and
+refuses `..`, `.`, an empty component and an absolute path (ADR 1369). A file the go-to names
 that asks for a password is asked about under the name it would open under, and the second attempt
 opens that file's own bytes, never the document in front (ADR 1332); §12.6.4.7's thread in another
 file and §12.7.8's named page in one take the same route, the named page drawn into the document
@@ -399,7 +411,10 @@ its entry, through a window the parser grows until nothing at its end was examin
 file costs to open is its trailer, its table and page one's objects rather than its length, and a
 six-gigabyte document opens in the time a small one does; a damaged file, which a scan reads whole,
 costs on disk what it cost in memory (ADR 0809) — and a scan the process cannot hold the file for
-is refused by name and said once on the document's report. **Every revision in the chain of updates
+is refused by name and said once on the document's report. A `stream` keyword followed by spaces
+before its end of line, which §7.3.8.1 does not allow, is read with the spaces skipped unless a
+`/Length` fits only with them as data, and the document says which streams it read that way
+(ADR 1365). **Every revision in the chain of updates
 can be read**: `/Prev` is walked forwards, each section laid over the one before it, so the version
 a chain reached is the version its last update states and any earlier revision can be opened by
 substituting its table — carrying the file encryption key, which does not change between them
@@ -782,8 +797,9 @@ else `/Rect`, and *within* is bounding-box intersection, a documented choice —
 writes a **new** file, never §7.5.6's update, in which the bytes are gone: a text-showing operator
 cut by the placed quad's own advance with no font metrics, held to the interpreter's code count;
 an image XObject's samples zeroed in the region, an inline image spliced in the content stream, a
-DCT or CCITT image decoded in the confined codec, cleared and re-encoded Flate, a JBIG2 image at
-its own one bit; a **painted path cut** to the region's complement — the region's four edge lines
+DCT, CCITT or JBIG2 image's codec run as a filter and its own samples — Table 87's eight or one
+bit, in the dictionary's own colour space — cleared and re-encoded Flate with the dictionary
+carried (ADR 1371); a **painted path cut** to the region's complement — the region's four edge lines
 tile the plane into nine cells and the difference is the union of the eight outer clips, so the
 coordinates that described the removed marks are gone rather than clipped, with a margin that
 proves §7.3.3's single precision cannot round the cut edge back inside; a **§8.5.2.2 Bézier split**
@@ -801,15 +817,16 @@ annotation did not identify. A path that is also §8.5.4's **clipping boundary**
 boundary and loses its marks — the cut marks first, then the producer's own bytes for the path
 closed with `n` — and an image's §8.9.5.4 **`/Alternates`** is dropped from the redacted page's
 copy, so the variants are reached from nothing and never written. A **JPEG 2000** image is written
-back as the decoder's own integers, at eight bits or at sixteen with its `/Decode` restated, in the
+back as the decoder's own integers, each component at its own depth in the field of the widest,
+eight bits or sixteen, with each `/Decode` pair widened from its own depth, in the
 colour space §7.4.9 names, decoded at full resolution within the operator's `--image-samples`
 budget by a confined worker sized for it — never at the reduced level a viewer may take — its §7.4.9
-opacity channel written as the soft-mask image Table 87 names (ADR 1333). A colour key on a
-re-expressed codec picture becomes the §8.9.6.3 stencil it is equivalent to, and a picture
-pre-blended with a `/Matte` is cleared to the matte. A picture's **masks are image data too**: its `/SMask` and `/Mask` are cleared
-on their own grids under its placement, a codec picture decoded with them set aside and its fresh
-dictionary naming the cleared ones, and an image mask behind a codec written back as a one-bit
-stencil. An inline image behind `DCTDecode` or `CCITTFaxDecode` is decoded and spliced, and one
+opacity channel written as the soft-mask image Table 87 names (ADR 1333). A colour key is
+carried with the samples it tests, and a picture pre-blended with a `/Matte` is cleared to the
+matte in whatever colour space it is in (ADR 1371). A picture's **masks are image data too**: its
+`/SMask` and `/Mask` are cleared on their own grids under its placement and named by the carried
+dictionary, and an image mask behind a codec is written back as its own one-bit samples. An inline
+image behind `DCTDecode` or `CCITTFaxDecode` carries its filter's samples and is spliced, and one
 naming a colour-space resource keeps the name.
 A **Type 3** code is tested against the box its glyph declares, a **composite** code takes
 the bytes its `CMap`'s codespace ranges delimit, **`sh`** is painted through its clip cut to the
@@ -823,10 +840,11 @@ destroyed where they are stated — a mesh cut triangle by triangle or a quarter
 time, a radial shading's inner circles' samples and a function-based shading's cells' samples
 cleared — while an axial shading, whose values lie on unbounded lines, is cut by its clip (ADR 1363).
 It refuses rather than cuts wrong — a calculator function serving the region's own colours, a JPX
-image beyond the operator's budget, a matte a re-expressed codec picture cannot keep — each with its
-sentence, and the overlay text and fill it does not compose (A65's fence), said as a departure in
-the report (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351, 1352,
-1363).
+image beyond the operator's budget or with a component deeper than sixteen bits, a file whose
+dictionary contradicts its codec — each with its sentence, and the overlay text and fill it does
+not compose (A65's fence), said as a departure in the report; §12.5.6.23 is `departed` on that
+overlay alone (ADRs 1124, 1126, 1132, 1133, 1143, 1195, 1196, 1236, 1248, 1277, 1324, 1333, 1351,
+1352, 1363, 1371).
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
@@ -1104,7 +1122,8 @@ about it, then what it encloses, which is what places a table cell whose only co
 (ADR 0768) — and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an
-invented reading order. **And a client may now *act* rather than only listen**: a check box says a
+invented reading order, and its widget annotations cross as controls a client can press, named by
+Table 226's `/TU` and in §12.5.1's tab order (ADR 1369). **And a client may now *act* rather than only listen**: a check box says a
 click may be asked of it and a person using a screen reader alone can tick one, an element says it
 may be scrolled to, and the page says a caret may be put in it — each carried out as a place, in the
 device pixels a pointer already works in, so the boundary gained no message and one definition of a

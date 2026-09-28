@@ -870,6 +870,16 @@ than the complete ones — a page that renders nothing is never complete, so a l
 `complete` would hold nothing against nothing. A page arriving is a page that stopped being
 comparable at all; a page leaving has been fixed or has to be deleted from its group.
 
+**A corpus's published password is a fact about the corpus, and every gate supplies it.** §7.6.4.1
+has a reader try the default user password and then prompt; a gate has nobody to prompt, and the
+passwords of the pdf.js corpus's encrypted files are published beside them — seven in pdf.js's own
+`test/test_manifest.json`, two in the pull request and browser test that use them. So they live in
+one table, `crates/pdf-model/tests/support/corpus_passwords.rs`, which `pdf-model`'s `corpus`,
+`oracle` and `raster_golden` and `render-raster`'s `corpus` all read, and each reference is handed
+the same password through `pdfref`'s `render_with_password` — whose command line, and therefore
+cache key, carries it. What stays in `NO_RENDER_NEEDS_A_PASSWORD` is a document nobody has a
+password for. ADR 1377.
+
 ### 3e. `not comparable` and `reference geometry`, the other two verdicts nothing watched
 
 **Taken in the five-hundred-and-seventy-ninth session**, on the two ADR 0410 left printed and

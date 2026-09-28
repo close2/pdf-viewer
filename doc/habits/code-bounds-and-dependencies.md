@@ -392,3 +392,11 @@ region; the same reading then found shading patterns under a path cut carrying t
 tiny-skia's `SCALAR_NEARLY_ZERO` removes the inner pivot on a nearly straight join, so flattening a
 curve into 552 chords and stroking them brought the hole back that the chords were meant to close
 (ADR 1348). Read the library's join path before handing it a construction that leans on it.
+
+## Table 87's filter-output sentence is read before codec data is re-expressed
+
+A codec's output is the image's samples in the domain the dictionary describes — "a CCITTFaxDecode or
+JBIG2Decode filter shall always deliver 1-bit samples, a RunLengthDecode or DCTDecode filter shall
+always deliver 8-bit samples" — and decoding all the way to eight-bit RGB instead cost three rounds of
+refusals: the matte, the colour key, the shape no fresh raster held (ADR 1371). Keep the file's own
+domain.

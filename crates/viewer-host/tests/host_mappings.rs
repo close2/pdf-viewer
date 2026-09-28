@@ -399,6 +399,37 @@ fn table_234s_top_index_says_where_a_hosts_list_starts() {
     assert_eq!(selected, vec![1], "and the value, which is not it");
 }
 
+/// ISO 32000-2 §7.11.2.2's EXAMPLE 1, as the policy resolves it:
+///
+/// > The relative file specification ArtFiles/Figure1.pdf appearing in a PDF file whose
+/// > specification is /HardDisk/PDFDocuments/AnnualReport/Summary.pdf yields the absolute
+/// > specification
+///
+/// `/HardDisk/PDFDocuments/AnnualReport/ArtFiles/Figure1.pdf`. A subdirectory below the document is
+/// inside its directory, so the path rule admits it; the named wrong answer is the refusal it gave
+/// before ADR 1369, which is what kept `issue17846.pdf`'s launch from asking at all.
+#[test]
+fn a_relative_specification_into_a_subdirectory_resolves_as_the_clauses_example() {
+    let directory = Path::new("/HardDisk/PDFDocuments/AnnualReport");
+    assert_eq!(
+        resolve_import(Some(directory), "ArtFiles/Figure1.pdf"),
+        Ok(PathBuf::from(
+            "/HardDisk/PDFDocuments/AnnualReport/ArtFiles/Figure1.pdf"
+        ))
+    );
+    // `issue17846.pdf`'s own `/UF`, two subdirectories deep.
+    assert_eq!(
+        resolve_import(
+            Some(directory),
+            "\u{5BF9}\u{4E0D}\u{8D77}/\u{6CA1}\u{5173}\u{7CFB}/file1.pdf"
+        ),
+        Ok(directory
+            .join("\u{5BF9}\u{4E0D}\u{8D77}")
+            .join("\u{6CA1}\u{5173}\u{7CFB}")
+            .join("file1.pdf"))
+    );
+}
+
 #[test]
 fn the_import_policy_admits_a_neighbour_and_refuses_everything_else() {
     // §12.7.6.4 makes performing an import-data action a `shall` and says nothing about which
@@ -411,13 +442,24 @@ fn the_import_policy_admits_a_neighbour_and_refuses_everything_else() {
         resolve_import(Some(directory), "data.fdf"),
         Ok(PathBuf::from("/documents/data.fdf"))
     );
-    for hostile in ["../data.fdf", "/etc/passwd", "sub/data.fdf", "..", ""] {
+    for hostile in [
+        "../data.fdf",
+        "/etc/passwd",
+        "sub/../../data.fdf",
+        "sub/./data.fdf",
+        "sub//data.fdf",
+        "sub/",
+        "in\\/out",
+        "..",
+        ".",
+        "",
+    ] {
         assert!(
             matches!(
                 resolve_import(Some(directory), hostile),
-                Err(ImportRefusal::NotAPlainName { .. })
+                Err(ImportRefusal::OutsideTheDocumentsDirectory { .. })
             ),
-            "{hostile} is not a plain file name beside the document"
+            "{hostile} is not a file in or below the document's directory"
         );
     }
     assert_eq!(
@@ -1771,13 +1813,13 @@ fn a_remote_go_to_is_confined_to_the_documents_directory_at_every_level() {
     ];
     for level in RemoteDocuments::ALL {
         for purpose in purposes {
-            for hostile in ["../secrets.pdf", "/etc/passwd", "sub/next.pdf", ""] {
+            for hostile in ["../secrets.pdf", "/etc/passwd", "sub/../../next.pdf", ""] {
                 assert!(
                     matches!(
                         remote(Some(directory), hostile, level, purpose, false),
                         Remote::Refuse(_)
                     ),
-                    "{hostile} is not a plain file name beside the document, {level:?} or not"
+                    "{hostile} is not a file in or below the document's directory, {level:?} or not"
                 );
             }
             assert!(

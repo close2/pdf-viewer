@@ -290,6 +290,31 @@ impl Reference {
         self.render_within(pdf, page, dpi, work_dir, DEFAULT_TIMEOUT)
     }
 
+    /// Renders `page` of an encrypted `pdf` at `dpi`, authenticating with `password`.
+    ///
+    /// ISO 32000-2 §7.6.4.1 has a reader try the default user password and then prompt; a
+    /// harness has nobody to prompt, so a caller that knows a document's published password
+    /// hands it over here and the renderer is asked the page rather than refusing the file. The
+    /// password is part of the command line and therefore of [`Self::command_signature_with`],
+    /// so a render made with it is never answered by one made without it. `pdftoppm` is given it
+    /// as both its owner and its user password, because either opens the file and it takes each
+    /// under its own flag; `mutool` and `gs` take one password and try it as both. `hayro`'s
+    /// command line takes none, so it is asked exactly what [`Self::render`] asks it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::render`].
+    pub fn render_with_password(
+        self,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+        password: &str,
+    ) -> Result<Raster, HarnessError> {
+        self.run(pdf, page, dpi, work_dir, DEFAULT_TIMEOUT, Some(password))
+    }
+
     /// Renders `page` of `pdf` at `dpi`, giving the renderer at most `budget`.
     ///
     /// # How the budget is enforced
@@ -313,6 +338,19 @@ impl Reference {
         work_dir: &Path,
         budget: Duration,
     ) -> Result<Raster, HarnessError> {
+        self.run(pdf, page, dpi, work_dir, budget, None)
+    }
+
+    /// [`Self::render_within`], with the password [`Self::render_with_password`] supplies.
+    fn run(
+        self,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+        budget: Duration,
+        password: Option<&str>,
+    ) -> Result<Raster, HarnessError> {
         if !self.is_available() {
             return Err(HarnessError::RendererMissing {
                 reference: self,
@@ -329,7 +367,7 @@ impl Reference {
         // A renderer that fails after a previous run succeeded would otherwise be judged
         // by the stale image still sitting there.
         let _ = std::fs::remove_file(&output_path);
-        let mut command = self.build_command(pdf, page, dpi, work_dir, &output_path);
+        let mut command = self.build_command(pdf, page, dpi, work_dir, &output_path, password);
 
         // **Both streams, into one log.** `stdout` went to `null` until the
         // seven-hundred-and-seventh session, which threw away the only sentence Ghostscript
@@ -566,8 +604,22 @@ impl Reference {
         dpi: u32,
         work_dir: &Path,
     ) -> Vec<String> {
+        self.command_signature_with(pdf, page, dpi, work_dir, None)
+    }
+
+    /// [`Self::command_signature`] for a render authenticated with `password`, which
+    /// [`Self::render_with_password`] runs; `None` is exactly [`Self::command_signature`].
+    #[must_use]
+    pub fn command_signature_with(
+        self,
+        pdf: &Path,
+        page: u32,
+        dpi: u32,
+        work_dir: &Path,
+        password: Option<&str>,
+    ) -> Vec<String> {
         let output = work_dir.join(format!("{}.png", self.name()));
-        let command = self.build_command(pdf, page, dpi, work_dir, &output);
+        let command = self.build_command(pdf, page, dpi, work_dir, &output, password);
         let pdf = pdf.to_string_lossy().into_owned();
         let work_dir = work_dir.to_string_lossy().into_owned();
 
@@ -618,6 +670,7 @@ impl Reference {
         dpi: u32,
         work_dir: &Path,
         output: &Path,
+        password: Option<&str>,
     ) -> Command {
         match self {
             Self::Hayro => {
@@ -647,9 +700,11 @@ impl Reference {
                     .arg("-aa")
                     .arg("yes")
                     .arg("-aaVector")
-                    .arg("yes")
-                    .arg(pdf)
-                    .arg(prefix);
+                    .arg("yes");
+                if let Some(password) = password {
+                    command.arg("-opw").arg(password).arg("-upw").arg(password);
+                }
+                command.arg(pdf).arg(prefix);
                 command
             }
             Self::MuPdf => {
@@ -663,9 +718,11 @@ impl Reference {
                     .arg("-r")
                     .arg(dpi.to_string())
                     .arg("-o")
-                    .arg(output)
-                    .arg(pdf)
-                    .arg(page.to_string());
+                    .arg(output);
+                if let Some(password) = password {
+                    command.arg("-p").arg(password);
+                }
+                command.arg(pdf).arg(page.to_string());
                 command
             }
             Self::Ghostscript => {
@@ -686,6 +743,9 @@ impl Reference {
                     .arg(format!("-dLastPage={page}"));
                 if let Some(profile) = substituted_cmyk_profile() {
                     command.arg(format!("-sDefaultCMYKProfile={}", profile.display()));
+                }
+                if let Some(password) = password {
+                    command.arg(format!("-sPDFPassword={password}"));
                 }
                 command
                     .arg(format!("-sOutputFile={}", output.display()))

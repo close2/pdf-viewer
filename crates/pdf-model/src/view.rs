@@ -4655,6 +4655,20 @@ fn is_read_only(document: &Document, widget: ObjectId) -> bool {
     false
 }
 
+/// Whether a person may interact with one annotation at all, by the bits [`annotation_at`] reads.
+///
+/// §12.5.3's `Hidden`, `NoView` and `ReadOnly` each say whether an annotation may "interact with the
+/// user", and a node an assistive technology is offered to act on is interaction: a widget a click
+/// cannot reach is not one to announce as a control. `false` for an object that is not a
+/// dictionary. ADR 1369.
+#[must_use]
+pub fn annotation_interacts(document: &Document, annotation: ObjectId, view: &ViewState) -> bool {
+    let resolved = document.get(annotation);
+    resolved.as_dict().is_some_and(|dict| {
+        crate::annotation::interacts(document, dict, view.annotation(annotation))
+    })
+}
+
 /// The field a point in default user space is on, with its fully qualified name.
 ///
 /// **Any subtype**, which is what separates this from [`field_at`] and from

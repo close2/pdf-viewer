@@ -2722,6 +2722,165 @@ fn a_press_on_a_widget_draws_the_page_again() {
     );
 }
 
+/// A move between a press and its release keeps §12.5.5's down appearance while the pointer is
+/// still inside the annotation the press went down on.
+///
+/// > - The down appearance shall be used when the mouse button is pressed or held down within the
+/// >   annotation's active area.
+///
+/// GTK's motion controller reports a `Moved` right after every press, and the down appearance
+/// used to be dropped by it before the release (ADR 1370). The named wrong answer is a page drawn
+/// again on that move, which is what a change of appearance costs.
+#[test]
+fn a_move_while_the_button_is_held_keeps_the_down_appearance() {
+    let Some(bytes) = corpus_bytes("form_two_pages.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut viewer = Viewer::new(800, 1000, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: bytes.into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    // The first widget of `a_press_on_a_widget_draws_the_page_again`.
+    let on_widget = (
+        geometry.origin.0 + 120.0 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 738.0) * geometry.scale,
+    );
+    let redrawn = |events: &[Event]| {
+        events
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_)))
+    };
+    let pressed: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_widget,
+            action: PointerAction::Pressed,
+        })
+        .collect();
+    assert!(redrawn(&pressed), "the press shows the down appearance");
+    let moved: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: (on_widget.0 + 1.0, on_widget.1),
+            action: PointerAction::Moved,
+        })
+        .collect();
+    assert!(
+        !redrawn(&moved),
+        "a move inside the pressed widget keeps the down appearance: {moved:?}"
+    );
+    // Held and moved off the widget: the pointer is no longer within its active area, so the
+    // down appearance ends; and it is not a rollover either, because the button is down.
+    let off: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: (2.0, 2.0),
+            action: PointerAction::Moved,
+        })
+        .collect();
+    assert!(
+        redrawn(&off),
+        "leaving the widget with the button held draws the normal appearance"
+    );
+    let back: Vec<_> = viewer
+        .handle(Command::Pointer {
+            at: on_widget,
+            action: PointerAction::Moved,
+        })
+        .collect();
+    assert!(
+        redrawn(&back),
+        "coming back with the button still held shows it again"
+    );
+}
+
+/// A push button whose down appearance carries its own caption, and whose `/A` turns the page.
+///
+/// The normal appearance says "Go" and the down appearance "Pressed", so the page's readback under
+/// the press is not the readback the press was anchored in — which is the whole of the case.
+fn a_button_with_a_captioned_down_appearance() -> Vec<u8> {
+    let normal = "0 0 1 rg 0 0 120 40 re f BT /F1 14 Tf 30 14 Td (Go) Tj ET";
+    let down = "1 0 0 rg 0 0 120 40 re f BT /F1 14 Tf 20 14 Td (Pressed) Tj ET";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (go) \
+         /Rect [40 80 160 120] /P 3 0 R /AP << /N 6 0 R /D 7 0 R >> \
+         /A << /S /GoTo /D [4 0 R /Fit] >> >>\nendobj\n\
+         6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 120 40] \
+         /Resources << /Font << /F1 8 0 R >> >> /Length {} >>\nstream\n{normal}\nendstream\nendobj\n\
+         7 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 120 40] \
+         /Resources << /Font << /F1 8 0 R >> >> /Length {} >>\nstream\n{down}\nendstream\nendobj\n\
+         8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        normal.len(),
+        down.len()
+    );
+    assemble(&body)
+}
+
+/// A drag that has not left the button the press went down on is still that press, and its
+/// release performs the button's `/A`.
+///
+/// GTK's drag gesture reports a `Dragged` at the press's own point with every press. The press
+/// anchored the selection in the page drawn with the normal appearance, the drag read an offset in
+/// the page drawn with the down one, and the two named different characters — so the click became
+/// a selection of part of "Pressed" and §12.5.1's activation was withheld (ADR 1370).
+#[test]
+fn a_drag_inside_a_pressed_button_is_still_a_click() {
+    let mut viewer = Viewer::new(400, 400, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: a_button_with_a_captioned_down_appearance().into(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page has a geometry");
+    };
+    let on_button = (
+        geometry.origin.0 + 100.0 * geometry.scale,
+        geometry.origin.1 + (geometry.page.height - 100.0) * geometry.scale,
+    );
+    let mut turned = false;
+    for action in [
+        PointerAction::Moved,
+        PointerAction::Pressed,
+        PointerAction::Dragged,
+        PointerAction::Moved,
+        PointerAction::Released,
+    ] {
+        let events: Vec<_> = viewer
+            .handle(Command::Pointer {
+                at: on_button,
+                action,
+            })
+            .collect();
+        turned |= events
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { index: 1, .. }));
+        if action == PointerAction::Dragged {
+            assert!(
+                !matches!(
+                    viewer.query(Query::Selection),
+                    Answer::Selected(ref selected) if !selected.text.is_empty()
+                ),
+                "a drag inside the pressed button selects nothing"
+            );
+        }
+    }
+    assert!(turned, "the release performed the button's /A");
+}
+
 #[test]
 fn a_click_finds_the_field_it_landed_on() {
     // What a host asks before it can send an edit: §12.5.2 puts a widget's rectangle in default
